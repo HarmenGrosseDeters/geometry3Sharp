@@ -466,7 +466,8 @@ g3cli mesh2d field.json field.obj --min-angle 30 --max-area 50
 ```
 
 The output lies in the XY plane (z = the heights, or 0), counterclockwise, with the region labels as triangle groups
-(OBJ `g` lines). Rings are outer boundaries or holes (`"hole": true`); without rings the domain is the convex hull of the
+(OBJ `g` lines); only vertices of triangles are written (not duplicate input points, nor points in holes), and
+`added_vertices` counts those the mesher made (Steiner points, crossings). Rings are outer boundaries or holes (`"hole": true`); without rings the domain is the convex hull of the
 points. `--quality false` gives the constrained Delaunay triangulation only (`ConstrainedDelaunayMesh2`, no Steiner
 points); `--steiner-limit` bounds the inserted points (then `steiner_limit_reached` and a warning); crossing constraints
 are split unless `--resolve-crossings false`. An agent passes the input inline instead of a file:
@@ -478,18 +479,23 @@ g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
-rectangle, and the nearest triangles, here on the mesh above:
+rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
+or overlapping layers) lists them all in `hits`; `height` and `triangle` come from the lowest id (`exact`: true), or,
+outside every triangle, from the nearest one within the tolerance (`exact`: false):
 
 ```
 g3cli query2d field.obj --points "10,10;50,30;85,30" --rect "65,25,75,35" --nearest 2
-#   -> "points": [ { "x": 10, "y": 10, "height": 11.54, "triangle": 46, "hits": [...], "nearest": [46, 58] },
+#   -> "points": [ { "x": 10, "y": 10, "height": 11.54, "triangle": 46, "exact": true, "hits": [...], "nearest": [46, 58] },
 #                  { "x": 50, "y": 30, "height": null, ... },   (in the building: no triangle)
 #                  { "x": 85, "y": 30, "height": 21.5, ... } ],
 #      "rect": { "triangles_count": 58, "triangles": [...] }
 ```
 
 **n-ary and SafeRounding booleans** (`boolean`, `resolve`; `ExactMeshBoolean`), on closed meshes `a.stl`, `b.stl`,
-`c.stl` of your own:
+`c.stl` of your own. `xor` keeps the points whose winding number is positive in an odd number of the inputs, so for three
+inputs it equals `(a xor b) xor c` and keeps the core inside all three; its parts touch along the curves where the input
+surfaces cross (closed, with copies of the vertices there, like solids that touch along an edge, so `measure` counts the
+contacts as self-intersections):
 
 ```
 g3cli boolean a.stl b.stl xor.stl --op xor --more c.stl        # inside an odd number of the inputs, one arrangement

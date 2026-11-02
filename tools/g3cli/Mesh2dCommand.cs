@@ -62,7 +62,10 @@ namespace g3cli
                     throw Fail("the top level", "must be an object with 'points'");
                 var input = new ConstrainedMesh2Input();
                 bool hasPoints = false;
+                var seen = new HashSet<string>();
                 foreach (JsonProperty prop in root.EnumerateObject()) {
+                    if (seen.Add(prop.Name) == false)
+                        throw Fail("the top level", $"has the key '{prop.Name}' twice");
                     switch (prop.Name) {
                         case "points":
                             hasPoints = true;
@@ -217,10 +220,16 @@ namespace g3cli
 
         static double SmallestAngleDegrees(Vector2d a, Vector2d b, Vector2d c)
         {
+            // the edge vectors scaled by a power of two (exact) to about 1, so that tiny triangles do not underflow
+            Vector2d[] d = { b - a, c - b, a - c };
+            double max = d.Max(e => Math.Max(Math.Abs(e.x), Math.Abs(e.y)));
+            if (max > 0) {
+                int exp = Math.ILogB(max);
+                for (int k = 0; k < 3; ++k) d[k] = new Vector2d(Math.ScaleB(d[k].x, -exp), Math.ScaleB(d[k].y, -exp));
+            }
             double best = double.MaxValue;
-            Vector2d[] p = { a, b, c };
             for (int k = 0; k < 3; ++k) {
-                Vector2d u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+                Vector2d u = d[k], v = -d[(k + 2) % 3];
                 double ang = Math.Atan2(Math.Abs(u.x * v.y - u.y * v.x), u.x * v.x + u.y * v.y);
                 best = Math.Min(best, ang * 180 / Math.PI);
             }
@@ -293,16 +302,25 @@ namespace g3cli
                 if (result.Status == Triangulation2Status.Empty || m2 == null || m2.TriangleCount == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "no triangles: fewer than three distinct points, all points collinear, or everything inside holes");
 
+                // only the vertices of triangles, in id order (not duplicate input points, nor points in holes or outside the rings)
                 var mesh = new DMesh3(MeshComponents.None);
                 mesh.EnableTriangleGroups();
-                for (int i = 0; i < m2.Vertices.Count; ++i)
-                    mesh.AppendVertex(new Vector3d(m2.Vertices[i].x, m2.Vertices[i].y, m2.Heights != null ? m2.Heights[i] : 0));
+                var map = new int[m2.Vertices.Count];
+                for (int t = 0; t < m2.TriangleCount; ++t)
+                    for (int j = 0; j < 3; ++j)
+                        map[m2.Triangles[t][j]] = 1;
+                int added = 0;
+                for (int i = 0; i < m2.Vertices.Count; ++i) {
+                    if (map[i] == 0) { map[i] = -1; continue; }
+                    map[i] = mesh.AppendVertex(new Vector3d(m2.Vertices[i].x, m2.Vertices[i].y, m2.Heights != null ? m2.Heights[i] : 0));
+                    if (i >= m2.InputCount) added++;    // made by the mesher: Steiner points, crossings
+                }
                 double minAng = double.MaxValue, maxArea = 0, area = 0;
                 var labels = new SortedDictionary<int, int>();
                 for (int t = 0; t < m2.TriangleCount; ++t) {
                     Index3i tri = m2.Triangles[t];
                     int label = m2.TriangleLabels[t];
-                    if (mesh.AppendTriangle(tri, label) < 0)
+                    if (mesh.AppendTriangle(new Index3i(map[tri.a], map[tri.b], map[tri.c]), label) < 0)
                         throw new CommandException(ResultCodes.InternalError, $"triangle {t} could not be added to the output mesh");
                     Vector2d a = m2.Vertices[tri.a], b = m2.Vertices[tri.b], cc = m2.Vertices[tri.c];
                     double ta = 0.5 * ((b.x - a.x) * (cc.y - a.y) - (b.y - a.y) * (cc.x - a.x));
@@ -321,9 +339,9 @@ namespace g3cli
                 }
                 o["input_points"] = input.Points.Count;
                 o["input_segments"] = input.Segments.Count;
-                o["vertices"] = m2.Vertices.Count;
+                o["vertices"] = mesh.VertexCount;
                 o["triangles"] = m2.TriangleCount;
-                o["added_vertices"] = m2.Vertices.Count - m2.InputToVertex.Where(v => v >= 0).Distinct().Count();
+                o["added_vertices"] = added;
                 o["subsegments"] = m2.Subsegments.Count;
                 o["smallest_angle"] = MeshReport.Num(minAng);
                 o["largest_area"] = MeshReport.Num(maxArea);

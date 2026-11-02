@@ -117,6 +117,27 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Mesh2d_DuplicateAndUnusedPoints_AreNotWrittenOrCounted()
+        {
+            // point 4 duplicates point 0, point 5 lies in the hole: neither is a vertex of a triangle
+            string geometry = "{\"points\": [[0,0],[3,0],[3,3],[0,3],[0,0],[1.5,1.5],[1,1],[2,1],[2,2],[1,2]], " +
+                "\"rings\": [[0,1,2,3], {\"vertices\": [6,7,8,9], \"hole\": true}]}";
+            var (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("dup.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(0, I(r["added_vertices"]));
+            Assert.Equal(8, I(r["vertices"]));
+            DMesh3 mesh = ReadMesh(m.Path_("dup.obj"));
+            Assert.Equal(8, mesh.VertexCount);
+            Assert.All(mesh.VertexIndices(), v => Assert.True(mesh.GetVtxEdgeCount(v) > 0, "isolated vertex " + v));
+            Assert.Equal(8, D(r["area"]), 12);
+
+            // a right isosceles triangle of size 1e-300: the angles do not underflow (the area does: below the double range)
+            (exit, r) = Run("mesh2d", "--geometry", "{\"points\": [[0,0],[1e-300,0],[0,1e-300]]}", "--output", m.Path_("tiny.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(45, D(r["smallest_angle"]), 12);
+        }
+
+        [Fact]
         public void Mesh2d_RegionsLabelsAndHeights()
         {
             // two unit squares side by side, the right one a ring region with label 2 and its own max area; heights z = x + 2y
@@ -192,6 +213,9 @@ namespace g3cli.Tests
             AssertError(exit, r, ResultCodes.InvalidArguments);
             (exit, r) = Run("mesh2d", "--geometry", "{\"points\": [[0,0],[1,\"x\"],[0,1]]}", "--output", output);
             AssertError(exit, r, ResultCodes.InvalidArguments);
+            (exit, r) = Run("mesh2d", "--geometry", "{\"points\": [[0,0],[1,0],[0,1]], \"points\": [[5,5]]}", "--output", output);
+            AssertError(exit, r, ResultCodes.InvalidArguments);
+            Assert.Contains("twice", S(r["message"]));
             (exit, r) = Run("mesh2d", "--geometry", "{\"points\": [[0,0],[1,0],[0,1]]}", "--output", output, "--quality", "false", "--min-angle", "20");
             AssertError(exit, r, ResultCodes.InvalidArguments);
             (exit, r) = Run("mesh2d", "--geometry", "{\"points\": [[0,0],[1,0],[0,1]]}", "--output", output, "--min-angle", "60");
@@ -224,10 +248,11 @@ namespace g3cli.Tests
         }
 
         [Fact]
-        public void Mesh2d_PowerOfTwoScaleAndShift_GiveTheSameMeshScaled()
+        public void Mesh2d_PowerOfTwoScale_GivesTheSameMeshAndMetricsScaled()
         {
             // the mesher is exact on the doubles and its constructions scale exactly: scaling the input (and max_area) by
-            // 2^k gives the same triangles with the coordinates scaled bit for bit (as Harness/Invariance.cs requires)
+            // 2^k gives the same triangles with the coordinates scaled bit for bit (as Harness/Invariance.cs requires), the same
+            // smallest angle and the areas scaled by 4^k, also at 2^-1000 where plain products of coordinates underflow
             double[] pts = { 0, 0, 10, 0, 10, 10, 0, 10, 4, 4, 6, 4, 6, 6, 4, 6 };
             string Geometry(double s, double t)
             {
@@ -236,15 +261,21 @@ namespace g3cli.Tests
                     sb.Append(i > 0 ? "," : "").Append("[" + F(pts[i] * s + t) + "," + F(pts[i + 1] * s + t) + "]");
                 return sb.Append("], \"rings\": [[0,1,2,3], {\"vertices\": [4,5,6,7], \"hole\": true}]}").ToString();
             }
+            JsonObject result = null;
             DMesh3 Mesh(double s, double t, string name)
             {
                 var (exit, r) = Run("mesh2d", "--geometry", Geometry(s, t), "--output", m.Path_(name), "--max-area", F(1.5 * s * s), "--min-angle", "28");
                 AssertOk(exit, r);
+                result = r;
                 return ReadMesh(m.Path_(name));
             }
             DMesh3 reference = Mesh(1, 0, "scale_ref.g3mesh");
-            foreach (var (s, t) in new[] { (1.0 / 1024, 0.0), (1024.0, 0.0), (1.0 / 8, 0.0), (1048576.0, 0.0) }) {
+            JsonObject refResult = result;
+            foreach (var (s, t) in new[] { (1.0 / 1024, 0.0), (1024.0, 0.0), (1.0 / 8, 0.0), (1048576.0, 0.0), (Math.ScaleB(1, -500), 0.0) }) {
                 DMesh3 scaled = Mesh(s, t, $"scale_{F(s)}_{F(t)}.g3mesh");
+                Assert.Equal(D(refResult["smallest_angle"]), D(result["smallest_angle"]));
+                Assert.Equal(D(refResult["largest_area"]) * s * s, D(result["largest_area"]));
+                Assert.Equal(D(refResult["added_vertices"]), D(result["added_vertices"]));
                 Assert.Equal(reference.TriangleCount, scaled.TriangleCount);
                 Assert.Equal(reference.VertexCount, scaled.VertexCount);
                 foreach (int vid in reference.VertexIndices()) {
@@ -335,6 +366,68 @@ namespace g3cli.Tests
             AxisAlignedBox3d box = mesh.GetBounds();
             Assert.Equal(-1, box.Min.x, 9);
             Assert.Equal(3, box.Max.x, 9);
+        }
+
+        [Fact]
+        public void Boolean_Xor_EqualsItsPairwiseCompositions()
+        {
+            // xor = inside an odd number of the inputs. Three spheres, pairwise overlapping and with a common core:
+            // n-ary xor(a, b, c) against (a xor b) xor c, and the two-input xor against (a - b) + (b - a)
+            string Sphere(string name, Vector3d c)
+            {
+                string path = m.Path_(name);
+                DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 9 }.Generate().MakeDMesh();
+                MeshTransforms.Translate(s, c);
+                Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, s, WriteOptions.Defaults).code);
+                return path;
+            }
+            string a = Sphere("xs_a.g3mesh", Vector3d.Zero), b = Sphere("xs_b.g3mesh", new Vector3d(0.8, 0.1, 0)),
+                c = Sphere("xs_c.g3mesh", new Vector3d(0.3, 0.7, 0.2));
+            // xor results (and a - b united with b - a) are solids that touch along the curves where the input surfaces
+            // cross: closed, with copies of the vertices there (non-manifold edges by position), and measure counts those
+            // contacts as self-intersections; the rounding is verified clean
+            JsonObject Ok(params string[] args)
+            {
+                var (exit, r) = Run(args);
+                AssertOk(exit, r);
+                Assert.True(B(r["mesh"]["closed"]), r["mesh"].ToJsonString());
+                Assert.True(B(r["mesh"]["winding_closed"]), r["mesh"].ToJsonString());
+                Assert.True(B(r["boolean"]["rounding_clean"]), r["boolean"].ToJsonString());
+                Assert.Equal(0, I(r["mesh"]["degenerate_triangles"]));
+                return r;
+            }
+            double Volume(JsonObject r) => D(r["mesh"]["volume"]);
+            void AssertSameSolid(string p, string q)
+            {
+                var (exit, r) = Run("measure", p, "--compare", q, "--no-self-intersections", "--tolerance", "1e-7");
+                AssertOk(exit, r);
+                Assert.True(D(r["hausdorff"]["distance"]) < 1e-6, r["hausdorff"].ToJsonString());
+            }
+
+            var xor2 = Ok("boolean", a, b, m.Path_("xs_ab.g3mesh"), "--op", "xor");
+            Assert.True(I(xor2["boolean"]["non_manifold_edges"]) > 0, xor2["boolean"].ToJsonString());
+            Assert.Equal(2, I(xor2["mesh"]["components"]));
+            Ok("boolean", a, b, m.Path_("xs_amb.g3mesh"), "--op", "difference");
+            Ok("boolean", b, a, m.Path_("xs_bma.g3mesh"), "--op", "difference");
+            var composed2 = Ok("boolean", m.Path_("xs_amb.g3mesh"), m.Path_("xs_bma.g3mesh"), m.Path_("xs_ab2.g3mesh"), "--op", "union");
+            Assert.Equal(Volume(composed2), Volume(xor2), 6);
+            AssertSameSolid(m.Path_("xs_ab.g3mesh"), m.Path_("xs_ab2.g3mesh"));
+            // and it is union minus intersection
+            var union = Ok("boolean", a, b, m.Path_("xs_u.g3mesh"), "--op", "union");
+            var inter = Ok("boolean", a, b, m.Path_("xs_i.g3mesh"), "--op", "intersection");
+            Assert.Equal(Volume(union) - Volume(inter), Volume(xor2), 6);
+
+            var xor3 = Ok("boolean", a, b, m.Path_("xs_abc.g3mesh"), "--op", "xor", "--more", c);
+            var chained = Ok("boolean", m.Path_("xs_ab.g3mesh"), c, m.Path_("xs_abc2.g3mesh"), "--op", "xor");
+            Assert.Equal(Volume(chained), Volume(xor3), 6);
+            AssertSameSolid(m.Path_("xs_abc.g3mesh"), m.Path_("xs_abc2.g3mesh"));
+            // the core inside all three is kept (odd), unlike at_least 2 minus at_least 3
+            var core = Ok("boolean", a, b, m.Path_("xs_core.g3mesh"), "--op", "intersection", "--more", c);
+            Assert.True(Volume(core) > 0.1);
+            var two = Ok("boolean", a, b, m.Path_("xs_two.g3mesh"), "--op", "at_least", "--k", "2", "--more", c);
+            var one = Ok("boolean", a, b, m.Path_("xs_one.g3mesh"), "--op", "union", "--more", c);
+            // odd = (inside >= 1) - (inside >= 2) + (inside >= 3), as volumes
+            Assert.Equal(Volume(one) - Volume(two) + Volume(core), Volume(xor3), 5);
         }
 
         // the cube and a copy turned by 1e-10 about a generic axis and shifted by about 1e-10: rounding the intersection
@@ -519,12 +612,114 @@ namespace g3cli.Tests
             Assert.Null(r["points"]);
         }
 
+        [Fact]
+        public void Query2d_OnEdgesVerticesAndOutside_MatchesBruteForce()
+        {
+            // a procedural terrain (z = sin x cos y on a jittered grid, 2 triangles per cell), points at its vertices, on its
+            // edges (midpoints, exact in doubles), inside, and outside: hits must be exactly the triangles that contain the
+            // point (closed, brute force with exact orientation tests), the height that of the plane of the lowest id
+            var mesh = new DMesh3();
+            var rnd = new Random(11);
+            int n = 8;
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double x = i + ((i > 0 && i < n) ? 0.25 * (rnd.Next(5) - 2) / 2 : 0), y = j + ((j > 0 && j < n) ? 0.25 * (rnd.Next(5) - 2) / 2 : 0);
+                    mesh.AppendVertex(new Vector3d(x, y, Math.Sin(x) * Math.Cos(y)));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = j * (n + 1) + i, b = a + 1, c = a + n + 2, d = a + n + 1;
+                    mesh.AppendTriangle(a, b, c);
+                    mesh.AppendTriangle(a, c, d);
+                }
+            string path = m.Path_("jitter_terrain.g3mesh");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults).code);
+
+            var pts = new List<Vector2d>();
+            foreach (int vid in new[] { 0, 10, 40, 80 })
+                pts.Add(mesh.GetVertex(vid).xy);
+            foreach (int eid in new[] { 3, 50, 100, 140 }) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                pts.Add((mesh.GetVertex(ev.a).xy + mesh.GetVertex(ev.b).xy) * 0.5);
+            }
+            pts.Add(new Vector2d(3.3, 4.6));
+            pts.Add(new Vector2d(-1, 3));
+            pts.Add(new Vector2d(9.5, 9.5));
+            string text = string.Join(";", pts.Select(p => F(p.x) + "," + F(p.y)));
+            var (exit, r) = Run("query2d", path, "--points", text);
+            AssertOk(exit, r);
+            var results = r["points"].AsArray();
+            for (int i = 0; i < pts.Count; ++i) {
+                Vector2d p = pts[i];
+                int[] expected = mesh.TriangleIndices().Where(t => ContainsExact(mesh, t, p)).OrderBy(t => t).ToArray();
+                int[] got = results[i]["hits"].AsArray().Select(h => I(h["triangle"])).ToArray();
+                Assert.Equal(expected, got);
+                if (expected.Length == 0) {
+                    Assert.Null(results[i]["height"]);
+                    continue;
+                }
+                Assert.Equal(expected[0], I(results[i]["triangle"]));
+                // the height on the plane of that triangle (barycentric)
+                Triangle3d tri = new Triangle3d();
+                mesh.GetTriVertices(expected[0], ref tri.V0, ref tri.V1, ref tri.V2);
+                Vector3d bary = MathUtil.BarycentricCoords(new Vector2d(p.x, p.y), tri.V0.xy, tri.V1.xy, tri.V2.xy);
+                double z = bary.x * tri.V0.z + bary.y * tri.V1.z + bary.z * tri.V2.z;
+                Assert.Equal(z, D(results[i]["height"]), 9);
+            }
+            Assert.True(results.Take(4).All(x => I(x["hits_count"]) >= 1));
+            Assert.True(results.Skip(4).Take(4).Count(x => I(x["hits_count"]) == 2) >= 2);    // interior edges: both sides
+            Assert.Equal(0, I(results[9]["hits_count"]));
+            Assert.Equal(0, I(results[10]["hits_count"]));
+        }
+
+        static bool ContainsExact(DMesh3 mesh, int tid, Vector2d p)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            Vector2d a = mesh.GetVertex(t.a).xy, b = mesh.GetVertex(t.b).xy, c = mesh.GetVertex(t.c).xy;
+            int o1 = ExactPredicates.Orient2d(a, b, p), o2 = ExactPredicates.Orient2d(b, c, p), o3 = ExactPredicates.Orient2d(c, a, p);
+            return (o1 >= 0 && o2 >= 0 && o3 >= 0) || (o1 <= 0 && o2 <= 0 && o3 <= 0);
+        }
+
         static bool Contains(DMesh3 mesh, int tid, Vector2d p)
         {
             Index3i t = mesh.GetTriangle(tid);
             Vector2d a = mesh.GetVertex(t.a).xy, b = mesh.GetVertex(t.b).xy, c = mesh.GetVertex(t.c).xy;
             double o1 = (b - a).Perp.Dot(p - a), o2 = (c - b).Perp.Dot(p - b), o3 = (a - c).Perp.Dot(p - c);
             return (o1 >= 0 && o2 >= 0 && o3 >= 0) || (o1 <= 0 && o2 <= 0 && o3 <= 0);
+        }
+
+        [Fact]
+        public void Query2d_Tolerance_TakesTheNearestTriangle()
+        {
+            // the point (1.5, 0.2) is 0.49 from triangle 0 (z = 100) and 0.1 from triangle 1 (z = 7): the nearest gives the
+            // height, although triangle 0 has the lower id; both are hits within the tolerance
+            var mesh = new DMesh3();
+            foreach (var v in new[] { new Vector3d(0, 0, 100), new Vector3d(1, 0, 100), new Vector3d(0, 1, 100),
+                    new Vector3d(1.6, 0, 7), new Vector3d(3, 0, 7), new Vector3d(1.6, 1, 7) })
+                mesh.AppendVertex(v);
+            mesh.AppendTriangle(0, 1, 2);
+            mesh.AppendTriangle(3, 4, 5);
+            string path = m.Path_("two_tris.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults).code);
+            var (exit, r) = Run("query2d", path, "--points", "1.5,0.2;0.2,0.2;1.55,0.2", "--tolerance", "1", "--max-results", "1");
+            AssertOk(exit, r);
+            JsonNode p = r["points"][0];
+            Assert.Equal(7, D(p["height"]), 12);
+            Assert.Equal(1, I(p["triangle"]));
+            Assert.False(B(p["exact"]));
+            Assert.Equal(2, I(p["hits_count"]));
+            Assert.True(B(p["hits_truncated"]));
+            // inside triangle 0: exact, whatever the tolerance
+            Assert.Equal(100, D(r["points"][1]["height"]), 12);
+            Assert.True(B(r["points"][1]["exact"]));
+            Assert.Equal(1, I(r["points"][1]["hits_count"]));
+            Assert.Equal(7, D(r["points"][2]["height"]), 12);
+
+            // without a tolerance: no height outside
+            (exit, r) = Run("query2d", path, "--points", "1.5,0.2");
+            AssertOk(exit, r);
+            Assert.Null(r["points"][0]["height"]);
+            Assert.Null(r["points"][0]["exact"]);
         }
 
         [Fact]

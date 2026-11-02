@@ -39,8 +39,8 @@ namespace g3cli
             var c = new Command() {
                 Name = "query2d",
                 Description = "Query the triangles of a mesh in the XY plane (a terrain or other height field) with a 2D loose quadtree " +
-                    "(TriangleQuadtree2d): the height at points (exact containment, z interpolated in the triangle; within 'tolerance' " +
-                    "of a triangle, the height at the nearest point of the nearest one), the triangles whose bounding boxes meet a " +
+                    "(TriangleQuadtree2d): the height at points (exact containment, z interpolated in the triangle of the lowest id that " +
+                    "contains the point; else, within 'tolerance', the height at the nearest point of the nearest triangle), the triangles whose bounding boxes meet a " +
                     "rectangle, and the k nearest triangles of each point (XY distance). Triangle ids are those of the input mesh.",
             };
             c.Params.Add(Input());
@@ -48,7 +48,7 @@ namespace g3cli
             c.Params.Add(new Param("rect", ParamType.String, "rectangle 'xmin,ymin,xmax,ymax': the triangles whose XY bounding boxes meet it (inclusive)"));
             c.Params.Add(new Param("tolerance", ParamType.Number, "points: absolute XY distance within which a point outside every triangle still gets the height of the nearest one (0 = exact hits only)") { Default = 0.0 });
             c.Params.Add(new Param("nearest", ParamType.Integer, "points: also the ids of the k nearest triangles (XY distance, ties by id; 0 = off)") { Default = 0 });
-            c.Params.Add(new Param("max_results", ParamType.Integer, "at most this many triangle ids per list (rect, hits); more are counted and the list is marked truncated") { Default = 1000 });
+            c.Params.Add(new Param("max_results", ParamType.Integer, "at most this many triangle ids per list (rect, hits); more are counted (*_count) and the list is marked truncated (*_truncated)") { Default = 1000 });
             c.Run = args => {
                 if (args.Has("points") == false && args.Has("rect") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "give points or rect (or both)");
@@ -98,24 +98,40 @@ namespace g3cli
                 };
                 if (points != null) {
                     var hits = new List<QuadtreeHeightHit2d>();
+                    var nearestHit = new List<QuadtreeHeightHit2d>();
                     var ids = new List<int>();
                     var results = new JsonArray();
                     int found = 0;
                     foreach (Vector2d p in points) {
                         var pr = new JsonObject() { ["x"] = p.x, ["y"] = p.y };
+                        bool exact;
+                        QuadtreeHeightHit2d? best = null;
                         try {
-                            tree.QueryHeights(p, hits, tolerance);
+                            // the triangles that contain the point (exact); without one, all within the tolerance, of which the
+                            // nearest (lowest id on a tie) gives the height
+                            tree.QueryHeights(p, hits, 0);
+                            exact = hits.Count > 0;
+                            if (exact == false && tolerance > 0) {
+                                tree.QueryHeights(p, nearestHit, tolerance, stopAfterFirst: true);
+                                if (nearestHit.Count > 0) {
+                                    best = nearestHit[0];
+                                    tree.QueryHeights(p, hits, tolerance);
+                                }
+                            }
                         } catch (ArithmeticException e) {
                             throw new CommandException(ResultCodes.OperationFailed, $"height at ({p.x}, {p.y}): {e.Message}");
                         }
                         hits.Sort((a, b) => a.Id.CompareTo(b.Id));
-                        // the hit of the lowest triangle id gives "height"; all of them (overlapping layers) are in "hits"
-                        pr["height"] = hits.Count > 0 ? MeshReport.Num(hits[0].Height) : null;
-                        pr["triangle"] = hits.Count > 0 ? tids[hits[0].Id] : (JsonNode)null;
-                        if (hits.Count > 0) found++;
+                        if (exact)
+                            best = hits[0];     // overlapping layers: the lowest triangle id; all of them are in "hits"
+                        pr["height"] = best.HasValue ? MeshReport.Num(best.Value.Height) : null;
+                        pr["triangle"] = best.HasValue ? tids[best.Value.Id] : (JsonNode)null;
+                        pr["exact"] = best.HasValue ? exact : (JsonNode)null;
+                        if (best.HasValue) found++;
                         pr["hits"] = new JsonArray(hits.Take(maxResults).Select(h =>
                             (JsonNode)new JsonObject() { ["triangle"] = tids[h.Id], ["height"] = MeshReport.Num(h.Height) }).ToArray());
                         pr["hits_count"] = hits.Count;
+                        pr["hits_truncated"] = hits.Count > maxResults;
                         if (k > 0) {
                             tree.FindNearestK(p, k, ids);
                             pr["nearest"] = new JsonArray(ids.Select(i => (JsonNode)tids[i]).ToArray());

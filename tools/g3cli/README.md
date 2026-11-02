@@ -8,14 +8,14 @@ tools of an MCP server (stdio), for coding agents and scripts.
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
-| `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (inside an odd number); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
+| `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`); writes the mesh in the XY plane, z = heights | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
-| `query2d` | heights at XY points, triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
+| `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 
 ## Build and run
 
@@ -171,8 +171,8 @@ The input is a JSON object; only `points` is required, indices refer to `points`
 `regions` labelled by a ring or a seed point (where they overlap, the last wins), with an optional maximum area,
 `heights` one z per point (interpolated at new vertices). Unknown keys, wrong types and bad indices fail with
 `invalid_arguments` (inline `--geometry`) or `read_error` (a file). The written mesh lies in the XY plane, oriented
-counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`). The result reports `triangles`,
-`vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area`, `bad_triangles`
+counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`); only vertices of triangles are written.
+The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (areas below the double range, at coordinates around 1e-160 and smaller, are 0), `bad_triangles`
 (below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
 label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
 without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.
