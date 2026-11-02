@@ -396,6 +396,7 @@ namespace g3
         // current triangles by grid cell, for PreventSelfIntersections
         protected TriangleHashGrid triangleGrid;
         protected HashSet<int> gridRingTris = new HashSet<int>();
+        AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
 
         protected void ensure_triangle_grid()
         {
@@ -423,7 +424,81 @@ namespace g3
 
         // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
         // triangle outside the two one-rings (or another new triangle beyond their shared vertex)?
+        /// <summary>
+        /// (tests) false: PreventSelfIntersections queries the grid once per new triangle (the reference) instead of
+        /// once per collapse with the union of their boxes; the same answers
+        /// </summary>
+        internal bool SelfIntersectionUnionQuery = true;
+
         protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
+        {
+            if (SelfIntersectionUnionQuery == false)
+                return collapse_creates_intersection_per_triangle(a, b, vKeep, newPos);
+            gridRingTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            var newIds = new List<Index3i>();
+            var newTris = new List<Triangle3d>();
+            foreach (int tid in gridRingTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB) continue;     // removed by the collapse
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                Triangle3d tri = new Triangle3d(
+                    nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                newIds.Add(nt); newTris.Add(tri);
+            }
+            // the new triangles among themselves
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                Index3i ia = newIds[i];
+                for (int j = i + 1; j < newTris.Count; ++j) {
+                    Triangle3d B = newTris[j];
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                        return true;
+                }
+            }
+            if (newTris.Count == 0)
+                return false;
+            // against the rest: one grid query with the union of the new triangles' boxes, then for each candidate
+            // the new triangles whose query would have returned it (TriangleHashGrid.QueryMatches, the grid's own
+            // test against the stored box). These are exactly the pairs
+            // that a query per new triangle would test (each box lies in the union), so the answer is the same; the
+            // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
+            // of about ten times
+            if (gridNewBoxes.Length < newTris.Count) gridNewBoxes = new AxisAlignedBox3d[2 * newTris.Count];
+            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                gridNewBoxes[i] = box;
+                if (i == 0) union = box; else union.Contain(box);
+            }
+            bool hit = false;
+            triangleGrid.Query(union, (tc) => {
+                // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+                // be used here: flat boxes of triangles in one axis plane never overlap by it)
+                if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+                Index3i ic = mesh.GetTriangle(tc);
+                Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+                // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+                if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                for (int i = 0; i < newTris.Count && hit == false; ++i) {
+                    if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
+                        continue;
+                    Triangle3d A = newTris[i];
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(newIds[i], ref A, ic, ref C))
+                        hit = true;
+                }
+            });
+            return hit;
+        }
+
+        // (tests) the check with one grid query per new triangle, as before the union query: the same answer
+        bool collapse_creates_intersection_per_triangle(int a, int b, int vKeep, Vector3d newPos)
         {
             gridRingTris.Clear();
             foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
@@ -928,6 +1003,21 @@ namespace g3
                     collapse_to = b;
                 else if (ba)
                     collapse_to = a;
+            }
+
+            // a bowtie vertex (fans of triangles that meet only there) is kept in place and never removed: moving it
+            // drags the other fans along, and removing it attaches them to a vertex of this fan (the fans merge, and
+            // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
+            // triangles through). The queue priority of such an edge is still that of the free optimum: the forced
+            // position is only checked here (flip test), not costed
+            bool bowA = mesh.IsBowtieVertex(a), bowB = mesh.IsBowtieVertex(b);
+            if (bowA || bowB) {
+                if (bowA && bowB)
+                    return ProcessResult.Ignored_Constrained;
+                int bowtie = bowA ? a : b;
+                if (collapse_to != -1 && collapse_to != bowtie)
+                    return ProcessResult.Ignored_Constrained;
+                collapse_to = bowtie;
             }
 
             // optimization: if edge cd exists, we cannot collapse or flip. look that up here?

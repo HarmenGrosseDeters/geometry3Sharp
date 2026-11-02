@@ -168,11 +168,17 @@ namespace g3
                     // depend on u, which depends on the angles; a few rounds bring them close (iterating further
                     // drifts: conformal maps onto the disk are only unique up to a Moebius transform). The final
                     // angles are those of the final lengths, so the boundary curve is exactly that polygon.
-                    for (int iter = 0; iter < 4; ++iter) {
-                        inscribedAngles(targetLengths(len, ub), kt);
-                        neumannToDirichlet(pm, neu, negK, loop, kb, kt, len, ub, x);
+                    // badly scaled inputs (eg needle triangles) can give scale factors whose lengths overflow or
+                    // are NaN: then there is no inscribed polygon, a failure instead of NaN angles
+                    for (int iter = 0; iter <= 4; ++iter) {
+                        double[] lt = targetLengths(len, ub);
+                        foreach (double l in lt)
+                            if (!(l > 0 && l < double.PositiveInfinity))
+                                return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed,
+                                    "BFF Disk: boundary target lengths are not positive and finite");
+                        inscribedAngles(lt, kt);
+                        if (iter < 4) neumannToDirichlet(pm, neu, negK, loop, kb, kt, len, ub, x);
                     }
-                    inscribedAngles(targetLengths(len, ub), kt);
                     break;
                 }
             }

@@ -594,12 +594,27 @@ namespace g3
                 // lattice edge of two pixels may differ from 2 w by a hair; review of #277)
                 double f = FloorPixelsForBenchmarks ?? 2;
                 for (int j = 0; j < 3; ++j) {
-                    var a = k.Point(k.V[3 * t + j]); var b = k.Point(k.V[3 * t + (j + 1) % 3]);
-                    double dx = grid.Pixel(a.x) - grid.Pixel(b.x), dy = grid.Pixel(a.y) - grid.Pixel(b.y);
+                    var (ax, ay) = PixelOf(k.V[3 * t + j]); var (bx, by) = PixelOf(k.V[3 * t + (j + 1) % 3]);
+                    double dx = ax - bx, dy = ay - by;
                     if (dx * dx + dy * dy <= f * f) return true;
                 }
                 return false;
             }
+
+            /// <summary> the pixel indices of vertex v, computed once per refiner: the kernel never moves a vertex after inserting it and
+            /// never reuses an id, so the indices stay valid; the exact index is costly (most of the mesher's time on the Herne tiles).
+            /// long.MinValue marks an entry not computed yet (an index of -2^63 would only be recomputed each time) </summary>
+            (long x, long y) PixelOf(int v)
+            {
+                while (pixels.Count <= v) pixels.Add((long.MinValue, long.MinValue));
+                if (pixels[v].x == long.MinValue) {
+                    var p = k.Point(v);
+                    long x = grid.Pixel(p.x), y = grid.Pixel(p.y);
+                    pixels[v] = (x, y);
+                }
+                return pixels[v];
+            }
+            readonly List<(long x, long y)> pixels = new List<(long x, long y)>();
 
             /// <summary> a constrained edge crosses the open pixel of grid point c (c lies in triangle at): a vertex there would sit within half a
             /// pixel of a constraint (D14) </summary>
@@ -734,7 +749,7 @@ namespace g3
                         int f = 3 * t + j, v = k.V[f];
                         var pv = k.Point(v);
                         if (seen.Add(v) && pv != pu && pv != pw && pv != q) {
-                            long vx = grid.Pixel(pv.x), vy = grid.Pixel(pv.y);
+                            var (vx, vy) = PixelOf(v);
                             if (grid.CrossesInterior(pu, q, vx, vy) || grid.CrossesInterior(q, pw, vx, vy)) return false;
                         }
                         if (k.Seg[f] < 0 || f == e || f == k.H[e]) continue;

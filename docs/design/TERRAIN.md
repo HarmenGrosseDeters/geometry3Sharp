@@ -1018,12 +1018,35 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
    interpolations; toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`, `CrossDesignInfluence`).
 4. Topological overlay with exact signs, catch lines with end reasons and horizontal uncertainty, connected region;
    optional composite terrain and volumes; special cases.
-5. Mixed cut and fill (clamp).
-6. Target heights and their lines (the hook for berms).
+5. Mixed cut and fill (clamp). Done in #320 (`Direction.Auto`, TERRAIN_1C_PLAN.md section 10).
+6. Target heights and their lines (the hook for berms). Done in #320 (`TargetHeights`).
 7. Benchmark at km scale; docs (OPERATIONS.md, SOURCES.md).
-8. Later, each a development step of its own: inter-ramp / overall slope check along profiles, sector polygons,
-   exterior distance, a proven bound for the catch-line uncertainty, berms with constant then variable
-   widths, ramps, a proven interval tan for angle input, volume per cell, lofting utility.
+
+### Order after phase 1 (owner decision 2026-11-02)
+
+1. Correctness items found in 1c:
+   - Done (#329): the overlapping composite where toe edges run along terrain edges within ulps (a rotated UTM
+     frame); a crossing node nudged out of its terrain triangles takes the terrain vertex at that end.
+   - Next, a bugfix: `CompositeFailed` where `NoDaylight` is right. Repro: a 16×16 grid on [-40, 40]², z = 5 + 0.03 x,
+     a toe square of side 10 centred at (37.3, 1.1), `Outside`, ratio 1, `Tolerance` 0.05, `BuildComposite`, rotated
+     31° about z. A slope-side crossing node (toe edge × terrain boundary edge) rounds 1 ulp off the slope side of
+     the toe line, so the slope part's edge to it dips below the nudged terrain nodes (3 overlaps). The fix moves
+     it onto the slope side (`onto_slope_side`) and recomputes its z there.
+   - Then `MinFeatureSize` relative to the input's scale (1(a)): an opt-in local frame (inputs translated to a
+     local origin, outputs back, the exact checks re-run), with a test that a toe of a few cm at scale 2^-k gives
+     the same result scaled.
+2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
+3. Volume per cell, 2D columns first (section 9.3).
+4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
+   note first.
+5. Lofting between contours, the triangles chosen under the exact slope oracle, a status when no compliant
+   triangulation exists (section 9.2; two contours first, then branching).
+6. Performance follow-ups only when a real case is slow (the octagon on the 1 m grid, 6.1 → 8.8 s since #318; the
+   combinatorial zeros of idea C; the band-only overlay).
+7. A proven interval tan for angle input and a proven bound for the catch-line uncertainty.
+8. Sector polygons, exterior distance on demand.
+9. Parked (not modelled in practice): berms with constant then variable widths, inter-ramp / overall slope checks
+   along profiles.
 
 ## 12. Open questions for the user
 

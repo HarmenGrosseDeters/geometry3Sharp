@@ -302,8 +302,8 @@ namespace g3
         public bool SupportsTriangleRayIntersection { get { return true; } }
 
         /// <summary>
-        /// Find id of first triangle that ray hits (smallest ray parameter), strictly closer than fMaxDist
-        /// along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
+        /// Find id of first triangle that ray hits (smallest ray parameter, the lowest id among equal ones), strictly
+        /// closer than fMaxDist along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
         /// front and back faces are hit. The ray direction must be normalized, otherwise this throws.
         /// Use MeshQueries.TriangleIntersection() to get the hit point / ray parameter.
         /// </summary>
@@ -337,7 +337,10 @@ namespace g3
                     mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
                     double rayt;
                     if (IntrRay3Triangle3.Intersects(ref ray, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
-                        if (rayt < fNearestT) {
+                        // ties (a ray through a shared edge or vertex) go to the lowest id, as in
+                        // MeshQueries.FindHitTriangle_LinearSearch: otherwise the traversal order, which the absolute box
+                        // padding changes with the scale, picked the triangle
+                        if (rayt < fNearestT || (rayt == fNearestT && ti < tID)) {
                             fNearestT = rayt;
                             tID = ti;
                         }

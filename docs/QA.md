@@ -436,6 +436,72 @@ within offset + 2 alpha, the triangle count bounded), lattice point clouds with 
 thickness. Every case runs `AlphaWrapTests.CheckWrap` (all guarantees, distances against a brute-force oracle);
 `MeshAlphaWrap` passes all of them.
 
+The `KnownFailures` lists of the `*IssueCasesTests` classes, and the wrong outcomes they pin, are taken on net10; on
+.NET Framework they are not strict (`Harness/IssueCases.cs`), as in 2.10. The findings, with their causes and fix
+ideas, are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md).
+
+**Geodesics and intrinsic triangulations (November 2026):** `GeodesicsIssueCasesTests` rebuilds 11 failure modes from
+the trackers of libigl, geometry-central and potpourri3d that the existing tests did not cover (cases that duplicated
+them, such as loops around a cone apex, paths that double back and flat grids with a corner source, were left out or
+reduced to their new part): two disjoint triangles in the vector heat method, a source inside a face (poked, also
+1e-9 from an edge), an open box with rim sources, a disc with a boundary source, a Gaussian bump traced from face
+points, a hilly terrain 1500 edges long (transport, log map, extension), the coarse square and kite against their
+refinements, a reversed edge path, a 1.69 degree wedge and needle in the Delaunay refinement, slivers down to zero
+width in the vector transport, and a reversed triangle. Distances are checked against |p - s| or exact (FlipOut) paths,
+the heat method within its documented accuracy. Fixed: `MeshGeodesicPath.Path` repeated the end point of an edge
+traced exactly through a vertex (G1). Known failures ([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): tangent
+frames at coincident vertices are arbitrary, so `ToWorld` of transported vectors is off by up to 135 degrees there
+(G2); `MeshGeodesicPath` reports `TraceFailed` for edges of 1.25e-4 at UTM coordinates (G3).
+
+**Parameterization (November 2026):** `ParameterizationIssueCasesTests` rebuilds 12 failure modes from the trackers of
+libigl, boundary-first-flattening and xatlas, each over LSCM, ARAP, SLIM, Tutte, BFF (default and Disk) and the atlas
+methods: closed icospheres, several components and holes, unused vertices (also at 1e7), degenerate patches, the
+orientation (facing -z, in the plane x = 0, with pins), a three-peak terrain, a low-poly cylinder without a seam, two
+identical holes (symmetry), saddles, a long thin triangle in the plane x = 0 (and a needle quad with both diagonals),
+packing with rotated charts, and a thin tall box. Success is checked by finite UVs, the surface's orientation, flips where a method
+promises none, overlaps, disc charts with uniform texel density. Fixed: BFF Disk threw an `ArithmeticException` on a
+needle quad whose boundary scale factors overflow, now `SolverFailed` (P4). Known failures
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): LSCM (and ARAP from it) collapses the unpinned ring of a low-poly
+cylinder and reports success (P1); BFF Disk with the conformal extension does not keep the boundary on the circle on
+meshes without interior vertices, and on two needles gives a flipped sliver (P2); LSCM with automatic pins is
+asymmetric by 1e-4 on a symmetric patch (P3).
+
+**Simplification (November 2026):** `ReducerIssueCasesTests` rebuilds 13 failure modes from the trackers of
+meshoptimizer, libigl, Manifold and CGAL: a noisy terrain reduced to 20%, a 24-triangle patch reduced to 10, almost
+flat grids (singular quadrics), a flat and a curved grid at z = 900 and at UTM offsets (translation), a pinched 4 x 1 x 1
+body reduced to 1 triangle, a 100 x 20 torus reduced coarsely (genus), a pyramid with a sliver base, a box-cylinder
+union rotated by -89.999999999999 degrees, a sphere with 50 tiny cylinders (unreachable target), an unwelded quad,
+two cones tip to tip, self-intersecting input, and a target already met. The results are checked for validity,
+closedness, folds, bounds, volume, Euler characteristic and components. Fixed: the Reducer joined the fans of a bowtie
+vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Known failure S1
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses fold a noisy terrain and stand triangles up
+at an open border (the flip test compares with the current, not the input normals).
+
+**Remeshing (November 2026):** `RemesherIssueCasesTests` rebuilds 10 failure modes from the trackers of PMP,
+geogram, CGAL and MeshLib (Remesher, RemesherPro, RegionRemesher): a flat non-convex fan with fixed boundary, open
+surfaces with the recommended boundary constraints, nearly touching sheets with PreventSelfIntersections, a partial
+remesh with locked vertices (bit-exact), zero-area triangles and kinks, slivers and needles (termination), a degenerate
+face on the border, two cones tip to tip, long thin sharp parts, and a creased L prism (bounds). The box corners of
+pmp-library #132 are already covered by `FeaturePreservationTests`. Fixed: `PreserveBoundaryAndFeatures` now pins
+bowtie vertices (the remesher joined the two cones). Known failures: S2, without the opt-in `MinTriangleQuality`
+smoothing folds the fan and leaves a flat triangle on a crease of a long thin box (with 0.2 they pass); S3, without feature
+constraints a coarse L prism loses a leg (volume 3 -> 0.73, bounds shifted by 1).
+
+**Point, ray and inside queries (November 2026):** `SpatialQueryIssueCasesTests` rebuilds 12 failure modes from the
+trackers of libigl, trimesh and Open3D: a triangle fan around a ray under all 48 axis permutations and sign flips,
+rays grazing box faces and edges (unit, 2^20, UTM), vertical rays on a mesh scaled by 2^k and 1e-2 ... 1e-6, rays onto
+the shared diagonal and vertices of a split square, parity rays exactly through a vertex or an edge, signed distance
+grids whose sign rays run along the edges of a cube and over a sphere on a 64^3 grid, a query exactly on a face, doubled,
+overlapping and cancelling shells (generalized winding number), a cube with a zero-length edge and needles, a mesh
+with vertices but no triangles, and point in polygon at 4e5, 2^26 and UTM against the same rule decided exactly. Ray
+casts are compared with a brute-force loop over the same leaf predicate, so a difference can only come from the tree:
+the tree equals brute force everywhere (the 0 * inf slab case of libigl does not occur), and the grids, the winding
+numbers and `Polygon2d.Contains` are right. Fixed: `FindNearestHitTriangle` picked among equal-t triangles by traversal
+order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id). Known
+failures, with findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md): `IntrRay3Triangle3.Intersects` is not
+watertight, so a rounded ray onto a shared edge can miss both triangles (Q2, at 1e-3 and 1e-7), and `IsInside`
+counts vertex hits 0 times and edge hits twice (Q3, its documented limitation).
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
