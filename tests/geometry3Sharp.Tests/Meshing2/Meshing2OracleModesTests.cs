@@ -25,8 +25,14 @@ namespace geometry3Sharp.Tests
 
         static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
-            var fast = Oracle.Check(input, output, e);
             var reference = Oracle.Check(input, output, e.WithReference());
+            // The reference path runs the global empty-circumcircle pass only up to GlobalDelaunayLimit triangle-vertex pairs, by design
+            // (all pairs, exactly); above it the fast path is compared without that pass too, and the pass itself is compared on the rows
+            // below the limit. (Found when F-4/a, F-4/b and F-5 left the slow rows: the fast path found the global violations of a
+            // corrupted F-5 and counted the merge-zone excusals of its global pass, the limited reference path neither; with no limit the
+            // reference path agrees with the fast one, in 200 s instead of 0.9 s.)
+            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
+            Assert.Equal(reference.GlobalDelaunayChecked, fast.GlobalDelaunayChecked);
             Assert.True(Verdict(fast) == Verdict(reference), what + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
         }
 
