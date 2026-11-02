@@ -930,6 +930,20 @@ namespace g3
                     collapse_to = a;
             }
 
+            // a bowtie vertex (fans of triangles that meet only there) is kept in place and never removed: moving it
+            // drags the other fans along, and removing it attaches them to a vertex of this fan (the fans merge, and
+            // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
+            // triangles through)
+            bool bowA = mesh.IsBowtieVertex(a), bowB = mesh.IsBowtieVertex(b);
+            if (bowA || bowB) {
+                if (bowA && bowB)
+                    return ProcessResult.Ignored_Constrained;
+                int bowtie = bowA ? a : b;
+                if (collapse_to != -1 && collapse_to != bowtie)
+                    return ProcessResult.Ignored_Constrained;
+                collapse_to = bowtie;
+            }
+
             // optimization: if edge cd exists, we cannot collapse or flip. look that up here?
             //  funcs will do it internally...
             //  (or maybe we can collapse if cd exists? edge-collapse doesn't check for it explicitly...)
