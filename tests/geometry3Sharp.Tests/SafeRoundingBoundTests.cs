@@ -152,5 +152,68 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(f.Flips + f.Collapses, reused.Flips + reused.Collapses);
             }
         }
+
+        // a sphere poked four times in a row near edges, resolved without SafeRounding: strips of slivers along lines,
+        // which only the strip zip repairs (see SafeRoundingDegenerateInputTests)
+        static DMesh3 Strips()
+        {
+            var raw = new ExactMeshBoolean(SafeRoundingDegenerateInputTests.Make(SafeRoundingDegenerateInputTests.Family.Cluster, 30, 2, 4),
+                new DMesh3(), Ops.Union) { SafeRounding = false };
+            Assert.True(raw.Compute(), raw.Error);
+            return raw.Result;
+        }
+
+        [Fact]
+        public void Strips_ZippedWithinTheBound()
+        {
+            DMesh3 start = Strips(), m = new DMesh3(start);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true };
+            Assert.True(r.Apply());
+            Assert.True(r.StripZips > 0 && r.StripZips <= r.Zips, $"strip zips {r.StripZips} of {r.Zips}");
+            ResultChecks.AssertClean(m);
+            AssertWithinBound(start, m, r, "strips");
+            // no strip zip, no clean result
+            DMesh3 m2 = new DMesh3(start);
+            var without = new MeshRoundingRepair(m2) { SharedPositionsTouch = true, MaxStripTriangles = 1 };
+            Assert.False(without.Apply());
+            Assert.Equal(0, without.StripZips);
+        }
+
+        [Fact]
+        public void Strips_PowerOfTwoScales_SameResultScaled()
+        {
+            DMesh3 start = Strips(), m0 = new DMesh3(start);
+            var r0 = new MeshRoundingRepair(m0) { SharedPositionsTouch = true };
+            r0.Apply();
+            Assert.True(r0.StripZips > 0);
+            foreach (Similarity sim in Similarity.All().Where(s => s.IsExact)) {
+                DMesh3 m = new DMesh3(start);
+                MeshTransforms.PerVertexTransform(m, sim.Apply);
+                var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true };
+                r.Apply();
+                Assert.Equal(r0.MaxDrift * sim.Scale, r.MaxDrift);
+                Assert.Equal(r0.StripZips, r.StripZips);
+                MeshTransforms.PerVertexTransform(m, sim.Inverse);
+                Assert.True(Invariance.Difference(m0, m) == "", sim.ToString());
+            }
+        }
+
+        [Fact]
+        public void Strips_ReusedInstance_EqualsFreshInstance()
+        {
+            // the caps first, then the strips twice: counts, drifts and the per-vertex state start again
+            var reused = new MeshRoundingRepair(PokedSphere()) { SharedPositionsTouch = true };
+            Assert.True(reused.Apply());
+            foreach (int k in new[] { 0, 1 }) {
+                DMesh3 strips = Strips(), fresh = Strips();
+                reused.Mesh = strips;
+                Assert.True(reused.Apply());
+                var f = new MeshRoundingRepair(fresh) { SharedPositionsTouch = true };
+                Assert.True(f.Apply());
+                Assert.Equal("", Invariance.Difference(fresh, strips));
+                Assert.Equal(f.MaxDrift, reused.MaxDrift);
+                Assert.Equal(f.StripZips, reused.StripZips);
+            }
+        }
     }
 }

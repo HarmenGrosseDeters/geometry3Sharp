@@ -34,6 +34,7 @@ and A of d(u), plus δ, for every vertex v of R and A. An edit is not applied if
 | contraction (b kept at p, a vanishes) | max(\|p − a\|, \|p − b\|) | the triangles of a and b map to the new ones with the corners moved by at most that; the two triangles at the edge collapse onto edges |
 | flip of a-b to c-d | the smallest of: (1) 2 dist(segment ab, segment cd); (2) max(min(dist(c, abd), dist(d, abc)), min(dist(a, cdb), dist(b, dca))), each point-triangle distance bounded by the distance to the nearest edge; (3) 0 for an exactly flat convex quad | (1) for any p on ab and q on cd, moving c and d by p − q makes the diagonals meet at p. Both pairs of triangles then cover the same flat convex quad, or the same triangle if p or q is an endpoint (rounded nearest points are fine). (2) Replace one corner by any point of the other side's triangle, and the point lands inside that triangle by convexity. |
 | zip of two caps at a-b | 2 max(dist(c, ab), dist(d, ab)) | with the apexes moved onto a-b, the old and the new triangles cover the same set |
+| strip zip (strip with ends e0, e1) | 2 max over the strip's vertices of dist(v, line e0 e1) | with the strip's vertices moved onto the line (in the order of their computed parameters), the strip is a segment covered by the merged chain, and each outer triangle and its split cover the same set. Needs: all strip vertices, the inner ones too, between e0 and e1 along the line; both boundary chains strictly monotone; the outer triangles distinct, their third corners not in the strip (they do not move); the distances taken relative to e0 (exact for nearby points), so that w does not carry the rounding error of the coordinates' size. The bounds review measured H ≤ 0.91 · 2w (exact distances, 674 rechecks of 9039 strip zips) and a volume change ≤ 0.18 of δ times the replaced area |
 
 **Theorem.** Let S0 be the mesh at the start (the rounded mesh) and S the repaired mesh, both without the closed
 components removed as tiny or thin. Then the Hausdorff distance satisfies H(S, S0) ≤ `MaxDrift` ≤ `maxLength`, up
@@ -59,7 +60,7 @@ removed.
 - *Moves and contractions:* the change is a third of the move times the area vector of the link. Proven: |ΔV| ≤ δ ·
   area of the replaced triangles.
 - *Flips and zips:* the change is the volume between the old and the new triangles (for a flip, the tetrahedron
-  abcd). The bounds review measured at most 0.33 (flip) and 0.28 (zip) of δ times the replaced area. That is a
+  abcd). The bounds review measured at most 0.33 (flip), 0.28 (zip) and 0.18 (strip zip) of δ times the replaced area. That is a
   measurement, not a proof.
 - *In total:* about the sum over the edits of δ_e · area(R_e), plus the volume of the removed components, which
   their definition bounds:
@@ -116,6 +117,71 @@ check of the result: intersections and the area threshold.
 - **Thingi10K:** the 400 set (`robust`) and BooleanComparison, before and after, with clean counts and cost.
 - **Stop rule:** if the families show cases that no edit within the bound repairs, the doc lists them with numbers. The
   expansion stage of the paper (section 3, option A) is then the follow-up. A wider bound is not the answer.
+
+**Look before you build (the strip zip and the coarse coordinates).**
+- *Library:* `MeshPostRepairCleanup` collapses needles and flips caps, without a displacement bound; `MeshRoundingRepair`
+  has contractions, flips, moves and the zip of two caps. Nothing removes a strip of slivers, where every flip gives
+  slivers again.
+- *Literature:*
+  - Milenkovic and Sacks [V] have no strip edit: their modification stage contracts, flips and removes thin
+    components, and their expansion stage separates the close features that are left.
+  - CGAL's `remove_almost_degenerate_faces` [V, documentation; GPL] collapses needles and flips caps, with a filter
+    that can cancel an edit. It reports the faces it could not remove for topological reasons: the same vocabulary as
+    ours.
+  - Botsch and Kobbelt 2001 [S] remove degenerate faces with a slicing technique and numerically stable predicates
+    (their pages were not reachable from this session).
+  - Attene 2010 (MeshFix) [S]: removes growing regions of bad elements and patches the gaps; heuristic, with no
+    convergence guarantee and no displacement bound.
+  - No source found for a bounded edit on a strip. The strip zip is the bounded local counterpart of Attene's region
+    removal: refilling the hole of a strip only gives slivers again, so both sides are merged into one chain instead.
+- *Coarse coordinates:*
+  - The snap-rounding methods work on a grid scaled to the bounding box: Valque and Lazard (CGAL 6.1, 2^23 cells per
+    axis) and Devillers et al. (an integer grid). In effect they compute in local coordinates.
+  - GIS and 3D-tiles practice is to store coordinates relative to a local centre [from memory, not checked here].
+  - Neither makes a result representable at world coordinates whose features lie below the world ulp.
+
+**Result of the 1b PR.** `SafeRoundingDegenerateInputTests`, through `ExactMeshBoolean.Resolve` and Booleans. The poked
+and split spheres keep the surface of the sphere they come from (their new vertices lie in its faces), so each result is
+compared with the sphere (`SameSolid` within `MaxDrift`); the others with the exact resolve without SafeRounding.
+- **Families, 564 cases:** collinear pokes (84), slivers at 2^-30 to 2^-52 (72), short edges (72), coincident
+  vertices (84), unwelded duplicates (84), a vertex on a face (84), boxes sharing a face (84). All end clean, within the
+  bound and the same solid, before and after this PR. Two expected exceptions:
+  - a vertex exactly on a face stays a point contact, as in the exact result (two shells touching in a point,
+    "self-intersections"), with drift 0;
+  - boxes 2^-30 to 2^-52 apart have nothing to repair; their result is the exact one, bit for bit (`SameSolid` probes
+    farther than the gap, so it is not used there).
+- **Dense clusters** (a triangle poked 2 to 8 times in a row, each new vertex near an edge of the triangle it pokes):
+  strips of slivers along lines, where every flip gives slivers again. They need a new edit, the **strip zip**
+  (`MeshRoundingRepair`, section 1): the zip of two caps generalized to a strip of degenerate triangles and slivers, a
+  disk whose boundary runs monotone along the segment between its two farthest vertices. Bound 2 w, w the largest
+  distance of the strip's vertices to the line through its ends. Clean results, master → this PR:
+
+  | set | cases | clean before | clean after |
+  |---|---|---|---|
+  | clusters, offset 2^-k of the way inside | 108 | 51 | 85 |
+  | folded clusters, offset 2^-k absolute (the surface folds over itself) | 90 | 41 | 80 |
+  | Booleans (a box cuts the poked and split spheres, all families, union, intersection, difference) | 198 | 183 | 197 |
+
+  All of them, clean or not, stay within the bound and are the same solid as the sphere, before and after.
+- **What is left (stop rule):** 23 + 10 clusters and 1 Boolean (a short edge of 2^-44, union) keep degenerate triangles,
+  most with a drift far below the bound (down to 1e-15). Their strips are no disk with a monotone boundary: they branch
+  (a Y of strips), or they fold in layers on one line, so that the boundary passes a vertex twice. No local edit within
+  the bound repairs them; the zipped result of a folded strip would need two sheets on one edge. This is where the
+  expansion stage of the paper (section 3, option A) or a vertex snap that merges the layers would come in, as the
+  follow-up. The bound stays as it is.
+- **Beyond degenerate input:** the strip zip also repairs most of two known limits of the D′ bound: the rotated
+  coplanar grid (`InvarianceTests`, 3 slivers) is now clean, and of the repeated cylinder differences
+  (`CylinderToolSteppedDown_RepeatedDifference`, ROBUSTNESS_SWEEP R22: one degenerate triangle per step from step 2)
+  steps 3 to 5 are clean. Step 2 keeps its triangle: zipping it with its neighbour, a sliver with an edge of 2e-9,
+  leaves a needle that a contraction would remove next, but each edit must improve on its own.
+- **Coarse coordinates (known limit):** a cluster at scale 1e-3 near UTM coordinates (up to 5.7e6; one unit in the
+  last place, 9.3e-10, is 4.7e-7 of the mesh's size, while its slivers are about 1e-13) is already folded by rounding
+  the input; two intersecting pairs are left, within the bound and the same solid all the same. The same input moved
+  exactly to the local origin (v − T, exact by Sterbenz) resolves clean with no edit: the arrangement is exact in both
+  places, but rounding its new vertices to the world grid gives 33 intersecting pairs instead of 0. So the result is not
+  representable at world coordinates with the precision its features need, and no internal local origin helps the
+  world output. Practice, as in GIS: work in local coordinates. An option that takes an origin and returns the result
+  relative to it is proposed, not built (owner's decision).
 
 ## 3. Snap rounding with guarantees: evaluation (concept)
 
@@ -194,6 +260,7 @@ practical cost:
   - time.
 - **Go criterion for A:** at least 94 % certified (the thesis' certified rate) at a displacement well below 2^-24 of
   the box, and the full pipeline (A + B) at 100 % clean within `maxLength`.
+- **No-go:** if A misses that criterion, A is dropped and B alone, bounded by the drift, is the fallback.
 
 ## 4. Measurements: master against D′
 
@@ -221,3 +288,76 @@ Both tools are built from the same master (`6ce2ad3`), so the comparison measure
 - The unchanged phases of the same runs vary as much: intersections ×1.03, setup ×1.07, assembly ×1.06. So the cost of the drift bookkeeping is within the noise, below about 5 %.
 - On these cases SafeRounding is 31 % of the boolean.
 - 48 of 51 result hashes are identical. The 3 that differ are all thingi/471993, with the same number of edits: there the bound picks other flips.
+
+## 5. Coordinates far from the origin: a magnitude-aware tolerance (design, approved)
+
+Owner decision (via the coordinator): give results at world coordinates, eg UTM, a bound like D′. Features below the
+tolerance need not be represented faithfully, as long as the error stays tiny and bounded and the result is
+topologically clean. A strict mode reports an error instead.
+
+**Owner decision of 2026-11-01:** this design is approved with the proposed defaults: `UlpFactor` 64,
+`AbsoluteTolerance` 0 (callers set it, eg 1e-6 m), `StrictRounding` off, and the weld edit (δ = 0, only where the result
+stays manifold, otherwise reported). It is built as its own PR after 1b.
+
+**The cause** (section 2, ROBUSTNESS_SWEEP R23): at UTM coordinates (up to 5.7e6) one ulp is 9.3e-10. Rounding the
+exact result's new vertices to that grid folds features below it. The same input at the origin resolves clean. The
+relative bound, 1e-5 of the diagonal, is 3.5e-8 for a mesh of 3.5e-3, only 37 ulps: too tight to repair what the
+rounding broke.
+
+**Data for k.** `MeshRoundingRepair` with maxLength = max(1e-5·diag, k·ulp(M)), M the largest coordinate. Input: 114
+UTM cases (clusters, folded clusters, collinear pokes and slivers of section 2, at scale 1e-3, rotated, near UTM),
+resolved without SafeRounding, then repaired:
+
+| k | rounding clean (`IsClean`) | clean (`NotCleanReasons`) | largest drift |
+|---|---|---|---|
+| 0 (today) | 94 | 94 | 37 ulps |
+| 16 | 94 | 94 | 37 ulps |
+| 64 | 103 | 101 | 59 ulps (55 nm) |
+| 256 | 112 | 101 | 251 ulps (0.23 µm) |
+| 1024 | 113 | 102 | 982 ulps (0.9 µm) |
+
+At the origin, all 114 are clean. The gap between the two clean columns comes from 11 cases that are rounding clean
+but count as "self-intersections" for `MeshRobustRepair`: the rounding put distinct vertices of touching sheets onto
+one double position. The repair accepts such contacts (`SharedPositionsTouch`); the clean check does not. One more
+case is an inside-out tiny component. So a larger k alone does not finish the job. It needs one more bounded edit
+(item 2).
+
+**Design.**
+1. **Tolerance:** maxLength = max(`MaxDisplacement`·diag, `UlpFactor`·ulp(M), `AbsoluteTolerance`). The defaults
+   are the owner's decision; proposed: `UlpFactor` 64 (55 nm at 5.7e6), `AbsoluteTolerance` 0 (GIS callers set eg
+   1e-6 m).
+   - The D′ proof is unchanged: only the bound grows. Hausdorff ≤ `MaxDrift` ≤ maxLength, plus the absolute
+     rounding error of a few ulps per edit.
+   - ulp(2^k M) = 2^k ulp(M), so the 2^k scales keep giving the same result bit for bit.
+   - On ordinary meshes the new term never triggers: 64·ulp(M) ≈ 1.4e-14·M stays below 1e-5·diag unless M/diag
+     exceeds about 7e8. So their results and hashes stay bit for bit the same.
+2. **Collapse below the tolerance**, with the existing bounded edits (contraction, flip, zip, strip zip, each with its
+   D′ proof). One new edit: **weld** vertices that the rounding put onto one position, when the merge keeps the mesh
+   manifold. It has δ = 0, since no vertex moves; where it would make a non-manifold vertex, the contact is reported.
+   - Guarantee: closed, manifold, no self-intersections, every point within maxLength of the rounded exact result.
+   - Reported: `MaxDrift`, the edits per kind, and the number of welds.
+3. **Strict mode** (`StrictRounding`, default off): only the relative bound applies. If the result is not clean, the
+   status is a failure with the reason, the location (centroid of a defect) and the smallest drift a rejected edit
+   would have needed (recorded per defect at the drift check). No result is returned.
+4. **API, additive only** (1.0.324 compatible):
+   - `MeshRoundingRepair.UlpFactor` and `MeshRoundingRepair.AbsoluteTolerance`, also on `ExactMeshBoolean`, passed
+     through to its repair;
+   - `ExactMeshBoolean.StrictRounding`;
+   - one new `BooleanStatus` value for a strict failure;
+   - `MeshRoundingRepair.Welds`.
+5. **Evidence for the PR:**
+   - the 114 UTM cases (target: as clean as at the origin), including the k30 cluster at world coordinates;
+   - Thingi10K-400 and BooleanComparison clean counts, unchanged or better;
+   - the result hashes of the ordinary classes, bit for bit the same.
+
+**Look before you build.**
+- *Library:* `MeshRoundingRepair` already scales every bound with the diagonal. Its absolute rounding error is
+  documented (class comment, REVIEW_CHECKLIST §5). `ExactMeshBoolean` keeps coordinates as given, with no origin or
+  grid.
+- *GIS libraries* [V, JTS documentation]:
+  - JTS works on a fixed-precision grid (`PrecisionModel` with a scale). Its snap rounding (`SnapRoundingNoder`,
+    after Hobby and Guibas-Marimont) assumes that all vertices lie on that grid.
+  - `GeometryPrecisionReducer` rounds to the grid and makes the output valid. In OverlayNG, components closer than the
+    grid precision may merge.
+  - GEOS has the same design.
+  - That is the same contract as items 1 and 2: below the tolerance, features collapse, and the output is valid.

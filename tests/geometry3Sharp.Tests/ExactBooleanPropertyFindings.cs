@@ -20,14 +20,13 @@ namespace geometry3Sharp.Tests
     /// displacements times the areas they replace. The test asserts a clean result, the drift bound, the same solid
     /// within MaxDrift, and a volume sanity check, not bit identity.
     ///
-    /// Design question 1b (not a defect by the documentation): an input that is already not clean (a triangle
-    /// below the threshold, MeshRobustRepair "degenerate triangles") is repaired too, which moves its surface.
-    /// That may be the intended repair; the owner decides whether SafeRounding should leave input triangles alone.
+    /// Design question 1b, resolved by the owner's decision (November 2026): an input that is already not clean (a
+    /// triangle below the threshold, MeshRobustRepair "degenerate triangles") is repaired too, within the same bound.
+    /// The test asserts a clean result, the drift bound and the same solid within MaxDrift. The families of degenerate
+    /// input are in SafeRoundingDegenerateInputTests (docs/design/SAFE_ROUNDING.md section 2).
     /// </summary>
     public class ExactBooleanPropertyFindings
     {
-        const string Question1b = "Design question 1b of the Boolean property tests: should SafeRounding repair degenerate triangles of the input?";
-
         static readonly double T = Math.Pow(2, -20);
 
         // the unit cube with its edge (0,0,0)-(1,0,0) split at (2^-20, 0, 0): clean (no triangle below the
@@ -117,11 +116,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Six, SixVolume(ExactMeshBoolean.Resolve(a, false)));
         }
 
-        [Fact(Skip = Question1b)]
-        public void Resolve_DegenerateInputTriangle()
+        [Fact]
+        public void Resolve_RepairsTheDegenerateInputTriangle_WithinItsDisplacementBound()
         {
-            // now 0.99999984105428 instead of 1: the vertex (2^-20,0,0) on the cube's edge is moved into the face
-            Assert.Equal(Six, SixVolume(ExactMeshBoolean.Resolve(CubeWithDegenerateTriangle())));
+            DMesh3 a = CubeWithDegenerateTriangle();
+            var op = new ExactMeshBoolean(a, new DMesh3(), Ops.Union);
+            Assert.True(op.Compute(), op.Error);
+            // clean
+            ResultChecks.AssertClean(op.Result);
+            Assert.True(op.RoundingClean);
+            // within the bound, and the cube up to it (volume 0.99999984105428 instead of 1: the vertex (2^-20,0,0) on
+            // the cube's edge is moved into the face)
+            MeshRoundingRepair r = op.Rounding;
+            double diag = gs.MeshRepairMetrics.TriangleBounds(a).DiagonalLength;
+            Assert.True(r.MaxDrift > 0 && r.MaxDrift <= r.MaxDisplacement * diag, $"drift {r.MaxDrift:G3}");
+            Assert.Equal("", BooleanOracle.SameSolid(op.Result, a, 1, r.MaxDrift));
+            double dv = Math.Abs((SixVolume(op.Result) - Six).ToDouble()) / 6;
+            Assert.True(dv <= 2 * r.MaxDrift * Invariance.Area(a), $"volume change {dv:G3}");
         }
     }
 }
