@@ -71,6 +71,10 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
 3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 and #274 merged.
    `m2.snap` (snap rounding with restore, refinement on the grid, §3g) merged in #277 on 2026-11-02; the reference
    comparison's set D starts now.
+   Reference comparison analysed in [design/MESHING2D_REFERENCE_COMPARISON.md](design/MESHING2D_REFERENCE_COMPARISON.md) (#293): one real
+   defect (CDT issue-211 at M3 20°, bugfix next). Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989,
+   Shewchuk 2002, Üngör 2004), its own PR after the bugfix, measured before/after. Stage 6b done: no copied expression against
+   Triangle.NET (#295) nor against `triangle.c` 1.6 directly (#296); dirty evidence in `g3-meshing-references`, branch `claude/provenance-6b`.
    The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing
    provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is
    merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session,
@@ -222,9 +226,10 @@ Open tasks further up, and work further down, in the code or in the research lis
   Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
   smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
   free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
-  about 17x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
-  filter; the 2D shortcut for coplanar neighbours, about -30 % on CAD meshes, after the
-  `ExactTriangleIntersection` fix of stage R), and the thin walls, where the check blocks the folds but the result
+  about 6-10x the time after #261 (measured on master b7fbc52); the axis-plane case of `TriangleTriangleFilter` takes
+  the gears 15 % and the primitives 5 % lower, bit-identical (`benchmarks/SelfIntersectionBenchmark`). The 2D shortcut for coplanar neighbours (#261 took it, under 0.2 % left) and
+  a clearance filter (at most 5-10 %) were measured and closed there; what is left is the number of candidate pairs.
+  Open: the thin walls, where the check blocks the folds but the result
   ends far from the input (next item).
 - [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
   and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean

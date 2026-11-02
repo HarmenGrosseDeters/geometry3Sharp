@@ -99,6 +99,192 @@ namespace geometry3Sharp.Tests
             Assert.True(sep > 3000 && hit > 3000, $"{sep} separate, {hit} intersecting");
         }
 
+        // pairs with A in the axis plane coordinate[axis] = level (small integer coordinates in it) and B with its
+        // corners on the plane or on one side of it (offsets 0, 0, 1, 2 along the axis: it touches the plane in a
+        // vertex or an edge, or not at all), without shared vertices, with one and with two; crossing = true gives
+        // each B corners on both sides. The touching pairs are what CAD-like parts give (a cap in an axis plane and a
+        // wall that meets it at the rim): Orient3d is exactly 0 there, the exact test's slow stage
+        static List<Pair> AxisPlaneTouchingPairs(int count, int axis, double level, int seed, bool crossing = false)
+        {
+            var rand = new Random(seed);
+            Func<double, Vector3d> point = (d) => {
+                double u = rand.Next(0, 7), v = rand.Next(0, 7), w = level + d;
+                return axis == 0 ? new Vector3d(w, u, v) : axis == 1 ? new Vector3d(v, w, u) : new Vector3d(u, v, w);
+            };
+            var offsets = new double[] { 0, 0, 1, 2 };
+            var pairs = new List<Pair>();
+            while (pairs.Count < count) {
+                int kind = pairs.Count % 3;
+                double sign = rand.Next(2) == 0 ? -1 : 1;
+                Func<double> off = () => sign * offsets[rand.Next(offsets.Length)];
+                Vector3d a0 = point(0), a1 = point(0), a2 = point(0);
+                Vector3d b0 = point(off()), b1 = point(off()), b2 = point(crossing ? -sign * (1 + rand.Next(2)) : off());
+                if (crossing) b1 = point(sign * (1 + rand.Next(2)));
+                var p = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(a0, a1, a2) };
+                if (kind == 0) {
+                    p.Ib = new Index3i(3, 4, 5); p.B = new Triangle3d(b0, b1, b2);
+                } else if (kind == 1) {
+                    int c = rand.Next(3);
+                    p.Ib = c == 0 ? new Index3i(1, 4, 5) : c == 1 ? new Index3i(4, 1, 5) : new Index3i(4, 5, 1);
+                    p.B = c == 0 ? new Triangle3d(a1, b1, b2) : c == 1 ? new Triangle3d(b1, a1, b2) : new Triangle3d(b1, b2, a1);
+                } else {
+                    bool flip = rand.Next(2) == 0;
+                    p.Ib = flip ? new Index3i(2, 1, 5) : new Index3i(1, 2, 5);
+                    p.B = flip ? new Triangle3d(a2, a1, b2) : new Triangle3d(a1, a2, b2);
+                }
+                if (ExactTriangleIntersection.IsDegenerate(ref p.A) || ExactTriangleIntersection.IsDegenerate(ref p.B))
+                    continue;
+                // (B in the plane too: the planar case of AxisPlane_AlwaysDecided_AsTheExactTest)
+                if (p.B.V0[axis] == level && p.B.V1[axis] == level && p.B.V2[axis] == level)
+                    continue;
+                if (rand.Next(2) == 0) { var t = p.A; p.A = p.B; p.B = t; var ti = p.Ia; p.Ia = p.Ib; p.Ib = ti; }
+                pairs.Add(p);
+            }
+            return pairs;
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void AxisPlaneAndTouching_AlwaysDecided_AsTheExactTest(int axis)
+        {
+            // one triangle in an axis plane, the other on one side of it, touching it or not: decided both ways,
+            // either argument order
+            List<Pair> pairs = AxisPlaneTouchingPairs(30000, axis, 2.5, 41 + axis);
+            var (sep, hit, und) = CheckAgainstExact(pairs, $"axis {axis}");
+            Assert.Equal(0, und);
+            for (int kind = 0; kind < 3; ++kind) {
+                var k = pairs.Where((p, i) => i % 3 == kind).ToList();
+                Assert.Contains(k, p => Exact(p) == false);
+                // (a shared edge with the far corner off the plane never intersects beyond it)
+                if (kind < 2)
+                    Assert.Contains(k, p => Exact(p));
+            }
+            Assert.True(sep > 3000 && hit > 3000, $"{sep} separate, {hit} intersecting");
+            foreach (Pair p in pairs) {
+                Pair q = new Pair { Ia = p.Ib, Ib = p.Ia, A = p.B, B = p.A };
+                Assert.Equal(Filter(p), Filter(q));
+            }
+        }
+
+        [Fact]
+        public void AxisPlaneAndDegenerate_NeverWronglyDecided()
+        {
+            // A in the plane z = 0, B degenerate (collinear corners, or two at one point) touching the plane: without
+            // shared vertices the exact test takes B as the closed segment, and the filter agrees where it decides;
+            // with a shared vertex the filter leaves a degenerate B to the exact test (whose callers skip it)
+            var rand = new Random(53);
+            Func<double, Vector3d> point = (z) => new Vector3d(rand.Next(0, 7), rand.Next(0, 7), z);
+            int decided = 0, shared = 0;
+            for (int n = 0; n < 20000; ++n) {
+                Vector3d a0 = point(0), a1 = point(0), a2 = point(0);
+                var p = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(a0, a1, a2) };
+                if (ExactTriangleIntersection.IsDegenerate(ref p.A))
+                    continue;
+                if (n % 2 == 0) {
+                    // a segment from the plane up, or lying on it with a third corner on it
+                    Vector3d b0 = point(0), b1 = rand.Next(2) == 0 ? point(0) : point(rand.Next(1, 3));
+                    p.Ib = new Index3i(3, 4, 5); p.B = new Triangle3d(b0, b1, b0 + rand.Next(-1, 3) * (b1 - b0));
+                    if (p.B.V0.z == 0 && p.B.V1.z == 0 && p.B.V2.z == 0) continue;
+                    int f = Filter(p);
+                    if (f != TriangleTriangleFilter.Undecided) {
+                        decided++;
+                        Assert.True((f == TriangleTriangleFilter.Intersecting) == Exact(p), $"filter {f}: A {p.A.V0} {p.A.V1} {p.A.V2}, B {p.B.V0} {p.B.V1} {p.B.V2}");
+                    }
+                } else {
+                    // vertex 1 shared, a second corner of B at the same point (another id), the third above the plane
+                    p.Ib = new Index3i(1, 4, 5); p.B = new Triangle3d(a1, a1, point(rand.Next(1, 3)));
+                    Assert.Equal(TriangleTriangleFilter.Undecided, Filter(p));
+                    shared++;
+                }
+            }
+            Assert.True(decided > 3000 && shared > 5000, $"{decided} decided, {shared} shared");
+        }
+
+        // the next double up / down, for finite x (Math.BitIncrement / BitDecrement are missing on net48)
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+
+        // the projection along axis k that TriangleTriangleFilter uses: the other two coordinates in cyclic order
+        static Vector2d DropCyclic(Vector3d v, int k) => k == 0 ? new Vector2d(v.y, v.z) : k == 1 ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void AxisPlaneFactorization_SameSignAsOrient3d(int k)
+        {
+            // the identity the axis-plane case rests on: for p0, p1, p2 with p0[k] = p1[k] = p2[k] = h,
+            // Orient3d(p0, p1, p2, x) = sign(x[k] - h) * Orient2d of the projections along k in cyclic order (the cross
+            // product of two edge vectors with a 0 in coordinate k has only its component k, the 2D cross product). Checked against the exact Orient3d on random and adversarial inputs:
+            // x on the plane and one ulp off it, degenerate projections (collinear, coincident corners), large and
+            // tiny magnitudes, far from the origin, every order of the corners
+            var rand = new Random(61 + k);
+            double[] levels = { 0, 2.5, -3, 1e-300, -4.9e-324, 1e300, 632117.25, 5712043.5, 0.1 };
+            double[] scales = { 1, 1e-200, 1e200, 1e-3, 1e5 };
+            int n = 0, zero = 0, degenerate = 0;
+            Func<double, Vector3d> at = (hk) => {
+                double u = rand.Next(-4, 5) + (rand.Next(3) == 0 ? rand.NextDouble() : 0), v = rand.Next(-4, 5) + (rand.Next(3) == 0 ? rand.NextDouble() : 0);
+                return k == 0 ? new Vector3d(hk, u, v) : k == 1 ? new Vector3d(v, hk, u) : new Vector3d(u, v, hk);
+            };
+            foreach (double h in levels)
+                foreach (double sc in scales)
+                    for (int t = 0; t < 400; ++t) {
+                        Func<Vector3d, Vector3d> scale = (q) => {
+                            var r = q * sc; r[k] = q[k]; return r;
+                        };
+                        Vector3d p0 = scale(at(h)), p1 = scale(at(h)), p2 = scale(at(h));
+                        if (t % 5 == 0) p2 = p0 + rand.Next(-2, 3) * (p1 - p0);       // collinear or coincident
+                        p2[k] = h;
+                        double xk = (t % 4) switch {
+                            0 => h, 1 => BitIncrement(h), 2 => BitDecrement(h), _ => h + sc * rand.Next(-3, 4)
+                        };
+                        Vector3d x = scale(at(xk)); x[k] = xk;
+                        int o2 = ExactPredicates.Orient2d(DropCyclic(p0, k), DropCyclic(p1, k), DropCyclic(p2, k));
+                        int expected = Math.Sign(xk.CompareTo(h)) * o2;
+                        Vector3d[] P = { p0, p1, p2 };
+                        foreach (var perm in new[] { new[] { 0, 1, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 1, 0, 2 }, new[] { 0, 2, 1 }, new[] { 2, 1, 0 } }) {
+                            bool even = perm[0] == 0 && perm[1] == 1 || perm[0] == 1 && perm[1] == 2 || perm[0] == 2 && perm[1] == 0;
+                            int o3 = ExactPredicates.Orient3d(P[perm[0]], P[perm[1]], P[perm[2]], x);
+                            Assert.True((even ? expected : -expected) == o3, $"k {k}: {P[perm[0]]} {P[perm[1]]} {P[perm[2]]} {x}: Orient3d {o3}, expected {(even ? expected : -expected)}");
+                        }
+                        n++;
+                        if (expected == 0) zero++;
+                        if (o2 == 0) degenerate++;
+                    }
+            Assert.True(zero > 0.2 * n && degenerate > 0.1 * n && n - zero > 0.4 * n, $"{n} cases: {zero} zero, {degenerate} degenerate");
+        }
+
+        [Fact]
+        public void AxisPlaneAndCrossing_DecidedPairsAgree()
+        {
+            // the other triangle with corners on both sides of the plane: left to the exact test, except where the
+            // projection decides
+            List<Pair> pairs = AxisPlaneTouchingPairs(30000, 1, -1.5, 43, crossing: true);
+            var (sep, hit, und) = CheckAgainstExact(pairs, "crossing");
+            Assert.True(und > 1000, $"{sep} separate, {hit} intersecting, {und} undecided");
+        }
+
+        [Fact]
+        public void AxisPlaneAndTouching_EveryFrame_DecidedPairsAgree_ExactScalesSameAnswer()
+        {
+            List<Pair> pairs = AxisPlaneTouchingPairs(9000, 2, 1.5, 47);
+            int[] reference = pairs.Select(Filter).ToArray();
+            foreach (Similarity s in Similarity.All()) {
+                var moved = pairs.Select(p => Transformed(p, s.Apply)).ToList();
+                var (sep, hit, und) = CheckAgainstExact(moved, s.Name);
+                Assert.True(sep > 1000, $"{s.Name}: {sep} separate, {und} undecided");
+                if (s.IsExact)
+                    Assert.Equal(reference, moved.Select(Filter).ToArray());
+            }
+        }
+
         [Fact]
         public void AxisPlane_SwappedArguments_SameAnswer()
         {
@@ -160,6 +346,50 @@ namespace geometry3Sharp.Tests
             var (sep, hit, und) = CheckAgainstExact(pairs, "tilted plate");
             Assert.Equal(0, hit);
             Assert.True(pairs.Count > 4000 && und < 0.01 * pairs.Count, $"{pairs.Count} pairs: {sep} separate, {und} undecided");
+        }
+
+        [Fact]
+        public void ExtrudedPart_CapPairs_AllDecided()
+        {
+            // a CAD-like part: an extruded star with caps as fans around their centres and walls in no axis plane. The
+            // candidates of the self-intersection checks (touching or overlapping boxes) include cap and wall triangles
+            // that meet at the rim without a shared vertex: each corner of the wall on the cap's plane or above it
+            DMesh3 mesh = new DMesh3();
+            int n = 24;
+            int cb = mesh.AppendVertex(new Vector3d(0, 0, 0)), ct = mesh.AppendVertex(new Vector3d(0, 0, 0.3));
+            var b = new int[n]; var t = new int[n];
+            for (int i = 0; i < n; ++i) {
+                double r = i % 2 == 0 ? 1 : 0.6, a = 2 * Math.PI * i / n;
+                b[i] = mesh.AppendVertex(new Vector3d(r * Math.Cos(a), r * Math.Sin(a), 0));
+                t[i] = mesh.AppendVertex(new Vector3d(r * Math.Cos(a), r * Math.Sin(a), 0.3));
+            }
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                mesh.AppendTriangle(cb, b[j], b[i]); mesh.AppendTriangle(ct, t[i], t[j]);
+                mesh.AppendTriangle(b[i], b[j], t[j]); mesh.AppendTriangle(b[i], t[j], t[i]);
+            }
+            var pairs = new List<Pair>();
+            int[] ids = mesh.TriangleIndices().ToArray();
+            foreach (int i in ids)
+                foreach (int j in ids) {
+                    if (j <= i) continue;
+                    Index3i ia = mesh.GetTriangle(i), ib = mesh.GetTriangle(j);
+                    var p = new Pair { Ia = ia, Ib = ib, A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c)),
+                        B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c)) };
+                    AxisAlignedBox3d ba = new AxisAlignedBox3d(p.A.V0), bb = new AxisAlignedBox3d(p.B.V0);
+                    ba.Contain(p.A.V1); ba.Contain(p.A.V2); bb.Contain(p.B.V1); bb.Contain(p.B.V2);
+                    if (ba.Min.x <= bb.Max.x && bb.Min.x <= ba.Max.x && ba.Min.y <= bb.Max.y && bb.Min.y <= ba.Max.y && ba.Min.z <= bb.Max.z && bb.Min.z <= ba.Max.z)
+                        pairs.Add(p);
+                }
+            var (sep, hit, und) = CheckAgainstExact(pairs, "extruded part");
+            Assert.Equal(0, hit);
+            // every pair with a cap triangle is decided (only wall pairs at the valleys of the star, which meet at an
+            // angle no axis projection separates, are left to the exact test, where Orient3d is not 0)
+            Func<Triangle3d, bool> cap = (T) => T.V0.z == T.V1.z && T.V0.z == T.V2.z;
+            var withCap = pairs.Where(p => cap(p.A) || cap(p.B)).ToList();
+            Assert.True(withCap.Count > 800, $"{withCap.Count} of {pairs.Count} pairs with a cap triangle");
+            Assert.DoesNotContain(withCap, p => Filter(p) == TriangleTriangleFilter.Undecided);
+            Assert.True(und < 0.1 * pairs.Count, $"{und} of {pairs.Count} undecided");
         }
 
         // coplanar pairs at a shared vertex and at a shared edge where A is a sliver (its third corner within 2^-20..2^-57 of

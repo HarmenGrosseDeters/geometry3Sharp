@@ -262,6 +262,10 @@ namespace g3cli
                 ["safe_rounding"] = op.SafeRounding,
                 ["rounding_clean"] = op.RoundingClean,
                 ["simplify_flat_regions"] = op.SimplifyFlatRegions,
+                ["strict_rounding"] = op.StrictRounding,
+                // (the effective values: strict rounding uses neither term)
+                ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
+                ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
             };
@@ -286,6 +290,7 @@ namespace g3cli
                 ["removed_components"] = r.RemovedComponents,
                 ["removed_triangles"] = r.RemovedTriangles,
                 ["max_drift"] = MeshReport.Num(r.MaxDrift),
+                ["max_length"] = MeshReport.Num(r.MaxLength),
                 ["evaluation_limit_reached"] = r.EvaluationLimitReached,
             };
         }
@@ -293,7 +298,37 @@ namespace g3cli
         static Param SafeRounding() =>
             new Param("safe_rounding", ParamType.Boolean, "repair the self-intersections and slivers that rounding the new vertices to double leaves " +
                 "(ExactMeshBoolean.SafeRounding, MeshRoundingRepair: local edits checked exactly, each surface point moves at most 1e-5 of the " +
-                "bounding box diagonal); false: plain rounding, faster") { Default = true };
+                "bounding box diagonal, or the larger bound of rounding_ulp_factor / rounding_absolute_tolerance); false: plain rounding, faster") { Default = true };
+        static void AddRoundingTolerances(Command c)
+        {
+            c.Params.Add(new Param("rounding_ulp_factor", ParamType.Number, "safe_rounding far from the origin (eg UTM coordinates): beyond 1e-5 of the " +
+                "bounding box diagonal, edits may move the surface up to this many units in the last place of the largest coordinate " +
+                "(ExactMeshBoolean.RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
+            c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, "safe_rounding: edits may also move the surface up to this absolute " +
+                "distance (ExactMeshBoolean.RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
+            c.Params.Add(new Param("strict_rounding", ParamType.Boolean, "safe_rounding within 1e-5 of the diagonal only (no ulp or absolute term); " +
+                "a result that is not clean fails with operation_failed (status RoundingNotClean) instead of being written with defects " +
+                "(ExactMeshBoolean.StrictRounding; the ulp and absolute terms are 0 then, so it cannot be combined with them)") { Default = false });
+        }
+
+        static void ApplyRoundingTolerances(ExactMeshBoolean op, Args args)
+        {
+            double ulp = args.Number("rounding_ulp_factor"), abs = args.Number("rounding_absolute_tolerance");
+            if (!(ulp >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_ulp_factor' must be >= 0");
+            if (!(abs >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
+            bool strict = args.Bool("strict_rounding");
+            if (strict && args.Bool("safe_rounding") == false)
+                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
+            // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
+            if (strict && (ulp != 256 || abs != 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' uses the relative bound only: it cannot be combined with 'rounding_ulp_factor' or 'rounding_absolute_tolerance'");
+            op.RoundingUlpFactor = ulp;
+            op.RoundingAbsoluteTolerance = abs;
+            op.StrictRounding = strict;
+        }
+
         static Param SimplifyFlatRegions() =>
             new Param("simplify_flat_regions", ParamType.Boolean, "remove new vertices inside flat regions and on straight edges between them " +
                 "(ExactMeshBoolean.SimplifyFlatRegions); false keeps every crossing of coplanar faces") { Default = true };
@@ -315,6 +350,7 @@ namespace g3cli
             c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
             c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
             c.Params.Add(SafeRounding());
+            AddRoundingTolerances(c);
             c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -351,6 +387,7 @@ namespace g3cli
                 }
                 op.AllowOpenMeshes = args.Bool("allow_open");
                 op.SafeRounding = args.Bool("safe_rounding");
+                ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error);
@@ -381,6 +418,7 @@ namespace g3cli
             c.Params.Add(Input());
             c.Params.Add(Output());
             c.Params.Add(SafeRounding());
+            AddRoundingTolerances(c);
             c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -391,8 +429,9 @@ namespace g3cli
                 var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = args.Bool("safe_rounding"), SimplifyFlatRegions = args.Bool("simplify_flat_regions"),
                 };
+                ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed: " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed (" + op.Status + "): " + op.Error);
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
                 o["exact_winding"] = op.ExactWindingA;

@@ -84,6 +84,26 @@ namespace gs
         /// with MeshRoundingRepair). Without it, the cleanup collapses slivers and the resolve is repeated.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// the settings of SafeRounding, passed to the exact resolve (ExactMeshBoolean.RoundingMaxDisplacement,
+        /// RoundingUlpFactor, RoundingAbsoluteTolerance) and to the repair after SeparateTouchingVertices
+        /// (MeshRoundingRepair.MaxDisplacement, UlpFactor, AbsoluteTolerance); see MeshRoundingRepair
+        /// </summary>
+        public double RoundingMaxDisplacement = 1e-5, RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
+        /// <summary>
+        /// ExactMeshBoolean.StrictRounding for the exact resolve (and the relative bound only for the repair after
+        /// SeparateTouchingVertices): a resolve whose rounding is not clean within the relative bound fails
+        /// (ExactResolveReason starts with "rounding not clean (StrictRounding)"), and the repair goes on with its other
+        /// stages. The repair after the separation does not fail on its own: what it leaves is handled as before (another
+        /// round, or the stage's reason). No effect without SafeRounding. Off by default
+        /// </summary>
+        public bool StrictRounding = false;
+        /// <summary>
+        /// the repairs of the last exact resolve round: the resolve's SafeRounding (ExactMeshBoolean.Rounding) and the one
+        /// after SeparateTouchingVertices; null if not run (diagnostics). Reset by Apply; a later stage that returns before
+        /// its rounds keeps those of an earlier one
+        /// </summary>
+        public MeshRoundingRepair ExactResolveRounding, SeparatedRounding;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
         /// <summary>
@@ -237,6 +257,7 @@ namespace gs
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
             ExactRoundingEdits.Clear();
+            ExactResolveRounding = SeparatedRounding = null;
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             VolumeChecksRun = 0;
@@ -503,12 +524,18 @@ namespace gs
                 if (CancelF())
                     return null;
                 timer.Restart();
-                var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { SafeRounding = SafeRounding };
+                var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) {
+                    SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
+                    RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding
+                };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
+                ExactResolveRounding = resolve.Rounding;
+                SeparatedRounding = null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
-                    ExactResolveReason = "resolve failed";
+                    ExactResolveReason = resolve.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean
+                        ? "rounding not clean (StrictRounding)" : "resolve failed";
                     return null;
                 }
                 // slivers where intersection curves nearly meet: collapsed or flipped by the cleanup
@@ -543,8 +570,12 @@ namespace gs
                     } else {
                         // (all of the mesh: the edits at the former contacts, which the safe rounding must not
                         // make, are possible now)
-                        var rounding = new MeshRoundingRepair(res);
+                        var rounding = new MeshRoundingRepair(res) {
+                            MaxDisplacement = RoundingMaxDisplacement, UlpFactor = StrictRounding ? 0 : RoundingUlpFactor,
+                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance
+                        };
                         rounding.Apply();
+                        SeparatedRounding = rounding;
                         edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.VertexRemovals + rounding.RemovedTriangles;
                         if (edits > 0)
                             res = new DMesh3(res, true);
