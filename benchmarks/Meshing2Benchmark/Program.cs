@@ -25,6 +25,12 @@ namespace Meshing2Acceptance
   oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--case <id>] [--row <file>]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
+  mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
+                                    format, or Triangle .node/.ele/.poly files if <file> ends so; prints the row's fingerprints and
+                                    whether they equal the golden row
+  mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle d] [--max-area a] [--steiner-limit n]
+                                    the same for an input file (the text input format or Triangle's); an input equal to a case is
+                                    that case; otherwise the milestone is inferred from its options and default expectations judge it
   cases                             list the cases with their generators and input hashes
   compare [--rows <file>]           our rows against rows of another producer, read from <file> or G3_MESH2_REFERENCE_ROWS;
                                     skipped with a message if there are none; not part of CI
@@ -65,6 +71,7 @@ namespace Meshing2Acceptance
                     case "golden": return Golden(args);
                     case "oracle": return OracleCommand(args);
                     case "case": return WriteCase(args);
+                    case "mesh": return Mesh(args);
                     case "cases": return ListCases();
                     case "compare": return Compare(args);
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
@@ -243,6 +250,15 @@ namespace Meshing2Acceptance
             if (c == null || path == null) { Console.Error.WriteLine("unknown case or no --output: " + id); return 2; }
             File.WriteAllText(path, TextFormat.WriteInput(c.Input));
             return 0;
+        }
+
+        static int Mesh(string[] args) =>
+            // outside the repository there are no golden rows (--input still works)
+            MeshCommand.Execute(args.Skip(1).ToList(), Console.Out, Console.Error, AllCases().ToList(), GoldenDirOrNull());
+
+        static string GoldenDirOrNull()
+        {
+            try { return Path.GetDirectoryName(GoldenPath(Milestone.M1)); } catch (InvalidOperationException) { return null; }
         }
 
         static int ListCases()

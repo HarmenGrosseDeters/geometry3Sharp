@@ -236,6 +236,65 @@ namespace g3cli
             return best;
         }
 
+        static string Extension(string path) => System.IO.Path.GetExtension(path ?? "").ToLowerInvariant();
+
+        static bool IsTriangleInput(string path) => Extension(path) == ".poly" || Extension(path) == ".node";
+
+        /// <summary> the path without its extension if the output is a Triangle file (.node, .ele, .poly), else null </summary>
+        static string TriangleOutputBase(string path)
+        {
+            string ext = Extension(path);
+            return ext == ".node" || ext == ".ele" || ext == ".poly" ? path.Substring(0, path.Length - ext.Length) : null;
+        }
+
+        static string ReadText(string path)
+        {
+            if (System.IO.File.Exists(path) == false)
+                throw new CommandException(ResultCodes.ReadError, $"file not found: {path}");
+            try {
+                return System.IO.File.ReadAllText(path);
+            } catch (Exception e) {
+                throw new CommandException(ResultCodes.ReadError, $"cannot read '{path}': {e.Message}");
+            }
+        }
+
+        static void WriteText(string path, string text)
+        {
+            try {
+                string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
+                if (System.IO.Directory.Exists(dir) == false)
+                    throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+                System.IO.File.WriteAllText(path, text);
+            } catch (CommandException) {
+                throw;
+            } catch (Exception e) {
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
+            }
+        }
+
+        /// <summary> A Triangle .poly (with its .node file if it lists no vertices) or .node file. </summary>
+        static ConstrainedMesh2Input ReadTriangleInput(string path, bool heights, List<string> notes, out int loops)
+        {
+            string text = ReadText(path);
+            TrianglePolyFormat.PolyInfo info;
+            ConstrainedMesh2Input input;
+            try {
+                if (Extension(path) == ".node") {
+                    input = TrianglePolyFormat.ReadNode(text, heights, out info);
+                } else {
+                    string node = System.IO.Path.ChangeExtension(path, ".node");
+                    input = TrianglePolyFormat.ReadPoly(text, () => System.IO.File.Exists(node) ? ReadText(node) : null, heights, out info);
+                }
+            } catch (FormatException e) {
+                throw new CommandException(ResultCodes.ReadError, $"cannot read '{path}': {e.Message}");
+            }
+            if (heights && input.Heights == null)
+                notes.Add("poly_heights: the vertices have no attribute, the heights are 0");
+            notes.AddRange(info.Notes);
+            loops = info.Loops;
+            return input;
+        }
+
         static Command Mesh2d()
         {
             var c = new Command() {
@@ -244,11 +303,15 @@ namespace g3cli
                     "and holes), hole seeds and labelled regions (ConstrainedDelaunayMesh2, QualityMesh2: Ruppert / Shewchuk refinement " +
                     "to a minimum angle, maximum area and Steiner point limit). Exact predicates; crossing constraints are split. " +
                     "Input: a JSON file (input) or inline JSON (geometry): " + Mesh2dInput.FormatDescription + ". " +
+                    "Or a Triangle .poly or .node file (the standard 2D meshing format; the domain is what segments enclose, as with Triangle -p, " +
+                    "hole points remove holes, regional attributes are integer labels with optional maximum areas). " +
                     "Without rings the domain is the convex hull minus the holes. The output mesh lies in the XY plane (z = heights, " +
-                    "or 0), oriented counterclockwise (normals +z); region labels are its triangle groups (OBJ: 'g' lines).",
+                    "or 0), oriented counterclockwise (normals +z); region labels are its triangle groups (OBJ: 'g' lines). " +
+                    "An output ending in .node, .ele or .poly writes the Triangle files <name>.node, <name>.ele and <name>.poly (subsegments with markers).",
             };
-            c.Params.Add(new Param("input", ParamType.String, "JSON file with the input (see the description); or give geometry") { Positional = true });
-            c.Params.Add(Output());
+            c.Params.Add(new Param("input", ParamType.String, "input file: JSON (see the description), or Triangle .poly / .node; or give geometry") { Positional = true });
+            c.Params.Add(new Param("output", ParamType.String, "output file: a mesh file by extension (" + string.Join(", ", MeshFiles.WriteFormats) +
+                "), or .node / .ele / .poly for the Triangle files <name>.node, <name>.ele, <name>.poly (subsegments, hole points, seed regions)") { Required = true, Positional = true });
             c.Params.Add(new Param("geometry", ParamType.String, "the input as inline JSON text, instead of an input file"));
             c.Params.Add(new Param("quality", ParamType.Boolean, "refine to the quality bounds (QualityMesh2); false: the constrained Delaunay triangulation only (ConstrainedDelaunayMesh2), min_angle, max_area, steiner_limit and conforming must not be given") { Default = true });
             c.Params.Add(new Param("min_angle", ParamType.Number, "quality: minimum angle in degrees, in [0, 60) (0 = no angle bound; up to about 33 converges on ordinary input)"));
@@ -256,10 +319,16 @@ namespace g3cli
             c.Params.Add(new Param("steiner_limit", ParamType.Integer, "quality: most Steiner points to insert (default 10 x (points + segments) + 100000)"));
             c.Params.Add(new Param("conforming", ParamType.Boolean, "quality: conforming Delaunay, also without bounds (split segments until none is encroached)"));
             c.Params.Add(new Param("resolve_crossings", ParamType.Boolean, "split crossing constraints; false: a crossing fails with operation_failed") { Default = true });
+            c.Params.Add(new Param("snap_tolerance", ParamType.Number, "snap rounding to a grid of this width anchored at the origin (m2.snap): input " +
+                "points move to their grid points, constraints are routed through them, every vertex ends at least half a cell from every constraint " +
+                "it is not on, and refinement adds vertices on the grid only; collapsed rings and segments are reported in warnings. 0 = only the " +
+                "automatic tolerance (2^-41 of the coordinates). At least 2^-40 of the largest coordinate") { Default = 0.0 });
+            c.Params.Add(new Param("poly_heights", ParamType.Boolean, "Triangle input: the first vertex attribute is the height of the point (z of the output)") { Default = false });
             c.Params.Add(Binary());
-            // TODO(m2.snap, #277): expose the snap tolerance (QualityMesh2 / ConstrainedDelaunayMesh2 SnapTolerance) once #277 is merged.
             c.Run = args => {
-                MeshFiles.CheckWritable(args.String("output"));
+                string outputBase = TriangleOutputBase(args.String("output"));
+                if (outputBase == null)
+                    MeshFiles.CheckWritable(args.String("output"));
                 if (args.Has("input") == args.Has("geometry"))
                     throw new CommandException(ResultCodes.InvalidArguments, "give exactly one of input (a JSON file) and geometry (inline JSON)");
                 bool quality = args.Bool("quality");
@@ -271,23 +340,39 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'min_angle' must be in [0, 60)");
                 if (args.Has("max_area") && !(args.Number("max_area") > 0))
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_area' must be > 0");
+                double snap = args.Number("snap_tolerance");
+                if (!(snap >= 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'snap_tolerance' must be >= 0");
                 if (args.Has("steiner_limit") && args.Integer("steiner_limit") < 0)
                     throw new CommandException(ResultCodes.InvalidArguments, "'steiner_limit' must be >= 0");
 
-                ConstrainedMesh2Input input = args.Has("input") ? Mesh2dInput.ReadFile(args.String("input"))
-                    : Mesh2dInput.Parse(args.String("geometry"), ResultCodes.InvalidArguments, "geometry");
+                var notes = new List<string>();
+                int loops = -1;
+                ConstrainedMesh2Input input;
+                if (args.Has("geometry"))
+                    input = Mesh2dInput.Parse(args.String("geometry"), ResultCodes.InvalidArguments, "geometry");
+                else if (IsTriangleInput(args.String("input")))
+                    input = ReadTriangleInput(args.String("input"), args.Bool("poly_heights"), notes, out loops);
+                else {
+                    if (args.Bool("poly_heights"))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'poly_heights' is for Triangle .poly / .node input");
+                    input = Mesh2dInput.ReadFile(args.String("input"));
+                }
 
                 ConstrainedTriangulation2Result result;
                 try {
                     if (quality) {
-                        var q = new QualityMesh2() { MinAngle = minAngle, ResolveCrossings = args.Bool("resolve_crossings") };
+                        var q = new QualityMesh2() { MinAngle = minAngle, ResolveCrossings = args.Bool("resolve_crossings"), SnapTolerance = snap };
                         if (args.Has("max_area")) q.MaxArea = args.Number("max_area");
                         if (args.Has("steiner_limit")) q.SteinerLimit = args.Integer("steiner_limit");
                         if (args.Has("conforming")) q.Conforming = args.Bool("conforming");
                         result = q.Compute(input);
                     } else {
-                        result = new ConstrainedDelaunayMesh2() { ResolveCrossings = args.Bool("resolve_crossings") }.Compute(input);
+                        result = new ConstrainedDelaunayMesh2() { ResolveCrossings = args.Bool("resolve_crossings"), SnapTolerance = snap }.Compute(input);
                     }
+                } catch (ArgumentException e) when (snap > 0 && e.Message.Contains("SnapTolerance")) {
+                    // too small for the coordinates
+                    throw new CommandException(ResultCodes.InvalidArguments, "'snap_tolerance': " + e.Message);
                 } catch (ArgumentException e) {
                     // indices out of range, non-finite or too large coordinates, a region's area, ...
                     throw new CommandException(args.Has("input") ? ResultCodes.ReadError : ResultCodes.InvalidArguments, "invalid input: " + e.Message);
@@ -329,10 +414,34 @@ namespace g3cli
                     minAng = Math.Min(minAng, SmallestAngleDegrees(a, b, cc));
                     labels[label] = labels.TryGetValue(label, out int n) ? n + 1 : 1;
                 }
-                MeshFiles.Write(args.String("output"), mesh, args.Bool("binary"), groups: true);
+                JsonArray files = null;
+                if (outputBase != null) {
+                    // the Triangle files, of the written vertices (numbered from 1, as Triangle does by default)
+                    var vertices = mesh.VertexIndices().Select(v => mesh.GetVertex(v).xy).ToList();
+                    var heights = m2.Heights != null ? mesh.VertexIndices().Select(v => mesh.GetVertex(v).z).ToList() : null;
+                    var triangles = mesh.TriangleIndices().Select(mesh.GetTriangle).ToList();
+                    var triLabels = input.Regions.Count > 0 ? mesh.TriangleIndices().Select(mesh.GetTriangleGroup).ToList() : null;
+                    var subsegments = m2.Subsegments.Select(sg => (map[sg.A], map[sg.B], sg.Marker)).ToList();
+                    files = new JsonArray();
+                    if (input.Regions.Any(g => g.Ring != null))
+                        notes.Add("regions given by ring have no .poly form (a region is a seed point there): the written .poly has only the seed regions; the labels of all triangles are in the .ele");
+                    foreach (var (ext, text) in new[] {
+                        (".node", TrianglePolyFormat.WriteNode(vertices, heights, subsegments)),
+                        (".ele", TrianglePolyFormat.WriteEle(triangles, triLabels)),
+                        (".poly", TrianglePolyFormat.WritePolyOfSubsegments(subsegments, input.HoleSeeds, input.Regions)) }) {
+                        string path = outputBase + ext;
+                        WriteText(path, text);
+                        files.Add(path);
+                    }
+                } else {
+                    MeshFiles.Write(args.String("output"), mesh, args.Bool("binary"), groups: true);
+                }
 
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
+                if (files != null) o["files"] = files;
+                if (loops >= 0) o["rings_from_segments"] = loops;
                 o["method"] = quality ? "quality" : "constrained_delaunay";
+                o["snap_tolerance"] = snap;
                 if (quality) {
                     o["min_angle"] = minAngle;
                     o["max_area"] = args.Has("max_area") ? MeshReport.Num(args.Number("max_area")) : null;
@@ -350,7 +459,7 @@ namespace g3cli
                 o["steiner_limit_reached"] = m2.SteinerLimitReached;
                 o["labels"] = new JsonObject(labels.Select(kv => new KeyValuePair<string, JsonNode>(kv.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), kv.Value)));
                 o["mesh"] = MeshReport.Metrics(mesh, false);
-                var warnings = diagnostics.ToList();
+                var warnings = notes.Concat(diagnostics).ToList();
                 if (m2.SteinerLimitReached)
                     warnings.Add("the Steiner point limit was reached: some triangles may miss the quality bounds (bad_triangles)");
                 o["warnings"] = Warnings(warnings);

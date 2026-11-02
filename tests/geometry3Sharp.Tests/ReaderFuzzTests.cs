@@ -270,5 +270,80 @@ namespace geometry3Sharp.Tests
         [Theory]
         [MemberData(nameof(Formats))]
         public void MutatedFiles_OkMeansFiniteCoordinates(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, true);
+
+        // ---- Triangle's .node / .poly / .ele (g3cli TrianglePolyFormat, also used by Meshing2Benchmark): text, read from strings ----
+
+        static string ValidTriangleFile(string kind)
+        {
+            var input = new ConstrainedMesh2Input();
+            double[] xy = { 0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2, 0.25, 0.25, 0.75, 0.25, 0.75, 0.75, 0.25, 0.75 };
+            for (int i = 0; i < xy.Length; i += 2) input.Points.Add(new Vector2d(xy[i], xy[i + 1]));
+            input.Heights = input.Points.Select(p => p.x + 2 * p.y).ToList();
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3, 4, 5 }, false, 5));
+            for (int i = 6; i < 10; ++i) input.Segments.Add(new Mesh2Segment(i, i == 9 ? 6 : i + 1, 9));
+            input.HoleSeeds.Add(new Vector2d(0.5, 0.5));
+            input.Regions.Add(Mesh2Region.BySeed(new Vector2d(1.5, 0.5), 3, 0.01));
+            switch (kind) {
+                case "poly": return g3cli.TrianglePolyFormat.WritePolyOfInput(input);
+                case "node": return g3cli.TrianglePolyFormat.WriteNode(input.Points, input.Heights, new[] { (0, 1, 5), (6, 7, 9) });
+                default: return g3cli.TrianglePolyFormat.WriteEle(new[] { new Index3i(0, 1, 2), new Index3i(0, 2, 3), new Index3i(3, 4, 5), new Index3i(0, 3, 5) }, new[] { 1, 1, 2, 2 });
+            }
+        }
+
+        /// <summary>"" if the reader returned within the budget, with a result bounded by the input or a FormatException; else the problem.</summary>
+        static string CheckTriangleFile(string kind, string text)
+        {
+            Exception error = null; int items = 0;
+            var task = System.Threading.Tasks.Task.Run(() => {
+                try {
+                    if (kind == "poly") {
+                        var r = g3cli.TrianglePolyFormat.ReadPoly(text, null, true, out _);
+                        items = r.Points.Count + r.Segments.Count + r.HoleSeeds.Count + r.Regions.Count + r.Rings.Sum(g => g.Vertices.Length);
+                        if (r.Rings.Any(g => g.Vertices.Any(v => v < 0 || v >= r.Points.Count))) error = new Exception("a ring index out of range");
+                        if (r.Points.Any(p => double.IsNaN(p.x) || double.IsInfinity(p.x) || double.IsNaN(p.y) || double.IsInfinity(p.y))) error = new Exception("a non-finite point was accepted");
+                        if (r.Segments.Any(s => s.A < 0 || s.B < 0 || s.A >= r.Points.Count || s.B >= r.Points.Count)) error = new Exception("a segment index out of range was accepted");
+                    } else if (kind == "node") {
+                        items = g3cli.TrianglePolyFormat.ReadNode(text, true, out _).Points.Count;
+                    } else {
+                        var t = g3cli.TrianglePolyFormat.ReadEle(text, 6, 0, out _);
+                        items = t.Count;
+                        if (t.Any(x => x.a < 0 || x.b < 0 || x.c < 0 || x.a >= 6 || x.b >= 6 || x.c >= 6)) error = new Exception("a corner out of range was accepted");
+                    }
+                } catch (FormatException) {
+                } catch (Exception e) {
+                    error = e;
+                }
+            });
+            if (!task.Wait(TimeBudget)) return "no result within " + TimeBudget.TotalSeconds + " s";
+            if (error != null) return error.GetType().Name + ": " + error.Message;
+            // the result is bounded by the input (rings repeat point indices: at most the segments' end points)
+            // (each item takes at least two characters: a number and a separator; rings repeat segment end points)
+            if (items > text.Length + 16) return items + " items from " + text.Length + " bytes";
+            return "";
+        }
+
+        [Theory]
+        [InlineData("poly")]
+        [InlineData("node")]
+        [InlineData("ele")]
+        public void MutatedTriangleFiles_ReadSafely(string kind)
+        {
+            string valid = ValidTriangleFile(kind);
+            Assert.Equal("", CheckTriangleFile(kind, valid));
+            if (kind == "poly") {
+                // the valid file is meaningful: its segments give the L's ring (the hole loop gives a second)
+                g3cli.TrianglePolyFormat.ReadPoly(valid, null, false, out var info);
+                Assert.Equal(2, info.Loops);
+            }
+            var failures = new List<string>();
+            for (int seed = 0; seed < CasesPerFormat; ++seed) {
+                var rand = new Random(seed * 7919 + kind.Sum(c => (int)c) + 17);
+                byte[] data = Mutate(Encoding.ASCII.GetBytes(valid), true, rand, out string what);
+                string failure = CheckTriangleFile(kind, Encoding.ASCII.GetString(data));
+                if (failure != "") failures.Add($"{kind} seed {seed} ({what}): {failure}");
+                if (failure.StartsWith("no result")) break;
+            }
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+        }
     }
 }
