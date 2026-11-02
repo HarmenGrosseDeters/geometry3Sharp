@@ -1,0 +1,429 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using g3;
+using gs;
+using Xunit;
+using Xunit.Abstractions;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// Terrain phase 1b: the overlay of the slope surface with the terrain, the catch lines and the region
+    /// (docs/design/TERRAIN.md 5.5, TERRAIN_1B_PLAN.md). Oracles independent of the construction: every catch point lies
+    /// on the terrain (both surfaces are linear on its overlay edge, so only rounding is left) and on the slope surface,
+    /// between the exact cones and Tolerance below them; the lines are simple, closed or ending with a reason; the exact
+    /// signs of D agree with rational arithmetic.
+    /// </summary>
+    public class TerrainSlopeCatchLineTests
+    {
+        readonly ITestOutputHelper output;
+        public TerrainSlopeCatchLineTests(ITestOutputHelper output) { this.output = output; }
+
+        // ---- terrains ----
+
+        internal static DMesh3 Grid(AxisAlignedBox2d box, int nx, int ny, Func<double, double, double> f, bool flip = false)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i) {
+                    double x = box.Min.x + (box.Max.x - box.Min.x) * i / nx, y = box.Min.y + (box.Max.y - box.Min.y) * j / ny;
+                    m.AppendVertex(new Vector3d(x, y, f(x, y)));
+                }
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    int a = j * (nx + 1) + i, b = a + 1, c = a + nx + 2, d = a + nx + 1;
+                    if (((i + j) % 2 == 0) != flip) { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); }
+                    else { m.AppendTriangle(a, b, d); m.AppendTriangle(b, c, d); }
+                }
+            return m;
+        }
+
+        // the terrain height at p (the triangle that contains it; NaN outside)
+        internal static double TerrainZ(DMesh3 t, Vector2d p)
+        {
+            foreach (int tid in t.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                t.GetTriVertices(tid, ref a, ref b, ref c);
+                double o = Orient(a.xy, b.xy, c.xy);
+                double l0 = Orient(b.xy, c.xy, p) / o, l1 = Orient(c.xy, a.xy, p) / o, l2 = Orient(a.xy, b.xy, p) / o;
+                double eps = -1e-12;
+                if (l0 >= eps && l1 >= eps && l2 >= eps) return l0 * a.z + l1 * b.z + l2 * c.z;
+            }
+            return double.NaN;
+        }
+
+        static double Orient(Vector2d a, Vector2d b, Vector2d c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+
+        // ---- oracles ----
+
+        // every catch point on the terrain (up to rounding) and between the exact cones and Tolerance below them;
+        // the lines simple (exact segment tests), closed or ending with a reason
+        internal static void AssertCatchLines(TerrainSlopeDesign d, bool fill = false)
+        {
+            double sign = fill ? -1 : 1;
+            var pieces = d.Pieces.Select(p => new SlopePiece() { P0 = new Vector3d(p.P0.x, p.P0.y, sign * p.P0.z), P1 = new Vector3d(p.P1.x, p.P1.y, sign * p.P1.z), Spec = p.Spec }).ToList();
+            foreach (CatchLine line in d.CatchLines) {
+                Assert.True(line.Points.Count >= 2);
+                if (line.Closed) Assert.True(line.Points.Count >= 3);
+                else {
+                    Assert.NotEqual(CatchLine.EndReasons.None, line.StartReason);
+                    Assert.NotEqual(CatchLine.EndReasons.None, line.EndReason);
+                }
+                foreach (Vector3d c in line.Points) {
+                    Assert.True(MathUtil.IsFinite(c.x) && MathUtil.IsFinite(c.y) && MathUtil.IsFinite(c.z));
+                    double scale = 1e-9 * (Math.Abs(c.z) + Math.Abs(c.x) + Math.Abs(c.y) + 1);
+                    double tz = TerrainZ(d.Terrain, c.xy);
+                    Assert.True(Math.Abs(tz - c.z) <= scale, $"catch point {c} is {c.z - tz} off the terrain");
+                    double diff = sign * (TerrainSlopeDesignTests.ConeEnvelope(pieces, c.xy) - sign * c.z);
+                    Assert.True(sign * diff >= -scale && sign * diff <= d.Tolerance + scale, $"catch point {c}: cones - S = {diff}");
+                }
+            }
+            // simple: no two segments of all lines cross or touch except neighbours
+            var segs = new List<(Vector2d, Vector2d, int, int)>();
+            for (int l = 0; l < d.CatchLines.Count; ++l) {
+                var p = d.CatchLines[l].Points;
+                int n = d.CatchLines[l].Closed ? p.Count : p.Count - 1;
+                for (int i = 0; i < n; ++i) segs.Add((p[i].xy, p[(i + 1) % p.Count].xy, l, i));
+            }
+            for (int i = 0; i < segs.Count; ++i)
+                for (int j = i + 1; j < segs.Count; ++j) {
+                    var s = segs[i]; var t = segs[j];
+                    if (s.Item1 == s.Item2 || t.Item1 == t.Item2) continue;
+                    bool shared = s.Item1 == t.Item1 || s.Item1 == t.Item2 || s.Item2 == t.Item1 || s.Item2 == t.Item2;
+                    if (shared) continue;
+                    Assert.False(cross(s.Item1, s.Item2, t.Item1, t.Item2), $"catch lines cross: line {s.Item3} seg {s.Item4}, line {t.Item3} seg {t.Item4}");
+                }
+        }
+
+        static double XYArea(DMesh3 m)
+        {
+            double area = 0;
+            foreach (int tid in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(tid, ref a, ref b, ref c);
+                area += 0.5 * Math.Abs(Orient(a.xy, b.xy, c.xy));
+            }
+            return area;
+        }
+
+        // the composite: finite, counter-clockwise, a height field covering exactly the terrain's footprint, the slope
+        // part passing the exact check against its pieces (O1), every catch point a vertex of both parts
+        internal static void AssertComposite(TerrainSlopeDesign d, bool fill = false)
+        {
+            DMesh3 c = d.Composite, r = d.SlopeRegion;
+            Assert.NotNull(c); Assert.NotNull(r);
+            foreach (int tid in c.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, e = Vector3d.Zero;
+                c.GetTriVertices(tid, ref a, ref b, ref e);
+                Assert.True(MathUtil.IsFinite(a.z) && MathUtil.IsFinite(b.z) && MathUtil.IsFinite(e.z));
+                Assert.True(ExactPredicates.Orient2d(a.xy, b.xy, e.xy) > 0, $"composite triangle {tid} not counter-clockwise");
+            }
+            Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(c));
+            double at = XYArea(d.Terrain), ac = XYArea(c);
+            Assert.True(Math.Abs(at - ac) <= 1e-9 * at, $"composite area {ac} vs terrain {at}");
+            foreach (int tid in r.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, e = Vector3d.Zero;
+                r.GetTriVertices(tid, ref a, ref b, ref e);
+                SlopePiece p = d.Pieces[r.GetTriangleGroup(tid)];
+                Vector3d p0 = p.P0, p1 = p.P1;
+                if (fill) { a.z = -a.z; b.z = -b.z; e.z = -e.z; p0.z = -p0.z; p1.z = -p1.z; }
+                Assert.True(Slope.IsSupportedBy(a, b, e, p0, p1, p.Spec), $"region triangle {tid}");
+            }
+            var cv = new HashSet<Vector3d>(c.Vertices());
+            var rv = new HashSet<Vector3d>(r.Vertices());
+            foreach (var line in d.CatchLines)
+                foreach (var q in line.Points) {
+                    // (the composite moves catch points nearer than MinFeatureSize together, or onto a slope vertex)
+                    double dc = cv.Min(x => x.xy.Distance(q.xy)), dr = rv.Min(x => x.xy.Distance(q.xy));
+                    Assert.True(dc < d.UsedMinFeatureSize, $"catch point {q:R} not in the composite ({dc})");
+                    Assert.True(dr < d.UsedMinFeatureSize, $"catch point {q:R} not in the slope region ({dr})");
+                }
+        }
+
+        static bool cross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+            int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+            return o1 * o2 <= 0 && o3 * o4 <= 0 && !(o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0 && disjoint_collinear(a, b, c, d));
+        }
+
+        static bool disjoint_collinear(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            Vector2d u = b - a;
+            double t0 = (c - a).Dot(u), t1 = (d - a).Dot(u), l = u.Dot(u);
+            return Math.Max(t0, t1) < 0 || Math.Min(t0, t1) > l;
+        }
+
+        static TerrainSlopeDesign Pit(DMesh3 terrain, List<Vector3d> toe, double ratio, double tol = 0.05)
+        {
+            return new TerrainSlopeDesign() {
+                Toes = { SlopeToe.Constant(toe, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio)) },
+                Terrain = terrain, Tolerance = tol, BuildComposite = true
+            };
+        }
+
+        // ---- cases ----
+
+        [Fact]
+        public void Pit_FlatTerrain_ClosedCatchLineAtHOverS()
+        {
+            // square pit floor 20 x 20 at z = 0, terrain flat at z = 10, slope 1:2 (s = 0.5): the catch line is 20 out
+            var terrain = Grid(new AxisAlignedBox2d(-60, -60, 60, 60), 24, 24, (x, y) => 10);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 2);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.True(d.IsComplete);
+            Assert.Single(d.CatchLines);
+            Assert.True(d.CatchLines[0].Closed);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            // the region: the square 20 x 20 offset by 20 minus the square (rounded corners), within the facets
+            double area = XYArea(d.SlopeRegion), exact = 4 * 20 * 20 + Math.PI * 400;
+            Assert.InRange(area, exact * 0.995, exact * 1.001);
+            // distance from the toe square = h / s, within Tolerance / s (the facets of the cone are below it)
+            foreach (Vector3d c in d.CatchLines[0].Points) {
+                double dx = Math.Max(Math.Abs(c.x) - 10, 0), dy = Math.Max(Math.Abs(c.y) - 10, 0);
+                double dist = Math.Sqrt(dx * dx + dy * dy);
+                Assert.InRange(dist, 20 - 1e-6, 20 + d.Tolerance / 0.5 + 1e-6);
+            }
+            output.WriteLine($"{d.CatchLines[0].Points.Count} catch points, λ = {d.UsedToeLowering:G3}, phases " +
+                string.Join(", ", d.PhaseSeconds.Select(kv => $"{kv.Key} {kv.Value:F3}")));
+        }
+
+        [Fact]
+        public void Fill_FlatTerrain_ClosedCatchLine()
+        {
+            // a dump: toe at z = 0, terrain at z = -6, fill slope 1:3 down to the terrain: 18 out
+            var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => -6, flip: true);
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(3));
+            toe.FillStart = toe.CutStart; toe.CutStart = null;
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.05, Direction = TerrainSlopeDesign.Directions.Fill, BuildComposite = true };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Single(d.CatchLines);
+            Assert.True(d.CatchLines[0].Closed);
+            AssertCatchLines(d, fill: true);
+            AssertComposite(d, fill: true);
+            foreach (Vector3d c in d.CatchLines[0].Points) {
+                double dx = Math.Max(Math.Abs(c.x) - 8, 0), dy = Math.Max(Math.Abs(c.y) - 8, 0);
+                Assert.InRange(Math.Sqrt(dx * dx + dy * dy), 18 - 1e-6, 18 + d.Tolerance * 3 + 1e-6);
+            }
+        }
+
+        [Fact]
+        public void OpenToe_TiltedTerrain_EndsAtTheLateralLimits()
+        {
+            // a straight toe along x at z = 0, slope on the left (+y), terrain rising with y and x
+            var terrain = Grid(new AxisAlignedBox2d(-40, -10, 40, 60), 16, 14, (x, y) => 2 + 0.1 * y + 0.02 * x);
+            var toe = SlopeToe.Constant(new List<Vector3d> { new Vector3d(-20, 0, 0), new Vector3d(20, 0, 0) }, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(1));
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.02, BuildComposite = true };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Single(d.CatchLines);
+            CatchLine l = d.CatchLines[0];
+            Assert.False(l.Closed);
+            Assert.Equal(CatchLine.EndReasons.LateralLimit, l.StartReason);
+            Assert.Equal(CatchLine.EndReasons.LateralLimit, l.EndReason);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            // analytic: S = y (strip, 1:1) meets T: y = 2 + 0.1 y + 0.02 x  ->  y = (2 + 0.02 x) / 0.9 (within Tolerance)
+            foreach (Vector3d c in l.Points)
+                Assert.InRange(c.y - (2 + 0.02 * c.x) / 0.9, -1e-6, d.Tolerance / 0.9 + 1e-6);
+        }
+
+        [Fact]
+        public void HillBehindValley_IsNotExcavated()
+        {
+            // flat at 4 near the pit, a valley down to -10 around r = 30 (the cone passes over it), a hill up to 64 at
+            // r = 50, where the terrain is again above the cone: that second component is not connected to the toe
+            Func<double, double, double> f = (x, y) => {
+                double r = Math.Sqrt(x * x + y * y);
+                if (r < 20) return 4;
+                if (r < 30) return 4 - 1.4 * (r - 20);
+                if (r < 40) return -10 + 1.4 * (r - 30);
+                if (r < 50) return 4 + 6 * (r - 40);
+                return 64;
+            };
+            var terrain = Grid(new AxisAlignedBox2d(-70, -70, 70, 70), 56, 56, f);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(6, 0), 1, 0.05);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            Assert.Single(d.CatchLines);
+            Assert.True(d.CatchLines[0].Closed);
+            foreach (Vector3d c in d.CatchLines[0].Points) Assert.True(c.xy.Length < 25, $"{c}");
+        }
+
+        [Fact]
+        public void NoDaylight_KeepsThePartialResult()
+        {
+            // the terrain ends before the slope reaches it
+            var terrain = Grid(new AxisAlignedBox2d(-25, -25, 25, 25), 10, 10, (x, y) => 30);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1);
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d.Status);
+            Assert.False(d.IsComplete);
+            Assert.NotNull(d.SlopeSurface);
+            Assert.Empty(d.CatchLines);       // the region covers the footprint, no line
+
+            // a terrain that is high on one side only: the line ends at the footprint boundary there
+            var terrain2 = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => x > 0 ? 3 + 2 * x : 3);
+            var d2 = Pit(terrain2, TerrainSlopeDesignTests.Square(10, 0), 1);
+            Assert.False(d2.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d2.Status);
+            AssertCatchLines(d2);
+            Assert.Contains(d2.CatchLines, l => l.StartReason == CatchLine.EndReasons.FootprintBoundary);
+        }
+
+        [Fact]
+        public void TerrainNotAHeightField_IsRejected()
+        {
+            var terrain = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 4, 4, (x, y) => 5);
+            // a second copy of one triangle, shifted: overlaps in XY
+            int a = terrain.AppendVertex(new Vector3d(-35, -35, 5)), b = terrain.AppendVertex(new Vector3d(-15, -35, 5)), c = terrain.AppendVertex(new Vector3d(-15, -15, 5));
+            terrain.AppendTriangle(a, b, c);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1);
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.NotHeightField, d.Status);
+        }
+
+        [Fact]
+        public void ToeOnTerrainVertices_GridAligned_Consistent()
+        {
+            // the degenerate cases SoS decides: terrain vertices exactly on the toe vertices and edges, and on a grid
+            // aligned with the toe; a terrain that crosses the toe height (cut on one side only)
+            foreach (bool flip in new[] { false, true }) {
+                var terrain = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => 0.25 * x, flip);
+                var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1, 0.02);
+                Assert.True(d.Compute(), d.Status + " " + d.Message);
+                AssertCatchLines(d);
+                AssertComposite(d);
+                Assert.Single(d.CatchLines);
+                Assert.False(d.CatchLines[0].Closed);
+                Assert.Equal(CatchLine.EndReasons.Toe, d.CatchLines[0].StartReason);
+                Assert.Equal(CatchLine.EndReasons.Toe, d.CatchLines[0].EndReason);
+            }
+        }
+
+        [Fact]
+        public void TerrainEqualToTheSlope_NoWork()
+        {
+            // the terrain is the slope surface itself: D = 0 everywhere counts as no work, so there is no region,
+            // except where the toe lowering λ puts the slope below (along the toe, a strip of zero width in the limit)
+            var d0 = TerrainSlopeDesignTests.Design(12, 0.05, SlopeToe.Constant(TerrainSlopeDesignTests.Square(10, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
+            Assert.True(d0.Compute());
+            var d = Pit(d0.SlopeSurface, TerrainSlopeDesignTests.Square(10, 0), 1);
+            d.HeightLimit = 12;
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Empty(d.CatchLines);
+            AssertComposite(d);
+        }
+
+        // ---- the exact signs against rationals ----
+
+        static BigRational R(double x) => BigRational.Of(x);
+
+        // D at the crossing of A edge (a0, a1) and B edge (b0, b1), exactly: z_a - z_b
+        static int ExactSignX(Vector3d a0, Vector3d a1, Vector3d b0, Vector3d b1)
+        {
+            BigRational ax = R(a1.x) - R(a0.x), ay = R(a1.y) - R(a0.y), bx = R(b1.x) - R(b0.x), by = R(b1.y) - R(b0.y);
+            BigRational dx = R(b0.x) - R(a0.x), dy = R(b0.y) - R(a0.y);
+            BigRational den = ax * by - ay * bx;
+            BigRational ta = (dx * by - dy * bx) / den, tb = (dx * ay - dy * ax) / den;
+            BigRational za = R(a0.z) + ta * (R(a1.z) - R(a0.z)), zb = R(b0.z) + tb * (R(b1.z) - R(b0.z));
+            return (za - zb).Sign;
+        }
+
+        static int ExactSignPlane(Vector3d t0, Vector3d t1, Vector3d t2, Vector3d v)
+        {
+            // v.z - plane(v.xy)
+            BigRational ux = R(t1.x) - R(t0.x), uy = R(t1.y) - R(t0.y), uz = R(t1.z) - R(t0.z);
+            BigRational wx = R(t2.x) - R(t0.x), wy = R(t2.y) - R(t0.y), wz = R(t2.z) - R(t0.z);
+            BigRational nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            BigRational z = R(t0.z) - (nx * (R(v.x) - R(t0.x)) + ny * (R(v.y) - R(t0.y))) / nz;
+            return (R(v.z) - z).Sign;
+        }
+
+        [Fact]
+        public void Signs_AgreeWithRationals()
+        {
+            var rnd = new Random(7);
+            int checkedX = 0, zeros = 0;
+            for (int it = 0; it < 4000; ++it) {
+                // small integer coordinates make exact zeros (coplanar, through vertices) frequent; UTM offsets for the rest
+                double off = (it % 2 == 0) ? 0 : 5.6e6 + 0.5;
+                Func<Vector3d> pt = () => new Vector3d(off + rnd.Next(-4, 5), off + rnd.Next(-4, 5), rnd.Next(-3, 4) * 0.5);
+                Vector3d a0 = pt(), a1 = pt(), b0 = pt(), b1 = pt(), t2 = pt();
+                if (a0.xy == a1.xy || b0.xy == b1.xy) continue;
+                foreach (int dir in new[] { 1, -1 }) {
+                    // crossing (proper, so the formula applies without SoS)
+                    int o0 = ExactPredicates.Orient2d(a0.xy, a1.xy, b0.xy), o1 = ExactPredicates.Orient2d(a0.xy, a1.xy, b1.xy);
+                    int o2 = ExactPredicates.Orient2d(b0.xy, b1.xy, a0.xy), o3 = ExactPredicates.Orient2d(b0.xy, b1.xy, a1.xy);
+                    if (o0 * o1 < 0 && o2 * o3 < 0) {
+                        int e = ExactSignX(a0, a1, b0, b1) * dir;
+                        if (e == 0) zeros++;
+                        Assert.Equal(e >= 0 ? 1 : -1, SlopeTerrainOverlay.SignX(a0, a1, b0, b1, dir));
+                        checkedX++;
+                    }
+                    // vertex over triangle
+                    int ot = ExactPredicates.Orient2d(b0.xy, b1.xy, t2.xy);
+                    if (ot != 0) {
+                        Vector3d q0 = b0, q1 = ot > 0 ? b1 : t2, q2 = ot > 0 ? t2 : b1;
+                        int e = ExactSignPlane(q0, q1, q2, a0);
+                        Assert.Equal(dir * e >= 0 ? 1 : -1, SlopeTerrainOverlay.SignAV(a0, q0, q1, q2, dir));
+                        Assert.Equal(-dir * e >= 0 ? 1 : -1, SlopeTerrainOverlay.SignBV(a0, q0, q1, q2, dir));
+                    }
+                }
+            }
+            output.WriteLine($"{checkedX} crossings, {zeros} with D = 0");
+            Assert.True(checkedX > 500 && zeros > 10);
+        }
+
+        [Fact]
+        public void SoS_Orientations_AreConsistent()
+        {
+            // the perturbed orientation equals the orientation with B moved by a tiny (e, e^2) (here e = 2^-20 on
+            // integer points, where the shift cannot meet another zero)
+            var rnd = new Random(3);
+            double e = Math.Pow(2, -20);
+            for (int it = 0; it < 20000; ++it) {
+                Vector2d a0 = new Vector2d(rnd.Next(-3, 4), rnd.Next(-3, 4)), a1 = new Vector2d(rnd.Next(-3, 4), rnd.Next(-3, 4));
+                Vector2d b = new Vector2d(rnd.Next(-3, 4), rnd.Next(-3, 4));
+                if (a0 == a1) continue;
+                Vector2d bs = b + new Vector2d(e, e * e);
+                Assert.Equal(ExactPredicates.Orient2d(a0, a1, bs), SlopeTerrainOverlay.OrientAAB(a0, a1, b));
+                Assert.Equal(ExactPredicates.Orient2d(a0 + new Vector2d(e, e * e), a1 + new Vector2d(e, e * e), b),
+                             SlopeTerrainOverlay.OrientBBA(a0, a1, b));
+            }
+        }
+    }
+
+    /// <summary> exact rationals for the test references </summary>
+    internal readonly struct BigRational
+    {
+        public readonly BigInteger N, D;     // D > 0
+        public BigRational(BigInteger n, BigInteger d)
+        {
+            if (d.Sign < 0) { n = -n; d = -d; }
+            BigInteger g = BigInteger.GreatestCommonDivisor(n, d);
+            if (g > 1) { n /= g; d /= g; }
+            N = n; D = d;
+        }
+        public static BigRational Of(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            bool neg = bits < 0;
+            int exp = (int)((bits >> 52) & 0x7FF);
+            long man = bits & 0xFFFFFFFFFFFFFL;
+            if (exp == 0) exp++; else man |= 1L << 52;
+            exp -= 1075;
+            BigInteger n = man, d = BigInteger.One;
+            if (exp > 0) n <<= exp; else d <<= -exp;
+            return new BigRational(neg ? -n : n, d);
+        }
+        public int Sign => N.Sign;
+        public static BigRational operator +(BigRational a, BigRational b) => new BigRational(a.N * b.D + b.N * a.D, a.D * b.D);
+        public static BigRational operator -(BigRational a, BigRational b) => new BigRational(a.N * b.D - b.N * a.D, a.D * b.D);
+        public static BigRational operator *(BigRational a, BigRational b) => new BigRational(a.N * b.N, a.D * b.D);
+        public static BigRational operator /(BigRational a, BigRational b) => new BigRational(a.N * b.D, a.D * b.N);
+    }
+}

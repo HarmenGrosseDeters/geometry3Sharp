@@ -711,8 +711,18 @@ namespace gs
             OutLabels.Clear();
             OnBarrier.Clear();
             var barrierPos = new HashSet<Vector2d>();
+            BarriersAt.Clear();
+            Action<Vector2d, int> at = (p, bar) => {
+                List<int> l;
+                if (BarriersAt.TryGetValue(p, out l) == false) { l = new List<int>(); BarriersAt[p] = l; }
+                if (l.Contains(bar) == false) l.Add(bar);
+            };
             for (int h = 0; h < hOrig.Count; ++h)
-                if (hAlive[h] && hBar[h] >= 0 && hFace[h] >= 0 && fDomain[hFace[h]]) { barrierPos.Add(K.Rounded(hOrig[h])); barrierPos.Add(K.Rounded(hOrig[hTwin[h]])); }
+                if (hAlive[h] && hBar[h] >= 0 && hFace[h] >= 0 && fDomain[hFace[h]]) {
+                    Vector2d p = K.Rounded(hOrig[h]), q = K.Rounded(hOrig[hTwin[h]]);
+                    barrierPos.Add(p); barrierPos.Add(q);
+                    at(p, hBar[h]); at(q, hBar[h]);
+                }
             foreach (int f in faces) {
                 int group = owner[fLabel[f]];
                 var verts = cycle(f).Select(h => hOrig[h]).ToList();
@@ -730,6 +740,9 @@ namespace gs
         /// <summary> Realize: per vertex of the mesh, the planes of its faces, and whether it lies on a toe or a lateral limit </summary>
         public readonly List<List<int>> OutLabels = new List<List<int>>();
         public readonly List<bool> OnBarrier = new List<bool>();
+        /// <summary> Realize: the barriers (toe segments first, then the lateral limits) through each rounded position on one </summary>
+        public readonly Dictionary<Vector2d, List<int>> BarriersAt = new Dictionary<Vector2d, List<int>>();
+        public int ToeBarrierCount { get { return toeBarriers; } }
 
         /// <summary>
         /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes

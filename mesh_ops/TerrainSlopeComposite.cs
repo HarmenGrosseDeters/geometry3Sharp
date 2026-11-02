@@ -1,0 +1,446 @@
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+using System;
+using System.Collections.Generic;
+using g3;
+
+namespace gs
+{
+    /// <summary>
+    /// The composite terrain from the overlay (TERRAIN_1B_PLAN.md, scope 5): the slope surface clipped to the region
+    /// (SlopeRegion) and the terrain minus the region. A triangle wholly inside (outside) is kept as it is; a partial
+    /// one is triangulated by an exact CDT with the boundary of the region in it as constraints, and its part found by
+    /// parity from outside its triangle. The nodes on the boundary are overlay identities, so neighbouring triangles
+    /// split their shared edges at the same nodes: along the catch line both parts share their vertices (z on S̃), along
+    /// the toe and the lateral limits the terrain has its own vertices (a step), moved off the slope side by ulps where
+    /// rounding put them on it.
+    /// </summary>
+    internal sealed class SlopeComposite
+    {
+        readonly SlopeTerrainOverlay O;
+        readonly DMesh3 A, B;
+        readonly int terrainGroup;
+        readonly Func<bool> cancel;
+
+        public DMesh3 Region, Composite;
+        public string Problem = "";
+
+        readonly Dictionary<int, List<int>> facesOfA = new Dictionary<int, List<int>>(), facesOfB = new Dictionary<int, List<int>>();
+        readonly Dictionary<Vector3d, int> regionVerts = new Dictionary<Vector3d, int>(), compVerts = new Dictionary<Vector3d, int>();
+        readonly Dictionary<long, Vector2d> nudged = new Dictionary<long, Vector2d>();
+
+        readonly double minFeature;
+        // the realized position of each catch point: snapped to a slope vertex nearer than minFeature, or merged with
+        // the catch points nearer than minFeature (TERRAIN.md 5.5: the terrain side absorbs the move)
+        readonly Dictionary<long, Vector3d> catchAt = new Dictionary<long, Vector3d>();
+
+        public SlopeComposite(SlopeTerrainOverlay overlay, int terrainGroup, double minFeature, Func<bool> cancel)
+        {
+            O = overlay; A = overlay.Slope; B = overlay.Terrain;
+            this.terrainGroup = terrainGroup;
+            this.minFeature = minFeature;
+            this.cancel = cancel;
+        }
+
+        void snap_catch_points()
+        {
+            var keys = new List<long>();
+            var seen = new HashSet<long>();
+            foreach (var f in O.Faces)
+                if (f.Region && f.C0 != -1)
+                    foreach (long k in new[] { f.C0, f.C1 })
+                        if (seen.Add(k)) keys.Add(k);
+            keys.Sort();
+            var snapped = new HashSet<long>();
+            foreach (long k in keys) {
+                Vector3d p = O.CatchPoint(k);
+                catchAt[k] = p;
+                // the slope vertices of its edge (on an edge of A) or of its triangle (inside one)
+                int[] vs;
+                if (SlopeTerrainOverlay.ekind(k) == 0) { Index2i ev = A.GetEdgeV(SlopeTerrainOverlay.eedge(k)); vs = new[] { ev.a, ev.b }; }
+                else { Index3i t = A.GetTriangle(SlopeTerrainOverlay.etri(k)); vs = new[] { t.a, t.b, t.c }; }
+                double best = minFeature;
+                foreach (int v in vs) {
+                    Vector3d q = A.GetVertex(v);
+                    double dd = q.xy.Distance(p.xy);
+                    if (dd < best) { best = dd; catchAt[k] = q; snapped.Add(k); }
+                }
+            }
+            // catch points nearer than minFeature: one position, a snapped one first, else the smallest key (sweep in x)
+            var order = new List<long>(keys);
+            order.Sort((x, y) => catchAt[x].x != catchAt[y].x ? catchAt[x].x.CompareTo(catchAt[y].x) : x.CompareTo(y));
+            var parent = new Dictionary<long, long>();
+            foreach (long k in keys) parent[k] = k;
+            Func<long, long> find = null;
+            find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+            for (int i = 0; i < order.Count; ++i)
+                for (int j = i + 1; j < order.Count && catchAt[order[j]].x - catchAt[order[i]].x < minFeature; ++j)
+                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature) {
+                        long r0 = find(order[i]), r1 = find(order[j]);
+                        if (r0 == r1) continue;
+                        bool s0 = snapped.Contains(r0), s1 = snapped.Contains(r1);
+                        bool keep0 = s0 != s1 ? s0 : r0 < r1;
+                        if (keep0) parent[r1] = r0; else parent[r0] = r1;
+                    }
+            foreach (long k in keys) catchAt[k] = catchAt[find(k)];
+        }
+
+        // a node of a partial triangle: an overlay vertex (Catch = false) or a catch point (Catch = true, Key an edge key)
+        struct Node : IEquatable<Node>
+        {
+            public bool Catch;
+            public long Key;
+            public bool Equals(Node o) { return Catch == o.Catch && Key == o.Key; }
+            public override int GetHashCode() { return Key.GetHashCode() * 2 + (Catch ? 1 : 0); }
+        }
+
+        static Node V(long k) { return new Node() { Catch = false, Key = k }; }
+        static Node C(long k) { return new Node() { Catch = true, Key = k }; }
+
+        public bool Build()
+        {
+            snap_catch_points();
+            Region = new DMesh3(false, false, false, true);
+            Composite = new DMesh3(false, false, false, true);
+            for (int i = 0; i < O.Faces.Count; ++i) {
+                add(facesOfA, O.Faces[i].TA, i);
+                add(facesOfB, O.Faces[i].TB, i);
+            }
+            // the slope part
+            foreach (int ta in A.TriangleIndices()) {
+                if (cancel != null && cancel()) throw new OperationCanceledException();
+                List<int> fl;
+                if (facesOfA.TryGetValue(ta, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) continue;
+                if (slope_whole(ta, fl)) {
+                    Index3i t = A.GetTriangle(ta);
+                    emit(true, A.GetTriangleGroup(ta), A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c));
+                    continue;
+                }
+                if (partial(true, ta, fl) == false) return false;
+            }
+            // the terrain part
+            foreach (int tb in B.TriangleIndices()) {
+                if (cancel != null && cancel()) throw new OperationCanceledException();
+                List<int> fl;
+                if (facesOfB.TryGetValue(tb, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) {
+                    int[] v = O.bTriV[tb];
+                    emit(false, terrainGroup, B.GetVertex(v[0]), B.GetVertex(v[1]), B.GetVertex(v[2]));
+                    continue;
+                }
+                if (partial(false, tb, fl) == false) return false;
+            }
+            return true;
+        }
+
+        static void add(Dictionary<int, List<int>> d, int k, int v)
+        {
+            List<int> l;
+            if (d.TryGetValue(k, out l) == false) { l = new List<int>(); d[k] = l; }
+            l.Add(v);
+        }
+
+        // all faces in the region, no catch point, no terrain boundary inside, and covered by the terrain
+        bool slope_whole(int ta, List<int> fl)
+        {
+            foreach (int fi in fl) {
+                var f = O.Faces[fi];
+                if (f.Region == false || f.C0 != -1) return false;
+                foreach (var oe in f.Edges) {
+                    if (O.Sign[oe.P] > 0 || O.Sign[oe.Q] > 0) return false;
+                    if (SlopeTerrainOverlay.ekind(oe.Key) == 1 && O.EdgeFaces[oe.Key].b == -1) return false;
+                }
+            }
+            Index3i t = A.GetTriangle(ta);
+            foreach (int v in new[] { t.a, t.b, t.c })
+                if (O.Container(SlopeTerrainOverlay.vkeyA(v)) < 0) return false;
+            return true;
+        }
+
+        void emit(bool slope, int group, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (ExactPredicates.Orient2d(a.xy, b.xy, c.xy) < 0) { Vector3d x = b; b = c; c = x; }
+            int ca = vertex(Composite, compVerts, a), cb = vertex(Composite, compVerts, b), cc = vertex(Composite, compVerts, c);
+            if (Composite.AppendTriangle(ca, cb, cc, group) < 0)
+                throw new InvalidOperationException("SlopeComposite: non-manifold composite");
+            if (slope) {
+                int ra = vertex(Region, regionVerts, a), rb = vertex(Region, regionVerts, b), rc = vertex(Region, regionVerts, c);
+                if (Region.AppendTriangle(ra, rb, rc, group) < 0)
+                    throw new InvalidOperationException("SlopeComposite: non-manifold slope region");
+            }
+        }
+
+        static int vertex(DMesh3 m, Dictionary<Vector3d, int> map, Vector3d p)
+        {
+            int id;
+            if (map.TryGetValue(p, out id)) return id;
+            id = m.AppendVertex(p);
+            map[p] = id;
+            return id;
+        }
+
+        // ---------------------------------------------------------------- a partial triangle
+
+        bool partial(bool slope, int tri, List<int> fl)
+        {
+            int[] tv, te;
+            if (slope) {
+                Index3i t = A.GetTriangle(tri), e = A.GetTriEdges(tri);
+                tv = new[] { t.a, t.b, t.c }; te = new[] { e.a, e.b, e.c };
+            } else { tv = O.bTriV[tri]; te = O.bTriE[tri]; }
+            var nodes = new List<Node>();
+            var constraints = new List<Index2i>();
+            var nodeIndex = new Dictionary<Node, int>();
+            Func<Node, int> idx = (n) => {
+                int i;
+                if (nodeIndex.TryGetValue(n, out i)) return i;
+                i = nodes.Count; nodes.Add(n); nodeIndex[n] = i;
+                return i;
+            };
+            int edgeKind = slope ? 0 : 1;
+            // the edges of the triangle: the sub-pieces in the region (slope) or not in it (terrain) are constraints
+            for (int j = 0; j < 3; ++j) {
+                long c0 = slope ? SlopeTerrainOverlay.vkeyA(tv[j]) : SlopeTerrainOverlay.vkeyB(tv[j]);
+                long c1 = slope ? SlopeTerrainOverlay.vkeyA(tv[(j + 1) % 3]) : SlopeTerrainOverlay.vkeyB(tv[(j + 1) % 3]);
+                var seq = new List<Node>();
+                var flags = new List<bool>();
+                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags) == false) return false;
+                for (int k = 0; k + 1 < seq.Count; ++k)
+                    if (flags[k] == slope) constraints.Add(new Index2i(idx(seq[k]), idx(seq[k + 1])));
+                foreach (Node n in seq) idx(n);
+            }
+            // inside: the catch segments, and the boundary of the other surface next to the region
+            foreach (int fi in fl) {
+                var f = O.Faces[fi];
+                if (f.Region == false) continue;
+                if (f.C0 != -1) constraints.Add(new Index2i(idx(C(f.C0)), idx(C(f.C1))));
+                foreach (var oe in f.Edges) {
+                    if (SlopeTerrainOverlay.ekind(oe.Key) == edgeKind) continue;
+                    bool onBoundary = slope ? O.EdgeFaces[oe.Key].b == -1 : O.BoundaryKind(SlopeTerrainOverlay.eedge(oe.Key)) != 0;
+                    if (onBoundary == false) continue;
+                    int sp = O.Sign[oe.P], sq = O.Sign[oe.Q];
+                    if (sp < 0 && sq < 0) constraints.Add(new Index2i(idx(V(oe.P)), idx(V(oe.Q))));
+                    else if (sp < 0) constraints.Add(new Index2i(idx(V(oe.P)), idx(C(oe.Key))));
+                    else if (sq < 0) constraints.Add(new Index2i(idx(C(oe.Key)), idx(V(oe.Q))));
+                }
+            }
+
+            // positions; nodes at the same XY are one point
+            var pts = new List<Vector2d>();
+            var zs = new List<double>();
+            var pointOf = new int[nodes.Count];
+            var at = new Dictionary<Vector2d, int>();
+            for (int i = 0; i < nodes.Count; ++i) {
+                Vector3d p = position(slope, nodes[i]);
+                p.x += 0.0; p.y += 0.0;     // (-0 is +0, also as a dictionary key)
+                int pi;
+                if (at.TryGetValue(p.xy, out pi) == false) { pi = pts.Count; pts.Add(p.xy); zs.Add(p.z); at[p.xy] = pi; }
+                else if (nodes[i].Catch) zs[pi] = p.z;      // (a catch point is shared with the other part: its z wins)
+                pointOf[i] = pi;
+            }
+            // the constraints mod 2 (a segment twice is no boundary), without zero-length ones
+            var cset = new HashSet<long>();
+            foreach (Index2i c in constraints) {
+                int a = pointOf[c.a], b = pointOf[c.b];
+                if (a == b) continue;
+                long k = ukey(a, b);
+                if (cset.Remove(k) == false) cset.Add(k);
+            }
+            var segs0 = new List<Index2i>();
+            foreach (long k in cset) segs0.Add(new Index2i((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
+            segs0.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
+            // points exactly on a constraint split it (degenerate input that SoS decided: a terrain edge on a slope edge,
+            // a vertex of one surface on an edge of the other; rounding puts the realized points on the line)
+            var segs = new List<Index2i>();
+            foreach (Index2i sg in segs0) {
+                Vector2d a = pts[sg.a], b = pts[sg.b];
+                var on = new List<int>();
+                for (int k = 0; k < pts.Count; ++k)
+                    if (k != sg.a && k != sg.b && ExactPredicates.Orient2d(a, b, pts[k]) == 0 && (pts[k] - a).Dot(b - a) > 0 && (pts[k] - b).Dot(a - b) > 0)
+                        on.Add(k);
+                if (on.Count == 0) { segs.Add(sg); continue; }
+                on.Sort((x, y) => (pts[x] - a).Dot(b - a).CompareTo((pts[y] - a).Dot(b - a)));
+                int prev = sg.a;
+                foreach (int k in on) { segs.Add(new Index2i(prev, k)); prev = k; }
+                segs.Add(new Index2i(prev, sg.b));
+            }
+            // (the parity of a split segment is that of the segment; cset keeps the keys of the pieces)
+            cset.Clear();
+            foreach (Index2i sg in segs) {
+                long k = ukey(sg.a, sg.b);
+                if (cset.Remove(k) == false) cset.Add(k);
+            }
+            segs.Clear();
+            foreach (long k in cset) segs.Add(new Index2i((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
+            segs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
+            string why;
+            if (check_graph(pts, segs, out why) == false) { Problem = $"the region boundary in {(slope ? "slope" : "terrain")} triangle {tri} is not simple after rounding ({why})"; return false; }
+
+            // CDT in a large outer triangle; the part is found by parity from outside
+            var box = new AxisAlignedBox2d(pts[0]);
+            foreach (var p in pts) box.Contain(p);
+            int n0 = pts.Count;
+            Vector2d cen = box.Center;
+            double S = Math.Max(box.MaxDim, 1e-300) + Math.Max(Math.Abs(cen.x), Math.Abs(cen.y)) * 1e-6;
+            pts.Add(new Vector2d(cen.x - 10 * S, cen.y - 10 * S)); pts.Add(new Vector2d(cen.x + 10 * S, cen.y - 10 * S)); pts.Add(new Vector2d(cen.x, cen.y + 10 * S));
+            Func<int, int, int, int> orient = (a, b, c) => ExactPredicates.Orient2d(pts[a], pts[b], pts[c]);
+            Func<int, int, int, int, int> incircle = (a, b, c, d) => ExactPredicates.InCircle(pts[a], pts[b], pts[c], pts[d]);
+            var cdt = new ExactTriangulation2(n0, n0 + 1, n0 + 2, orient, incircle);
+            for (int i = 0; i < n0; ++i) cdt.InsertPoint(i);
+            foreach (Index2i s in segs) cdt.InsertConstraint(s.a, s.b);
+            cdt.MakeDelaunay();
+            var tris = new List<Index3i>(cdt.Triangles());
+            var label = new int[tris.Count];
+            var edgeTris = new Dictionary<long, List<int>>();
+            for (int t = 0; t < tris.Count; ++t) {
+                label[t] = -1;
+                Index3i x = tris[t];
+                foreach (long k in new[] { ukey(x.a, x.b), ukey(x.b, x.c), ukey(x.c, x.a) }) {
+                    List<int> l;
+                    if (edgeTris.TryGetValue(k, out l) == false) { l = new List<int>(); edgeTris[k] = l; }
+                    l.Add(t);
+                }
+            }
+            var queue = new Queue<int>();
+            for (int t = 0; t < tris.Count; ++t)
+                if (tris[t].a >= n0 || tris[t].b >= n0 || tris[t].c >= n0) { label[t] = 0; queue.Enqueue(t); }
+            while (queue.Count > 0) {
+                int t = queue.Dequeue();
+                Index3i x = tris[t];
+                foreach (long k in new[] { ukey(x.a, x.b), ukey(x.b, x.c), ukey(x.c, x.a) }) {
+                    int want = cset.Contains(k) ? 1 - label[t] : label[t];
+                    foreach (int u in edgeTris[k]) {
+                        if (u == t) continue;
+                        if (label[u] == -1) { label[u] = want; queue.Enqueue(u); }
+                        else if (label[u] != want) { Problem = $"inconsistent parity in {(slope ? "slope" : "terrain")} triangle {tri}"; return false; }
+                    }
+                }
+            }
+            int group = slope ? A.GetTriangleGroup(tri) : terrainGroup;
+            for (int t = 0; t < tris.Count; ++t) {
+                if (label[t] != 1) continue;
+                Index3i x = tris[t];
+                if (x.a >= n0 || x.b >= n0 || x.c >= n0) { Problem = "the part reaches the outer triangle"; return false; }
+                emit(slope, group, new Vector3d(pts[x.a].x, pts[x.a].y, zs[x.a]), new Vector3d(pts[x.b].x, pts[x.b].y, zs[x.b]),
+                     new Vector3d(pts[x.c].x, pts[x.c].y, zs[x.c]));
+            }
+            return true;
+        }
+
+        static long ukey(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
+
+        // no constraint passes through a point or crosses another (exact)
+        static bool check_graph(List<Vector2d> pts, List<Index2i> segs, out string why)
+        {
+            why = "";
+            for (int i = 0; i < segs.Count; ++i) {
+                Vector2d a = pts[segs[i].a], b = pts[segs[i].b];
+                for (int k = 0; k < pts.Count; ++k) {
+                    if (k == segs[i].a || k == segs[i].b) continue;
+                    if (ExactPredicates.Orient2d(a, b, pts[k]) == 0 && (pts[k] - a).Dot(b - a) > 0 && (pts[k] - b).Dot(a - b) > 0) { why = $"point {pts[k]} on segment {a} {b}"; return false; }
+                }
+                for (int j = i + 1; j < segs.Count; ++j) {
+                    Index2i s = segs[i], t = segs[j];
+                    if (s.a == t.a || s.a == t.b || s.b == t.a || s.b == t.b) continue;
+                    Vector2d c = pts[t.a], d = pts[t.b];
+                    int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+                    int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+                    if (o1 * o2 < 0 && o3 * o4 < 0) { why = $"segments {a} {b} and {c} {d} cross"; return false; }
+                }
+            }
+            return true;
+        }
+
+        // the nodes along an edge of the owner triangle (from corner c0 to c1) and, per sub-piece, whether it is in the
+        // region; nodes inside a run of equal flags that are not catch points or corners are dropped
+        bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags)
+        {
+            // the overlay edges of this edge, each split at its catch point
+            var byStart = new Dictionary<long, SlopeTerrainOverlay.OEdge>();
+            var ends = new HashSet<long>();
+            var region = new Dictionary<long, bool>();
+            foreach (int fi in fl) {
+                var f = O.Faces[fi];
+                foreach (var oe in f.Edges) {
+                    if (SlopeTerrainOverlay.ekind(oe.Key) != edgeKind || SlopeTerrainOverlay.eedge(oe.Key) != edge) continue;
+                    byStart[oe.P] = oe;
+                    ends.Add(oe.Q);
+                    region[oe.Key] = f.Region;
+                }
+            }
+            var runs = new List<List<KeyValuePair<Node, bool>>>();
+            foreach (var kv in byStart) {
+                if (ends.Contains(kv.Key)) continue;
+                var run = new List<KeyValuePair<Node, bool>>();
+                long cur = kv.Key;
+                int guard = 0;
+                SlopeTerrainOverlay.OEdge oe;
+                while (byStart.TryGetValue(cur, out oe)) {
+                    if (++guard > byStart.Count) { Problem = "a cycle along an edge"; return false; }
+                    int sp = O.Sign[oe.P], sq = O.Sign[oe.Q];
+                    bool r = region[oe.Key];
+                    if (sp != sq && r) {
+                        run.Add(new KeyValuePair<Node, bool>(V(oe.P), r && sp < 0));
+                        run.Add(new KeyValuePair<Node, bool>(C(oe.Key), r && sq < 0));
+                    } else run.Add(new KeyValuePair<Node, bool>(V(oe.P), r && sp < 0));
+                    cur = oe.Q;
+                }
+                run.Add(new KeyValuePair<Node, bool>(V(cur), false));
+                runs.Add(run);
+            }
+            Vector2d p0 = O.VertexXY(c0), p1 = O.VertexXY(c1);
+            Func<List<KeyValuePair<Node, bool>>, double> param = (run) => (O.VertexXY(run[0].Key.Key) - p0).Dot(p1 - p0);
+            runs.Sort((x, y) => param(x).CompareTo(param(y)));
+            var raw = new List<KeyValuePair<Node, bool>>();
+            if (runs.Count == 0 || runs[0][0].Key.Key != c0) raw.Add(new KeyValuePair<Node, bool>(V(c0), false));
+            foreach (var run in runs) raw.AddRange(run);
+            if (raw[raw.Count - 1].Key.Key != c1 || raw[raw.Count - 1].Key.Catch) raw.Add(new KeyValuePair<Node, bool>(V(c1), false));
+            // (the flag of the last node is the gap after it, so false at the end)
+            for (int i = 0; i < raw.Count; ++i) {
+                Node n = raw[i].Key;
+                bool keep = i == 0 || i == raw.Count - 1 || n.Catch || raw[i - 1].Value != raw[i].Value;
+                if (keep == false) continue;
+                if (seq.Count > 0 && seq[seq.Count - 1].Equals(n)) continue;
+                seq.Add(n);
+                flags.Add(raw[i].Value);
+            }
+            return true;
+        }
+
+        // the position of a node on the slope side (z on S̃) or the terrain side (z on the terrain; catch points on S̃)
+        Vector3d position(bool slope, Node n)
+        {
+            if (n.Catch) return catchAt[n.Key];
+            long k = n.Key;
+            int kind = SlopeTerrainOverlay.vkind(k);
+            double zs, zt;
+            if (kind == 0 && slope) return A.GetVertex(SlopeTerrainOverlay.vfirst(k));
+            if (kind == 1 && slope == false) return B.GetVertex(SlopeTerrainOverlay.vfirst(k));
+            O.Heights(k, out zs, out zt);
+            Vector2d xy = O.VertexXY(k);
+            if (kind == 2 && slope == false && O.BoundaryKind(SlopeTerrainOverlay.vfirst(k)) != 0)
+                xy = nudge(k, xy);
+            return new Vector3d(xy.x, xy.y, slope ? zs : zt);
+        }
+
+        // a terrain node on a boundary edge of the slope surface, moved by ulps off the slope side if it is on it
+        Vector2d nudge(long k, Vector2d x)
+        {
+            Vector2d r;
+            if (nudged.TryGetValue(k, out r)) return r;
+            int ea = SlopeTerrainOverlay.vfirst(k);
+            Index2i ev = A.GetEdgeV(ea);
+            int ta = A.GetEdgeT(ea).a;
+            Index3i t = A.GetTriangle(ta);
+            // the edge in the counter-clockwise order of its triangle: the slope is on its left
+            Vector2d e0 = A.GetVertex(ev.a).xy, e1 = A.GetVertex(ev.b).xy;
+            if (!((t.a == ev.a && t.b == ev.b) || (t.b == ev.a && t.c == ev.b) || (t.c == ev.a && t.a == ev.b))) { Vector2d s = e0; e0 = e1; e1 = s; }
+            Vector2d nrm = new Vector2d(e1.y - e0.y, e0.x - e1.x);
+            r = x;
+            for (int it = 0; it < 64 && ExactPredicates.Orient2d(e0, e1, r) > 0; ++it) {
+                if (nrm.x != 0) r.x = nrm.x > 0 ? ExactInterval.Up(r.x) : ExactInterval.Down(r.x);
+                if (nrm.y != 0) r.y = nrm.y > 0 ? ExactInterval.Up(r.y) : ExactInterval.Down(r.y);
+            }
+            nudged[k] = r;
+            return r;
+        }
+    }
+}

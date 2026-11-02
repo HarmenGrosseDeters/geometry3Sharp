@@ -86,6 +86,13 @@ namespace gs
             ToeUndercut,
             /// <summary> the exact check failed on ProblemTriangles (never a violating result) </summary>
             SlopeViolation,
+            /// <summary>
+            /// the slope does not reach the terrain within its footprint (or below a given HeightLimit): the results are
+            /// kept, but partial (IsComplete = false); the catch lines that end there say so
+            /// </summary>
+            NoDaylight,
+            /// <summary> the terrain is not a height field: triangles degenerate in XY or overlapping in XY </summary>
+            NotHeightField,
             Cancelled,
             /// <summary> an internal error (Message); no result </summary>
             Failed
@@ -93,8 +100,15 @@ namespace gs
 
         // inputs
         public List<SlopeToe> Toes = new List<SlopeToe>();
+        /// <summary>
+        /// optional: the terrain (a TIN, height field). With it the catch lines are computed (TERRAIN.md 5.5), and
+        /// HeightLimit may be NaN: cut then builds up to the terrain's highest vertex, fill down to its lowest
+        /// </summary>
+        public DMesh3 Terrain;
+        /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
+        public bool BuildComposite = false;
         public Directions Direction = Directions.Cut;
-        /// <summary> required: cut builds the slope up to this height, fill down to it </summary>
+        /// <summary> required without Terrain: cut builds the slope up to this height, fill down to it </summary>
         public double HeightLimit = double.NaN;
         /// <summary> required: the largest vertical deviation below the exact cone envelope (data units) </summary>
         public double Tolerance = double.NaN;
@@ -108,6 +122,21 @@ namespace gs
         /// <summary> the slope triangles; group id = index into Pieces. Null if Compute failed </summary>
         public DMesh3 SlopeSurface;
         public List<SlopePiece> Pieces = new List<SlopePiece>();
+        /// <summary> with Terrain: where the slope meets the terrain, on the slope surface (closed, or with end reasons) </summary>
+        public List<CatchLine> CatchLines = new List<CatchLine>();
+        /// <summary>
+        /// with Terrain and BuildComposite: the slope surface clipped to the region it excavates (cut) or fills, every
+        /// triangle checked exactly against its piece (group id = index into Pieces)
+        /// </summary>
+        public DMesh3 SlopeRegion;
+        /// <summary>
+        /// with Terrain and BuildComposite: the terrain with the region replaced by SlopeRegion. Joined through shared
+        /// vertices along the catch lines; the slope ends at the lowered toe (z - UsedToeLowering), with a step to the
+        /// terrain there and at the lateral limits, where the caller's design goes
+        /// </summary>
+        public DMesh3 Composite;
+        /// <summary> false if the results are partial (NoDaylight) or missing </summary>
+        public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
         public List<Index2i> ToeProblems = new List<Index2i>();
         /// <summary> SlopeViolation: the failing triangles of the last attempt (ids of that mesh, which is not returned) </summary>
@@ -133,7 +162,8 @@ namespace gs
         public bool Compute()
         {
             Status = Statuses.InvalidInput; Message = "";
-            SlopeSurface = null; Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
+            SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
+            Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             try {
@@ -145,8 +175,10 @@ namespace gs
                 Status = Statuses.Failed;
                 Message = e.Message;
             }
-            if (Status != Statuses.Success)
-                SlopeSurface = null;
+            if (Status != Statuses.Success && Status != Statuses.NoDaylight) {
+                SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
+            }
+            IsComplete = Status == Statuses.Success;
             return Status == Statuses.Success;
         }
 
@@ -183,8 +215,24 @@ namespace gs
                 return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
-            if (MathUtil.IsFinite(HeightLimit) == false)
-                return fail(Statuses.InvalidInput, "HeightLimit must be finite (no terrain in phase 1a)");
+            double heightLimit = HeightLimit;
+            if (Terrain != null) {
+                Statuses ts = check_terrain();
+                if (ts != Statuses.Success)
+                    return ts;
+            }
+            if (Terrain != null && double.IsNaN(heightLimit)) {
+                // above the highest terrain vertex (cut) and the toe, by Tolerance: at the level line of the cap S̃ is then
+                // above the terrain, also after rounding, so the region cannot reach it
+                double ext = fill ? double.MaxValue : double.MinValue, toeExt = ext;
+                foreach (Vector3d v in Terrain.Vertices()) ext = fill ? Math.Min(ext, v.z) : Math.Max(ext, v.z);
+                foreach (var toe in Toes)
+                    if (toe != null && toe.Points != null)
+                        foreach (var p in toe.Points) toeExt = fill ? Math.Min(toeExt, p.z) : Math.Max(toeExt, p.z);
+                heightLimit = fill ? Math.Min(ext, toeExt) - Tolerance : Math.Max(ext, toeExt) + Tolerance;
+            }
+            if (MathUtil.IsFinite(heightLimit) == false)
+                return fail(Statuses.InvalidInput, "HeightLimit must be finite (it may be NaN only with a Terrain)");
 
             // pieces and their points, mirrored for fill (z -> -z, exact)
             var pieces = new List<InPiece>();
@@ -223,7 +271,7 @@ namespace gs
                     pieces.Add(new InPiece() { Toe = t, Segment = i, A = a, B = b, Spec = start[i], S = start[i].S });
                 }
             }
-            double H = fill ? -HeightLimit : HeightLimit;
+            double H = fill ? -heightLimit : heightLimit;
             foreach (var pc in pieces)
                 if (!(pc.A.z < H && pc.B.z < H))
                     return problem(pc.Toe, pc.Segment, fill ? "HeightLimit must be below the toe" : "HeightLimit must be above the toe");
@@ -244,8 +292,11 @@ namespace gs
                 if (attempt > 0 && st == Statuses.InvalidInput)
                     return fail(Statuses.SlopeViolation, $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
                 if (st != Statuses.SlopeViolation) {
-                    if (st == Statuses.Success) {
+                    if (st == Statuses.Success || st == Statuses.NoDaylight) {
                         SlopeSurface = br.Mesh;
+                        CatchLines = br.CatchLines;
+                        SlopeRegion = br.Region;
+                        Composite = br.Composite;
                         Pieces = pieces.Select(p => new SlopePiece() {
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
@@ -274,6 +325,26 @@ namespace gs
             public int SlopeFailures;          // slope (i) or XY orientation
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
+            public List<CatchLine> CatchLines = new List<CatchLine>();
+            public DMesh3 Region, Composite;
+        }
+
+        Statuses check_terrain()
+        {
+            foreach (Vector3d v in Terrain.Vertices())
+                if (MathUtil.IsFinite(v.x) == false || MathUtil.IsFinite(v.y) == false || MathUtil.IsFinite(v.z) == false)
+                    return fail(Statuses.InvalidInput, "a terrain vertex is not finite");
+            if (Terrain.TriangleCount == 0)
+                return fail(Statuses.InvalidInput, "the terrain has no triangles");
+            foreach (int t in Terrain.TriangleIndices()) {
+                Index3i tri = Terrain.GetTriangle(t);
+                if (ExactPredicates.Orient2d(Terrain.GetVertex(tri.a).xy, Terrain.GetVertex(tri.b).xy, Terrain.GetVertex(tri.c).xy) == 0)
+                    return fail(Statuses.NotHeightField, $"terrain triangle {t} is degenerate in XY");
+            }
+            int overlaps = TerrainVolumeDifference.XYOverlaps(Terrain);
+            if (overlaps > 0)
+                return fail(Statuses.NotHeightField, $"{overlaps} pairs of terrain triangles overlap in XY");
+            return Statuses.Success;
         }
 
         Statuses problem(int toe, int segment, string message)
@@ -453,7 +524,51 @@ namespace gs
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
             MaxSlopeRatio = maxRatio;
-            return Statuses.Success;
+            if (Terrain == null)
+                return Statuses.Success;
+
+            // the overlay with the terrain (TERRAIN.md 5.5)
+            checkCancel();
+            var kinds = new Dictionary<int, int>();
+            foreach (int e in mesh.BoundaryEdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e);
+                List<int> b0, b1;
+                int kind = SlopeTerrainOverlay.KindOther;
+                if (map.BarriersAt.TryGetValue(mesh.GetVertex(ev.a).xy, out b0) && map.BarriersAt.TryGetValue(mesh.GetVertex(ev.b).xy, out b1))
+                    foreach (int bar in b0)
+                        if (b1.Contains(bar)) { kind = bar < map.ToeBarrierCount ? SlopeTerrainOverlay.KindToe : SlopeTerrainOverlay.KindLateral; break; }
+                kinds[e] = kind;
+            }
+            var overlay = new SlopeTerrainOverlay(mesh, Terrain, fill, kinds, CancelF);
+            if (overlay.Compute() == false)
+                return fail(Statuses.Failed, "overlay: " + overlay.Problem);
+            br.CatchLines = overlay.CatchLines;
+            phase("overlay");
+            if (BuildComposite) {
+                var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF);
+                if (comp.Build() == false)
+                    return fail(Statuses.Failed, "composite: " + comp.Problem);
+                // the clipped slope triangles get the same exact check (O1)
+                foreach (int tid in comp.Region.TriangleIndices()) {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
+                    comp.Region.GetTriVertices(tid, ref a, ref b, ref cc);
+                    InPiece pc = pieces[comp.Region.GetTriangleGroup(tid)];
+                    if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
+                    bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
+                    bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                    if (slopeOk == false) br.SlopeFailures++;
+                    if (supportOk == false)
+                        br.MaxExcess = Math.Max(br.MaxExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
+                    if (slopeOk == false || supportOk == false)
+                        bad.Add(tid);
+                }
+                phase("composite");
+                if (bad.Count > 0)
+                    return Statuses.SlopeViolation;
+                br.Region = comp.Region;
+                br.Composite = comp.Composite;
+            }
+            return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
         }
 
         // the plane of (a, b, c) at p's XY minus p.z (approximate; for the measured toe lowering)
