@@ -389,6 +389,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NormalSamples_SevenPoints_AnotherResult_StillClean()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            Func<int, DMesh3> run = (n) => MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false,
+                (p) => { p.KeepNormalDeviation = true; p.NormalDeviationSlackDegrees = 0.1; p.NormalSamples = n; });
+            DMesh3 one = run(1), seven = run(7);
+            Assert.NotNull(seven);
+            Assert.NotEqual("", Invariance.Difference(one, seven));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(seven, true));
+            Assert.True(HausdorffUpper(seven, wrap, tol) <= tol);
+            Assert.True(P01(seven) > P01(simp));
+        }
+
+        [Fact]
         public void InvariantUnderSimilarities()
         {
             DMesh3 wrap, simp; double tol;

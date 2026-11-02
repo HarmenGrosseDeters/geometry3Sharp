@@ -45,6 +45,8 @@ namespace gs
         internal bool KeepNormalDeviation = false;
         /// <summary> KeepNormalDeviation: the new triangles may deviate this much more (degrees) </summary>
         internal double NormalDeviationSlackDegrees = 0;
+        /// <summary> KeepNormalDeviation: sample the reference's normal at the centroid only (1) or also at the corners and edge midpoints (7) </summary>
+        internal int NormalSamples = 1;
         /// <summary>
         /// split the longest edge of triangles with a larger angle (caps) at the foot of the altitude from the opposite
         /// vertex: the new vertex lies on the edge, so the surface does not change (180: off). The owner's approval of
@@ -161,8 +163,19 @@ namespace gs
                 Vector3d n = (t.V1 - t.V0).Cross(t.V2 - t.V0);
                 double a2 = n.Length;
                 if (!(a2 > 0)) continue;
-                int r = referenceTree.FindNearestTriangle((t.V0 + t.V1 + t.V2) / 3);
-                sum += a2 * Vector3d.AngleD(n / a2, Reference.GetTriNormal(r));
+                Vector3d nu = n / a2;
+                if (NormalSamples <= 1) {
+                    int r = referenceTree.FindNearestTriangle((t.V0 + t.V1 + t.V2) / 3);
+                    sum += a2 * Vector3d.AngleD(nu, Reference.GetTriNormal(r));
+                } else {
+                    // corners, edge midpoints and centroid, equally weighted
+                    Vector3d c = (t.V0 + t.V1 + t.V2) / 3;
+                    Vector3d[] pts = { t.V0, t.V1, t.V2, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0), c };
+                    double dsum = 0;
+                    foreach (Vector3d q in pts)
+                        dsum += Vector3d.AngleD(nu, Reference.GetTriNormal(referenceTree.FindNearestTriangle(q)));
+                    sum += a2 * dsum / pts.Length;
+                }
                 area += a2;
             }
             return area > 0 ? sum / area : 0;
