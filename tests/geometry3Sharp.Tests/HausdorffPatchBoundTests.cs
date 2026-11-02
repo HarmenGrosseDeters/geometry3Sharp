@@ -264,6 +264,37 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RandomSlivers_OverTiltedPlanes_SoundOrNoBound()
+        {
+            // second bounds review: random slivers (angles 1e-12 to 1e-1, any rotation) over planes of slope 1e-3 to 1;
+            // the old code (no shape limit, no shaped slack) gave bounds below the truth for about 1 in 70 of the
+            // slivers below 1e-8 (up to 1.3e-6). The truth is at a corner (the distance to a plane is convex)
+            var rand = new Random(17);
+            int finite = 0;
+            for (int k = 0; k < 3000; ++k) {
+                double thin = Math.Pow(10, -12 + 11 * rand.NextDouble()), sx = -0.5 + 2 * rand.NextDouble();
+                double slope = Math.Pow(10, -3 + 3 * rand.NextDouble()), hz = Math.Pow(10, -6 + 6 * rand.NextDouble());
+                double ga = 2 * Math.PI * rand.NextDouble();
+                Func<double, double, double> h = (x, y) => hz + slope * (Math.Cos(ga) * x + Math.Sin(ga) * y);
+                var m = new DMesh3();
+                int A = m.AppendVertex(new Vector3d(-5, -5, h(-5, -5))), B = m.AppendVertex(new Vector3d(6, -5, h(6, -5))),
+                    C = m.AppendVertex(new Vector3d(6, 6, h(6, 6))), D = m.AppendVertex(new Vector3d(-5, 6, h(-5, 6)));
+                m.AppendTriangle(A, B, C); m.AppendTriangle(A, C, D);
+                double ang = 2 * Math.PI * rand.NextDouble(), c = Math.Cos(ang), sn = Math.Sin(ang);
+                Func<double, double, Vector3d> rot = (x, y) => new Vector3d(c * x - sn * y, sn * x + c * y, 0);
+                Vector3d p0 = rot(0, 0), p1 = rot(1, 0), p2 = rot(sx, thin * (0.5 + 1.5 * rand.NextDouble()));
+                var tree = new DMeshAABBTree3(m, true);
+                Func<Vector3d, double> dist = (p) => Math.Sqrt(MeshQueries.TriDistanceSqr(m, tree.FindNearestTriangle(p), p));
+                double truth = Math.Max(dist(p0), Math.Max(dist(p1), dist(p2)));
+                double pb = Patch(new TriangleDeviationBounds(m), tree, p0, p1, p2);
+                if (double.IsPositiveInfinity(pb)) continue;
+                finite++;
+                Assert.True(pb >= truth, $"#{k} thin {thin}: patch bound {pb} below {truth} by {truth - pb}");
+            }
+            Assert.True(finite > 500, "finite: " + finite);
+        }
+
+        [Fact]
         public void Degenerate_And_FarTriangles_GiveNoBound()
         {
             DMesh3 target = Grid(0, 0, 1, 1, 11);
