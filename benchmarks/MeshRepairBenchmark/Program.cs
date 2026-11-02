@@ -168,6 +168,8 @@ class Program
                 robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
                 // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
                 string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
+                // (the input as given: the repair may change mesh in place)
+                DMesh3 wqInput = string.IsNullOrEmpty(wq) ? null : new DMesh3(mesh);
                 if (string.IsNullOrEmpty(wq) == false) {
                     r["wq_variant"] = wq;
                     robust.ConfigureWrapQuality = (pass) => {
@@ -185,6 +187,19 @@ class Program
                                 case "capflip": pass.CapAngleDegrees = v; break;
                                 case "nsamples": pass.NormalSamples = (int)v; break;
                                 case "pin": pass.PinCreaseVerticesDegrees = v; break;
+                                case "protect":
+                                    // the input's sharp edges (dihedral above 20 degrees), kept v wrap offsets away from
+                                    // (the pass's Tolerance is 0.95 of half the offset)
+                                    foreach (int e in wqInput.EdgeIndices()) {
+                                        Index2i et = wqInput.GetEdgeT(e);
+                                        if (et.b < 0) continue;
+                                        if (wqInput.GetTriNormal(et.a).Dot(wqInput.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad)) {
+                                            Index2i ev = wqInput.GetEdgeV(e);
+                                            pass.ProtectedEdges.Add(new Segment3d(wqInput.GetVertex(ev.a), wqInput.GetVertex(ev.b)));
+                                        }
+                                    }
+                                    pass.ProtectedDistance = v * pass.Tolerance / 0.475;
+                                    break;
                                 case "flips": pass.EnableFlips = v != 0; break;
                                 case "moves": pass.EnableMoves = v != 0; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);

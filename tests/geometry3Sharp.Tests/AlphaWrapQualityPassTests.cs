@@ -431,6 +431,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ProtectedEdges_NoOperationNearThem()
+        {
+            // a flat pair of slivers whose flip is a clear gain: made, unless a protected segment passes within the
+            // distance of the two triangles
+            Func<Segment3d?, AlphaWrapQualityPass> run = (seg) => {
+                var m = new DMesh3();
+                int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0)),
+                    c = m.AppendVertex(new Vector3d(0.5, 0.05, 0)), d = m.AppendVertex(new Vector3d(0.5, -0.05, 0));
+                m.AppendTriangle(a, b, c); m.AppendTriangle(b, a, d);
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), 1) { EnableMoves = false, ProtectedDistance = 0.1 };
+                if (seg.HasValue) pass.ProtectedEdges.Add(seg.Value);
+                Assert.True(pass.Compute());
+                return pass;
+            };
+            Assert.Equal(1, run(null).Flips);
+            var near = run(new Segment3d(new Vector3d(0.5, 0, 0.05), new Vector3d(0.6, 0, 0.05)));
+            Assert.Equal(0, near.Flips);
+            Assert.True(near.RejectedByProtection > 0);
+            Assert.Equal(1, run(new Segment3d(new Vector3d(0.5, 0, 0.5), new Vector3d(0.6, 0, 0.5))).Flips);
+        }
+
+        [Fact]
         public void InvariantUnderSimilarities()
         {
             DMesh3 wrap, simp; double tol;

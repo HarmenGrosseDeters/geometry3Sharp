@@ -50,6 +50,14 @@ namespace gs
         /// <summary> no move of a vertex on an edge whose triangles meet at a larger angle (crease and feature vertices stay; 180: off) </summary>
         internal double PinCreaseVerticesDegrees = 180;
         /// <summary>
+        /// segments to keep away from (eg the input's sharp edges): no operation changes a triangle closer than
+        /// ProtectedDistance to one of them. Empty: off
+        /// </summary>
+        internal List<Segment3d> ProtectedEdges = new List<Segment3d>();
+        internal double ProtectedDistance = 0;
+        Dictionary<Vector3i, List<int>> protectedCells;
+        double protectedCell;
+        /// <summary>
         /// split the longest edge of triangles with a larger angle (caps) at the foot of the altitude from the opposite
         /// vertex: the new vertex lies on the edge, so the surface does not change (180: off). The owner's approval of
         /// splits (2026-11-02) caps the growth: at most MaxTriangleGrowth more triangles
@@ -66,7 +74,7 @@ namespace gs
         internal double CapFlipMaxDihedralDegrees = 10;
 
         // outputs
-        internal int Flips, Moves, Splits, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, Passes;
+        internal int Flips, Moves, Splits, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, RejectedByProtection, Passes;
         int maxTriangles;
 
         DMeshAABBTree3 referenceTree;
@@ -97,12 +105,62 @@ namespace gs
         /// <summary> resets the counters and builds the queries (Compute does it; for tests of accept) </summary>
         internal void Prepare()
         {
-            Flips = Moves = Splits = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = Passes = 0;
+            Flips = Moves = Splits = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = 0;
             maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
             grid = CheckSelfIntersections ? build_grid() : null;
+            build_protected();
+        }
+
+        // the protected segments by grid cells of size ProtectedDistance (at least 1 / 64 of the box)
+        void build_protected()
+        {
+            protectedCells = null;
+            if (ProtectedEdges.Count == 0 || !(ProtectedDistance > 0)) return;
+            protectedCell = Math.Max(ProtectedDistance, Mesh.CachedBounds.MaxDim / 64);
+            protectedCells = new Dictionary<Vector3i, List<int>>();
+            for (int i = 0; i < ProtectedEdges.Count; ++i) {
+                Segment3d sg = ProtectedEdges[i];
+                var bx = new AxisAlignedBox3d(sg.P0); bx.Contain(sg.P1);
+                foreach (Vector3i c in cells(bx)) {
+                    List<int> l;
+                    if (protectedCells.TryGetValue(c, out l) == false) protectedCells[c] = l = new List<int>();
+                    l.Add(i);
+                }
+            }
+        }
+
+        IEnumerable<Vector3i> cells(AxisAlignedBox3d bx)
+        {
+            Vector3i lo = new Vector3i((int)Math.Floor(bx.Min.x / protectedCell), (int)Math.Floor(bx.Min.y / protectedCell), (int)Math.Floor(bx.Min.z / protectedCell));
+            Vector3i hi = new Vector3i((int)Math.Floor(bx.Max.x / protectedCell), (int)Math.Floor(bx.Max.y / protectedCell), (int)Math.Floor(bx.Max.z / protectedCell));
+            for (int k = lo.z; k <= hi.z; ++k)
+                for (int j = lo.y; j <= hi.y; ++j)
+                    for (int i = lo.x; i <= hi.x; ++i)
+                        yield return new Vector3i(i, j, k);
+        }
+
+        // is triangle tid of Mesh within ProtectedDistance of a protected segment?
+        bool is_protected(int tid)
+        {
+            if (protectedCells == null) return false;
+            Index3i tv = Mesh.GetTriangle(tid);
+            Triangle3d t = new Triangle3d(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+            var bx = new AxisAlignedBox3d(t.V0); bx.Contain(t.V1); bx.Contain(t.V2);
+            bx.Expand(ProtectedDistance);
+            var seen = new HashSet<int>();
+            foreach (Vector3i c in cells(bx)) {
+                List<int> l;
+                if (protectedCells.TryGetValue(c, out l) == false) continue;
+                foreach (int i in l) {
+                    if (seen.Add(i) == false) continue;
+                    var d = new DistSegment3Triangle3(ProtectedEdges[i], t);
+                    if (d.GetSquared() <= ProtectedDistance * ProtectedDistance) return true;
+                }
+            }
+            return false;
         }
 
         TriangleHashGrid build_grid()
@@ -199,6 +257,13 @@ namespace gs
 
         internal bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed)
         {
+            if (protectedCells != null) {
+                foreach (int t in removed)
+                    if (is_protected(t)) {
+                        RejectedByProtection++;
+                        return false;
+                    }
+            }
             if (keeps_normals(tris, removed) == false) {
                 RejectedByNormals++;
                 return false;
