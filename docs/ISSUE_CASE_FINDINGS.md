@@ -6,9 +6,22 @@ the analysis so far and fix ideas with their cost, for whoever takes it up.
 
 ## Mesh repair
 
-### R1: crossing components taken for nested ones
+### R1: crossing components taken for nested ones (fixed)
 
-- Test: `MeshRepairIssueCasesTests.ThinFold_NearlyParallelOverlap_Resolved` (3 and 10 degrees), pinned.
+- **Status: fixed (fix idea 1).** `FindInvertedComponents` takes j as enclosing i only if their surfaces do not meet
+  (exact `ExactTriangleIntersection.IntersectsBeyondShared` between the two components, tested only for the pairs the
+  samples find nested). A crossing component has no nesting and keeps its orientation. Because the volume check's
+  reference uses the same rule, it moves along: no second inside / outside rule. The test is no longer pinned.
+  Direct tests: `MeshPostRepairCleanupTests.CubeCrossingASphere_IsNotACavity` (fails on the old code),
+  `CrossingComponents_KeepTheirOrientation`, `NestedComponentsNotMeeting_AreStillNested`,
+  `CavitySharingAVertexWithItsShell_IsNested`, `CavityTouchingItsShell_KeepsItsOrientation`.
+- Limits of the fix:
+  - Only pairs the box sweep and the samples find nested are tested. An inside-out crossing component whose box does
+    not lie in the other's is a top-level shell and is flagged, as before; flipping it gives the union.
+  - A touching contact (a cavity on its shell's wall, a zero wall) counts as meeting, so such a cavity keeps its
+    orientation. The correct, inward one is right either way. A wrongly oriented one is flagged only where rounding
+    (a rotation) turns the coplanar contact into a gap.
+- Test: `MeshRepairIssueCasesTests.ThinFold_NearlyParallelOverlap_Resolved` (3 and 10 degrees).
 - Issue: https://github.com/MeshInspector/MeshLib/issues/5567 (thin folds between faces that point almost the same way).
 - Input: two outward boxes [-2,2] x [-2,2] x [-0.2,0.2], one of them rotated about y by 3 (or 10) degrees, in one mesh.
 - Wrong result: `MeshRobustRepair` returns a clean mesh of volume 0.839 (10 degrees: 2.77) instead of the union's

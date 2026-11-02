@@ -413,6 +413,136 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, false));
         }
 
+        static DMesh3 FlatBox(double degrees)
+        {
+            DMesh3 box = new GridBox3Generator() {
+                Box = new Box3d(Vector3d.Zero, new Vector3d(2, 2, 0.2)), EdgeVertices = 4 }.Generate().MakeDMesh();
+            MeshTransforms.Rotate(box, Vector3d.Zero, new Quaterniond(Vector3d.AxisY, degrees));
+            return box;
+        }
+
+        [Theory]
+        [InlineData(3.0)]
+        [InlineData(10.0)]
+        [InlineData(30.0)]
+        public void CrossingComponents_KeepTheirOrientation(double degrees)
+        {
+            // finding R1: two outward flat boxes, the second rotated about an axis through the middle, so their large
+            // faces cross at a small angle and most of the second's interior lies inside the first. They cross, neither
+            // encloses the other: no cavity, nothing inside-out (also on the old code: the samples of the first, whose box
+            // lies in the second's, give no majority; CubeCrossingASphere_IsNotACavity is the direct case)
+            DMesh3 mesh = FlatBox(0);
+            MeshEditor.Append(mesh, FlatBox(degrees));
+            Assert.True(mesh.IsClosed() && Volume(mesh) > 0);
+            foreach (Similarity sim in Similarity.All())
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim)));
+
+            // an inside-out crossing box whose box does not lie in the other's is a top-level shell, inside-out, as on
+            // the old code: flagged (flipped, the two give the union)
+            DMesh3 b = FlatBox(degrees);
+            b.ReverseOrientation();
+            DMesh3 mesh2 = FlatBox(0);
+            MeshEditor.Append(mesh2, b);
+            foreach (Similarity sim in Similarity.All()) {
+                var found = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh2, sim));
+                Assert.True(found.Count == 1 && found[0].Length == b.TriangleCount && found[0].Min() == b.TriangleCount,
+                    $"{sim.Name}: {found.Count}");
+            }
+        }
+
+        [Theory]
+        [InlineData(0.62)]
+        [InlineData(0.7)]
+        public void CubeCrossingASphere_IsNotACavity(double half)
+        {
+            // finding R1, direct: an outward cube whose corners poke out of an outward unit sphere (its box lies in the
+            // sphere's, most of its interior inside the sphere). The surfaces cross: not nested, so not an outward
+            // cavity to flag. (Counted as nested, it was flagged, and the repair flipped it: sphere minus cube.)
+            DMesh3 mesh = Sphere(1);
+            DMesh3 cube = Cube(-half * Vector3d.One, 2 * half);
+            MeshEditor.Append(mesh, cube);
+            Assert.True(mesh.IsClosed() && Volume(cube) > 0);
+            foreach (Similarity sim in Similarity.All())
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim)));
+            // a cube strictly inside the sphere (corners at 0.95) still is a cavity facing outwards: flagged
+            DMesh3 mesh2 = Sphere(1);
+            MeshEditor.Append(mesh2, Cube(-0.55 * Vector3d.One, 1.1));
+            foreach (Similarity sim in Similarity.All())
+                Assert.Single(MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh2, sim)));
+        }
+
+        [Fact]
+        public void CavitySharingAVertexWithItsShell_IsNested()
+        {
+            // a tetrahedral cavity whose apex is a corner vertex of the outer cube (the same vertex, a bowtie): the
+            // surfaces share only that vertex, which is not a meeting, so the cavity is nested: inward it is correct,
+            // outward it is flagged
+            foreach (bool inwards in new[] { true, false }) {
+                DMesh3 mesh = Cube(Vector3d.Zero, 4);
+                int apex = mesh.VertexIndices().First(v => mesh.GetVertex(v) == Vector3d.Zero);
+                int a = mesh.AppendVertex(new Vector3d(1, 1, 0.5)), b = mesh.AppendVertex(new Vector3d(1, 0.5, 1));
+                int c = mesh.AppendVertex(new Vector3d(0.5, 1, 1));
+                var tets = new[] { new Index3i(apex, a, b), new Index3i(apex, b, c), new Index3i(apex, c, a), new Index3i(a, c, b) };
+                var tids = tets.Select(t => mesh.AppendTriangle(t)).ToArray();
+                double vol = MeshMeasurements.VolumeArea(mesh, tids, mesh.GetVertex).x;
+                if ((vol < 0) != inwards)
+                    foreach (int t in tids) mesh.ReverseTriOrientation(t);
+                Assert.True(mesh.IsClosed());
+                foreach (Similarity sim in Similarity.All()) {
+                    var found = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim));
+                    if (inwards)
+                        Assert.Empty(found);
+                    else
+                        Assert.True(found.Count == 1 && found[0].OrderBy(t => t).SequenceEqual(tids), $"{sim.Name}: {found.Count}");
+                }
+            }
+        }
+
+        [Fact]
+        public void NestedComponentsNotMeeting_AreStillNested()
+        {
+            // the crossing rule only applies when the surfaces meet: a cavity strictly inside its shell (and a shell in
+            // that cavity) is still nested, so an outward cavity is flagged and an inward one is not, at every scale
+            DMesh3 outer = Cube(Vector3d.Zero, 4);
+            DMesh3 cavity = Cube(Vector3d.One, 2);
+            DMesh3 island = Cube(1.5 * Vector3d.One, 1);
+            foreach (bool cavityInwards in new[] { true, false }) {
+                DMesh3 mesh = new DMesh3(outer);
+                DMesh3 c = new DMesh3(cavity);
+                if (cavityInwards) c.ReverseOrientation();
+                MeshEditor.Append(mesh, c);
+                MeshEditor.Append(mesh, island);
+                foreach (Similarity sim in Similarity.All()) {
+                    var found = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim));
+                    if (cavityInwards)
+                        Assert.Empty(found);
+                    else
+                        Assert.True(found.Count == 1 && found[0].Length == cavity.TriangleCount, $"{sim.Name}: {found.Count}");
+                }
+            }
+        }
+
+        [Fact]
+        public void CavityTouchingItsShell_KeepsItsOrientation()
+        {
+            // a cavity whose surface touches the outer shell (a zero wall) is not nested by the crossing rule: it keeps its
+            // orientation, whichever way it faces (the correct, inward one was not flagged before either). One cavity
+            // touching the wall x = 0, y = 0 or z = 0: the contact is in each axis's plane once. A rotation rounds the
+            // contact into a crossing or a gap (then nested, and the outward cavity is flagged): the outward one is
+            // checked only where the contact stays exactly coplanar; the inward one is correct either way.
+            foreach (bool inwards in new[] { true, false })
+            foreach (Vector3d min in new[] { new Vector3d(0, 1, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 0) }) {
+                DMesh3 mesh = Cube(Vector3d.Zero, 4);
+                DMesh3 c = Cube(min, 2);
+                if (inwards) c.ReverseOrientation();
+                MeshEditor.Append(mesh, c);
+                foreach (Similarity sim in Similarity.All().Where(sim => inwards || sim.IsRotated == false)) {
+                    int n = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim)).Count;
+                    Assert.True(n == 0, $"inwards {inwards}, cavity at {min}, {sim.Name}: {n} flagged");
+                }
+            }
+        }
+
         [Fact]
         public void ManyComponents_SideBySide_Fast()
         {
