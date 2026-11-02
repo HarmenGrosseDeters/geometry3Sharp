@@ -144,6 +144,12 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
 | thingi (20) | q 0 | 19768 / 1040 | 19 / 4 | 19 / 12 | 1536 / 2049 | 1.115 / 1.024 | 0.7154 / 0.7135 | 7.6 / 545.6* |
 | thingi (20) | q 0.2, check from pass 15 | 3105 / 2411 | 17 / 16 | 17 / 16 | 204 / 204 | 1.017 / 1.003 | 0.7205 / 0.7196 | 10.9 / 19.6 |
 
+The times above are from before #261 (`TriangleTriangleFilter`). In an alternating A/B on 2 November 2026 the q 0.2 rows
+with the check took 35.9-37.2 / 2.5-2.6 / 2.0-2.1 / 101.7-101.8 s on master b7fbc52 (primitives / gears / tubes /
+thingi) and 34.1-35.2 / 2.1-2.2 / 2.0-2.1 / 99.5-101.6 s with the filter's axis-plane case (0.95 / 0.85 / 1.00 / 0.99),
+the results identical (`benchmarks/SelfIntersectionBenchmark`, README, 2 November
+2026).
+
 \* measured before the parallel first round of the move check (the results are the same, the times about a
 quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s). The q 0.2 rows are from after the
 review fix (flips re-checked after reverted moves), which changed a few results (thingi mean Hausdorff 0.960 -> 0.949).
