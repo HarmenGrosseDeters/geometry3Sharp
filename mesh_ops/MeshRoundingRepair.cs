@@ -142,7 +142,12 @@ namespace g3
         /// diagonal (docs/design/SAFE_ROUNDING.md section 5). 0 turns it off.
         /// </summary>
         public double UlpFactor = 256;
-        /// <summary> an absolute tolerance the caller sets (eg 1e-6 for metres in GIS), see UlpFactor; 0 = none </summary>
+        /// <summary>
+        /// an absolute tolerance the caller sets (eg 1e-6 for metres in GIS), see UlpFactor; 0 = none. Like the other
+        /// terms it also bounds the edges contracted and the thickness of the closed components removed as thin. Unlike
+        /// the ulp term it does not switch on what applies where the coordinates are coarse (vertex removals, fixed
+        /// vertices not kept)
+        /// </summary>
         public double AbsoluteTolerance = 0;
         /// <summary>
         /// of the edits: vertices of valence 3 removed where the rounding put them onto the position of another
@@ -152,8 +157,9 @@ namespace g3
         /// <summary> the bound on the drift: the largest of the three terms (see UlpFactor) </summary>
         public double MaxLength { get { return maxLength; } }
         /// <summary>
-        /// the smallest drift that an edit rejected by the bound would have needed (infinity if none was rejected): how
-        /// large the bound would have to be for that edit (StrictRounding of ExactMeshBoolean reports it)
+        /// the smallest drift that a proposed edit rejected by the bound would have needed (infinity if none was
+        /// rejected): how large the bound would have to be for that edit (StrictRounding of ExactMeshBoolean reports it).
+        /// Edits that are not proposed (contractions of edges longer than the bound, longer moves) are not counted
         /// </summary>
         public double SmallestRejectedDrift;
         /// <summary> the centroid of a defect left after the repair (a degenerate triangle, else an intersecting one) </summary>
@@ -226,21 +232,27 @@ namespace g3
                 inputBoundary[ev.b] = Mesh.GetVertex(ev.b);
             }
             changed.Clear();
+            SmallestRejectedDrift = double.PositiveInfinity;
+            RemainingDefectAt = Vector3d.Zero;
+            coarse = false;
+            if (SharedPositionsTouch == false)
+                atPosition = null;
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
             }
-            double diag = gs.MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength;
+            AxisAlignedBox3d bounds = gs.MeshRepairMetrics.TriangleBounds(Mesh);
+            double diag = bounds.DiagonalLength;
             areaEps = DegenerateArea * diag * diag;
             // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit)
-            double largest = 0;
-            foreach (Vector3d v in Mesh.Vertices())
-                largest = Math.Max(largest, v.MaxAbs);
+            // (of the triangles' vertices, as the diagonal: unreferenced vertices do not count; a bound that is not finite
+            // has no ulp term)
+            double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
             double ulpTerm = UlpFactor * ulp(largest);
+            if (!(ulpTerm >= 0 && ulpTerm < double.PositiveInfinity))
+                ulpTerm = 0;
             maxLength = Math.Max(MaxDisplacement * diag, Math.Max(ulpTerm, AbsoluteTolerance));
             coarse = ulpTerm > MaxDisplacement * diag;
-            SmallestRejectedDrift = double.PositiveInfinity;
-            RemainingDefectAt = Vector3d.Zero;
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
                 foreach (int vid in Mesh.VertexIndices())
@@ -571,7 +583,7 @@ namespace g3
             double step = hasSurface ? surface : displacement;
             editDrift = most + step;
             if (!(step >= 0) || !(editDrift <= maxLength)) {
-                if (editDrift < SmallestRejectedDrift)
+                if (step >= 0 && editDrift < SmallestRejectedDrift)
                     SmallestRejectedDrift = editDrift;
                 return false;
             }
@@ -1214,14 +1226,17 @@ namespace g3
             return true;
         }
 
-        // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals)
+        // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals; NaN if not
+        // finite)
         static double ulp(double x)
         {
             if (!(x < double.PositiveInfinity))
                 return double.NaN;
             long bits = BitConverter.DoubleToInt64Bits(x);
             int e = (int)((bits >> 52) & 0x7FF);
-            return e > 52 ? BitConverter.Int64BitsToDouble((long)(e - 52) << 52) : double.Epsilon;
+            // (2^(e - 1075): a normal number for e > 52, else the subnormal with that one bit)
+            return e > 52 ? BitConverter.Int64BitsToDouble((long)(e - 52) << 52)
+                : e > 0 ? BitConverter.Int64BitsToDouble(1L << (e - 1)) : double.Epsilon;
         }
 
         // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
@@ -1284,7 +1299,11 @@ namespace g3
             removed.Add(fan[0]); removed.Add(fan[1]); removed.Add(fan[2]);
             added.Add(new Index3i(a, b, c)); addedFrom.Add(-1);
             var tri = new Triangle3d(pos(a), pos(b), pos(c));
-            double surface = new DistPoint3Triangle3(pos(u), tri).Get();
+            // (the distance to the nearest point, not DistPoint3Triangle3.Get: its closed form subtracts terms of the
+            // triangle's squared size and loses the distance below about 1e-8 of that size)
+            var dist = new DistPoint3Triangle3(pos(u), tri);
+            dist.GetSquared();
+            double surface = Math.Max(pos(u).Distance(dist.TriangleClosest), dist.Get());
             if (improves(0, surface, true, true) == false)
                 return false;
             int gid = Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(fan[0]) : -1;

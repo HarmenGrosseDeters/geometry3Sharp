@@ -361,5 +361,82 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, reused.VertexRemovals);
             }
         }
+
+        [Fact]
+        public void VertexRemoval_BoundIsTheTrueDistance_FarFromTheOrigin()
+        {
+            // (bounds review) a tetrahedron with 100 m edges at UTM coordinates, one face poked by a vertex u up to 0.5
+            // micrometres above it, and a second tetrahedron with its apex exactly at u; with MaxDisplacement 1e-9 the ulp
+            // term is active. DistPoint3Triangle3.Get loses distances below about 1e-8 of the triangle's size: a removal
+            // of u counted as 0 drift. Now every removal's drift is at least the distance of u to the new triangle (in local
+            // coordinates, exact by Sterbenz), and none beyond the bound is applied
+            var rnd = new Random(5);
+            int removals = 0;
+            for (int seed = 0; seed < 40; seed++) {
+                double M = 5.7e6, L = 100;
+                var O = new Vector3d(M * (0.5 + 0.5 * rnd.NextDouble()), M * (0.5 + 0.5 * rnd.NextDouble()), 0.1 * M * rnd.NextDouble());
+                Func<Vector3d> r = () => O + new Vector3d(L * (rnd.NextDouble() - .5), L * (rnd.NextDouble() - .5), L * (rnd.NextDouble() - .5));
+                Vector3d p0 = r(), p1 = r(), p2 = r();
+                Vector3d n = (p1 - p0).Cross(p2 - p0).Normalized;
+                Vector3d p3 = (p0 + p1 + p2) / 3 - 30 * n;
+                double h = 1e-9 + 5e-7 * rnd.NextDouble();
+                double w0 = rnd.NextDouble(), w1 = rnd.NextDouble() * (1 - w0);
+                Vector3d u = p0 + w0 * (p1 - p0) + w1 * (p2 - p0) + h * n;
+                var m = new DMesh3();
+                int a = m.AppendVertex(p0), b = m.AppendVertex(p1), c = m.AppendVertex(p2), d = m.AppendVertex(p3), vu = m.AppendVertex(u);
+                m.AppendTriangle(vu, a, b); m.AppendTriangle(vu, b, c); m.AppendTriangle(vu, c, a);
+                m.AppendTriangle(a, d, b); m.AppendTriangle(b, d, c); m.AppendTriangle(c, d, a);
+                Vector3d q0 = u + 10 * n + new Vector3d(5, 0, 0), q1 = u + 10 * n + new Vector3d(-3, 4, 1), q2 = u + 10 * n + new Vector3d(-2, -4, -1);
+                int e = m.AppendVertex(u), f0 = m.AppendVertex(q0), f1 = m.AppendVertex(q1), f2 = m.AppendVertex(q2);
+                m.AppendTriangle(e, f0, f1); m.AppendTriangle(e, f1, f2); m.AppendTriangle(e, f2, f0); m.AppendTriangle(f0, f2, f1);
+                var rr = new MeshRoundingRepair(m) { SharedPositionsTouch = true, MaxDisplacement = 1e-9 };
+                rr.Apply();
+                Assert.True(rr.MaxDrift <= rr.MaxLength, $"seed {seed}");
+                if (rr.VertexRemovals == 0)
+                    continue;
+                removals++;
+                // the distance of u to the plane of (a, b, c) in local coordinates (u projects into the face)
+                Vector3d l1 = p1 - p0, l2 = p2 - p0, lu = u - p0, ln = l1.Cross(l2).Normalized;
+                double dist = Math.Abs(lu.Dot(ln));
+                // (up to the absolute rounding error of the bound's computation: a few ulps of the coordinates)
+                Assert.True(rr.MaxDrift >= dist - 4 * Ulp(m), $"seed {seed}: drift {rr.MaxDrift:G3}, distance {dist:G3}");
+            }
+            // (not vacuous: some seeds are within the bound and get removed)
+            Assert.True(removals > 0, "no removal");
+        }
+
+        [Fact]
+        public void UnreferencedVertices_DoNotChangeTheBound()
+        {
+            // (code review) the largest coordinate and the diagonal both of the triangles' vertices: a stray vertex far
+            // away or at NaN changes nothing
+            DMesh3 start = SplitSphere(1e-13, 2e-13), m0 = new DMesh3(start);
+            var r0 = new MeshRoundingRepair(m0) { SharedPositionsTouch = true };
+            Assert.True(r0.Apply());
+            foreach (Vector3d stray in new[] { new Vector3d(1e12, 0, 0), new Vector3d(double.NaN, 0, 0) }) {
+                DMesh3 m = new DMesh3(start);
+                int v = m.AppendVertex(stray);
+                var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true };
+                Assert.True(r.Apply(), stray.ToString());
+                Assert.Equal(r0.MaxLength, r.MaxLength);
+                Assert.Equal(m0.TriangleCount, m.TriangleCount);
+                Assert.Equal(r0.MaxDrift, r.MaxDrift);
+                Assert.Equal(r0.Collapses + r0.Flips + r0.Moves + r0.Zips, r.Collapses + r.Flips + r.Moves + r.Zips);
+                m.RemoveVertex(v, false, false);
+                Assert.Equal("", Invariance.GeometricDifference(m0, m));
+            }
+        }
+
+        [Fact]
+        public void EmptyMesh_ResetsTheReportedValues()
+        {
+            var r = new MeshRoundingRepair(PokedSphere());
+            r.Apply();
+            r.Mesh = new DMesh3();
+            Assert.True(r.Apply());
+            Assert.Equal(double.PositiveInfinity, r.SmallestRejectedDrift);
+            Assert.Equal(Vector3d.Zero, r.RemainingDefectAt);
+            Assert.Equal(0, r.VertexRemovals);
+        }
     }
 }

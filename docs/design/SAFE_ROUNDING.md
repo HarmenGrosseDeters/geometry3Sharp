@@ -314,7 +314,10 @@ a vertex of valence 3 instead of the weld.
   - after the passes, a vertex of valence 3 at the position of another vertex is removed, its three triangles replaced
     by the one of its neighbours, if the result improves (`VertexRemovals`). The passes then run again.
 - **Bound of the removal:** δ = dist(u, (a, b, c)). With u moved to its nearest point q in the closed triangle, the
-  three triangles (q, a, b), (q, b, c), (q, c, a) tile it.
+  three triangles (q, a, b), (q, b, c), (q, c, a) tile it, and the bound is tight. It is computed as |u − q|.
+  `DistPoint3Triangle3.Get` would not do: its closed form subtracts terms of the triangle's squared size, so distances
+  below about 1e-8 of that size come out as 0 (bounds review; regression test
+  `VertexRemoval_BoundIsTheTrueDistance_FarFromTheOrigin`).
 - **Ordinary meshes:** none of this applies unless the largest coordinate exceeds about 1.75e8 times the diagonal. So
   their results stay bit for bit the same (`OrdinaryMeshes_UlpToleranceChangesNothing`), and the 2^k scales keep giving
   the same result bit for bit, since ulp(2^k M) = 2^k ulp(M).

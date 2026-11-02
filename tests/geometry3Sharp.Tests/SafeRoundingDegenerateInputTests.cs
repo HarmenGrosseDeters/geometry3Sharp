@@ -291,7 +291,9 @@ namespace geometry3Sharp.Tests
                     }
                     // (within the bound: the relative one, or near UTM coordinates the ulp term of MeshRoundingRepair.UlpFactor)
                     Assert.True(op.Rounding.MaxDrift <= op.Rounding.MaxLength, sim.Name);
-                    Assert.True(op.Rounding.MaxLength == BooleanOracle.SafeRoundingBound(op.Result) || sim.Name.Contains("utm"), sim.Name);
+                    double largest = op.Result.Vertices().Max(v => v.MaxAbs);
+                    double ulpTerm = 256 * Math.Pow(2, Math.Floor(Math.Log(largest, 2)) - 52);
+                    Assert.Equal(Math.Max(BooleanOracle.SafeRoundingBound(op.Result), ulpTerm), op.Rounding.MaxLength);
                     // (except the cluster at 1e-3 near UTM coordinates, ROBUSTNESS_SWEEP R23: a unit in the last place
                     // there, 9.3e-10, is 4.7e-7 of the mesh's size, far coarser than its slivers (about 1e-13); this one
                     // keeps an inside-out tiny component even with the ulp tolerance, SafeRoundingBoundTests.Utm_*)
