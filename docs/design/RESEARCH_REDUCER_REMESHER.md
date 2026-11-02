@@ -20,14 +20,18 @@ Method: web search for each named paper and for follow-ups, reading of abstracts
 descriptions, and the repo's own design documents and code (`mesh/Reducer.cs`, `mesh/Remesher.cs`,
 `queries/TriangleDeviationBounds.cs`, `spatial/TriangleHashGrid.cs`).
 
-**Access limits (stated, not circumvented).** The session's network policy blocks some hosts: `mgarland.org`
-(the author copy of *Permission grids*) and `www.academia.edu` (a copy of *Intersection free simplification*) did not
-resolve. Following the session's rule, no further hosts were tried after these two failures, so **no full text was
-read in this session**; every statement about a paper below comes from its abstract, its project page, its publisher
-or index record, or a citing paper, and is marked where a detail would need the full text. License statements about
-reference code come from project pages and package indexes, not from the LICENSE files themselves (the GitHub tools of
-this session are scoped to this repository). Everything marked *(full text needed)* must be checked before an
-implementation brief is written.
+**Access limits (stated, not circumvented).** The first session could read no full text (`mgarland.org` and
+`www.academia.edu` were blocked). A follow-up session (2026-11-02) read two full texts:
+- Zelinka & Garland 2002, *Permission Grids* (author PDF, `mgarland.org/papers/pgrid.pdf`, 25 pages);
+- Hu et al. 2017 (arXiv:1611.02147v1, the preprint of the TVCG paper; the TVCG version was not compared).
+
+Still blocked for the follow-up session (the proxy answered 403): `www.academia.edu` (Gumhold et al. 2003),
+`peterwonka.net` (Wang et al. 2019), `igl.ethz.ch` and `cims.nyu.edu` (Harmon et al. 2011), `www.cs.ubc.ca`
+(El Topo), `www.cs.unc.edu` / `gamma.cs.unc.edu` (Cohen et al. 1996), and the author hosts tried for Teschner et al.
+2003. No other route was tried. The statements about those papers still come from abstracts, project pages, index
+records or citing papers, and keep their *(full text needed)* marks. License statements marked "LICENSE file checked"
+come from the raw LICENSE file of the named repository; the others still come from project pages or package indexes.
+Everything still marked *(full text needed)* must be checked before an implementation brief is written.
 
 Licensing rules applied (CLAUDE.md, AGENTS.md): implement from papers; port only MIT / BSD / Apache; never GPL
 (CGAL); MPL-2.0 (TetWild, fTetWild, Sacht & Jacobson's code) not ported.
@@ -51,24 +55,47 @@ W. Wright, *Simplification Envelopes*, SIGGRAPH 1996, pp. 119-128, doi:10.1145/2
   between them, which guarantees the one-sided deviation and keeps the genus.
 - Assumptions: an orientable manifold input; the offsets are built by moving vertices along normals and shrinking the
   offset locally where it would self-intersect, so the available tolerance is smaller than ε where the surface is
-  curved or thin (abstract-level; *(full text needed)* for the exact construction).
+  curved or thin (abstract-level; *(full text needed)* for the exact construction). Zelinka & Garland 2002 (§3.1.4,
+  full text read) describe it the same way: per-vertex offsets along the normals, new faces intersected with the
+  envelopes; input-sensitive (each envelope is the size of the input), manifold and orientable input only, no
+  topology change; 178 s vs 19 s for the permission grid on the bunny at ε = 1 %.
 - Cost vs ours: it is the predecessor of the polyhedral envelope; containment tests against the offset surfaces are of
   the same kind as the ε/√3 polyhedra that were measured and stopped, and the envelope is locally thinner than ε.
 - **Not applicable**: same failure mode as the stopped exact envelope (acceptance), and it needs a manifold input,
   which the alpha-wrap pipeline has but the general `Reducer` does not.
 
 **Permission grids** — S. Zelinka, M. Garland, *Permission Grids: Practical, Error-Bounded Simplification*, ACM TOG
-21(2):207-229, 2002 (pages per DBLP; the author PDF shows 1-25).
-- A uniform binary grid discretizing the tolerance volume (the set of points within ε of the input). An operation is
-  allowed only if every grid cell its new triangles intersect is permitted ("ask permission" before generating any
-  triangle). Works with any simplifier, tolerates degenerate input and topology change, and the tolerance can grow
-  during simplification (error-bounded LOD).
-- Guarantee: one-sided (simplified → input) within ε, if a cell is marked permitted only when all its points lie
-  within ε and the triangle-cell overlap is conservative. The exact marking rule of the paper and its resolution
-  choice are *(full text needed)*.
-- The idea in our terms: a cell of size h with centre c is certainly inside the tolerance volume if
-  d(c) + h·√3/2 ≤ ε, where d(c) is one nearest-distance query. A triangle whose overlapped cells are all certified is
-  within ε. The acceptance loss is the shell of width about h·√3 at the boundary of the tolerance volume, which
+21(2):207-229, April 2002 (pages per DBLP; the author PDF numbers them 1-25). Full text read.
+- A uniform binary grid (1 bit per voxel, a full grid over the bounding box) discretizing the tolerance volume. A
+  voxel is "occupiable" only if it lies entirely within ε of the input. Every triangle the simplifier generates is
+  rasterized into the grid; if it touches an empty voxel, the operation is rejected. Works with any simplifier,
+  tolerates any degeneracy (non-manifold, T-junctions, self-intersections, non-orientable: input triangles are
+  voxelized independently), allows topology change, and the tolerance can be grown during simplification by dilating
+  the occupiable set by one voxel (6-neighbourhood; conservative, L1 instead of L2) for an error-bounded LOD
+  hierarchy. Boundary and feature curves get a second grid built from the boundary edges.
+- Marking rule (§4.2): the α-prism (Minkowski sum of the triangle and a ball of radius α) of **each input triangle**
+  is voxelized eagerly before simplification (Dachille & Kaufman's scan-line voxelization), with the distance taken at
+  the voxel centre and α = ε − h·√3/2, so that the whole voxel is within ε. Corner tests are named as an alternative.
+- Resolution (§4.1): h ≤ ε/√3 is needed for a voxel through which the surface passes to be occupiable at all;
+  the paper's precision parameter is ρ = ε/h, with ρ = 4 as the default ("a good trade-off"). Memory limits the
+  smallest ε: about 0.155 % of the diagonal for 256 MB in the worst case; the practical limit in their tests was about
+  0.15 %. Octrees / sparse grids are named as future work, not implemented (about a tenth of the cells are occupiable at
+  1 %).
+- Triangle test (§4.3): 2D scan-line rasterization in the dominant projection plane, each pixel lifted to a short
+  column of voxels; "small care" adds the neighbouring voxels for floating-point imprecision (up to 3 per column).
+  The paper gives no formal rounding argument for this step.
+- Integration (§4.4): with QSlim, the collapse is performed, all triangles of its neighbourhood are tested, and the
+  collapse is rolled back on failure; rejected edges are re-queued when a neighbouring collapse changes their cost.
+- Guarantee: one-sided (simplified → input) within ε. A two-sided variant (§4.2.1, proof in the appendix) needs
+  ε/√3 during voxelization, clearing voxels that touch the medial axis, and a simplifier that keeps topology; not
+  implemented by the authors.
+- Cost: on a 933 MHz PIII with ρ = 4, ε = 1 %: 19.2 s vs 4.7 s for plain QSlim (bunny, 69k faces), 219 s vs 97 s
+  (Buddha, 1.1M faces), about 2-4x the QSlim time and up to 10x faster than Simplification Envelopes (178 s on the
+  bunny). Time grows as ε shrinks (horse, 97k faces: 19 s at 2 %, 89 s at 0.175 %).
+- The idea in our terms: the paper's rule is the same inequality, d(c) + h·√3/2 ≤ ε for a voxel of size h with centre
+  c. **Our variant differs** in where d(c) comes from: one nearest-distance query per cell, filled lazily when a
+  triangle first touches it, instead of the eager α-prism voxelization of every input triangle. A triangle whose
+  overlapped cells are all certified is within ε. The acceptance loss is the shell of width about h·√3 at the boundary of the tolerance volume, which
   **shrinks with h**, unlike the fixed ε/√3 of the polyhedral envelope; on the other hand the `Reducer` pushes
   triangles to the tolerance, so the triangles near ε will still fall through to `IsWithin`.
 - Why it could pay where the triangle cache did not: triangles repeat in 0-0.3 % of the calls, but **cells repeat**:
@@ -83,7 +110,9 @@ W. Wright, *Simplification Envelopes*, SIGGRAPH 1996, pp. 119-128, doi:10.1145/2
   `TriangleDeviationBounds` already uses; the triangle-box overlap must be conservative (closed boxes, or the exact
   SAT of the triangle-box test with an outward margin). It changes results only where `IsWithin`'s depth limit
   rejects a triangle the grid accepts.
-- License: paper only (no reference code known).
+- License: paper only (no reference code known; the authors' QSlim integration was not published with the paper).
+- The full text confirms the cell-count estimate: the paper's own practical floor (about 0.15 % of the diagonal for a
+  uniform grid at ρ = 4) lies above our 0.001·diag setting, and the octree variant is untested in the paper.
 - **Recommendation: measure an upper bound first.** In the `ReducerBenchmark spike` setting (bumpy sphere, terrain;
   ε = 0.001 / 0.003 / 0.01 of the diagonal): for h ∈ {ε/2, ε/4, ε/8} and an octree variant, count the `IsWithin`
   calls the grid would certify, the number of distinct cells filled, and the time of filling + lookups vs the time of
@@ -107,7 +136,9 @@ surface mesh using Hausdorff envelope*, Computer Methods in Applied Mechanics an
 - Klein et al. use the Hausdorff distance between the original and the reduced mesh as the error, tracking
   correspondences so that it is evaluated locally; Borouchaki & Frey estimate it per edge collapse.
 - Guarantee: Klein et al. claim a guaranteed user-defined error (the mechanism, exact or sampled, is
-  *(full text needed)*); Borouchaki & Frey use an estimate, not a bound.
+  *(full text needed)*; Zelinka & Garland 2002 §3.1.3 class it under local reprojection and say it enforces the
+  two-sided Hausdorff distance "with significant computational effort"); Borouchaki & Frey use an estimate, not a
+  bound.
 - Cost vs ours: `IsWithin` with Sacht & Jacobson's cascading bounds is the newer, certified form of the same check.
 - **Not applicable**.
 
@@ -163,7 +194,8 @@ collapse.
 International Journal of Shape Modeling 9(2):155-176, 2003, doi:10.1142/S0218654303000097.
 - Pair contraction with a priority queue and a spatial search structure; the collision test of the simplices affected
   by a contraction is done lazily for the contraction about to be applied. This is our design. Which search structure
-  and which per-query costs they report is *(full text needed)*.
+  and which per-query costs they report is *(full text needed; `www.academia.edu` still blocked in the follow-up
+  session)*.
 - **Already adopted** (the `Reducer`'s check follows the same scheme).
 
 **Spatial hashing** — M. Teschner, B. Heidelberger, M. Müller, D. Pomeranets, M. Gross, *Optimized Spatial Hashing
@@ -186,8 +218,9 @@ box is removed and reinserted, the sibling chosen by a surface-area (perimeter) 
 - Fit: the broad phase decides nothing exact (closed boxes, conservative), so any structure is allowed; results stay
   bit-identical as long as the set of candidates tested is a superset of the intersecting ones and the order of the
   pair tests does not change the outcome (it does not: the check is "any pair intersects").
-- License: Box2D MIT (2.4+); to be confirmed from the LICENSE file of the exact version before reading code.
-  Implementing from the description is enough.
+- License: Box2D: the LICENSE file on the `main` branch of `erincatto/box2d` is MIT (Copyright (c) 2022 Erin Catto;
+  LICENSE file checked). That older versions were zlib-style comes from secondary sources. Implementing from the
+  description is enough.
 
 **Clearance (proximity) certificates.** For a region R (the old one-rings of a and b) let C be a lower bound of the
 distance from R to every triangle that shares no vertex with R. If every point of the new triangles lies within
@@ -230,9 +263,10 @@ statically; the broad phase is an acceleration grid of element boxes. The inters
 multimaterial front tracking relies on (F. Da, C. Batty, E. Grinspun, *Multimaterial Mesh-Based Surface Tracking*,
 SIGGRAPH 2014 / arXiv 1306.3113 for the front-tracking variant). Exact CCD for El Topo: T. Brochu, E. Edwards,
 R. Bridson, *Efficient Geometrically Exact Continuous Collision Detection*, ACM TOG 31(4) (SIGGRAPH 2012).
-- License: the UBC project page calls El Topo "public domain"; the GitHub repository's own LICENSE file could not be
-  checked from this session. **Reference only until the LICENSE file is checked**; implementing from the paper needs
-  no license.
+- License: the UBC project page calls El Topo "public domain"; the GitHub repository's own LICENSE file is still
+  unchecked (the follow-up session could not reach `github.com/tysonbrochu/eltopo`, the UBC page was blocked, and
+  `raw.githubusercontent.com` returned 404 for `LICENSE`/`README` on `master` and `main`). **Reference only until the
+  LICENSE file is checked**; implementing from the paper needs no license.
 - Cost: they report that the checks are the main cost of robust operations; the paper's own numbers are
   *(full text needed)*.
 
@@ -240,8 +274,10 @@ R. Bridson, *Efficient Geometrically Exact Continuous Collision Detection*, ACM 
 *Interference-Aware Geometric Modeling*, ACM TOG 30(6), article 137 (SIGGRAPH Asia 2011): interference handling for
 modelling operations, with a minimum separation between surfaces. Tight Inclusion CCD (B. Wang, Z. Ferguson,
 T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large Scale Benchmark and an Inclusion-Based Algorithm for
-Continuous Collision Detection*, ACM TOG 40(5), 2021): conservative CCD with minimum separation; the package indexes
-(conda-forge) list it as MIT (LICENSE file not checked here).
+Continuous Collision Detection*, ACM TOG 40(5), 2021): conservative CCD with minimum separation. License: MIT
+(`Continuous-Collision-Detection/Tight-Inclusion`, `main` branch, Copyright (c) 2020 the six authors; LICENSE file
+checked). Harmon et al. 2011: the full text could not be read (`igl.ethz.ch` and `cims.nyu.edu` blocked), so what
+exactly its separation constraint checks, and at what cost, is still *(full text needed)*.
 
 **Clearance filter** (the lemma of section 2.2). It fits the remesher much better than the `Reducer`:
 - smoothing / tangential relocation moves are small against the local spacing, and a split's new vertex lies on the
@@ -278,22 +314,58 @@ remeshing does not have. No change expected from swapping the structure.
 **Error-bounded remeshing with min-angle improvement** — K. Hu, D.-M. Yan, D. Bommes, P. Alliez, B. Benes,
 *Error-Bounded and Feature Preserving Surface Remeshing with Minimal Angle Improvement*, IEEE TVCG
 23(12):2560-2573, 2017, doi:10.1109/TVCG.2016.2632720, arXiv:1611.02147.
-- Input: an approximation error bound, a minimal angle, and a maximum vertex count. The error bound is a hard
-  constraint; the min angle and the complexity are optimization goals (the requested mesh may not exist). A greedy
-  search for the coarsest mesh whose min angle exceeds the threshold within the error bound; operations: edge flip,
-  collapse, split and vertex relocation; features are kept by the relocation operators instead of feature tagging;
-  speed from a *local* error estimation.
-- Guarantee: the error check in the paper is a local estimate (samples, abstract level: *(full text needed)* for how
-  conservative); our `IsWithin` gives a certified one-sided bound and replaces it directly.
-- Fit: exactly the 7b setting (fidelity first, then quality, with the vertex count as a soft budget). Two lessons for
-  7b: (a) the pass needs splits (and accepts a moderate count increase), flips and relocation alone cannot lift the
-  worst angles under a tight bound; (b) work is ordered by the worst angle (a priority queue), not by sweeps.
-- License: paper only. **Recommendation: adopt the structure** for the 7b quality pass, with every operation guarded
-  by `IsWithin` at the wrap tolerance and by the self-intersection check (already the 7b plan; heads-up sent).
+Full text read (arXiv:1611.02147v1).
+- Input: a 2-manifold mesh, an error bound δ (two-sided Hausdorff), a minimal angle θ, and a vertex budget N. δ is a
+  hard constraint; θ and N are goals (the requested mesh may not exist).
+- Operators: **edge collapse, edge split and vertex relocation only. There are no edge flips**: a flip is emulated by
+  a split followed by a collapse, on purpose, because flips "tend to destroy sharp creases and would require
+  additional nontrivial checks". Every collapse and split is followed by a relocation of the new vertex.
+- Three phases (Alg. 1):
+  1. Initial simplification (Alg. 2): collapses only, a priority queue over all halfedges by increasing
+     l(h)·(θ1(h) + θ2(h))/2 (length times the mean of the two opposite angles). Reduces the vertex count by about 20 %
+     more, at 2-3x the time; can be switched off.
+  2. Greedy angle improvement (Alg. 3): a priority queue of all angles below θ; pop the smallest θmin and try, first
+     success wins: (i) collapse the halfedge opposite θmin; (ii) relocate each of the triangle's three vertices; (iii)
+     only if both fail, follow the longest-side propagation path (Rivara: move to the longest edge of the two adjacent
+     triangles until it no longer grows or hits the boundary) and split that edge. The split needs only validity, not
+     an angle gain. The loop runs while the queue is non-empty **and** the vertex count is below N.
+  3. Final relocation (Alg. 4): a FIFO queue of all vertices; relocate if the angle gain is at least Δθ = 0.1°, then
+     push the one-ring.
+- Acceptance test of every operator: the link condition (collapse); no fold-over (no triangle normal reverses its
+  orientation); the approximation error stays below δ; no new interior angle below the current θmin; the mesh stays
+  2-manifold. **There is no self-intersection test.**
+- Error check (§4): **an estimate, not a bound.** Stratified samples (about 10 per facet, Lloyd-relaxed, plus edge and
+  vertex samples). Direction output → input: the modified one-ring is re-sampled and the exact point-to-surface
+  distance of each sample is taken (an underestimate between samples; the gap is bounded by the sample spacing, which
+  is not added). Direction input → output: each input sample keeps a link to its closest output triangle, and only
+  links into the one-ring plus one more ring are updated (can overestimate; the paper reports > 99.9 % of the global
+  nearest points found with a one-ring patch). Our `IsWithin` gives a certified one-sided (output → input) bound and
+  replaces the first direction directly; the paper's second direction has no counterpart in the `Reducer`.
+- Features (§5), without tagging: a feature intensity F(v) = (τ(|K(v)|) + 1)(τ(E(v)) + 1) − 1, with K the angle
+  defect, E the largest unsigned dihedral angle at an incident edge, and τ(x) = min(π, 2x). Collapse position: the
+  endpoint with the larger F, or the midpoint if |F(vi) − F(vj)| < 0.15·max. Split position: the midpoint. Relocation
+  start: v is classified by the number of neighbours with F(vi) ≥ ζ·F(v) (ζ = 0.5), counted only over edges with
+  |D(e)| + 1 ≥ ζ(E(v) + 1): none → feature vertex (stays), about two → crease vertex (CVT barycentre of its two crease
+  neighbours), all → smooth (CVT barycentre of the one-ring). Then two iterations of a weighted Hausdorff minimization
+  (Lawson / Winkler et al. weights, times the Voronoi area and F of each sample), step λ = 0.9.
+- Termination (§6.9): **not guaranteed.** Above 35° there is no convergence guarantee; at θ = 60° the algorithm "runs
+  into infinite loops or generates degenerated edges" (best reached about 40-41°). θ = 40° is reached on their models
+  but much more slowly (many splits).
+- Fit: the 7b setting (fidelity first, then quality, with the vertex count as a budget). Lessons for 7b: (a) the pass
+  needs splits (and accepts a moderate count increase); collapse and relocation alone cannot lift the worst angles
+  under a tight bound; (b) work is ordered by the worst angle (a priority queue), not by sweeps; (c) the operator order
+  is collapse → relocate → split, and flips can be left out (or kept only where no crease is involved); (d) an explicit
+  stop is needed: the vertex budget, plus an attempt counter per popped angle or an operation budget, since the
+  greedy loop can cycle; (e) θ around 30-35° is the realistic target.
+- License: paper only. The authors' implementation is built on CGAL (GPL): no reference code is to be read.
+  **Recommendation: adopt the structure** for the 7b quality pass, with every operation guarded by `IsWithin` at the
+  wrap tolerance and by the self-intersection check (already the 7b plan; the details above were sent to the 7b
+  session).
 
 **Remeshing without large and small angles** — Y. Wang, D.-M. Yan, X. Liu, C. Tang, J. Guo, X. Zhang, P. Wonka,
 *Isotropic Surface Remeshing without Large and Small Angles*, IEEE TVCG 25(7):2430-2442, 2019,
-doi:10.1109/TVCG.2018.2837115 (the IEEE record omits X. Zhang). Vertex insertion removes obtuse angles, vertex
+doi:10.1109/TVCG.2018.2837115 (the IEEE record omits X. Zhang; full text not read, `peterwonka.net` blocked in the
+follow-up session). Vertex insertion removes obtuse angles, vertex
 removal improves small angles; runs as a post-process after any remesher at the speed of real-time adaptive
 remeshing. **Recommendation: candidate operators** for the same pass (insertion / removal with the same guards); no
 fidelity bound of its own.
@@ -359,7 +431,7 @@ US 12,094,060 and US 12,333,653, scope not checked). **Not applicable** as a por
 | 2 | Dynamic fat-AABB tree (Box2D-style; Larsson & Akenine-Möller) | yes, bit-identical | removes per-level visits | A/B only if the measurement shows level visits dominate |
 | 3 | Clearance filter (conservative advancement / proximity) | yes, bit-identical | the share of moves with ∣Δ∣ < C | measure upper bound first (remesher session) |
 | 3, 5 | CCD (El Topo, Brochu 2012, Tight Inclusion) | stronger (motion) | cost, no gain for a static result | not applicable until a nesting change is shown |
-| 4 | Hu et al. 2017 structure (worst-angle queue, flip/collapse/split/relocate, hard error bound) | with `IsWithin` | lifts min angles where splits are allowed | adopt in 7b |
+| 4 | Hu et al. 2017 structure (worst-angle queue, collapse → relocate → split, no flips, hard error bound, explicit stop) | with `IsWithin` | lifts min angles where splits are allowed | adopt in 7b |
 | 4 | Wang et al. 2019 insertion / removal operators | with `IsWithin` | obtuse and small angles | candidate operators in 7b |
 | 5 | Minimum separation (Harmon 2011) | stronger than no-intersection | fewer near-contacts | after the clearance filter, measure |
 
