@@ -107,7 +107,12 @@ namespace gs
             CompositeFailed,
             Cancelled,
             /// <summary> an internal error (Message); no result </summary>
-            Failed
+            Failed,
+            /// <summary>
+            /// RequiredCatchLineAccuracy is not reached, also with a smaller Tolerance (TerrainVerticalUncertainty or a
+            /// tangential contact alone exceeds it): CatchLines are kept with their uncertainties, the rest is not returned
+            /// </summary>
+            CatchLineAccuracyNotReached
         }
 
         // inputs
@@ -147,6 +152,18 @@ namespace gs
         public double Tolerance = double.NaN;
         /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
         public double SlopeMargin = 1e-6;
+        /// <summary> with a terrain: its vertical uncertainty (data units, default 0), part of the catch line's uncertainty </summary>
+        public double TerrainVerticalUncertainty = 0;
+        /// <summary>
+        /// with a terrain: catch-line segments whose horizontal uncertainty exceeds it are reported (IllConditionedCatchLine);
+        /// default: none (an application might use 0.1 m)
+        /// </summary>
+        public double CatchLineWarningThreshold = double.PositiveInfinity;
+        /// <summary>
+        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none). Reached by a smaller
+        /// Tolerance (UsedTolerance), else CatchLineAccuracyNotReached
+        /// </summary>
+        public double RequiredCatchLineAccuracy = double.NaN;
         public Func<bool> CancelF = () => false;
 
         // outputs
@@ -222,6 +239,12 @@ namespace gs
         /// (the caller's design) is not included
         /// </summary>
         public double Volume, PlanArea, SlopeArea;
+        /// <summary> the catch-line segments (line, segment) whose uncertainty exceeds CatchLineWarningThreshold </summary>
+        public List<Index2i> IllConditionedCatchLine = new List<Index2i>();
+        /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
+        public List<Index2i> TangentialContact = new List<Index2i>();
+        /// <summary> the Tolerance used: Tolerance, or smaller to reach RequiredCatchLineAccuracy </summary>
+        public double UsedTolerance;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
@@ -266,16 +289,39 @@ namespace gs
             undercutThroughDesign = false;
             SimplifyTrace = 0; SimplifyRounds = 0;
             CapRounds = 0;
+            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+            double givenTolerance = Tolerance;
+            UsedTolerance = Tolerance;
             try {
-                Status = compute();
+                // (a smaller Tolerance until RequiredCatchLineAccuracy is met, at most 3 times)
+                for (int round = 0; ; ++round) {
+                    Status = compute();
+                    if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) break;
+                    double next;
+                    int verdict = catch_line_accuracy(out next);
+                    if (verdict == 0) break;
+                    if (verdict == 2 || round == 3) {
+                        Status = fail(Statuses.CatchLineAccuracyNotReached, $"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy" +
+                                      (verdict == 2 ? " (the terrain's vertical uncertainty or a tangential contact alone exceeds it)" : ""));
+                        break;
+                    }
+                    Tolerance = next; UsedTolerance = next;
+                    IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+                }
             } catch (OperationCanceledException) {
                 Status = Statuses.Cancelled;
             } catch (Exception e) when (e is InvalidOperationException || e is ArgumentException || e is OverflowException) {
                 // (an internal inconsistency; never a result)
                 Status = Statuses.Failed;
                 Message = e.Message;
+            } finally {
+                Tolerance = givenTolerance;
             }
-            if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
+            if (Status == Statuses.CatchLineAccuracyNotReached) {
+                // (the catch lines are kept, with their uncertainties: they show where the accuracy is not reached)
+                SlopeSurface = null; SlopeRegion = null; Composite = null;
+                Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
+            } else if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             }
@@ -456,6 +502,36 @@ namespace gs
 
         bool undercutThroughDesign;
 
+        // TERRAIN.md 5.5: each catch-line segment's horizontal uncertainty, (Tolerance + TerrainVerticalUncertainty) over the
+        // gradient of S - T on its face plus the move of the composite's snapping (MinFeatureSize); a local linearized
+        // estimate. Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not
+        // reachable (the vertical uncertainty or a tangential contact alone exceeds it)
+        int catch_line_accuracy(out double next)
+        {
+            next = Tolerance;
+            bool required = double.IsNaN(RequiredCatchLineAccuracy) == false;
+            int verdict = 0;
+            double eps = Tolerance + Math.Max(0, TerrainVerticalUncertainty);
+            for (int li = 0; li < CatchLines.Count; ++li) {
+                CatchLine l = CatchLines[li];
+                l.Uncertainty.Clear();
+                for (int i = 0; i < l.Gradient.Count; ++i) {
+                    double g = l.Gradient[i];
+                    double u = g > 0 ? eps / g + UsedMinFeatureSize : double.PositiveInfinity;
+                    l.Uncertainty.Add(u);
+                    if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
+                    if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
+                    if (required && !(u <= RequiredCatchLineAccuracy)) {
+                        // the Tolerance that meets it here (with 10 % to spare), if any
+                        double t = g > 0 ? 0.9 * ((RequiredCatchLineAccuracy - UsedMinFeatureSize) * g - Math.Max(0, TerrainVerticalUncertainty)) : 0;
+                        if (!(t > 0)) verdict = 2;
+                        else { next = Math.Min(next, t); if (verdict == 0) verdict = 1; }
+                    }
+                }
+            }
+            return verdict;
+        }
+
         internal static StatusKinds kind_of(Statuses st, bool undercutThroughDesign)
         {
             switch (st) {
@@ -464,7 +540,7 @@ namespace gs
                 case Statuses.NotImplemented: return StatusKinds.UnsupportedByMethod;
                 case Statuses.ToeSteeperThanSlope: return StatusKinds.GeometricallyInfeasible;
                 case Statuses.ToeUndercut: return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
-                case Statuses.SlopeViolation: return StatusKinds.NotCertified;
+                case Statuses.SlopeViolation: case Statuses.CatchLineAccuracyNotReached: return StatusKinds.NotCertified;
                 case Statuses.Cancelled: return StatusKinds.Cancelled;
                 default: return StatusKinds.Internal;
             }
@@ -892,6 +968,16 @@ namespace gs
             if (overlayOk == false)
                 return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
+            // the gradient and the contact of each catch-line segment (its uncertainty when Compute ends)
+            for (int li = 0; li < overlay.CatchLines.Count; ++li) {
+                CatchLine l = overlay.CatchLines[li];
+                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear();
+                foreach (int fi in overlay.CatchFaces[li]) {
+                    double g; bool coplanar;
+                    overlay.FaceGradient(fi, out g, out coplanar);
+                    l.Gradient.Add(g); l.Tangential.Add(coplanar);
+                }
+            }
             overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
             phase("overlay");
             // (a local height limit that the region reaches is raised and everything built again: no composite now)

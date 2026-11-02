@@ -60,6 +60,11 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < r.CatchLines.Count; ++i)
                     Assert.Equal(r.CatchLines[i].Points, d.CatchLines[i].Points.Select(p => Back(s, p)).ToList());
                 Assert.Equal(r.UsedToeLowering * s.Scale, d.UsedToeLowering);
+                // the catch line's gradients, unchanged, and its uncertainties, scaled (TERRAIN.md 5.5)
+                for (int i = 0; i < r.CatchLines.Count; ++i) {
+                    Assert.Equal(r.CatchLines[i].Gradient, d.CatchLines[i].Gradient);
+                    Assert.Equal(r.CatchLines[i].Uncertainty.Select(u => u * s.Scale).ToList(), d.CatchLines[i].Uncertainty);
+                }
                 // the volumes, scaled (TERRAIN.md 5.7)
                 Assert.Equal(r.Volume * s.Scale * s.Scale * s.Scale, d.Volume);
                 Assert.Equal(r.PlanArea * s.Scale * s.Scale, d.PlanArea);

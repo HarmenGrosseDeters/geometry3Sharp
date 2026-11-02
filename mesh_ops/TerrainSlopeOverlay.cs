@@ -27,6 +27,15 @@ namespace gs
         public List<Vector3d> Points = new List<Vector3d>();
         public bool Closed;
         public EndReasons StartReason, EndReason;
+        /// <summary>
+        /// per segment (from Points[i] to the next, the last one back to the start if Closed; TERRAIN.md 5.5): the
+        /// horizontal gradient |∇(S - T)| of the faces it crosses, the horizontal uncertainty of its position
+        /// (TerrainSlopeDesign: (Tolerance + TerrainVerticalUncertainty) / gradient + MinFeatureSize, a local linearized
+        /// estimate, not a proven bound), and whether the slope and the terrain coincide there (a tangential or planar
+        /// contact: the line is a convention of the exact rule, not a measurement)
+        /// </summary>
+        public List<double> Gradient = new List<double>(), Uncertainty = new List<double>();
+        public List<bool> Tangential = new List<bool>();
     }
 
     /// <summary>
@@ -90,6 +99,8 @@ namespace gs
         public readonly List<CatchLine> CatchLines = new List<CatchLine>();
         /// <summary> per catch line, the catch points (overlay edge keys) in order </summary>
         public readonly List<List<long>> CatchKeys = new List<List<long>>();
+        /// <summary> per catch line, the region face of each segment (as CatchLine.Gradient) </summary>
+        public readonly List<List<int>> CatchFaces = new List<List<int>>();
         /// <summary> the region touches the boundary of the terrain or the height limit: the slope does not daylight </summary>
         public bool NoDaylight;
         /// <summary> the region reaches the boundary of the slope surface at its height limit (the cap) </summary>
@@ -165,7 +176,7 @@ namespace gs
         public bool Compute()
         {
             // (a second call starts from scratch)
-            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear();
+            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear(); CatchFaces.Clear();
             containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
             NoDaylight = false; ReachedHeightLimit = false; NotHeightField = false; Problem = ""; PhaseSeconds.Clear();
             NearTerrain.Clear(); NearBox = AxisAlignedBox2d.Empty;
@@ -402,8 +413,11 @@ namespace gs
             // the links of the catch points through the region faces
             var links = new Dictionary<long, List<long>>();
             var order = new List<long>();
-            foreach (Face f in Faces) {
+            var segFace = new Dictionary<(long, long), int>();
+            for (int fi = 0; fi < Faces.Count; ++fi) {
+                Face f = Faces[fi];
                 if (f.Region == false || f.C0 == -1) continue;
+                segFace[(f.C0, f.C1)] = fi; segFace[(f.C1, f.C0)] = fi;
                 foreach (long c in new[] { f.C0, f.C1 }) {
                     List<long> l;
                     if (links.TryGetValue(c, out l) == false) { l = new List<long>(); links[c] = l; order.Add(c); }
@@ -437,8 +451,12 @@ namespace gs
                         if (links[cur].Count != 1) { Problem = "an open catch line ends inside the overlay"; return false; }
                     }
                     foreach (long k in keys) line.Points.Add(CatchPoint(k));
+                    var faces = new List<int>();
+                    int segs = closed ? keys.Count : keys.Count - 1;
+                    for (int i = 0; i < segs; ++i) faces.Add(segFace[(keys[i], keys[(i + 1) % keys.Count])]);
                     CatchLines.Add(line);
                     CatchKeys.Add(keys);
+                    CatchFaces.Add(faces);
                 }
             }
             return true;
@@ -496,6 +514,24 @@ namespace gs
                 planArea[piece] += ar;
                 slopeArea[piece] += ar * Math.Sqrt(1 + s.Cx * s.Cx + s.Cy * s.Cy);
             }
+        }
+
+        /// <summary>
+        /// a face's horizontal gradient |∇(S - T)| (doubles) and whether the two planes coincide (exact: every terrain
+        /// corner on the plane of the slope triangle)
+        /// </summary>
+        public void FaceGradient(int face, out double gradient, out bool coplanar)
+        {
+            Face f = Faces[face];
+            Index3i av = A.GetTriangle(f.TA), bv = B.GetTriangle(f.TB);
+            Vector3d a0 = A.GetVertex(av.a), a1 = A.GetVertex(av.b), a2 = A.GetVertex(av.c);
+            Vector3d b0 = B.GetVertex(bv.a), b1 = B.GetVertex(bv.b), b2 = B.GetVertex(bv.c);
+            coplanar = ExactPredicates.Orient3d(a0, a1, a2, b0) == 0 && ExactPredicates.Orient3d(a0, a1, a2, b1) == 0
+                    && ExactPredicates.Orient3d(a0, a1, a2, b2) == 0;
+            LinearZ s, t;
+            if (LinearZ.Of(a0, a1, a2, a0.xy, out s) == false || LinearZ.Of(b0, b1, b2, a0.xy, out t) == false) { gradient = 0; return; }
+            double gx = s.Cx - t.Cx, gy = s.Cy - t.Cy;
+            gradient = coplanar ? 0 : Math.Sqrt(gx * gx + gy * gy);
         }
 
         /// <summary> z = C0 + Cx x + Cy y of the plane through three points, in coordinates relative to an origin </summary>
