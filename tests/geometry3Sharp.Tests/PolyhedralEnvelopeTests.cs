@@ -399,16 +399,12 @@ namespace geometry3Sharp.Tests
             return new[] { a.M.IsZero ? 0 : a.M << (a.E - e), b.M.IsZero ? 0 : b.M << (b.E - e) };
         }
 
-        // the open interval (relative to [0, 1]) of t with a + t (b - a) strictly inside polyhedron p, or null
-        static (Q lo, bool loOpen, Q hi, bool hiOpen)? Interval(PolyhedralEnvelope env, int p, Vector3d a, Vector3d b)
+        // the open interval (relative to [0, 1]) of t with every facet function f0 + t (f1 - f0) < 0, or null
+        static (Q lo, bool loOpen, Q hi, bool hiOpen)? IntervalOf(IEnumerable<(BigInteger f0, BigInteger f1)> fs)
         {
             Q lo = Q.Zero, hi = Q.One;
             bool loOpen = false, hiOpen = false;
-            for (int f = 0; f < env.FacetCount(p); ++f) {
-                env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
-                // the determinant is affine along the segment: f(t) = f0 + t (f1 - f0)
-                BigInteger[] F = AlignPair(Det(q0, q1, q2, a), Det(q0, q1, q2, b));
-                BigInteger f0 = F[0], f1 = F[1];
+            foreach ((BigInteger f0, BigInteger f1) in fs) {
                 if (f0.Sign < 0 && f1.Sign < 0) continue;
                 if (f0.Sign >= 0 && f1.Sign >= 0) return null;
                 var tau = new Q() { N = f0, D = f0 - f1 };
@@ -426,14 +422,21 @@ namespace geometry3Sharp.Tests
             return (lo, loOpen, hi, hiOpen);
         }
 
-        // is [0, 1] covered by the polyhedra's intervals? (they are relatively open in [0, 1]: a sweep)
-        static bool OracleSegment(PolyhedralEnvelope env, Vector3d a, Vector3d b)
+        // the interval of polyhedron p on the segment a + t (b - a): the determinant is affine along it
+        static (Q lo, bool loOpen, Q hi, bool hiOpen)? Interval(PolyhedralEnvelope env, int p, Vector3d a, Vector3d b)
         {
-            var iv = new List<(Q lo, bool loOpen, Q hi, bool hiOpen)>();
-            for (int p = 0; p < env.PolyhedronCount; ++p) {
-                var i = Interval(env, p, a, b);
-                if (i != null) iv.Add(i.Value);
+            var fs = new List<(BigInteger, BigInteger)>();
+            for (int f = 0; f < env.FacetCount(p); ++f) {
+                env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                BigInteger[] F = AlignPair(Det(q0, q1, q2, a), Det(q0, q1, q2, b));
+                fs.Add((F[0], F[1]));
             }
+            return IntervalOf(fs);
+        }
+
+        // is [0, 1] covered by the intervals? (they are relatively open in [0, 1]: a sweep)
+        static bool Covers(List<(Q lo, bool loOpen, Q hi, bool hiOpen)> iv)
+        {
             Q cur = Q.Zero;
             while (true) {
                 bool found = false;
@@ -449,6 +452,163 @@ namespace geometry3Sharp.Tests
                 if (bestOpen == false) return true;     // closed at 1
                 cur = best;
             }
+        }
+
+        static bool OracleSegment(PolyhedralEnvelope env, Vector3d a, Vector3d b)
+        {
+            var iv = new List<(Q lo, bool loOpen, Q hi, bool hiOpen)>();
+            for (int p = 0; p < env.PolyhedronCount; ++p) {
+                var i = Interval(env, p, a, b);
+                if (i != null) iv.Add(i.Value);
+            }
+            return Covers(iv);
+        }
+
+        // ---- the triangle oracle: in the parameters x = a + u (b - a) + v (c - a), each facet is an affine function
+        // A u + B v + C (exact integers), the polyhedron's part of the triangle the open polygon where all are < 0. The
+        // triangle is covered iff (1) clipping by area leaves nothing (MeshEnvelope's method on these polygons) and
+        // (2) every trace segment of a facet line in the triangle and every edge is covered (1D sweeps): an uncovered
+        // point off all trace lines would lie in an uncovered open cell, of positive area.
+
+        static BigInteger[] Align3(Dy a, Dy b, Dy c)
+        {
+            var v = new[] { a, b, c };
+            int e = v.Where(d => d.M.IsZero == false).Select(d => d.E).DefaultIfEmpty(0).Min();
+            return v.Select(d => d.M.IsZero ? BigInteger.Zero : d.M << (d.E - e)).ToArray();
+        }
+
+        // per polyhedron its facet functions (A, B, C): f(u, v) = A u + B v + C, the sign of the determinant
+        static List<List<BigInteger[]>> FacetFunctions(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c)
+        {
+            var r = new List<List<BigInteger[]>>();
+            for (int p = 0; p < env.PolyhedronCount; ++p) {
+                var fs = new List<BigInteger[]>();
+                for (int f = 0; f < env.FacetCount(p); ++f) {
+                    env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                    Dy fa = Det(q0, q1, q2, a), fb = Det(q0, q1, q2, b), fc = Det(q0, q1, q2, c);
+                    BigInteger[] F = Align3(fb - fa, fc - fa, fa);
+                    fs.Add(F);
+                }
+                r.Add(fs);
+            }
+            return r;
+        }
+
+        static void Meet(BigInteger[] l1, BigInteger[] l2, out BigInteger X, out BigInteger Y, out BigInteger W)
+        {
+            // lines A u + B v <= C as (A, B, C): the intersection (X / W, Y / W), W >= 0
+            W = l1[0] * l2[1] - l2[0] * l1[1];
+            X = l1[2] * l2[1] - l2[2] * l1[1];
+            Y = l1[0] * l2[2] - l2[0] * l1[2];
+            if (W.Sign < 0) { W = -W; X = -X; Y = -Y; }
+        }
+
+        // MeshEnvelope's clip: the part of a convex polygon (CCW lines A u + B v <= C) with h; null if of zero area
+        static List<BigInteger[]> Clip(List<BigInteger[]> poly, BigInteger[] h)
+        {
+            int n = poly.Count;
+            var F = new int[n];
+            bool anyNeg = false, anyPos = false;
+            for (int i = 0; i < n; ++i) {
+                Meet(poly[(i + n - 1) % n], poly[i], out BigInteger X, out BigInteger Y, out BigInteger W);
+                F[i] = (h[0] * X + h[1] * Y - h[2] * W).Sign;
+                if (F[i] < 0) anyNeg = true;
+                if (F[i] > 0) anyPos = true;
+            }
+            if (anyPos == false) return poly;
+            if (anyNeg == false) return null;
+            int start = 0;
+            while (F[start] >= 0) start++;
+            var res = new List<BigInteger[]>(n + 1);
+            bool pending = false, inserted = false;
+            for (int k = 0; k < n; ++k) {
+                int i = (start + k) % n;
+                bool kept = F[i] < 0 || F[(i + 1) % n] < 0;
+                if (kept) {
+                    if (pending && inserted == false) { res.Add(h); inserted = true; }
+                    res.Add(poly[i]);
+                }
+                if (F[(i + 1) % n] > 0) pending = true;
+            }
+            if (pending && inserted == false) res.Add(h);
+            return res;
+        }
+
+        static bool AreaCovered(List<List<BigInteger[]>> polys)
+        {
+            var tri = new List<BigInteger[]> { new BigInteger[] { 0, -1, 0 }, new BigInteger[] { 1, 1, 1 }, new BigInteger[] { -1, 0, 0 } };
+            var pieces = new List<List<BigInteger[]>> { tri };
+            foreach (var fs in polys) {
+                // f < 0: A u + B v < -C
+                var lines = new List<BigInteger[]>();
+                bool empty = false;
+                foreach (BigInteger[] F in fs) {
+                    if (F[0].IsZero && F[1].IsZero) { if (F[2].Sign >= 0) empty = true; continue; }
+                    lines.Add(new[] { F[0], F[1], -F[2] });
+                }
+                if (empty) continue;
+                var next = new List<List<BigInteger[]>>();
+                foreach (var piece in pieces) {
+                    // a piece the polygon does not reach stays whole (no vertex strictly inside one of its lines)
+                    if (lines.Any(h => Enumerable.Range(0, piece.Count).All(i => {
+                            Meet(piece[(i + piece.Count - 1) % piece.Count], piece[i], out BigInteger X, out BigInteger Y, out BigInteger W);
+                            return (h[0] * X + h[1] * Y - h[2] * W).Sign >= 0; }))) { next.Add(piece); continue; }
+                    List<BigInteger[]> cur = piece;
+                    foreach (BigInteger[] h in lines) {
+                        var outside = Clip(cur, new[] { -h[0], -h[1], -h[2] });
+                        if (outside != null) next.Add(outside);
+                        cur = Clip(cur, h);
+                        if (cur == null) break;
+                    }
+                }
+                pieces = next;
+                if (pieces.Count == 0) return true;
+            }
+            return false;
+        }
+
+        // the segment between two homogeneous points of the plane (X, Y, W), W > 0, covered by the open polygons?
+        static bool SegmentCovered(List<List<BigInteger[]>> polys, (BigInteger X, BigInteger Y, BigInteger W) P0, (BigInteger X, BigInteger Y, BigInteger W) P1)
+        {
+            var iv = new List<(Q lo, bool loOpen, Q hi, bool hiOpen)>();
+            foreach (var fs in polys) {
+                // f along the segment, times W0 W1 > 0: g(t) = (1 - t) f(P0) W0 W1 + t f(P1) W0 W1
+                var i = IntervalOf(fs.Select(F => ((F[0] * P0.X + F[1] * P0.Y + F[2] * P0.W) * P1.W, (F[0] * P1.X + F[1] * P1.Y + F[2] * P1.W) * P0.W)));
+                if (i != null) iv.Add(i.Value);
+            }
+            return Covers(iv);
+        }
+
+        static bool OracleTriangle(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c)
+        {
+            Dy[] N = Cross(Sub(D(b), D(a)), Sub(D(c), D(a)));
+            if (N.All(d => d.M.IsZero)) return OracleSegment(env, a, b) && OracleSegment(env, b, c) && OracleSegment(env, c, a);
+            var polys = FacetFunctions(env, a, b, c);
+            if (AreaCovered(polys) == false) return false;
+            var corners = new[] { (BigInteger.Zero, BigInteger.Zero, BigInteger.One), (BigInteger.One, BigInteger.Zero, BigInteger.One), (BigInteger.Zero, BigInteger.One, BigInteger.One) };
+            for (int k = 0; k < 3; ++k) if (SegmentCovered(polys, corners[k], corners[(k + 1) % 3]) == false) return false;
+            // the trace of every facet line in the triangle: its points on the closed triangle's edges, the extreme two
+            var edges = new[] { new BigInteger[] { 1, 0, 0 }, new BigInteger[] { 0, 1, 0 }, new BigInteger[] { 1, 1, 1 } };    // u = 0, v = 0, u + v = 1
+            foreach (var fs in polys)
+                foreach (BigInteger[] F in fs) {
+                    if (F[0].IsZero && F[1].IsZero) continue;
+                    var line = new[] { F[0], F[1], -F[2] };     // A u + B v = -C
+                    var pts = new List<(BigInteger X, BigInteger Y, BigInteger W)>();
+                    foreach (var e in edges) {
+                        Meet(line, e, out BigInteger X, out BigInteger Y, out BigInteger W);
+                        if (W.IsZero) continue;
+                        if (X.Sign >= 0 && Y.Sign >= 0 && X + Y <= W) pts.Add((X, Y, W));
+                    }
+                    if (pts.Count < 2) continue;    // misses the triangle or touches a corner (covered by the edges)
+                    // extremes along the line's direction (B, -A)
+                    Func<(BigInteger X, BigInteger Y, BigInteger W), (BigInteger X, BigInteger Y, BigInteger W), int> cmp =
+                        (p, q) => ((F[1] * p.X - F[0] * p.Y) * q.W).CompareTo((F[1] * q.X - F[0] * q.Y) * p.W);
+                    var lo = pts[0]; var hi = pts[0];
+                    foreach (var q in pts) { if (cmp(q, lo) < 0) lo = q; if (cmp(q, hi) > 0) hi = q; }
+                    if (cmp(lo, hi) == 0) continue;
+                    if (SegmentCovered(polys, lo, hi) == false) return false;
+                }
+            return true;
         }
 
         static IEnumerable<(DMesh3 mesh, double eps)> QueryMeshes()
@@ -653,6 +813,257 @@ namespace geometry3Sharp.Tests
             Assert.True(env.Contains(b / 2));
             Assert.True(env.ContainsSegment(Vector3d.Zero, b));
             Assert.Equal(6, env.FacetCount(0));
+        }
+
+        static IEnumerable<(Vector3d a, Vector3d b, Vector3d c)> QueryTriangles(PolyhedralEnvelope env, Random rand)
+        {
+            DMesh3 m = env.Mesh;
+            Func<double> g = () => rand.NextDouble() * 2 - 1;
+            double eps = env.Epsilon, delta = eps / Math.Sqrt(3);
+            var tids = m.TriangleIndices().ToList();
+            foreach (int t in tids) {
+                Index3i tv = m.GetTriangle(t);
+                Vector3d a = m.GetVertex(tv.a), b = m.GetVertex(tv.b), c = m.GetVertex(tv.c), n = m.GetTriNormal(t);
+                yield return (a, b, c);                                                     // the mesh's own
+                Vector3d ce = (a + b + c) / 3;
+                yield return (ce + 1.6 * (a - ce), ce + 1.6 * (b - ce), ce + 1.6 * (c - ce));      // across neighbours
+                double h = (t % 3 == 0 ? 0.5 : t % 3 == 1 ? 0.95 : 1.3) * delta;
+                yield return (a + h * n, b + h * n, c + h * n);                             // lifted
+                yield return (a + eps * new Vector3d(g(), g(), g()), b + eps * new Vector3d(g(), g(), g()), c);
+            }
+            for (int i = 0; i < 40; ++i) {                                                  // over several triangles
+                Vector3d a = m.GetTriCentroid(tids[rand.Next(tids.Count)]);
+                yield return (a, a + 0.25 * new Vector3d(g(), g(), g()), a + 0.25 * new Vector3d(g(), g(), g()));
+            }
+            // degenerate queries: collinear and a point
+            Vector3d p0 = m.GetTriCentroid(tids[0]), p1 = m.GetTriCentroid(tids[1 % tids.Count]);
+            yield return (p0, p1, 0.5 * (p0 + p1));
+            yield return (p0, p0, p0);
+            // in a facet plane: corners from the facet's own points (axis-parallel facets give exact coplanar triangles)
+            for (int p = 0; p < env.PolyhedronCount; p += 7)
+                for (int f = 0; f < env.FacetCount(p); f += 3) {
+                    env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                    yield return (q0, q0 + (q1 - q0) * 0.01, q0 + (q2 - q0) * 0.01);
+                }
+        }
+
+        [Fact]
+        public void ContainsTriangle_MatchesOracle()
+        {
+            var rand = new Random(13);
+            foreach ((DMesh3 mesh, double eps) in QueryMeshes()) {
+                var env = new PolyhedralEnvelope(mesh, eps);
+                int yes = 0, n = 0, edgesOnly = 0;
+                foreach ((Vector3d a, Vector3d b, Vector3d c) in QueryTriangles(env, rand)) {
+                    bool r = env.ContainsTriangle(a, b, c);
+                    Assert.True(OracleTriangle(env, a, b, c) == r, $"triangle {a} {b} {c}: {r}");
+                    if (r) yes++;
+                    else if (env.ContainsSegment(a, b) && env.ContainsSegment(b, c) && env.ContainsSegment(c, a)) edgesOnly++;
+                    n++;
+                }
+                Assert.True(yes > n / 5 && yes < n, $"{yes} of {n} contained");
+                foreach (int t in mesh.TriangleIndices()) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    Assert.True(env.ContainsTriangle(mesh.GetVertex(tv.a), mesh.GetVertex(tv.b), mesh.GetVertex(tv.c)));
+                }
+            }
+        }
+
+        /// <summary>
+        /// A hole that only C3 finds: a flat grid with the two triangles of one inner square removed, and query
+        /// triangles over the hole whose vertices and edges lie in the covered ring around it.
+        /// </summary>
+        [Fact]
+        public void ContainsTriangle_HoleInsideTheTriangle()
+        {
+            var tris = new List<Vector3d[]>();
+            for (int i = 0; i < 6; ++i)
+                for (int j = 0; j < 6; ++j) {
+                    if (i == 2 && j == 2) continue;
+                    Vector3d p = new Vector3d(i, j, 0);
+                    tris.Add(new[] { p, p + Vector3d.AxisX, p + Vector3d.AxisX + Vector3d.AxisY });
+                    tris.Add(new[] { p, p + Vector3d.AxisX + Vector3d.AxisY, p + Vector3d.AxisY });
+                }
+            var env = new PolyhedralEnvelope(Soup(tris), 0.1);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            // around the hole [2, 3]^2: vertices and edges in the ring, the hole inside
+            var (a, b, c) = (new Vector3d(1.5, 1.5, 0), new Vector3d(4.5, 1.5, 0), new Vector3d(1.5, 4.5, 0));
+            Assert.True(env.ContainsSegment(a, b) && env.ContainsSegment(b, c) && env.ContainsSegment(c, a));
+            Assert.False(env.ContainsTriangle(a, b, c));
+            Assert.False(OracleTriangle(env, a, b, c));
+            // lifted by 0.02 and tilted: the same
+            Assert.False(env.ContainsTriangle(a + 0.02 * Vector3d.AxisZ, b, c - 0.02 * Vector3d.AxisZ));
+            // beside the hole: contained
+            Assert.True(env.ContainsTriangle(new Vector3d(3.5, 0.5, 0), new Vector3d(5.5, 0.5, 0), new Vector3d(3.5, 2.5, 0.01)));
+            // the hole's own square, slightly smaller: not contained; the whole grid minus the hole row: contained
+            Assert.False(env.ContainsTriangle(new Vector3d(2.2, 2.2, 0), new Vector3d(2.8, 2.2, 0), new Vector3d(2.2, 2.8, 0)));
+            Assert.True(env.ContainsTriangle(new Vector3d(0.1, 0.1, 0), new Vector3d(5.9, 0.1, 0), new Vector3d(0.1, 1.9, 0)));
+        }
+
+        [Fact]
+        public void ContainsTriangle_Guarantee_Invariance_Determinism()
+        {
+            DMesh3 mesh = Sphere(5);
+            double eps = 0.03;
+            var env = new PolyhedralEnvelope(mesh, eps);
+            var tq = QueryTriangles(env, new Random(17)).ToList();
+            bool[] r = tq.Select(t => env.ContainsTriangle(t.a, t.b, t.c)).ToArray();
+            // the guarantee: sample points of accepted triangles within eps of the mesh
+            var spatial = new DMeshAABBTree3(mesh, true);
+            for (int i = 0; i < tq.Count; ++i) {
+                if (r[i] == false) continue;
+                for (int s = 0; s <= 6; ++s)
+                    for (int t = 0; s + t <= 6; ++t) {
+                        Vector3d x = tq[i].a + (s / 6.0) * (tq[i].b - tq[i].a) + (t / 6.0) * (tq[i].c - tq[i].a);
+                        double d = Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, spatial.FindNearestTriangle(x), x));
+                        Assert.True(d <= eps * (1 + 1e-9), $"a point of an accepted triangle at {d / eps} eps");
+                    }
+            }
+            // 2^k scales: the same answers. The other similarities: triangles well inside (corners within delta / 4 of
+            // the mesh, small against delta: the triangle lies in its corner's polyhedra... checked by a sampled
+            // distance bound) are contained, triangles with a corner beyond 1.01 eps are not
+            double delta = eps / Math.Sqrt(3);
+            var rand = new Random(23);
+            var inside = new List<(Vector3d a, Vector3d b, Vector3d c)>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                Vector3d n = mesh.GetTriNormal(t);
+                Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                double s = 0.25 * delta * (2 * rand.NextDouble() - 1);
+                inside.Add((a + s * n, b + s * n, c + s * n));      // the mesh triangle moved along its normal by < delta / 4
+            }
+            var outside = tq.Where(t => new[] { t.a, t.b, t.c }.Any(x => Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, spatial.FindNearestTriangle(x), x)) > 1.01 * eps)).ToList();
+            Assert.True(outside.Count > 10);
+            foreach (var t in inside) Assert.True(env.ContainsTriangle(t.a, t.b, t.c));
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 m2 = new DMesh3(mesh);
+                foreach (int v in m2.VertexIndices()) m2.SetVertex(v, sim.Apply(m2.GetVertex(v)));
+                var e2 = new PolyhedralEnvelope(m2, sim.ApplyLength(eps));
+                Assert.Equal(EnvelopeStatus.Ready, e2.Status);
+                if (sim.IsExact) {
+                    for (int i = 0; i < tq.Count; ++i)
+                        Assert.Equal(r[i], e2.ContainsTriangle(sim.Apply(tq[i].a), sim.Apply(tq[i].b), sim.Apply(tq[i].c)));
+                } else {
+                    foreach (var t in inside) Assert.True(e2.ContainsTriangle(sim.Apply(t.a), sim.Apply(t.b), sim.Apply(t.c)), $"{sim}: inside");
+                    foreach (var t in outside) Assert.False(e2.ContainsTriangle(sim.Apply(t.a), sim.Apply(t.b), sim.Apply(t.c)), $"{sim}: outside");
+                }
+            }
+            // parallel equals serial, repeated
+            for (int round = 0; round < 2; ++round) {
+                var par = new bool[tq.Count];
+                Parallel.For(0, tq.Count, i => par[i] = env.ContainsTriangle(tq[i].a, tq[i].b, tq[i].c));
+                Assert.Equal(r, par);
+            }
+        }
+
+        /// <summary> the triangle oracle at scales 1e-150, 1e150 and at UTM coordinates (no exceptions, same answers) </summary>
+        [Fact]
+        public void ContainsTriangle_MatchesOracle_ExtremeScales()
+        {
+            foreach ((double sc, Vector3d off) in new[] { (1e-150, Vector3d.Zero), (1e150, Vector3d.Zero), (1.0, new Vector3d(632117.25, 5712043.5, 113.75)) }) {
+                DMesh3 mesh = Sphere(4);
+                foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, sc * mesh.GetVertex(v) + off);
+                var env = new PolyhedralEnvelope(mesh, sc * 0.05);
+                Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                int yes = 0, n = 0;
+                foreach (var t in QueryTriangles(env, new Random(13)).Take(150)) {
+                    bool r = env.ContainsTriangle(t.a, t.b, t.c);
+                    Assert.True(OracleTriangle(env, t.a, t.b, t.c) == r, $"scale {sc}, offset {off}: {t.a} {t.b} {t.c}");
+                    if (r) yes++;
+                    n++;
+                }
+                Assert.True(yes > 10 && yes < n, $"scale {sc}: {yes} of {n}");
+            }
+        }
+
+        // the next double up / down (Math.BitIncrement is missing on net48)
+        static double Up(double x) { return x == 0 ? double.Epsilon : BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + (x > 0 ? 1 : -1)); }
+        static double Down(double x) { return -Up(-x); }
+
+        // the coordinate of the axis-parallel facet on side sgn of a point triangle's cube
+        static double CubeFace(Vector3d c, double eps, int axis, int sgn)
+        {
+            var env = new PolyhedralEnvelope(Soup(new[] { new[] { c, c, c } }), eps);
+            for (int f = 0; f < env.FacetCount(0); ++f) {
+                env.GetFacet(0, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                if (q0[axis] == q1[axis] && q0[axis] == q2[axis] && Math.Sign(q0[axis] - c[axis]) == sgn) return q0[axis];
+            }
+            throw new InvalidOperationException("no face");
+        }
+
+        // a cube centre with its face on side sgn at target moved by ulps units in the last place (0: exactly on it)
+        static Vector3d PlaceCube(Vector3d c, double eps, int axis, int sgn, double target, int ulps)
+        {
+            double want = target;
+            for (int i = 0; i < Math.Abs(ulps); ++i) want = ulps > 0 ? Up(want) : Down(want);
+            for (int attempt = 0; attempt < 60; ++attempt) {
+                double x = c[axis];
+                for (int it = 0; it < 30; ++it) { c[axis] = x; double f = CubeFace(c, eps, axis, sgn); if (f == want) return c; x += want - f; }
+                for (int it = 0; it < 64; ++it) {
+                    c[axis] = x;
+                    double f = CubeFace(c, eps, axis, sgn);
+                    if (f == want) return c;
+                    x = f < want ? Up(x) : Down(x);
+                }
+                c.z += (attempt % 2 == 0 ? 1 : -1) * 1e-5 * (attempt + 1);
+            }
+            throw new InvalidOperationException("no placement");
+        }
+
+        /// <summary>
+        /// (review) Four cubes of point triangles whose faces meet exactly at x = X0 and y = Y0, touching, one ulp apart
+        /// or one ulp overlapping; query triangles from coordinates at the faces and one ulp beside them: triangles in
+        /// facet planes, through the point where four facets meet, with vertices on facet planes, shared traces and
+        /// dependent pairs. ContainsTriangle equals the oracle; the triangle around the meeting point is contained iff
+        /// an overlap closes the cross
+        /// </summary>
+        [Fact]
+        public void ContainsTriangle_FourCubesMeetingAtAPoint()
+        {
+            double eps = 0.1, delta = eps / Math.Sqrt(3);
+            var rand = new Random(100);
+            foreach (int gapX in new[] { 0, 1, -1 })
+                foreach (int gapY in new[] { 0, 1, -1 }) {
+                    Vector3d cA = new Vector3d(-0.5 * delta, 0.03125 * delta, 0.2), cB = Vector3d.Zero;
+                    double X0 = 0;
+                    for (int tr = 0; ; ++tr) {
+                        X0 = CubeFace(cA, eps, 0, 1);
+                        try { cB = PlaceCube(new Vector3d(X0 + delta, -0.0625 * delta, 0.201), eps, 0, -1, X0, gapX); break; }
+                        catch (InvalidOperationException) { cA.x = Up(cA.x); if (tr > 50) throw; }
+                    }
+                    Vector3d cC = new Vector3d(0.0078125 * delta, 0.5 * delta, 0.198), cD = Vector3d.Zero;
+                    double Y0 = 0;
+                    for (int tr = 0; ; ++tr) {
+                        Y0 = CubeFace(cC, eps, 1, -1);
+                        try { cD = PlaceCube(new Vector3d(-0.015625 * delta, Y0 - delta, 0.2005), eps, 1, 1, Y0, -gapY); break; }
+                        catch (InvalidOperationException) { cC.y = Up(cC.y); if (tr > 50) throw; }
+                    }
+                    var env = new PolyhedralEnvelope(Soup(new[] { cA, cB, cC, cD }.Select(c => new[] { c, c, c })), eps);
+                    Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                    var xs = new List<double> { X0, X0 - 0.3 * delta, X0 + 0.3 * delta, X0 - 0.05 * delta, X0 + 0.07 * delta };
+                    var ys = new List<double> { Y0, Y0 - 0.3 * delta, Y0 + 0.3 * delta, Y0 - 0.04 * delta, Y0 + 0.06 * delta };
+                    var zs = new List<double> { 0.2, 0.2 + 0.1 * delta, 0.2 - 0.2 * delta };
+                    for (int p = 0; p < env.PolyhedronCount; ++p)
+                        for (int f = 0; f < env.FacetCount(p); ++f) {
+                            env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                            for (int k = 0; k < 3; ++k) if (q0[k] == q1[k] && q0[k] == q2[k]) (k == 0 ? xs : k == 1 ? ys : zs).Add(q0[k]);
+                        }
+                    Func<List<double>, List<double>> around = v => v.SelectMany(x => new[] { x, Up(x), Down(x) }).Distinct().ToList();
+                    xs = around(xs); ys = around(ys); zs = around(zs);
+                    Func<Vector3d> pick = () => new Vector3d(xs[rand.Next(xs.Count)], ys[rand.Next(ys.Count)], zs[rand.Next(zs.Count)]);
+                    int yes = 0, no = 0;
+                    for (int i = 0; i < 250; ++i) {
+                        Vector3d a = pick(), b = pick(), c = pick();
+                        if (rand.Next(3) == 0) { b.z = a.z; c.z = a.z; } else if (rand.Next(3) == 0) { b.x = a.x; c.x = a.x; }
+                        bool r = env.ContainsTriangle(a, b, c);
+                        Assert.True(OracleTriangle(env, a, b, c) == r, $"gaps {gapX} {gapY}: ({a.x:R},{a.y:R},{a.z:R}) ({b.x:R},{b.y:R},{b.z:R}) ({c.x:R},{c.y:R},{c.z:R})");
+                        if (r) yes++; else no++;
+                    }
+                    Assert.True(yes > 10 && no > 10, $"gaps {gapX} {gapY}: {yes} contained, {no} not");
+                    Vector3d ta = new Vector3d(X0 - 0.3 * delta, Y0 - 0.3 * delta, 0.2), tb = new Vector3d(X0 + 0.3 * delta, Y0 - 0.2 * delta, 0.2), tc = new Vector3d(X0, Y0 + 0.3 * delta, 0.2);
+                    Assert.Equal(gapX < 0 || gapY < 0, env.ContainsTriangle(ta, tb, tc));
+                    Assert.Equal(gapX < 0 || gapY < 0, OracleTriangle(env, ta, tb, tc));
+                }
         }
 
         /// <summary>
