@@ -18,16 +18,19 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ReducerIssueCasesTests
     {
-        /// <summary> case name -> (finding, a text the failure must contain while listed) </summary>
+        /// <summary>
+        /// case name -> (finding, the exact failure while listed: the problems joined by "; ", in the order the test
+        /// reports them)
+        /// </summary>
         public static readonly Dictionary<string, (string Finding, string Pinned)> KnownFailures = new Dictionary<string, (string, string)> {
             // The flip test of a collapse compares each new triangle normal with the triangle's current normal (dot > 0,
             // EdgeFlipTolerance), not with the input surface: a chain of collapses turns a normal by up to 90 degrees per
             // step. On a noisy terrain, interior triangles end up facing down, and at the open border an interior vertex
             // collapsed onto a boundary vertex leaves a triangle on three consecutive boundary vertices standing vertical
-            // (it passes: its new normal is tilted towards the old one). EdgeFlipTolerance 0.7 still leaves 1-2 per seed.
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_1"] = (FindingFold, "folded triangles"),
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_2"] = (FindingFold, "folded triangles"),
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_3"] = (FindingFold, "folded triangles"),
+            // (it passes: its new normal is tilted towards the old one). EdgeFlipTolerance 0.7 still leaves 0, 1, 2 (seeds 1-3).
+            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_1"] = (FindingFold, "1 folded triangles"),
+            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_2"] = (FindingFold, "4 folded triangles"),
+            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_3"] = (FindingFold, "2 folded triangles"),
             [nameof(SmallPatch_ReducedTo10_NoDuplicateTriangles) + "_2"] = (FindingFold, "1 folded triangles"),
         };
         const string FindingFold = "finding S1: collapse chains fold the surface (flip test against the current, not the input normals)";
@@ -37,7 +40,7 @@ namespace geometry3Sharp.Tests
             string failure = string.Join("; ", problems);
             if (KnownFailures.TryGetValue(name, out var known)) {
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({known.Finding}) from KnownFailures and docs/QA.md 2.11");
-                Assert.True(failure.Contains(known.Pinned), $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
+                Assert.True(failure == known.Pinned, $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
             } else
                 Assert.True(failure == "", name + ": " + failure);
         }
@@ -52,6 +55,12 @@ namespace geometry3Sharp.Tests
                 Assert.False(string.IsNullOrWhiteSpace(kv.Value.Pinned));
             }
         }
+
+        /// <summary>
+        /// x rounded to a multiple of 2^-30: inputs built with Math.Sin / Cos (whose last bit may differ between net48 and
+        /// net10) are then the same on both, so a pinned failure is the same too
+        /// </summary>
+        internal static double R(double x) => Math.Round(x * (1 << 30)) / (1 << 30);
 
         // ---- inputs (procedural) ----
 
@@ -206,7 +215,7 @@ namespace geometry3Sharp.Tests
             // points down or lies flat (a fold-over relative to the original, whose normals all point up); vertices
             // within the bounds grown by 1% of the diagonal.
             var rnd = new Random(seed);
-            DMesh3 input = Grid(40, 40, (i, j) => 3 * Math.Sin(0.2 * i) * Math.Cos(0.15 * j) + 0.8 * (rnd.NextDouble() - 0.5));
+            DMesh3 input = Grid(40, 40, (i, j) => R(3 * Math.Sin(0.2 * i) * Math.Cos(0.15 * j) + 0.8 * (rnd.NextDouble() - 0.5)));
             Assert.Equal(0, DownwardTriangles(input));
             DMesh3 result = Reduced(input, rd => rd.ReduceToTriangleCount(input.TriangleCount / 5));
             var r = new List<string>();
@@ -250,6 +259,8 @@ namespace geometry3Sharp.Tests
         [InlineData(0)]
         public void AlmostFlatGrid_SingularQuadric_NoFlipNoEscape(double zRange)
         {
+            // (beyond ReducerRobustnessTests.NoisyFlatSurface_NoSpikes, an 81 x 81 grid checked for spikes: tiny grids
+            // reduced as far as possible, z ranges down to exactly 0, and the fold check)
             // https://github.com/libigl/libigl/issues/738: an almost flat 12-triangle grid (z in a tiny range): the
             // quadric is nearly singular in the plane, the optimal point slid past the ends of the edge and a triangle
             // flipped. Rebuilt: a 3 x 2 grid (12 triangles) and a 6 x 6 grid with random z in [0, zRange], reduced as far
@@ -274,6 +285,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FlatGridAtAnOffset_SameReduction()
         {
+            // (beyond ReducerRobustnessTests.UtmCoordinates_SameQualityAsAtOrigin and InvarianceTests.Reducer_SameResult
+            // UnderSimilarity, which compare quality or counts off the 2^k scales: here the same triangle ids under a
+            // non-exact translation, for an open flat and curved grid)
             // https://github.com/zeux/meshoptimizer/issues/1065: the same flat grid at z = 0 and at z = 900 simplified
             // differently (also with UTM coordinates): the result depended on the offset. Rebuilt: a flat 12 x 12 grid
             // and a gently curved one, at the origin, at z = 900 and at a UTM offset, reduced to 40 triangles. Correct:
@@ -567,7 +581,8 @@ namespace geometry3Sharp.Tests
             // https://github.com/libigl/libigl/issues/816: a 6 x 6 x 6 box with a centre vertex on its top and bottom
             // faces (10 vertices, 16 faces), all collapse costs about 0, the target equal to the current count: one
             // collapse ran before the stop test. Correct: with the target already met (triangle count 16, or vertex
-            // count 10), no collapse: the mesh is unchanged bit for bit; one triangle less gives exactly 15 or fewer.
+            // count 10), no collapse: the mesh is unchanged bit for bit; a target of 15 gives exactly 14 (one collapse
+            // removes two triangles).
             var m = new DMesh3();
             for (int i = 0; i < 8; ++i)
                 m.AppendVertex(new Vector3d((i & 1) == 0 ? -3 : 3, (i & 2) == 0 ? -3 : 3, (i & 4) == 0 ? -3 : 3));
@@ -596,6 +611,51 @@ namespace geometry3Sharp.Tests
             Expect(nameof(TargetAlreadyMet_NoCollapse), r);
         }
     
+        [Theory]
+        [InlineData(40, true)]
+        [InlineData(1, true)]
+        [InlineData(40, false)]
+        [InlineData(1, false)]
+        public void TwoSheetsTouchingAtACorner_NotJoined(int target, bool preserveBoundary)
+        {
+            // the boundary case of TwoConesJoinedAtTheTip_NotMerged (libigl#2043): two flat open 4 x 4 grids, [0,4]^2 and
+            // [4,8]^2 at z = 0, sharing only the corner vertex (4,4) (a bowtie vertex on the boundary of both), reduced
+            // with and without PreserveBoundaryShape (with it the boundary rule alone already keeps the corner; without
+            // it only the bowtie guard does). Correct: valid (the bowtie allowed), the corner still a vertex at
+            // (4,4), no edge from one sheet to the other, every normal +z, both sheets of positive area, the area 32 exactly at 40 triangles with PreserveBoundaryShape (outline kept).
+            DMesh3 m = Grid(4, 4, (i, j) => 0);
+            int corner = 24;   // (4,4) of the first grid
+            Assert.Equal(new Vector3d(4, 4, 0), m.GetVertex(corner));
+            int[,] vid = new int[5, 5];
+            for (int j = 0; j <= 4; ++j)
+                for (int i = 0; i <= 4; ++i)
+                    vid[i, j] = (i == 0 && j == 0) ? corner : m.AppendVertex(new Vector3d(4 + i, 4 + j, 0));
+            for (int j = 0; j < 4; ++j)
+                for (int i = 0; i < 4; ++i) {
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            Assert.True(m.IsBowtieVertex(corner));
+            DMesh3 result = Reduced(m, rd => { rd.PreserveBoundaryShape = preserveBoundary; rd.ReduceToTriangleCount(target); });
+            var r = new List<string>();
+            CheckBasic(result, m, r, allowBowties: true);
+            if (!result.IsVertex(corner) || result.GetVertex(corner) != new Vector3d(4, 4, 0)) r.Add("the shared corner moved or was removed");
+            foreach (int e in result.EdgeIndices()) {
+                Index2i ev = result.GetEdgeV(e);
+                Vector3d p = result.GetVertex(ev.a), q = result.GetVertex(ev.b);
+                if ((p.x < 4 || p.y < 4) && (q.x > 4 || q.y > 4) || (q.x < 4 || q.y < 4) && (p.x > 4 || p.y > 4)) { r.Add("an edge joins the two sheets"); break; }
+            }
+            int down = DownwardTriangles(result);
+            if (down > 0) r.Add($"{down} folded triangles");
+            double lower = result.TriangleIndices().Where(t => result.GetTriCentroid(t).x < 4).Sum(t => result.GetTriArea(t));
+            double upper = Invariance.Area(result) - lower;
+            if (!(lower > 0 && upper > 0)) r.Add($"sheet areas {lower}, {upper}");
+            // (at 40 triangles the outline is kept; reduced to 1, its corners are collapsed too, as far as possible)
+            if (target == 40 && preserveBoundary && Math.Abs(lower + upper - 32) > 1e-12) r.Add($"area {lower + upper}, expected 32");
+            if (result.TriangleCount >= m.TriangleCount) r.Add("nothing collapsed");
+            Expect(nameof(TwoSheetsTouchingAtACorner_NotJoined) + $"_{target}_{preserveBoundary}", r);
+        }
+
         public static IEnumerable<object[]> Similarities() => Similarity.Names();
 
         [Theory]

@@ -23,7 +23,7 @@ test, and while listed the test checks the specific wrong outcome).
   `sign <= edge_flip_tol`) compares each new triangle's normal with the same triangle's current normal only. Each
   step may turn a normal by up to 90 degrees (or arccos(EdgeFlipTolerance)), so a chain of collapses turns it over;
   the boundary wall passes because its new normal is tilted towards the old one. `EdgeFlipTolerance = 0.7` still
-  leaves 1-2 folds per seed.
+  leaves 0, 1 and 2 folds (seeds 1, 2, 3).
 - Fix ideas: (a) keep a normal cone (or the area-weighted input normal) per vertex, merged on collapse, and reject a
   collapse whose new triangles' normals have a non-positive dot with the cone axis of their vertices: about 30 lines in Reducer, changes results of every reduction where it rejects,
   needs an A/B on the reducer benchmarks (quality and speed) and an UPSTREAM_CHANGES row; medium risk. (b) for the
@@ -38,9 +38,11 @@ test, and while listed the test checks the specific wrong outcome).
 - Issues: https://github.com/pmp-library/pmp-library/issues/158, https://github.com/BrunoLevy/geogram/issues/357.
 - Input -> wrong result: a flat open fan at z = 0 (11 vertices, 9 triangles, rim radii 0.4 to 1.6 over 270 degrees)
   with `FixAllBoundaryEdges`, remeshed to edges of 0.2 (15 passes, smoothing 0.5): 10 triangles not facing +z
-  (folded), the area 1.758 (Remesher) or 1.820 (RemesherPro) instead of 1.734. A cylinder r = 0.1, length 10,
-  16 slices, remeshed to 0.1 with its features kept: one cap triangle turned over (normal dot -1 with the cap, 6
-  self-intersecting pairs); a 20 x 0.5 x 0.5 box remeshed to 0.25: a zero-area triangle on a crease (3 pairs).
+  (folded), the area 1.758 (Remesher) or 1.820 (RemesherPro) instead of 1.734. A 20 x 0.5 x 0.5 box remeshed to
+  0.25 with its features kept: a zero-area triangle on a crease, counted as inverted, and 3 self-intersecting pairs
+  (both pinned). Measured separately, not in a test: a `CappedCylinderGenerator` cylinder r = 0.1, length 10, 16
+  slices, remeshed to 0.1, had one cap triangle turned over (normal dot -1, 6 self-intersecting pairs); the test's
+  cylinder with rounded rim coordinates passes.
 - Cause: with `MinTriangleQuality = 0` (the default, the upstream behaviour) the smoothing passes
   (`Remesher.FullSmoothPass_Buffer`, mesh/Remesher.cs:1506) and the projection do not check moves for flips, and
   `PreventNormalFlips` (off by default) only guards collapses and flips. Documented as opt-in on
@@ -70,13 +72,15 @@ test, and while listed the test checks the specific wrong outcome).
 ### Fixed: bowtie vertices in the Reducer
 
 - Tests: `ReducerIssueCasesTests.TwoConesJoinedAtTheTip_NotMerged_{200,1}`,
+  `ReducerIssueCasesTests.TwoSheetsTouchingAtACorner_NotJoined_{40,1}` (a bowtie on the boundary),
   `ReducerIssueCasesTests.TwoConesJoinedAtTheTip_UnderSimilarity`. Issue: https://github.com/libigl/libigl/issues/2043.
 - Was: two closed cones (32 slices, 4 rings) sharing their apex (a bowtie vertex), reduced to 200 triangles: an edge
   from one cone to the other (the apex removed and the lower fan attached to a vertex of the upper cone); reduced to
   1: also a duplicate triangle and the lower cone at volume 0. The tetrahedron test of `DMesh3.CollapseEdge` counts
   the edges of all fans of the bowtie vertex, so it lets a duplicate pair through.
 - Fix (mesh/Reducer.cs, `CollapseEdge`): a bowtie vertex is kept in place and never removed; an edge between two
-  bowtie vertices is not collapsed. Meshes without bowties are unchanged.
+  bowtie vertices is not collapsed. Meshes without bowties are unchanged. The queue priority of an edge at a bowtie
+  vertex is still that of the free optimum (the forced position is only flip-checked at collapse time).
 
 ### Fixed: bowtie vertices in remeshing with PreserveBoundaryAndFeatures
 

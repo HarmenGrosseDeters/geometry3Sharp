@@ -933,7 +933,8 @@ namespace g3
             // a bowtie vertex (fans of triangles that meet only there) is kept in place and never removed: moving it
             // drags the other fans along, and removing it attaches them to a vertex of this fan (the fans merge, and
             // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
-            // triangles through)
+            // triangles through). The queue priority of such an edge is still that of the free optimum: the forced
+            // position is only checked here (flip test), not costed
             bool bowA = mesh.IsBowtieVertex(a), bowB = mesh.IsBowtieVertex(b);
             if (bowA || bowB) {
                 if (bowA && bowB)

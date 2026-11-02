@@ -19,18 +19,20 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class RemesherIssueCasesTests
     {
-        /// <summary> case name -> (finding, a text the failure must contain while listed) </summary>
+        /// <summary>
+        /// case name -> (finding, the exact failure while listed: the problems joined by "; ", in the order the test
+        /// reports them)
+        /// </summary>
         public static readonly Dictionary<string, (string Finding, string Pinned)> KnownFailures = new Dictionary<string, (string, string)> {
             // without the opt-in MinTriangleQuality guard (default 0) smoothing moves are not checked for flips: new
             // vertices on the interior edges of a non-convex fan are smoothed across their neighbours
-            [nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + "_0_basic"] = (FindingSmoothFlip, "triangles not facing +z"),
-            [nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + "_0_pro"] = (FindingSmoothFlip, "triangles not facing +z"),
-            // the same without the guard on long thin parts: a cap triangle of the thin cylinder turned over (dot -1, 6
-            // self-intersecting pairs), a flat triangle on a crease of the long box (3 pairs)
-            [nameof(LongThinSharpParts_NoInvertedTriangles) + "_0"] = (FindingSmoothFlip, "inverted triangles"),
+            [nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + "_0_basic"] = (FindingSmoothFlip, "10 triangles not facing +z; area 1.7581, input 1.7338"),
+            [nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + "_0_pro"] = (FindingSmoothFlip, "10 triangles not facing +z; area 1.8199, input 1.7338"),
+            // the same without the guard on a long thin part: a flat triangle on a crease of the long box
+            [nameof(LongThinSharpParts_NoInvertedTriangles) + "_0"] = (FindingSmoothFlip, "box: 1 inverted triangles, 3 self-intersecting pairs"),
             // without feature constraints, flips and collapses across the 90 degree creases of a coarse L prism cut its
             // corners off: volume 3 -> 0.73, a leg of the L gone after 15 passes
-            [nameof(CreasedPart_BoundsKept) + "_none"] = ("finding S3: without feature constraints the remesher flips and collapses across creases", "bounding box shifted by 1"),
+            [nameof(CreasedPart_BoundsKept) + "_none"] = ("finding S3: without feature constraints the remesher flips and collapses across creases", "bounding box shifted by 1.000; distance to the input 1.226"),
         };
         const string FindingSmoothFlip = "finding S2: with MinTriangleQuality = 0 (default) smoothing and projection moves can flip triangles";
 
@@ -39,7 +41,7 @@ namespace geometry3Sharp.Tests
             string failure = string.Join("; ", problems);
             if (KnownFailures.TryGetValue(name, out var known)) {
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({known.Finding}) from KnownFailures and docs/QA.md 2.11");
-                Assert.True(failure.Contains(known.Pinned), $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
+                Assert.True(failure == known.Pinned, $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
             } else
                 Assert.True(failure == "", name + ": " + failure);
         }
@@ -55,6 +57,12 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// x rounded to a multiple of 2^-30: inputs built with Math.Sin / Cos (whose last bit may differ between net48 and
+        /// net10) are then the same on both, so a pinned failure is the same too
+        /// </summary>
+        internal static double R(double x) => Math.Round(x * (1 << 30)) / (1 << 30);
+
         // ---- inputs ----
 
         static DMesh3 GridBox(Vector3d lo, Vector3d hi, int edgeVertices)
@@ -67,6 +75,23 @@ namespace geometry3Sharp.Tests
         static DMesh3 Cylinder(double r, double h, int slices)
         {
             DMesh3 m = new CappedCylinderGenerator() { BaseRadius = (float)r, TopRadius = (float)r, Height = (float)h, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
+            Assert.True(m.IsClosed() && ResultChecks.Volume(m) > 0);
+            return m;
+        }
+
+        /// <summary> a closed cylinder along z from 0 to h, rim points rounded (R), fan caps, outward </summary>
+        static DMesh3 RoundedCylinder(double r, double h, int slices)
+        {
+            var m = new DMesh3();
+            int cb = m.AppendVertex(Vector3d.Zero), ct = m.AppendVertex(new Vector3d(0, 0, h));
+            Vector2d[] ring = Enumerable.Range(0, slices).Select(i => new Vector2d(R(r * Math.Cos(2 * Math.PI * i / slices)), R(r * Math.Sin(2 * Math.PI * i / slices)))).ToArray();
+            int[] b = ring.Select(q => m.AppendVertex(new Vector3d(q.x, q.y, 0))).ToArray();
+            int[] t = ring.Select(q => m.AppendVertex(new Vector3d(q.x, q.y, h))).ToArray();
+            for (int i = 0; i < slices; ++i) {
+                int j = (i + 1) % slices;
+                m.AppendTriangle(cb, b[j], b[i]); m.AppendTriangle(ct, t[i], t[j]);
+                m.AppendTriangle(b[i], b[j], t[j]); m.AppendTriangle(b[i], t[j], t[i]);
+            }
             Assert.True(m.IsClosed() && ResultChecks.Volume(m) > 0);
             return m;
         }
@@ -145,7 +170,7 @@ namespace geometry3Sharp.Tests
             double[] radii = { 1.0, 1.6, 0.4, 1.3, 0.5, 1.5, 0.45, 1.2, 0.6, 1.4 };
             int[] rim = Enumerable.Range(0, 10).Select(i => {
                 double a = 1.5 * Math.PI * i / 9;
-                return m.AppendVertex(radii[i] * new Vector3d(Math.Cos(a), Math.Sin(a), 0));
+                return m.AppendVertex(new Vector3d(R(radii[i] * Math.Cos(a)), R(radii[i] * Math.Sin(a)), 0));
             }).ToArray();
             for (int i = 0; i + 1 < 10; ++i)
                 m.AppendTriangle(c, rim[i], rim[i + 1]);
@@ -162,7 +187,7 @@ namespace geometry3Sharp.Tests
             int bad = m.TriangleIndices().Count(t => !(m.GetTriNormal(t).z > 0.999));
             if (bad > 0) p.Add($"{bad} triangles not facing +z");
             if (m.Vertices().Any(v => v.z != 0)) p.Add("a vertex left z = 0");
-            if (Math.Abs(Invariance.Area(m) - area0) > 1e-9 * area0) p.Add($"area {Invariance.Area(m)}, input {area0}");
+            if (Math.Abs(Invariance.Area(m) - area0) > 1e-9 * area0) p.Add($"area {Invariance.Area(m):F4}, input {area0:F4}");
             foreach (int v in input.VertexIndices())
                 if (!m.IsVertex(v) || m.GetVertex(v) != input.GetVertex(v)) { p.Add($"boundary vertex {v} moved"); break; }
             Expect(nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + $"_{minQuality}_{(pro ? "pro" : "basic")}", p);
@@ -285,6 +310,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PartialRemesh_LockedVertices_BitExact()
         {
+            // (the whole-mesh half overlaps the corner checks of FeaturePreservationTests, which keep corners through
+            // feature constraints; new here: the region remesh with BackPropropagate and plain Pinned constraints)
             // https://github.com/CGAL/cgal/issues/8388: a partial remesh with locked corner vertices: the locked vertices
             // moved. Rebuilt: a 2 x 2 x 1 box (no features marked), its top face and the upper half of its sides as the
             // region (RegionRemesher, projection onto the input); the four top corners, inside the region, pinned
@@ -489,16 +516,16 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/BrunoLevy/geogram/issues/357: a strongly anisotropic input with sharp edges remeshed:
             // many folded triangles. Rebuilt: a 20 x 0.5 x 0.5 box and a cylinder of radius 0.1 and length 10 (16
-            // slices), long triangles along them, remeshed with their features kept to edges of 0.25 and 0.1.
+            // slices, rim rounded), long triangles along them, remeshed with their features kept to edges of 0.25 and 0.1.
             // Correct: closed, valid, positive volume, no triangle whose normal opposes the input's nearest triangle.
             var p = new List<string>();
             foreach ((string what, DMesh3 input, double edge) in new[] { ("box", GridBox(new Vector3d(-10, -0.25, -0.25), new Vector3d(10, 0.25, 0.25), 3), 0.25),
-                ("cylinder", Cylinder(0.1, 10, 16), 0.1) }) {
+                ("cylinder", RoundedCylinder(0.1, 10, 16), 0.1) }) {
                 DMesh3 m = new DMesh3(input);
                 Passes(Remesher(m, input, edge, minQuality: minQuality), 20);
                 CheckBasic(m, input, p);
                 int inv = InvertedTriangles(m, input);
-                if (inv > 0) p.Add($"{what}: {inv} inverted triangles");
+                if (inv > 0) p.Add($"{what}: {inv} inverted triangles, {MeshRepairMetrics.SelfIntersections(m)} self-intersecting pairs");
                 if (m.TriangleCount < 2 * input.TriangleCount) p.Add($"{what}: not refined");
             }
             Expect(nameof(LongThinSharpParts_NoInvertedTriangles) + "_" + minQuality, p);
@@ -509,6 +536,8 @@ namespace geometry3Sharp.Tests
         [InlineData(false)]
         public void CreasedPart_BoundsKept(bool features)
         {
+            // (the features half overlaps FeaturePreservationTests.Remesher_Box_WithFeatureConstraints_KeepsEdgesAndCorners;
+            // new here: a 270 degree crease, the bounds and the unconstrained case)
             // https://github.com/MeshInspector/MeshLib/issues/4148 (prose only): remeshing creased parts shifted the
             // bounding box. Rebuilt: an L-shaped prism (creases of 90 and 270 degrees) remeshed with projection onto the
             // input to edges of 0.2. Correct: with the creases kept (PreserveBoundaryAndFeatures) the bounding box is the
@@ -529,8 +558,8 @@ namespace geometry3Sharp.Tests
                 if (d > 1e-6) p.Add($"distance to the input {d}");
                 if (Math.Abs(ResultChecks.Volume(m) - 3) > 1e-6) p.Add($"volume {ResultChecks.Volume(m)}");
             } else {
-                if (shift > 0.2) p.Add($"bounding box shifted by {shift}");
-                if (d > 0.2) p.Add($"distance to the input {d}");
+                if (shift > 0.2) p.Add($"bounding box shifted by {shift:F3}");
+                if (d > 0.2) p.Add($"distance to the input {d:F3}");
             }
             Expect(nameof(CreasedPart_BoundsKept) + (features ? "_features" : "_none"), p);
         }

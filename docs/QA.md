@@ -424,7 +424,7 @@ remesh with locked vertices (bit-exact), zero-area triangles and kinks, slivers 
 face on the border, two cones tip to tip, long thin sharp parts, and a creased L prism (bounds). The box corners of
 pmp-library #132 are already covered by `FeaturePreservationTests`. Fixed: `PreserveBoundaryAndFeatures` now pins
 bowtie vertices (the remesher joined the two cones). Known failures: S2, without the opt-in `MinTriangleQuality`
-smoothing folds the fan and inverts a cap triangle of a thin cylinder (with 0.2 they pass); S3, without feature
+smoothing folds the fan and leaves a flat triangle on a crease of a long thin box (with 0.2 they pass); S3, without feature
 constraints a coarse L prism loses a leg (volume 3 -> 0.73, bounds shifted by 1).
 
 ## 3. Performance
