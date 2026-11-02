@@ -11,7 +11,9 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Terrain 1c, idea A (TERRAIN_1C_PLAN.md): the map is built once per margin and a larger toe lowering λ is only
     /// realized again. Lowering every plane by λ does not change any line of two planes, so the result must be bit for
-    /// bit the one of a new build at the final λ (the reference, RebuildForEachLowering), on the stress set.
+    /// bit the one of a new build at the final λ (the reference, RebuildForEachLowering), on the stress set. (This
+    /// checks the loop: the map of the reference is the same by construction. The construction itself, planes through
+    /// the specified toe instead of the lowered one, is checked by the oracles O1 / O2 of the other tests.)
     /// </summary>
     public class TerrainSlopeOneBuildTests
     {
@@ -79,6 +81,17 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(b.CatchLines.Count, a.CatchLines.Count);
                 for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(b.CatchLines[i].Points, a.CatchLines[i].Points);
                 Assert.True(a.Attempts <= b.Attempts);
+                // the surface ends at H - λ (cut; H + λ for fill), never beyond H
+                if (a.SlopeSurface != null && a.Terrain == null) {
+                    bool fill = a.Direction == TerrainSlopeDesign.Directions.Fill;
+                    double top = fill ? a.SlopeSurface.Vertices().Min(v => v.z) : a.SlopeSurface.Vertices().Max(v => v.z);
+                    double end = fill ? a.HeightLimit + a.UsedToeLowering : a.HeightLimit - a.UsedToeLowering;
+                    double slack = 4 * Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(Math.Abs(a.HeightLimit)) + 1) - Math.Abs(a.HeightLimit));
+                    Assert.True(fill ? top >= end - slack : top <= end + slack, $"top {top:R}, H - λ {end:R}");
+                    Assert.True(fill ? top >= a.HeightLimit : top <= a.HeightLimit);
+                }
+                // the statistics count the build, not only the realizations
+                Assert.True(a.PredicateCalls > 1000, $"{a.PredicateCalls}");
                 saved += b.Attempts - a.Attempts;
                 if (a.Realizations > a.Attempts) raised++;
                 output.WriteLine($"{n}: {a.Status} builds {a.Attempts} (reference {b.Attempts}), realizations {a.Realizations}, λ {a.UsedToeLowering:G3}");

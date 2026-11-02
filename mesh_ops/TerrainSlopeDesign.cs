@@ -55,8 +55,10 @@ namespace gs
     /// <summary>
     /// Slope surface (Böschung) from toe lines, as the lower envelope of the slope cones with apexes on the toe (cut;
     /// the upper envelope of the falling cones for fill): docs/design/TERRAIN.md, phase 1a
-    /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). In phase 1a there is no terrain: the surface is
-    /// built up to HeightLimit (cut) or down to it (fill).
+    /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). Without a terrain the surface is built up to
+    /// HeightLimit (cut) or down to it (fill); it ends at HeightLimit - UsedToeLowering (+ for fill), never beyond
+    /// HeightLimit (the planes are lowered by the toe lowering, the cap is not). With a terrain (phase 1b) the catch lines
+    /// and the composite follow.
     ///
     /// Never steeper than specified: every triangle of SlopeSurface is checked exactly, on its stored doubles, before
     /// Compute returns true: it is not steeper than the spec of the toe piece it is attributed to (its group id), and its
@@ -113,7 +115,10 @@ namespace gs
         /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
         public bool BuildComposite = false;
         public Directions Direction = Directions.Cut;
-        /// <summary> required without Terrain: cut builds the slope up to this height, fill down to it </summary>
+        /// <summary>
+        /// required without Terrain: cut builds the slope up to this height, fill down to it (it ends UsedToeLowering
+        /// below it, for fill above)
+        /// </summary>
         public double HeightLimit = double.NaN;
         /// <summary> required: the largest vertical deviation below the exact cone envelope (data units) </summary>
         public double Tolerance = double.NaN;
@@ -233,8 +238,9 @@ namespace gs
                     return ts;
             }
             if (Terrain != null && double.IsNaN(heightLimit)) {
-                // above the highest terrain vertex (cut) and the toe, by Tolerance: at the level line of the cap S̃ is then
-                // above the terrain, also after rounding, so the region cannot reach it
+                // above the highest terrain vertex (cut) and the toe, by Tolerance: the level line of the cap, at H - λ, is
+                // then above the terrain by Tolerance - λ > 0 (λ is at most its bound, which the budget keeps below
+                // Tolerance), also after rounding, so the region cannot reach it
                 double ext = fill ? double.MaxValue : double.MinValue, toeExt = ext;
                 foreach (Vector3d v in Terrain.Vertices()) ext = fill ? Math.Min(ext, v.z) : Math.Max(ext, v.z);
                 foreach (var toe in Toes)
@@ -514,6 +520,8 @@ namespace gs
 
             // realization and the exact check, raising λ by measurement without a new build
             Attempts++;
+            // (the kernel's work of the build itself; each realization counts its own below)
+            PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
             double mergeLambda = MergeLambda(ez, exy, sMax);
             for (int realization = 0; ; ++realization) {
                 br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
@@ -532,7 +540,9 @@ namespace gs
                 if (next < 0)
                     return st;
                 if (RebuildForEachLowering) {
-                    // (the reference of the tests: a new build at the new lowering, as before 1c)
+                    // (the reference of the tests: a new map built at the new lowering; the map does not depend on λ, so
+                    // the result must be the same bit for bit. Its builds count against the attempts of compute, and
+                    // each build starts its realizations from 0, so on hard inputs the two paths may stop differently)
                     br.RebuildLambda = next;
                     return st;
                 }
