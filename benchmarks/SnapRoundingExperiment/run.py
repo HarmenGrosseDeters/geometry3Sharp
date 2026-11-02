@@ -8,7 +8,8 @@ With --left, only the cases whose "safe" result (already in out.jsonl) is not cl
 where SafeRounding's result is clean, so a run is plain,safe first and the other methods with --left.
 
 A set is one of the tool's (clusters, utm, cylinder, booleans); @list is a file with one mesh path per line (each case
-is the self-union of the mesh). Summarize with summarize.py.
+is the self-union of the mesh); @bc:list a file with one BooleanComparison case directory and operation per line
+(<dir>:<Union|Intersection|Difference>). Summarize with summarize.py.
 """
 import argparse, json, os, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +19,9 @@ TOOL = os.path.join(HERE, "bin", "Release", "net10.0", "SnapRoundingExperiment.d
 
 
 def cases(spec):
+    if spec.startswith("@bc:"):
+        with open(spec[4:]) as f:
+            return ["bc:" + line.strip() for line in f if line.strip()]
     if spec.startswith("@"):
         with open(spec[1:]) as f:
             return ["file:" + line.strip() for line in f if line.strip()]

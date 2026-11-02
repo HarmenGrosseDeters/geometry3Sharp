@@ -23,6 +23,16 @@ sealed class SnapFallback
     public int Rounds, RemovedComponents;
     public double GridUlps;
     public int MaxRounds = 3;
+    /// <summary>
+    /// the published method instead (SAFE_ROUNDING.md section 7): a grid fixed per axis (a power of two that puts the
+    /// largest absolute coordinate on the axis into [2^23, 2^24) grid units), the defect vertices and every vertex in a
+    /// voxel with one of them (hot voxels) snapped, resolved again, at most 5 iterations; no drift bound (the drift is
+    /// reported, and whether it stays within maxLength). Deviations: the defects include degenerate triangles (the paper
+    /// only knows intersecting pairs), and the resolve is the union with nothing (the paper subdivides exactly)
+    /// </summary>
+    public bool PaperGrid = false;
+    /// <summary> the paper's grid: whether the drift stayed within the first repair's bound </summary>
+    public bool WithinBound = true;
 
     readonly DMesh3 start;
     readonly MeshRoundingRepair first;
@@ -40,6 +50,10 @@ sealed class SnapFallback
     {
         if (Clean || first == null || start.TriangleCount == 0)
             return;
+        if (PaperGrid) {
+            apply_paper();
+            return;
+        }
         double maxLength = first.MaxLength;
         double ulp = Program.Ulp(Program.Largest(start));
         var grids = new List<double> { 0 };
@@ -67,6 +81,7 @@ sealed class SnapFallback
                 if (!(leftOver > 0))
                     break;
                 var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union);
+                var trace = Environment.GetEnvironmentVariable("SNAP_TRACE") == "1" ? System.Diagnostics.Stopwatch.StartNew() : null;
                 // the drift left as the bound of the second repair: the ulp term where the first one used it (far from
                 // the origin), else the relative one
                 double diag = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength;
@@ -77,8 +92,12 @@ sealed class SnapFallback
                     op.RoundingMaxDisplacement = leftOver / diag;
                     op.RoundingUlpFactor = 0;
                 }
+                if (trace != null)
+                    Console.Error.WriteLine($"grid {g / ulp:G4} ulps round {rounds}: {m.TriangleCount} triangles, snapped {(g > 0 ? DefectVertices(cur).Count : 0)} vertices, resolving...");
                 if (!op.Compute())
                     break;
+                if (trace != null)
+                    Console.Error.WriteLine($"  resolved in {trace.Elapsed.TotalSeconds:F1} s, clean {op.RoundingClean}");
                 used += op.Rounding.MaxDrift;
                 removed += op.Rounding.RemovedComponents;
                 cur = op.Result;
@@ -96,8 +115,71 @@ sealed class SnapFallback
         }
     }
 
+    void apply_paper()
+    {
+        // the grid unit per axis: 2^(e - 23), e the exponent of the largest absolute coordinate on the axis
+        AxisAlignedBox3d b = gs.MeshRepairMetrics.TriangleBounds(start);
+        var unit = new double[3];
+        for (int k = 0; k < 3; ++k) {
+            double m = Math.Max(Math.Abs(b.Min[k]), Math.Abs(b.Max[k]));
+            unit[k] = m > 0 ? Program.Ulp(m) * Math.Pow(2, 52 - 23) : 1;
+        }
+        DMesh3 cur = start;
+        double used = first.MaxDrift;
+        int removed = 0, rounds = 0;
+        while (rounds < 5) {
+            HashSet<int> verts = DefectVertices(cur);
+            if (verts.Count == 0)
+                break;
+            rounds++;
+            Func<Vector3d, (long, long, long)> voxel = p => ((long)Math.Round(p.x / unit[0]), (long)Math.Round(p.y / unit[1]), (long)Math.Round(p.z / unit[2]));
+            // (hot voxels: every vertex in a voxel with a defect vertex moves with it)
+            var hot = new HashSet<(long, long, long)>();
+            foreach (int v in verts) hot.Add(voxel(cur.GetVertex(v)));
+            var m = new DMesh3(cur);
+            double snap = 0;
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                var key = voxel(p);
+                if (hot.Contains(key) == false) continue;
+                var q = new Vector3d(key.Item1 * unit[0], key.Item2 * unit[1], key.Item3 * unit[2]);
+                snap = Math.Max(snap, q.Distance(p));
+                m.SetVertex(v, q);
+            }
+            used += snap;
+            var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union);
+            if (!op.Compute())
+                break;
+            used += op.Rounding.MaxDrift;
+            removed += op.Rounding.RemovedComponents;
+            cur = op.Result;
+            if (op.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(cur) == "") {
+                Clean = true;
+                break;
+            }
+        }
+        Result = cur; Drift = used; Rounds = rounds; RemovedComponents = removed;
+        GridUlps = unit.Max() / Program.Ulp(Program.Largest(start));
+        WithinBound = used <= first.MaxLength;
+    }
+
     // the vertices of the degenerate triangles (MeshRobustRepair.NotCleanReason's threshold, or exactly collinear) and of
     // the intersecting pairs
+    internal static List<int> DefectTriangles(DMesh3 m)
+    {
+        double diag = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength;
+        double eps = 1e-12 * diag * diag;
+        var tris = new List<int>();
+        foreach (int t in m.TriangleIndices()) {
+            Index3i tv = m.GetTriangle(t);
+            var T = new Triangle3d(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c));
+            if (m.GetTriArea(t) < eps || ExactTriangleIntersection.IsDegenerate(ref T))
+                tris.Add(t);
+        }
+        foreach (Index2i p in gs.MeshRepairMetrics.SelfIntersectionPairs(m)) { tris.Add(p.a); tris.Add(p.b); }
+        return tris;
+    }
+
     static HashSet<int> DefectVertices(DMesh3 m)
     {
         double diag = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength;

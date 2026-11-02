@@ -8,10 +8,12 @@
 //                               SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans)
 //   run <case> <method>...      one JSON line per method: plain (SafeRounding off), safe (the default), again (safe, then
 //                               resolve the result once more with the drift left), B (safe, then snap the defects'
-//                               vertices to grids from fine to coarse and resolve again, within the drift left), A (safe
+//                               vertices to grids from fine to coarse and resolve again, within the drift left), Bpaper
+//                               (the published grid, [2^23, 2^24) per axis, hot voxels, 5 iterations, no drift bound), A (safe
 //                               with the separation stage), AB (A, then B)
 //   A case is a set name and its parameters, eg cluster:FoldedCluster:44:8:1, utm:Cluster:30:4:1, cylinder:2,
-//   bool:ShortEdge:44:Union:0, or file:<path> (the self-union of a mesh file, eg Thingi10K).
+//   bool:ShortEdge:44:Union:0, file:<path> (the self-union of a mesh file, eg Thingi10K), or bc:<dir>:<op> (a
+//   BooleanComparison case directory with A.off and B.off, and the operation).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -119,6 +121,14 @@ static class Program
                 DMesh3 b = DegenerateFamilies.Box(new Vector3d(-0.3 + 0.1 * seed, -2, -2), new Vector3d(2, 2, 2));
                 return (a, b, Enum.Parse<Ops>(p[3]));
             }
+            case "bc": {
+                // a BooleanComparison case directory (A.off, B.off; benchmarks/BooleanComparison export / pair) and an
+                // operation: bc:<dir>:<Union|Intersection|Difference>
+                string dir = name.Substring(3, name.LastIndexOf(':') - 3);
+                DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
+                if (a == null || b == null) throw new IOException("cannot read " + dir);
+                return (a, b, Enum.Parse<Ops>(name.Substring(name.LastIndexOf(':') + 1)));
+            }
             case "file": {
                 DMesh3 m = StandardMeshReader.ReadMesh(name.Substring(5));
                 if (m == null) throw new IOException("cannot read " + name);
@@ -161,8 +171,8 @@ static class Program
         }
         double drift = r?.MaxDrift ?? 0, maxLength = r?.MaxLength ?? 0;
         SnapFallback fb = null;
-        if (method == "again" || method == "B" || method == "AB") {
-            fb = new SnapFallback(result, r) { SnapGrids = method != "again" };
+        if (method == "again" || method == "B" || method == "AB" || method == "Bpaper") {
+            fb = new SnapFallback(result, r) { SnapGrids = method != "again", PaperGrid = method == "Bpaper" };
             fb.Apply();
             result = fb.Result;
             drift = fb.Drift;
@@ -187,15 +197,33 @@ static class Program
             sb.Append(",\"separations\":").Append(r.Separations).Append(",\"programs\":").Append(r.SeparationPrograms).Append(",\"targets\":").Append(r.SeparationTargetsReached);
         }
         if (fb != null)
-            sb.Append(",\"b_rounds\":").Append(fb.Rounds).Append(",\"b_grid_ulps\":").Append(fb.GridUlps.ToString("G4", ci));
-        if (method != "plain" && Environment.GetEnvironmentVariable("SNAP_CERT") != "0") {
+            sb.Append(",\"b_rounds\":").Append(fb.Rounds).Append(",\"b_grid_ulps\":").Append(fb.GridUlps.ToString("G4", ci)).Append(",\"within_bound\":").Append(fb.WithinBound ? "true" : "false");
+        if (method == "patch" && r != null && r.IsClean == false) {
+            // the upper bound of a patch-wise B: the defect triangles grown by 3 rings of triangles, cut out as an open
+            // mesh, resolved once (ExactMeshBoolean with SafeRounding); one patch resolve is the cost of one grid round
+            // of a local B (the snap itself is negligible)
+            var defects = new HashSet<int>(SnapFallback.DefectTriangles(result));
+            for (int ring = 0; ring < 3; ring++)
+                foreach (int t in defects.ToArray()) {
+                    Index3i tv = result.GetTriangle(t);
+                    for (int k = 0; k < 3; k++)
+                        foreach (int u in result.VtxTrianglesItr(tv[k])) defects.Add(u);
+                }
+            var sub = new DSubmesh3(result, defects.ToArray());
+            var pc = Stopwatch.StartNew();
+            var pop = new ExactMeshBoolean(sub.SubMesh, new DMesh3(), Ops.Union);
+            bool pok = false;
+            try { pok = pop.Compute(); } catch (Exception) { }
+            sb.Append(",\"patch_tris\":").Append(sub.SubMesh.TriangleCount).Append(",\"patch_ms\":").Append(pc.Elapsed.TotalMilliseconds.ToString("F1", ci)).Append(",\"patch_ok\":").Append(pok ? "true" : "false");
+        }
+        if (method != "plain" && method != "patch" && Environment.GetEnvironmentVariable("SNAP_CERT") != "0") {
             // the d-separation certificate (tests/geometry3Sharp.Tests/Harness/SeparationCertificate.cs): disjoint features farther apart than 2e
             if (Environment.GetEnvironmentVariable("SEP_DEBUG") == "1") SeparationCertificate.Log = (msg) => Console.Error.WriteLine(msg);
             var cert = SeparationCertificate.Check(result);
             sb.Append(",\"cert_pairs\":").Append(cert.Pairs).Append(",\"uncertified\":").Append(cert.Uncertified);
             if (cert.Capped) sb.Append(",\"cert_capped\":true");
         }
-        if (method != "plain") {
+        if (method != "plain" && method != "patch") {
             // Hausdorff distance to the exact result, rounded (SafeRounding off): an upper bound of the distance to the
             // exact one, up to the rounding of its new vertices (half an ulp per coordinate)
             var raw = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };

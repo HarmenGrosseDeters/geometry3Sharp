@@ -948,6 +948,18 @@ the defects come from the input, eg open meshes, and A does nothing by design).
   where the threshold bites, so it is its own bugfix PR, not part of this experiment. The invariance test of A
   (`MeshRoundingRepairSeparationTests`) therefore runs A without SafeRounding's edits.
 
+- **Slow resolves of snapped meshes (B's time limit).** Repro, generated:
+  `SNAP_TRACE=1 SNAP_CERT=0 dotnet bin/Release/net10.0/SnapRoundingExperiment.dll run cluster:Cluster:0:8:5 B` prints
+  every grid round of B with its time.
+  - The resolve of the snapped mesh at 512 ulps, round 3 (2970 triangles, 1145 vertices snapped) takes 87 s; other rounds
+    of the same case take 6 to 22 s, against a fraction of a second for the unsnapped mesh.
+  - Stack samples (`dotnet-stack`) during that resolve: `MeshRoundingRepair` (`intersecting_pairs`, `fix_intersection`,
+    `try_strip` / `zip_strip`), `ExactTriangleIntersection` and `ExactMeshBoolean.front_winding`. In the first probe, with
+    coarser grids (a fixed fraction of the bound), the same case spent minutes in `ExactMeshArrangement.prepare_touched`.
+  - So the cost comes from the many coincident and intersecting features a coarse snap creates, in the arrangement and in
+    the repair that follows. Whether either has a worst-case defect beyond that (a cost superlinear in the coincidences)
+    is not established; the repro above is where to start.
+
 ### 8.6 Against the go / no-go criteria of section 3, and a recommendation
 
 **Go criterion for A** (section 3): at least 94 % certified at a displacement well below 2^-24 of the box, and A + B
@@ -979,3 +991,59 @@ cylinder step, the Boolean, 25 of 33 clusters), always within the bound. Its lim
    a check of the removed parts against the bound.
 3. Independently of A and B: fix the 2^k invariance of SafeRounding (section 8.5), a bugfix PR.
 4. The certificate (`SeparationCertificate`) and the harness stay useful for any of these.
+
+### 8.7 The owner's criteria (fixed in advance), verdict per criterion
+
+Measured on master `99745a7` plus this experiment, before the scale-invariance bugfix (#316). With #316 SafeRounding itself
+already repairs the cylinder step 2, `cgal/cheese` (both operations) and 4 more dense clusters; it changes none of the
+verdicts below. Commands as in sections 8.3 and 8.4; `Bpaper` is B with the paper's grid (section 7: [2^23, 2^24) of
+the largest coordinate per axis, hot voxels, at most 5 iterations, no drift bound, `SnapFallback.PaperGrid`); B is the
+drift-bounded variant (the product variant). BooleanComparison: the 87 cases of `perf/cases-cgal.txt`,
+`cases-thingi.txt` and `cases-cherchi_small.txt`, three operations each (`run.py @bc:list`).
+
+**Criterion 1, the measurement** (plain / safe / again / A / B / Bpaper / AB on the clusters, the Thingi10K self-unions
+and BooleanComparison): done.
+
+| set | safe clean | again | A | B | Bpaper (within the bound) | AB |
+|---|---|---|---|---|---|---|
+| generated leftovers (41) | 0 | 10 | 9 | **33** | 16 (10) | 22 |
+| BooleanComparison (261) | 255 | 255 | 257 | 257 | 256 | 257 |
+| Thingi10K self-unions (399 finished) | 188 | 188 | 188 | 209 | pending | 188 |
+
+(BooleanComparison: the two cases A and B repair are `cgal/cheese` intersection and difference, which #316 repairs
+already; the other 4 unclean results are empty. Thingi10K: again, A and AB ran on the 38 rounding failures only; B on all
+211 unclean results.)
+
+**Criterion 2, B default-on as a bounded fallback:** B must raise the clean share on the Thingi10K self-unions
+measurably, never exceed the drift bound, keep the Hausdorff distance to the exact result within the bound, and keep
+the time acceptable. **Not met.**
+- Clean share: 188 → 209 of 399 (+21) when B runs on every unclean result; +3 when it runs only on the 38 rounding
+  failures (the others are open inputs or contacts).
+- Drift bound: never exceeded (0 of 211).
+- Hausdorff: **fails.** 9 of the 21 new clean results lie far from the exact result (1.0e0 to 9.3e4 times the bound;
+  SafeRounding's results there: about 0.01 of it, the tolerance). These are open inputs: the second resolve takes the
+  union again and drops what the winding number of the snapped mesh excludes, the side of the Hausdorff distance that
+  the drift does not bound (section 8.2). Restricted to the rounding failures, 1 of the 3 new clean results stays within
+  the bound.
+- Time (B's time over SafeRounding's per case; a timeout counts as 120 s, so these are lower bounds): all 399 cases,
+  median 4.7 and p95 66; the 211 affected, median 36 and p95 76. Only on the rounding failures: all cases median 1.0 and
+  p95 26.5, the 38 affected median 27 and p95 67.
+- **So B stays off by default**: it does not qualify for a default. As a whole-mesh fallback it is too slow and, on open
+  inputs, unbounded in the Hausdorff distance. A patch-wise B would fix the time (next point); the Hausdorff side
+  needs a check of what the resolve removes.
+- Upper bound of a patch-wise B (tool mode `patch`, the 12 Thingi10K runs that hit the limit): the defect triangles grown
+  by three rings, 286 to 15088 triangles (median 7 % of the mesh), resolve in a median of 0.17 s (max 16 s, 1368057)
+  against 3.9 s for the whole SafeRounding: one grid round costs about 1/20 of a full resolve. Not measured: whether the
+  patch result fits back (fixed boundary).
+
+**Criterion 3, A only for a remainder that only A fixes:** **not met: 0 cases.** In every set the results A makes clean are
+also made clean by B. The one thing only A gives is the 2e-certificate of the cylinder step 2, which #316 makes clean (and
+the certificate is no criterion).
+
+**Criterion 4:** neither qualifies for a default. Options A and B are **measured and closed** as defaults. The
+prototypes stay where they are (A internal and unused in the library, B only in the tool). A patch-wise B behind an
+off-by-default option remains possible later, if the owner wants it for open inputs; its preconditions are the
+patch-fitting and the Hausdorff check above.
+
+The findings that come out of the experiment regardless: the scale-invariance bugfix (#316), the exact d-separation
+certificate and the harness, and the hang of the arrangement on snapped coincident geometry (section 8.5).
