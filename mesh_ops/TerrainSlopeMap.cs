@@ -713,6 +713,8 @@ namespace gs
                 return o;
             };
             OutLabels.Clear();
+            DroppedTriangles = 0;
+            var dropped = new List<Index3i>();
             OnBarrier.Clear();
             var barrierPos = new HashSet<Vector2d>();
             BarriersAt.Clear();
@@ -736,11 +738,16 @@ namespace gs
                     if (a == b || b == c || c == a) continue;
                     // (a face narrower than the rounding, eg between two creases a few ulps apart, has no area once
                     // rounded: its triangles are dropped, which leaves no gap; kept, they would overlap their neighbours)
-                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) continue;
+                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                        DroppedTriangles++;
+                        dropped.Add(new Index3i(a, b, c));
+                        continue;
+                    }
                     int tid = mesh.AppendTriangle(a, b, c, group);
                     if (tid < 0) throw new NonManifoldRealization();
                 }
             }
+            stitch(mesh, dropped);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -810,16 +817,49 @@ namespace gs
             public NonManifoldRealization() : base("SlopeMap: non-manifold realization") { }
         }
 
+        // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of
+        // the triangle on the other side: that triangle is split at m, which lies exactly on the edge, so the mesh stays
+        // conforming (no T-junction, no crack). Repeated until nothing changes (slivers next to each other).
+        internal static void stitch(DMesh3 mesh, List<Index3i> dropped)
+        {
+            for (bool again = dropped.Count > 0; again;) {
+                again = false;
+                foreach (Index3i d in dropped) {
+                    int[] v = { d.a, d.b, d.c };
+                    // the middle corner: between the other two along their line
+                    for (int k = 0; k < 3; ++k) {
+                        int m = v[k], e0 = v[(k + 1) % 3], e1 = v[(k + 2) % 3];
+                        Vector2d pm = mesh.GetVertex(m).xy, p0 = mesh.GetVertex(e0).xy, p1 = mesh.GetVertex(e1).xy;
+                        if ((pm - p0).Dot(p1 - p0) <= 0 || (pm - p1).Dot(p0 - p1) <= 0) continue;
+                        int e = mesh.FindEdge(e0, e1);
+                        if (e < 0) break;
+                        Index2i et = mesh.GetEdgeT(e);
+                        if (et.b >= 0) break;
+                        int t = et.a;
+                        Index3i tv = mesh.GetTriangle(t);
+                        // the triangle runs e0 -> e1 or e1 -> e0; x is its third vertex
+                        int x = tv.a != e0 && tv.a != e1 ? tv.a : (tv.b != e0 && tv.b != e1 ? tv.b : tv.c);
+                        bool forward = (tv.a == e0 && tv.b == e1) || (tv.b == e0 && tv.c == e1) || (tv.c == e0 && tv.a == e1);
+                        int g = mesh.GetTriangleGroup(t);
+                        mesh.RemoveTriangle(t, false, false);
+                        if (forward) { mesh.AppendTriangle(e0, m, x, g); mesh.AppendTriangle(m, e1, x, g); }
+                        else { mesh.AppendTriangle(e1, m, x, g); mesh.AppendTriangle(m, e0, x, g); }
+                        again = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary> Realize: triangles dropped because their rounded corners are collinear </summary>
+        public int DroppedTriangles;
+
         /// <summary> Realize: the positions merged into another one (0 without a merge radius) </summary>
         public int MergedCount;
 
-        /// <summary>
-        /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes
-        /// contain the other end's planes, so the triangles stay in their cells; vertices on the toe or a lateral limit
-        /// are only removed onto another such vertex. Returns the number of collapses.
-        /// </summary>
         // the triangles of 'remove' that stay (those without 'keep') with 'keep' in its place: counter-clockwise (exact)
-        // and not thinner than minLength / 2 unless they were before (a collapse next to collinear vertices can
+        // and not thinner than half the collapse threshold minLength unless they were before (a collapse next to
+        // collinear vertices can
         // otherwise leave a needle whose slope no margin covers)
         static bool collapse_keeps_shapes(DMesh3 mesh, int keep, int remove, double minLength)
         {
@@ -850,11 +890,20 @@ namespace gs
         /// take the piece (group) of the thicker old triangle. A face of the map narrower than the rounding (two creases
         /// that meet at an angle of 1e-12, from nearly coplanar tangent planes of neighbouring apexes) can only be
         /// triangulated into needles; across its sides the flips remove them. Vertices do not move; the exact check of
-        /// every triangle decides afterwards. Returns the number of flips.
+        /// every triangle decides afterwards. Each triangle carries a bound of its deviation from the realization (0 for
+        /// the realized ones): a flip changes the surface most at the crossing X of the two diagonals, by
+        /// |z_ab(X) - z_cd(X)|, so the new triangles get the larger bound of the old two plus that (and the rounding of
+        /// its evaluation); a flip whose bound would exceed maxDeviation is not made (the share reserved for it,
+        /// TerrainSlopeDesign.MergeShare and RepairLambda). The new
+        /// triangles are checked against the thicker old triangle's piece; reaching less than w into a neighbouring
+        /// piece, they may be steeper than that piece's spec allows only within the reserved shares. Returns the number
+        /// of flips.
         /// </summary>
-        public static int FlipNeedles(DMesh3 mesh, double minAltitude)
+        public static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation)
         {
             int count = 0;
+            var dev = new Dictionary<int, double>();
+            Func<int, double> devOf = (x) => { double v; return dev.TryGetValue(x, out v) ? v : 0; };
             for (int pass = 0; pass < 64; ++pass) {
                 int flips = 0;
                 var needles = mesh.TriangleIndices().Where(t => tri_altitude(mesh, t) < minAltitude).ToList();
@@ -883,11 +932,15 @@ namespace gs
                     double before = Math.Min(tri_altitude(mesh, t), tri_altitude(mesh, t2));
                     double after = Math.Min(altitude(c, d, a), altitude(c, d, b));
                     if (!(after > before)) continue;
+                    double change = diagonal_change(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), mesh.GetVertex(ov.a), mesh.GetVertex(ov.b));
+                    double bound = Math.Max(devOf(t), devOf(t2)) + change;
+                    if (!(bound <= maxDeviation)) continue;
                     int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
                     DMesh3.EdgeFlipInfo info;
                     if (mesh.FlipEdge(e, out info) != MeshResult.Ok) continue;
                     mesh.SetTriangleGroup(info.t0, group);
                     mesh.SetTriangleGroup(info.t1, group);
+                    dev[info.t0] = bound; dev[info.t1] = bound;
                     flips++;
                 }
                 count += flips;
@@ -896,12 +949,31 @@ namespace gs
             return count;
         }
 
+        // |z on ab - z on cd| at the crossing of the diagonals ab and cd of a convex quad, with 16 ulps of the heights for
+        // the rounding of this evaluation (an upper bound of the change of the surface by the flip)
+        static double diagonal_change(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            Vector2d u = b.xy - a.xy, w = d.xy - c.xy, r = c.xy - a.xy;
+            double den = u.x * w.y - u.y * w.x;
+            double t = (r.x * w.y - r.y * w.x) / den, q = (r.x * u.y - r.y * u.x) / den;
+            double z1 = a.z + t * (b.z - a.z), z2 = c.z + q * (d.z - c.z);
+            double m = Math.Max(Math.Max(Math.Abs(a.z), Math.Abs(b.z)), Math.Max(Math.Abs(c.z), Math.Abs(d.z)));
+            double ulp = ExactInterval.Up(m) - m;
+            double ch = Math.Abs(z1 - z2) + 16 * ulp;
+            return MathUtil.IsFinite(ch) ? ch : double.MaxValue;
+        }
+
         static double tri_altitude(DMesh3 mesh, int t)
         {
             Index3i tv = mesh.GetTriangle(t);
             return altitude(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy);
         }
 
+        /// <summary>
+        /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes
+        /// contain the other end's planes, so the triangles stay in their cells; vertices on the toe or a lateral limit
+        /// are only removed onto another such vertex. Returns the number of collapses.
+        /// </summary>
         public static int CollapseShortEdges(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, double minLength)
         {
             int count = 0;

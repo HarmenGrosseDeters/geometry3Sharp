@@ -414,8 +414,11 @@ namespace geometry3Sharp.Tests
             // r = 64 e_xy (TERRAIN_1B_PLAN.md, reviews)
             double exy = Math.Pow(2, -30), ez = 3 * Math.Pow(2, -31), s = 1.5;
             Assert.Equal(64 * exy, TerrainSlopeDesign.MergeRadius(exy));
-            Assert.Equal(4 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
+            // (merge 4 sMax (r + e_xy) and a needle flip 2 sMax (r + e_xy) below; each 2 sMax (r + e_xy) above)
+            Assert.Equal(2 * s * 65 * exy, TerrainSlopeDesign.FlipShare(exy, s));
+            Assert.Equal(4 * s * 65 * exy + 2 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
             Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
+            Assert.Equal(4 * ez + 4 * s * 65 * exy, TerrainSlopeDesign.RepairLambda(ez, exy, s, 2));
         }
 
         // the uneven wavy toe of the Hambach test (TerrainBenchmark README), without the terrain, at UTM: needles of the
@@ -445,6 +448,9 @@ namespace geometry3Sharp.Tests
             AssertSurface(d);
             Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
             Assert.Equal(1, d.Attempts);
+            // the flips need the lowering of a repair (2 sMax (r + e_xy) above S̃)
+            Assert.True(d.NeedleFlips > 0);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
         }
 
         [Fact]
@@ -457,6 +463,7 @@ namespace geometry3Sharp.Tests
             // (without the needles no margin raise is needed: one build)
             Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
             Assert.Equal(1, d.Attempts);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired);
             output.WriteLine($"builds {d.Attempts}, realizations {d.Realizations}, δ {d.UsedSlopeMargin:G3}, λ {d.UsedToeLowering:G3}, {d.SlopeSurface.TriangleCount} triangles");
         }
 

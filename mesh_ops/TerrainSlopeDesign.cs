@@ -558,11 +558,10 @@ namespace gs
             Attempts++;
             // (the kernel's work of the build itself; each realization counts its own below)
             PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-            double mergeLambda = MergeLambda(ez, exy, sMax);
             for (int realization = 0; ; ++realization) {
                 br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
                 UsedToeLowering = lambda;
-                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, mergeLambda, minFeature, mergeRadius, br, phase);
+                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), FlipShare(exy, sMax), minFeature, mergeRadius, br, phase);
                 Realizations++;
                 if (st != Statuses.SlopeViolation)
                     return st;
@@ -591,7 +590,7 @@ namespace gs
 
         // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
         Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,
-                                   double lambdaBound, double mergeLambda, double minFeature, double mergeRadius, BuildResult br,
+                                   double lambdaBound, Func<int, double> repairLambda, double flipShare, double minFeature, double mergeRadius, BuildResult br,
                                    Action<string> phase)
         {
             checkCancel();
@@ -606,22 +605,28 @@ namespace gs
             // below cannot always resolve; larger distances are left to it, which keeps the cells)
             // (merging needs the lowering mergeLambda; without room for it under the bound, or if the merge makes the
             // mesh non-manifold, the realization runs without it and the check decides)
-            bool mayMerge = mergeLambda <= lambdaBound;
+            // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
+            // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
+            bool mayMerge = repairLambda(2) <= lambdaBound;
             try {
                 mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
             } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
                 mesh = map.Realize(cap, fill, 0, lambda);
                 map.MergedCount = 0;
             }
-            MergedPositions = map.MergedCount; MergeLambdaRequired = map.MergedCount > 0 ? mergeLambda : 0;
-            if (map.MergedCount > 0 && lambda < mergeLambda) {
-                br.MergeLambda = mergeLambda;
+            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare) : 0;
+            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false)
+                return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
+            int repairs = (map.MergedCount > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
+            MergedPositions = map.MergedCount; NeedleFlips = flips;
+            MergeLambdaRequired = repairs > 0 ? repairLambda(repairs) : 0;
+            if (repairs > 0 && lambda < repairLambda(repairs)) {
+                br.MergeLambda = repairLambda(repairs);
                 phase("realize");
                 count();
                 return Statuses.SlopeViolation;
             }
-            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
-            SlopeMap.FlipNeedles(mesh, mergeRadius);
             phase("realize");
             double maxRatio = 0;
             foreach (int tid in mesh.TriangleIndices()) {
@@ -714,6 +719,19 @@ namespace gs
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
         }
 
+        // every boundary edge of the realized surface lies on a toe or lateral limit (both ends on a barrier) or on the
+        // level line of the cap (both ends on the cap's plane): no crack inside
+        static bool boundary_is_toe_limit_or_cap(DMesh3 mesh, SlopeMap map, int cap)
+        {
+            foreach (int e in mesh.BoundaryEdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e);
+                bool bar = map.OnBarrier[ev.a] && map.OnBarrier[ev.b];
+                bool level = map.OutLabels[ev.a].Contains(cap) && map.OutLabels[ev.b].Contains(cap);
+                if (bar == false && level == false) return false;
+            }
+            return true;
+        }
+
         // does triangle t have the directed edge a -> b?
         static bool runs_along(Index3i t, int a, int b)
         {
@@ -751,8 +769,18 @@ namespace gs
         // triangles of a moved vertex leave their cells, below S̃ by at most 4 sMax (r + e_xy), which the budget
         // reserves, and above it by at most 2 sMax (r + e_xy), which the toe lowering of a merging build covers
         internal static double MergeRadius(double exy) { return 64 * exy; }
-        internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy); }
-        internal static double MergeLambda(double ez, double exy, double sMax) { return 4 * ez + 2 * sMax * (MergeRadius(exy) + exy); }
+        // the below share: a merge 4 sMax (r + e_xy), the needle flips at most FlipShare (each flip changes the surface
+        // most at the crossing of the quad's diagonals; FlipNeedles adds these changes per triangle and refuses a flip
+        // beyond the share)
+        internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy) + FlipShare(exy, sMax); }
+        // the largest change of the surface by needle flips, which FlipNeedles enforces (above and below)
+        internal static double FlipShare(double exy, double sMax) { return 2 * sMax * (MergeRadius(exy) + exy); }
+        // the lowering a realization with k kinds of repair needs (merge, flips): the rounding of a vertex and
+        // 2 sMax (r + e_xy) above S̃ for each
+        internal static double RepairLambda(double ez, double exy, double sMax, int k) { return 4 * ez + 2 * k * sMax * (MergeRadius(exy) + exy); }
+        internal static double MergeLambda(double ez, double exy, double sMax) { return RepairLambda(ez, exy, sMax, 1); }
+        /// <summary> diagnostics of the last realization: needles flipped </summary>
+        internal int NeedleFlips;
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>
         internal int MergedPositions;
         /// <summary> tests and diagnostics: the slope surface of the last realization (also a failing one) </summary>
