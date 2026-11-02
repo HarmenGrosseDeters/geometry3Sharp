@@ -49,8 +49,17 @@ namespace g3
         readonly List<Plane> planes = new List<Plane>();
         readonly List<Line> lines = new List<Line>();
         readonly List<Vertex> vertices = new List<Vertex>();
-        readonly Dictionary<long, int> planeLines = new Dictionary<long, int>();
-        readonly Dictionary<long, int> crossings = new Dictionary<long, int>();
+        // (keyed by the pair of ids, hashed by mixing both halves: the default hash of a long, low ^ high, puts all pairs
+        // with the same a ^ b in one bucket, millions of entries in a few thousand buckets on a large map)
+        readonly Dictionary<long, int> planeLines = new Dictionary<long, int>(PairKeyComparer.Instance);
+        readonly Dictionary<long, int> crossings = new Dictionary<long, int>(PairKeyComparer.Instance);
+
+        sealed class PairKeyComparer : IEqualityComparer<long>
+        {
+            public static readonly PairKeyComparer Instance = new PairKeyComparer();
+            public bool Equals(long a, long b) { return a == b; }
+            public int GetHashCode(long k) { return (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 32); }
+        }
 
         public int PlaneCount { get { return planes.Count; } }
         public int LineCount { get { return lines.Count; } }

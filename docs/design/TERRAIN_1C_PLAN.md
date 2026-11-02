@@ -131,3 +131,35 @@ overlap check was restricted), of which 1.0 s builds the 2 million copied terrai
 The octagon: overlay 8.9 s, composite 6.7 s, peak 1.50 GB (3.1 GB before the candidate restriction). Targets of the
 band-only work: the composite for one edge below 1 s (it needs a cheaper copy of the untouched terrain, or an
 output that does not copy it), and the peak below that 3.1 GB at any toe size on the 1 m grid.
+
+## 7. The replacement output and one edge under 1 s (next PR after #297)
+
+`TerrainSlopeDesign.CompositeKind` (additive, default `Full`, today's composite):
+
+- `Replacement`: `Replacement` holds only the part of the composite that replaces terrain triangles: the slope region
+  and the pieces of the cut terrain triangles. `ReplacedTerrainTriangles` (sorted) are the terrain triangles it
+  replaces; `CompositeTerrainVertices` gives, per vertex of `Composite` or `Replacement`, the terrain vertex at its
+  position (or -1; one per position, if the terrain has several vertices at one position), and
+  `TerrainCompositeVertices` the other way round, per terrain vertex (all of several at one position). Replacement plus
+  the other terrain triangles, joined through `TerrainCompositeVertices`, is the full composite: the same triangles, the
+  same vertices (as many, an unwelded seam stays unwelded where the composite keeps it) (`TerrainSlopeReplacementTests`: random terrains cut and fill, at UTM,
+  invariance over `Similarity.All()`, reuse, an unwelded terrain).
+- Terrain triangles wholly in the region (all overlay faces in it, no catch point, no boundary of the slope surface
+  inside, corners on the slope surface) contribute nothing and are skipped before their CDT (checked against the CDT
+  on the tests and three Hambach cases before it was removed: the same composites;
+  `TerrainTriangleAroundThePit_IsNotWhollyReplaced`: a terrain triangle around the pit, all faces in the region, is
+  not skipped).
+- The composite's overlap check takes the terrain triangles near the made ones from a list the overlay keeps during
+  its one pass over the terrain (those within a quarter of the slope's size of its box), used only when the box of the
+  made triangles lies inside that list's box; else all of them.
+- The local height limit starts at a fixed point instead of the highest terrain at the toe: h = (the highest terrain
+  within (h - zMin) / sMin of the toe box) + Tolerance, from one pass over the terrain triangles (a triangle counts
+  with its highest corner at the distance of its bounding box, rounded up to a distance class: an upper bound; the
+  vertices alone are not, a triangle reaching into the box from outside is higher there). At a fixed point a slope of
+  the specified ratio cannot reach the cap; the built surface is a little flatter (the margin, the facets, sloped toe
+  segments: its gradient bound Slb is below S), so this is an estimate that saved the raise in every case measured
+  here, not a guarantee; the raise still decides (`LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit` checks both).
+
+Measured in benchmarks/TerrainBenchmark/README.md: one toe edge on the 1 m Hambach grid, warm (repeated on one
+instance), 0.28 s with the replacement output, 0.14 s for the catch line only, 0.94 s with the full composite; the
+first call of a process takes about 0.7 s more (JIT): 1.01 s, 0.63 s and 1.61 s (medians over processes).
