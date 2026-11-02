@@ -131,3 +131,21 @@ reports the bumpy sphere case. Each entry is triangles accepted, then µs per tr
 
 The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped (owner decision,
 ENVELOPE.md §6).
+
+## Speculative parallel certification (measured and closed, 2026-11-02)
+
+The next checks of the queue were certified in parallel ahead of the serial loop, and a certificate was used only if
+everything the check reads was unchanged, bit for bit. The result was bit-identical on all 6 cases above, but slower
+on 4 cores:
+- bumpy sphere 0.001: 31 s on master, 46-51 s with the speculation;
+- terrain 0.001: 21 s against 26-30 s;
+- at 0.01: about equal.
+
+Two reasons:
+- Only 53-95 % of the certificates are used, depending on the window: after each collapse `UpdateNeighbours`
+  reorders the queue.
+- The existing parallel check over a collapse's new triangles already keeps 2.2 cores busy, while the speculation
+  nearly doubles the CPU work.
+
+Design, numbers and the reasons: [docs/design/REDUCER_SPECULATIVE_CERTIFICATION.md](../../docs/design/REDUCER_SPECULATIVE_CERTIFICATION.md).
+Code: branch `claude/reducer-speculative-archive`.

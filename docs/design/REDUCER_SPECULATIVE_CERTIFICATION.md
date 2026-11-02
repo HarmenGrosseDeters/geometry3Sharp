@@ -1,4 +1,8 @@
-# Reducer: speculative parallel certification of `MaxDeviation` (design, before code)
+# Reducer: speculative parallel certification of `MaxDeviation` (measured and closed)
+
+**Outcome (2026-11-02): built, bit-identical, but slower than master. Measured and closed (coordinator and owner).**
+See section 8. The code is kept on the branch `claude/reducer-speculative-archive` (commit 4d5a14a), not for
+merging. Sections 1 to 7 are the design as written before the code.
 
 Owner decision 2026-11-02: C first of the bundled Reducer measurement (lever C of
 [RESEARCH_REDUCER_REMESHER.md](RESEARCH_REDUCER_REMESHER.md) section 1.3). The design note comes before the code; the
@@ -116,3 +120,67 @@ of a, b and newPos.
 - Default on or off after the A/B.
 - **k and memory.** At most k stored results, dropped when used or invalid.
 - **Interaction with `ShareDeviationQueries`.** That cache is per call, so it is unaffected; checked in the A/B.
+
+## 8. Outcome (measured on master 48be182 + the archived code)
+
+**Implementation.** As designed, with one change to section 4: the certificate key holds exactly what the check
+reads, compared bit for bit when it is used:
+- a, b and newPos;
+- MaxDeviation, its depth, `ShareDeviationQueries` and the reference tree;
+- the triangles around a and b: their ids, vertex ids and positions.
+
+This replaces the vertex stamps: it needs no hook in `CollapseEdge`, so it holds also for subclasses that override
+it. Other details:
+- A check mode (`VerifySpeculativeDeviationChecks`) computes every certificate again and throws on a difference.
+- The statistics of the shared queries are counted per certificate and added only when it is used.
+
+**Bit-identical.** The reduced mesh has the same hash with the speculation off and with windows k = 1, 4, 16 and 64,
+on all 6 ReducerBenchmark cases: the bumpy sphere (199692 triangles) and the terrain (180000), at tolerance 0.001,
+0.003 and 0.01. The check mode found no difference.
+
+**Slower.** Times on 4 cores:
+
+| case | master | k = 4 | k = 16 | k = 64 |
+|---|---|---|---|---|
+| bumpy sphere 0.001 | 31.3 s | 51.3 s | 46.4 s | 46.5 s |
+| bumpy sphere 0.003 | 16.6 s | 21.4 s | 21.1 s | |
+| bumpy sphere 0.01 | 9.8 s | 9.4 s | 9.8 s | |
+| terrain 0.001 | 21.1 s | 29.9 s | 27.4 s | 26.2 s |
+| terrain 0.003 | 10.8 s | 15.3 s | 15.0 s | |
+| terrain 0.01 | 9.2 s | 8.2 s | 9.0 s | |
+
+**Why.**
+- **Hit rate.** The certificates used were 53 % of the checks at k = 4, 84 % at k = 16 and 95 % at k = 64. The model of
+  section 1 assumed 99.6 % because it used the order the serial run actually took. A real window is the top k of the
+  queue at its start, and `UpdateNeighbours` reorders the queue after each collapse, so the next serial edge is often
+  not in the window.
+- **Wasted work and short rounds** (CPU time against wall time, bumpy sphere 0.001 at a smaller size):
+
+  | | wall | CPU | busy cores |
+  |---|---|---|---|
+  | master | 3.8 s | 8.3 s | 2.2 |
+  | speculation, k = 1 (serial) | 6.0 s | 6.9 s | 1.1 |
+  | speculation, k = 16 | 5.4 s | 12.9 s | 2.4 |
+
+  The existing parallel loop over the new triangles of a collapse already keeps 2.2 cores busy. The 1-core / 4-core
+  comparison of section 1 (1.0-1.46×) understated that, because the rest of the loop is serial. The speculation nearly
+  doubles the CPU work through certificates that are never used, and it does not keep more cores busy: between its
+  short rounds the serial loop runs alone, and every miss starts a round.
+- **Not the cause:** keeping valid certificates across rounds; windows of edges whose rings are pairwise disjoint;
+  server GC. 4 single-core processes at once run as fast as one alone, so the machine scales.
+
+**What would be needed instead.** A pipelined producer that keeps certifying against a snapshot of the queue while
+the serial loop runs. That is a larger design, and given how often the queue reorders its benefit is uncertain. Not
+started. The profile of the existing inner parallelism, which reaches 2.2 cores, follows as a report.
+
+**Lever D (a permission grid as an accept filter), upper bound only, serial.** A cell counts as certified if the
+distance from its centre to the reference plus half its diagonal is at most MaxDeviation. The table gives the share of
+the check time that falls on collapses whose new triangles all lie in certified cells, for a half diagonal of ½ and ¼
+of MaxDeviation:
+- 0.01: 31-47 % (½) and 65-71 % (¼); the cell queries cost 0.1-0.6 s. That is about 40 % of the total.
+- 0.003: 1.4-3.5 % and 7.7-17 %.
+- 0.001: under 1 %; the cell queries (1.7-4.0 s) cost more than they save.
+
+In all 12 runs no collapse was accepted by the grid and rejected by `IsWithin`. The filter is sound, but not
+identical by guarantee. Recommendation to the owner: do not build it now.
+
