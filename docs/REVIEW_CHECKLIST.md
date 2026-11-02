@@ -64,6 +64,16 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the unnormalized cross product, or decide exactly.
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
+- A rounding error stated as relative where it is absolute: a distance computed from coordinates of size M has an
+  error of a few ulps of M, not of the distance (a computed distance 0 for a true 1e-14 at coordinates near 100;
+  SafeRounding bounds review). A proof of a geometric bound also covers the edge cases of the edit (an edit that adds
+  no triangle, eg contracting an ear) and only claims what it derives (a volume bound from a neighbourhood argument
+  misses the Steiner terms at degenerate triangles).
+
+- Values interpolated along a clipped edge (heights, distances) carry the rounding of the clip parameter times the
+  slope: a positivity or area threshold relative to the projected box still admits arbitrarily steep triangles. An
+  upper bound built from interpolated values needs a slack for this and a slope limit (patch bound of
+  `TriangleDeviationBounds`, wrap-resolution review).
 
 - Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
   where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
@@ -139,6 +149,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   loosened chain end accepted a mesh without a shared parcel border).
 - An exemption window (a distance ratio, a tolerance) is as narrow as the rule it implements, with a known-wrong result
   just outside it (meshing M3 review: a factor-2 window accepted improvable triangles).
+
+- A bound that is valid, or only finite, for one orientation of its input: do the callers keep that orientation through
+  their subdivisions, and do the tests run both windings?
+- A topological certificate (coverage by the boundary edges of a patch, a winding count) has one mutation test per
+  clause: the empty-overlap guard, the orientation clause, the positivity filter, the margin. Each clause is a separate
+  way to accept wrongly (wrap-resolution review).
 
 ## 11. Compatibility and documentation (#92, #94)
 

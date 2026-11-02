@@ -262,8 +262,11 @@ namespace g3
                 return (c - a).Dot(d) > 0 ? piece.Left : piece.Right;
             }
 
-            /// <summary> tests only: after every operation compare the tags with domain membership computed from scratch (slow) </summary>
-            internal static bool CheckTagsForTests;
+            /// <summary>
+            /// tests only: after every operation compare the tags with domain membership computed from scratch (slow). Per thread, so
+            /// that a test switching it on does not reach meshers that other tests run in parallel (refinement runs on the calling thread)
+            /// </summary>
+            [ThreadStatic] internal static bool CheckTagsForTests;
             string lastOperation;
             long operations;
 

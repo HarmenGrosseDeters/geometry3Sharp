@@ -742,12 +742,32 @@ namespace g3
                 }
             }
 
-            /// <summary> per triangle slot: in the domain by ring parity (hole seeds not applied); for the refinement's tag check </summary>
+            /// <summary> per triangle slot: in the domain by ring parity (hole seeds not applied); for the refinement's tag check, after the
+            /// refinement constrained the hull of a hull domain </summary>
             internal bool[] InsideFromScratch()
             {
                 RingParity(out var state, out _, out var inside);
                 var result = new bool[state.Length];
                 for (int t = 0; t < state.Length; ++t) result[t] = !k.IsGhost(t) && inside[state[t]];
+                // a hull domain (D13) whose hull refinement constrained (ConstrainHull; a hull edge on an input segment keeps that
+                // segment as its constraint): the domain ends at the constraints, so what the ghosts reach without crossing one is
+                // outside, eg the sliver between the old, now unconstrained hull edge and the two pieces of a hull edge whose split
+                // point rounded inwards, as the tags have it (found by the tag check on F-35 and F-3/c). All input lies inside the hull,
+                // so no other constraint is met from outside. (The check then follows ConstrainHull's own rule: a hull edge that
+                // ConstrainHull left unconstrained would leak in both; the oracle's area and coverage checks catch that.)
+                if (outerRings == 0) {
+                    var seen = new bool[state.Length];
+                    var queue = new Queue<int>();
+                    for (int t = 0; t < state.Length; ++t) if (k.IsGhost(t)) { seen[t] = true; queue.Enqueue(t); }
+                    while (queue.Count > 0) {
+                        int t = queue.Dequeue();
+                        for (int j = 0; j < 3; ++j) {
+                            int e = 3 * t + j, t2 = k.H[e] / 3;
+                            if (seen[t2] || k.Seg[e] >= 0) continue;
+                            seen[t2] = true; result[t2] = false; queue.Enqueue(t2);
+                        }
+                    }
+                }
                 return result;
             }
 

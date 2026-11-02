@@ -105,7 +105,9 @@ from secret tests, which a public repository cannot keep.
 - Stryker runs locally once per shard, to set its threshold; after that the CI mutation run on the PR is the gate.
   Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the baseline of the last
   full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline still runs in
-  full, so merge master into a PR before marking it ready. Hand mutants of generators and rules stay (fast and
+  full, so merge master into a PR before marking it ready. A new push cancels a running mutation run (a full one takes
+  4-5 h): while one runs on your PR, collect fixes and push once, and merge master only when needed (a conflict,
+  or once before ready), not after every merge on master. Hand mutants of generators and rules stay (fast and
   targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.

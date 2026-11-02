@@ -185,3 +185,32 @@ bound: use Guaranteed for safety lines.
    height field, so the volume of a simplified survey failed: overlapping merged cells are split.
 4. New: `TerrainSafetyLines.Modes.Guaranteed` with a certified excess (the heat method has no direction of
    its error).
+
+### TerrainSlopeDesign (`slope`, terrain phase 1a)
+
+Procedural toes, no data needed: `dotnet bin/Release/net10.0/TerrainBenchmark.dll slope [toe=ngon|lshape|wavy] [n=24]
+[r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]` (closed toe, slope outside, up to h above the toe). Printed: the
+time per phase (`phase_*_s`, summed over the builds), the builds (`attempts`), the kernel's predicate calls and exact
+fallbacks, the toe lowering, and the oracle (`Slope.IsSupportedBy`) time per output triangle. 4 cores, 2026-11-01,
+`Tolerance` 0.01, slope 1:1:
+
+| case | triangles | builds | time | insert / simplify | predicates (exact) | toe lowering | oracle |
+|---|---|---|---|---|---|---|---|
+| 24-gon r 20 m, h 6 m, local | 461 | 2 | 1.36 s | 0.62 / 0.52 s | 2.19M (3.7 %) | 1.3e-10 m | 0.95 µs |
+| 24-gon r 200 m, h 60 m, local | 1230 | 2 | 8.6 s | 4.9 / 3.5 s | 36.2M (1.6 %) | 5.7e-10 m | 0.92 µs |
+| 24-gon r 200 m, h 60 m, UTM | 1222 | 2 | 9.0 s | 5.0 / 3.8 s | 36.2M (2.7 %) | 4.7e-8 m | 1.2 µs |
+| L shape 200 m, h 30 m, UTM | 548 | 1 | 0.62 s | 0.25 / 0.19 s | 0.39M (3.9 %) | 7.5e-9 m | 1.6 µs |
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 14577 | 3 | 43 s | 17 / 26 s | 79.5M (7.5 %) | 5.9e-6 m | 1.6 µs |
+
+Constructions (vertex positions, heights) are all exact and correctly rounded: 2k to 290k per run, against millions of
+predicates. The toe lowering is measured: the first build lowers by the rounding of one vertex (4 e_z), and a build whose
+support check fails is repeated with 4 x the largest measured excess, so most cases take 2 builds. A derived start (the
+a-priori bound e_z (1 + 4 D / h) per triangle) was considered: it needs the altitudes h of the rounded output triangles,
+which exist only after the build, and the build depends on λ, so it is no proven bound before the first build; the
+second build (about 2x the time, 4.8 s -> 9.0 s in the UTM case) is kept, and avoiding it is a candidate for 1c.
+
+Before / after in this PR, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
+at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed merges not retried and the apex shortcut
+(simplify 2.1 s, 0.49M of 18.1M). An earlier note of "> 30 min" here was wrong: that run was one command with four
+cases in a row, stopped as a whole after 30 min. Open for 1c: the uneven toe (3 builds), the predicate count per
+output triangle (15000 to 30000), the km-scale cases of TERRAIN.md section 8.

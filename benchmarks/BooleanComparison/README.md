@@ -40,6 +40,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `cherchi` | the test meshes of Cherchi et al.: bunny with cow at 25k–200k triangles, two spheres, a cube with the armadillo, the stencil of the paper (fertility minus 703 spheres given as one mesh), five meshes with a rotated, shifted copy | larger inputs, time | `python3 data/fetch.py cherchi <dir>` (commit 7bd6c26) |
 | `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
 | `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>`; one pass over all meshes: `BooleanComparison nary` (below) |
+| `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
 data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
@@ -601,3 +602,47 @@ Looked at in this round, not changed:
 - **The n-ary grid**: still dominated by `BigInteger` arithmetic of the remaining coincident points (other kinds of
   constructions of the same point) and of cocircular points in the triangulation.
 - **Cold runs** still take about 3 times as long as warm ones (see above; an application setting, not the library).
+
+## Indirect predicates (`indirect`)
+
+`BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
+docs/design/INDIRECT_PREDICATES.md section 9): Orient3d of a line-plane point and of a three-plane point on 30-bit
+integer inputs, general and degenerate, against constructing the point as a reduced rational first. The numbers are in
+section 9 of the design doc.
+
+## Polyhedral envelope segments (`envelope`)
+
+`BooleanComparison envelope [rounds]` runs `PolyhedralEnvelope.ContainsSegment` (docs/design/ENVELOPE.md, PR 2 of #263)
+on normalized-cube spheres. Each row uses 2000 segments of two edge lengths, tangent to the surface within ±eps / 2.
+The command then replays the C2 loop with the same candidates, crossings and early exits, and times only the
+`Orient3dLPI` calls. The best of 5 rounds is shown; µs are per segment. This is the upper-bound check for the
+prepare / evaluate split (ENVELOPE.md section 6, 1b).
+
+| mesh | eps | contained | µs / segment | LPI calls / segment | LPI µs / segment (Stopwatch per call) |
+|---|---|---|---|---|---|
+| sphere 10 | 0.5 edge | 855 | 85.9 | 976 | 85.0 |
+| sphere 20 | 0.5 edge | 1443 | 117.4 | 1660 | 125.3 |
+| sphere 20 | 0.2 edge | 561 | 28.1 | 274 | 26.0 |
+| sphere 40 | 0.5 edge | 1604 | 139.7 | 1816 | 171.8 |
+
+The per-call Stopwatch adds about 20-30 ns. Even so, the calls times the standalone filtered cost (65-80 ns,
+`indirect`) give about 90 % of the query time: `ContainsSegment` is almost all `Orient3dLPI`.
+
+In the LPI formula, the construction part (n, lp, lq, d) depends only on the segment and the crossed facet. It is
+about 30 of 65 operations of the filter. It is evaluated anew against every facet of every candidate. A prepare /
+evaluate split saves at most that part, about 45 % of the LPI time, so the query could get up to about 1.7× faster.
+That is far above the noise, so 1b goes ahead. The other lever is the number of calls: the paper's covering set
+(section 3.2.4) cuts it. That comes with the triangle query (PR 3).
+
+**Built (1b):** `ContainsSegment` now prepares each crossing once (`Orient3dLPIPrepared`). Alternating rounds A
+(88d50d2, before) and B (1b), µs per segment, best of 5 per run, two runs each:
+
+| mesh | eps | A | B | speedup |
+|---|---|---|---|---|
+| sphere 10 | 0.5 edge | 65.5 / 85.7 | 41.2 / 48.3 | 1.6-1.8× |
+| sphere 20 | 0.5 edge | 106.9 / 137.4 | 57.2 / 70.0 | 1.9-2.0× |
+| sphere 20 | 0.2 edge | 27.7 / 28.0 | 12.8 / 16.5 | 1.7-2.2× |
+| sphere 40 | 0.5 edge | 147.0 / 131.5 | 67.7 / 75.8 | 1.7-2.2× |
+
+The column "LPI µs / segment" of the command still replays the unsplit calls, so after 1b it exceeds the query time.
+

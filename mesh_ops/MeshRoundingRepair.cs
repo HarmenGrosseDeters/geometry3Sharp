@@ -20,7 +20,13 @@ namespace g3
     /// vertex by a tiny amount (along the normal of the triangle it intersects or away from the base of a
     /// cap), which separates intersections that no contraction can (sheets that come within a rounding unit
     /// of each other), and zip two caps on both sides of an edge whose apexes lie on it (a flip would give two
-    /// caps again: both are removed and the neighbouring edges along the segment split at the apexes). The
+    /// caps again: both are removed and the neighbouring edges along the segment split at the apexes), and,
+    /// generalizing the zip, zip a strip: degenerate triangles and slivers connected across edges along a line (eg
+    /// fans of nearly collinear points in degenerate input, where every flip gives slivers again), a disk whose
+    /// boundary runs strictly monotone along the segment between its two farthest boundary vertices on both sides and
+    /// all of whose vertices, the inner ones too, lie between them along it, is removed, and the triangles outside it
+    /// along both sides (distinct, their third corners outside the strip) are split at the vertices of the other side,
+    /// so that both share one chain (StripZips). The
     /// contractions keep the mesh manifold (link condition, DMesh3.CollapseEdge). Edits at the boundary of open
     /// meshes stay on the boundary curve: a boundary vertex keeps its coordinates in a contraction and is
     /// removed only by contracting a boundary edge into its other end (an interior edge between two boundary
@@ -54,7 +60,33 @@ namespace g3
     /// edit adds one: each is checked exactly against all triangles near it), so a clean result is free of
     /// self-intersections and degenerate triangles (Milenkovic and Sacks get the same guarantee by separating
     /// the features before rounding; this works on the rounded mesh and has no guarantee that every case can
-    /// be repaired). The vertex positions move by at most about MaxDisplacement times the diagonal per edit.
+    /// be repaired).
+    ///
+    /// Bounded displacement: every vertex has a drift, 0 at the start. An edit gives all vertices of the triangles it
+    /// removes and adds the largest drift among them plus a bound on how far it moves the surface: the distance a
+    /// vertex moves (moves, slides, contractions: the kept vertex's new position from both ends), for a flip the
+    /// smallest of twice the distance between the flipped edge and the new one, a bound from the distances of the
+    /// corners to the other side's triangles (each bounded by the distance to the nearest edge), and 0 for a convex
+    /// quad in one plane (exact), for a
+    /// zip twice the distance of the apexes to the edge, for a strip zip twice the largest distance of the strip's
+    /// vertices to the line through its ends (with them moved onto it, in their order along it, the old and the new
+    /// triangles cover the same set). An edit after which a drift would exceed MaxDisplacement times
+    /// the diagonal (maxLength) is not applied. By induction over the edits, every point of a triangle lies within the
+    /// largest drift of its vertices of the surface at the start, and every point of that surface within it of the
+    /// repaired one: each edit moves every point of the triangles it removes to within its bound of the triangles it
+    /// adds or of a simplex spanned by their vertices, and back (a contraction of an ear, whose vertex has a single
+    /// triangle, adds none: that triangle goes to the edge across, which is in an untouched triangle with both ends
+    /// among the edit's vertices). Edits stay within one connected component. So the Hausdorff distance between the
+    /// repaired surface and the surface at the start (the rounded mesh), both without the components removed as tiny
+    /// or thin, is at most MaxDrift &lt;= maxLength, up to the rounding of the distance computations: an absolute
+    /// error of a few units in the last place of the largest coordinate per edit, negligible against maxLength unless
+    /// the mesh lies far from the origin compared to its size. The volume of a closed solid changes in a move or a
+    /// contraction by at most the edit's bound times the area of the triangles it removes (the change is a third of
+    /// the move times the area vector of the link); flips and zips change it by the volume between the old and the
+    /// new triangles (a tetrahedron for a flip), measured at most a third of the same product (strip zips at most 0.18 of it, over 9039 strip
+    /// zips of poked-sphere clusters with w >= 1e-13, at most 0.07 with the offsets in the surface). Removed components
+    /// add their volume (thin ones: below maxLength times half their area; tiny ones: area below 1e4 times the
+    /// degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
@@ -65,11 +97,14 @@ namespace g3
         public DMesh3 Mesh;
         /// <summary> a triangle is degenerate below this area, relative to the squared bounding box diagonal (as MeshRobustRepair.NotCleanReason) </summary>
         public double DegenerateArea = 1e-12;
-        /// <summary> longest edge contracted and farthest vertex move, relative to the bounding box diagonal </summary>
+        /// <summary>
+        /// longest edge contracted and farthest vertex move, relative to the bounding box diagonal; also the bound on how
+        /// far the surface moves in all edits together (see the class comment, MaxDrift)
+        /// </summary>
         public double MaxDisplacement = 1e-5;
         /// <summary> vertices at the same position count as shared vertices (touching sheets, see class comment) </summary>
         public bool SharedPositionsTouch = false;
-        /// <summary> vertices whose position is kept where possible (tried last as the moved vertex); null = none </summary>
+        /// <summary> vertices whose position is kept where possible (tried last as the moved vertex; a strip zip removes the inner vertices of its strip, fixed or not); null = none </summary>
         public Func<int, bool> FixedVertexF = null;
         /// <summary> passes over the defects </summary>
         public int MaxPasses = 4;
@@ -92,8 +127,21 @@ namespace g3
         public int RemainingIntersections, RemainingDegenerate;
         /// <summary> edits applied (see class comment) </summary>
         public int Collapses, Flips, Moves, Zips;
+        /// <summary> of the Zips: strips of degenerate triangles zipped at once (see class comment) </summary>
+        public int StripZips;
+        /// <summary> the most triangles of a strip that is zipped at once </summary>
+        public int MaxStripTriangles = 64;
+        // strips proposed at most per degenerate triangle (see try_strip)
+        const int MaxStripProposals = 32;
         /// <summary> components, and their triangles, removed as tiny or thin (RemoveTinyComponents) </summary>
         public int RemovedComponents, RemovedTriangles;
+        /// <summary>
+        /// the largest drift of a vertex after the repair, absolute: a bound on the Hausdorff distance between the
+        /// repaired surface and the surface at the start, without the removed components (see the class comment; up to an
+        /// absolute rounding error of a few ulps of the largest coordinate per edit); at most MaxDisplacement times the
+        /// diagonal
+        /// </summary>
+        public double MaxDrift;
         /// <summary> no self-intersections and no degenerate triangles remain </summary>
         public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0; } }
 
@@ -103,6 +151,11 @@ namespace g3
         }
 
         double areaEps, maxLength;
+        // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
+        // applied
+        double[] drift;
+        readonly List<int> editVerts = new List<int>();
+        double editDrift;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -128,7 +181,9 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = StripZips = RemovedComponents = RemovedTriangles = 0;
+            MaxDrift = 0;
+            drift = new double[Mesh.MaxVertexID];
             touched.Clear();
             inputBoundary.Clear();
             inputBoundaryEdges.Clear();
@@ -438,9 +493,26 @@ namespace g3
 
         long evaluations, maxEvaluations, pairTests;
 
+        // (displacement: how far a vertex moves; surface, if hasSurface: a bound on how far the surface moves, for flips
+        // and zips)
         [MethodImpl(JitHints.Optimize)]
-        bool improves(double displacement = 0)
+        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false)
         {
+            // the drift bound first (it does not count as an evaluation): the vertices of the edit get the largest
+            // drift among them plus this edit's
+            editVerts.Clear();
+            double most = 0;
+            foreach (int t in removed) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            }
+            foreach (Index3i tv in added)
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            // (a bound that is NaN, eg from distances that overflow, rejects the edit)
+            double step = hasSurface ? surface : displacement;
+            editDrift = most + step;
+            if (!(step >= 0) || !(editDrift <= maxLength))
+                return false;
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
@@ -544,6 +616,85 @@ namespace g3
             return newI + newB < oldI + oldB;
         }
 
+        // the proposed edit (improves) was applied: its vertices get its drift
+        void commit_drift()
+        {
+            foreach (int v in editVerts)
+                drift[v] = editDrift;
+            MaxDrift = Math.Max(MaxDrift, editDrift);
+        }
+
+        // are a, b, c, d in one plane with the segments a-b and c-d crossing properly (exact): then (a, b, c), (b, a, d)
+        // and (c, d, b), (d, c, a) cover the same convex quad
+        static bool flat_convex(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            if (ExactPredicates.Orient3d(a, b, c, d) != 0)
+                return false;
+            for (int k = 0; k < 3; ++k) {
+                Vector2d a2 = drop(a, k), b2 = drop(b, k), c2 = drop(c, k), d2 = drop(d, k);
+                int o1 = ExactPredicates.Orient2d(a2, b2, c2), o2 = ExactPredicates.Orient2d(a2, b2, d2);
+                int o3 = ExactPredicates.Orient2d(c2, d2, a2), o4 = ExactPredicates.Orient2d(c2, d2, b2);
+                if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0)
+                    continue;       // (this projection maps the plane to a line)
+                return o1 * o2 < 0 && o3 * o4 < 0;
+            }
+            return false;
+        }
+
+        static Vector2d drop(Vector3d v, int axis)
+        {
+            return (axis == 0) ? new Vector2d(v.y, v.z) : (axis == 1) ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
+        }
+
+        // distance of the segments p0-p1 and q0-q1 (Ericson, Real-Time Collision Detection, 5.1.9; either may have zero
+        // length)
+        static double segments_distance(Vector3d p0, Vector3d p1, Vector3d q0, Vector3d q1)
+        {
+            Vector3d d1 = p1 - p0, d2 = q1 - q0, r = p0 - q0;
+            double a = d1.LengthSquared, e = d2.LengthSquared, f = d2.Dot(r);
+            double s, t;
+            if (a <= 0 && e <= 0) {
+                s = t = 0;
+            } else if (a <= 0) {
+                s = 0;
+                t = MathUtil.Clamp(f / e, 0, 1);
+            } else {
+                double c = d1.Dot(r);
+                if (e <= 0) {
+                    t = 0;
+                    s = MathUtil.Clamp(-c / a, 0, 1);
+                } else {
+                    double b = d1.Dot(d2), denom = a * e - b * b;
+                    s = (denom > 0) ? MathUtil.Clamp((b * f - c * e) / denom, 0, 1) : 0;
+                    t = (b * s + f) / e;
+                    if (t < 0) {
+                        t = 0;
+                        s = MathUtil.Clamp(-c / a, 0, 1);
+                    } else if (t > 1) {
+                        t = 1;
+                        s = MathUtil.Clamp((b - c) / a, 0, 1);
+                    }
+                }
+            }
+            // (any pair of points on the segments bounds the distance from above; these are the nearest up to rounding)
+            return (p0 + s * d1).Distance(q0 + t * d2);
+        }
+
+        // distance of p to the segment a-b
+        static double segment_distance(Vector3d p, Vector3d a, Vector3d b)
+        {
+            Vector3d ab = b - a;
+            double l2 = ab.LengthSquared;
+            double t = (l2 > 0) ? MathUtil.Clamp((p - a).Dot(ab) / l2, 0, 1) : 0;
+            return p.Distance(a + t * ab);
+        }
+
+        // an upper bound of the distance of p to the triangle (a, b, c): to its nearest edge
+        static double triangle_distance_bound(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            return Math.Min(segment_distance(p, a, b), Math.Min(segment_distance(p, b, c), segment_distance(p, c, a)));
+        }
+
         bool is_fixed(int v)
         {
             return FixedVertexF != null && FixedVertexF(v);
@@ -602,6 +753,7 @@ namespace g3
             foreach (int t in Mesh.VtxTrianglesItr(b))
                 mark_dirty(t);
             touched.Add(b);
+            commit_drift();
             Collapses++;
             return true;
         }
@@ -622,13 +774,28 @@ namespace g3
             removed.Add(et.a); removed.Add(et.b);
             added.Add(new Index3i(c, d, b)); addedFrom.Add(-1);
             added.Add(new Index3i(d, c, a)); addedFrom.Add(-1);
-            if (improves() == false)
+            // how far the surface moves, the smallest of three bounds. (1) Let p on a-b and q on c-d be their nearest
+            // points; with c and d moved by p - q, the segment c-d meets a-b at p (on both closed segments), so the
+            // four points lie in one plane and both pairs of triangles cover the same convex quad (or triangle): twice
+            // the distance of the segments. (2) A point of (c, d, b) or (d, c, a) with c replaced by its nearest point
+            // in (a, b, d) lies in it: the new triangles are within the distance of c to (a, b, d) of the old ones; the
+            // old ones within the distance of a to (c, d, b) or of b to (d, c, a) of the new ones, by the same
+            // argument. (3) A convex quad in one plane (exact: coplanar, the diagonals cross properly): the same set, 0
+            Vector3d pa = pos(a), pb = pos(b), pc = pos(c), pd = pos(d);
+            double crossing = 2 * segments_distance(pa, pb, pc, pd);
+            double general = Math.Max(Math.Min(triangle_distance_bound(pc, pa, pb, pd), triangle_distance_bound(pd, pa, pb, pc)),
+                Math.Min(triangle_distance_bound(pa, pc, pd, pb), triangle_distance_bound(pb, pd, pc, pa)));
+            double surface = Math.Min(crossing, general);
+            if (surface > 0 && flat_convex(pa, pb, pc, pd))
+                surface = 0;
+            if (improves(0, surface, true) == false)
                 return false;
             DMesh3.EdgeFlipInfo info;
             if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok)
                 return false;
             mark_dirty(et.a); mark_dirty(et.b);
             touched.Add(a); touched.Add(b);
+            commit_drift();
             Flips++;
             return true;
         }
@@ -691,7 +858,10 @@ namespace g3
             // (the new edges must not exist yet: (d, x), (c, y))
             if (Mesh.FindEdge(d, x) >= 0 || Mesh.FindEdge(c, y) >= 0)
                 return false;
-            if (improves() == false)
+            // how far the surface moves: with c and d moved onto the segment a-b, the old and the new triangles cover
+            // the same set, so at most twice the larger distance of c, d to the segment
+            double surface = 2 * Math.Max(segment_distance(pos(c), pa, pos(b)), segment_distance(pos(d), pa, pos(b)));
+            if (improves(0, surface, true) == false)
                 return false;
             var old = new List<Index3i>();
             foreach (int t in removed) {
@@ -713,8 +883,276 @@ namespace g3
                 mark_dirty(tid);
             }
             touched.Add(c); touched.Add(d);
+            commit_drift();
             Zips++;
             return true;
+        }
+
+        // a strip: the degenerate triangles and slivers (below OrientedArea times the degenerate area) connected to t0
+        // across edges (at most MaxStripTriangles; or a part of them, see below), a disk whose
+        // boundary is one simple loop, all of its vertices between the two loop vertices farthest apart (e0, e1) along
+        // the segment between them, and the loop strictly monotone along it on both sides (the two chains from e0 to
+        // e1). A flip gives slivers again, as for the zip of two caps, which this generalizes: the strip is removed and
+        // the triangles outside it along both chains are split at the vertices of the other chain, so that both sides
+        // share one chain, the vertices of both in their order along the segment; the strip's inner vertices are
+        // removed. Each outer triangle (r, p, x) across the loop edge (p, r) becomes (s1, p, x), (s2, s1, x), ...,
+        // (r, sm, x), with s1..sm the merged chain's vertices between p and r.
+        [MethodImpl(JitHints.Optimize)]
+        bool try_strip(int t0)
+        {
+            // first along the line of t0's longest edge (its vertices within maxLength / 2 of it: a strip that branches
+            // is no disk with a monotone boundary, its branches are), then in all directions
+            Index3i tv = Mesh.GetTriangle(t0);
+            int kl = 0;
+            for (int k = 1; k < 3; ++k)
+                if (pos(tv[k]).DistanceSquared(pos(tv[(k + 1) % 3])) > pos(tv[kl]).DistanceSquared(pos(tv[(kl + 1) % 3])))
+                    kl = k;
+            Vector3d l0 = pos(tv[kl]), l1 = pos(tv[(kl + 1) % 3]);
+            // (every proposal counts, also those that fail before they are evaluated: at most MaxStripProposals per
+            // degenerate triangle, so the cost stays linear in MaxStripTriangles)
+            int tried = 0;
+            if (EvaluationLimitReached)
+                return false;
+            foreach (bool alongLine in new[] { true, false }) {
+                List<int> strip = strip_around(t0, alongLine ? l0 : Vector3d.Zero, alongLine ? l1 : Vector3d.Zero, alongLine);
+                if (strip == null)
+                    return false;
+                // the largest part of it (in breadth first order) that can be zipped
+                for (int m = strip.Count; m >= 2 && tried < MaxStripProposals; --m) {
+                    tried++;
+                    if (zip_strip(strip.GetRange(0, m), out bool undone))
+                        return true;
+                    // (an undone edit gives the restored triangles new ids: the strip's ids are stale)
+                    if (undone || EvaluationLimitReached)
+                        return false;
+                }
+            }
+            return false;
+        }
+
+        // the degenerate triangles and slivers connected to t0 across edges, breadth first (at most MaxStripTriangles;
+        // alongLine: only those with their vertices within maxLength / 2 of the line through l0 and l1); null if one is
+        // at the boundary
+        [MethodImpl(JitHints.Optimize)]
+        List<int> strip_around(int t0, Vector3d l0, Vector3d l1, bool alongLine)
+        {
+            // (the direction not normalized: Normalized has an absolute threshold, which would depend on the scale)
+            Vector3d dir = l1 - l0;
+            double len2 = dir.LengthSquared;
+            Func<int, bool> near = (v) => {
+                Vector3d d = pos(v) - l0;
+                return len2 > 0 && (d - (d.Dot(dir) / len2) * dir).Length <= 0.5 * maxLength;
+            };
+            var strip = new List<int> { t0 };
+            var inStrip = new HashSet<int> { t0 };
+            for (int i = 0; i < strip.Count && strip.Count < MaxStripTriangles; ++i) {
+                Index3i te = Mesh.GetTriEdges(strip[i]);
+                for (int k = 0; k < 3 && strip.Count < MaxStripTriangles; ++k) {
+                    Index2i et = Mesh.GetEdgeT(te[k]);
+                    if (et.b == DMesh3.InvalidID)
+                        return null;
+                    int nb = (et.a == strip[i]) ? et.b : et.a;
+                    // (slivers just above the degenerate area too: a flip of a cap onto one gives a degenerate triangle)
+                    if (inStrip.Contains(nb) || (area(nb) >= OrientedArea * areaEps && is_bad(nb) == false))
+                        continue;
+                    if (alongLine) {
+                        Index3i nv = Mesh.GetTriangle(nb);
+                        if (near(nv.a) == false || near(nv.b) == false || near(nv.c) == false)
+                            continue;
+                    }
+                    strip.Add(nb); inStrip.Add(nb);
+                }
+            }
+            return strip;
+        }
+
+        // zip the strip (see try_strip) if it is a disk with a monotone boundary and the edit improves
+        [MethodImpl(JitHints.Optimize)]
+        bool zip_strip(List<int> strip, out bool undone)
+        {
+            undone = false;
+            var inStrip = new HashSet<int>(strip);
+            // its boundary: the directed edges of the strip's triangles whose other side is outside it
+            var next = new Dictionary<int, int>();
+            var outer = new Dictionary<int, int>();     // the triangle across the loop edge from v to next[v]
+            var verts = new HashSet<int>();
+            int innerSides = 0;
+            foreach (int t in strip) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) {
+                    int u = tv[k], v = tv[(k + 1) % 3];
+                    verts.Add(u);
+                    int nb = across(t, u, v);
+                    if (nb < 0)
+                        return false;
+                    if (inStrip.Contains(nb)) {
+                        innerSides++;
+                        continue;
+                    }
+                    if (next.ContainsKey(u))
+                        return false;   // (the boundary passes u twice)
+                    next[u] = v;
+                    outer[u] = nb;
+                }
+            }
+            // a disk: one loop through all boundary vertices, and Euler characteristic 1
+            int n = next.Count, start = int.MaxValue, steps = 0;
+            foreach (int v in next.Keys)
+                start = Math.Min(start, v);
+            for (int v = start; ; ) {
+                int nv;
+                if (next.TryGetValue(v, out nv) == false || ++steps > n)
+                    return false;
+                v = nv;
+                if (v == start)
+                    break;
+            }
+            if (steps != n || verts.Count - (innerSides / 2 + n) + strip.Count != 1)
+                return false;
+            var loop = new List<int>(n);
+            for (int v = start; loop.Count < n; v = next[v])
+                loop.Add(v);
+            // the ends: the loop vertices farthest apart
+            int i0 = 0, i1 = 0;
+            double far = -1;
+            for (int i = 0; i < n; ++i)
+                for (int j = i + 1; j < n; ++j) {
+                    double dd = pos(loop[i]).DistanceSquared(pos(loop[j]));
+                    if (dd > far) { far = dd; i0 = i; i1 = j; }
+                }
+            Vector3d e0 = pos(loop[i0]), dir = pos(loop[i1]) - e0;
+            double len2 = dir.LengthSquared;
+            if (!(len2 > 0))
+                return false;
+            var param = new Dictionary<int, double>();
+            // every vertex between the ends along the segment; w: the largest distance to the line through them
+            double w = 0;
+            // (relative to e0, which is exact for nearby points: e0 + s dir would carry the rounding error of the
+            // coordinates' size into w)
+            foreach (int v in verts) {
+                Vector3d dv = pos(v) - e0;
+                double s = dv.Dot(dir) / len2;
+                if (!(s >= 0 && s <= 1))
+                    return false;
+                param[v] = s;
+                w = Math.Max(w, (dv - s * dir).Length);
+            }
+            // both chains strictly monotone: from e0 to e1 along the loop, and against it
+            var chainA = new List<int>();
+            for (int i = i0; ; i = (i + 1) % n) {
+                chainA.Add(loop[i]);
+                if (i == i1) break;
+            }
+            var chainB = new List<int>();
+            for (int i = i0; ; i = (i + n - 1) % n) {
+                chainB.Add(loop[i]);
+                if (i == i1) break;
+            }
+            for (int i = 1; i < chainA.Count; ++i)
+                if (!(param[chainA[i]] > param[chainA[i - 1]]))
+                    return false;
+            for (int i = 1; i < chainB.Count; ++i)
+                if (!(param[chainB[i]] > param[chainB[i - 1]]))
+                    return false;
+            // the merged chain, in the order along the segment (ties by id, so that it is deterministic)
+            var merged = new List<int>(chainA);
+            merged.AddRange(chainB.GetRange(1, chainB.Count - 2));
+            merged.Sort((x, y) => { int c = param[x].CompareTo(param[y]); return c != 0 ? c : x.CompareTo(y); });
+            var rank = new Dictionary<int, int>();
+            for (int i = 0; i < merged.Count; ++i)
+                rank[merged[i]] = i;
+            // the edit: the strip and the outer triangles removed, the outer triangles split along the merged chain
+            begin_edit();
+            removed.AddRange(strip);
+            var outerSet = new HashSet<int>();
+            foreach (int p in loop) {
+                int r = next[p], o = outer[p];
+                int x = IndexUtil.find_tri_other_vtx(p, r, Mesh.GetTriangle(o).array);
+                if (x < 0 || verts.Contains(x) || outerSet.Add(o) == false)
+                    return false;
+                removed.Add(o);
+                int from = removed.Count - 1;
+                int ip = rank[p], ir = rank[r], step = (ir > ip) ? 1 : -1;
+                for (int i = ip; i != ir; i += step) {
+                    added.Add(new Index3i(merged[i + step], merged[i], x));
+                    addedFrom.Add(from);
+                }
+            }
+            // manifold afterwards: every directed edge of the added triangles once, on an edge that no kept triangle
+            // runs through in the same direction and at most one kept triangle uses
+            var removedSet = new HashSet<int>(removed);
+            var directed = new HashSet<Index2i>();
+            foreach (Index3i t in added)
+                for (int k = 0; k < 3; ++k) {
+                    int u = t[k], v = t[(k + 1) % 3];
+                    if (directed.Add(new Index2i(u, v)) == false)
+                        return false;
+                    int eid = Mesh.FindEdge(u, v);
+                    if (eid < 0)
+                        continue;
+                    Index2i et = Mesh.GetEdgeT(eid);
+                    int kept = 0;
+                    foreach (int kt in new[] { et.a, et.b }) {
+                        if (kt == DMesh3.InvalidID || removedSet.Contains(kt))
+                            continue;
+                        kept++;
+                        if (runs(Mesh.GetTriangle(kt), u, v))
+                            return false;
+                    }
+                    if (kept > 1)
+                        return false;
+                }
+            // how far the surface moves: with every vertex of the strip moved onto the line through e0 and e1 (by at
+            // most w, in their order along it), the strip is a segment covered by the merged chain, and each outer
+            // triangle and its split cover the same set; so do the old and the new triangles: at most 2 w
+            if (improves(0, 2 * w, true) == false)
+                return false;
+            // (the split triangles keep the group of the outer triangle they replace)
+            var old = new List<Index3i>();
+            var groups = new List<int>();
+            foreach (int t in removed) {
+                old.Add(Mesh.GetTriangle(t));
+                groups.Add(Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(t) : -1);
+                Mesh.RemoveTriangle(t, false, false);
+            }
+            var tids = new List<int>();
+            for (int i = 0; i < added.Count; ++i) {
+                Index3i t = added[i];
+                int tid = Mesh.AppendTriangle(t.a, t.b, t.c, groups[addedFrom[i]]);
+                if (tid < 0) {
+                    // (not expected: the checks above keep the mesh manifold) undone
+                    foreach (int u in tids)
+                        Mesh.RemoveTriangle(u, false, false);
+                    for (int j = 0; j < old.Count; ++j) {
+                        int back = Mesh.AppendTriangle(old[j].a, old[j].b, old[j].c, groups[j]);
+                        if (back >= 0)
+                            mark_dirty(back);
+                    }
+                    undone = true;
+                    return false;
+                }
+                tids.Add(tid);
+                mark_dirty(tid);
+            }
+            // the strip's inner vertices are left without triangles
+            foreach (int v in verts)
+                if (rank.ContainsKey(v) == false && Mesh.IsVertex(v) && Mesh.GetVtxEdgeCount(v) == 0) {
+                    if (atPosition != null)
+                        position_remove(v, Mesh.GetVertex(v));
+                    Mesh.RemoveVertex(v, false, false);
+                }
+            foreach (int v in verts)
+                touched.Add(v);
+            commit_drift();
+            Zips++;
+            StripZips++;
+            return true;
+        }
+
+        // does triangle t run through u then v
+        static bool runs(Index3i t, int u, int v)
+        {
+            return (t.a == u && t.b == v) || (t.b == u && t.c == v) || (t.c == u && t.a == v);
         }
 
         // move the boundary vertex v to s from its input position along one of its two boundary edges (not to or
@@ -768,6 +1206,7 @@ namespace g3
             foreach (int t in Mesh.VtxTrianglesItr(v))
                 mark_dirty(t);
             touched.Add(v);
+            commit_drift();
             Moves++;
             return true;
         }
@@ -832,6 +1271,8 @@ namespace g3
             foreach (int k in order)
                 if (try_flip(te[k]) || try_zip(te[k]))
                     return;
+            if (try_strip(t))
+                return;
             int kl = order[0];
             int apex = tv[(kl + 2) % 3];
             if (-len[0] <= 0)

@@ -6,8 +6,11 @@
 //
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries     (envelope vs bounds per query)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- share [rounds]  (shared deviation queries A/B)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- hashes      (SHA-256 of every reduced mesh: unchanged results)
 using System;
 using System.Diagnostics;
+using System.Linq;
 using g3;
 using gs;
 
@@ -54,13 +57,20 @@ static class Program
     // bounds check (the triangles the envelope would have to accept)
     static void Queries()
     {
-        DMesh3 input = Terrain(40);
+        Queries("terrain 40 x 40", Terrain(40));
+        Console.WriteLine();
+        Queries("bumpy sphere", BumpySphere(30));
+    }
+
+    static void Queries(string name, DMesh3 input)
+    {
         double tol = 3e-3 * input.CachedBounds.DiagonalLength;
         var reduced = new DMesh3(input);
         new Reducer(reduced) { MaxDeviation = tol }.ReduceToTriangleCount(4);
         var tree = new DMeshAABBTree3(input, true);
         var bounds = new TriangleDeviationBounds(input);
         var env = new MeshEnvelope(input, tol);
+        var poly = new PolyhedralEnvelope(input, tol);
         var tris = new System.Collections.Generic.List<Triangle3d>();
         foreach (int t in reduced.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -74,15 +84,55 @@ static class Program
         sw.Restart();
         foreach (Triangle3d t in tris) if (env.ContainsTriangle(t.V0, t.V1, t.V2)) inE++;
         double usE = 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count;
-        Console.WriteLine($"terrain 40 x 40 ({input.TriangleCount} triangles), tolerance 0.003, {tris.Count} reduced triangles");
+        // the polyhedral envelope (internal, docs/design/ENVELOPE.md): best of three rounds
+        int inP = 0; double usP = double.MaxValue;
+        for (int round = 0; round < 3; ++round) {
+            inP = 0;
+            sw.Restart();
+            foreach (Triangle3d t in tris) if (poly.ContainsTriangle(t.V0, t.V1, t.V2)) inP++;
+            usP = Math.Min(usP, 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count);
+        }
+        Console.WriteLine($"{name} ({input.TriangleCount} triangles), tolerance 0.003 of the diagonal, {tris.Count} reduced triangles");
         Console.WriteLine("| check | within | time per triangle |");
         Console.WriteLine("|---|---|---|");
         Console.WriteLine($"| distance bounds (IsWithin) | {inB} | {usB:F0} µs |");
         Console.WriteLine($"| envelope (ContainsTriangle) | {inE} | {usE:F0} µs ({env.ExactQueries} exact) |");
+        Console.WriteLine($"| polyhedral envelope (ContainsTriangle, delta = eps / sqrt 3) | {inP} | {usP:F0} µs |");
+    }
+
+    // the MaxDeviation check with and without the queries shared within a collapse (Reducer.ShareDeviationQueries),
+    // alternating rounds; the results must be the same, bit for bit
+    static void Share(int rounds)
+    {
+        Console.WriteLine("| mesh | tolerance | triangles | without sharing (ms, per round) | with sharing (ms, per round) | median speedup |");
+        Console.WriteLine("|---|---|---|---|---|---|");
+        foreach (var (name, input) in new (string, DMesh3)[] { ("bumpy sphere", BumpySphere(130)), ("terrain", Terrain(300)) })
+            foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
+                double tol = rel * input.CachedBounds.DiagonalLength;
+                new Reducer(new DMesh3(input)) { MaxDeviation = tol }.ReduceToTriangleCount(input.TriangleCount / 2);   // warm-up
+                var ta = new System.Collections.Generic.List<double>(); var tb = new System.Collections.Generic.List<double>();
+                DMesh3 ra = null, rb = null;
+                for (int r = 0; r < rounds; ++r)
+                    foreach (bool share in new[] { false, true }) {
+                        var m = new DMesh3(input);
+                        var sw = Stopwatch.StartNew();
+                        new Reducer(m) { MaxDeviation = tol, ShareDeviationQueries = share }.ReduceToTriangleCount(4);
+                        (share ? tb : ta).Add(sw.Elapsed.TotalMilliseconds);
+                        if (share) rb = m; else ra = m;
+                    }
+                bool same = ra.TriangleCount == rb.TriangleCount && ra.MaxVertexID == rb.MaxVertexID;
+                foreach (int v in ra.VertexIndices()) if (!rb.IsVertex(v) || ra.GetVertex(v) != rb.GetVertex(v)) same = false;
+                foreach (int t in ra.TriangleIndices()) if (!rb.IsTriangle(t) || ra.GetTriangle(t) != rb.GetTriangle(t)) same = false;
+                if (!same) throw new Exception($"{name} {rel}: the results differ");
+                ta.Sort(); tb.Sort();
+                Console.WriteLine($"| {name} | {rel} | {ra.TriangleCount} | {string.Join(" / ", ta.Select(x => x.ToString("F0")))} | {string.Join(" / ", tb.Select(x => x.ToString("F0")))} | {ta[ta.Count / 2] / tb[tb.Count / 2]:F2}x |");
+            }
     }
 
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "hashes") { ReducerHashes.Run(BumpySphere, Terrain); return; }
+        if (args.Length > 0 && args[0] == "share") { Share(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0 && args[0] == "queries") { Queries(); return; }
         var meshes = new (string, DMesh3)[] { ("bumpy sphere", BumpySphere(130)), ("terrain", Terrain(300)) };
         Console.WriteLine("| mesh | triangles | tolerance (of bbox diagonal) | with check: triangles | time with check | time without, same count | check share | deviation without check |");

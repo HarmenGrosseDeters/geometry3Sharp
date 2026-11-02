@@ -46,6 +46,13 @@ namespace gs
         /// <summary> stop (Converged = false) after this many triangle subdivisions (checked per batch of 256: up to 255 more per direction) </summary>
         public int MaxSubdivisions = 20000000;
 
+        /// <summary>
+        /// also use the patch bound of TriangleDeviationBounds (target triangles under a triangle of A, along its
+        /// normal): much fewer subdivisions when large triangles of A lie over many small, nearly flat triangles of B,
+        /// eg a reduced mesh against the mesh it came from. Off by default (other uses keep their bounds)
+        /// </summary>
+        internal bool PatchBound = false;
+
         /// <summary> if this function returns true, the computation stops and Compute() returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
@@ -138,7 +145,7 @@ namespace gs
             public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner)
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
-                bounds = new TriangleDeviationBounds(to);
+                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound };
                 this.tol = tol; this.prune = prune; this.owner = owner;
             }
 

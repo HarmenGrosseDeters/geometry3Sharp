@@ -233,7 +233,10 @@ namespace Meshing2Acceptance
         {
             string[] ids = {
                 "f-1/a", "f-1/b", "f-1/c", "f-1/random", "f-2", "f-3/a", "f-6/a", "f-7/a", "f-7/d", "f-7/e", "f-43/b", "f-43/c", "f-44", "f-46/a", "f-46/b", "f-48/a", "f-48/b", "f-48/c",
-                "f-23/angle-0", "f-23/angle-20", "f-23/angle-30", "f-34", "f-38/a", "f-38/b", "f-40/angle-33.75", "f-41/a"
+                "f-23/angle-0", "f-23/angle-20", "f-23/angle-30", "f-34", "f-38/a", "f-38/b", "f-40/angle-33.75", "f-41/a",
+                // m2.snap (explicit and automatic tolerance, O11, D14): the rows of the feature from F-10 to F-22/b
+                "f-10/a", "f-10/b", "f-10/c", "f-11/a", "f-11/b", "f-11/c", "f-11/d", "f-12/a", "f-12/b", "f-13", "f-14/a", "f-14/b", "f-14/c", "f-14/d",
+                "f-14/e", "f-15", "f-16", "f-17", "f-17/b", "f-18/a", "f-18/b", "f-20", "f-22/b"
             };
             var rows = Rows();
             foreach (var c in M1Cases.Ci()) yield return c;
