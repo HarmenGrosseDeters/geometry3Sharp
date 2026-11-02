@@ -99,6 +99,46 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// against the same input with the hole as a plain ring (same constraints, same snap rounding, nothing dropped): the holed mesh has
+        /// exactly the crossing less, a made vertex after it keeps its coordinates, its height and its subsegments under the new id, and
+        /// every subsegment is an edge of a triangle (review of the fix: the renumbering is exercised, not only its range)
+        /// </summary>
+        [Fact]
+        public void CrossingInsideAHole_Renumbering_MatchesTheRunWithoutTheHole()
+        {
+            ConstrainedMesh2 Mesh(bool hole)
+            {
+                var input = CrossingInHole(null);
+                input.Rings[1] = new RingInput(new[] { 4, 5, 6 }, hole);
+                var c = ConstrainedDelaunayMesh2Candidate.Convert(input);
+                c.Heights = Enumerable.Range(0, input.Count).Select(i => 10.0 * i + 1).ToList();
+                return new ConstrainedDelaunayMesh2 { SnapTolerance = 0.5 }.Compute(c).Mesh;
+            }
+            var holed = Mesh(true); var full = Mesh(false);
+            Assert.Equal(full.Vertices.Count - 1, holed.Vertices.Count);
+            var fullId = new Dictionary<Vector2d, int>();
+            for (int v = 0; v < full.Vertices.Count; ++v) fullId[full.Vertices[v]] = v;
+            int dropped = Enumerable.Range(0, full.Vertices.Count).Single(v => !holed.Vertices.Contains(full.Vertices[v]));
+            Assert.True(dropped >= full.InputCount && dropped < full.Vertices.Count - 1, "the dropped crossing is not the last vertex: ids above it move");
+            for (int v = 0; v < holed.Vertices.Count; ++v) {
+                int f = fullId[holed.Vertices[v]];
+                Assert.Equal(f < dropped ? f : f - 1, v);
+                Assert.Equal(full.Heights[f], holed.Heights[v]);
+            }
+            var edges = new HashSet<(int, int)>();
+            foreach (var t in holed.Triangles) foreach (var (a, b) in new[] { (t.a, t.b), (t.b, t.c), (t.c, t.a) }) { edges.Add((a, b)); edges.Add((b, a)); }
+            // (a hole's edges may run the other way round than a plain ring's)
+            var fullSubs = new HashSet<(Vector2d, Vector2d)>(full.Subsegments.SelectMany(s => new[] {
+                (full.Vertices[s.A], full.Vertices[s.B]), (full.Vertices[s.B], full.Vertices[s.A]) }));
+            foreach (var s in holed.Subsegments) {
+                Assert.Contains((s.A, s.B), edges);
+                Assert.Contains((holed.Vertices[s.A], holed.Vertices[s.B]), fullSubs);
+            }
+            for (int i = 0; i < holed.InputCount; ++i)
+                if (holed.InputToVertex[i] >= 0) Assert.Equal(full.Vertices[full.InputToVertex[i]], holed.Vertices[holed.InputToVertex[i]]);
+        }
+
+        /// <summary>
         /// holes on the grid: random segments in a square ring with two holes, crossing them or not, pass the oracle (M2). Refinement on
         /// the grid with holes (M3) has failures of its own on master, a hole edge missing or a boundary edge unconstrained (seeds 31 at
         /// 20 degrees and 30 at 25 degrees of this generator with the angle in the seed); they are reported separately, not part of this
