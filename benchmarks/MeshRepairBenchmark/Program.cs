@@ -698,7 +698,6 @@ class Program
     // angle between u and v in degrees (atan2: accurate near 0 and 180)
     static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
 
-    // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
     // vertex ids and coordinate bits, triangle ids and corners (as BooleanComparison profile)
     static string Hash(DMesh3 mesh)
     {
@@ -715,6 +714,7 @@ class Program
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
     }
 
+    // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 }

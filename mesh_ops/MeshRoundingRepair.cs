@@ -223,6 +223,10 @@ namespace g3
         bool check;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
         internal int FullPairSearches, IncrementalPairSearches, UnchangedPairSearches;
+        // for tests: moves past the evaluation limit whose drift try_move computed directly, in the last Apply
+        internal long MovesPastTheLimit;
+        // for tests: such moves are not counted in SmallestRejectedDrift (to show that they set it)
+        internal bool SkipMovesPastTheLimit;
         // applied edits so far (a version of the mesh)
         long version;
         // vertices of applied edits
@@ -287,6 +291,7 @@ namespace g3
             lastPairs = null;
             check = CheckOnThisThread;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
+            MovesPastTheLimit = 0;
 
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
@@ -1593,7 +1598,9 @@ namespace g3
                     }
                     frozenMost[v] = most;
                 }
-                within_bound(most, p.Distance(Mesh.GetVertex(v)));
+                MovesPastTheLimit++;
+                if (SkipMovesPastTheLimit == false)
+                    within_bound(most, p.Distance(Mesh.GetVertex(v)));
                 return false;
             }
             begin_edit();

@@ -43,7 +43,8 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "utm Cluster 36 4 0" };
             yield return new object[] { "utm FoldedCluster 30 4 0" };
             yield return new object[] { "utm Cluster 0 2 0" };
-            // (with MaxPairTests 5000: its SmallestRejectedDrift comes from a move past the limit)
+            // (in PastTheLimit_SameAsProposingInFull, with MaxPairTests 5000: its SmallestRejectedDrift comes from a move
+            // past the limit)
             yield return new object[] { "utm Cluster 0 9 1" };
             foreach (Family f in new[] { Family.Sliver, Family.ShortEdge, Family.Coincident, Family.Collinear, Family.Cluster, Family.FoldedCluster })
                 yield return new object[] { f.ToString() };
@@ -209,6 +210,7 @@ namespace geometry3Sharp.Tests
         {
             // past the evaluation limit try_move only computes the drift of the move (the checked run proposes it in
             // full, through improves): the same result, counts and SmallestRejectedDrift
+            int reached = 0;
             foreach (long limit in new long[] { 200, 2000, 5000, 20000 }) {
                 DMesh3 fast = Input(name), full = new DMesh3(fast);
                 var rf = new MeshRoundingRepair(fast) { SharedPositionsTouch = true, MaxPairTests = limit };
@@ -221,12 +223,26 @@ namespace geometry3Sharp.Tests
                     MeshRoundingRepair.CheckOnThisThread = false;
                 }
                 Assert.Equal(rc.EvaluationLimitReached, rf.EvaluationLimitReached);
+                // (the checked run proposes in full, the other takes the shortcut)
+                Assert.Equal(0, rc.MovesPastTheLimit);
+                if (rf.EvaluationLimitReached)
+                    reached++;
                 Assert.Equal(BitConverter.DoubleToInt64Bits(rc.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(rf.SmallestRejectedDrift));
                 Assert.Equal(rc.Moves + rc.Flips + rc.Collapses + rc.Zips + rc.VertexRemovals, rf.Moves + rf.Flips + rf.Collapses + rf.Zips + rf.VertexRemovals);
                 Assert.Equal(rc.RemainingIntersections, rf.RemainingIntersections);
                 Assert.Equal(Print(full), Print(fast));
-                output.WriteLine($"{name} limit {limit}: reached {rf.EvaluationLimitReached}, smallest rejected {rf.SmallestRejectedDrift:R}, bound {rf.MaxLength:R}");
+                output.WriteLine($"{name} limit {limit}: reached {rf.EvaluationLimitReached}, moves past it {rf.MovesPastTheLimit}, smallest rejected {rf.SmallestRejectedDrift:R}, bound {rf.MaxLength:R}");
+                if (name == "utm Cluster 0 9 1" && limit == 5000) {
+                    // the smallest rejected drift from a move past the limit: without those moves it is larger
+                    Assert.True(rf.EvaluationLimitReached && rf.MovesPastTheLimit > 0);
+                    var none = new MeshRoundingRepair(Input(name)) { SharedPositionsTouch = true, MaxPairTests = limit };
+                    none.SkipMovesPastTheLimit = true;
+                    none.Apply();
+                    Assert.True(none.SmallestRejectedDrift > rf.SmallestRejectedDrift);
+                }
             }
+            if (name.Contains("Cluster"))
+                Assert.True(reached > 0, "the limit is never reached");
         }
 
         [Fact]
@@ -245,6 +261,25 @@ namespace geometry3Sharp.Tests
             Assert.True(fresh.SmallestRejectedDrift < double.PositiveInfinity);
             Assert.Equal(BitConverter.DoubleToInt64Bits(fresh.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(reused.SmallestRejectedDrift));
             Assert.Equal(Print(copy), Print(m));
+        }
+
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void SharedByIdOnly_SameResultChecked(string name)
+        {
+            // without SharedPositionsTouch (shared vertices by id, no canonical ids): the incremental searches checked
+            DMesh3 plain = Input(name), checkedMesh = new DMesh3(plain);
+            var rp = new MeshRoundingRepair(plain);
+            rp.Apply();
+            var rc = new MeshRoundingRepair(checkedMesh);
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                rc.Apply();
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+            Assert.Equal(Print(plain), Print(checkedMesh));
+            Assert.Equal(rp.RemainingIntersections, rc.RemainingIntersections);
         }
     }
 }
