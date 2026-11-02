@@ -235,3 +235,23 @@ terrain's highest point. The number of builds is 1a's at that height and does no
 `composite=0` the last case also takes 4 builds (27.5 s), and 1a alone takes 2 to 3 builds for heights between 71.9 and
 72.2 m (12.6 to 18.6 s). Where clipped slope triangles fail the support check, the composite raises the measured toe
 lowering in the same loop (a build each). Avoiding repeated builds stays a 1c item.
+
+### Terrain 1c, idea A: one build per margin, the toe lowering by re-realization
+
+`TERRAIN_1C_PLAN.md`, idea A: the map is built once per margin δ from the specified toe, and a larger toe lowering λ
+only realizes it again (z lowered by λ, exactly rounded), since lowering every plane by λ does not change any line of
+two planes. Same machine, 2026-11-02, before = #285 (1b) head d38b030e, after = idea A; same commands as above
+(`Tolerance` 0.01, 1:1):
+
+| case | before | after | speedup | builds before / after | triangles |
+|---|---|---|---|---|---|
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 44.6 s | 30.9 s | 1.44× | 3 / 2 | 14577 / 14577 |
+| 24-gon r 200 m, h 60 m, UTM | 9.7 s | 5.2 s | 1.89× | 2 / 1 | 1222 / 1222 |
+| 24-gon r 20 m, h 6 m, local | 1.39 s | 1.00 s | 1.39× | 2 / 1 | 461 / 461 |
+| L shape 200 m, h 30 m, UTM | 0.93 s | 0.71 s | 1.31× | 3 / 2 | 567 / 567 |
+| 24-gon r 200 m, h 60 m, UTM, `terrain=wave tgrid=5` | 36.4 s | 17.0 s | 2.14× | 5 / 2 | 2281 / 2281 |
+
+The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44× is reached because its second build is
+a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
+the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
+of the cap now lies at H − λ (the planes are lowered, the cap is not).

@@ -677,10 +677,11 @@ namespace gs
         }
 
         /// <summary>
-        /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there (rounded
-        /// to nearest), faces triangulated at their exact corners; group id = piece; z negated for fill
+        /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there minus
+        /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
+        /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -705,7 +706,7 @@ namespace gs
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
-                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y));
+                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y, lower));
                 o = mesh.AppendVertex(new Vector3d(r.x, r.y, fill ? -z : z));
                 outId[r] = o;
                 OutLabels.Add(labelsAt[r]);

@@ -165,6 +165,8 @@ namespace gs
         /// </summary>
         public Dictionary<string, double> PhaseSeconds = new Dictionary<string, double>();
         public int Attempts;
+        /// <summary> diagnostics: the realizations (more than the builds if the measured toe lowering was raised) </summary>
+        public int Realizations;
         public long PredicateCalls, ExactFallbacks, ExactConstructions;
 
         public bool Compute()
@@ -173,7 +175,7 @@ namespace gs
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
-            PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
+            PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0;
             try {
                 Status = compute();
@@ -293,7 +295,7 @@ namespace gs
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
             // needs, measured; a slope or orientation failure raises the margin δ
-            double delta = SlopeMargin, lambdaReq = -1, lambdaFloor = 0;
+            double delta = SlopeMargin, lambdaReq = -1;
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
                 BuildResult br;
@@ -314,26 +316,16 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
-                if (br.MergeLambda > 0) {
-                    // the realization merged near positions: their triangles may rise above S̃ by 2 sMax (r + e_xy),
-                    // which the toe lowering must cover (measured: only in a run that merges)
-                    lambdaFloor = Math.Max(lambdaFloor, br.MergeLambda);
-                    lambdaReq = Math.Max(lambdaReq, lambdaFloor);
+                if (br.RebuildLambda > 0) {
+                    lambdaReq = br.RebuildLambda;
                     continue;
                 }
-                if (attempt >= 7)
-                    return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
-                if (br.SlopeFailures == 0 && 4 * br.MaxExcess <= br.LambdaBound && br.MaxExcess > 0 && br.Lambda < br.LambdaBound) {
-                    lambdaReq = Math.Max(Math.Max(2 * br.Lambda, 4 * br.MaxExcess), lambdaFloor);
-                    continue;
-                }
-                if (delta * 8 > 1e-3)
+                // (the build raised λ itself, by realizing again; what is left needs a larger margin δ and a new build)
+                if (attempt >= 7 || delta * 8 > 1e-3)
                     return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
-                // (support failures next to the slope failures keep their measured lowering; the next build caps it at
-                // its own bound)
-                lambdaReq = (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1;
-                if (lambdaFloor > 0) lambdaReq = Math.Max(lambdaReq, lambdaFloor);
+                // (the measured lowering is kept; the next build caps it at its own bound)
+                lambdaReq = Math.Max(br.Lambda, (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1);
             }
         }
 
@@ -344,7 +336,8 @@ namespace gs
             public int SlopeFailures;          // slope (i) or XY orientation
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
-            public double MergeLambda;         // > 0: build again with at least this lowering (the realization merged)
+            public double MergeLambda;
+            public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
         }
@@ -391,8 +384,6 @@ namespace gs
                        out BuildResult br)
         {
             br = new BuildResult();
-            DMesh3 mesh = null;
-            List<int> bad = br.Bad;
             ToeProblems.Clear();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Action<string> phase = (name) => {
@@ -454,19 +445,15 @@ namespace gs
             int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
             theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
-            double dMax = (H - zMin + lambda) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
+            // (the reach does not depend on λ: the map is built once per margin δ)
+            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
 
-            // lowered toe points (exactly at most z - λ)
-            var lowered = new Dictionary<Vector3d, Vector3d>();
-            Func<Vector3d, Vector3d> lower = (p) => {
-                Vector3d r;
-                if (lowered.TryGetValue(p, out r)) return r;
-                double z = p.z - lambda;
-                while (exceeds(z, p.z, lambda)) z = ExactInterval.Down(z);
-                r = new Vector3d(p.x, p.y, z);
-                lowered[p] = r;
-                return r;
-            };
+            // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
+            // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
+            // from the specified toe and realized with z lowered by λ, exactly rounded; a larger λ costs a realization,
+            // not a build. The cap is not lowered (the surface ends at H - λ, never above H); its lines are the only
+            // ones a lowering would move. The checks at construction (slope, support of a plane at its piece's ends,
+            // undercut against Tolerance) compare plane and toe heights, so they do not depend on λ either.
 
             // planes of the pieces: the strips first, then the cone tangents, which know the strips at their apex
             double rFan = 1;
@@ -477,7 +464,7 @@ namespace gs
                 checkCancel();
                 // (a new build: no planes of an earlier attempt, whose kernel is gone)
                 pc.Strip.Clear(); pc.FanA.Clear(); pc.FanB.Clear(); pc.AngA.Clear(); pc.AngB.Clear();
-                pc.A1 = lower(pc.A); pc.B1 = lower(pc.B);
+                pc.A1 = pc.A; pc.B1 = pc.B;
                 pc.Sb = pc.S * (1 - delta);
                 Statuses ps = make_strips(kernel, pc, stripsAt);
                 if (ps != Statuses.Success)
@@ -525,26 +512,66 @@ namespace gs
                 return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
             }
 
-            // realization and the exact check
+            // realization and the exact check, raising λ by measurement without a new build
+            Attempts++;
+            double mergeLambda = MergeLambda(ez, exy, sMax);
+            for (int realization = 0; ; ++realization) {
+                br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
+                UsedToeLowering = lambda;
+                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, mergeLambda, minFeature, mergeRadius, br, phase);
+                Realizations++;
+                if (st != Statuses.SlopeViolation)
+                    return st;
+                double next = -1;
+                if (br.MergeLambda > 0 && lambda < br.MergeLambda)
+                    next = br.MergeLambda;
+                // a support failure (ii) only: a larger lowering, measured on the output, while it fits under the bound;
+                // anything else goes back to the caller, which raises the margin δ and builds again
+                else if (realization < 7 && br.SlopeFailures == 0 && br.MaxExcess > 0 && 4 * br.MaxExcess <= lambdaBound && lambda < lambdaBound)
+                    next = Math.Min(lambdaBound, Math.Max(2 * lambda, 4 * br.MaxExcess));
+                if (next < 0)
+                    return st;
+                if (RebuildForEachLowering) {
+                    // (the reference of the tests: a new build at the new lowering, as before 1c)
+                    br.RebuildLambda = next;
+                    return st;
+                }
+                lambda = next;
+            }
+        }
+
+        /// <summary> tests: build the map again for every new toe lowering instead of realizing it again </summary>
+        internal bool RebuildForEachLowering;
+
+        // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
+        Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,
+                                   double lambdaBound, double mergeLambda, double minFeature, double mergeRadius, BuildResult br,
+                                   Action<string> phase)
+        {
             checkCancel();
+            DMesh3 mesh;
+            List<int> bad = br.Bad;
+            long p0 = kernel.PredicateCalls, x0 = kernel.ExactPredicates, c0 = kernel.ExactConstructions;
+            Action count = () => {
+                PredicateCalls += kernel.PredicateCalls - p0; ExactFallbacks += kernel.ExactPredicates - x0; ExactConstructions += kernel.ExactConstructions - c0;
+                p0 = kernel.PredicateCalls; x0 = kernel.ExactPredicates; c0 = kernel.ExactConstructions;
+            };
             // (positions within a few ulps are one vertex: clusters of near-degenerate crossings that the collapse
             // below cannot always resolve; larger distances are left to it, which keeps the cells)
-            // (merging needs the lowering below; without room for it under the bound, or if the merge makes the mesh
-            // non-manifold, the realization runs without it and the check decides)
-            double mergeLambda = MergeLambda(ez, exy, sMax);
+            // (merging needs the lowering mergeLambda; without room for it under the bound, or if the merge makes the
+            // mesh non-manifold, the realization runs without it and the check decides)
             bool mayMerge = mergeLambda <= lambdaBound;
             try {
-                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0);
+                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
             } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
-                mesh = map.Realize(cap, fill, 0);
+                mesh = map.Realize(cap, fill, 0, lambda);
                 map.MergedCount = 0;
             }
             MergedPositions = map.MergedCount; MergeLambdaRequired = map.MergedCount > 0 ? mergeLambda : 0;
             if (map.MergedCount > 0 && lambda < mergeLambda) {
                 br.MergeLambda = mergeLambda;
                 phase("realize");
-                PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-                Attempts++;
+                count();
                 return Statuses.SlopeViolation;
             }
             SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
@@ -577,8 +604,7 @@ namespace gs
             }
             br.Mesh = mesh;
             phase("check");
-            PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-            Attempts++;
+            count();
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
             MaxSlopeRatio = maxRatio;
@@ -678,12 +704,6 @@ namespace gs
             return ExactInterval.Up(limit / s);
         }
 
-        // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0
-        static bool exceeds(double z, double pz, double lambda)
-        {
-            ExactDyadic d = ExactDyadic.Of(z) - ExactDyadic.Of(pz) + ExactDyadic.Of(lambda);
-            return d.Sign > 0;
-        }
 
         sealed class StripRef
         {
