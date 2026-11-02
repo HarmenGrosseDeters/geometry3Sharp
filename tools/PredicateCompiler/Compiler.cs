@@ -139,12 +139,13 @@ namespace G3PredicateCompiler
         public char Comp;       // input: 'x' (axis i), 'y' (axis j), 'w' (component 3)
         public string Name;     // the name of its definition, if any
         public Bound Bound;
+        public int Degree;      // the total degree in the input components
         public BigInteger Max;  // the bound at m
         public int Bits => Max.IsZero ? 0 : (int)Max.GetBitLength();
         public int Limbs => (Bits + 63) / 64;
         public int ArenaLimbs;  // the length rule: the limbs the operation takes (inputs: their length)
         public int LengthOnly;  // the same without the value bounds
-        // the filter (double inputs that are integers, |x| <= 2^53): |e~ - e| <= C m~, e~ the computed value, m~ the
+        // the filter (double inputs in the predicate's range gate): |e~ - e| <= C m~, e~ the computed value, m~ the
         // computed magnitude; Leaf: a sum or difference of two inputs (m~ = |e~|)
         public Rational C;
         public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;
@@ -177,8 +178,17 @@ namespace G3PredicateCompiler
         /// many components in the worst case (owner decision: below 1024, docs/design/INDIRECT_PREDICATES.md section 5) </summary>
         public const int MaxExpansionLength = 1024;
         public bool HasExpansionStage => Signs.All(n => n.ExpansionLength < MaxExpansionLength);
+        /// <summary> every sum and difference adds values of one degree (scaling all inputs by s scales a value of degree
+        /// k by s^k, so a common power of two keeps every sign) </summary>
+        public bool Homogeneous;
+        public int Degree;
+        /// <summary> the filter's range: inputs 0 or of magnitude in [2^-GateLow, 2^GateHigh] </summary>
+        public int GateLow, GateHigh;
         /// <summary> the filter's test constant per sign factor: the factor's sign is decided if |e~| > fl(K m~) </summary>
         public List<double> FilterK = new List<double>();
+        /// <summary> 'prepare p, q, ...': the points of a construction evaluated against many others; its values are
+        /// computed once (Prepare) and the rest per call (docs/design/ENVELOPE.md 4.1, item 2) </summary>
+        public List<string> Prepare = new List<string>();
         /// <summary> ArenaScratch without the value bounds (the operands' lengths only) </summary>
         public int LengthScratch;
         /// <summary> the limbs one call needs if every value had a buffer of its bound (the value rule) </summary>
@@ -220,13 +230,21 @@ namespace G3PredicateCompiler
                     case Op.Mul: n.Bound = n.A.Bound * n.B.Bound; break;
                 }
                 n.Max = n.Bound.At(p.InputBound);
+                n.Degree = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? n.A.Degree + n.B.Degree : Math.Max(n.A.Degree, n.B.Degree);
             }
             p.ValueScratch = p.Nodes.Where(n => n.Op != Op.Input).Sum(n => n.Limbs);
+            p.Homogeneous = p.Nodes.All(n => n.Op == Op.Input || n.Op == Op.Mul || n.A.Degree == n.B.Degree);
+            p.Degree = p.Nodes.Max(n => n.Degree);
         }
 
-        // the filter rule, for inputs that are integers given as doubles, |x| <= 2^53 (exact), evaluated in double with
-        // round to nearest (u = 2^-53). The values are integers, so no product underflows: fl(x op y) = (x op y)(1 + d),
-        // |d| <= u. Invariant |e~ - e| <= c m~ with |e~| <= m~ (rounding is monotone):
+        // the filter rule, for double inputs in the range gate (each 0 or of magnitude in [2^-a, 2^b]), evaluated in
+        // double with round to nearest (u = 2^-53).
+        // No underflow: a nonzero input is a multiple of its ulp >= 2^-(a + 52), so every computed value of degree k (a
+        // rounded sum of products of such values) is a multiple of 2^-(k (a + 52)); with k (a + 52) <= 960 for the
+        // predicate's degree k, every nonzero value and magnitude is >= 2^-960, so every result is normal (the decision
+        // product K m~ too: K > 2^-60), fl(x op y) = (x op y)(1 + d), |d| <= u, and a product of nonzero values is
+        // nonzero. No overflow: b is the largest with every value's bound below 2^1000 at |x| <= 2^b.
+        // Invariant |e~ - e| <= c m~ with |e~| <= m~ (rounding is monotone):
         //   input:           e~ = x, m~ = |x|, c = 0
         //   input +- input:  m~ = |e~|, c = u           (|fl(s) - s| <= u |fl(s)|)
         //   x +- y:          m~ = fl(m~x + m~y), c = (u + max(cx, cy)) / (1 - u)
@@ -235,7 +253,8 @@ namespace G3PredicateCompiler
         //                    (|e~ - e| <= u |x~ y~| + |x~ - x| |y~| + |x| |y~ - y|, |x| <= (1 + cx) m~x)
         // A sign factor e is decided if m~ = 0 (then e = 0: every product is an exact 0) or |e~| > fl(K m~) with
         // K >= c / (1 - u) a double (fl(K m~) >= K m~ (1 - u) >= c m~, so |e| >= |e~| - c m~ > 0 and the signs agree).
-        // No overflow: |x| <= 2^53 and the degree and coefficients of the formulas here keep every value below 2^1000.
+        // (No overflow within the gate: b is derived from the bounds, see above; an overflow would give inf or NaN in m~
+        // and the test would not decide.)
         // The model is strict IEEE double rounding at every operation (RyuJIT / SSE2; x87 only with 53-bit precision
         // control), the same assumption as AdaptivePredicates.
         static void filter_bounds(Predicate p)
@@ -255,10 +274,17 @@ namespace G3PredicateCompiler
             }
             p.FilterK = p.Signs.Select(n => (n.C / (one - u)).CeilDouble()).ToList();
 
-            // degree check: every value below 2^1000 at |x| <= 2^53 (bound polynomial at 2^53)
-            foreach (var n in p.Nodes)
-                if (n.Bound.At(BigInteger.Pow(2, 53)).GetBitLength() > 1000)
-                    throw new NotSupportedException($"{p.Name}: the filter could overflow");
+            if (!p.Homogeneous)
+                throw new NotSupportedException($"{p.Name}: the double entry needs a homogeneous formula (sums of equal degree)");
+            p.GateLow = 960 / p.Degree - 52;
+            // the decision product K m~ must stay normal for m~ >= 2^-960: K >= 2^-62
+            if (p.Signs.Any(n => (n.C / (one - u)).CeilDouble() < Math.ScaleB(1.0, -62)))
+                throw new NotSupportedException($"{p.Name}: a filter constant below 2^-62");
+            p.GateHigh = 0;
+            while (p.GateHigh < 1000 && p.Nodes.All(n => n.Bound.At(BigInteger.Pow(2, p.GateHigh + 1)).GetBitLength() <= 1000))
+                p.GateHigh++;
+            if (p.GateLow < 1 || p.GateHigh < 1)
+                throw new NotSupportedException($"{p.Name}: no filter range (degree {p.Degree})");
         }
 
         // the static worst-case length of each value as an expansion (Shewchuk) from exact double inputs: an input 1, a
@@ -348,10 +374,7 @@ namespace G3PredicateCompiler
             sb.Append("    /// </summary>\n");
             sb.Append($"    internal static unsafe class {className}\n    {{\n");
             sb.Append("        static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }\n");
-            sb.Append("        // the integers |x| <= 2^53: exact as doubles, one limb each\n");
-            sb.Append("        static bool __int(double x) { return Math.Abs(x) <= 9007199254740992.0 && Math.Floor(x) == x; }\n");
-            sb.Append("        static bool __grid(Vector3d p) { return __int(p.x) && __int(p.y) && __int(p.z); }\n");
-            sb.Append("        static FixedInt __load(double x, ulong* dst) { dst[0] = (ulong)Math.Abs(x); return new FixedInt(dst, x != 0 ? 1 : 0, x < 0); }\n");
+            sb.Append(DoubleHelpers);
             foreach (var p in preds) {
                 if (p.InputBits % 64 != 0)
                     throw new NotSupportedException($"{p.Name}: generated code needs a bound of whole limbs (b a multiple of 64)");
@@ -391,11 +414,10 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => x + ".ToExact()"))}{(p.Xyz ? "" : ", i, j")});\n");
             arena_body(p, sb, I2, (n, dst) => $"{n.Point}.Get({comp(n)}, {dst})");
             sb.Append($"{I1}}}\n\n");
-            if (p.Xyz) {
-                if (p.InputBits < 54)
-                    throw new NotSupportedException($"{p.Name}: the double entry needs a bound of at least 2^53 (the exact stage takes the doubles)");
-                emit_double(p, sb);
-            }
+            if (p.Xyz)
+                emit_double(p, sb);     // its exact stage has its own bound (two limbs, rebound)
+            if (p.Prepare.Count > 0)
+                emit_prepared(p, sb);
             // BigInteger
             sb.Append($"{I1}/// <summary> {p.Name} in BigInteger (inputs beyond the bound) </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
@@ -436,6 +458,73 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}return {string.Join(" * ", p.Signs.Select(n => val(n) + ".Sign"))};\n");
         }
 
+        // the helpers of the double entries (emitted once per generated class)
+        const string DoubleHelpers = @"        // each coordinate on its own (a sum of finite coordinates can overflow): x - x is 0 exactly for finite x
+        static bool __finite(Vector3d p) { return p.x - p.x == 0 && p.y - p.y == 0 && p.z - p.z == 0; }
+        static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }
+        // the filter's range: every coordinate 0 or of magnitude in [lo, hi]
+        static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }
+        // x = +-m 2^e with m odd (x != 0)
+        static void __dec(double x, out ulong m, out int e)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            m = (ulong)bits & 0xFFFFFFFFFFFFFUL;
+            if (be == 0) e = -1074; else { m |= 1UL << 52; e = be - 1075; }
+#if NET
+            int tz = System.Numerics.BitOperations.TrailingZeroCount(m);
+            m >>= tz; e += tz;
+#else
+            while ((m & 1) == 0) { m >>= 1; e++; }
+#endif
+        }
+        static int __bits(ulong m)
+        {
+#if NET
+            return 64 - System.Numerics.BitOperations.LeadingZeroCount(m);
+#else
+            int n = 0; while (m != 0) { n++; m >>= 1; } return n;
+#endif
+        }
+        // the smallest exponent of the nonzero coordinates
+        static void __emin(Vector3d p, ref int emin) { __emin1(p.x, ref emin); __emin1(p.y, ref emin); __emin1(p.z, ref emin); }
+        static void __emin1(double x, ref int emin) { if (x == 0) return; ulong m; int e; __dec(x, out m, out e); if (e < emin) emin = e; }
+        // x 2^-emin, an integer, fits two limbs
+        static bool __fits(Vector3d p, int emin) { return __fits1(p.x, emin) && __fits1(p.y, emin) && __fits1(p.z, emin); }
+        static bool __fits1(double x, int emin) { if (x == 0) return true; ulong m; int e; __dec(x, out m, out e); return e - emin + __bits(m) <= 128; }
+        // x 2^-emin in two limbs (after __fits)
+        static FixedInt __align(double x, int emin, ulong* dst)
+        {
+            if (x == 0) return new FixedInt(dst, 0, false);
+            ulong m; int e; __dec(x, out m, out e);
+            int s = e - emin;
+            if (s >= 64) { dst[0] = 0; dst[1] = m << (s - 64); }
+            else if (s == 0) { dst[0] = m; dst[1] = 0; }
+            else { dst[0] = m << s; dst[1] = m >> (64 - s); }
+            return new FixedInt(dst, dst[1] != 0 ? 2 : 1, x < 0);
+        }
+        // the point times 2^-emin as an integer point (the BigInteger path)
+        static ExactPoint3 __big(Vector3d p, int emin) { return ExactPoint3.FromInteger(__big1(p.x, emin), __big1(p.y, emin), __big1(p.z, emin)); }
+        static BigInteger __big1(double x, int emin) { if (x == 0) return BigInteger.Zero; ulong m; int e; __dec(x, out m, out e); BigInteger v = new BigInteger(m) << (e - emin); return x < 0 ? -v : v; }
+";
+
+        // p with other input bits: the same graph (same ids), its bounds and lengths again
+        static Predicate rebound(Predicate p, int bits)
+        {
+            var q = new Predicate { Name = p.Name, Points = p.Points, InputBits = bits, Xyz = p.Xyz };
+            var map = new Dictionary<Node, Node>();
+            foreach (var n in p.Nodes) {
+                var c = new Node { Id = n.Id, Op = n.Op, Point = n.Point, Comp = n.Comp, Name = n.Name,
+                    A = n.A == null ? null : map[n.A], B = n.B == null ? null : map[n.B] };
+                map[n] = c;
+                q.Nodes.Add(c);
+            }
+            q.Signs = p.Signs.Select(n => map[n]).ToList();
+            value_bounds(q);
+            fixedarith_lengths(q);
+            return q;
+        }
+
         static string lit(double d) => d.ToString("R", CultureInfo.InvariantCulture).Replace("E", "e");
 
         // the entry on doubles: the filter, then the FixedArith graph from the doubles (no allocation)
@@ -445,34 +534,133 @@ namespace G3PredicateCompiler
             string pars = string.Join(", ", p.Points.Select(x => "Vector3d " + x));
             string args = string.Join(", ", p.Points);
             sb.Append($"{I1}/// <summary>\n");
-            sb.Append($"{I1}/// {p.Name} of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact\n");
-            sb.Append($"{I1}/// stage on FixedArith (no allocation); throws for other coordinates\n");
+            sb.Append($"{I1}/// {p.Name} of points given as doubles: the filter if every coordinate is 0 or of magnitude in\n");
+            sb.Append($"{I1}/// [2^-{inv(p.GateLow)}, 2^{inv(p.GateHigh)}], then the exact stage (FixedArith after aligning the exponents; BigInteger\n");
+            sb.Append($"{I1}/// beyond two limbs); throws for coordinates that are not finite\n");
             sb.Append($"{I1}/// </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
             sb.Append($"{I1}internal static int {p.Name}({pars})\n{I1}{{\n");
-            sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__grid({x})"))}))\n");
-            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be integers |x| <= 2^53\");\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__finite({x})"))}))\n");
+            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be finite\");\n");
             if (!p.HasExpansionStage)
                 sb.Append($"{I2}// no expansion stage: as expansions the sign factors have up to {string.Join(" / ", p.Signs.Select(n => n.ExpansionLength.ToString(CultureInfo.InvariantCulture)))} components (limit {inv(Predicate.MaxExpansionLength)})\n");
             else
                 throw new NotSupportedException($"{p.Name}: the expansion stage is not generated yet (its static length is within the limit)");
-            sb.Append($"{I2}int __r = {p.Name}Filter({args});\n");
-            sb.Append($"{I2}return (__r != 2) ? __r : {p.Name}Exact({args});\n{I1}}}\n\n");
+            string lo = lit(Math.ScaleB(1.0, -p.GateLow)), hi = lit(Math.ScaleB(1.0, p.GateHigh));
+            sb.Append($"{I2}if ({string.Join(" && ", p.Points.Select(x => $"__gate({x}, {lo}, {hi})"))}) {{\n");
+            sb.Append($"{I2}    int __r = {p.Name}Filter({args});\n");
+            sb.Append($"{I2}    if (__r != 2) return __r;\n");
+            sb.Append($"{I2}}}\n");
+            sb.Append($"{I2}return {p.Name}Exact({args});\n{I1}}}\n\n");
             // the filter
-            sb.Append($"{I1}/// <summary> the filter of {p.Name}: the sign, or 2 if it does not decide (inputs as for {p.Name}) </summary>\n");
+            sb.Append($"{I1}/// <summary> the filter of {p.Name}: the sign, or 2 if it does not decide; every coordinate 0 or of magnitude in [2^-{inv(p.GateLow)}, 2^{inv(p.GateHigh)}] </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
             sb.Append($"{I1}internal static int {p.Name}Filter({pars})\n{I1}{{\n");
+            foreach (var n in p.Nodes) emit_filter_value(n, sb, I2);
+            emit_filter_decision(p, sb, I2);
+            sb.Append($"{I1}}}\n\n");
+            // exact from doubles: the exponents aligned, two limbs per coordinate (the graph again for |x| < 2^128)
+            var q = rebound(p, 128);
+            sb.Append($"{I1}/// <summary> the exact stage of {p.Name} from doubles: every coordinate times 2^-emin (emin the smallest\n");
+            sb.Append($"{I1}/// exponent) is an integer; within two limbs on FixedArith (scratch {inv(q.ArenaScratch)} limbs), else in BigInteger </summary>\n");
+            sb.Append("#if NET\n");
+            sb.Append($"{I1}[SkipLocalsInit]\n");
+            sb.Append("#endif\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Exact({pars})\n{I1}{{\n");
+            sb.Append($"{I2}int __e = int.MaxValue;\n");
+            foreach (var x in p.Points) sb.Append($"{I2}__emin({x}, ref __e);\n");
+            sb.Append($"{I2}if (__e == int.MaxValue) return 0;     // every coordinate 0\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__fits({x}, __e)"))}))\n");
+            sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => $"__big({x}, __e)"))});\n");
+            arena_body(q, sb, I2, (n, dst) => $"__align({n.Point}.{n.Comp}, __e, {dst})");
+            sb.Append($"{I1}}}\n");
+        }
+
+        // the filter split at the prepared points: the values that depend on them only are computed once and kept
+        // (with their m~); the call computes the rest, with the same operations in the same order, so its decisions
+        // equal the unsplit filter's bit for bit. Undecided, or outside the gate: the exact stage of the whole predicate.
+        static void emit_prepared(Predicate p, StringBuilder sb)
+        {
+            string I1 = "        ", I2 = I1 + "    ";
+            var prep = new HashSet<Node>();
+            foreach (var n in p.Nodes)
+                if (n.Op == Op.Input ? p.Prepare.Contains(n.Point) : prep.Contains(n.A) && prep.Contains(n.B)) prep.Add(n);
+            // the prepared values the call reads: operands of its values and prepared sign factors
+            var keep = new List<Node>();
             foreach (var n in p.Nodes) {
-                string e, m;
-                if (n.Op == Op.Input) {
-                    e = $"{n.Point}.{n.Comp}";
-                    m = $"Math.Abs({val(n)})";
-                } else {
-                    e = $"{val(n.A)} {opc(n.Op)} {val(n.B)}";
-                    m = n.Leaf ? $"Math.Abs({val(n)})" : n.Op == Op.Mul ? $"m{val(n.A)} * m{val(n.B)}" : $"m{val(n.A)} + m{val(n.B)}";
-                }
-                sb.Append($"{I2}double {val(n)} = {e}, m{val(n)} = {m};".PadRight(96)).Append($" // c = {n.C.InUnitsOfU()}\n");
+                bool used = p.Signs.Contains(n) || p.Nodes.Any(x => !prep.Contains(x) && x.Op != Op.Input && (x.A == n || x.B == n));
+                if (prep.Contains(n) && n.Op != Op.Input && used) keep.Add(n);
             }
+            var others = p.Points.Where(x => !p.Prepare.Contains(x)).ToList();
+            string lo = lit(Math.ScaleB(1.0, -p.GateLow)), hi = lit(Math.ScaleB(1.0, p.GateHigh));
+            string st = p.Name + "Prepared";
+            sb.Append($"{I1}/// <summary> {p.Name} with {string.Join(", ", p.Prepare)} prepared ({p.Name}Prepare): their points and the filter's\n");
+            sb.Append($"{I1}/// values that depend on them only, with m~ </summary>\n");
+            sb.Append($"{I1}internal struct {st}\n{I1}{{\n");
+            sb.Append($"{I2}internal Vector3d {string.Join(", ", p.Prepare)};\n");
+            sb.Append($"{I2}internal bool Ready;    // set by {p.Name}Prepare: a default struct is rejected by the call\n");
+            sb.Append($"{I2}internal bool Gate;     // the prepared points within the filter's range\n");
+            if (keep.Count > 0)
+                sb.Append($"{I2}internal double {string.Join(", ", keep.Select(n => $"{val(n)}, m{val(n)}"))};\n");
+            sb.Append($"{I1}}}\n\n");
+            // prepare
+            sb.Append($"{I1}/// <summary> prepares {p.Name} for {string.Join(", ", p.Prepare)}; throws for coordinates that are not finite </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static void {p.Name}Prepare({string.Join(", ", p.Prepare.Select(x => "Vector3d " + x))}, out {st} __s)\n{I1}{{\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Prepare.Select(x => $"__finite({x})"))}))\n");
+            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be finite\");\n");
+            sb.Append($"{I2}__s = default({st});\n");
+            sb.Append($"{I2}__s.Ready = true;\n");
+            foreach (var x in p.Prepare) sb.Append($"{I2}__s.{x} = {x};\n");
+            sb.Append($"{I2}__s.Gate = {string.Join(" && ", p.Prepare.Select(x => $"__gate({x}, {lo}, {hi})"))};\n");
+            sb.Append($"{I2}if (!__s.Gate) return;\n");
+            foreach (var n in p.Nodes.Where(prep.Contains)) emit_filter_value(n, sb, I2);
+            foreach (var n in keep) sb.Append($"{I2}__s.{val(n)} = {val(n)}; __s.m{val(n)} = m{val(n)};\n");
+            sb.Append($"{I1}}}\n\n");
+            // the call
+            sb.Append($"{I1}/// <summary> {p.Name}(prepared, {string.Join(", ", others)}): the same sign as the unsplit predicate </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}(ref {st} __s, {string.Join(", ", others.Select(x => "Vector3d " + x))})\n{I1}{{\n");
+            sb.Append($"{I2}if (!__s.Ready)\n");
+            sb.Append($"{I2}    throw new InvalidOperationException(\"{p.Name}: the struct was not prepared ({p.Name}Prepare)\");\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", others.Select(x => $"__finite({x})"))}))\n");
+            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be finite\");\n");
+            sb.Append($"{I2}if (__s.Gate && {string.Join(" && ", others.Select(x => $"__gate({x}, {lo}, {hi})"))}) {{\n");
+            sb.Append($"{I2}    int __r = {p.Name}FilterPrepared(ref __s, {string.Join(", ", others)});\n");
+            sb.Append($"{I2}    if (__r != 2) return __r;\n");
+            sb.Append($"{I2}}}\n");
+            sb.Append($"{I2}return {p.Name}Exact({string.Join(", ", p.Points.Select(x => p.Prepare.Contains(x) ? "__s." + x : x))});\n{I1}}}\n\n");
+            // the filter part of the call
+            sb.Append($"{I1}/// <summary> the filter of {p.Name} on prepared values: as {p.Name}Filter, bit for bit; requires a prepared struct\n");
+            sb.Append($"{I1}/// with Gate and every point within the gate (the call checks both) </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}FilterPrepared(ref {st} __s, {string.Join(", ", others.Select(x => "Vector3d " + x))})\n{I1}{{\n");
+            foreach (var n in keep) sb.Append($"{I2}double {val(n)} = __s.{val(n)}, m{val(n)} = __s.m{val(n)};\n");
+            // the prepared points' coordinates that the call's values read
+            foreach (var n in p.Nodes.Where(n => n.Op == Op.Input && prep.Contains(n)
+                    && p.Nodes.Any(x => !prep.Contains(x) && x.Op != Op.Input && (x.A == n || x.B == n))))
+                sb.Append($"{I2}double {val(n)} = __s.{n.Point}.{n.Comp}, m{val(n)} = Math.Abs({val(n)});\n");
+            foreach (var n in p.Nodes.Where(n => !prep.Contains(n))) emit_filter_value(n, sb, I2);
+            emit_filter_decision(p, sb, I2);
+            sb.Append($"{I1}}}\n\n");
+        }
+
+        static void emit_filter_value(Node n, StringBuilder sb, string I2)
+        {
+            string e, m;
+            if (n.Op == Op.Input) {
+                e = $"{n.Point}.{n.Comp}";
+                m = $"Math.Abs({val(n)})";
+            } else {
+                e = $"{val(n.A)} {opc(n.Op)} {val(n.B)}";
+                m = n.Leaf ? $"Math.Abs({val(n)})" : n.Op == Op.Mul ? $"m{val(n.A)} * m{val(n.B)}" : $"m{val(n.A)} + m{val(n.B)}";
+            }
+            sb.Append($"{I2}double {val(n)} = {e}, m{val(n)} = {m};".PadRight(96)).Append($" // c = {n.C.InUnitsOfU()}\n");
+        }
+
+        static void emit_filter_decision(Predicate p, StringBuilder sb, string I2)
+        {
             sb.Append($"{I2}int __r = 1;\n");
             for (int f = 0; f < p.Signs.Count; ++f) {
                 var n = p.Signs[f];
@@ -481,16 +669,7 @@ namespace G3PredicateCompiler
                 sb.Append($"{I2}if (!(Math.Abs({val(n)}) > {lit(p.FilterK[f])} * m{val(n)})) return 2;\n");
                 sb.Append($"{I2}if ({val(n)} < 0) __r = -__r;\n");
             }
-            sb.Append($"{I2}return __r;\n{I1}}}\n\n");
-            // exact from doubles
-            sb.Append($"{I1}/// <summary> the exact stage of {p.Name} on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>\n");
-            sb.Append("#if NET\n");
-            sb.Append($"{I1}[SkipLocalsInit]\n");
-            sb.Append("#endif\n");
-            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
-            sb.Append($"{I1}internal static int {p.Name}Exact({pars})\n{I1}{{\n");
-            arena_body(p, sb, I2, (n, dst) => $"__load({n.Point}.{n.Comp}, {dst})");
-            sb.Append($"{I1}}}\n");
+            sb.Append($"{I2}return __r;\n");
         }
 
         static string describe(Node n) => (n.Name != null ? n.Name + " = " : "") + $"{ref_(n.A)} {opc(n.Op)} {ref_(n.B)}";
@@ -569,6 +748,15 @@ namespace G3PredicateCompiler
                     return make(pc, pcse, Op.Input, null, null, id);
                 };
                 Func<Op, Node, Node, Node> mk = (op, a, b) => make(pc, pcse, op, a, b, null);
+                if (line.StartsWith("prepare ")) {
+                    // 'prepare p, q, ...': a proper subset of the points, before the sign line, for inputs xyz
+                    var pts = line.Substring(8).Split(',').Select(x => x.Trim()).ToList();
+                    if (!cur.Xyz || cur.Prepare.Count > 0 || pts.Distinct().Count() != pts.Count || pts.Any(x => !cur.Points.Contains(x))
+                        || pts.Count >= cur.Points.Count)
+                        throw new FormatException($"line {lineNo}: expected 'prepare' once, with distinct points of the predicate, not all of them, for inputs xyz");
+                    cur.Prepare = pts;
+                    continue;
+                }
                 if (line.StartsWith("sign ")) {
                     // 'sign e1, e2, ...': the product of their signs (e.g. a determinant and a denominator)
                     foreach (var part in line.Substring(5).Split(','))

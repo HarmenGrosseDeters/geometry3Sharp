@@ -349,7 +349,7 @@ namespace geometry3Sharp.Tests
                     var need = div1u(c[p.Signs[f]]);
                     double K = p.FilterK[f];
                     Assert.True(ge(exact(K), need), $"{p.Name} factor {f}: K below c / (1 - u)");
-                    Assert.False(ge(exact(Math.BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
+                    Assert.False(ge(exact(BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
                     double first = k[p.Signs[f]] * u;
                     Assert.True(K > first && K <= first * (1 + 1e-9), $"{p.Name} factor {f}: K = {K}, k u = {first}");
                 }
@@ -370,7 +370,7 @@ namespace geometry3Sharp.Tests
         {
             var a = PredicateCompiler.Analyze(Spec).ToDictionary(p => p.Name);
             Assert.Equal(new BigInteger[] { 147456, 384 }, a["Orient3dLPI"].Signs.Select(n => n.ExpansionLength).ToArray());
-            Assert.Equal(new BigInteger[] { 75497472, 98304 }, a["Orient3dTPI"].Signs.Select(n => n.ExpansionLength).ToArray());
+            Assert.Equal(new BigInteger[] { 113246208, 98304 }, a["Orient3dTPI"].Signs.Select(n => n.ExpansionLength).ToArray());
             Assert.All(a.Values, p => Assert.False(p.HasExpansionStage));
             Assert.Equal(1024, Predicate.MaxExpansionLength);
             // a small predicate within the limit would need the stage, which the generator refuses to skip silently
@@ -511,14 +511,15 @@ namespace geometry3Sharp.Tests
             Assert.True(undecided > 500 && decided > 500, $"{undecided} undecided, {decided} decided");
         }
 
-        /// <summary> the double entry accepts exactly the integers |x| &lt;= 2^53 </summary>
+        /// <summary>
+        /// the double entry rejects coordinates that are not finite, at every position and component; it takes every
+        /// finite double (also non-integers, subnormals, 0, -0, beyond the filter's range)
+        /// </summary>
         [Fact]
         public void DoubleEntry_Gate()
         {
             var o = new Vector3d(1, 2, 3);
-            double top = 9007199254740992.0;
-            // a bad coordinate at every point position and in every component, for both predicates
-            foreach (double bad in new[] { 0.5, -2.25, top * 2, -top * 2, double.NaN, double.PositiveInfinity })
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
                 for (int j = 0; j < 12; ++j)
                     for (int c = 0; c < 3; ++c) {
                         var P = Enumerable.Repeat(o, 12).ToArray();
@@ -527,16 +528,402 @@ namespace geometry3Sharp.Tests
                             Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
                         Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dTPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
                     }
-            foreach (double ok in new[] { top, -top, 0.0, -0.0, 12345.0 })
+            foreach (double ok in new[] { 0.5, -2.25, 1e300, -1e-300, double.Epsilon, 0.0, -0.0, 12345.0 })
                 IndirectPredicates.Orient3dTPI(o, o, o, o, o, o, o, o, o, o, o, new Vector3d(ok, 1, 2));
-            // at the gate's edge the exact stage still holds the values (2^53 in one limb) and agrees with the oracle
-            var rand = new Random(4);
-            for (int k = 0; k < 300; ++k) {
-                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, 53)).ToArray();
-                P[k % 12] = ExactPoint3.FromInteger(rand.Next(2) == 0 ? (BigInteger)top : -(BigInteger)top, P[k % 12].Y, P[k % 12].Z);
+            // finite coordinates whose sum overflows are finite (each coordinate is checked on its own)
+            var big = new Vector3d(1.5e308, 1.5e308, 1.7e308);
+            IndirectPredicates.Orient3dTPI(o, o, o, o, o, o, o, o, o, o, o, big);
+            IndirectPredicates.Orient3dLPI(big, o, o, o, o, o, o, o);
+        }
+
+        // ---- envelope PR 1: general doubles (the range gate of the filter, exponent alignment for the exact stage) ----
+
+        // the doubles as integer points: every coordinate times 2^-emin, emin the smallest exponent (ExactPoint3.Decompose)
+        static ExactPoint3[] Integers(Vector3d[] P)
+        {
+            var parts = P.SelectMany(p => new[] { p.x, p.y, p.z }).Select(v => { BigInteger m; int e; ExactPoint3.Decompose(v, out m, out e); return (m, e); }).ToArray();
+            int emin = parts.Where(t => !t.m.IsZero).Select(t => t.e).DefaultIfEmpty(0).Min();
+            Func<int, BigInteger> at = i => parts[i].m.IsZero ? BigInteger.Zero : parts[i].m << (parts[i].e - emin);
+            return Enumerable.Range(0, P.Length).Select(k => ExactPoint3.FromInteger(at(3 * k), at(3 * k + 1), at(3 * k + 2))).ToArray();
+        }
+
+        static int LPIG(Vector3d[] d, out int filter)
+        {
+            filter = IndirectPredicates.Orient3dLPIFilter(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            int exact = IndirectPredicates.Orient3dLPIExact(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            int r = IndirectPredicates.Orient3dLPI(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            Assert.Equal(exact, r);
+            return r;
+        }
+
+        static int TPIG(Vector3d[] d, out int filter)
+        {
+            filter = IndirectPredicates.Orient3dTPIFilter(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            int exact = IndirectPredicates.Orient3dTPIExact(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            int r = IndirectPredicates.Orient3dTPI(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            Assert.Equal(exact, r);
+            return r;
+        }
+
+        // x * 2^n, exact while the result is normal (Math.ScaleB is missing on net48)
+        static double ScaleB(double x, int n)
+        {
+            for (; n > 1000; n -= 1000) x *= 1.0715086071862673e301;    // 2^1000
+            for (; n < -1000; n += 1000) x *= 9.332636185032189e-302;   // 2^-1000
+            return x * BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+        }
+
+        // the next double up / down, for finite x (Math.BitIncrement / BitDecrement are missing on net48)
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+
+        // a double of magnitude about 2^e (full mantissa), either sign
+        static double D(Random rand, int e) => (rand.Next(2) == 0 ? 1 : -1) * ScaleB(1 + rand.NextDouble(), e);
+
+        // within the filter's range of both predicates: every coordinate 0 or of magnitude in [2^-54, 2^108]
+        static bool InRange(Vector3d[] P) => P.All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= ScaleB(1, -54) && Math.Abs(v) <= ScaleB(1, 108))));
+
+        /// <summary>
+        /// general doubles (full mantissas, around 2^-50 .. 2^100, with an exponent spread within the call of 0 to 70 bits:
+        /// the FixedArith path; and 100 to 400 bits: the BigInteger path) equal the oracle; the filter, where in range,
+        /// is never wrong and decides almost all of them
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_MatchTheOracle()
+        {
+            var rand = new Random(31);
+            int decided = 0, inRange = 0;
+            for (int k = 0; k < 3000; ++k) {
+                int center = new[] { -50, -20, 0, 20, 60, 100 }[k % 6];
+                int spread = k % 7 == 0 ? 100 + rand.Next(300) : rand.Next(71);
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(spread + 1)), D(rand, center + rand.Next(spread + 1)),
+                    k % 5 == 0 ? 0.0 : D(rand, center + rand.Next(spread + 1)))).ToArray();
+                var I = Integers(P);
+                int f1, f2;
+                Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f1));
+                Assert.Equal(OracleTPI(I), TPIG(P, out f2));
+                if (InRange(P)) {
+                    inRange += 2;
+                    if (f1 != 2) { decided++; Assert.Equal(OracleLPI(I.Take(8).ToArray()), f1); }
+                    if (f2 != 2) { decided++; Assert.Equal(OracleTPI(I), f2); }
+                }
+            }
+            Assert.True(inRange > 3000 && decided > 0.95 * inRange, $"decided {decided} of {inRange}");
+        }
+
+        /// <summary>
+        /// The prepared predicates (ENVELOPE.md 4.1, item 2): Prepare once, then the call against many points gives the
+        /// unsplit predicate's sign, and its filter decides exactly as the unsplit filter (bit for bit: 2 where it is 2).
+        /// General doubles in and out of the filter's range, nearly degenerate cases (the point moved by one ulp onto and
+        /// off a plane through it), integers, and non-finite coordinates (rejected by Prepare and by the call).
+        /// </summary>
+        [Fact]
+        public void Prepared_EqualsUnsplit()
+        {
+            var rand = new Random(41);
+            int filterDecided = 0, exactPath = 0;
+            for (int k = 0; k < 1500; ++k) {
+                int center = new[] { -50, 0, 20, 60, 130 }[k % 5];
+                int spread = k % 7 == 0 ? 100 + rand.Next(300) : rand.Next(71);
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(spread + 1)), D(rand, center + rand.Next(spread + 1)),
+                    k % 5 == 0 ? 0.0 : D(rand, center + rand.Next(spread + 1)))).ToArray();
+                if (k % 3 == 0) P = P.Select(v => new Vector3d(Math.Round(v.x * 1e3), Math.Round(v.y * 1e3), Math.Round(v.z * 1e3))).ToArray();
+                // the line nearly parallel to the plane (d near 0: the filter of the factor d decides close to its bound)
+                if (k % 4 == 1) P[1] = P[0] + (P[3] - P[2]) + rand.NextDouble() * (P[4] - P[2]) * (k % 8 == 1 ? 1e-12 : 0);
+                // TPI planes nearly dependent (plane 3 = plane 1 with one coordinate one ulp or 1e-12 off: d near 0) or
+                // degenerate (plane 1 through a repeated point: n1 = 0, so d = 0 and m~ = 0)
+                if (k % 6 == 2) { P[6] = P[0]; P[7] = P[1]; P[8] = new Vector3d(BitIncrement(P[2].x), P[2].y, P[2].z); }
+                if (k % 6 == 3) { P[6] = P[0]; P[7] = P[1]; P[8] = P[2] * (1 + 1e-12); }
+                if (k % 6 == 4) P[1] = P[0];
+                IndirectPredicates.Orient3dLPIPrepare(P[0], P[1], P[2], P[3], P[4], out var lpi);
+                IndirectPredicates.Orient3dTPIPrepare(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], out var tpi);
+                for (int j = 0; j < 6; ++j) {
+                    Vector3d a = j == 0 ? P[9] : P[5 + j], b = P[10], c = j == 1 ? P[2] : P[11];
+                    if (j == 3) {
+                        // the evaluating plane through the LPI line's endpoint: one ulp off
+                        a = P[0]; b = P[3]; c = new Vector3d(BitIncrement(P[4].x), P[4].y, P[4].z);
+                    }
+                    if (j == 4) { a = P[2]; b = P[3]; c = P[4]; }     // the LPI point's own plane: 0, the filter fails
+                    if (j == 5) { a = P[3]; b = P[4]; c = P[5]; }     // a TPI plane: the TPI point on it, 0
+                    int u = IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], a, b, c);
+                    Assert.Equal(u, IndirectPredicates.Orient3dLPI(ref lpi, a, b, c));
+                    if (lpi.Gate && InRange(new[] { a, b, c })) {
+                        int f = IndirectPredicates.Orient3dLPIFilter(P[0], P[1], P[2], P[3], P[4], a, b, c);
+                        Assert.Equal(f, IndirectPredicates.Orient3dLPIFilterPrepared(ref lpi, a, b, c));
+                        if (f != 2) filterDecided++; else exactPath++;
+                    }
+                    int ut = IndirectPredicates.Orient3dTPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], a, b, c);
+                    Assert.Equal(ut, IndirectPredicates.Orient3dTPI(ref tpi, a, b, c));
+                    if (tpi.Gate && InRange(new[] { a, b, c })) {
+                        int f = IndirectPredicates.Orient3dTPIFilter(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], a, b, c);
+                        Assert.Equal(f, IndirectPredicates.Orient3dTPIFilterPrepared(ref tpi, a, b, c));
+                        if (f != 2) filterDecided++; else exactPath++;
+                    }
+                }
+            }
+            Assert.True(filterDecided > 3000 && exactPath > 500, $"filter decided {filterDecided}, exact {exactPath}");
+            // only an evaluated point out of the filter's range (1e-200, 1e60): the call goes to the exact stage, with the
+            // unsplit result
+            foreach (double far in new[] { 1e-200, 1e60 }) {
+                Vector3d[] R = { new Vector3d(1, 2, 3), new Vector3d(4, 5, 6.5), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1),
+                                 new Vector3d(2, 1, 0), new Vector3d(1, 3, 1), new Vector3d(0, 1, 4), new Vector3d(3, 0, 1) };
+                IndirectPredicates.Orient3dLPIPrepare(R[0], R[1], R[2], R[3], R[4], out var pl);
+                IndirectPredicates.Orient3dTPIPrepare(R[0], R[1], R[2], R[3], R[4], R[5], R[6], R[7], R[8], out var pt);
+                Assert.True(pl.Gate && pt.Gate);
+                for (int k = 0; k < 20; ++k) {
+                    Vector3d a = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()), b = new Vector3d(rand.NextDouble(), 2, rand.NextDouble());
+                    Vector3d c = new Vector3d(far * (1 + rand.NextDouble()), rand.NextDouble(), 0.5);
+                    Assert.Equal(IndirectPredicates.Orient3dLPI(R[0], R[1], R[2], R[3], R[4], a, b, c), IndirectPredicates.Orient3dLPI(ref pl, a, b, c));
+                    Assert.Equal(IndirectPredicates.Orient3dTPI(R[0], R[1], R[2], R[3], R[4], R[5], R[6], R[7], R[8], a, b, c), IndirectPredicates.Orient3dTPI(ref pt, a, b, c));
+                }
+            }
+            // a struct that was not prepared is rejected
+            var none = default(IndirectPredicates.Orient3dLPIPrepared);
+            Assert.Throws<InvalidOperationException>(() => IndirectPredicates.Orient3dLPI(ref none, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
+            var noneT = default(IndirectPredicates.Orient3dTPIPrepared);
+            Assert.Throws<InvalidOperationException>(() => IndirectPredicates.Orient3dTPI(ref noneT, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
+            // the gate of the prepared points: out of range goes to the exact stage, with the same result
+            Vector3d[] Q = { new Vector3d(1e-200, 2, 3), new Vector3d(4, 5, 6.5), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1) };
+            IndirectPredicates.Orient3dLPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], out var g);
+            Assert.False(g.Gate);
+            Assert.Equal(IndirectPredicates.Orient3dLPI(Q[0], Q[1], Q[2], Q[3], Q[4], Q[2], Q[3], new Vector3d(7, 8, 9)),
+                IndirectPredicates.Orient3dLPI(ref g, Q[2], Q[3], new Vector3d(7, 8, 9)));
+            // non-finite coordinates
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPIPrepare(new Vector3d(double.NaN, 0, 0), Q[1], Q[2], Q[3], Q[4], out var _));
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dTPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], Q[0], Q[1], Q[2], new Vector3d(0, double.PositiveInfinity, 0), out var _));
+            IndirectPredicates.Orient3dLPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], out var h);
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(ref h, Q[2], new Vector3d(0, 0, double.NegativeInfinity), Q[4]));
+        }
+
+        /// <summary>
+        /// exact zeros of general doubles (the LPI point on its own plane and line, the TPI point on its planes) and the
+        /// same moved by one ulp of one coordinate: the filter fails or is right, the result equals the oracle
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_NearlyDegenerate()
+        {
+            var rand = new Random(32);
+            int reachedExact = 0;
+            for (int k = 0; k < 2000; ++k) {
+                int center = new[] { -40, 0, 30, 90 }[k % 4];
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(20)), D(rand, center + rand.Next(20)), D(rand, center + rand.Next(20)))).ToArray();
+                var c = P[4];
+                if (k % 2 == 0) c = new Vector3d(BitIncrement(c.x), c.y, c.z);       // one ulp off the plane
+                var Q = new[] { P[0], P[1], P[2], P[3], P[4], P[2], P[3], c };
                 int f;
-                Assert.Equal(OracleLPI(P), LPID(P.Take(8).ToArray(), out f));
-                Assert.Equal(OracleTPI(P), TPID(P, out f));
+                var IQ = Integers(Q);
+                Assert.Equal(OracleLPI(IQ), LPIG(Q, out f));
+                if (f != 2) Assert.Equal(OracleLPI(IQ), f); else reachedExact++;
+                if (k % 2 == 1) Assert.Equal(0, OracleLPI(IQ));
+                var T = P.Take(9).Concat(new[] { P[0], P[1], k % 2 == 0 ? new Vector3d(P[2].x, BitDecrement(P[2].y), P[2].z) : P[2] }).ToArray();
+                var IT = Integers(T);
+                Assert.Equal(OracleTPI(IT), TPIG(T, out f));
+                if (f != 2) Assert.Equal(OracleTPI(IT), f); else reachedExact++;
+            }
+            Assert.True(reachedExact > 2000, $"{reachedExact} reached the exact stage");
+        }
+
+        /// <summary>
+        /// the filter's range: inputs outside it (tiny, subnormal, huge) go to the exact stage and stay exact; at its edges
+        /// the filter is right; the FixedArith path allocates nothing and the BigInteger path (an exponent spread beyond
+        /// two limbs) does
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_RangeAndPaths()
+        {
+            var rand = new Random(33);
+            foreach (int center in new[] { -1074, -1060, -200, -110, -108, -60, -54, 107, 108, 160, 164, 500, 1000 })
+                for (int k = 0; k < 60; ++k) {
+                    var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(3)), D(rand, center + rand.Next(3)),
+                        D(rand, Math.Min(1020, center + rand.Next(3))))).ToArray();
+                    if (center == -1074) P = P.Select(p => new Vector3d(Math.Sign(p.x) * double.Epsilon * rand.Next(1, 1000), p.y, p.z)).ToArray();
+                    var I = Integers(P);
+                    int f;
+                    Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f));
+                    if (InRange(P) && f != 2) Assert.Equal(OracleLPI(I.Take(8).ToArray()), f);
+                    Assert.Equal(OracleTPI(I), TPIG(P, out f));
+                    if (InRange(P) && f != 2) Assert.Equal(OracleTPI(I), f);
+                }
+#if NET
+            // paths: a spread of 70 bits fits two limbs (no allocation), 100 bits does not (BigInteger)
+            foreach (int spread in new[] { 0, 70, 100 }) {
+                var P = Enumerable.Range(0, 8).Select(i => new Vector3d(D(rand, i == 0 ? spread : 0), D(rand, 1), D(rand, 2))).ToArray();
+                P[7] = P[4];        // degenerate: the filter fails, the exact stage decides
+                P[5] = P[2]; P[6] = P[3];
+                for (int w = 0; w < 5; ++w)     // warm-up: the first calls load and compile (one-time allocations)
+                    IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                int r = IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]);
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - before;      // (the assertion outside the measurement)
+                Assert.Equal(0, r);
+                Assert.True(spread <= 70 ? bytes == 0 : bytes > 0, $"spread {spread}: {bytes} bytes");
+            }
+#endif
+        }
+
+#if NET
+        /// <summary>
+        /// the filter's range from the derivation: k (a + 52) &lt;= 960 for the degree k (no value or decision product
+        /// below 2^-960), b the largest with every bound below 2^1000; a formula that is not homogeneous has no double entry
+        /// </summary>
+        [Fact]
+        public void FilterRange_Derived()
+        {
+            var a = PredicateCompiler.Analyze(Spec).ToDictionary(p => p.Name);
+            Assert.Equal(6, a["Orient3dLPI"].Degree);
+            Assert.Equal(9, a["Orient3dTPI"].Degree);
+            Assert.Equal(108, a["Orient3dLPI"].GateLow);      // 960 / 6 - 52
+            Assert.Equal(54, a["Orient3dTPI"].GateLow);       // 960 / 9 - 52 (integer division)
+            foreach (var p in a.Values) {
+                Assert.True(p.Homogeneous);
+                Assert.True(p.Degree * (p.GateLow + 52) <= 960);
+                Assert.True(p.Nodes.All(n => n.Bound.At(BigInteger.Pow(2, p.GateHigh)).GetBitLength() <= 1000));
+                Assert.Contains(p.Nodes, n => n.Bound.At(BigInteger.Pow(2, p.GateHigh + 1)).GetBitLength() > 1000);
+            }
+            Assert.Equal(164, a["Orient3dLPI"].GateHigh);
+            Assert.Equal(109, a["Orient3dTPI"].GateHigh);
+            var e = Assert.Throws<NotSupportedException>(() => PredicateCompiler.Analyze("ipredicate P(a, b) bound 64 inputs xyz\n    x = a.x * b.x - a.y\n    sign x * b.y - a.y * b.x"));
+            Assert.Contains("homogeneous", e.Message);
+        }
+#endif
+
+        /// <summary>
+        /// a single point out of the filter's range sends the call to the exact stage: with r, s, t tiny (2^-400) the
+        /// filter's products would underflow to 0 and m~ = 0 would claim an exact zero; also mixed subnormal and normal
+        /// coordinates (the exponents of subnormals in the alignment), and zero coordinates on the two-limb path
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_OnePointOutOfRange_Subnormals_Zeros()
+        {
+            var rand = new Random(37);
+            for (int k = 0; k < 300; ++k) {
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, rand.Next(3)), D(rand, rand.Next(3)), D(rand, rand.Next(3)))).ToArray();
+                // one point (or the plane of LPI) far below the range: its position changes with k
+                int j = k % 12;
+                P[j] = new Vector3d(D(rand, -400), D(rand, -400), D(rand, -401));
+                if (k % 3 == 0) { P[2] = P[2] * ScaleB(1, -400); P[3] = P[3] * ScaleB(1, -400); P[4] = P[4] * ScaleB(1, -400); }
+                var I = Integers(P);
+                int f;
+                Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f));
+                Assert.Equal(OracleTPI(I), TPIG(P, out f));
+            }
+            // subnormal and normal coordinates in one call: normal ones at about 2^-1000, subnormals k 2^-1074
+            for (int k = 0; k < 300; ++k) {
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, -1000 + rand.Next(3)), D(rand, -1000), D(rand, -999))).ToArray();
+                P[k % 12] = new Vector3d(double.Epsilon * rand.Next(1, 1 << 20) * (rand.Next(2) == 0 ? 1 : -1), P[k % 12].y, P[k % 12].z);
+                if (k % 2 == 0) { P[5] = P[2]; P[6] = P[3]; P[7] = P[4]; }
+                var I = Integers(P);
+                Assert.Equal(OracleLPI(I.Take(8).ToArray()), IndirectPredicates.Orient3dLPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
+                Assert.Equal(OracleTPI(I), IndirectPredicates.Orient3dTPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
+            }
+#if NET
+            // zero coordinates stay on the two-limb path (no allocation)
+            var Z = Enumerable.Range(0, 8).Select(i => new Vector3d(i + 1.5, 0.0, 2 * i + 0.25)).ToArray();
+            Z[5] = Z[2]; Z[6] = Z[3]; Z[7] = Z[4];
+            for (int w = 0; w < 5; ++w) IndirectPredicates.Orient3dLPIExact(Z[0], Z[1], Z[2], Z[3], Z[4], Z[5], Z[6], Z[7]);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int r = IndirectPredicates.Orient3dLPIExact(Z[0], Z[1], Z[2], Z[3], Z[4], Z[5], Z[6], Z[7]);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(0, r);
+            Assert.Equal(0, bytes);
+#endif
+        }
+
+        /// <summary>
+        /// the two-limb boundary of the exact stage: aligned coordinates of exactly 128 bits stay on FixedArith (no
+        /// allocation), 129 bits go to BigInteger; both exact
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_TwoLimbBoundary()
+        {
+            var rand = new Random(35);
+            foreach (int extra in new[] { 75, 76 }) {       // (2^53 - 1) 2^extra against 1.0: 53 + extra bits
+                for (int k = 0; k < 40; ++k) {
+                    // degenerate (sign 0) and general, so that the exact stage runs
+                    var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(1.0 + rand.Next(1, 1000), rand.Next(1, 1000), rand.Next(1, 1000))).ToArray();
+                    P[k % 12] = new Vector3d(ScaleB(9007199254740991.0, extra) * (rand.Next(2) == 0 ? 1 : -1), P[k % 12].y, P[k % 12].z);
+                    P[0] = new Vector3d(1.0, P[0].y, P[0].z);
+                    if (k % 2 == 0) { P[5] = P[2]; P[6] = P[3]; P[7] = P[4]; P[9] = P[0]; P[10] = P[1]; P[11] = P[2]; }
+                    var I = Integers(P);
+                    Assert.Equal(OracleLPI(I.Take(8).ToArray()), IndirectPredicates.Orient3dLPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
+                    Assert.Equal(OracleTPI(I), IndirectPredicates.Orient3dTPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
+                }
+#if NET
+                var Q = Enumerable.Range(0, 8).Select(i => new Vector3d(i + 2.0, 2 * i + 3.0, 3 * i + 5.0)).ToArray();
+                Q[0] = new Vector3d(1.0, 2, 3);
+                Q[1] = new Vector3d(ScaleB(9007199254740991.0, extra), 7, 11);
+                Q[5] = Q[2]; Q[6] = Q[3]; Q[7] = Q[4];
+                for (int w = 0; w < 5; ++w) IndirectPredicates.Orient3dLPIExact(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5], Q[6], Q[7]);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                int r = IndirectPredicates.Orient3dLPIExact(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5], Q[6], Q[7]);
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                Assert.Equal(0, r);
+                Assert.True(extra == 75 ? bytes == 0 : bytes > 0, $"53 + {extra} bits: {bytes} bytes");
+#endif
+            }
+        }
+
+        /// <summary>
+        /// the low edge of the filter's range under its worst case: points at magnitude 2^-a that differ by a few ulps,
+        /// so that every difference is a small multiple of 2^-(a + 52) and the values of degree k reach 2^-960 (LPI 6 at
+        /// 2^-108, TPI 9 at 2^-54); the filter runs (in range) and is never wrong
+        /// </summary>
+        [Fact]
+        public void Filter_LowEdge_WorstCase()
+        {
+            var rand = new Random(36);
+            foreach (var (gate, isTpi) in new[] { (-108, false), (-54, true) }) {
+                double b = ScaleB(1.0, gate), ulp = ScaleB(1.0, gate - 52);
+                int decided = 0;
+                for (int k = 0; k < 2000; ++k) {
+                    // b (1, 1, 1) plus a few ulps per coordinate: all coordinates in [2^gate, 2^(gate+1))
+                    var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(b + rand.Next(0, 64) * ulp, b + rand.Next(0, 64) * ulp, b + rand.Next(0, 64) * ulp)).ToArray();
+                    if (k % 3 == 0) { P[5] = P[2]; P[6] = P[3]; P[7] = P[4]; P[9] = P[0]; P[10] = P[1]; P[11] = P[2]; }      // zeros
+                    Assert.True(InRange(P) || !isTpi);
+                    var I = Integers(P);
+                    int f;
+                    if (!isTpi) {
+                        Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f));
+                        if (f != 2) { decided++; Assert.Equal(OracleLPI(I.Take(8).ToArray()), f); }
+                    } else {
+                        Assert.Equal(OracleTPI(I), TPIG(P, out f));
+                        if (f != 2) { decided++; Assert.Equal(OracleTPI(I), f); }
+                    }
+                }
+                Assert.True(decided > 500, $"{(isTpi ? "TPI" : "LPI")} at 2^{gate}: the filter decided {decided}");
+            }
+        }
+
+        /// <summary>
+        /// invariance over Similarity.All() on general doubles: every transformed configuration equals the oracle; the
+        /// 2^k scales give the same signs and the same filter decisions bit for bit
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_Invariance()
+        {
+            var rand = new Random(34);
+            for (int k = 0; k < 200; ++k) {
+                var B = Enumerable.Range(0, 12).Select(_ => new Vector3d(rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1)).ToArray();
+                if (k % 4 == 0)
+                    for (int j = 0; j < 3; ++j) B[5 + j] = B[2 + j];
+                int f1, f2;
+                int[] reference = { LPIG(B.Take(8).ToArray(), out f1), TPIG(B, out f2), f1, f2 };
+                foreach (var sim in Similarity.All()) {
+                    var P = B.Select(sim.Apply).ToArray();
+                    if (k % 4 == 0)
+                        for (int j = 0; j < 3; ++j) P[5 + j] = P[2 + j];
+                    var I = Integers(P);
+                    int r1 = LPIG(P.Take(8).ToArray(), out f1), r2 = TPIG(P, out f2);
+                    Assert.Equal(OracleLPI(I.Take(8).ToArray()), r1);
+                    Assert.Equal(OracleTPI(I), r2);
+                    if (sim.IsExact)
+                        Assert.Equal(reference, new[] { r1, r2, f1, f2 });
+                }
             }
         }
 

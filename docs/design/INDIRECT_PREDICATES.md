@@ -170,42 +170,38 @@ exact code (`.editorconfig`: G3E0001-3, RS0030; `ExactCodeAnalyzerTests`).
 | predicate | values | bound | bits | limbs | limbs taken by FixedArith |
 |---|---|---|---|---|---|
 | `Orient3dLPI` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `Orient3dLPI` | `ux`, `uy`, `uz`, `wx`, `wy`, `wz`, `prx`, `pry`, `prz`, `qrx`, `qry`, `qrz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
+| `Orient3dLPI` | `ux`, `uy`, `uz`, `wx`, `wy`, `wz`, `prx`, `pry`, `prz`, `qrx`, `qry`, `qrz`, `pcx`, `pcy`, `pcz`, `qcx`, `qcy`, `qcz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
 | `Orient3dLPI` | `uy * wz` and 11 more of its shape | `4 m^2` | 130 | 3 | 4 |
 | `Orient3dLPI` | `nx`, `ny`, `nz`, `m1`, `m2`, `m3` | `8 m^2` | 131 | 3 | 4 |
 | `Orient3dLPI` | `nx * prx` and 5 more of its shape | `16 m^3` | 196 | 4 | 5 |
 | `Orient3dLPI` | `(nx * prx) + (ny * pry)` and 1 more of its shape | `32 m^3` | 197 | 4 | 5 |
 | `Orient3dLPI` | `lp`, `lq` | `48 m^3` | 198 | 4 | 5 |
 | `Orient3dLPI` | `d` (a sign factor) | `96 m^3` | 199 | 4 | 5 |
-| `Orient3dLPI` | `p.x * lq` and 5 more of its shape | `48 m^4` | 262 | 5 | 5 |
-| `Orient3dLPI` | `(p.x * lq) - (q.x * lp)` and 2 more of its shape | `96 m^4` | 263 | 5 | 6 |
-| `Orient3dLPI` | `d * c.x` and 2 more of its shape | `96 m^4` | 263 | 5 | 5 |
+| `Orient3dLPI` | `lq * pcx` and 5 more of its shape | `96 m^4` | 263 | 5 | 6 |
 | `Orient3dLPI` | `Nx`, `Ny`, `Nz` | `192 m^4` | 264 | 5 | 6 |
 | `Orient3dLPI` | `t1`, `t2`, `t3` | `1536 m^6` | 395 | 7 | 8 |
 | `Orient3dLPI` | `t1 - t2` | `3072 m^6` | 396 | 7 | 8 |
 | `Orient3dLPI` | the determinant (sign factor 1) | `4608 m^6` | 397 | 7 | 8 |
 | `Orient3dTPI` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `Orient3dTPI` | `u1_x`, `u1_y`, `u1_z`, `w1_x`, `w1_y`, `w1_z`, `u2_x`, `u2_y`, `u2_z`, `w2_x`, `w2_y`, `w2_z`, `u3_x`, `u3_y`, `u3_z`, `w3_x`, `w3_y`, `w3_z`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
+| `Orient3dTPI` | `u1_x`, `u1_y`, `u1_z`, `w1_x`, `w1_y`, `w1_z`, `a1cx`, `a1cy`, `a1cz`, `u2_x`, `u2_y`, `u2_z`, `w2_x`, `w2_y`, `w2_z`, `a2cx`, `a2cy`, `a2cz`, `u3_x`, `u3_y`, `u3_z`, `w3_x`, `w3_y`, `w3_z`, `a3cx`, `a3cy`, `a3cz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
 | `Orient3dTPI` | `u1_y * w1_z` and 23 more of its shape | `4 m^2` | 130 | 3 | 4 |
 | `Orient3dTPI` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z`, `n3x`, `n3y`, `n3z`, `m1`, `m2`, `m3` | `8 m^2` | 131 | 3 | 4 |
-| `Orient3dTPI` | `a1.x * n1x` and 8 more of its shape | `8 m^3` | 195 | 4 | 4 |
-| `Orient3dTPI` | `(a1.x * n1x) + (a1.y * n1y)` and 2 more of its shape | `16 m^3` | 196 | 4 | 5 |
-| `Orient3dTPI` | `D1`, `D2`, `D3` | `24 m^3` | 197 | 4 | 5 |
+| `Orient3dTPI` | `n1x * a1cx` and 8 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `Orient3dTPI` | `(n1x * a1cx) + (n1y * a1cy)` and 2 more of its shape | `32 m^3` | 197 | 4 | 5 |
+| `Orient3dTPI` | `D1`, `D2`, `D3` | `48 m^3` | 198 | 4 | 5 |
 | `Orient3dTPI` | `n2y * n3z` and 17 more of its shape | `64 m^4` | 262 | 5 | 6 |
 | `Orient3dTPI` | `e23x`, `e23y`, `e23z`, `e31x`, `e31y`, `e31z`, `e12x`, `e12y`, `e12z` | `128 m^4` | 263 | 5 | 6 |
 | `Orient3dTPI` | `n1x * e23x` and 2 more of its shape | `1024 m^6` | 394 | 7 | 8 |
 | `Orient3dTPI` | `(n1x * e23x) + (n1y * e23y)` | `2048 m^6` | 395 | 7 | 8 |
 | `Orient3dTPI` | `d` (a sign factor) | `3072 m^6` | 396 | 7 | 8 |
-| `Orient3dTPI` | `D1 * e23x` and 8 more of its shape | `3072 m^7` | 460 | 8 | 9 |
-| `Orient3dTPI` | `(D1 * e23x) + (D2 * e31x)` and 2 more of its shape | `6144 m^7` | 461 | 8 | 9 |
-| `Orient3dTPI` | `((D1 * e23x) + (D2 * e31x)) + (D3 * e12x)` and 2 more of its shape | `9216 m^7` | 462 | 8 | 9 |
-| `Orient3dTPI` | `d * c.x` and 2 more of its shape | `3072 m^7` | 460 | 8 | 8 |
-| `Orient3dTPI` | `Nx`, `Ny`, `Nz` | `12288 m^7` | 462 | 8 | 9 |
-| `Orient3dTPI` | `t1`, `t2`, `t3` | `98304 m^9` | 593 | 10 | 11 |
-| `Orient3dTPI` | `t1 - t2` | `196608 m^9` | 594 | 10 | 11 |
-| `Orient3dTPI` | the determinant (sign factor 1) | `294912 m^9` | 595 | 10 | 11 |
-| `Orient3dLPI` | scratch of one call (sum over the values; lengths only: 450) | | | 244 | 284 |
-| `Orient3dTPI` | scratch of one call (sum over the values; lengths only: 1220) | | | 604 | 701 |
+| `Orient3dTPI` | `D1 * e23x` and 8 more of its shape | `6144 m^7` | 461 | 8 | 9 |
+| `Orient3dTPI` | `(D1 * e23x) + (D2 * e31x)` and 2 more of its shape | `12288 m^7` | 462 | 8 | 9 |
+| `Orient3dTPI` | `Nx`, `Ny`, `Nz` | `18432 m^7` | 463 | 8 | 9 |
+| `Orient3dTPI` | `t1`, `t2`, `t3` | `147456 m^9` | 594 | 10 | 11 |
+| `Orient3dTPI` | `t1 - t2` | `294912 m^9` | 595 | 10 | 11 |
+| `Orient3dTPI` | the determinant (sign factor 1) | `442368 m^9` | 595 | 10 | 11 |
+| `Orient3dLPI` | scratch of one call (sum over the values; lengths only: 402) | | | 226 | 269 |
+| `Orient3dTPI` | scratch of one call (sum over the values; lengths only: 1145) | | | 574 | 677 |
 <!-- end of the generated table -->
 
 **Tests** (`GeneratedPredicatesIndirectTests`, also on net48 except the generator checks):
@@ -320,7 +316,7 @@ input 1 component, a sum or difference `la + lb`, a product `2 la lb`):
 | predicate | determinant | denominator `d` |
 |---|---|---|
 | `Orient3dLPI` | 147 456 | 384 |
-| `Orient3dTPI` | 75 497 472 | 98 304 |
+| `Orient3dTPI` | 113 246 208 | 98 304 |
 
 Both determinants are far above the limit, so neither predicate gets an expansion stage: the filter goes straight to
 the `FixedArith` stage, as decided. The generated code says so in a comment, and the generator refuses to emit a
@@ -340,3 +336,70 @@ the tests are exact zeros and one-grid-step perturbations of them (section 9).
 Considered and dropped: a stage for LPI's denominator alone (384 components, below the limit). The rule applies to
 the predicate, and `sign(d)` alone rarely fails the filter (a line nearly parallel to the plane), while the
 determinant would still need `FixedArith`.
+
+## 11. Double inputs (envelope PR 1, docs/design/ENVELOPE.md section 4.1)
+
+The polyhedra of the envelope have arbitrary double points, so the double entry now takes every finite double (it
+throws for NaN and infinities).
+
+**Specs in differences.** `N − d c` is written in coordinate differences only: `(p − c) lq − (q − c) lp` for LPI,
+`Σ_k (n_k · (a_k − c)) e_k` for TPI (Cramer's identity: the rows `n_k` have the inverse `[e23 e31 e12] / d`). Same values
+and degree; the filter's magnitudes and the bounds no longer grow with the distance from the origin. The filter
+constants are unchanged (18 u / 9 u, 28 u / 17 u); the scratch shrank (LPI 269, TPI 677 limbs at the 64-bit bound).
+
+**The filter's range instead of an underflow term.** The filter runs when every coordinate is 0 or of magnitude in
+`[2^-a, 2^b]`, else the call goes to the exact stage. A nonzero input is a multiple of its ulp, at least
+`2^-(a + 52)`, so every computed value of degree `k` is a multiple of `2^-(k (a + 52))`; with `k (a + 52) ≤ 960`
+every nonzero value and magnitude is at least `2^-960`, every result (also the decision product `K m̃`, `K > 2^-60`)
+is normal, and the rules of section 9 hold unchanged: no absolute term is needed. `b` is the largest exponent with
+every value's bound below `2^1000`. The generator derives both from the formula and checks that it is homogeneous:
+
+| predicate | degree | range |
+|---|---|---|
+| `Orient3dLPI` | 6 | `[2^-108, 2^164]` |
+| `Orient3dTPI` | 9 | `[2^-54, 2^109]` |
+
+**The exact stage by exponent alignment.** Every coordinate is `±m 2^e` with `m` odd; with `emin` the smallest `e`
+of the call, every coordinate times `2^-emin` is an integer, and the sign is unchanged (homogeneous formulas, a
+positive common factor). If every such integer has at most 128 bits (an exponent spread within the call of up to
+75 bits for full mantissas), the graph runs on `FixedArith` with two limbs per coordinate (scratch LPI 428, TPI 1115
+limbs; no allocation); otherwise in `BigInteger`.
+
+**Tests:** general doubles (full mantissas around `2^-50` to `2^100`, spreads 0 to 70 bits and 100 to 400 bits)
+against the oracle (the doubles made integers by `ExactPoint3.Decompose`); exact zeros of general doubles and the same
+one ulp off; the range edges (`2^-108`, `2^-54`, `2^164`), inputs outside it (tiny, subnormal, huge); the paths (no
+allocation for a spread of 70 bits, `BigInteger` for 100); invariance over `Similarity.All()` on general doubles (the
+oracle on every transformed configuration; the 2^k scales with the same signs and filter decisions bit for bit); the
+range derivation and the rejection of a non-homogeneous formula.
+
+**Timings** (`BooleanComparison indirect 7`, two alternating rounds in one session, ns per call; step (b) took only
+integers):
+
+| | step (b) | PR 1 |
+|---|---|---|
+| LPI, filter decides (30-bit integers) | 54 / 51 | 65 / 63 |
+| TPI, filter decides | 84 / 85 | 114 / 113 |
+| LPI, exact stage | 1209 / 1144 | 1515 / 1570 |
+| TPI, exact stage | 2171 / 2261 | 2878 / 2842 |
+| LPI / TPI, general doubles in [-1, 1], filter decides | (not supported) | 80 / 117 |
+
+The filter path is 11 to 30 ns slower: the range and finiteness checks and the spec in differences (TPI: 9 more
+subtractions, 3 fewer multiplications) together, not measured apart; the exact path is 25-37 % slower (the alignment
+and two-limb inputs, and the same spec change). (The benchmark's construct-then-evaluate column now converts the doubles exactly by `Decompose` and is not
+comparable between the two versions.)
+
+## 12. Prepared predicates (envelope 1b, docs/design/ENVELOPE.md section 4.1, item 2)
+
+`prepare p, q, ...` in a spec, for inputs xyz, names a proper subset of the points. The generator then also emits a
+struct `<Name>Prepared`, `<Name>Prepare(points, out struct)` and `<Name>(ref struct, other points)`, with
+`<Name>FilterPrepared` as its filter.
+
+The filter values that depend on the prepared points only (with m~) are computed once. The call computes the rest
+with the same operations in the same order, so its decisions equal those of `<Name>Filter`, bit for bit. If the filter
+does not decide, or the points are outside the gate, the call runs `<Name>Exact` on all points.
+
+- `indirect.spec` prepares the line and the plane of `Orient3dLPI` (kept: lp, lq, d) and the three planes of
+  `Orient3dTPI`.
+- `Prepared_EqualsUnsplit` checks that the signs and the filter decisions match on general doubles, integers, nearly
+  parallel lines (d near 0), exact zeros and the gate.
+

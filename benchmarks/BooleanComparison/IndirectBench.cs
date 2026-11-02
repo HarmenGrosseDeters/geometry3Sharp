@@ -22,11 +22,14 @@ static class IndirectBench
         int rounds = args.Length > 0 ? int.Parse(args[0]) : 7;
         var rand = new Random(2026);
         const int N = 2000;
-        foreach (bool degenerate in new[] { false, true }) {
+        foreach (var kind in new[] { (false, false), (true, false), (false, true), (true, true) }) {
+            bool degenerate = kind.Item1, general = kind.Item2;
             var L = new Vector3d[N][];
             var T = new Vector3d[N][];
             for (int k = 0; k < N; ++k) {
-                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(r30(rand), r30(rand), r30(rand))).ToArray();
+                // integer points of 30 bits, or general doubles in [-1, 1] (full mantissas, as the envelope's)
+                var P = Enumerable.Range(0, 12).Select(_ => general ? new Vector3d(rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1)
+                    : new Vector3d(r30(rand), r30(rand), r30(rand))).ToArray();
                 L[k] = P.Take(8).ToArray();
                 T[k] = (Vector3d[])P.Clone();
                 if (degenerate) {
@@ -45,19 +48,19 @@ static class IndirectBench
                 if (b != IndirectPredicates.Orient3dTPIExact(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11]) || b != ConstructTPI(t))
                     throw new Exception("TPI signs differ");
             }
-            string kind = degenerate ? "degenerate" : "general";
+            string kindName = (general ? "doubles, " : "30 bits, ") + (degenerate ? "degenerate" : "general");
             int fl = 0, ft = 0;
             for (int k = 0; k < N; ++k) {
                 var l = L[k]; var t = T[k];
                 if (IndirectPredicates.Orient3dLPIFilter(l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7]) != 2) fl++;
                 if (IndirectPredicates.Orient3dTPIFilter(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11]) != 2) ft++;
             }
-            Console.WriteLine($"{kind}: the filter decides {100.0 * fl / N:F1} % (LPI), {100.0 * ft / N:F1} % (TPI)");
-            Report($"LPI {kind}", rounds,
+            Console.WriteLine($"{kindName}: the filter decides {100.0 * fl / N:F1} % (LPI), {100.0 * ft / N:F1} % (TPI)");
+            Report($"LPI {kindName}", rounds,
                 ("construct", () => { long s = 0; foreach (var l in L) s += ConstructLPI(l); return s; }),
                 ("exact", () => { long s = 0; foreach (var l in L) s += IndirectPredicates.Orient3dLPIExact(l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7]); return s; }),
                 ("filtered", () => { long s = 0; foreach (var l in L) s += IndirectPredicates.Orient3dLPI(l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7]); return s; }), N);
-            Report($"TPI {kind}", rounds,
+            Report($"TPI {kindName}", rounds,
                 ("construct", () => { long s = 0; foreach (var t in T) s += ConstructTPI(t); return s; }),
                 ("exact", () => { long s = 0; foreach (var t in T) s += IndirectPredicates.Orient3dTPIExact(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11]); return s; }),
                 ("filtered", () => { long s = 0; foreach (var t in T) s += IndirectPredicates.Orient3dTPI(t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11]); return s; }), N);
@@ -79,12 +82,20 @@ static class IndirectBench
                 while (sw.ElapsedMilliseconds < 200) { all[i].Item2(); reps++; }
                 times[i][r] = sw.Elapsed.TotalMilliseconds * 1e6 / (reps * (double)n);
             }
-        Console.WriteLine($"{name,-24} " + string.Join("  ", all.Select((x, i) => $"{x.Item1} {median(times[i]),8:F0} ns")));
+        Console.WriteLine($"{name,-32} " + string.Join("  ", all.Select((x, i) => $"{x.Item1} {median(times[i]),8:F0} ns")));
     }
 
     static double median(double[] v) { var s = v.OrderBy(x => x).ToArray(); return s[s.Length / 2]; }
 
-    static BigInteger[] B(Vector3d p) => new[] { new BigInteger(p.x), new BigInteger(p.y), new BigInteger(p.z) };
+    // the coordinates as integers: times 2^60 (exact for the general rows: fl(2 NextDouble() - 1) is a multiple of
+    // 2^-53, so every exponent e >= -53 > -60; the integer rows stay integers; the sign cross-check would fail otherwise)
+    static BigInteger[] B(Vector3d p) => new[] { I(p.x), I(p.y), I(p.z) };
+    static BigInteger I(double v)
+    {
+        BigInteger m; int e;
+        ExactPoint3.Decompose(v, out m, out e);
+        return (e + 60 >= 0) ? m << (e + 60) : m >> -(e + 60);
+    }
     static BigInteger[] Sub(BigInteger[] a, BigInteger[] b) => new[] { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
     static BigInteger[] Cross(BigInteger[] u, BigInteger[] v) => new[] { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
     static BigInteger Dot(BigInteger[] u, BigInteger[] v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
