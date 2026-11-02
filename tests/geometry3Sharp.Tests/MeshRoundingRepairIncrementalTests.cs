@@ -17,6 +17,9 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class MeshRoundingRepairIncrementalTests
     {
+        readonly Xunit.Abstractions.ITestOutputHelper output;
+        public MeshRoundingRepairIncrementalTests(Xunit.Abstractions.ITestOutputHelper output) { this.output = output; }
+
         // rotated, scaled by 1e-3 and moved to UTM coordinates (as SafeRoundingBoundTests.UtmCases): the rounding
         // moves vertices, flips, contracts edges and removes vertices, with intersecting pairs among the edited triangles
         static DMesh3 Utm(Family f, int k, int count, int seed) =>
@@ -40,6 +43,8 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "utm Cluster 36 4 0" };
             yield return new object[] { "utm FoldedCluster 30 4 0" };
             yield return new object[] { "utm Cluster 0 2 0" };
+            // (with MaxPairTests 5000: its SmallestRejectedDrift comes from a move past the limit)
+            yield return new object[] { "utm Cluster 0 9 1" };
             foreach (Family f in new[] { Family.Sliver, Family.ShortEdge, Family.Coincident, Family.Collinear, Family.Cluster, Family.FoldedCluster })
                 yield return new object[] { f.ToString() };
         }
@@ -109,8 +114,9 @@ namespace geometry3Sharp.Tests
                 MeshRoundingRepair r = b.Rounding;
                 incremental += r.IncrementalPairSearches;
                 unchanged += r.UnchangedPairSearches;
-                // (folded clusters are left unclean, see SafeRoundingDegenerateInputTests)
-                if (((string)c[0]).Contains("FoldedCluster") == false) {
+                // (folded clusters are left unclean, see SafeRoundingDegenerateInputTests, and so is the UTM cluster with
+                // every 9th triangle)
+                if (((string)c[0]).Contains("FoldedCluster") == false && (string)c[0] != "utm Cluster 0 9 1") {
                     Assert.True(r.IsClean, (string)c[0]);
                     Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result));
                 }
@@ -185,6 +191,60 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(b0.Rounding.MaxDrift * sim.Scale, b.Rounding.MaxDrift);
                 Assert.Equal(b0.Rounding.IncrementalPairSearches, b.Rounding.IncrementalPairSearches);
             }
+        }
+
+        static DMesh3 Input(string name)
+        {
+            if (name.StartsWith("utm ")) {
+                string[] w = name.Split(' ');
+                return Utm((Family)Enum.Parse(typeof(Family), w[1]), int.Parse(w[2]), int.Parse(w[3]), int.Parse(w[4]));
+            }
+            Family f = (Family)Enum.Parse(typeof(Family), name);
+            return SafeRoundingDegenerateInputTests.Make(f, f == Family.Cluster || f == Family.FoldedCluster ? 36 : 30, 1);
+        }
+
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void PastTheLimit_SameAsProposingInFull(string name)
+        {
+            // past the evaluation limit try_move only computes the drift of the move (the checked run proposes it in
+            // full, through improves): the same result, counts and SmallestRejectedDrift
+            foreach (long limit in new long[] { 200, 2000, 5000, 20000 }) {
+                DMesh3 fast = Input(name), full = new DMesh3(fast);
+                var rf = new MeshRoundingRepair(fast) { SharedPositionsTouch = true, MaxPairTests = limit };
+                rf.Apply();
+                var rc = new MeshRoundingRepair(full) { SharedPositionsTouch = true, MaxPairTests = limit };
+                MeshRoundingRepair.CheckOnThisThread = true;
+                try {
+                    rc.Apply();
+                } finally {
+                    MeshRoundingRepair.CheckOnThisThread = false;
+                }
+                Assert.Equal(rc.EvaluationLimitReached, rf.EvaluationLimitReached);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(rc.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(rf.SmallestRejectedDrift));
+                Assert.Equal(rc.Moves + rc.Flips + rc.Collapses + rc.Zips + rc.VertexRemovals, rf.Moves + rf.Flips + rf.Collapses + rf.Zips + rf.VertexRemovals);
+                Assert.Equal(rc.RemainingIntersections, rf.RemainingIntersections);
+                Assert.Equal(Print(full), Print(fast));
+                output.WriteLine($"{name} limit {limit}: reached {rf.EvaluationLimitReached}, smallest rejected {rf.SmallestRejectedDrift:R}, bound {rf.MaxLength:R}");
+            }
+        }
+
+        [Fact]
+        public void PastTheLimit_ReusedInstance_EqualsFreshInstance()
+        {
+            // past the limit, the drift of the moves' neighbourhoods is kept per vertex: a reused instance starts again
+            var reused = new MeshRoundingRepair(Input("utm Cluster 0 4 0")) { SharedPositionsTouch = true, MaxPairTests = 5000 };
+            reused.Apply();
+            Assert.True(reused.EvaluationLimitReached);
+            DMesh3 m = Input("utm Cluster 0 9 1"), copy = new DMesh3(m);
+            reused.Mesh = m;
+            reused.Apply();
+            var fresh = new MeshRoundingRepair(copy) { SharedPositionsTouch = true, MaxPairTests = 5000 };
+            fresh.Apply();
+            Assert.True(fresh.EvaluationLimitReached);
+            Assert.True(fresh.SmallestRejectedDrift < double.PositiveInfinity);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(fresh.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(reused.SmallestRejectedDrift));
+            Assert.Equal(Print(copy), Print(m));
         }
     }
 }

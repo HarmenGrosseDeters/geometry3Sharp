@@ -217,7 +217,8 @@ namespace g3
         HashSet<int> pairsStale = new HashSet<int>();
 
         // for tests: Apply on this thread checks the incremental intersecting pairs against a full search, and the
-        // canonical ids against the dictionary (InvalidOperationException if they differ)
+        // canonical ids against the dictionary (InvalidOperationException if they differ), and proposes the moves past
+        // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift)
         [ThreadStatic] internal static bool CheckOnThisThread;
         bool check;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
@@ -294,6 +295,7 @@ namespace g3
             evaluations = pairTests = 0;
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count);
             EvaluationLimitReached = false;
+            frozenMost = null;
             repair_passes(ref pairs, ref bad);
             // vertices that the rounding put onto the position of another (they touch: SharedPositionsTouch takes them as
             // shared, MeshRobustRepair.NotCleanReason as intersecting): a vertex of valence 3 there is removed, if the
@@ -708,6 +710,21 @@ namespace g3
         readonly List<int> cacheRemoved = new List<int>();
 
         long evaluations, maxEvaluations, pairTests;
+        // after the evaluation limit (no edit is applied any more, the mesh stays as it is): per vertex, the largest drift
+        // among the vertices of its triangles (NaN: not computed yet), for try_move
+        double[] frozenMost;
+
+        // editDrift = most + step; false (and the smallest rejected drift updated) if beyond the bound
+        bool within_bound(double most, double step)
+        {
+            editDrift = most + step;
+            if (!(step >= 0) || !(editDrift <= maxLength)) {
+                if (step >= 0 && editDrift < SmallestRejectedDrift)
+                    SmallestRejectedDrift = editDrift;
+                return false;
+            }
+            return true;
+        }
 
         // (displacement: how far a vertex moves; surface, if hasSurface: a bound on how far the surface moves, for flips
         // and zips)
@@ -726,12 +743,8 @@ namespace g3
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
-            editDrift = most + step;
-            if (!(step >= 0) || !(editDrift <= maxLength)) {
-                if (step >= 0 && editDrift < SmallestRejectedDrift)
-                    SmallestRejectedDrift = editDrift;
+            if (within_bound(most, step) == false)
                 return false;
-            }
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
@@ -1562,6 +1575,27 @@ namespace g3
         {
             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
                 return false;
+            if (EvaluationLimitReached && check == false) {
+                // (past the limit improves rejects every move: only the smallest rejected drift is left, the same as
+                // improves finds; the drift of v's triangles' vertices does not change any more)
+                if (frozenMost == null) {
+                    frozenMost = new double[Mesh.MaxVertexID];
+                    for (int i = 0; i < frozenMost.Length; ++i)
+                        frozenMost[i] = double.NaN;
+                }
+                double most = frozenMost[v];
+                if (double.IsNaN(most)) {
+                    most = 0;
+                    foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                        Index3i tv = Mesh.GetTriangle(t);
+                        for (int k = 0; k < 3; ++k)
+                            most = Math.Max(most, drift[tv[k]]);
+                    }
+                    frozenMost[v] = most;
+                }
+                within_bound(most, p.Distance(Mesh.GetVertex(v)));
+                return false;
+            }
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(v)) {
                 removed.Add(t);
