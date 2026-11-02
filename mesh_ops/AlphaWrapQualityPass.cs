@@ -32,6 +32,10 @@ namespace gs
         internal int MaxPasses = 8;
         /// <summary> (tests) the two kinds of operations </summary>
         internal bool EnableFlips = true, EnableMoves = true;
+        /// <summary> move along the reference: the tangential target is moved onto the reference at the vertex's own offset from it </summary>
+        internal bool FollowReference = false;
+        /// <summary> no flip of an edge whose two triangles meet at a larger angle (a crease) </summary>
+        internal double MaxFlipDihedralDegrees = 180;
 
         // outputs
         internal int Flips, Moves, RejectedByDeviation, RejectedByIntersection, Passes;
@@ -198,6 +202,7 @@ namespace gs
                 if (!unit_normal(pa, pb, pc, out n0) || !unit_normal(pb, pa, pd, out n1)) continue;
                 if (!unit_normal(pc, pa, pd, out m0) || !unit_normal(pd, pb, pc, out m1)) continue;
                 if (m0.Dot(n0) < cosTurn || m0.Dot(n1) < cosTurn || m1.Dot(n0) < cosTurn || m1.Dot(n1) < cosTurn) continue;
+                if (n0.Dot(n1) < Math.Cos(MaxFlipDihedralDegrees * MathUtil.Deg2Rad)) continue;
                 ids.Clear(); tris.Clear(); removed.Clear();
                 ids.Add(new Index3i(c, a, d)); tris.Add(new Triangle3d(pc, pa, pd));
                 ids.Add(new Index3i(d, b, c)); tris.Add(new Triangle3d(pd, pb, pc));
@@ -209,6 +214,12 @@ namespace gs
                 Flips++;
             }
             return true;
+        }
+
+        Vector3d closest_on_reference(Vector3d p)
+        {
+            int t = referenceTree.FindNearestTriangle(p);
+            return MeshQueries.TriangleDistance(Reference, t, p).TriangleClosest;
         }
 
         int opposite(int tid, int a, int b)
@@ -245,6 +256,11 @@ namespace gs
                 if (!(nrm.Length > 0)) continue;
                 nrm.Normalize();
                 Vector3d q = cen - (cen - p).Dot(nrm) * nrm;
+                if (FollowReference) {
+                    // the closest point of the reference to q, plus the vertex's own offset from the reference
+                    Vector3d cp = closest_on_reference(p), cq = closest_on_reference(q);
+                    q = cq + (p - cp);
+                }
                 if (q == p) continue;
                 double nw = double.MaxValue;
                 bool ok = true;

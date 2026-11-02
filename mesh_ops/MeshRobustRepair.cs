@@ -115,6 +115,8 @@ namespace gs
         /// Off by default.
         /// </summary>
         public bool AlphaWrapQualityPass = false;
+        /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
+        internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 
         /// <summary>
         /// reject an exact resolve result whose genus differs from the mesh it resolved (TopologyChanged): the
@@ -378,7 +380,7 @@ namespace gs
                             return false;
                     }
                     if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
-                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF);
+                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, ConfigureWrapQuality);
                         end_phase("wrap.quality");
                         if (CancelF())
                             return false;
@@ -490,12 +492,14 @@ namespace gs
         /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
         /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
         /// </summary>
-        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            Action<AlphaWrapQualityPass> configure = null)
         {
             int subdivisions = 0;
             // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
             // check, which resolves to 1 % of maxDistance, undecided)
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
+            configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
             if (pass.Compute() == false || pass.Flips + pass.Moves == 0)
                 return null;

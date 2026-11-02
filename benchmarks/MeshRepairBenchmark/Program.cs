@@ -166,6 +166,23 @@ class Program
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
                 robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
+                // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
+                string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
+                if (string.IsNullOrEmpty(wq) == false) {
+                    r["wq_variant"] = wq;
+                    robust.ConfigureWrapQuality = (pass) => {
+                        foreach (string kv in wq.Split(',')) {
+                            string[] p = kv.Split('=');
+                            double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
+                            switch (p[0]) {
+                                case "turn": pass.MaxNormalTurnDegrees = v; break;
+                                case "follow": pass.FollowReference = v != 0; break;
+                                case "crease": pass.MaxFlipDihedralDegrees = v; break;
+                                default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
+                            }
+                        }
+                    };
+                }
                 // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
                 string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
                 if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);

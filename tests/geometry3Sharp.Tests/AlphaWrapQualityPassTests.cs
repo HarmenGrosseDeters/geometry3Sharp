@@ -160,6 +160,41 @@ namespace geometry3Sharp.Tests
             };
             Assert.Equal(0, run(30).Flips);
             Assert.Equal(1, run(180).Flips);      // without the guard the flip is made
+            // the crease switch alone also keeps it (the two triangles meet at 90 degrees)
+            var m2 = new DMesh3();
+            int a2 = m2.AppendVertex(new Vector3d(0, 0, 0)), b2 = m2.AppendVertex(new Vector3d(1, 0, 0)),
+                c2 = m2.AppendVertex(new Vector3d(0.5, 0.06, -0.06)), d2 = m2.AppendVertex(new Vector3d(0.5, -0.06, -0.06));
+            m2.AppendTriangle(a2, b2, c2); m2.AppendTriangle(b2, a2, d2);
+            var crease = new AlphaWrapQualityPass(m2, new DMesh3(m2), 100) { EnableMoves = false, MaxNormalTurnDegrees = 180, MaxFlipDihedralDegrees = 20 };
+            Assert.True(crease.Compute());
+            Assert.Equal(0, crease.Flips);
+        }
+
+        [Fact]
+        public void FollowReference_MovesKeepTheirOffsetFromACurvedReference()
+        {
+            // a sphere as the reference, the mesh its copy pushed out by 0.01 with jittered vertices: with
+            // FollowReference a moved vertex keeps its distance to the reference (to the curvature's second order),
+            // without it a tangential move leaves the offset surface
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 16 }.Generate().MakeDMesh();
+            var tree = new DMeshAABBTree3(sphere, true);
+            Func<Vector3d, double> dist = (p) => Math.Sqrt(MeshQueries.TriDistanceSqr(sphere, tree.FindNearestTriangle(p), p));
+            var rand = new Random(2);
+            DMesh3 start = new DMesh3(sphere);
+            foreach (int v in start.VertexIndices()) {
+                Vector3d p = start.GetVertex(v);
+                Vector3d t = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, rand.NextDouble() - 0.5) * 0.04;
+                start.SetVertex(v, (p + t).Normalized * 1.01);
+            }
+            Func<bool, double> worst = (follow) => {
+                var pass = new AlphaWrapQualityPass(new DMesh3(start), sphere, 0.05) { EnableFlips = false, FollowReference = follow, MaxPasses = 1, TargetAngleDegrees = 60 };
+                Assert.True(pass.Compute());
+                Assert.True(pass.Moves > 0);
+                // the largest change of a vertex's distance to the reference
+                return pass.Mesh.VertexIndices().Max(v => Math.Abs(dist(pass.Mesh.GetVertex(v)) - dist(start.GetVertex(v))));
+            };
+            double with = worst(true), without = worst(false);
+            Assert.True(with < 0.5 * without, $"offset error with {with}, without {without}");
         }
 
         [Fact]
