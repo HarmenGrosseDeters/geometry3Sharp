@@ -127,18 +127,24 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   (b) Document that frames at coincident vertices are undefined and return NaN there (cheap, but a silent value is
   worse than the current finite but wrong one only if callers check).
 
-### G3 (open): `TraceFailed` for short edges far from the origin
+### G3 (fixed): `TraceFailed` for short edges far from the origin
 
-- Test: `PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities` (case `_rotated_scale_1e-3_utm`).
+- Test: `PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities` (case `_rotated_scale_1e-3_utm`); the forced
+  failure `MeshGeodesicPathTests.FailedTrace_IsReported`.
 - Input -> wrong result: the flat 8 x 8 grid of size 1 rotated, scaled by 1e-3 and moved to UTM coordinates
-  (632117, 5712043, 114): edges of 1.25e-4 at coordinates of 6e6. `Compute(corner, opposite corner)` returns
-  `TraceFailed` (Length is right) where the same grid at the origin, or only at UTM, or only scaled, gives `Success`.
-- Cause: `build_output` (mesh_ops/MeshGeodesicPath.cs:544) accepts a traced edge if its walk ends within
-  `TraceTolerance * T.Length(h)` = 1e-6 of the edge length (1.25e-10 here) of its head vertex; the coordinates
-  themselves are only resolved to about 1e-9 there (one ulp of 6e6), so any walk misses by more than the tolerance.
-- Fix idea: a tolerance of max(1e-6 of the edge length, a few ulps of the largest coordinate of the edge's
-  triangles); `TraceTolerance` is internal and tests set it below 0 to force a failure, which must stay possible.
-  Small, low risk; not done in this pass because it changes when the status is reported.
+  (632117, 5712043, 114): edges of 1.25e-4 at coordinates of 6e6. `Compute(corner, opposite corner)` returned
+  `TraceFailed` (Length was right) where the same grid at the origin, or only at UTM, or only scaled, gives `Success`.
+- Cause: `build_output` (mesh_ops/MeshGeodesicPath.cs, around line 560) accepted a traced edge if its walk ended
+  within `TraceTolerance * T.Length(h)` = 1e-6 of the edge length of its head vertex: 5.3e-10 for the 5.3e-4 long
+  diagonal edge here. The walk ends with `to_world`, a barycentric combination of the triangle's coordinates, which
+  rounds to about one ulp of the coordinates (9.3e-10 at 5.7e6); the measured miss was 9.39e-10, one ulp.
+- Fix: the tolerance is max(`TraceTolerance` of the length, 16 eps M), M the largest absolute coordinate of the head
+  vertex (`trace_tolerance`; the rounding of `to_world` is at most 3.5 eps M, derived in the comment). eps M is
+  scaled exactly by a 2^k scale, like the length, so such scales keep the same decision; the ulp term matters only
+  for edges below about 1e-9 of the coordinates. A `TraceTolerance` below 0 still fails every trace (tests). With
+  the term removed the UTM case fails; with the `< 0` guard removed `FailedTrace_IsReported` fails (its new
+  one-edge path ends exactly at its vertex). A factor of 2 instead of 16 still passes (the miss is one ulp): the
+  margin is the derivation's, not a tuned value.
 
 ### Notes (no finding)
 

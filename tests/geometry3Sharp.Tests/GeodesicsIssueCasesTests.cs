@@ -26,8 +26,6 @@ namespace geometry3Sharp.Tests
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
             [nameof(TinyAreaTriangles_VectorTransportFinite) + "_CoincidentVertices"] =
                 "finding G2: tangent frames of vertices with a coincident neighbour (zero-length input edge) are arbitrary",
-            [nameof(PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities) + "_rotated_scale_1e-3_utm"] =
-                "finding G3: MeshGeodesicPath reports TraceFailed for edges shorter than the coordinate resolution / 1e-6",
         };
 
         static void Expect(string name, Action check)
@@ -575,7 +573,6 @@ namespace geometry3Sharp.Tests
             DMesh3 near = Grid(8, 8, 1, 1, Flat, false, out int[,] nid);
             near.SetVertex(nid[8, 8], new Vector3d(1, 1 + 1e-6, 0));
             var cases = new[] { (flat, fid[0, 0], fid[8, 8]), (flat, fid[0, 0], fid[4, 4]), (flat, fid[0, 0], fid[8, 3]), (near, nid[0, 0], nid[8, 8]) };
-            var status = new List<GeodesicPathStatus>();
             string caseName = nameof(PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities) + "_" + sim.Name.Replace(", ", "_").Replace(" ", "_");
             Expect(caseName, () => {
                 foreach (var (mesh, s0, t) in cases) {
@@ -586,8 +583,7 @@ namespace geometry3Sharp.Tests
                         double shortest = Enumerable.Range(1, g0.Path.Count - 1).Min(k => g0.Path[k].Distance(g0.Path[k - 1]));
                         Assert.True(shortest > 1e-9 && shortest < 1e-6, $"near-diagonal path: shortest segment {shortest}");
                     }
-                    status.Add(g.Compute(s0, t));
-                    Assert.Equal(GeodesicPathStatus.Success, status[status.Count - 1]);
+                    Assert.Equal(GeodesicPathStatus.Success, g.Compute(s0, t));
                     AssertNoRepeatedPoints(g);
                     if (sim.IsExact) {
                         Assert.Equal(g0.PathVertices, g.PathVertices);
@@ -597,10 +593,6 @@ namespace geometry3Sharp.Tests
                         Assert.True(Math.Abs(g0.Length - g.Length / sim.Scale) < 1e-9 * g0.Length + 64 * sim.Resolution(1.5), $"{g0.Length} vs {g.Length / sim.Scale}");
                 }
             });
-            if (IssueCases.Strict && KnownFailures.ContainsKey(caseName))
-                // finding G3: the trace tolerance is relative to the edge length only; at UTM coordinates and a scale
-                // of 1e-3 the edges (1.25e-4) are traced to the coordinate resolution (about 1e-9), beyond it
-                Assert.Equal(GeodesicPathStatus.TraceFailed, status[status.Count - 1]);
         }
 
         /// <summary> the points without repeats (within 1e-9 of the length); closed: without the closing point </summary>

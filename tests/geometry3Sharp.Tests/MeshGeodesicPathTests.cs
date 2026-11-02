@@ -547,6 +547,10 @@ namespace geometry3Sharp.Tests
             var g = new MeshGeodesicPath(mesh) { TraceTolerance = -1 };     // every trace counts as failed
             Assert.Equal(GeodesicPathStatus.TraceFailed, g.Compute(ids[0, 0], ids[6, 5]));
             Assert.Equal(mesh.GetVertex(ids[0, 0]).Distance(mesh.GetVertex(ids[6, 5])), g.Length, 12);
+            // also a trace that ends exactly at its vertex (one input edge: no miss at all, below the rounding term)
+            var e = new MeshGeodesicPath(mesh) { TraceTolerance = -1 };
+            Assert.Equal(GeodesicPathStatus.TraceFailed, e.Compute(ids[0, 0], ids[1, 0]));
+            Assert.Equal(GeodesicPathStatus.Success, new MeshGeodesicPath(mesh).Compute(ids[0, 0], ids[1, 0]));
         }
 
         [Fact]

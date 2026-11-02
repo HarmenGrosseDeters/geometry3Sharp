@@ -524,6 +524,21 @@ namespace gs
         /// <summary> how far (relative to the edge length) a traced edge may end from its vertex (tests set it below 0) </summary>
         internal double TraceTolerance = 1e-6;
 
+        // How far the end of a traced edge of the given length may lie from its head vertex: TraceTolerance of the
+        // length (the walk's own error, relative), but not below the rounding of the end point itself. The walk ends
+        // with to_world, b0 A + b1 B + b2 C with b0 = 1 - b1 - b2; at an end that reaches the head vertex its weight is
+        // about 1 and the others about 0, so with u = 2^-53 and M the largest absolute coordinate of the head: 3
+        // products (3 u M), 2 sums (2 u M) and |b0 + b1 + b2 - 1| <= 2 u (2 u M), together 7 u M = 3.5 eps M; 16 eps M
+        // leaves a margin of 4. That term matters only for edges shorter than about 1e-9 of the coordinates (UTM
+        // coordinates and millimetre edges: finding G3). eps M scales with a 2^k scale exactly, as the length does, so
+        // such scales keep the same decision. A TraceTolerance below 0 still fails every trace (tests).
+        double trace_tolerance(double length, Vector3d head)
+        {
+            if (TraceTolerance < 0)
+                return TraceTolerance;
+            return Math.Max(TraceTolerance * length, 16 * MathUtil.Epsilon * head.MaxAbs);
+        }
+
         // Path, PathVertices, Length; false if a traced edge did not end at its vertex
         bool build_output()
         {
@@ -541,7 +556,8 @@ namespace gs
                 int h = seg_halfedge(s);
                 List<Vector3d> pts = T.TraceEdge(h);
                 // the walk from the tail of h must arrive at its head
-                if (!(pts[pts.Count - 1].Distance(T.VertexPosition(T.Head(h))) <= TraceTolerance * T.Length(h))) traced = false;
+                Vector3d head = T.VertexPosition(T.Head(h));
+                if (!(pts[pts.Count - 1].Distance(head) <= trace_tolerance(T.Length(h), head))) traced = false;
                 if (s < 0) pts.Reverse();
                 // the joints are vertices: exact positions instead of the ends of the walks
                 pts[0] = T.VertexPosition(seg_tail(s));
