@@ -10,7 +10,8 @@
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
 //   csf      points=<cloud> grid=<dgm grid> [res=1] [threshold=0.5] [rigidness=2]
-//   slope    [toe=ngon|lshape|wavy] [n=24] [r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]   (TerrainSlopeDesign,
+//   slope    [toe=ngon|lshape|wavy] [n=24] [r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]
+//            [terrain=none|wave] [amp=0.2h] [tgrid=5] [composite=1]   (TerrainSlopeDesign,
 //            procedural toes, no data needed; timings per phase, kernel counters, the oracle time per triangle)
 // Grids and clouds are names in data/ (see fetch_data.py).
 using System;
@@ -383,6 +384,30 @@ class Program
         }
         var toe = SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
         var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
+        // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
+        // the catch lines and (composite=1) the composite terrain
+        if (Arg("terrain", "none") == "wave") {
+            double amp = ArgD("amp", 0.2 * h), spacing = ArgD("tgrid", 5), reach = (h + amp) * ratio * 1.2 + 2 * spacing;
+            var box = new AxisAlignedBox2d(pts[0].xy, pts[0].xy);
+            foreach (var p in pts) box.Contain(p.xy);
+            box.Expand(reach);
+            int nx = (int)Math.Ceiling(box.Width / spacing), ny = (int)Math.Ceiling(box.Height / spacing);
+            var terrain = new DMesh3();
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i) {
+                    double x = box.Min.x + box.Width * i / nx, y = box.Min.y + box.Height * j / ny;
+                    double z = c.z + h + amp * Math.Sin(0.7 * (x - c.x) / r) * Math.Cos(0.9 * (y - c.y) / r);
+                    terrain.AppendVertex(new Vector3d(x, y, z));
+                }
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    int v = j * (nx + 1) + i;
+                    terrain.AppendTriangle(v, v + 1, v + nx + 2); terrain.AppendTriangle(v, v + nx + 2, v + nx + 1);
+                }
+            d.Terrain = terrain; d.HeightLimit = double.NaN;
+            d.BuildComposite = ArgD("composite", 1) != 0;
+            R["terrain_tris"] = terrain.TriangleCount;
+        }
         var sw = Stopwatch.StartNew();
         bool ok = d.Compute();
         R["slope_s"] = Secs(sw);
@@ -391,6 +416,23 @@ class Program
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
         R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
         R["toe_lowering"] = d.UsedToeLowering; R["slope_margin"] = d.UsedSlopeMargin; R["facet_angle"] = d.FacetAngle; R["max_slope_ratio"] = d.MaxSlopeRatio;
+        if (d.Terrain != null) {
+            R["catch_lines"] = d.CatchLines.Count; R["catch_points"] = d.CatchLines.Sum(l => l.Points.Count);
+            R["catch_closed"] = d.CatchLines.Count(l => l.Closed);
+            if (d.Composite != null) {
+                R["composite_tris"] = d.Composite.TriangleCount; R["region_tris"] = d.SlopeRegion.TriangleCount;
+                var swc = Stopwatch.StartNew();
+                R["composite_overlaps"] = TerrainVolumeDifference.XYOverlaps(d.Composite);
+                int rp = 0;
+                foreach (int t in d.SlopeRegion.TriangleIndices()) {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
+                    d.SlopeRegion.GetTriVertices(t, ref a, ref b, ref q);
+                    SlopePiece p = d.Pieces[d.SlopeRegion.GetTriangleGroup(t)];
+                    if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) rp++;
+                }
+                R["region_oracle_pass"] = rp; R["composite_check_s"] = Secs(swc);
+            }
+        }
         if (!ok) return;
         DMesh3 m = d.SlopeSurface;
         R["triangles"] = m.TriangleCount; R["vertices"] = m.VertexCount;

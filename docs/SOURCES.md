@@ -248,10 +248,11 @@ Implemented from the papers and definitions (no code ported):
 | Geodesic safety lines (`AlongSurface`) | the heat method, K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013 (via `MeshGeodesicDistance`) |
 | Offset surface, horizontal safety lines, break lines, cut and fill volumes | own methods (no external source) |
 
-## Terrain slope design (`docs/design/TERRAIN.md`; phase 1a: `TerrainSlopeDesign`, `Slope`, `SlopeSpec`)
+## Terrain slope design (`docs/design/TERRAIN.md`; phase 1a: `TerrainSlopeDesign`, `Slope`, `SlopeSpec`; phase 1b: `CatchLine`, the overlay and the composite)
 
-Phase 1a (the slope surface and the oracle, `docs/design/TERRAIN_1A_PLAN.md`) is implemented from these sources, no code
-taken over; the rest is design. Sources the design was written from: Proprietary tools (Civil 3D, Datamine Studio OP, Maptek Vulcan) were consulted through their
+Phase 1a (the slope surface and the oracle, `docs/design/TERRAIN_1A_PLAN.md`) and phase 1b (the overlay with the terrain,
+the catch lines, the region and the composite, `docs/design/TERRAIN_1B_PLAN.md`) are implemented from these sources, no
+code taken over; the rest is design. Sources the design was written from: Proprietary tools (Civil 3D, Datamine Studio OP, Maptek Vulcan) were consulted through their
 public documentation only. The user's company code was not looked at.
 
 | Part | Source |
@@ -265,6 +266,7 @@ public documentation only. The user's company code was not looked at.
 | Topological overlay with exact predicates, degeneracies | M. de Berg et al., *Computational Geometry*, ch. 2 (map overlay); J. O'Rourke, C.-B. Chien, T. Olson, D. Naddor, *A new linear algorithm for intersecting convex polygons*, CGIP 1982; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 1990 |
 | Contour lofting (compared) | H. Fuchs, Z. M. Kedem, S. P. Uselton, *Optimal surface reconstruction from planar contours*, CACM 1977; E. Keppel 1975; H. N. Christiansen, T. W. Sederberg 1978; D. Meyers, S. Skinner, K. Sloan, *Surfaces from contours*, ACM TOG 1992; G. Barequet, M. Sharir 1996 |
 | Implementation of 1a: interval arithmetic with outward rounding as the filter of the exact predicates; the planar map as a half-edge structure; exact signs as in Shewchuk's predicates | R. E. Moore, *Interval Analysis*, Prentice-Hall 1966; D. E. Muller, F. P. Preparata, *Finding the intersection of two convex polyhedra*, TCS 1978 (doubly connected edge list), and de Berg et al., ch. 2; J. R. Shewchuk, *Adaptive precision floating-point arithmetic and fast robust geometric predicates*, DCG 1997. The domain is triangulated with the library's `ExactTriangulation2` (Sloan 1993, Lawson), the faces are found with `LooseQuadtree2d` (public API) |
+| Implementation of 1b: the overlay of the slope surface with the terrain by vertex identities, decided by `Orient2d` with Simulation of Simplicity (the terrain shifted by (ε, ε²), the ε terms decided by sign comparisons of coordinate differences); the sign of S − T at overlay vertices by `Orient3d`; faces of two convex triangles from their mutual containment and edge crossings; the region by union-find over faces; partial triangles by the library's `ExactTriangulation2` (exact CDT) and parity labelling | H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 1990; de Berg et al., ch. 2 (map overlay); J. O'Rourke et al. 1982 (above); R. E. Tarjan, *Efficiency of a good but not linear set union algorithm*, J. ACM 1975 (union-find); the predicates as in Shewchuk 1997 (above) |
 | Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
 
 ## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
