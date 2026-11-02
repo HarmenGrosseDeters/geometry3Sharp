@@ -42,7 +42,7 @@ namespace gs
     /// point is the center of an empty ball larger than Alpha, unless a circumcenter on its dual edge is not finite and
     /// the edge is replaced by a long normal segment, see clamp_center; a rule 2 point lies that deep inside an empty
     /// circumsphere, see rule_projection). So a result triangle with a circumradius of at most Alpha has a min angle of
-    /// at least asin(Offset / (2 Alpha)) (0.95 degrees at the defaults, 2.9 degrees at Alpha = 10 Offset) and a max
+    /// at least asin(min(Offset, Alpha - Offset) / (2 Alpha)) = asin(Offset / (2 Alpha)) (0.95 degrees at the defaults, 2.9 degrees at Alpha = 10 Offset) and a max
     /// angle of at most 180 degrees minus twice that. Larger triangles, without an angle bound, come from the manifold
     /// step (outside cells moved inside, up to 179 degrees), from rejected Steiner points (Counts["rejected_points"]) and
     /// from PointLimitReached. RefineNonManifold refines at the spots where the manifold step would move cells first, which
@@ -99,8 +99,13 @@ namespace gs
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
         /// continues (up to 10 rounds). The facets of moved cells were never gates (circumradius above Alpha, caps up to
         /// 179 degrees, the result up to several Offset + Alpha from the input); with the refinement most spots become
-        /// manifold by carving, which keeps the bounds of the class doc. Costs about 20 % more time at Alpha = 10 Offset.
-        /// false: the manifold step alone, as before.
+        /// manifold by carving, which keeps the bounds of the class doc there; the spots that remain are made manifold as
+        /// before, without a bound. Costs about 20 % more time at Alpha = 10 Offset. The extra points count against
+        /// MaxSteinerPoints: a wrap that reaches it here ends with PointLimitReached (the guarantees of that status), where
+        /// it had Success without the refinement. A rule 1 point rejected during the refinement fails the result check as
+        /// any other (Failed, then the retry with the other box).
+        /// false: the manifold step alone, as before (the order of its candidates differs only where the old score rounded
+        /// two volumes to the same value).
         /// </summary>
         public bool RefineNonManifold = true;
         const int MaxNonManifoldRounds = 10;
@@ -636,11 +641,11 @@ namespace gs
         // Terminates: at most MaxNonManifoldRounds rounds, each inserts at least one point or ends the loop.
         WrapStatus refine_non_manifold()
         {
-            long rounds = 0, points = 0, cells = 0;
+            long rounds = 0, points = 0, cells = 0, skipped = 0;
             var pinch = new List<int>();
             var stamps = new List<int>();
             WrapStatus status = WrapStatus.Success;
-            for (int round = 0; round < MaxNonManifoldRounds; ++round) {
+            for (int round = 0; round < MaxNonManifoldRounds && status == WrapStatus.Success; ++round) {
                 if (cancelled())
                     return WrapStatus.Cancelled;
                 WrapStatus trial = cells_moved_by_manifold_step(pinch);
@@ -665,6 +670,8 @@ namespace gs
                     }
                     if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3))
                         inserted++;
+                    else
+                        skipped++;
                 }
                 points += inserted;
                 if (inserted == 0)
@@ -679,6 +686,8 @@ namespace gs
             Counts["pinch_rounds"] = rounds;
             Counts["pinch_points"] = points;
             Counts["pinch_cells"] = cells;
+            // cells without a qualifying point (or whose point the triangulation rejected): left to the manifold step
+            Counts["pinch_skipped"] = skipped;
             return status;
         }
 

@@ -949,7 +949,8 @@ namespace geometry3Sharp.Tests
                 foreach (Vector3d q in new[] { (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2 })
                     band = Math.Max(band, oracle(q));
             }
-            Assert.True(band <= w.UsedOffset + w.UsedAlpha, $"result {band} from the input, offset + alpha {w.UsedOffset + w.UsedAlpha}");
+            // (sampled at centroids and edge midpoints: a lower bound of the true band, against offset + alpha)
+            Assert.True(band <= w.UsedOffset + w.UsedAlpha, $"sampled result {band} from the input, offset + alpha {w.UsedOffset + w.UsedAlpha}");
 
             // reused instance: the same result
             var vertices = Vertices(w.Result);

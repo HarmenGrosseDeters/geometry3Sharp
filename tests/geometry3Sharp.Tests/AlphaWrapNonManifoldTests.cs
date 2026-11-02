@@ -35,22 +35,26 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Wrap_RefineNonManifold_PointLimitAndCancel()
         {
-            // the point limit and the cancellation also stop the refinement at non-manifold spots
+            // the extra points count against the point limit: one point above what the wrap needs without the refinement ends
+            // in the first round at non-manifold spots, with PointLimitReached and its guarantees (closed, manifold, enclosing)
             DMesh3 m = AlphaWrapTests.RandomSoup(42);
-            var full = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
-            Assert.True(full.Compute(), full.Error);
-            long before = full.Counts["steiner_points"] - full.Counts["pinch_points"];
-            var limited = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, MaxSteinerPoints = (int)before + 1 };
-            limited.Compute();
+            var plain = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false };
+            Assert.True(plain.Compute(), plain.Error);
+            long needed = plain.Counts["steiner_points"];
+            var limited = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, MaxSteinerPoints = (int)needed + 1 };
+            Assert.False(limited.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, limited.Status);
-            Assert.True(limited.Counts["steiner_points"] <= before + 1);
-            ResultChecks.AssertClosed(limited.Result);
+            Assert.Equal(needed + 1, limited.Counts["steiner_points"]);
+            Assert.Equal(1, limited.Counts["pinch_points"]);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(limited.Result));
 
-            // (cancelled once the first refinement has ended: in the first round of the refinement at non-manifold spots)
+            // cancelled once the first refinement has ended: in the first round of the refinement at non-manifold spots,
+            // before it reports its counts
             var cancelled = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
             cancelled.CancelF = () => cancelled.PhaseMilliseconds.ContainsKey("wrap");
             Assert.False(cancelled.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, cancelled.Status);
+            Assert.False(cancelled.Counts.ContainsKey("pinch_rounds"));
         }
 
         [Fact]
