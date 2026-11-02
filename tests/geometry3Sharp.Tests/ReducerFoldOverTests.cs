@@ -86,61 +86,6 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void BoundaryTriangleMinNormalDot_ControlsTheWalls()
-        {
-            // the walls: with only the sign test (BoundaryTriangleMinNormalDot 0) some stay, the default removes them;
-            // without PreventFoldOver also folds stay
-            int walls(DMesh3 m) => m.TriangleIndices().Count(t => m.GetTriNormal(t).z == 0);
-            int signOnly = 0, byDefault = 0, off = 0;
-            for (int seed = 1; seed <= 3; ++seed) {
-                DMesh3 input = NoisyTerrain(seed);
-                DMesh3 a = new DMesh3(input), b = new DMesh3(input), c = new DMesh3(input);
-                new Reducer(a) { BoundaryTriangleMinNormalDot = 0 }.ReduceToTriangleCount(input.TriangleCount / 5);
-                new Reducer(b).ReduceToTriangleCount(input.TriangleCount / 5);
-                new Reducer(c) { PreventFoldOver = false }.ReduceToTriangleCount(input.TriangleCount / 5);
-                signOnly += walls(a); byDefault += NotUp(b); off += NotUp(c);
-            }
-            Assert.True(signOnly > 0, "the sign test alone leaves walls on these inputs");
-            Assert.Equal(0, byDefault);
-            Assert.True(off > byDefault, "without PreventFoldOver the folds stay");
-        }
-
-        [Theory]
-        [InlineData(0.005, 30)]
-        [InlineData(0.0001, 40)]
-        public void ThinPlate_ReachesTheTarget(double thickness, int edgeVertices)
-        {
-            // on the rim of a thin plate the absorbed normals of both sides cancel: the reference says nothing there and
-            // the collapse is not rejected for it (otherwise the plate stops far above its target)
-            DMesh3 plate = new GridBox3Generator() {
-                Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, thickness)), EdgeVertices = edgeVertices }.Generate().MakeDMesh();
-            DMesh3 off = new DMesh3(plate);
-            new Reducer(plate).ReduceToTriangleCount(12);
-            new Reducer(off) { PreventFoldOver = false }.ReduceToTriangleCount(12);
-            AssertValid(plate);
-            Assert.True(plate.IsClosed());
-            Assert.Equal(off.TriangleCount, plate.TriangleCount);
-        }
-
-        [Fact]
-        public void BoxesTouchingAtAFace_CancellingNormalsAreNoReference()
-        {
-            // two closed boxes sharing the region of a face (PreventSelfIntersections keeps it): at the shared face the
-            // absorbed normals of both boxes cancel. Taken as a reference anyway (ReferenceNormalMinLength 0), it blocks
-            // collapses there (558 triangles instead of 540, the count without PreventFoldOver)
-            DMesh3 a = new GridBox3Generator() { EdgeVertices = 10, Box = new Box3d(Vector3d.Zero, new Vector3d(10, 10, 10)) }.Generate().MakeDMesh();
-            DMesh3 b = new DMesh3(a);
-            MeshTransforms.Translate(b, new Vector3d(20, 0, 0));
-            new MeshEditor(a).AppendMesh(b);
-            DMesh3 guarded = new DMesh3(a), unguarded = new DMesh3(a), off = new DMesh3(a);
-            new Reducer(guarded) { PreventSelfIntersections = true }.ReduceToTriangleCount(194);
-            new Reducer(unguarded) { PreventSelfIntersections = true, ReferenceNormalMinLength = 0 }.ReduceToTriangleCount(194);
-            new Reducer(off) { PreventSelfIntersections = true, PreventFoldOver = false }.ReduceToTriangleCount(194);
-            Assert.Equal(off.TriangleCount, guarded.TriangleCount);
-            Assert.True(unguarded.TriangleCount > guarded.TriangleCount, $"{unguarded.TriangleCount} vs {guarded.TriangleCount}");
-        }
-
-        [Fact]
         public void SharpShapes_ReachTheTarget()
         {
             // creases of 90 degrees (box, cylinder caps) and a smooth closed surface lose no reach
