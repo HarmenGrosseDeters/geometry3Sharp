@@ -1541,6 +1541,22 @@ namespace Meshing2Acceptance
             /// </summary>
             const int ZoneFactor = 3;
 
+            /// <summary>
+            /// A branch u of a and a branch w of c leave the apex with a positive dot product, and every vertex of t lies within
+            /// ZoneFactor tube of the apex or has a positive dot product with both u and w
+            /// </summary>
+            bool AcuteSide(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, int[] t)
+            {
+                Q near2 = tube2 * (ZoneFactor * ZoneFactor);
+                Q Dot(Pt o, Pt x, Pt y) => (x.Qx - o.Qx) * (y.Qx - o.Qx) + (x.Qy - o.Qy) * (y.Qy - o.Qy);
+                foreach (var u in new[] { a.a, a.b })
+                    foreach (var w in new[] { c.a, c.b }) {
+                        if (u.Equals(apex) || w.Equals(apex) || Dot(apex, u, w).Sign <= 0) continue;
+                        if (t.All(i => Exact.Len2(apex, v[i]) <= near2 || (Dot(apex, u, v[i]).Sign > 0 && Dot(apex, w, v[i]).Sign > 0))) return true;
+                    }
+                return false;
+            }
+
             /// <summary> InMergeZone, counted in the report when it excuses </summary>
             bool Zone(int[] t, Q sin2Low)
             {
@@ -1605,7 +1621,13 @@ namespace Meshing2Acceptance
                         Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
                         if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
                         var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
-                        if (t.All(i => Exact.Len2(apex, v[i]) <= zone2)) return true;
+                        if (!t.All(i => Exact.Len2(apex, v[i]) <= zone2)) continue;
+                        // the small angle is that between a branch of a and a branch of c leaving the apex (their directions with a
+                        // positive dot product), and the triangle lies on its side: on the obtuse side (eg past a collinear split point
+                        // of one source, or at a corner of nearly 180 degrees) the sources are not within the tube of each other, and the
+                        // mesher refuses nothing there (review of the hull pairing); a vertex within ZoneFactor tube of the apex counts
+                        // on either side
+                        if (AcuteSide(apex, a, c, t)) return true;
                     }
                 return false;
             }
