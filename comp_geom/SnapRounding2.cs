@@ -27,6 +27,8 @@ namespace g3
     {
         /// <summary> the snapped input: input points at their pixel centres, extra hot pixel centres appended, segments and rings as chains </summary>
         public ConstrainedMesh2Input Result;
+        /// <summary> per input segment, the index of its first piece in Result.Segments (one more entry: the end of the last chain) </summary>
+        internal int[] SegmentChainStart;
         /// <summary> the largest distance by which an input point moved, per axis (at most half a pixel) </summary>
         public double MaxDisplacement;
         public int Rounds, Crossings, Spread, Widened, ForcedSpread, CollapsedSegments, CollapsedRings, DroppedSeeds;
@@ -445,12 +447,16 @@ namespace g3
             }
             Grid = new SnapGrid(w);
             var result = new ConstrainedMesh2Input { Points = points, HoleSeeds = new List<Vector2d>(), Regions = new List<Mesh2Region>() };
-            foreach (var s in input.Segments) {
+            SegmentChainStart = new int[input.Segments.Count + 1];
+            for (int si = 0; si < input.Segments.Count; ++si) {
+                var s = input.Segments[si];
+                SegmentChainStart[si] = result.Segments.Count;
                 if (s.A == s.B) { result.Segments.Add(new Mesh2Segment(rep[(KX[s.A], KY[s.A])], rep[(KX[s.A], KY[s.A])], s.Marker, s.Locked)); continue; }
                 var chain = ChainOf(s.A, s.B);
                 if (chain.Count < 2) { ++CollapsedSegments; continue; }
                 for (int i = 0; i + 1 < chain.Count; ++i) result.Segments.Add(new Mesh2Segment(chain[i], chain[i + 1], s.Marker, s.Locked));
             }
+            SegmentChainStart[input.Segments.Count] = result.Segments.Count;
             List<int> Expand(IReadOnlyList<int> ring)
             {
                 var list = new List<int>();

@@ -63,13 +63,60 @@ namespace g3
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
+            // On the grid, a hull domain's hull edges are snap-rounded with the segments (owner decision 2026-11-02, option C of
+            // MESHING2D_HULL_GRID.md): appended as segments, their chains through hot pixels become the hull sources, so refinement
+            // splits them in the envelopes of the true hull edges, as it splits segments
+            int hullFrom = -1;
+            if (SnapTolerance > 0 && Refines(input) && !(input.Rings ?? new List<Mesh2Ring>()).Any(r => r != null && !r.Hole)) {
+                // (the input checked first, as Snapped does, so that a bad input gets its own message, not one of the hull; review)
+                new ConstrainedDelaunayMesh2.Builder(input, true, cancellationToken).Validate();
+                var hull = ExactHull(input.Points);
+                if (hull.Count >= 3) {
+                    var segments = new List<Mesh2Segment>(input.Segments ?? new List<Mesh2Segment>());
+                    hullFrom = segments.Count;
+                    for (int i = 0; i < hull.Count; ++i) segments.Add(new Mesh2Segment(hull[i], hull[(i + 1) % hull.Count]));
+                    input = new ConstrainedMesh2Input { Points = input.Points, Segments = segments, Rings = input.Rings, HoleSeeds = input.HoleSeeds,
+                        Regions = input.Regions, Heights = input.Heights };
+                }
+            }
             return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
                 var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken);
+                if (hullFrom >= 0) { builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom]; builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count]; }
                 var refiner = new Refiner(this, builder, snap);
                 builder.refine = refiner.Run;
                 builder.IsBad = refiner.BelowAngle;
                 return builder.Run();
             });
+        }
+
+        /// <summary> refinement runs: an angle, an area, a size, a region area, or conforming (as Refiner.Run decides) </summary>
+        bool Refines(ConstrainedMesh2Input input)
+        {
+            if (MinAngle > 0 || MaxArea != null || SizeFunction != null || Conforming) return true;
+            foreach (var r in input.Regions ?? new List<Mesh2Region>()) if (r != null && r.MaxArea != null) return true;
+            return false;
+        }
+
+        /// <summary> the corners of the convex hull of the points, counter-clockwise, collinear points left out (exact) </summary>
+        static List<int> ExactHull(IList<Vector2d> points)
+        {
+            var order = Enumerable.Range(0, points.Count).Where(i => !double.IsNaN(points[i].x) && !double.IsNaN(points[i].y))
+                .OrderBy(i => points[i].x).ThenBy(i => points[i].y).ToList();
+            var unique = new List<int>();
+            foreach (int i in order) if (unique.Count == 0 || points[unique[unique.Count - 1]] != points[i]) unique.Add(i);
+            if (unique.Count < 3) return unique;
+            var hull = new List<int>();
+            for (int pass = 0; pass < 2; ++pass) {
+                int start = hull.Count;
+                for (int j = 0; j < unique.Count; ++j) {
+                    int i = pass == 0 ? unique[j] : unique[unique.Count - 1 - j];
+                    while (hull.Count >= start + 2 && ExactPredicates.Orient2d(points[hull[hull.Count - 2]], points[hull[hull.Count - 1]], points[i]) <= 0)
+                        hull.RemoveAt(hull.Count - 1);
+                    hull.Add(i);
+                }
+                hull.RemoveAt(hull.Count - 1);
+            }
+            return hull;
         }
 
         internal sealed class Refiner
@@ -105,6 +152,16 @@ namespace g3
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
             static long Key(int a, int c) => a < c ? ((long)a << 32) | (uint)c : ((long)c << 32) | (uint)a;
 
+            /// <summary> vertex v lies on a hull chain: one of its constrained edges carries a hull source </summary>
+            bool OnHullChain(int v)
+            {
+                foreach (int e in k.Star(v)) {
+                    if (k.Seg[e] < 0) continue;
+                    foreach (int src in k.Sources[k.Seg[e]]) if (b.sources[src].Hull) return true;
+                }
+                return false;
+            }
+
             bool InDomain(int t) => k.Tag[t] >= 0 && !k.IsGhost(t);
 
             internal ConstrainedTriangulation2Result Run(ConstrainedDelaunayMesh2.Builder builder)
@@ -113,7 +170,9 @@ namespace g3
                 int segmentCount = (b.input.Segments?.Count ?? 0);
                 foreach (var r in b.input.Rings ?? new List<Mesh2Ring>()) segmentCount += r.Vertices.Length;
                 limit = options.SteinerLimit ?? 10L * (b.n + segmentCount) + 100000;
-                bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || options.Conforming;
+                // (hull chains appended for refinement on the grid: refinement runs, also where the snapped input lost the region area
+                // that asked for it, so that the hull is constrained and flooded as on every grid path; review)
+                bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || options.Conforming || b.HullFromSegments;
                 if (!any) return null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
@@ -160,6 +219,17 @@ namespace g3
                     if (fail != null) return fail;
                 }
                 k.Dirty = null;
+                // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
+                // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
+                // snapping reports collapsed segments
+                if (b.HullFromSegments) {
+                    var inDomain = new HashSet<int>();
+                    for (int t = 0; t < k.TriangleSlots; ++t)
+                        if (InDomain(t)) for (int j = 0; j < 3; ++j) inDomain.Add(k.V[3 * t + j]);
+                    int collapsed = 0;
+                    for (int v = 0; v < firstSteiner; ++v) if (v != k.Infinite && !inDomain.Contains(v) && OnHullChain(v)) ++collapsed;
+                    if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
+                }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
                     b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because their circumcentre's pixel is taken or crossed by a constraint, "
                         + GridUnsplittable + " subsegments with no split point on the grid");
@@ -180,7 +250,8 @@ namespace g3
             {
                 if (b.outerRings > 0) return null;
                 var pieces = new List<ConstrainedDelaunayMesh2.Builder.Piece>();
-                for (int t = 0; t < k.TriangleSlots; ++t) {
+                // (on the grid the hull edges came in as snapped segments, hull sources already: only the flood below)
+                for (int t = 0; t < k.TriangleSlots && !b.HullFromSegments; ++t) {
                     if (!k.IsGhost(t)) continue;
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j;
@@ -516,7 +587,12 @@ namespace g3
                 return false;
             }
 
-            /// <summary> the real triangles whose bounding box meets the box, found from triangle t0 across all edges </summary>
+            /// <summary>
+            /// The real triangles whose bounding box meets the box, found from triangle t0 across all edges. t0 may be a ghost (the outer
+            /// side of a hull edge): the search then starts from its real neighbour (a ghost start found nothing, so a grid split of a
+            /// hull edge was not checked against the constraints near it, and its pieces crossed another chain at an unrounded vertex;
+            /// found with the Herne tiles at snap 0.01)
+            /// </summary>
             List<int> TrianglesNear(int t0, double x0, double y0, double x1, double y1)
             {
                 var result = new List<int>();
@@ -525,7 +601,10 @@ namespace g3
                 stack.Push(t0);
                 while (stack.Count > 0) {
                     int t = stack.Pop();
-                    if (k.IsGhost(t)) continue;
+                    if (k.IsGhost(t)) {
+                        if (t == t0) for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (seen.Add(t2)) stack.Push(t2); }
+                        continue;
+                    }
                     double lx = double.MaxValue, ly = double.MaxValue, hx = double.MinValue, hy = double.MinValue;
                     for (int j = 0; j < 3; ++j) { var p = k.Point(k.V[3 * t + j]); lx = Math.Min(lx, p.x); ly = Math.Min(ly, p.y); hx = Math.Max(hx, p.x); hy = Math.Max(hy, p.y); }
                     if (hx < x0 || lx > x1 || hy < y0 || ly > y1) continue;
