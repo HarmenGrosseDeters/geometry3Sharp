@@ -11,7 +11,7 @@ namespace Meshing2Acceptance
     /// The corpus run: public test inputs of other projects (fetched by corpus/fetch.py at run time, never committed; sources
     /// and licenses in docs/design/MESHING2D_PROVENANCE.md), each meshed by the milestones' candidates and judged by the
     /// oracle. Only statistics are printed. Polygons (earcut, poly2tri) run through M2 and M3, point sets (delaunator)
-    /// through M1 and M3; M3 at each angle of --angles.
+    /// through M1 and M3; M3 at each angle of --angles; --mode constrained runs M3 in the constrained quality mode.
     /// </summary>
     static class Corpus
     {
@@ -31,6 +31,10 @@ namespace Meshing2Acceptance
             }
             var angles = (arg(args, "--angles") ?? "0,20,25,30").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
             string filter = arg(args, "--filter");
+            // --mode constrained: the M3 runs in the constrained quality mode (lenses, judged as constrained Delaunay)
+            string modeArg = arg(args, "--mode");
+            if (modeArg != null && modeArg != "constrained") throw new ArgumentException("--mode: only \"constrained\" is known");
+            bool constrained = modeArg == "constrained";
             int seconds = int.Parse(arg(args, "--seconds") ?? "120", CultureInfo.InvariantCulture);
             int judgeLimit = int.Parse(arg(args, "--judge-limit") ?? "60000", CultureInfo.InvariantCulture);
             // a filter is a part of the name, or with a trailing $ the end of it (earcut/water-huge$ is not water-huge2)
@@ -48,6 +52,7 @@ namespace Meshing2Acceptance
                 foreach (double a in angles) {
                     var q = Build(item);
                     q.MinAngleDeg = a;
+                    q.ConstrainedQuality = constrained;
                     runs.Add(("M3@" + a.ToString(CultureInfo.InvariantCulture), Milestone.M3, q));
                 }
                 foreach (var (mode, m, input) in runs) {

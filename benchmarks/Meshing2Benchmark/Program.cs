@@ -39,8 +39,8 @@ namespace Meshing2Acceptance
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
   snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
-  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
-  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000]
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending] [--mode constrained]   (--fast skips the slow rows; --pending also runs pending rows)
+  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000] [--mode constrained]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
@@ -96,6 +96,9 @@ namespace Meshing2Acceptance
             var m = MilestoneArg(args, Milestone.M3);
             string filter = Arg(args, "--filter");
             int seconds = int.Parse(Arg(args, "--seconds") ?? "60", System.Globalization.CultureInfo.InvariantCulture);
+            // --mode constrained: the M3 rows in the constrained quality mode (lenses, judged as constrained Delaunay), for measurements
+            string modeArg = Arg(args, "--mode");
+            if (modeArg != null && modeArg != "constrained") { Console.Error.WriteLine("--mode: only \"constrained\" is known"); return 2; }
             var candidate = CandidateRegistry.For(m);
             if (candidate == null) { Console.WriteLine("no candidate for " + m); return 1; }
             int bad = 0;
@@ -103,19 +106,24 @@ namespace Meshing2Acceptance
                 if (row.Case == null || row.Case.Milestone != m || (row.State != CaseState.Covered && !Has(args, "--pending"))) continue;
                 if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
                 if (Has(args, "--fast") && row.Slow) continue;
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                Mesh2Output output = null; Exception error = null;
-                var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
-                thread.IsBackground = true;
-                thread.Start();
-                if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
-                double meshMs = sw.Elapsed.TotalMilliseconds;
-                if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
-                var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
-                string text = report.ToString();
-                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
-                    + (report.ExcusedSummary() != "" ? report.ExcusedSummary() + ", " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
-                if (!report.Ok) ++bad;
+                // the catalogue's input objects are shared: the mode is set for this row's run and judgement only
+                bool wasConstrained = row.Case.Input.ConstrainedQuality;
+                row.Case.Input.ConstrainedQuality = wasConstrained || (modeArg != null && !row.Case.Input.Conforming);
+                try {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    Mesh2Output output = null; Exception error = null;
+                    var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+                    thread.IsBackground = true;
+                    thread.Start();
+                    if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
+                    double meshMs = sw.Elapsed.TotalMilliseconds;
+                    if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
+                    var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
+                    string text = report.ToString();
+                    Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
+                        + (report.ExcusedSummary() != "" ? report.ExcusedSummary() + ", " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                    if (!report.Ok) ++bad;
+                } finally { row.Case.Input.ConstrainedQuality = wasConstrained; }
             }
             return bad == 0 ? 0 : 1;
         }
