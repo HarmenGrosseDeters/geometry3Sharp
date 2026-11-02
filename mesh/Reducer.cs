@@ -489,19 +489,225 @@ namespace g3
                 SetDeviationReference(mesh);
         }
 
-        int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
+        int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache, ref long sampleLookups)
         {
             double d;
             if (cache == null) return deviationTarget.FindNearestTriangle(p, MaxDeviation);
-            System.Threading.Interlocked.Increment(ref DeviationCacheSampleLookups);
+            sampleLookups++;
             return deviationBounds.NearestWithin(deviationTarget, p, cache, out d);
         }
 
         /// <summary> (tests) the shared queries' lookups and hits, summed over the collapses that reached them </summary>
         internal long DeviationCacheLookups, DeviationCacheHits, DeviationCacheIsWithinHits, DeviationCacheSampleLookups;
 
+        /// <summary>
+        /// certify the MaxDeviation checks of the next edges of the queue in parallel, ahead of the serial loop
+        /// (docs/design/REDUCER_SPECULATIVE_CERTIFICATION.md). The serial loop and its decisions do not change: a
+        /// certificate is used only if everything the check reads from the mesh (the triangles around a and b: their
+        /// ids, vertex ids and positions) and its other inputs (a, b, the new position, MaxDeviation, its depth, the
+        /// reference) are the same, bit for bit, as when it was computed. So the result is the same as without.
+        /// </summary>
+        internal bool SpeculativeDeviationChecks = false;
+        /// <summary> the number of checks certified together (0: 4 x the processor count) </summary>
+        internal int SpeculativeWindow = 0;
+        /// <summary> (tests) compute every check again and throw if a certificate differs </summary>
+        internal bool VerifySpeculativeDeviationChecks = false;
+        /// <summary> (tests, benchmarks) certificates used, checks computed without one, rounds, checks certified </summary>
+        internal long SpeculationHits, SpeculationMisses, SpeculationRounds, SpeculatedChecks;
+
+        // one certified check and its inputs
+        sealed class DeviationCertificate
+        {
+            internal int A, B;
+            internal Vector3d NewPos;
+            internal double MaxDeviation;
+            internal int Depth;
+            internal bool Share;
+            internal DMeshAABBTree3 Target;
+            internal int[] Tids;
+            internal Index3i[] Tris;
+            internal Vector3d[] Positions;
+            internal bool Result;
+            internal long Lookups, Hits, IsWithinHits, SampleLookups;
+        }
+
+        Dictionary<long, DeviationCertificate> certificates;
+        readonly List<int> speculationQueue = new List<int>();
+
+        static long certificate_key(int a, int b)
+        {
+            return ((long)a << 32) | (uint)b;
+        }
+
         // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
         protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
+        {
+            if (SpeculativeDeviationChecks == false)
+                return use(certify(a, b, newPos, true));
+            DeviationCertificate c = valid_certificate(a, b, newPos);
+            if (c != null) {
+                SpeculationHits++;
+            } else {
+                SpeculationMisses++;
+                speculate(a, b, newPos);
+                c = valid_certificate(a, b, newPos) ?? certify(a, b, newPos, true);
+            }
+            if (VerifySpeculativeDeviationChecks) {
+                DeviationCertificate fresh = certify(a, b, newPos, true);
+                if (fresh.Result != c.Result)
+                    throw new Exception($"Reducer: speculative deviation check differs at ({a}, {b})");
+            }
+            certificates.Remove(certificate_key(a, b));
+            return use(c);
+        }
+
+        // the result of a certificate, its statistics counted (only for the checks the serial loop uses)
+        bool use(DeviationCertificate c)
+        {
+            DeviationCacheLookups += c.Lookups; DeviationCacheHits += c.Hits; DeviationCacheIsWithinHits += c.IsWithinHits;
+            DeviationCacheSampleLookups += c.SampleLookups;
+            return c.Result;
+        }
+
+        // the stored certificate of (a, b, newPos) if all its inputs are unchanged, else null
+        DeviationCertificate valid_certificate(int a, int b, Vector3d newPos)
+        {
+            DeviationCertificate c;
+            if (certificates == null || certificates.TryGetValue(certificate_key(a, b), out c) == false)
+                return null;
+            if (c.A != a || c.B != b || c.NewPos != newPos || c.MaxDeviation != MaxDeviation || c.Depth != MaxDeviationDepth
+                || c.Share != ShareDeviationQueries || c.Target != deviationTarget)
+                return null;
+            int i = 0;
+            foreach (int v in new int[] { a, b }) {
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    if (i >= c.Tids.Length || c.Tids[i] != tid)
+                        return null;
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (t != c.Tris[i] || mesh.GetVertex(t.a) != c.Positions[3 * i] || mesh.GetVertex(t.b) != c.Positions[3 * i + 1]
+                        || mesh.GetVertex(t.c) != c.Positions[3 * i + 2])
+                        return null;
+                    i++;
+                }
+            }
+            return i == c.Tids.Length ? c : null;
+        }
+
+        // certify the current check and the predicted checks of the next edges of the queue, in parallel
+        void speculate(int a, int b, Vector3d newPos)
+        {
+            int k = SpeculativeWindow > 0 ? SpeculativeWindow : 4 * Environment.ProcessorCount;
+            var items = new List<KeyValuePair<Index2i, Vector3d>> { new KeyValuePair<Index2i, Vector3d>(new Index2i(a, b), newPos) };
+            var seen = new HashSet<long> { certificate_key(a, b) };
+            // edges whose triangles share no vertex with those of the edges taken before (a collapse in the window
+            // then leaves the other certificates valid), from the next 4 k edges of the queue
+            var taken = new HashSet<int>();
+            add_ring_vertices(a, b, taken);
+            EdgeQueue.TopK(4 * k, speculationQueue);
+            var ring = new HashSet<int>();
+            foreach (int eid in speculationQueue) {
+                if (items.Count >= k) break;
+                int pa, pb; Vector3d pPos;
+                if (predict_collapse(eid, out pa, out pb, out pPos) == false || seen.Add(certificate_key(pa, pb)) == false)
+                    continue;
+                ring.Clear(); add_ring_vertices(pa, pb, ring);
+                if (ring.Overlaps(taken))
+                    continue;
+                taken.UnionWith(ring);
+                // (edges with a valid certificate from an earlier round keep it)
+                if (valid_certificate(pa, pb, pPos) == null)
+                    items.Add(new KeyValuePair<Index2i, Vector3d>(new Index2i(pa, pb), pPos));
+            }
+            var certs = new DeviationCertificate[items.Count];
+            gParallel.ForRange(items.Count, (i) => {
+                certs[i] = certify(items[i].Key.a, items[i].Key.b, items[i].Value, false);
+            });
+            certificates = certificates ?? new Dictionary<long, DeviationCertificate>();
+            if (certificates.Count > 16 * k)
+                certificates.Clear();       // (bounded: stale certificates of edges the queue moved away from)
+            foreach (DeviationCertificate c in certs)
+                certificates[certificate_key(c.A, c.B)] = c;
+            SpeculationRounds++;
+            SpeculatedChecks += certs.Length;
+        }
+
+        void add_ring_vertices(int a, int b, HashSet<int> into)
+        {
+            foreach (int v in new int[] { a, b })
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    into.Add(t.a); into.Add(t.b); into.Add(t.c);
+                }
+        }
+
+        // the vertices and the new position CollapseEdge would check for edge eid (a guess: a wrong one only costs a
+        // miss, the certificate's inputs are compared when it is used)
+        bool predict_collapse(int eid, out int a, out int b, out Vector3d newPos)
+        {
+            a = b = 0; int t0 = 0, t1 = 0;
+            newPos = Vector3d.Zero;
+            if (mesh.GetEdge(eid, ref a, ref b, ref t0, ref t1) == false)
+                return false;
+            EdgeConstraint constraint = (constraints == null) ? EdgeConstraint.Unconstrained : constraints.GetEdgeConstraint(eid);
+            if (constraint.NoModifications || constraint.CanCollapse == false)
+                return false;
+            bool bIsBoundaryEdge = (t1 == DMesh3.InvalidID);
+            int c = IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(t0));
+            int d = bIsBoundaryEdge ? DMesh3.InvalidID : IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(t1));
+            Vector3d vA = mesh.GetVertex(a), vB = mesh.GetVertex(b);
+            double edge_len_sqr = (vA - vB).LengthSquared;
+            if (edge_len_sqr > MinEdgeLength * MinEdgeLength || double.IsNaN(MinEdgeLength))
+                return false;
+            int collapse_to;
+            if (can_collapse_constraints(eid, a, b, c, d, t0, t1, out collapse_to) == false)
+                return false;
+            Vector3d vNewPos = EdgeQuadrics[eid].collapse_pt;
+            if (PreserveBoundaryShape && HaveBoundary) {
+                bool ba = IsBoundaryV(a), bb = IsBoundaryV(b);
+                if (collapse_to != -1 && ((bb && collapse_to != b) || (ba && collapse_to != a)))
+                    return false;
+                if (ba && bb)
+                    collapse_to = (vNewPos.DistanceSquared(vA) < vNewPos.DistanceSquared(vB)) ? a : b;
+                else if (bb)
+                    collapse_to = b;
+                else if (ba)
+                    collapse_to = a;
+            }
+            if (collapse_to == b)
+                newPos = vB;
+            else if (collapse_to == a)
+                newPos = vA;
+            else
+                newPos = get_projected_collapse_position(b, vNewPos);
+            return true;
+        }
+
+        // the check for (a, b, newPos) and its inputs; parallel: over the new triangles (the serial path), else
+        // serial (inside the parallel speculation). The same result either way: an AND over the new triangles
+        DeviationCertificate certify(int a, int b, Vector3d newPos, bool parallel)
+        {
+            var cert = new DeviationCertificate { A = a, B = b, NewPos = newPos, MaxDeviation = MaxDeviation, Depth = MaxDeviationDepth,
+                Share = ShareDeviationQueries, Target = deviationTarget };
+            var tids = new List<int>(); var tvs = new List<Index3i>(); var pos = new List<Vector3d>();
+            List<Triangle3d> tris = new List<Triangle3d>();
+            foreach (int v in new int[] { a, b }) {
+                int other = (v == a) ? b : a;
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    tids.Add(tid); tvs.Add(t);
+                    pos.Add(mesh.GetVertex(t.a)); pos.Add(mesh.GetVertex(t.b)); pos.Add(mesh.GetVertex(t.c));
+                    if (t.a == other || t.b == other || t.c == other)
+                        continue;      // removed by the collapse
+                    tris.Add(new Triangle3d((t.a == v) ? newPos : mesh.GetVertex(t.a),
+                        (t.b == v) ? newPos : mesh.GetVertex(t.b), (t.c == v) ? newPos : mesh.GetVertex(t.c)));
+                }
+            }
+            cert.Tids = tids.ToArray(); cert.Tris = tvs.ToArray(); cert.Positions = pos.ToArray();
+            cert.Result = deviation_check(newPos, tris, parallel, cert);
+            return cert;
+        }
+
+        bool deviation_check(Vector3d newPos, List<Triangle3d> tris, bool parallel, DeviationCertificate counts)
         {
             // the new vertex first: one query, rejects most collapses that go too far
             double newPosSqr;
@@ -515,33 +721,28 @@ namespace g3
                 cache = new TriangleDeviationBounds.QueryCache(deviationTarget, MaxDeviation);
                 cache.Put(newPos, newPosTri, newPosSqr);
             }
-            List<Triangle3d> tris = new List<Triangle3d>();
-            foreach (int v in new int[] { a, b }) {
-                int other = (v == a) ? b : a;
-                foreach (int tid in mesh.VtxTrianglesItr(v)) {
-                    Index3i t = mesh.GetTriangle(tid);
-                    if (t.a == other || t.b == other || t.c == other)
-                        continue;      // removed by the collapse
-                    tris.Add(new Triangle3d((t.a == v) ? newPos : mesh.GetVertex(t.a),
-                        (t.b == v) ? newPos : mesh.GetVertex(t.b), (t.c == v) ? newPos : mesh.GetVertex(t.c)));
-                }
-            }
             // cheap samples next: most collapses that exceed the tolerance are rejected here, before the
             // (much more expensive) certification of the whole triangles
             foreach (Triangle3d t in tris) {
                 Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
                 foreach (Vector3d p in samples) {
-                    if (nearest_within_deviation(p, cache) < 0)
+                    if (nearest_within_deviation(p, cache, ref counts.SampleLookups) < 0)
                         return false;
                 }
             }
             bool ok = true;
-            gParallel.ForRange(tris.Count, (k) => {
-                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
-                    ok = false;
-            });
+            if (parallel) {
+                gParallel.ForRange(tris.Count, (k) => {
+                    if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
+                        ok = false;
+                });
+            } else {
+                for (int k = 0; k < tris.Count && ok; ++k)
+                    if (deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
+                        ok = false;
+            }
             if (cache != null) {
-                DeviationCacheLookups += cache.Lookups; DeviationCacheHits += cache.Hits; DeviationCacheIsWithinHits += cache.IsWithinHits;
+                counts.Lookups = cache.Lookups; counts.Hits = cache.Hits; counts.IsWithinHits = cache.IsWithinHits;
             }
             return ok;
         }

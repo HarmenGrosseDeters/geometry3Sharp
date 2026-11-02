@@ -177,6 +177,29 @@ namespace g3
 
 
 
+        /// <summary>
+        /// (internal) the ids of the k nodes with the smallest priorities, smallest first (ties: the node nearer to the
+        /// root first), without changing the queue: a best-first walk over the heap
+        /// </summary>
+        internal void TopK(int k, List<int> result)
+        {
+            result.Clear();
+            if (k <= 0 || num_nodes == 0)
+                return;
+            // candidates: heap indices, ordered by (priority, index); a node's children enter when it is taken
+            var open = new SortedSet<KeyValuePair<float, int>>(Comparer<KeyValuePair<float, int>>.Create((x, y) =>
+                x.Key != y.Key ? x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value)));
+            open.Add(new KeyValuePair<float, int>(nodes[1].priority, 1));
+            while (result.Count < k && open.Count > 0) {
+                var first = open.Min;
+                open.Remove(first);
+                int i = first.Value;
+                result.Add(nodes[i].id);
+                for (int c = 2 * i; c <= 2 * i + 1 && c <= num_nodes; ++c)
+                    open.Add(new KeyValuePair<float, int>(nodes[c].priority, c));
+            }
+        }
+
         public IEnumerator<int> GetEnumerator()
         {
             for (int i = 1; i <= num_nodes; i++)
