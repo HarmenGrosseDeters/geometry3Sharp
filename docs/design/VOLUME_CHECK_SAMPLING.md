@@ -1,4 +1,4 @@
-# Volume check sampling: a tighter region (measurement and options, not built)
+# Volume check sampling: a tighter region (option A built)
 
 Owner decision 2026-11-01: low priority. The task is a tighter sample region for the volume IoU check of
 `MeshRobustRepair`. The region must provably contain the union of both solids, so the estimator stays unbiased with
@@ -6,7 +6,8 @@ lower variance. The results will no longer be bit-identical; the quality thresho
 on the 400 set.
 
 This note records the measurement and the options. It was written on 2026-11-02, when the work was parked for a free
-slot. The coordinator takes the choice between A and C to the owner.
+slot. Owner decision 2026-11-02: build option A, with B as the fallback. Sections 4 and 5 describe what was built and
+its A/B.
 
 ## 1. Where the time goes
 
@@ -76,3 +77,63 @@ Searched, snippets only [S]:
 - Barill, Dickson, Schmidt, Levin, Jacobson, *Fast winding numbers for soups and clouds*, SIGGRAPH 2018: an
   error-controlled far field, no guaranteed bound.
 - Octree spatial enumeration (Meagher 1982; inside, outside and boundary cells) is the classic basis of option A.
+
+## 4. What was built (option A, B as the fallback)
+
+**Code:** `VolumeSampleCells` (mesh_ops/VolumeSampleCells.cs), used by the internal
+`MeshRepairMetrics.VolumeIoUAtLeast(SolidReference, SolidReference, ...)` (and so by `MeshRobustRepair.volume_check` and
+the public `VolumeIoUAtLeast(DMesh3, DMesh3, ...)`). Public `VolumeIoU` is unchanged: the benchmark's verdict IoU stays the
+same instrument.
+
+**Reused building blocks** (searched first): `ExactMeshBoolean.IsWindingClosed` decides A or B per mesh;
+`DMeshAABBTree3` and its `FastWindingNumber`, already built for the inside tests, give the triangle candidates of a cell
+and its classification; `ExactPredicates.Orient3d` / `Orient2d` decide the cell–triangle test. `WindingNumberOctree` refines
+on corner values and copies values between nodes; it does not give per-cell touched / untouched with exact geometry, so
+it is not reused. Its floating `TriangleBoxOverlap` is the test oracle on small integer coordinates.
+
+**When:** both meshes winding-closed (the oriented copy of the input, and the result as it is) and the result has
+triangles. Otherwise option B: `sample_region` and the loop as before, bit-identical.
+
+**Cells.** The root box R is the bounds of the triangles of both meshes, expanded by 1 % (as before). Level L has the
+spacing w / 2^L per axis (exact, by halving), and cell (i, j, k) of level L spans origin + h_L [i, i+1] x ...; so a cell of
+level L and its children share their bounds bit for bit, and a 2^k scale gives the same cells, scaled. A cell is
+*touched* if a triangle of either mesh meets the closed box (`TriangleTouchesBox`: the 13 axes of the separating axis
+theorem, each decided by the signs of exact predicates; complete for degenerate triangles too). Untouched cells are
+classified by the fast winding numbers of both meshes at the centre, if both are within 0.25 of an integer (otherwise the
+cell counts as touched). Touched cells are refined level by level while their 8 children per cell fit in a budget of
+4096 child tests, to at most 12 levels; the touched cells of the last level are sampled.
+
+**The region contains input_solid ∪ result_solid.** Let solid_X = {p : w_X(p) > 1/2} for the winding number w_X.
+1. Every point of R lies in exactly one cell of the final set (the known cells and the sampled ones), up to the shared
+   faces (measure zero): the children of a cell partition it, and refinement only replaces a cell by its children.
+2. The solids lie in R: the winding number of a closed mesh is 0 outside the convex hull of its triangles, which lies in
+   their bounds.
+3. A known cell C is a closed box that no triangle of A or B meets. C is connected and disjoint from both surfaces, so
+   it lies in one connected component of the complement of each surface. On such a component the winding number of a
+   winding-closed mesh is constant: it is an integer (every edge is used equally often in both directions, so the
+   signed solid angles sum to a multiple of 4 pi) and continuous away from the surface. So w_A and w_B are constant
+   on C, and the class at the centre is the class of every point of C.
+4. Hence union = (known cells in A or B) ∪ (union ∩ sampled cells) and both = (known cells in both) ∪ (both ∩ sampled
+   cells), disjointly: V(union) = K + V(union ∩ S), V(both) = K_b + V(both ∩ S), with K, K_b exact sums of cell volumes.
+   Uniform samples in S estimate V(union ∩ S) and V(both ∩ S) without bias, so the IoU estimate
+   (K_b + S·b̂) / (K + S·û) is the ratio of two unbiased volume estimates, as both / union was before (a ratio estimator:
+   consistent, with a bias of order 1/n, as before). The cells inside exactly one solid are known too (K_o, in K); they
+   enter the numerator of 1 - IoU exactly.
+
+The classification uses the fast winding number, as the inside tests of the estimator do: both assume its error stays
+below 1/2 away from the surface (the old region assumed the same with its 0.4 margin). The 0.25 integer test at the
+centre turns a large error there into a sampled cell instead of a wrong class.
+
+**Stop rule.** p = 1 - IoU = (K_o + S u q) / (K + S u), u the share of the samples in the union, q the share of those in
+only one solid. Both get Wilson intervals (z = 4); p is monotone in q (for u > 0) and in u (for fixed q), so its interval
+comes from the four corners. With K = 0, p = q and only q's interval is used: the old rule. Each interval misses with
+about the probability of a z-sigma deviation, so an early answer is wrong at most about twice as often as before (z = 4:
+about 6e-5 per round).
+
+**Tests** (`VolumeSampleCellsTests`, `VolumeIoUSamplingTests`, `RepairSpeedTests`): the exact test against the
+floating SAT on small integers (40000 triangles, a quarter degenerate) and at contacts one ulp apart, also at 2^20; the
+cover on nested, touching, thin-shell, coplanar, disjoint solids and with faces exactly on cell planes (every point of a
+known cell has its class, corners included; known and sampled cells tile R); the stratified estimate (known volume,
+narrower interval, fewer samples); unbiasedness over 40 seeds; the RMS error near the threshold (5.4e-4 against 1.5e-3
+before, fails on the old code); invariance over `Similarity.All()` (2^k bit for bit); parallel equals serial; reuse of the
+input's solid and of a `MeshRobustRepair` instance; fallback B on open inputs and open results (bit-identical).

@@ -261,6 +261,7 @@ namespace gs
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             VolumeChecksRun = 0;
+            VolumeCheckStats = new List<MeshRepairMetrics.VolumeCheckStats>();
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
@@ -424,6 +425,16 @@ namespace gs
 
         /// <summary> for tests: the volume checks (volume_check) the last Apply() ran </summary>
         internal int VolumeChecksRun;
+        /// <summary>
+        /// for tests and the benchmark (an A/B in one build): the volume IoU check samples only near the surfaces where
+        /// the input and the result are winding-closed (VolumeSampleCells; default), false: in the region of
+        /// MeshRepairMetrics.sample_region always
+        /// </summary>
+        internal bool SampleCellsInVolumeCheck = true;
+        /// <summary> for the benchmark: the child budget of those cells (VolumeSampleCells) </summary>
+        internal int SampleCellsChildBudget = gs.VolumeSampleCells.DefaultChildBudget;
+        /// <summary> for tests and the benchmark: what each volume IoU check of the last Apply() did </summary>
+        internal List<MeshRepairMetrics.VolumeCheckStats> VolumeCheckStats = new List<MeshRepairMetrics.VolumeCheckStats>();
 
         // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
         string volume_check(DMesh3 input, DMesh3 res, out double iou)
@@ -437,10 +448,12 @@ namespace gs
                 inputSolid = new MeshRepairMetrics.SolidReference(input);
                 inputSolidOf = input;
             }
-            Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
-            if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
+            var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(res);
+            var stats = new MeshRepairMetrics.VolumeCheckStats();
+            VolumeCheckStats.Add(stats);
+            if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, resultSolid, MinVolumeIoU, out iou, stats: stats, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget) == false)
                 return VolumeDiffers;
-            if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
+            if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultSolid.Inside) > 0)
                 return PartsLost;
             return "";
         }
