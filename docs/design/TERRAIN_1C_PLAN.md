@@ -302,8 +302,9 @@ Details of the composite (from `SlopeComposite.build_once`):
   points (the toe crossings), and the parity of the union is the part.
 - The catch points of the two runs at one toe crossing: both are the point of the toe where T meets it. Each run snaps
   its own (`snap_catch_points`); the shared triangle needs both at one position, so the fill run's catch points
-  within the snapping radius of a cut run's catch point at the toe take its position (checked: the crossings of the
-  spike have the same rounded XY in both runs, z −0 against +0, which the composite already treats as one).
+  within the snapping radius of a cut run's catch point at the toe take its position (in the spike both runs printed
+  the same crossings to 8 digits, z −0 against +0, which the composite already treats as one; bit for bit is still to
+  check).
 - `terrain_whole` (a terrain triangle wholly in the region, skipped) holds per run; a triangle wholly in one region
   is in no face of the other's region.
 - What it does not need: an overlay of the two slope surfaces with each other (they never overlap where both are the
