@@ -62,6 +62,57 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the same on the other boundary edges of the slope surface: the cap at HeightLimit (KindOther; a closed toe
+        // rotated by 14.6° at (39.1, 13.7)) and the lateral limits (an open toe, three sides of a square rotated by
+        // 9 * 5.3 = 47.699999999999996° at (35.3, -7.9)), both near the terrain's boundary, found by a search over toe
+        // angles and places. Before, they failed (CompositeFailed); without the move on cap edges the cap case fails in
+        // every frame, without it on lateral edges the lateral case in the rotated frame (an ulp case: 47.7° does not)
+        static TerrainSlopeDesign MakeOther(Similarity s, bool cap)
+        {
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => 5 + 0.03 * x);
+            foreach (int v in terrain.VertexIndices().ToList()) terrain.SetVertex(v, s.Apply(terrain.GetVertex(v)));
+            Matrix3d R = Matrix3d.AxisAngleD(Vector3d.AxisZ, cap ? 14.6 : 9 * 5.3);
+            var toe = TerrainSlopeDesignTests.Square(10, 0).Select(p => R * p + (cap ? new Vector3d(39.1, 13.7, 0) : new Vector3d(35.3, -7.9, 0))).ToList();
+            if (cap == false) toe = toe.Take(3).ToList();
+            return new TerrainSlopeDesign() {
+                Toes = { SlopeToe.Constant(toe.Select(p => s.Apply(p)).ToList(), cap, cap ? SlopeToe.Sides.Outside : SlopeToe.Sides.Right, SlopeSpec.Ratio(1)) },
+                Terrain = terrain, Tolerance = s.ApplyLength(0.05), BuildComposite = true, SlopeMargin = 1e-4,
+                HeightLimit = cap ? s.Apply(new Vector3d(0, 0, 3)).z : double.NaN
+            };
+        }
+
+        static readonly Lazy<TerrainSlopeDesign>[] otherReference = {
+            new Lazy<TerrainSlopeDesign>(() => { var d = MakeOther(Similarity.Identity, false); d.Compute(); return d; }),
+            new Lazy<TerrainSlopeDesign>(() => { var d = MakeOther(Similarity.Identity, true); d.Compute(); return d; }),
+        };
+
+        public static TheoryData<string, bool> OtherCases()
+        {
+            var t = new TheoryData<string, bool>();
+            foreach (object[] n in Similarity.Names()) { t.Add((string)n[0], false); t.Add((string)n[0], true); }
+            return t;
+        }
+
+        [Theory]
+        [MemberData(nameof(OtherCases))]
+        public void CapAndLateralLimitNearTheTerrainBoundary_CompositeIsAHeightField(string name, bool cap)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
+            var d = MakeOther(s, cap);
+            d.Compute();
+            var r = otherReference[cap ? 1 : 0].Value;
+            // (the cap below the terrain, and the slope beyond the terrain's boundary: it does not reach the terrain)
+            Assert.True(d.Status == TerrainSlopeDesign.Statuses.NoDaylight, d.Status + " " + d.Message);
+            Assert.Equal(d.Status, r.Status);
+            TerrainSlopeCatchLineTests.AssertComposite(d);
+            Assert.Equal(r.CatchLines.Count, d.CatchLines.Count);
+            if (s.IsExact) {
+                Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
+                Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
+            }
+        }
+
         [Fact]
         public void Reuse()
         {
