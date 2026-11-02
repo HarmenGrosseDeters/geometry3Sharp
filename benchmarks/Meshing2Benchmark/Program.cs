@@ -25,6 +25,10 @@ namespace Meshing2Acceptance
   oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--case <id>] [--row <file>]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
+  mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
+                                    format; prints the row's fingerprints and whether they equal the golden row
+  mesh --input <in.txt> --output <file> [--milestone M1|M2|M3]
+                                    the same for an input in the plain text input format (milestone inferred from its options)
   cases                             list the cases with their generators and input hashes
   compare [--rows <file>]           our rows against rows of another producer, read from <file> or G3_MESH2_REFERENCE_ROWS;
                                     skipped with a message if there are none; not part of CI
@@ -64,6 +68,7 @@ namespace Meshing2Acceptance
                     case "golden": return Golden(args);
                     case "oracle": return OracleCommand(args);
                     case "case": return WriteCase(args);
+                    case "mesh": return Mesh(args);
                     case "cases": return ListCases();
                     case "compare": return Compare(args);
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
@@ -240,6 +245,28 @@ namespace Meshing2Acceptance
             if (c == null || path == null) { Console.Error.WriteLine("unknown case or no --output: " + id); return 2; }
             File.WriteAllText(path, TextFormat.WriteInput(c.Input));
             return 0;
+        }
+
+        /// <summary> 0: written, valid and equal to the golden row (or none recorded); 1: written, but invalid or different; 2: usage. </summary>
+        static int Mesh(string[] args)
+        {
+            string id = Arg(args, "--case"), inputPath = Arg(args, "--input"), path = Arg(args, "--output");
+            if (path == null || (id == null) == (inputPath == null)) { Console.Error.WriteLine("mesh needs --output and exactly one of --case and --input"); return 2; }
+            Mesh2Case c;
+            if (id != null) {
+                c = AllCases().FirstOrDefault(x => x.Id == id);
+                if (c == null) { Console.Error.WriteLine("unknown case: " + id + " (see 'cases')"); return 2; }
+            } else {
+                Milestone? m = Arg(args, "--milestone") == null ? (Milestone?)null : MilestoneArg(args, Milestone.M1);
+                c = MeshCommand.FromInput(TextFormat.ReadInput(File.ReadAllText(inputPath)), Path.GetFileNameWithoutExtension(inputPath), m);
+            }
+            var result = MeshCommand.Run(c);
+            File.WriteAllText(path, result.Text);
+            var golden = id != null ? MeshCommand.FindGolden(Path.GetDirectoryName(GoldenPath(c.Milestone)), c) : null;
+            foreach (var line in MeshCommand.Summary(result, golden)) Console.WriteLine(line);
+            Console.WriteLine("wrote " + path);
+            bool differs = golden != null && golden.Differences(result.Row).Any();
+            return result.Report.Ok && !differs ? 0 : 1;
         }
 
         static int ListCases()

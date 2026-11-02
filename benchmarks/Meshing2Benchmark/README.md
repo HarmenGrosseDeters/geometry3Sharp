@@ -23,6 +23,7 @@ Run it without a command for the list. Every command first runs the oracle's sel
 | `Oracle/Catalogue.cs` | The F cases of the specification as procedural fixtures, one state per row ([table](../../docs/design/MESHING2D_CATALOGUE.md)) |
 | `Oracle/Golden.cs`, `golden/` | Stored rows, recomputed and compared; recording and its rules |
 | `Candidates/` | What is judged. Also compiled into the test project |
+| `MeshCommand.cs` | The `mesh` command: our mesher on one case, written in the plain text output format. Also compiled into the test project (`Meshing2MeshCommandTests`) |
 | `NtsReference.cs` | NetTopologySuite 2.6.0 (BSD-3-Clause) as a black box. This project only, never a dependency of the library |
 
 ## The pilot: M1 against NetTopologySuite (2026-10-31)
@@ -227,3 +228,15 @@ excuses like the angle bound there (self-check 7).
   with the base branch: a changed row without a new reason fails (`golden verify-changes`). The reviewer sees the reasons in the diff; an update without a reason counts as a regression.
 - **M2 and M3 have no rows yet**, because nothing has passed their gates: [plan, section 4](../../docs/design/MESHING2D_PLAN.md).
 - **Rows of another producer** stay out of the repository until the owner decides: `compare --rows <file>` or `G3_MESH2_REFERENCE_ROWS`, skipped with a message if absent, not in CI.
+- **Our output as a file**, to set beside a reference output: `mesh --case <id> --output <file>` runs the candidate of the golden rows (the same one and
+  the same options) on a case and writes the result in the plain text output format (format, section 4); `mesh --input <in.txt> --output <file>
+  [--milestone M1|M2|M3]` does the same for an input in the plain text input format, such as converted public data (milestone inferred from the
+  options when not given). It prints the row's fingerprints, the oracle's verdict and, for a case, whether the row equals the recorded golden row;
+  exit code 0 if valid and equal (or no row recorded), 1 otherwise. The written file read back gives the golden row's fingerprints
+  (`Meshing2MeshCommandTests`). The snap tolerance of an input is not applied before m2.snap (#277) is merged; the command says so.
+
+  ```
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.txt
+  #   triangles_fp b26c528c..., subsegments_fp b03956b9..., vertices_fp d265ee67..., oracle VALID, golden: same as the recorded row
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.txt --output lake_ours.txt
+  ```
