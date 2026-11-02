@@ -283,6 +283,33 @@ namespace geometry3Sharp.Tests
             AssertRelative(reference, Invariance.Volume(back), s.IsRotated ? 1e-2 : 2e-3, s.Name);
         }
 
+        // the Steiner point separation of the rule 2 projection (AlphaWrapTests.Wrap_FlatBoxCornerCells_SteinerPointsSeparated)
+        // under every similarity; the 2^k scales give the same wrap bit for bit
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void AlphaWrap_SteinerPointsSeparatedUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = AlphaWrapTests.Ellipsoid(5, 0.3, 0.45);
+            var w0 = new MeshAlphaWrap(input) { RelativeAlpha = 150, RelativeOffset = 1500 };
+            Assert.True(w0.Compute(), w0.Error);
+            var w = new MeshAlphaWrap(Invariance.Transformed(input, s)) { RelativeAlpha = 150, RelativeOffset = 1500 };
+            if (s.IsRotated) {
+                w.Alpha = s.ApplyLength(w0.UsedAlpha);
+                w.Offset = s.ApplyLength(w0.UsedOffset);
+            }
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            Assert.Equal(0, w.Counts["projection_fallbacks"]);
+            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = Math.Min(off, alpha - off);
+            double sep = AlphaWrapTests.MinSteinerSeparation(w.Triangulation);
+            Assert.True(sep > 0.5 * bound, $"{s.Name}: Steiner points {sep / off} offsets apart");
+            double angleBound = Math.Asin(0.5 * bound / (2 * alpha)) * 180 / Math.PI;
+            Assert.True(AlphaWrapTests.MinAngleOfSmallTriangles(w.Result, alpha) >= angleBound, s.Name);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.GeometricDifference(w0.Result, Invariance.MappedBack(w.Result, s)));
+        }
+
         [Fact]
         public void AlphaWrap_RepeatedRuns_BitIdentical()
         {
