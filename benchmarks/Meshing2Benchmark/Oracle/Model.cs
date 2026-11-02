@@ -97,7 +97,7 @@ namespace Meshing2Acceptance
         HullBoundary, AreaMismatch, NotDelaunayLocal, NotDelaunayGlobal, SegmentMissing, SubsegmentNotEdge, SubsegmentUnsourced,
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
-        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge
+        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid
     }
 
     public sealed class ViolationRecord
@@ -140,6 +140,14 @@ namespace Meshing2Acceptance
         {
             var copy = (OracleExpect)MemberwiseClone();
             copy.Reference = true;
+            return copy;
+        }
+
+        /// <summary> a copy whose global empty-circumcircle pass runs only up to this many triangle-vertex pairs (0: never) </summary>
+        public OracleExpect WithGlobalDelaunayLimit(long limit)
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.GlobalDelaunayLimit = limit;
             return copy;
         }
     }

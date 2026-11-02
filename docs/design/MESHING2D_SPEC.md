@@ -95,7 +95,7 @@ Input validation (all [USED]):
 | O24 | Terrain simplification: choose a subset of dense terrain points (with optional breaklines) such that any Delaunay triangulation of the subset reproduces all points within a vertical error bound | [TESTED] | See F-63. Production usage unknown, so also [?]. |
 | O25 | Voronoi diagram output (standard and bounded) | [?] | Not used by the production code path. Covered by tests: consistency, unique edge ids, the bounded diagram is only valid on conforming meshes, duplicate vertices are skipped, the caller's bounding box is not modified. |
 | O26 | Renumbering for bandwidth reduction (reverse Cuthill–McKee) | [?] | Not used by production. |
-| O27 | File I/O (.node/.poly/.ele, MFEM) | [?] | Not used by production; out of scope unless requested. |
+| O27 | File I/O (.node/.poly/.ele, MFEM) | [?] | Not used by production. **Requested by the owner (2026-11-02) and implemented outside the library** (#291): `tools/g3cli/TrianglePolyFormat.cs` reads .poly/.node and writes .node/.ele/.poly, used by `g3cli mesh2d` and `Meshing2Benchmark mesh`; its limits are in the g3cli README. MFEM stays out of scope. |
 
 ### 1.3 Outputs and guarantees
 
@@ -753,6 +753,13 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
 * **Q16** The issue tracker of the public fork could not be read in this session (access
   restricted); upstream issues are covered via the fork's own documentation. Are there further bug
   reports that should be added?
+* **Q17** Hull parts narrower than the snap tolerance (a hull tip below a pixel, collinear points that
+  snap to a zigzag): must snapping keep such a tip's vertex in the mesh (a sliver triangle, judged
+  with the area tolerance), or may the part collapse, the unused input vertex reported? Today the tip
+  vertex is lost at M3 even without refinement (`MESHING2D_HULL_GRID.md` section 6, with a reduction).
+  **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
+  accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
+  diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
 
 ---
 
@@ -774,7 +781,7 @@ decision wins.
 | Q9 | The mesher **optionally carries z**: Steiner points get z by linear interpolation on the constrained triangulation of the **input** (the reference mesh of O1), never on the evolving mesh, so the result does not depend on insertion order. |
 | Q10 | Errors are reported as a **status enum plus a result object** carrying the failure kind and the problem coordinate, like the library's other operations (`BooleanStatus`, `WrapStatus`, …). Exceptions only for invalid arguments and cancellation. Where earlier sections say "exception" or "fail loudly", read "a failure status, never an invalid mesh". |
 | Q11 | **Yes**: the result explicitly lists the triangles below the minimum angle and flags "Steiner limit reached". |
-| Q12 | File formats (O27) and bandwidth renumbering (O26) are out of scope. |
+| Q12 | File formats (O27) and bandwidth renumbering (O26) are out of scope of the library. (O27 was requested later and lives in `tools/g3cli`, #291.) |
 | Q13 | Default Steiner limit = 10 × (points + segments) + 100 000, overridable. |
 | Q14 | Default snap tolerance = **automatic, relative** (µm range at UTM scale), only to absorb numerical noise. Snapping to the data precision (eg 1 cm) is opt-in via O11. |
 | Q15 | .NET Framework 4.8 is a **hard requirement** (it may be slower there). |

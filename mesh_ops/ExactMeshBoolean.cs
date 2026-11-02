@@ -43,7 +43,7 @@ namespace g3
     ///
     /// Usage: construct with the two meshes and the operation, call Compute(), and read Result (a new mesh;
     /// the inputs are not modified). Compute() returns false and sets Error for null inputs, non-finite
-    /// coordinates, or open meshes when AllowOpenMeshes is false; it throws InvalidOperationException in the
+    /// coordinates, open meshes when AllowOpenMeshes is false, or a result that is not clean with StrictRounding; it throws InvalidOperationException in the
     /// (not expected) case that no non-degenerate ray is found. Result has no normals, colors, UVs or groups.
     /// Compute() can be called again after changing the meshes or the operation.
     ///
@@ -76,7 +76,12 @@ namespace g3
             /// </summary>
             OpenInput = 2,
             /// <summary> Compute() was not called yet </summary>
-            NotComputed = 3
+            NotComputed = 3,
+            /// <summary>
+            /// StrictRounding: the rounded result is not clean within the relative bound (see Error: the defects
+            /// left, where, and the drift the smallest rejected edit needed); Result is null
+            /// </summary>
+            RoundingNotClean = 4
         }
 
         /// <summary> the input meshes of A op B (not modified); unused if Meshes is set </summary>
@@ -152,15 +157,34 @@ namespace g3
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
-        /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
+        /// can be repaired: Compute() still succeeds (Status Success) if defects remain (unless StrictRounding); RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
         /// on the Thingi10K benchmark it makes about 1.6 times as many results clean, for about 1.2 to 1.9 times the time
         /// of the boolean (benchmarks/MeshRepairBenchmark README). Off, the new vertices are only rounded to the nearest
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
+        /// RoundingMaxDisplacement of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
+        /// distance (docs/design/SAFE_ROUNDING.md section 5)
+        /// </summary>
+        public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
+        /// <summary>
+        /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
+        /// farthest the surface moves, relative to the bounding box diagonal. (A larger value also switches off sooner
+        /// what applies where the coordinates are coarse: there the ulp term must exceed this one)
+        /// </summary>
+        public double RoundingMaxDisplacement = 1e-5;
+        /// <summary>
+        /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
+        /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
+        /// ResultExactVertices stay set, for the diagnosis). Off by default. Not strict, where the coordinates are coarse
+        /// (see RoundingUlpFactor), input vertices may move within the bound like the others.
+        /// </summary>
+        public bool StrictRounding = false;
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary>
@@ -270,7 +294,8 @@ namespace g3
 
         /// <summary>
         /// Compute the boolean into Result. Returns false (and sets Error and Status) if there is no input, an
-        /// input is null, has non-finite coordinates, or is open while AllowOpenMeshes is false; otherwise true
+        /// input is null, has non-finite coordinates, or is open while AllowOpenMeshes is false, or if the result is not
+        /// clean with StrictRounding (Status RoundingNotClean); otherwise true
         /// (Status Success). An empty result (for example the intersection of disjoint meshes) is a success with
         /// an empty Result mesh.
         /// </summary>
@@ -357,14 +382,28 @@ namespace g3
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
-                Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
+                Rounding = new MeshRoundingRepair(Result) {
+                    SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
+                    UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
+                    MaxDisplacement = RoundingMaxDisplacement
+                };
                 Rounding.Apply();
                 clock.Lap("rounding");
                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
                 Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
-                Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
+                Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips + Rounding.VertexRemovals;
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
+                Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
+                if (StrictRounding && Rounding.IsClean == false) {
+                    Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
+                        Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
+                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift);
+                    Result = null;
+                    Status = BooleanStatus.RoundingNotClean;
+                    return false;
+                }
             }
             Status = BooleanStatus.Success;
             return true;

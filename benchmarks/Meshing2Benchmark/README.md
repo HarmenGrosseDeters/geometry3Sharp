@@ -23,6 +23,7 @@ Run it without a command for the list. Every command first runs the oracle's sel
 | `Oracle/Catalogue.cs` | The F cases of the specification as procedural fixtures, one state per row ([table](../../docs/design/MESHING2D_CATALOGUE.md)) |
 | `Oracle/Golden.cs`, `golden/` | Stored rows, recomputed and compared; recording and its rules |
 | `Candidates/` | What is judged. Also compiled into the test project |
+| `MeshCommand.cs` | The `mesh` command: our mesher on one case, written in the plain text output format. Also compiled into the test project (`Meshing2MeshCommandTests`) |
 | `NtsReference.cs` | NetTopologySuite 2.6.0 (BSD-3-Clause) as a black box. This project only, never a dependency of the library |
 
 ## The pilot: M1 against NetTopologySuite (2026-10-31)
@@ -227,3 +228,24 @@ excuses like the angle bound there (self-check 7).
   with the base branch: a changed row without a new reason fails (`golden verify-changes`). The reviewer sees the reasons in the diff; an update without a reason counts as a regression.
 - **M2 and M3 have no rows yet**, because nothing has passed their gates: [plan, section 4](../../docs/design/MESHING2D_PLAN.md).
 - **Rows of another producer** stay out of the repository until the owner decides: `compare --rows <file>` or `G3_MESH2_REFERENCE_ROWS`, skipped with a message if absent, not in CI.
+- **Our output as a file**, to set beside a reference output: `mesh --case <id> --output <file>` runs the candidate of the golden rows (the same one and
+  the same options) on a case and writes the result in the plain text output format (format, section 4), or as Triangle's `.node` / `.ele` / `.poly`
+  files when `<file>` ends so (the common exchange format of 2D meshers; written from Triangle's published format description, no Triangle code).
+  `mesh --input <file> --output <file>` takes an input file: the plain text input format, or Triangle `.poly` / `.node` (the domain is what
+  the segments enclose, as Triangle `-p` gives it, mapping and limits in the [g3cli README](../../tools/g3cli/README.md#triangle-files-poly-node-ele);
+  hole points remove holes, regional attributes are integer labels; quality options from
+  `--min-angle`, `--max-area`, `--steiner-limit`). An input equal to a case (the same input_sha256, eg written by `case`) is that case: judged with
+  its expectations and compared with its golden row. Any other input is judged with the default expectations of its milestone (`--milestone`, or
+  inferred from its options), which know nothing a case states (a required failure, stated areas, kept or removed points), so its exit code 1 means
+  "the oracle objects under default expectations", not necessarily a fault of the mesher. It prints the row's fingerprints, the oracle's verdict
+  and the comparison with the golden row; exit code 0 if valid and equal (or no row), 1 if invalid or different, if the mesher threw, or if Triangle
+  files were asked for a failed result (they have no failure status; none are written), 2 for wrong usage, an unreadable input, an output
+  directory that does not exist, or an option or input the mesher refuses (eg a snap tolerance too small for the coordinates, or a snap
+  tolerance with `--milestone M1`, whose Delaunay mesher has none). The written files read back give the golden row's fingerprints (`Meshing2MeshCommandTests`). A snap tolerance (in the text input, or `--snap-tolerance` for Triangle input) is applied by the candidates as in the golden rows (m2.snap, #277).
+
+  ```
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.txt
+  #   triangles_fp b26c528c..., subsegments_fp b03956b9..., vertices_fp d265ee67..., oracle VALID, golden: same as the recorded row
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.ele    # ours.node, .ele, .poly
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.poly --output lake_ours.ele --min-angle 30
+  ```

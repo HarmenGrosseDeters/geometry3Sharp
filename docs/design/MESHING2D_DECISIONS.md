@@ -30,6 +30,23 @@ Semantics aligned with SafeRounding (`SAFE_ROUNDING.md`): drift reported, a stri
 
 Points 3 and 4 stand in this form. Band cases (F-15 at 0.91 tol, F-18/a at tol/2) accept merged or unmerged.
 
+**Owner decision, 2026-11-01: all output vertices on the grid**, Steiner and split points included; a product requirement, not a later
+option. **Owner decision, 2026-11-01: the design of `MESHING2D_SNAP.md` section 3g is approved as written (acb0a1e):**
+- rounding at insertion, with no final pass and no relocation;
+- refused grid points make a triangle grid-blocked;
+- unsplittable subsegments stay judged;
+- an angle floor of two pixels, measured; size bounds exempt below it;
+- the oracle checks that every vertex is on the grid, with the exemptions of section 3g;
+- an off-centre point (Üngör 2004) as the second candidate if the refusal counts matter;
+- the Steiner limit as the practical termination guard;
+- the refusal counts on the corpus before the PR is ready.
+
+**Owner decision, 2026-11-02: the narrow seed rule.** A hole or region seed is dropped only when snapping swept it (it lies between
+an input constraint and its snapped chain, or on that boundary, eg inside a contour that collapsed), as section 3e and the clean-room
+answer 6 describe. A seed merely near moved geometry keeps its meaning. This replaces the wider rule of the first review of #277
+(within one pixel of moved geometry), which could fill an island whose seed lay close to its own, only moved, boundary (second review
+of #277). Off-centre candidates (Üngör) are not built: the corpus counts in section 3g show grid-blocked triangles to be rare.
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 

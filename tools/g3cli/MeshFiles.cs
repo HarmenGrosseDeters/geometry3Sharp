@@ -68,14 +68,18 @@ namespace g3cli
 
         public static bool StoresUVs(string path) => UVFormats.Contains(Extension(path));
 
-        /// <summary> Writes the mesh (compacted), with its vertex UVs if uvs; fails with unknown_format or write_error. </summary>
-        public static void Write(string path, DMesh3 mesh, bool binary = true, bool uvs = false)
+        /// <summary>
+        /// Writes the mesh (compacted), with its vertex UVs if uvs and its triangle groups if groups (OBJ: 'g' lines);
+        /// fails with unknown_format or write_error.
+        /// </summary>
+        public static void Write(string path, DMesh3 mesh, bool binary = true, bool uvs = false, bool groups = false)
         {
             CheckWritable(path);
             DMesh3 compact = mesh.IsCompact ? mesh : new DMesh3(mesh, true);
             WriteOptions options = WriteOptions.Defaults;
             options.bWriteBinary = binary;
             options.bPerVertexUVs = uvs;
+            options.bWriteGroups = groups && mesh.HasTriangleGroups;
             IOWriteResult result;
             try {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(path));

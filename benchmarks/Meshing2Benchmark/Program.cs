@@ -25,6 +25,12 @@ namespace Meshing2Acceptance
   oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--case <id>] [--row <file>]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
+  mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
+                                    format, or Triangle .node/.ele/.poly files if <file> ends so; prints the row's fingerprints and
+                                    whether they equal the golden row
+  mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle d] [--max-area a] [--steiner-limit n]
+                                    the same for an input file (the text input format or Triangle's); an input equal to a case is
+                                    that case; otherwise the milestone is inferred from its options and default expectations judge it
   cases                             list the cases with their generators and input hashes
   compare [--rows <file>]           our rows against rows of another producer, read from <file> or G3_MESH2_REFERENCE_ROWS;
                                     skipped with a message if there are none; not part of CI
@@ -32,6 +38,7 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
+  snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
   rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
   corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
@@ -64,6 +71,7 @@ namespace Meshing2Acceptance
                     case "golden": return Golden(args);
                     case "oracle": return OracleCommand(args);
                     case "case": return WriteCase(args);
+                    case "mesh": return Mesh(args);
                     case "cases": return ListCases();
                     case "compare": return Compare(args);
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
@@ -71,6 +79,8 @@ namespace Meshing2Acceptance
                     case "perf": return Perf.Run(args, Arg);
                     case "rows": return RunRows(args);
                     case "corpus": return Corpus.Run(args, Arg);
+                    case "snapcost": return SnapCost.Run(args, Arg);
+                    case "gridcounts": return GridCounts.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {
@@ -240,6 +250,15 @@ namespace Meshing2Acceptance
             if (c == null || path == null) { Console.Error.WriteLine("unknown case or no --output: " + id); return 2; }
             File.WriteAllText(path, TextFormat.WriteInput(c.Input));
             return 0;
+        }
+
+        static int Mesh(string[] args) =>
+            // outside the repository there are no golden rows (--input still works)
+            MeshCommand.Execute(args.Skip(1).ToList(), Console.Out, Console.Error, AllCases().ToList(), GoldenDirOrNull());
+
+        static string GoldenDirOrNull()
+        {
+            try { return Path.GetDirectoryName(GoldenPath(Milestone.M1)); } catch (InvalidOperationException) { return null; }
         }
 
         static int ListCases()

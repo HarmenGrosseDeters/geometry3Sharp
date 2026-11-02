@@ -210,6 +210,156 @@ catalogue note of the row it shaped.
   - collapsed pieces reported in strict mode, never removed silently (answer 6);
   - the vertex count of F-20 proportional to the input once snapping runs (answer 7a).
 
+## 3f. Cost measurement of SR + restore (2026-11-01, the coordinator's ask before building)
+
+`dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- snapcost --grid 8,12,16,20` runs a prototype (`SnapCost.cs`)
+on the 77 polygon inputs of the corpus, at pixel widths of the extent / 2^k. It relies on SRR's Proposition 4.14: the result equals SR on
+SR's hot pixels plus the pixels that ChoosePixel adds, so each round routes every segment, finds the critical pixels and adds pixels by R1
+to R3. It is for timing only: a power-of-two pixel, closed-square contact, and crossing pixels taken from doubles.
+
+| Pixel | Runs with a critical pixel | Most rounds | Restore, all 77 inputs | Routing + critical search | R1 / R2 / R3 |
+|---|---|---|---|---|---|
+| extent / 2^8 (coarse, much collapse) | 19 | 9 | 480 ms | 3 546 ms | 1 845 / 0 / 2 053 |
+| extent / 2^12 | 4 | 3 | 67 ms | 1 066 ms | 33 / 0 / 10 |
+| extent / 2^16 | 1 | 2 | 7 ms | 632 ms | 1 / 0 / 0 |
+| extent / 2^20 | 0 | 1 | 0 ms | 631 ms | 0 / 0 / 0 |
+
+- **The largest inputs:**
+  - **water-huge3** (12 864 segments): 0.17 to 0.65 s in total, 3 rounds at 2^8.
+  - **water-huge and water-huge2:** 0.1 to 0.16 s.
+  - **poly2tri debug2** (10 000 spikes meeting in a small centre): 5.9 s at 2^8, with 9 rounds, 3 626 critical pixels and 2 020 R3 spreads. The restore itself took 0.34 s; 2.6 s went to the prototype's crossing search (pairs from shared buckets, quadratic in the dense centre). The library reuses the mesher's exact noding there.
+- **Verdict:** the O(n² log n) risk does not appear on this data. At most 9 rounds, and the restore is at most 6 % of the run. The cost
+  that matters is routing (segment against hot pixels), linear in the incidences. For comparison, meshing water-huge takes about 0.65 s
+  at 20°. Snapping at a data-sized pixel (2^12 to 2^16 of the extent) adds about 0.1 s to it.
+- **R2 (snap) never happened:** SRR's restore always found a pixel to spread to, or a forced spread (R3) next to it. As the paper
+  claims, topology changes beyond SR's own collapse are rare.
+
+## 3g. Refinement on the grid: design proposal (owner decision 2026-11-01: all output vertices on the grid)
+
+Status: approved by the owner as written (2026-11-01, `MESHING2D_DECISIONS.md`) and built in #277; what the build changed or added is
+in "As built" at the end of this section. The SR + SRR routine of #277 snaps the input; this section is about the vertices refinement adds.
+
+### Literature ([V] read in full, [S] from abstracts or secondary sources)
+
+- **Rounding Steiner points breaks the refinement proofs** [S]: Diazzi, Panozzo, Vaxman, Attene, *Constrained Delaunay tetrahedrization:
+  a robust and practical approach*, 2023 (arXiv 2309.09805). Rounding a Steiner point deforms the input, the termination and quality
+  proofs (Ruppert 1995, Shewchuk 2002) no longer hold, and elements can flip after rounding. They avoid rounding instead (rational
+  parameters, indirect predicates); we must round, so the design keeps the mesh exact on the rounded points instead.
+- **Angle bounds with vertices on a grid are possible** [S]: M. Bern, D. Eppstein, J. Gilbert, *Provably good mesh generation*,
+  JCSS 1994. Quadtree meshing puts every vertex on a corner of a dyadic grid, with angles bounded away from zero and a size within a
+  constant of optimal. The same holds for size-optimal meshes in general, but only down to the grid's resolution: below it no vertex
+  can be placed, hence a floor.
+- **Rounding a Delaunay triangulation to a grid** [S]: O. Devillers, P.-M. Gandoin, *Rounding Voronoi diagram*, TCS 2002 (full text not
+  reachable: core.ac.uk is not allowed in this session). The TU Delft MSc thesis *Snap rounding polygons with a triangulation* (2023) is
+  not read either: its server refuses the connection.
+- **Behaviour of the owner's fork** (`MESHING2D_SNAP_QA.md`, behavioural input only): Steiner points rounded at insertion; relocating
+  them cycled and was switched off; refinement cascaded to the grid at small input angles until a floor of two cells; subsegments with
+  no valid grid split were common; a final pass that moved vertices made the mesh not exactly constrained Delaunay, and rounding a
+  full-precision mesh afterwards flipped about 1 % of the triangles.
+
+### Design
+
+1. **Rounding at insertion, never afterwards, never relocation.** Every vertex is created at a pixel centre. The mesh stays exactly the
+   constrained Delaunay triangulation of its vertices and the snapped chains (exact predicates, as now), so nothing is repaired at the
+   end and no triangle can flip. **Termination:** nothing is ever moved, so nothing can cycle. The practical guard is the existing
+   Steiner limit; that every insertion uses a grid point not yet used inside the bounded domain is a theoretical bound only.
+2. **Interior Steiner points.** The circumcentre (or off-centre) is computed exactly as now, then rounded to the centre of its pixel.
+   The insertion is refused if that pixel is hot (an existing vertex) or if its interior is crossed by a constraint edge. The latter
+   would put a vertex within half a pixel of a constraint, breaking D14's separation. Ruppert's rule stays: if the rounded point
+   encroaches a subsegment, that subsegment is split instead. A triangle whose point is refused for these reasons is **grid-blocked**:
+   it stays and is reported. If the prototype shows grid-blocked counts that matter, a second candidate is tried before that: an
+   off-centre point along the direction to the circumcentre (A. Üngör, *Off-centers: a new type of Steiner points for computing
+   size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004).
+3. **Subsegment splits (O12).** The target is the midpoint of the subsegment, taken on the original input segment, or the concentric
+   shell point. Its pixel is used if:
+   - the pixel is in the envelope of the input segment;
+   - it is not hot;
+   - the bent chain a → p → b crosses no hot pixel's interior, the restore condition, checked with SnapRounding2's machinery.
+   Otherwise the neighbours of that pixel along the segment are tried. If no pixel on the subsegment's span qualifies, the subsegment is
+   **unsplittable** (clean-room answer 7d): it stays, and the triangles that encroach it stay as well, judged and reported, never dropped.
+4. **Angle floor: two pixels.** A triangle whose shortest edge is below 2 tol is not refined for its angle and is exempt from the bound.
+   Measured on 150 random snapped inputs (pixels 1/4, 1/2 and 1 in a 16 × 16 square, 4 to 17 segments) with today's off-grid refinement
+   as a proxy, the triangles below the bound by their shortest edge in pixels:
+
+   | Bound | Inputs with any | < 0.5 | 0.5 to 1 | 1 to 2 | ≥ 2 |
+   |---|---|---|---|---|---|
+   | 20° | 39 of 150 | 33 | 20 | 12 | 3 |
+   | 30° | 55 of 150 | 84 | 50 | 21 | 0 |
+
+   A one-pixel floor leaves 15 and 21 triangles that refinement on the grid can only fix by placing vertices closer than the grid
+   allows, which is the fork's cascade. Two pixels leaves 3 and 0, so the recommendation is two pixels, as in the fork, now measured.
+   The 3 left above two pixels at 20° are to be examined with the prototype; they are likely angles between snapped chains below the
+   bound, which the oracle does not see.
+5. **Sizes.** MaxArea, the size function and region areas cannot ask for triangles smaller than the grid allows. Triangles below the
+   floor are exempt from size bounds as well.
+6. **The cost of refusals, measured before the PR is ready:** the prototype reports, on the corpus at 20° and 30°, the counts of
+   grid-blocked triangles and unsplittable subsegments, with and without the floor.
+
+### Guarantees and oracle checks (each with an accept and a reject self-check, checked by mutation)
+
+- **Every output vertex on the grid** (a new check): inputs, crossings, restore pixels, Steiner and split points.
+- **Constrained Delaunay exactly** on those vertices and the snapped chains. Conforming Delaunay (O2) holds except at unsplittable
+  subsegments; the exemption covers a subsegment with no grid point of its envelope strictly inside its span, which the oracle
+  recomputes.
+- **Angle bound,** except:
+  - shortest edge below 2 tol;
+  - grid-blocked triangles: the oracle recomputes the circumcentre exactly, rounds it, and confirms the pixel is hot or crossed by a
+    constraint;
+  - the existing exemptions (small input angles, the merge zone).
+- **D14 on the input side, unchanged:** input at pixel centres, separation of half a pixel, drift of half a pixel per axis.
+
+### As built (#277)
+
+`QualityMesh2` with `SnapTolerance` refines on the grid of the snapped input (`SnapRounding2.Grid`); the rules above hold, with these
+details, each found by a fuzz test (random segments in a square ring at pixels 1/8 to 1, including 0.3 and 1/3, which doubles do not hold
+exactly; 12000 meshes at 20° and 30° pass the oracle):
+
+- **Circumcentre pixel** decided exactly (`SnapGrid.CircumcentrePixelCentre`); refused if a vertex is there or a constraint crosses the
+  pixel's interior (grid-blocked, counted in the diagnostics). The off-centre second candidate is not built: grid-blocked triangles are
+  rare on the corpus (item 6 below), and the unsplittable subsegments, the larger count, are not helped by it.
+- **Split points**: the pixel centres of the 3 × 3 block around the target, then a scan of the envelope between the ends (up to 256 samples
+  along the segment); a candidate must lie in the envelope of every input segment whose chain contains the piece (chains of several
+  segments can share a piece), its new edges must cross no vertex's pixel and no other constraint, and no other constraint may cross its
+  pixel. A vertex already at the candidate may be the split point (the chains then share it, as at a hot pixel).
+- **Floor**: shortest edge at most two pixels (≤, not <: lattice triangles have edges of exactly two pixels), decided from the pixel
+  indices, exactly, in the mesher and the oracle (doubles of k w round).
+- **Small input angles** are judged on the input segments the chains come from, not on the bent chains.
+- **Refusals are not final.** A split point or circumcentre refused because a constraint crossed its pixel becomes valid when that
+  constraint is split and its pieces bend away. When the queues drain after a sweep that inserted vertices, the refusals are dropped and
+  everything is looked at again; a sweep without insertions ends refinement. An encroached subsegment that cannot be split no longer
+  stops a circumcentre on the grid.
+- **Seeds**: a hole or region seed that snapping swept (it lies between an input constraint and its chain, or on that boundary, eg
+  inside a contour that collapsed) is dropped and reported; any other seed keeps its meaning, also one close to moved geometry
+  (second review of #277; this narrows the first review's rule of one pixel around moved geometry back to what section 3e and the
+  clean-room answer 6 describe).
+- **Oracle** (`Oracle.cs`): `OffGrid`, `BelowGridFloor`, `GridBlocked` and `GridUnsplittable` recompute the rules from the output, exactly;
+  conforming Delaunay is not demanded of an unsplittable subsegment itself (the local test of that edge) nor across one (a vertex behind
+  it, seen from the triangle's centroid), never of an unconstrained edge next to one (second review of #277), and a triangle whose rounded circumcentre lies behind one is exempt from the angle bound (Ruppert's rule splits the
+  subsegment instead, and there is no split point). Ties of shortest edges are tried both ways for a small input angle. On a grid that
+  doubles do not hold exactly (k w rounds), vertices are taken at the centre of their pixel and matched by it, and pixel corners touched
+  by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller, and more at large coordinates).
+- **The corpus** (item 6; `Meshing2Benchmark gridcounts`, the 84 corpus inputs at a tolerance of 2^-10 and 10^-3 of their extent;
+  counts summed, inputs with any in brackets):
+
+  | Tolerance / extent, angle, floor | Grid-blocked | Unsplittable | Below the angle | Steiner limit | Vertices | Time |
+  |---|---|---|---|---|---|---|
+  | 2^-10, 20°, 2 pixels | 7 (2) | 6423 (13) | 30446 (46) | 0 | 181984 | 44.5 s |
+  | 2^-10, 20°, none | 1076 (8) | 7133 (13) | 13145 (39) | 0 | 212007 | 46.9 s |
+  | 2^-10, 30°, 2 pixels | 91 (2) | 6504 (13) | 60852 (57) | 0 | 241093 | 43.5 s |
+  | 2^-10, 30°, none | 80 (2) | 6960 (13) | 72659 (52) | 26 | 1688955 | 67.4 s |
+  | 10^-3, 20°, 2 pixels | 10 (2) | 6781 (15) | 30301 (50) | 0 | 181963 | 46.8 s |
+  | 10^-3, 20°, none | 1130 (13) | 7668 (17) | 13474 (39) | 0 | 211289 | 52.3 s |
+  | 10^-3, 30°, 2 pixels | 98 (3) | 6897 (16) | 59526 (59) | 0 | 246650 | 53.2 s |
+  | 10^-3, 30°, none | 1306 (7) | 8159 (21) | 74424 (56) | 26 | 1711323 | 82.0 s |
+
+  One input dominates: poly2tri's debug2 (thousands of points on a few lines) has 6096 of the 6781 unsplittable subsegments at 10^-3
+  and 20°, and 19293 of the triangles below the angle; the rest are dense contours (earcut's water and touching-holes), whose input
+  points lie closer than a pixel. Without the floor, 30° runs into the Steiner limit on 26 inputs with seven times the vertices (the
+  cascade of section 3g); at 20° it adds a sixth of the vertices, halves the triangles below the angle, and makes a hundred times more
+  triangles grid-blocked. The two-pixel floor stays as decided. Grid-blocked triangles are few with it (7 to 98, in 2 or 3 inputs), so
+  the off-centre second candidate is not built. The local Delaunay test stays strict for unconstrained edges,
+  so the mesh is still checked to be constrained Delaunay.
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.

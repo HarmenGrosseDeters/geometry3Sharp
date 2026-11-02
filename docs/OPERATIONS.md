@@ -7,7 +7,8 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert) on mesh files, with JSON results, and as an MCP server.
+boolean, resolve, remesh, simplify, uv, convert, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
 filling, wall thickness, deviation, Hausdorff and geodesic distances, intrinsic triangulations, terrain).
@@ -52,7 +53,8 @@ Add both: `using g3; using gs;`.
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
-| 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md) |
+| 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d --quality false`](#command-line-and-mcp-g3cli) |
+| 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`; CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | 2D polygon booleans, polyline clipping, offsets, Minkowski sums, simplification (optional package `geometry3Sharp.Clipper2`) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options`, `Clipper2Result` | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
@@ -437,6 +439,132 @@ Clipper2's `Path64` / `PolyTree64` for direct use of Clipper2. Single-threaded a
 
 The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and runs in
 `tests/geometry3Sharp.Clipper2.Tests` (`Clipper2ExampleTests`), not in `DocExamplesTests`, because it needs the package.
+
+## Command line and MCP (g3cli)
+
+The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
+they are MCP tools with the same arguments. `g3cli` below stands for
+`dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `McpTests`).
+
+**2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
+segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
+
+```
+cat > field.json <<'JSON'
+{
+  "points": [[0,0], [100,0], [100,60], [0,60], [40,20], [60,20], [60,40], [40,40], [70,0], [70,60]],
+  "heights": [10, 20, 26, 16, 14, 16, 18, 16, 17, 23],
+  "rings": [[0, 1, 2, 3], {"vertices": [4, 5, 6, 7], "hole": true}],
+  "segments": [{"a": 8, "b": 9, "marker": 5}],
+  "regions": [{"seed": [10, 10], "label": 1}, {"seed": [90, 10], "label": 2, "max_area": 5}]
+}
+JSON
+g3cli mesh2d field.json field.obj --min-angle 30 --max-area 50
+#   -> "triangles": 817, "added_vertices": 442, "smallest_angle": 30.2, "largest_area": 49.6, "area": 5600,
+#      "bad_triangles": 0, "steiner_limit_reached": false, "labels": { "1": 234, "2": 583 }
+```
+
+The output lies in the XY plane (z = the heights, or 0), counterclockwise, with the region labels as triangle groups
+(OBJ `g` lines); only vertices of triangles are written (not duplicate input points, nor points in holes), and
+`added_vertices` counts those the mesher made (Steiner points, crossings). Rings are outer boundaries or holes (`"hole": true`); without rings the domain is the convex hull of the
+points. `--quality false` gives the constrained Delaunay triangulation only (`ConstrainedDelaunayMesh2`, no Steiner
+points); `--steiner-limit` bounds the inserted points (then `steiner_limit_reached` and a warning); crossing constraints
+are split unless `--resolve-crossings false`; `--snap-tolerance t` snap-rounds the input to a grid of width t first (m2.snap: every
+vertex, also those refinement adds, on the grid; merges and collapsed rings are reported in `warnings`). An agent passes the input
+inline instead of a file:
+
+```
+g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2]]}' --output plain.off --quality false
+#   -> "triangles": 2, "added_vertices": 0 (the diagonal 0-2 is kept as an edge)
+```
+
+Triangle's `.poly` / `.node` files, the common exchange format of 2D meshers, are read and written too (by extension). A
+`.poly` gives the domain Triangle `-p` gives (what the segments enclose; mapping and limits in the [g3cli README](../tools/g3cli/README.md#triangle-files-poly-node-ele)), hole points remove holes, regional
+attributes are integer labels with optional maximum areas; `--poly-heights` takes the first vertex attribute as the
+height. An output ending in `.node`, `.ele` or `.poly` writes all three files. An L-shape with a square hole:
+
+```
+cat > l.poly <<'POLY'
+10 2 0 1
+1 0 0
+2 2 0
+3 2 1
+4 1 1
+5 1 2
+6 0 2
+7 0.25 0.25
+8 0.75 0.25
+9 0.75 0.75
+10 0.25 0.75
+10 1
+1 1 2 5
+2 2 3 5
+3 3 4 0
+4 4 5 0
+5 5 6 0
+6 6 1 0
+7 7 8 9
+8 8 9 9
+9 9 10 9
+10 10 7 9
+1
+1 0.5 0.5
+0
+POLY
+g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
+#   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
+```
+
+**Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
+`--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
+rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
+or overlapping layers) lists them all in `hits`; `height` and `triangle` come from the lowest id (`exact`: true), or,
+outside every triangle, from the nearest one within the tolerance (`exact`: false):
+
+```
+g3cli query2d field.obj --points "10,10;50,30;85,30" --rect "65,25,75,35" --nearest 2
+#   -> "points": [ { "x": 10, "y": 10, "height": 11.54, "triangle": 46, "exact": true, "hits": [...], "nearest": [46, 58] },
+#                  { "x": 50, "y": 30, "height": null, ... },   (in the building: no triangle)
+#                  { "x": 85, "y": 30, "height": 21.5, ... } ],
+#      "rect": { "triangles_count": 58, "triangles": [...] }
+```
+
+**n-ary and SafeRounding booleans** (`boolean`, `resolve`; `ExactMeshBoolean`), on closed meshes `a.stl`, `b.stl`,
+`c.stl` of your own. `xor` keeps the points whose winding number is positive in an odd number of the inputs, so for three
+inputs it equals `(a xor b) xor c` and keeps the core inside all three; its parts touch along the curves where the input
+surfaces cross (closed, with copies of the vertices there, like solids that touch along an edge, so `measure` counts the
+contacts as self-intersections):
+
+```
+g3cli boolean a.stl b.stl xor.stl --op xor --more c.stl        # inside an odd number of the inputs, one arrangement
+g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
+#   -> "boolean": { "safe_rounding": true, "rounding_clean": true,
+#                   "rounding": { "initial_intersections": ..., "remaining_intersections": 0, "max_drift": ..., ... } }
+g3cli boolean a.stl b.stl plain.stl --op union --no-safe-rounding            # plain rounding, faster ("rounding": null)
+g3cli resolve overlapping.off solid.ply --simplify-flat-regions false        # keep the crossings of coplanar faces
+g3cli resolve site_utm.stl solid.stl --strict-rounding     # fail (RoundingNotClean) rather than write defects
+g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3   # the bound in metres
+```
+
+Far from the origin (UTM coordinates) the repair may move the surface by up to `--rounding-ulp-factor` (256) units in the
+last place of the largest coordinate beyond the relative bound, or `--rounding-absolute-tolerance`; `--strict-rounding` allows
+the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
+`RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
+the diagonal, `RoundingMaxDisplacement`). `repair` takes the same four options for its exact stage (`MeshRobustRepair`), where a
+strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
+after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
+repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
+
+`rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
+largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
+`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
+`--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
+and `result_reason`:
+
+```
+g3cli repair scan.obj scan_fixed.stl --check-lost-components --no-alpha-wrap
+```
 
 ## Adding an example
 

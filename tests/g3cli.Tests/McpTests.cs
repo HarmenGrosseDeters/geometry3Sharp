@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -62,7 +62,16 @@ namespace g3cli.Tests
             }
             JsonNode boolean = tools.First(t => S(t["name"]) == "boolean");
             Assert.Equal(new[] { "a", "b", "output", "op" }, boolean["inputSchema"]["required"].AsArray().Select(S).ToArray());
-            Assert.Equal(4, boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Count);
+            Assert.Equal(new[] { "union", "intersection", "difference", "at_least", "xor" },
+                boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Select(S).ToArray());
+            Assert.True(B(boolean["inputSchema"]["properties"]["safe_rounding"]["default"]));
+            JsonNode mesh2d = tools.First(t => S(t["name"]) == "mesh2d");
+            Assert.Equal(new[] { "output" }, mesh2d["inputSchema"]["required"].AsArray().Select(S).ToArray());
+            Assert.Equal("string", S(mesh2d["inputSchema"]["properties"]["geometry"]["type"]));
+            Assert.Equal("number", S(mesh2d["inputSchema"]["properties"]["min_angle"]["type"]));
+            Assert.Equal("integer", S(mesh2d["inputSchema"]["properties"]["steiner_limit"]["type"]));
+            JsonNode query2d = tools.First(t => S(t["name"]) == "query2d");
+            Assert.Equal(new[] { "input" }, query2d["inputSchema"]["required"].AsArray().Select(S).ToArray());
             Assert.Equal("integer", S(boolean["inputSchema"]["properties"]["k"]["type"]));
 
             r = Handle(server, Request(4, "ping"));
@@ -94,6 +103,29 @@ namespace g3cli.Tests
                 ["a"] = m.Cube, ["b"] = m.Shifted, ["more"] = m.Far, ["output"] = m.Path_("mcp_k.obj"), ["op"] = "at_least", ["k"] = 2 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.InRange(D(r["result"]["structuredContent"]["mesh"]["volume"]), 4 - 1e-6, 4 + 1e-6);
+
+            // a 2D quality mesh from inline JSON (an agent needs no input file), then its heights sampled
+            string terrain = m.Path_("mcp_mesh2d.obj");
+            r = Handle(server, Call(4, "mesh2d", new JsonObject() {
+                ["geometry"] = "{\"points\": [[0,0],[4,0],[4,4],[0,4]], \"heights\": [0,4,8,4]}", ["output"] = terrain,
+                ["max_area"] = 0.5, ["min_angle"] = 30 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            sc = r["result"]["structuredContent"];
+            Assert.True(D(sc["smallest_angle"]) >= 30 - 1e-9);
+            Assert.True(D(sc["largest_area"]) <= 0.5);
+            Assert.Equal(16, D(sc["area"]), 9);
+            Assert.Equal(I(sc["triangles"]), g3.StandardMeshReader.ReadMesh(terrain).TriangleCount);
+            r = Handle(server, Call(5, "query2d", new JsonObject() { ["input"] = terrain, ["points"] = "1,1;3,2.5", ["rect"] = "0,0,4,4" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            sc = r["result"]["structuredContent"];
+            Assert.Equal(2, D(sc["points"][0]["height"]), 9);
+            Assert.Equal(5.5, D(sc["points"][1]["height"]), 9);
+            Assert.Equal(I(sc["triangles"]), I(sc["rect"]["triangles_count"]));
+
+            // a bad geometry is a tool error with a result code, not a protocol error
+            r = Handle(server, Call(6, "mesh2d", new JsonObject() { ["geometry"] = "{\"points\": 1}", ["output"] = terrain }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
 
             r = Handle(server, Call(3, "simplify", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_s.off"), ["triangles"] = 50.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());

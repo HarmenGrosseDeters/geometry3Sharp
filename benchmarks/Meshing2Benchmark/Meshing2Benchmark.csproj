@@ -15,6 +15,8 @@
     <EmbeddedResource Remove="Oracle\**" />
     <None Remove="Oracle\**" />
     <ProjectReference Include="Oracle\Meshing2Oracle.csproj" />
+    <!-- Triangle's .node / .poly / .ele files, shared with g3cli -->
+    <Compile Include="..\..\tools\g3cli\TrianglePolyFormat.cs" Link="TrianglePolyFormat.cs" />
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
     <!-- BSD-3-Clause, the reference of the M1 differential; this benchmark only, never a dependency of the library -->
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />

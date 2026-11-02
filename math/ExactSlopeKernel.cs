@@ -289,10 +289,21 @@ namespace g3
         /// <summary> the plane's height at the double point (x, y), rounded to nearest from the exact value </summary>
         public double Height(int plane, double x, double y)
         {
+            return Height(plane, x, y, 0);
+        }
+
+        /// <summary>
+        /// the plane's height at (x, y) minus shift, rounded to nearest from the exact value: the height of the plane
+        /// shifted down by shift. (Shifting every plane by the same amount does not change a line of two planes, so a
+        /// planar map stays valid for every shift.)
+        /// </summary>
+        public double Height(int plane, double x, double y, double shift)
+        {
             Plane pl = planes[plane];
             ExactConstructions++;
             exact_plane(pl);
             ExactDyadic num = pl.eD - pl.eNx * E(x) - pl.eNy * E(y);
+            if (shift != 0) num = num - E(shift) * pl.eNz;
             return ExactDyadic.Quotient(num, pl.eNz);
         }
 

@@ -345,8 +345,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void VolumeIoUAtLeast_CloseToTheThresholdIsVolumeIoU()
         {
-            // IoU about 0.99: all samples are needed, the answer and the estimate are those of VolumeIoU
+            // IoU about 0.99, an open input (sampled in the region of VolumeIoU, as are all open meshes): all samples are
+            // needed, the answer and the estimate are those of VolumeIoU
             DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
+            foreach (int tid in input.TriangleIndices().Where(t => input.GetTriCentroid(t).x < 1e-9).ToList())
+                input.RemoveTriangle(tid);
             foreach (double h in new[] { 0.989, 0.99, 0.991 }) {
                 DMesh3 result = Box(Vector3d.Zero, new Vector3d(1, 1, h));
                 double missing, extra, iou;
@@ -354,6 +357,13 @@ namespace geometry3Sharp.Tests
                 bool ok = MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out iou);
                 Assert.Equal(reference, iou);
                 Assert.Equal(reference >= 0.99, ok);
+            }
+            // closed meshes: a stratified estimate of the same IoU (h), with the right answer away from 0.99
+            DMesh3 closed = Box(Vector3d.Zero, Vector3d.One);
+            foreach (double h in new[] { 0.988, 0.992 }) {
+                double iou;
+                Assert.Equal(h > 0.99, MeshRepairMetrics.VolumeIoUAtLeast(closed, Box(Vector3d.Zero, new Vector3d(1, 1, h)), 0.99, out iou));
+                Assert.InRange(iou, h - 0.001, h + 0.001);
             }
         }
 

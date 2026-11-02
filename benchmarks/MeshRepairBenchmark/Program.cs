@@ -226,6 +226,10 @@ class Program
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
+                // BENCH_IOU_CELLS=0: the volume check samples in the region of sample_region always (A/B of the cells)
+                robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
+                string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
+                if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -246,6 +250,13 @@ class Program
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
                 r["robust_phases"] = robust.PhaseMilliseconds;
+                // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
+                // sampled and the known volume (relative to the estimated union), the cells, and the times
+                r["robust_volume_checks"] = robust.VolumeCheckStats.ConvertAll(v => new System.Collections.Generic.Dictionary<string, object>() {
+                    ["cells"] = v.Cells, ["samples"] = v.Samples, ["union"] = v.UnionSamples, ["iou_lo"] = v.IoULow, ["iou_hi"] = v.IoUHigh,
+                    ["sampled_cells"] = v.SampledCells, ["child_tests"] = v.ChildTests, ["depth"] = v.Depth, ["unclassified"] = v.Unclassified, ["windings"] = v.WindingEvaluations,
+                    ["sampled_volume"] = v.SampledVolume, ["known_union"] = v.KnownUnion, ["known_both"] = v.KnownBoth,
+                    ["build_ms"] = v.BuildTicks * 1000.0 / Stopwatch.Frequency, ["sample_ms"] = v.SampleTicks * 1000.0 / Stopwatch.Frequency });
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
@@ -667,6 +678,32 @@ class Program
         r[p + "_degenerate_tris"] = nDegen;
         r[p + "_sliver_tris"] = nSliver;
 
+        // triangle angle distribution (degrees): global min / max, triangles with a min angle below 0.5 / 1 / 10
+        // and with a max angle above 150 / 170 (analyze_wrap.py)
+        double minAngle = 180, maxAngle = 0;
+        int lt05 = 0, lt1 = 0, lt10 = 0, gt150 = 0, gt170 = 0;
+        foreach (int tid in m.TriangleIndices()) {
+            m.GetTriVertices(tid, ref vA, ref vB, ref vC);
+            double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
+            double lo = Math.Min(a0, Math.Min(a1, a2)), hi = Math.Max(a0, Math.Max(a1, a2));
+            minAngle = Math.Min(minAngle, lo); maxAngle = Math.Max(maxAngle, hi);
+            if (lo < 0.5) lt05++;
+            if (lo < 1) lt1++;
+            if (lo < 10) lt10++;
+            if (hi > 150) gt150++;
+            if (hi > 170) gt170++;
+        }
+        // (a zero-length edge gives angles of 0; no triangles: no global min / max)
+        if (m.TriangleCount > 0) {
+            r[p + "_angle_min"] = Math.Round(minAngle, 4);
+            r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+        }
+        r[p + "_angle_lt05"] = lt05;
+        r[p + "_angle_lt1"] = lt1;
+        r[p + "_angle_lt10"] = lt10;
+        r[p + "_angle_gt150"] = gt150;
+        r[p + "_angle_gt170"] = gt170;
+
         // orientation consistency and fold-overs on interior edges
         int nFlippedEdges = 0, nFolds = 0;
         double foldCos = Math.Cos(175.0 * MathUtil.Deg2Rad);
@@ -749,6 +786,9 @@ class Program
         r[p + "_edges_below_1e-4"] = m.EdgeIndices().Count(e => {
             Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) < 0.0001; });
     }
+
+    // angle between u and v in degrees (atan2: accurate near 0 and 180)
+    static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
