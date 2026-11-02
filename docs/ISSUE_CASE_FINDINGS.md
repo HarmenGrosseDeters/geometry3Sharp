@@ -358,12 +358,12 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   about 1e10 with non-dyadic geometry a rounded box entry can exceed an equal triangle t and the tie can still depend
   on the order (as in the old code, not a regression). Row in UPSTREAM_CHANGES.md.
 
-### Q2: the ray-triangle test is not watertight
+### Q2 (fixed): the ray-triangle test was not watertight
 
-- Test: `RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits` (known failure).
+- Test: `RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits` (also `ExactRayTriangleTests`).
 - Issue: https://github.com/mikedh/trimesh/issues/1766 (a ray onto the shared diagonal of a split square, rescaled:
   0 hits); also https://github.com/mikedh/trimesh/issues/2317 (vertex hits gave 0-n).
-- Input -> wrong result: the unit square split along the diagonal (1,0)-(0,1) into (0,1,3) and (1,2,3), scaled by
+- Input -> wrong result (before the fix): the unit square split along the diagonal (1,0)-(0,1) into (0,1,3) and (1,2,3), scaled by
   1e-3; a vertical ray onto the diagonal point (97/98, 1/98) * 1e-3 hits neither triangle (brute force and tree: 0 hits).
   At 1e-7 four of the 97 diagonal points miss (u = 89/98, 92/98, 95/98, 97/98). At 1, 2^±30, 1e3 and UTM all hit. A
   ray exactly through a vertex can miss every triangle of its fan: the apex of the pyramid in Q3 (4 triangles) gives
@@ -374,24 +374,28 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   evaluate that edge from different corners and operands, so their rounding is independent and a ray on (or within
   rounding of) the edge can be rejected by both. The tree is not the cause: in every case it equals brute force
   (asserted).
-- Fix ideas:
-  - Watertight ray-triangle intersection (Woop, Benthin, Wald, JCGT 2013): axis permutation and shear to ray space,
-    2D edge functions with the same operands for both triangles of an edge, a recomputation in higher precision when
-    one is 0. Watertight, but a hit on an edge then counts in both triangles (fine for nearest hit, not for
-    parity). Cost: rewrite of one core predicate used by every ray query (picking, IsInside, projections); needs an
-    A/B benchmark (`benchmarks/PredicateComparison`) and a check of the callers that read the barycentrics.
-  - Edge sides decided exactly: orient3d of the rounded ray line (O, O + D) against each edge, with the edge's vertices
-    in a canonical order (lower id first) and symbolic perturbation for exact zeros, so every edge belongs to exactly
-    one side. Watertight and single-counting, which also fixes Q3. Cost: adaptive predicates in the hot loop (fast
-    filter, so likely small), more code; risk: changes results on edges for every caller.
+- Fix: the hit / no-hit decision is exact (`math/ExactRayTriangle.cs`, `RayHitClosed`, used by
+  `IntrRay3Triangle3.Find` / `Intersects`, every ray query of `DMeshAABBTree3`, `MeshQueries.FindHitTriangle_LinearSearch`
+  and `IntersectionUtil.Intersects`): the ray is the half line from the origin through `SecondPoint` = origin +
+  2^m direction (rounded once; 2^m from the exponents, so that the scaled direction is at least twice the origin's
+  largest coordinate and 2^k scaling stays exact); the line meets the closed triangle iff the signs of
+  `ExactPredicates.Orient3d(o, p, edge)` of its three edges are not opposite (Plücker test; all three 0: the line lies in
+  the plane, no hit as upstream), and the hit is ahead iff `Orient3d(a, b, c, o)` is opposite to the crossing sign (0: the
+  origin is on the triangle, t = 0 as upstream). The triangle is closed: a ray onto a shared edge or vertex hits every
+  triangle there, so it never misses all of them, at any scale, also on the boundary of an open mesh (the alternative,
+  counting each crossing once by symbolic perturbation, misses at a boundary vertex or edge: kept for counting, Q3). The
+  ray parameter and the barycentrics are the same doubles as before for every ray upstream hit; no parallel tolerance
+  any more (upstream rejected rays within about 1e-8 of the plane). Cost (median of 3, 200k random rays, scratch
+  harness): `FindNearestHitTriangle` 364 -> 378 ns on a 200k-triangle sphere, 4529 -> 6075 ns on a 100k-triangle terrain
+  with oblique rays (filtered `Orient3d` instead of a few products); identical hits. Row in UPSTREAM_CHANGES.md.
 
-### Q3: IsInside counts vertex and edge hits wrongly
+### Q3 (fixed): IsInside counted vertex and edge hits wrongly
 
-- Test: `ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight` (known failure).
+- Test: `ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight` (also `ExactRayTriangleTests`).
 - Issues: https://github.com/isl-org/Open3D/issues/5105 (a parity ray along an edge of the cube, wrong sign),
   https://github.com/mikedh/trimesh/issues/85 (an edge hit counted several times: outside taken as inside),
   https://github.com/mikedh/trimesh/issues/2317.
-- Input -> wrong result, all on IsInside's own fixed ray direction D = (0.331960519038825, 0.462531727525156,
+- Input -> wrong result (before the fix), all on IsInside's own fixed ray direction D = (0.331960519038825, 0.462531727525156,
   0.822111072077288), at scales 1 and 2^±20:
   - a square pyramid with its apex exactly at D and its base around 3D, query at the origin (outside): 1 hit (the base;
     the apex gives 0 of its 4 triangles), IsInside true;
@@ -400,14 +404,18 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
     2 hits (both triangles of the edge), IsInside false.
   The fourth case (the edge on the ray from outside) happens to be right. `WindingNumber` is right in all of them
   (asserted).
-- Cause: `spatial/DMeshAABBTree.cs` `IsInside` (line 1046) takes the parity of `FindAllHitTriangles` along a fixed
-  direction; a vertex hit counts 0 to n times and an edge hit 0 to 2 times (Q2). Its doc comment already says it "can
-  be wrong if the ray hits an edge or vertex exactly" (upstream behaviour).
-- Fix ideas:
-  - With the exact, single-counting ray test of Q2 the parity is right for closed meshes at no extra cost.
-  - Without it: detect a degenerate hit (an edge function within a relative tolerance of 0, or a triangle nearly
-    parallel to the ray near it) among the triangles in the boxes the ray passes, and re-cast along the next of a
-    fixed list of directions. Local, but the detector must also catch rays that missed every triangle of a fan, so it
-    has to scan near misses, not only hits: moderate cost, and still a tolerance.
-  - Decide by `WindingNumber(p) > 0.5`: robust, but slower and a change of meaning for open, overlapping or
-    self-intersecting meshes (parity vs winding), so an API behaviour change.
+- Cause: `spatial/DMeshAABBTree.cs` `IsInside` (line 1046) took the parity of `FindAllHitTriangles` along a fixed
+  direction; a vertex hit counted 0 to n times and an edge hit 0 to 2 times (Q2). Its doc comment already said it "can
+  be wrong if the ray hits an edge or vertex exactly" (upstream behaviour). The closed rule of the Q2 fix alone would
+  count an edge hit twice.
+- Fix: `IsInside` counts the crossings of a perturbed ray (`ExactRayTriangle.RayHitPerturbed`, through the internal
+  `DMeshAABBTree3.CountCrossings`): the edge signs of Q2, with exact zeros decided by Simulation of Simplicity
+  (Edelsbrunner, Mücke 1990): the second point moved by (ε, ε², ε³), the origin by (ε⁴, ε⁸, ε¹²); the ε terms are
+  exact `Orient2d` of projections and coordinate differences, checked against an explicit perturbation in big integers.
+  The perturbed line meets no edge, so a ray through an edge or a vertex crosses exactly one triangle of a closed fan,
+  and a ray in a triangle's plane does not cross it: the parity is right for every closed mesh without
+  self-intersections and every point off its surface, at any scale. The same crossing test now decides
+  `VolumeSampleCells.ExactWinding` (one mechanism; its retry over 64 directions on a degenerate segment is gone, the
+  winding numbers are exact either way). The meaning of `IsInside` (parity) is unchanged; inside / outside for open,
+  overlapping or self-intersecting inputs is Phase 5 #5 (generalized winding numbers, `WindingNumber`), not this fix.
+  Cost: `IsInside` 6427 -> 7564 ns on the sphere, 3402 -> 4162 ns on the terrain (about 20 %), identical answers. Row in UPSTREAM_CHANGES.md.

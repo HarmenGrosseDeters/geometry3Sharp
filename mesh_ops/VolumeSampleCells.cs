@@ -1,4 +1,4 @@
-// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 using g3;
@@ -165,70 +165,44 @@ namespace gs
         /// <summary>
         /// The winding number of a winding-closed mesh at p (not on its surface), exactly: the signed crossings of the
         /// segment from p to a point q outside root (which holds the mesh, so w(q) = 0), each decided by the signs of
-        /// ExactPredicates.Orient3d. A segment through an edge or a vertex of a crossed triangle, or in a triangle's
-        /// plane, is degenerate: another direction is tried (fixed sequence; the result does not depend on it). False if
-        /// no direction of 64 works.
+        /// ExactPredicates.Orient3d, a segment through an edge or a vertex by the symbolic perturbation of
+        /// ExactRayTriangle (shared with IntrRay3Triangle3 and so DMeshAABBTree3.IsInside), so that every direction
+        /// works (before, such a segment was degenerate and another direction was tried). Always true (kept for the
+        /// callers' check).
         /// </summary>
         internal static bool ExactWinding(DMesh3 mesh, DMeshAABBTree3 tree, Vector3d p, AxisAlignedBox3d root, out int winding)
         {
-            winding = 0;
             Vector3d c = root.Center;
             double ext = 4 * Math.Max(root.MaxDim, Math.Max(Math.Max(Math.Abs(p.x - c.x), Math.Abs(p.y - c.y)), Math.Abs(p.z - c.z)));
+            // a far point: one coordinate at +-ext from the centre, the others within, odd fractions of ext (the first
+            // direction of the fixed sequence used before)
             var rnd = new Random(17);
+            int axis = rnd.Next(3);
+            var dir = new Vector3d(rnd.Next(-1000, 1001), rnd.Next(-1000, 1001), rnd.Next(-1000, 1001)) / 1024.0;
+            dir[axis] = rnd.Next(2) == 0 ? -1 : 1;
+            Vector3d q = c + ext * dir;
+            // pruning of the tree's boxes against the segment, widened (only the pruning; the crossings are exact)
+            double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z));
+            int w = 0;
             Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
-            for (int attempt = 0; attempt < 64; ++attempt) {
-                // a far point: one coordinate at +-ext from the centre, the others within, odd fractions of ext
-                int axis = rnd.Next(3);
-                var dir = new Vector3d(rnd.Next(-1000, 1001), rnd.Next(-1000, 1001), rnd.Next(-1000, 1001)) / 1024.0;
-                dir[axis] = rnd.Next(2) == 0 ? -1 : 1;
-                Vector3d q = c + ext * dir;
-                // pruning of the tree's boxes against the segment, widened (only the pruning; the crossings are exact)
-                double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z));
-                int w = 0;
-                bool degenerate = false;
-                Vector3d pp = p, qq = q;
-                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (tb, depth) => degenerate == false && segment_meets_box(pp, qq, tb, pad),
-                    NextTriangleF = (tid) => {
-                        if (degenerate) return;
-                        mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
-                        int sp = ExactPredicates.Orient3d(v0, v1, v2, pp), sq = ExactPredicates.Orient3d(v0, v1, v2, qq);
-                        if (sp == 0 && sq == 0) {
-                            // in the plane of the triangle, or a triangle of no area (crossing it changes nothing). For a
-                            // closed mesh the edge tests of the neighbours also catch a segment through a triangle in its
-                            // plane (it enters the coplanar region through an edge or a vertex); kept as the direct test
-                            if (collinear(v0, v1, v2) == false)
-                                degenerate = true;
-                            return;
-                        }
-                        if (sp == 0 || sq == 0 || sp == sq)
-                            return;     // an end on the plane (outside the triangle: p is off the surface, q outside root)
-                        int o0 = ExactPredicates.Orient3d(pp, qq, v0, v1), o1 = ExactPredicates.Orient3d(pp, qq, v1, v2),
-                            o2 = ExactPredicates.Orient3d(pp, qq, v2, v0);
-                        if (o0 == 0 || o1 == 0 || o2 == 0) {
-                            // through the line of an edge: degenerate if within the triangle's edges
-                            if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
-                                degenerate = true;
-                            return;
-                        }
-                        // from q (w = 0) towards p: entering the back side of a triangle adds 1
-                        if (o0 == o1 && o1 == o2)
-                            w += sp < 0 ? 1 : -1;
-                    }
-                });
-                if (degenerate == false) {
-                    winding = w;
-                    return true;
+            tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (tb, depth) => segment_meets_box(p, q, tb, pad),
+                NextTriangleF = (tid) => {
+                    mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
+                    int sp = ExactPredicates.Orient3d(v0, v1, v2, p), sq = ExactPredicates.Orient3d(v0, v1, v2, q);
+                    // both ends on one side; an end on the plane (the line meets the plane there: crossing the closed
+                    // triangle would put p on the surface, excluded, or q, outside root); both on it (the line lies in
+                    // the plane: the perturbed line crosses it behind p, ExactRayTriangle.RayHitPerturbed, or a triangle of no
+                    // area, crossing it changes nothing)
+                    if (sp == 0 || sq == 0 || sp == sq)
+                        return;
+                    // from q (w = 0) towards p: entering the back side of a triangle adds 1
+                    if (ExactRayTriangle.LineCrossing(p, q, v0, v1, v2) != 0)
+                        w += sp < 0 ? 1 : -1;
                 }
-            }
-            return false;
-        }
-
-        static bool collinear(Vector3d a, Vector3d b, Vector3d c)
-        {
-            return ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y)) == 0
-                && ExactPredicates.Orient2d(new Vector2d(a.y, a.z), new Vector2d(b.y, b.z), new Vector2d(c.y, c.z)) == 0
-                && ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x)) == 0;
+            });
+            winding = w;
+            return true;
         }
 
         // does the segment pq meet the box widened by pad (slab test in doubles; conservative with the pad)

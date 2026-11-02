@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -22,10 +22,6 @@ namespace geometry3Sharp.Tests
     {
         /// <summary> case name -> finding; a listed case must still fail </summary>
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            [nameof(RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits)] =
-                "finding Q2 (docs/ISSUE_CASE_FINDINGS.md): IntrRay3Triangle3.Intersects is not watertight, a ray onto a shared edge can miss both triangles at 1e-3 / 1e-7",
-            [nameof(ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight)] =
-                "finding Q3: IsInside counts a vertex hit 0 times and an edge hit twice, so the parity is wrong",
         };
 
         static void Expect(string name, string failure)
@@ -287,8 +283,8 @@ namespace geometry3Sharp.Tests
                     }
                     return sig;
                 }
-                // at the decimal scales a ray onto an edge may legitimately hit one or both triangles (and, by finding Q2, at
-                // times neither): compare the hit counts of the rays inside the faces, where the count is defined
+                // at the decimal scales a rounded ray onto an edge may legitimately hit one or both triangles (before the fix
+                // of finding Q2 at times neither): compare the hit counts of the rays inside the faces, where the count is defined
                 bool[] interior = points.Select(q => {
                     int i = (int)(4 * q.x), j = (int)(4 * q.y);
                     return i % 4 != 0 && j % 4 != 0 && (i - j) % 4 != 0 && (i + j) % 4 != 0;
@@ -317,7 +313,7 @@ namespace geometry3Sharp.Tests
             // invariance of FindNearestHitTriangle (changed by Q1: ties go to the lowest id): rays from above onto the
             // vertices, the edges and the faces of a height field. At 2^k the same triangle and t / 2^k bit for bit; under the
             // other similarities the same hit, and the returned triangle's t equals the baseline's within the rounding of
-            // the transformed coordinates, for rays off the edges (onto an edge a rounded ray may miss, finding Q2).
+            // the transformed coordinates, for rays off the edges (onto an edge the rounded ray may hit the neighbour).
             Similarity sim = Similarity.ByName(name);
             DMesh3 mesh = HeightField(5, true), moved = Invariance.Transformed(mesh, sim);
             var tree = new DMeshAABBTree3(mesh, true);
@@ -350,9 +346,8 @@ namespace geometry3Sharp.Tests
             // a point of the shared diagonal edge (and onto a shared vertex) after rescaling gave 0 hits. Rebuilt for both
             // diagonals, 97 points along the diagonal and the 4 corners, at 2^k, 1e-3, 1e3, 1e-7 and UTM. Correct: at least
             // one hit (the two triangles cover the closed square), from the tree and from brute force.
-            // Known failure Q2: at 1e-3 and 1e-7 some rays onto the anti-diagonal miss both triangles in the leaf predicate
-            // IntrRay3Triangle3.Intersects (not watertight); pinned: the tree always equals brute force, and the misses
-            // only occur at the inexact scales.
+            // Finding Q2 (fixed): at 1e-3 and 1e-7 some rays onto the anti-diagonal missed both triangles in the leaf
+            // predicate IntrRay3Triangle3.Intersects (not watertight); the tree always equals brute force.
             var fails = new List<string>();
             foreach (bool other in new[] { false, true })
                 foreach (var (name, exact, f) in new (string, bool, Func<Vector3d, Vector3d>)[] {
@@ -436,9 +431,8 @@ namespace geometry3Sharp.Tests
             // lies exactly on the ray from an outside point and from an inside point, and a tetrahedron whose edge
             // (2 triangles) the ray crosses exactly at its midpoint, from outside and from inside; also at 2^-20 and 2^20.
             // Correct: IsInside equals the winding number test (which these points are far enough from the surface for).
-            // Known failure Q3: IsInside is wrong in 3 of the 4 cases at every scale (the apex gives 0 hits instead of 1, the
-            // edge 2 instead of 1). Pinned: the winding number is right everywhere (asserted always), and the wrong
-            // IsInside cases are exactly these three.
+            // Finding Q3 (fixed): IsInside was wrong in 3 of the 4 cases at every scale (the apex gave 0 hits instead of 1,
+            // the edge 2 instead of 1). The winding number is right everywhere (asserted always).
             var fails = new List<string>();
             foreach (double s in new[] { 1.0, Math.Pow(2, -20), Math.Pow(2, 20) }) {
                 var cases = new List<(string, DMesh3, Vector3d)> {

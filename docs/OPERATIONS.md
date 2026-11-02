@@ -216,7 +216,7 @@ See [RemeshExample](examples/RemeshExample.cs), [SimplificationExample](examples
 Vector2d volumeArea = MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex);
 var tree = new DMeshAABBTree3(mesh, autoBuild: true);
 int tid = tree.FindNearestTriangle(point);
-bool inside = tree.IsInside(point);             // closed meshes
+bool inside = tree.IsInside(point);             // closed meshes (exact parity, also through edges and vertices)
 double winding = tree.WindingNumber(point);     // ~1 inside, ~0 outside, also for open meshes
 ```
 

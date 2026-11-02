@@ -501,10 +501,13 @@ with vertices but no triangles, and point in polygon at 4e5, 2^26 and UTM agains
 casts are compared with a brute-force loop over the same leaf predicate, so a difference can only come from the tree:
 the tree equals brute force everywhere (the 0 * inf slab case of libigl does not occur), and the grids, the winding
 numbers and `Polygon2d.Contains` are right. Fixed: `FindNearestHitTriangle` picked among equal-t triangles by traversal
-order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id). Known
-failures, with findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md): `IntrRay3Triangle3.Intersects` is not
-watertight, so a rounded ray onto a shared edge can miss both triangles (Q2, at 1e-3 and 1e-7), and `IsInside`
-counts vertex hits 0 times and edge hits twice (Q3, its documented limitation).
+order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id);
+`IntrRay3Triangle3` was not watertight, so a rounded ray onto a shared edge could miss both triangles (Q2, at 1e-3 and
+1e-7; now decided by exact `Orient3d` signs against the closed triangle), and `IsInside` counted vertex hits 0 times
+and edge hits twice (Q3; now the crossings of a ray perturbed by Simulation of Simplicity, each counted once, the same
+test as the exact winding number of `VolumeSampleCells`). Findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md);
+`ExactRayTriangleTests` checks the perturbation against big integers, parity and hits through the vertices and edges
+of a closed grid cube along 29 directions, and invariance over `Similarity.All()`.
 
 ## 3. Performance
 
