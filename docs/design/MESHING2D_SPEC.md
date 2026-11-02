@@ -757,6 +757,9 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   snap to a zigzag): must snapping keep such a tip's vertex in the mesh (a sliver triangle, judged
   with the area tolerance), or may the part collapse, the unused input vertex reported? Today the tip
   vertex is lost at M3 even without refinement (`MESHING2D_HULL_GRID.md` section 6, with a reduction).
+  **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
+  accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
+  diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
 
 ---
 

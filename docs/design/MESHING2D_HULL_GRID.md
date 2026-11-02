@@ -1,6 +1,6 @@
 # Meshing2: hull edges on the grid (design note for the owner)
 
-Status: **for decision, nothing built.** Written after the reference comparison found OffGrid vertices on the Herne tiles at snap
+Status: **decided (owner, 2026-11-02; section 7), not built yet.** Written after the reference comparison found OffGrid vertices on the Herne tiles at snap
 0.01 (ALKIS parcels and buildings, three tiles, not committed). Refinement on the grid (`MESHING2D_SNAP.md` section 3g, #277) was
 designed and fuzz-tested with outer rings only. A **hull domain** has no outer ring (D13: the convex hull of the input is the
 boundary). With a hull domain, refinement on the grid has not been specified, and it does not work. This note collects what was found,
@@ -138,3 +138,23 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
   judged with the area tolerance. Or may it collapse? Then the oracle would accept an unused input vertex that snapping put on a
   collapsed part, and report it.
 - Listed as Q17 in `MESHING2D_SPEC.md` section 4.
+
+## 7. Owner decisions (2026-11-02, relayed by the coordinator)
+
+- **Q-H1: option C.**
+  - `ConstrainHull` snap-rounds the hull edges as input segments (hot pixels, then #277's restore), on top of the ghost fix and the
+    snapped-hull rule O-H1.
+  - Option A (crossed pixels) is only the fallback, if C's restore does not terminate on hull chains. That is measured first.
+- **Q-H2: dropped.** C never cuts.
+- **Q-H3:** the oracle treats each snapped hull edge as a segment envelope. Every relaxation (O-H1, O-H2 and any new one) needs:
+  - a rule with its spec basis (D13, D14, O11);
+  - self-checks that accept and reject, checked by mutation;
+  - a review focused on whether it could hide a mesher defect.
+- **Q-H4: (b).** A hull part narrower than a pixel may collapse, consistent with D14 and the semantics of snap rounding. The oracle
+  accepts an unused input vertex only on a collapsed part, and the mesher reports it in the diagnostics, like #277's collapses of rings
+  and segments.
+- **Acceptance:**
+  - the 192-run fuzz of section 5, its pass count reported against today's 119 (master) and 137 (ghost fix with O-H1);
+  - the nine Herne runs;
+  - no golden row changes without a reason.
+- **The implementation** is its own PR, with the label `bugfix` where a test fails on master.
