@@ -130,6 +130,14 @@ namespace g3
             /// <summary> bad triangles are split at off-centres (Ungor 2004) instead of circumcentres </summary>
             readonly bool offCentres;
 
+            /// <summary>
+            /// benchmarks only (per thread): when set, refinement adds what it inserts and refuses here, by cause: 0 subsegments split as
+            /// encroached, 1 subsegments split because a triangle's point lies behind them, 2 because the point encroaches them, 3
+            /// circumcentres, 4 off-centres, 5 grid-blocked triangles, 6 subsegments with no split point on the grid
+            /// </summary>
+            [ThreadStatic] internal static long[] CountsForBenchmarks;
+            int splitCause;
+
             /// <summary> benchmarks only: off-centres on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? OffCentresForBenchmarks;
             readonly Queue<long> segments = new Queue<long>();
@@ -218,6 +226,7 @@ namespace g3
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
                         if (e < 0 || k.Seg[e] < 0 || !Encroached(e)) continue;
+                        splitCause = 0;
                         var failure = SplitSegment(e);
                         if (failure != null) return failure;
                         continue;
@@ -239,6 +248,7 @@ namespace g3
                     for (int v = 0; v < firstSteiner; ++v) if (v != k.Infinite && !inDomain.Contains(v) && OnHullChain(v)) ++collapsed;
                     if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
                 }
+                if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
                     b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because their circumcentre's pixel is taken or crossed by a constraint, "
                         + GridUnsplittable + " subsegments with no split point on the grid");
@@ -872,13 +882,15 @@ namespace g3
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
-                if (OffCentre(t, out var oc)) c = grid != null ? grid.Round(oc) : oc;
+                bool off = OffCentre(t, out var oc);
+                if (off) c = grid != null ? grid.Round(oc) : oc;
                 else if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
+                    splitCause = 1;
                     return SplitSegment(blocked);
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
@@ -889,6 +901,7 @@ namespace g3
                     for (int i = 1; i < encroached.Count; ++i) segments.Enqueue(Key(k.V[encroached[i]], k.V[Next(encroached[i])]));
                     long key = Key(k.V[first], k.V[Next(first)]);
                     triangles.Enqueue(t);
+                    splitCause = 2;
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
                     // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
@@ -902,6 +915,7 @@ namespace g3
                 k.InsertPoint(c.x, c.y);
                 if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
+                if (CountsForBenchmarks != null) ++CountsForBenchmarks[off ? 4 : 3];
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
                 Collect();
                 return null;
@@ -1014,6 +1028,7 @@ namespace g3
                 int q = k.InsertPoint(p.x, p.y);
                 if (k.VertexCount > before) {
                     ++inserted;
+                    if (CountsForBenchmarks != null) ++CountsForBenchmarks[splitCause];
                     if (b.heights != null) b.SetHeight(q, u, w);
                 } else if (grid == null || q == u || q == w) unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
                 var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
