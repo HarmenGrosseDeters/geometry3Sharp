@@ -33,6 +33,7 @@ for name, rs in runs:
     tris = [get(r, 'after_tris', 0) for r in xs]
     amin = [r['after_angle_min'] for r in xs if 'after_angle_min' in r]
     amax = [r['after_angle_max'] for r in xs if 'after_angle_max' in r]
+    ang = [r for r in xs if 'after_angle_lt05' in r]      # results with the angle distribution (not in older runs)
     rows.append((name, {
         'meshes': len(xs),
         'guarantees met (closed, manifold, oriented, no self-int.)': sum(guarantees(r) for r in xs),
@@ -48,11 +49,11 @@ for name, rs in runs:
         'IoU > 0.99': sum(v > 0.99 for v in iou),
         'repaired (criteria.py: clean, no self-int., HD < 1 %, IoU > 0.99)': sum(repaired(r) for r in xs),
         'output triangles, median': int(q(tris, .5)),
-        'angle min: global / median of meshes (deg)': f"{min(amin, default=float('nan')):.3f} / {q(amin, .5):.2f}",
-        'angle max: global / median of meshes (deg)': f"{max(amax, default=float('nan')):.1f} / {q(amax, .5):.1f}",
-        'meshes with a triangle < 0.5 deg / > 170 deg': f"{sum(get(r, 'after_angle_lt05', 0) > 0 for r in xs)} / {sum(get(r, 'after_angle_gt170', 0) > 0 for r in xs)}",
-        'triangles < 0.5 / < 1 / < 10 deg (sum)': f"{sum(get(r, 'after_angle_lt05', 0) for r in xs)} / {sum(get(r, 'after_angle_lt1', 0) for r in xs)} / {sum(get(r, 'after_angle_lt10', 0) for r in xs)}",
-        'triangles > 150 / > 170 deg (sum)': f"{sum(get(r, 'after_angle_gt150', 0) for r in xs)} / {sum(get(r, 'after_angle_gt170', 0) for r in xs)}",
+        'angle min: global / median of meshes (deg)': f"{min(amin):.3f} / {q(amin, .5):.2f}" if amin else 'n/a',
+        'angle max: global / median of meshes (deg)': f"{max(amax):.1f} / {q(amax, .5):.1f}" if amax else 'n/a',
+        'meshes with a triangle < 0.5 deg / > 170 deg': f"{sum(r['after_angle_lt05'] > 0 for r in ang)} / {sum(r['after_angle_gt170'] > 0 for r in ang)}" if ang else 'n/a',
+        'triangles < 0.5 / < 1 / < 10 deg (sum)': f"{sum(r['after_angle_lt05'] for r in ang)} / {sum(r['after_angle_lt1'] for r in ang)} / {sum(r['after_angle_lt10'] for r in ang)}" if ang else 'n/a',
+        'triangles > 150 / > 170 deg (sum)': f"{sum(r['after_angle_gt150'] for r in ang)} / {sum(r['after_angle_gt170'] for r in ang)}" if ang else 'n/a',
         'time median / p90 / max (s)': f"{q(ms, .5):.2f} / {q(ms, .9):.2f} / {max(ms) if ms else 0:.1f}",
     }))
 keys = list(rows[0][1].keys())

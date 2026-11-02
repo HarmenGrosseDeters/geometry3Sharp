@@ -599,8 +599,11 @@ class Program
             if (hi > 150) gt150++;
             if (hi > 170) gt170++;
         }
-        r[p + "_angle_min"] = Math.Round(minAngle, 4);
-        r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+        // (a zero-length edge gives angles of 0; no triangles: no global min / max)
+        if (m.TriangleCount > 0) {
+            r[p + "_angle_min"] = Math.Round(minAngle, 4);
+            r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+        }
         r[p + "_angle_lt05"] = lt05;
         r[p + "_angle_lt1"] = lt1;
         r[p + "_angle_lt10"] = lt10;

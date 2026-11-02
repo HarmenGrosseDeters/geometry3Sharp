@@ -119,9 +119,9 @@ enclosed outside pockets, the manifold step (around a non-manifold edge or verte
 to the box stays outside), and the contact margin of the intersection test (1e-6 of the offset).
 
 Rule 2 projects the cell's own circumcenter, not the end of the clamped dual edge, and keeps the point only if it lies
-strictly inside the cell's circumsphere (exact `InSphere`). Then every Steiner point is farther than
-min(offset, alpha - offset) from the other vertices, which bounds the angles of the result triangles with a circumradius
-of at most alpha (derivation in the `MeshAlphaWrap` class doc and at `rule_projection`; the guarantees of the paper
+strictly inside the cell's circumsphere (exact `InSphere`). Then every Steiner point is at least
+min(offset, alpha - offset) from the other vertices (up to rounding and the contact margin), which bounds the angles of
+the result triangles with a circumradius of at most alpha (asin(offset / (2 alpha)) for an offset below alpha / 2) (derivation in the `MeshAlphaWrap` class doc and at `rule_projection`; the guarantees of the paper
 do not include the triangle shape). This is the separation argument of Delaunay refinement, where points are inserted at the centers of empty
 balls: L. P. Chew, *Guaranteed-Quality Mesh Generation for Curved Surfaces*, SoCG 1993; J.-D. Boissonnat, S. Oudot,
 *Provably Good Sampling and Meshing of Surfaces*, Graphical Models 2005; S.-W. Cheng, T. K. Dey, J. R. Shewchuk,

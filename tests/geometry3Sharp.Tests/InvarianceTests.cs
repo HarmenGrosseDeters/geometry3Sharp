@@ -300,12 +300,7 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(w.Compute(), w.Error);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
-            Assert.Equal(0, w.Counts["projection_fallbacks"]);
-            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = Math.Min(off, alpha - off);
-            double sep = AlphaWrapTests.MinSteinerSeparation(w.Triangulation);
-            Assert.True(sep > 0.5 * bound, $"{s.Name}: Steiner points {sep / off} offsets apart");
-            double angleBound = Math.Asin(0.5 * bound / (2 * alpha)) * 180 / Math.PI;
-            Assert.True(AlphaWrapTests.MinAngleOfSmallTriangles(w.Result, alpha) >= angleBound, s.Name);
+            AlphaWrapTests.AssertSeparationBound(w, s.Name);
             if (s.IsExact)
                 Assert.Equal("", Invariance.GeometricDifference(w0.Result, Invariance.MappedBack(w.Result, s)));
         }
