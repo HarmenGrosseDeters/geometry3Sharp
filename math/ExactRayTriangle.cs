@@ -52,8 +52,16 @@ namespace g3
                 m = exponent(mo) - exponent(md) + 1;
                 m = Math.Max(-2000, Math.Min(2000, m));
             }
-            Vector3d p = origin + new Vector3d(ExactPoint3.ScaleB(direction.x, m), ExactPoint3.ScaleB(direction.y, m),
-                ExactPoint3.ScaleB(direction.z, m));
+            Vector3d p;
+            if (m >= -1022 && m <= 1023) {
+                // 2^m is a normal double: x * 2^m is x scaled by 2^m with one rounding (only where the result is
+                // subnormal or overflows), the same double as ScaleB(x, m)
+                double s = BitConverter.Int64BitsToDouble((long)(m + 1023) << 52);
+                p = origin + new Vector3d(direction.x * s, direction.y * s, direction.z * s);
+            } else {
+                p = origin + new Vector3d(ExactPoint3.ScaleB(direction.x, m), ExactPoint3.ScaleB(direction.y, m),
+                    ExactPoint3.ScaleB(direction.z, m));
+            }
             if (is_finite(p) == false)
                 return origin;
             return p;
@@ -117,6 +125,45 @@ namespace g3
             return 0;   // a == b
         }
 
+        // The differences Orient3d(o, p, x, y) computes for the three edges (u = p - o; a - o, b - o, c - o), each
+        // rounded once and shared, so that ExactPredicates.Orient3dFilter gives Orient3d's own decision bit for bit
+        // (the same operations on the same doubles); where it does not decide, Orient3d(o, p, x, y) itself does.
+        struct Diffs
+        {
+            public double ux, uy, uz, ax, ay, az, bx, by, bz, cx, cy, cz;
+            public Diffs(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+            {
+                ux = p.x - o.x; uy = p.y - o.y; uz = p.z - o.z;
+                ax = a.x - o.x; ay = a.y - o.y; az = a.z - o.z;
+                bx = b.x - o.x; by = b.y - o.y; bz = b.z - o.z;
+                cx = c.x - o.x; cy = c.y - o.y; cz = c.z - o.z;
+            }
+        }
+
+        // Orient3d(o, p, x, y) for edge 0 (x, y) = (a, b), 1 (b, c), 2 (c, a)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int orient3d(ref Diffs d, int edge, Vector3d o, Vector3d p, Vector3d x, Vector3d y)
+        {
+            int s;
+            if (edge == 0) s = ExactPredicates.Orient3dFilter(d.ux, d.uy, d.uz, d.ax, d.ay, d.az, d.bx, d.by, d.bz);
+            else if (edge == 1) s = ExactPredicates.Orient3dFilter(d.ux, d.uy, d.uz, d.bx, d.by, d.bz, d.cx, d.cy, d.cz);
+            else s = ExactPredicates.Orient3dFilter(d.ux, d.uy, d.uz, d.cx, d.cy, d.cz, d.ax, d.ay, d.az);
+            if (s != 0) {
+                PredicateStats.Call(PredicateStats.Kind.Orient3d);
+                return s;
+            }
+            return ExactPredicates.Orient3d(o, p, x, y);
+        }
+
+        // EdgeSign(o, p, x, y) with the shared differences
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int edge_sign(ref Diffs d, int edge, Vector3d o, Vector3d p, Vector3d x, Vector3d y)
+        {
+            int s = orient3d(ref d, edge, o, p, x, y);
+            if (s != 0) return s;
+            return edge_sign_perturbed(o, p, x, y);
+        }
+
         static Vector2d yz(Vector3d v) { return new Vector2d(v.y, v.z); }
         static Vector2d zx(Vector3d v) { return new Vector2d(v.z, v.x); }
         static Vector2d xy(Vector3d v) { return new Vector2d(v.x, v.y); }
@@ -129,8 +176,9 @@ namespace g3
         /// </summary>
         public static int LineCrossing(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            int s = EdgeSign(o, p, a, b);
-            if (s == 0 || EdgeSign(o, p, b, c) != s || EdgeSign(o, p, c, a) != s)
+            var d = new Diffs(o, p, a, b, c);
+            int s = edge_sign(ref d, 0, o, p, a, b);
+            if (s == 0 || edge_sign(ref d, 1, o, p, b, c) != s || edge_sign(ref d, 2, o, p, c, a) != s)
                 return 0;
             return s;
         }
@@ -143,10 +191,11 @@ namespace g3
         /// </summary>
         public static int ClosedCrossing(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            int s0 = ExactPredicates.Orient3d(o, p, a, b);
-            int s1 = ExactPredicates.Orient3d(o, p, b, c);
+            var d = new Diffs(o, p, a, b, c);
+            int s0 = orient3d(ref d, 0, o, p, a, b);
+            int s1 = orient3d(ref d, 1, o, p, b, c);
             if (s0 * s1 < 0) return 0;
-            int s2 = ExactPredicates.Orient3d(o, p, c, a);
+            int s2 = orient3d(ref d, 2, o, p, c, a);
             if (s0 * s2 < 0 || s1 * s2 < 0) return 0;
             return s0 != 0 ? s0 : (s1 != 0 ? s1 : s2);
         }

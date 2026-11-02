@@ -208,6 +208,41 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void SharedDifferenceFilter_SameDecisionsAsOrient3d_NearEdgesAndVertices()
+        {
+            // ClosedCrossing and LineCrossing share the differences between their three edge predicates and run
+            // Orient3d's filter on them; their decisions must be those of the plain ExactPredicates.Orient3d /
+            // EdgeSign, also on rays aimed at edges and vertices (exact zeros and filter failures) and at scales where
+            // the filter's underflow guard matters
+            var rnd = new Random(23);
+            Func<double> r = () => rnd.NextDouble() * 2 - 1;
+            int zeros = 0, n = 0;
+            foreach (double scale in new[] { 1.0, 1e-3, 1e-150, 1e150, 3.0e-310 / 4 }) {
+                for (int i = 0; i < 20000; ++i) {
+                    Vector3d a = new Vector3d(r(), r(), r()), b = new Vector3d(r(), r(), r()), c = new Vector3d(r(), r(), r());
+                    if (i % 4 == 0) c = a + (b - a) * 0.5 + new Vector3d(0, 0, 1e-17 * r());     // nearly degenerate
+                    Vector3d o = new Vector3d(r(), r(), r()) * 4;
+                    // aim at a vertex, an edge point (on the double grid or one ulp off), or the interior
+                    double w = rnd.NextDouble();
+                    Vector3d target = (i % 3 == 0) ? a : (i % 3 == 1) ? a + (b - a) * w : (a + b + c) / 3;
+                    if (i % 7 == 0) target.x = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(target.x) + (rnd.Next(2) == 0 ? 1 : -1));   // one ulp off
+                    Vector3d p = (i % 5 == 0) ? target : o + (target - o) * 2;
+                    a *= scale; b *= scale; c *= scale; o *= scale; p *= scale;
+                    if (o == p) continue;
+                    int s0 = ExactPredicates.Orient3d(o, p, a, b), s1 = ExactPredicates.Orient3d(o, p, b, c), s2 = ExactPredicates.Orient3d(o, p, c, a);
+                    int closed = (s0 * s1 < 0 || s0 * s2 < 0 || s1 * s2 < 0) ? 0 : (s0 != 0 ? s0 : (s1 != 0 ? s1 : s2));
+                    int e0 = ExactRayTriangle.EdgeSign(o, p, a, b), e1 = ExactRayTriangle.EdgeSign(o, p, b, c), e2 = ExactRayTriangle.EdgeSign(o, p, c, a);
+                    int line = (e0 != 0 && e1 == e0 && e2 == e0) ? e0 : 0;
+                    Assert.Equal(closed, ExactRayTriangle.ClosedCrossing(o, p, a, b, c));
+                    Assert.Equal(line, ExactRayTriangle.LineCrossing(o, p, a, b, c));
+                    if (s0 == 0 || s1 == 0 || s2 == 0) zeros++;
+                    n++;
+                }
+            }
+            Assert.True(zeros > 1000, $"only {zeros} of {n} cases with an exact zero");
+        }
+
         // ---- invariance ----
 
         /// <summary> a height field over [0,n]^2 with dyadic heights, two triangles per unit cell, alternating diagonals </summary>
