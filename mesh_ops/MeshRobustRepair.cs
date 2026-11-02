@@ -105,6 +105,16 @@ namespace gs
         /// outside the input; otherwise the unsimplified wrap is (AlphaWrapSimplified false).
         /// </summary>
         public bool SimplifyAlphaWrap = true;
+        /// <summary>
+        /// alpha wrap fallback: after the simplification, improve the triangle quality (the simplified wrap keeps
+        /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
+        /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
+        /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
+        /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
+        /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
+        /// Off by default.
+        /// </summary>
+        public bool AlphaWrapQualityPass = false;
 
         /// <summary>
         /// reject an exact resolve result whose genus differs from the mesh it resolved (TopologyChanged): the
@@ -169,6 +179,8 @@ namespace gs
         public int AlphaWrapTriangles;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
+        /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
+        public bool AlphaWrapQualityImproved;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -226,6 +238,7 @@ namespace gs
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
             AlphaWrapSimplified = false;
+            AlphaWrapQualityImproved = false;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -364,6 +377,16 @@ namespace gs
                         if (CancelF())
                             return false;
                     }
+                    if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
+                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF);
+                        end_phase("wrap.quality");
+                        if (CancelF())
+                            return false;
+                        if (improved != null) {
+                            wrapped = improved;
+                            AlphaWrapQualityImproved = true;
+                        }
+                    }
                     AlphaWrapSimplified = wrapped != AlphaWrap.Result;
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
@@ -460,6 +483,31 @@ namespace gs
             m = new DMesh3(m, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
+            return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+        }
+
+        /// <summary>
+        /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
+        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// </summary>
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
+        {
+            int subdivisions = 0;
+            // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
+            // check, which resolves to 1 % of maxDistance, undecided)
+            var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
+            // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
+            if (pass.Compute() == false || pass.Flips + pass.Moves == 0)
+                return null;
+            DMesh3 m = new DMesh3(pass.Mesh, true);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
+        }
+
+        // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?
+        static bool certified_within(DMesh3 m, DMesh3 mesh, double maxDistance, Func<bool> cancelF, ref int hausdorffSubdivisions)
+        {
             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
             // distance is close to maxDistance. With the patch bound: the large triangles of the result over the
             // many small, nearly flat ones of the mesh need few subdivisions (on the alpha wraps of the repair benchmark the check took 16 times less time)
@@ -469,11 +517,11 @@ namespace gs
                 bool computed = hd.Compute();
                 hausdorffSubdivisions += hd.Subdivisions;
                 if (computed == false || !(hd.LowerBound <= maxDistance))
-                    return null;
+                    return false;
                 if (hd.UpperBound <= maxDistance)
-                    return m;
+                    return true;
             }
-            return null;
+            return false;
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
