@@ -140,7 +140,8 @@ namespace geometry3Sharp.Tests
                 r.GetTriVertices(tid, ref a, ref b, ref e);
                 SlopePiece p = d.Pieces[r.GetTriangleGroup(tid)];
                 Vector3d p0 = p.P0, p1 = p.P1;
-                if (fill) { a.z = -a.z; b.z = -b.z; e.z = -e.z; p0.z = -p0.z; p1.z = -p1.z; }
+                // (in a mixed run each piece by its own direction)
+                if (fill || p.Direction == TerrainSlopeDesign.Directions.Fill) { a.z = -a.z; b.z = -b.z; e.z = -e.z; p0.z = -p0.z; p1.z = -p1.z; }
                 Assert.True(Slope.IsSupportedBy(a, b, e, p0, p1, p.Spec), $"region triangle {tid}");
             }
             var cv = new HashSet<Vector3d>(c.Vertices());
