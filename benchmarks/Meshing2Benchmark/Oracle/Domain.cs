@@ -288,32 +288,61 @@ namespace Meshing2Acceptance
         Q ComputeArea()
         {
             var rings = Rings.Select((x, k) => (x.ring, k)).Where(x => x.ring.Length >= 3).ToList();
+            // a single simple ring: its area by the shoelace formula, exactly (the slabs below take minutes on a ring of 10 000 edges, eg
+            // poly2tri's debug2, and give the same: a simple ring's parity area is its shoelace area; found with the reference
+            // comparison, the mesh command judging debug2). The reference path keeps the slabs, as a check of this one.
+            if (Filter && rings.Count == 1 && IsSimple(rings[0].ring)) {
+                var r = rings[0].ring;
+                Q twice = Q.Zero;
+                for (int i = 0; i < r.Length; ++i) { Pt a = r[i], b = r[(i + 1) % r.Length]; twice += a.Qx * b.Qy - b.Qx * a.Qy; }
+                return Decide(new List<int> { rings[0].k }) ? Q.Abs(twice) * new Q(1, 2) : Q.Zero;
+            }
             var edges = new List<(Q ax, Q ay, Q bx, Q by, int ring)>();
+            var boxes = new List<(double x0, double x1, double y0, double y1)>();
+            bool boxed = Filter;
             for (int k = 0; k < rings.Count; ++k) {
                 var r = rings[k].ring;
+                var vb = Filter ? VertexBounds(r) : null;
                 for (int i = 0; i < r.Length; ++i) {
                     Pt a = r[i], b = r[(i + 1) % r.Length];
                     Q ax = a.Qx, bx = b.Qx;
                     if (ax == bx) continue; // a vertical edge spans no slab
                     if (ax < bx) edges.Add((ax, a.Qy, bx, b.Qy, k)); else edges.Add((bx, b.Qy, ax, a.Qy, k));
+                    if (boxed) {
+                        int i2 = (i + 1) % r.Length;
+                        if (double.IsNaN(vb[4 * i]) || double.IsNaN(vb[4 * i2])) boxed = false;
+                        else boxes.Add((Math.Min(vb[4 * i], vb[4 * i2]), Math.Max(vb[4 * i + 1], vb[4 * i2 + 1]), Math.Min(vb[4 * i + 2], vb[4 * i2 + 2]), Math.Max(vb[4 * i + 3], vb[4 * i2 + 3])));
+                    }
                 }
             }
             var xs = new List<Q>();
             foreach (var e in edges) { xs.Add(e.ax); xs.Add(e.bx); }
-            for (int i = 0; i < edges.Count; ++i)
-                for (int j = i + 1; j < edges.Count; ++j)
+            if (boxed) {
+                // (filter: edges whose boxes, rounded outwards, are apart do not cross; a sweep in x visits only pairs whose x ranges meet)
+                foreach (var (i, j) in BoxPairs(boxes))
                     if (TryCrossX(edges[i], edges[j], out Q x)) xs.Add(x);
+            } else
+                for (int i = 0; i < edges.Count; ++i)
+                    for (int j = i + 1; j < edges.Count; ++j)
+                        if (TryCrossX(edges[i], edges[j], out Q x)) xs.Add(x);
             xs.Sort();
+            // (the edges in order of their left end; a slab sees the edges begun at or before it that have not ended before it)
+            var order = Enumerable.Range(0, edges.Count).OrderBy(i => edges[i].ax).ToList();
+            var active = new List<int>();
+            int next = 0;
             Q area = Q.Zero;
             var parity = new bool[rings.Count];
             for (int s = 0; s + 1 < xs.Count; ++s) {
                 Q x0 = xs[s], x1 = xs[s + 1];
                 if (x0 == x1) continue;
+                while (next < order.Count && edges[order[next]].ax <= x0) active.Add(order[next++]);
+                active.RemoveAll(i => edges[i].bx < x1);
                 Q xm = (x0 + x1) * new Q(1, 2);
                 var spanning = new List<(Q y, int ring)>();
-                foreach (var e in edges)
-                    if (e.ax <= x0 && x1 <= e.bx)
-                        spanning.Add((e.ay + (e.by - e.ay) * (xm - e.ax) / (e.bx - e.ax), e.ring));
+                foreach (int i in active) {
+                    var e = edges[i];
+                    spanning.Add((e.ay + (e.by - e.ay) * (xm - e.ax) / (e.bx - e.ax), e.ring));
+                }
                 spanning.Sort((p, q) => p.y.CompareTo(q.y));
                 Array.Clear(parity, 0, parity.Length);
                 for (int i = 0; i + 1 < spanning.Count; ++i) {
@@ -324,6 +353,49 @@ namespace Meshing2Acceptance
                 }
             }
             return area;
+        }
+
+        /// <summary> the pairs i &lt; j of boxes that meet (closed), by a sweep in x </summary>
+        static IEnumerable<(int, int)> BoxPairs(List<(double x0, double x1, double y0, double y1)> boxes)
+        {
+            var order = Enumerable.Range(0, boxes.Count).OrderBy(i => boxes[i].x0).ToArray();
+            for (int a = 0; a < order.Length; ++a) {
+                var p = boxes[order[a]];
+                for (int b = a + 1; b < order.Length; ++b) {
+                    var q = boxes[order[b]];
+                    if (q.x0 > p.x1) break;
+                    if (q.y1 < p.y0 || q.y0 > p.y1) continue;
+                    yield return (Math.Min(order[a], order[b]), Math.Max(order[a], order[b]));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The ring is simple: no two edges meet except neighbours at their common vertex, which do not overlap (exact; pairs
+        /// prefiltered by boxes). False when a bound is unknown.
+        /// </summary>
+        static bool IsSimple(Pt[] r)
+        {
+            int n = r.Length;
+            var vb = VertexBounds(r);
+            var boxes = new List<(double x0, double x1, double y0, double y1)>();
+            for (int i = 0; i < n; ++i) {
+                int i2 = (i + 1) % n;
+                if (double.IsNaN(vb[4 * i]) || double.IsNaN(vb[4 * i2]) || r[i].Equals(r[i2])) return false;
+                boxes.Add((Math.Min(vb[4 * i], vb[4 * i2]), Math.Max(vb[4 * i + 1], vb[4 * i2 + 1]), Math.Min(vb[4 * i + 2], vb[4 * i2 + 2]), Math.Max(vb[4 * i + 3], vb[4 * i2 + 3])));
+            }
+            foreach (var (i, j) in BoxPairs(boxes)) {
+                Pt a = r[i], b = r[(i + 1) % n], c = r[j], d = r[(j + 1) % n];
+                if (j == i + 1 || (i == 0 && j == n - 1)) {
+                    // neighbours: they share one vertex s; they overlap when the other ends lie on the same ray from s
+                    Pt sv = j == i + 1 ? b : a, p = j == i + 1 ? a : b, q = j == i + 1 ? d : c;
+                    if (Exact.Orient(sv, p, q) == 0 && (p.Qx - sv.Qx) * (q.Qx - sv.Qx) + (p.Qy - sv.Qy) * (q.Qy - sv.Qy) > Q.Zero) return false;
+                    continue;
+                }
+                if (Exact.ProperCross(a, b, c, d) || Exact.OnClosedSegment(a, b, c) || Exact.OnClosedSegment(a, b, d)
+                    || Exact.OnClosedSegment(c, d, a) || Exact.OnClosedSegment(c, d, b)) return false;
+            }
+            return true;
         }
 
         static bool TryCrossX((Q ax, Q ay, Q bx, Q by, int ring) e, (Q ax, Q ay, Q bx, Q by, int ring) f, out Q x)
