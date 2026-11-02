@@ -65,7 +65,7 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    and the wrap session: a tighter sample region for the IoU check (only 16 % of samples hit the union; upper bound about
    10 % of the 400-set time; measurement and options in [design/VOLUME_CHECK_SAMPLING.md](design/VOLUME_CHECK_SAMPLING.md),
    parked 2026-11-02). It must provably contain the union of both solids, so the estimator stays unbiased with
-   lower variance; results are no longer bit-identical, the quality thresholds stay; its own PR with an A/B; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
+   lower variance; results are no longer bit-identical, the quality thresholds stay; its own PR with an A/B; **started 2026-11-02 (owner: option A, cells for closed meshes, with B, today's region, as the fallback; design in [design/VOLUME_CHECK_SAMPLING.md](design/VOLUME_CHECK_SAMPLING.md))**; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
    **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
