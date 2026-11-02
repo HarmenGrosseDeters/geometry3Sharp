@@ -116,8 +116,22 @@ namespace gs
         /// it is found by the composite's check: CompositeFailed)
         /// </summary>
         public DMesh3 Terrain;
-        /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
+        /// <summary> with Terrain: also build SlopeRegion and Composite (or Replacement) </summary>
         public bool BuildComposite = false;
+        /// <summary> the output of BuildComposite: the whole changed terrain, or only the part that replaces terrain triangles </summary>
+        public enum CompositeKinds
+        {
+            /// <summary> Composite: the whole terrain with the region replaced </summary>
+            Full,
+            /// <summary>
+            /// Replacement: only the replaced part (SlopeRegion and the pieces of the cut terrain triangles), with
+            /// ReplacedTerrainTriangles and CompositeTerrainVertices to join it to the rest of the terrain; much less
+            /// output than Full on a large terrain
+            /// </summary>
+            Replacement
+        }
+        /// <summary> with BuildComposite: Full (default) or Replacement </summary>
+        public CompositeKinds CompositeKind = CompositeKinds.Full;
         public Directions Direction = Directions.Cut;
         /// <summary>
         /// required without Terrain: cut builds the slope up to this height, fill down to it (it ends UsedToeLowering
@@ -149,6 +163,16 @@ namespace gs
         /// terrain there and at the lateral limits, where the caller's design goes
         /// </summary>
         public DMesh3 Composite;
+        /// <summary>
+        /// with Terrain, BuildComposite and CompositeKind Replacement (else null): the part of the composite that replaces
+        /// the terrain triangles ReplacedTerrainTriangles. Together with the other terrain triangles, joined at the
+        /// vertices that CompositeTerrainVertices names, it is the Full composite (the same triangles and vertices)
+        /// </summary>
+        public DMesh3 Replacement;
+        /// <summary> with BuildComposite: the terrain triangles that the composite replaces (cut by the region), sorted </summary>
+        public List<int> ReplacedTerrainTriangles = new List<int>();
+        /// <summary> with BuildComposite: per vertex of Composite or Replacement, the terrain vertex at its position, or -1 </summary>
+        public int[] CompositeTerrainVertices;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
@@ -182,6 +206,7 @@ namespace gs
         {
             Status = Statuses.InvalidInput; Message = "";
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
+            Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
@@ -200,6 +225,7 @@ namespace gs
             }
             if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
+                Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null;
             }
             IsComplete = Status == Statuses.Success;
             return Status == Statuses.Success;
@@ -251,8 +277,7 @@ namespace gs
                 // above the highest terrain vertex (cut) and the toe, by Tolerance: the level line of the cap, at H - λ, is
                 // then above the terrain by Tolerance - λ > 0 (λ is at most its bound, which the budget keeps below
                 // Tolerance), also after rounding, so the region cannot reach it
-                double ext = fill ? double.MaxValue : double.MinValue, toeExt = ext;
-                foreach (Vector3d v in Terrain.Vertices()) ext = fill ? Math.Min(ext, v.z) : Math.Max(ext, v.z);
+                double ext = fill ? terrainZMin : terrainZMax, toeExt = fill ? double.MaxValue : double.MinValue;
                 foreach (var toe in Toes)
                     if (toe != null && toe.Points != null)
                         foreach (var p in toe.Points) toeExt = fill ? Math.Min(toeExt, p.z) : Math.Max(toeExt, p.z);
@@ -318,9 +343,21 @@ namespace gs
             double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z)), sMin = pieces.Min(p => p.S);
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
-            double hLocal = local_terrain_max(toeBox, 0, fill) + Tolerance;
+            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself)
+            Func<double, double> upTo = CapEstimateRounds > 0 ? terrain_max_by_reach(toeBox, (H - zMin) / sMin, fill) : null;
+            double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
             hLocal = Math.Max(hLocal, toeMax);
+            // the start, without a build: the slope reaches a height h within (h - zMin) / sMin of the toe, so where all
+            // terrain within that reach is below h - Tolerance (a fixed point of this iteration) the region cannot reach a
+            // cap at h (the surface ends at h - λ, λ < Tolerance); otherwise the raise below decides
+            if (upTo != null) {
+                for (int k = 0; k < CapEstimateRounds && hLocal < H; ++k) {
+                    double next = upTo((hLocal - zMin) / sMin) + Tolerance;
+                    if (!(next > hLocal)) break;
+                    hLocal = next;
+                }
+            }
             while (true) {
                 if (!(hLocal < H)) hLocal = H;
                 capMayGrow = hLocal < H;
@@ -334,6 +371,32 @@ namespace gs
                 double next = local_terrain_max(toeBox, reach, fill) + Tolerance;
                 hLocal = Math.Max(next, hLocal + (hLocal - zMin));
             }
+        }
+
+        // in one pass over the terrain triangles: a function of reach (up to maxReach) that is at least the highest
+        // terrain point (fill: the lowest, mirrored) within that reach of the box. A triangle counts with its highest
+        // corner at the distance of its XY bounding box (a triangle that meets the expanded box has its bounding box
+        // meet it), its distance class rounded up: never below. (Vertices alone are not a bound: a triangle that
+        // reaches into the box from outside is higher inside it than any vertex there.)
+        Func<double, double> terrain_max_by_reach(AxisAlignedBox2d box, double maxReach, bool fill)
+        {
+            const int bins = 4096;
+            var top = new double[bins + 1];
+            for (int i = 0; i <= bins; ++i) top[i] = double.MinValue;
+            double w = maxReach / bins;
+            if (!(w > 0) || MathUtil.IsFinite(w) == false) return (r) => double.MaxValue;
+            foreach (int t in Terrain.TriangleIndices()) {
+                Index3i tv = Terrain.GetTriangle(t);
+                Vector3d a = Terrain.GetVertex(tv.a), b = Terrain.GetVertex(tv.b), c = Terrain.GetVertex(tv.c);
+                double minX = Math.Min(a.x, Math.Min(b.x, c.x)), maxX = Math.Max(a.x, Math.Max(b.x, c.x));
+                double minY = Math.Min(a.y, Math.Min(b.y, c.y)), maxY = Math.Max(a.y, Math.Max(b.y, c.y));
+                double d = Math.Max(Math.Max(box.Min.x - maxX, minX - box.Max.x), Math.Max(box.Min.y - maxY, minY - box.Max.y));
+                int i = d <= 0 ? 0 : (int)Math.Min(bins, Math.Ceiling(d / w));
+                double z = fill ? -Math.Min(a.z, Math.Min(b.z, c.z)) : Math.Max(a.z, Math.Max(b.z, c.z));
+                top[i] = Math.Max(top[i], z);
+            }
+            for (int i = 1; i <= bins; ++i) top[i] = Math.Max(top[i], top[i - 1]);
+            return (r) => r >= maxReach ? top[bins] : top[(int)Math.Min(bins, Math.Ceiling(Math.Max(r, 0) / w))];
         }
 
         // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
@@ -365,7 +428,10 @@ namespace gs
                         SlopeSurface = br.Mesh;
                         CatchLines = br.CatchLines;
                         SlopeRegion = br.Region;
-                        Composite = br.Composite;
+                        Composite = CompositeKind == CompositeKinds.Full ? br.Composite : null;
+                        Replacement = CompositeKind == CompositeKinds.Replacement ? br.Composite : null;
+                        ReplacedTerrainTriangles = br.Replaced ?? new List<int>();
+                        CompositeTerrainVertices = br.TerrainVertexOf;
                         Pieces = pieces.Select(p => new SlopePiece() {
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
@@ -398,13 +464,20 @@ namespace gs
             public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
+            public List<int> Replaced;
+            public int[] TerrainVertexOf;
         }
+
+        double terrainZMin, terrainZMax;
 
         Statuses check_terrain()
         {
-            foreach (Vector3d v in Terrain.Vertices())
+            terrainZMin = double.MaxValue; terrainZMax = double.MinValue;
+            foreach (Vector3d v in Terrain.Vertices()) {
                 if (MathUtil.IsFinite(v.x) == false || MathUtil.IsFinite(v.y) == false || MathUtil.IsFinite(v.z) == false)
                     return fail(Statuses.InvalidInput, "a terrain vertex is not finite");
+                terrainZMin = Math.Min(terrainZMin, v.z); terrainZMax = Math.Max(terrainZMax, v.z);
+            }
             if (Terrain.TriangleCount == 0)
                 return fail(Statuses.InvalidInput, "the terrain has no triangles");
             // (degenerate and overlapping triangles are found by the overlay, under the slope surface, where they matter)
@@ -702,7 +775,7 @@ namespace gs
                 PhaseSeconds["overlay-" + kv.Key] = t0 + kv.Value;
             }
             if (BuildComposite) {
-                var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF);
+                var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF) { CopyTerrain = CompositeKind == CompositeKinds.Full };
                 if (comp.Build() == false)
                     return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
                 // the clipped slope triangles get the same exact check (O1)
@@ -724,6 +797,8 @@ namespace gs
                     return Statuses.SlopeViolation;
                 br.Region = comp.Region;
                 br.Composite = comp.Composite;
+                br.Replaced = comp.Replaced.ToList();
+                br.TerrainVertexOf = comp.TerrainVertexOf;
             }
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
         }
@@ -790,6 +865,8 @@ namespace gs
         internal static double MergeLambda(double ez, double exy, double sMax) { return RepairLambda(ez, exy, sMax, 1); }
         /// <summary> diagnostics: the caps tried by the local height limit (1: not raised; 0 without it) </summary>
         internal int CapRounds;
+        /// <summary> tests: the rounds of the start estimate of the local height limit (0: the highest terrain at the toe) </summary>
+        internal int CapEstimateRounds = 16;
         /// <summary> diagnostics of the last realization: needles flipped </summary>
         internal int NeedleFlips;
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>

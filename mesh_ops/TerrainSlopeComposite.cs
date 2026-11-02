@@ -191,7 +191,7 @@ namespace gs
         bool no_overlaps()
         {
             DMesh3 near;
-            List<Index2i> pairs = OverlapsOfConstructed(Composite, constructed, out near);
+            List<Index2i> pairs = OverlapsOfMade(composite_triangles(constructed), kept_terrain_within, out near);
             if (pairs.Count == 0) return true;
             Problem = $"{pairs.Count} pairs of composite triangles overlap in XY";
             foreach (Index2i pr in pairs)
@@ -211,31 +211,58 @@ namespace gs
         readonly List<int> constructed = new List<int>();
 
         /// <summary>
-        /// the XY overlaps among the triangles 'constructed' of the mesh and the others within their box, as pairs of
-        /// triangles of 'near' (those triangles, in mesh order); overlaps of two others are not looked for
+        /// the XY overlaps among the triangles 'made' and of them with the 'others' within their box, as pairs of
+        /// triangles of 'near' (the made ones in order, then those others in order); overlaps of two others are not
+        /// looked for
         /// </summary>
-        internal static List<Index2i> OverlapsOfConstructed(DMesh3 mesh, List<int> constructed, out DMesh3 near)
+        internal static List<Index2i> OverlapsOfMade(IEnumerable<Vector3d[]> made, Func<AxisAlignedBox2d, IEnumerable<Vector3d[]>> othersWithin, out DMesh3 near)
         {
-            var box = AxisAlignedBox2d.Empty;
-            foreach (int t in constructed) {
-                Index3i tv = mesh.GetTriangle(t);
-                box.Contain(mesh.GetVertex(tv.a).xy); box.Contain(mesh.GetVertex(tv.b).xy); box.Contain(mesh.GetVertex(tv.c).xy);
-            }
             // (not welded: the overlap test is geometric, and a triangle that welding would make non-manifold, eg at
             // terrain vertices with the same position, must not drop out of the check)
             near = new DMesh3(false, false, false, false);
-            var isConstructed = new HashSet<int>(constructed);
-            foreach (int t in mesh.TriangleIndices()) {
-                Index3i tv = mesh.GetTriangle(t);
-                Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
-                if (isConstructed.Contains(t) == false) {
-                    var tb = new AxisAlignedBox2d(a.xy); tb.Contain(b.xy); tb.Contain(c.xy);
-                    if (tb.Intersects(box) == false) continue;
-                }
-                if (near.AppendTriangle(near.AppendVertex(a), near.AppendVertex(b), near.AppendVertex(c)) < 0)
+            var box = AxisAlignedBox2d.Empty;
+            foreach (Vector3d[] t in made) {
+                box.Contain(t[0].xy); box.Contain(t[1].xy); box.Contain(t[2].xy);
+                if (near.AppendTriangle(near.AppendVertex(t[0]), near.AppendVertex(t[1]), near.AppendVertex(t[2])) < 0)
                     throw new InvalidOperationException("SlopeComposite: overlap check");
             }
+            if (near.TriangleCount > 0)
+                foreach (Vector3d[] t in othersWithin(box))
+                    if (near.AppendTriangle(near.AppendVertex(t[0]), near.AppendVertex(t[1]), near.AppendVertex(t[2])) < 0)
+                        throw new InvalidOperationException("SlopeComposite: overlap check");
             return TerrainVolumeDifference.XYOverlapPairs(near);
+        }
+
+        // the triangles of 'all' whose XY box meets 'box' (inclusive)
+        internal static IEnumerable<Vector3d[]> Within(IEnumerable<Vector3d[]> all, AxisAlignedBox2d box)
+        {
+            foreach (Vector3d[] t in all) {
+                var tb = new AxisAlignedBox2d(t[0].xy); tb.Contain(t[1].xy); tb.Contain(t[2].xy);
+                if (tb.Intersects(box)) yield return t;
+            }
+        }
+
+        IEnumerable<Vector3d[]> composite_triangles(IEnumerable<int> tids)
+        {
+            foreach (int t in tids) {
+                Index3i tv = Composite.GetTriangle(t);
+                yield return new[] { Composite.GetVertex(tv.a), Composite.GetVertex(tv.b), Composite.GetVertex(tv.c) };
+            }
+        }
+
+        // the terrain triangles not replaced, as given (copied into a full composite), whose XY box meets 'box'
+        IEnumerable<Vector3d[]> kept_terrain_within(AxisAlignedBox2d box)
+        {
+            // (those of the overlay's near list if the box lies in its box: every triangle that meets the box is in it)
+            bool inNear = O.NearBox.Contains(box.Min) && O.NearBox.Contains(box.Max);
+            foreach (int tb in inNear ? (IEnumerable<int>)O.NearTerrain : B.TriangleIndices()) {
+                Index3i v = B.GetTriangle(tb);
+                Vector3d a = B.GetVertex(v.a), b = B.GetVertex(v.b), c = B.GetVertex(v.c);
+                if (Math.Max(a.x, Math.Max(b.x, c.x)) < box.Min.x || Math.Min(a.x, Math.Min(b.x, c.x)) > box.Max.x ||
+                    Math.Max(a.y, Math.Max(b.y, c.y)) < box.Min.y || Math.Min(a.y, Math.Min(b.y, c.y)) > box.Max.y) continue;
+                if (replacedSet.Contains(tb)) continue;
+                yield return new[] { a, b, c };
+            }
         }
 
         // the catch points at each realized position (to find the moved ones)
@@ -267,28 +294,32 @@ namespace gs
             // triangle meets them; elsewhere by terrain vertex id (no slope vertex can be there: a position in the region
             // lies in a cut terrain triangle, and at a terrain vertex in one of its triangles)
             var cut = new bool[B.MaxVertexID];
+            Replaced.Clear(); replacedSet.Clear();
+            var cutVerts = new List<int>();
             foreach (var kv in facesOfB)
                 if (kv.Value.Exists(f => O.Faces[f].Region)) {
                     Index3i v = B.GetTriangle(kv.Key);
-                    cut[v.a] = cut[v.b] = cut[v.c] = true;
+                    foreach (int x in new[] { v.a, v.b, v.c })
+                        if (cut[x] == false) { cut[x] = true; cutVerts.Add(x); }
+                    replacedSet.Add(kv.Key);
                 }
-            var outOf = new int[B.MaxVertexID];
+            Replaced.AddRange(replacedSet);
+            Replaced.Sort();
+            var outOf = new int[CopyTerrain ? B.MaxVertexID : 0];
             for (int i = 0; i < outOf.Length; ++i) outOf[i] = -1;
+            // (as the cut triangles take a terrain vertex: -0 as +0)
+            Func<int, Vector3d> cutPos = (bv) => { Vector3d p = B.GetVertex(bv); p.x += 0.0; p.y += 0.0; p.z += 0.0; return p; };
             Func<int, int> copied = (bv) => {
-                if (cut[bv]) {
-                    // (as the cut triangles take it: -0 as +0)
-                    Vector3d p = B.GetVertex(bv);
-                    p.x += 0.0; p.y += 0.0; p.z += 0.0;
-                    return vertex(Composite, compVerts, p);
-                }
+                if (cut[bv]) return vertex(Composite, compVerts, cutPos(bv));
                 if (outOf[bv] < 0) outOf[bv] = Composite.AppendVertex(B.GetVertex(bv));
                 return outOf[bv];
             };
             int checkAt = 0;
-            foreach (int tb in B.TriangleIndices()) {
+            // (only the replaced ones without the copy, in the same order)
+            foreach (int tb in CopyTerrain ? B.TriangleIndices() : Replaced) {
                 if ((++checkAt & 1023) == 0 && cancel != null && cancel()) throw new OperationCanceledException();
-                List<int> fl;
-                if (facesOfB.TryGetValue(tb, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) {
+                if (replacedSet.Contains(tb) == false) {
+                    if (CopyTerrain == false) continue;
                     Index3i v = B.GetTriangle(tb);
                     int ca = copied(v.a), cb = copied(v.b), cc = copied(v.c);
                     if (ExactPredicates.Orient2d(Composite.GetVertex(ca).xy, Composite.GetVertex(cb).xy, Composite.GetVertex(cc).xy) < 0) { int x = cb; cb = cc; cc = x; }
@@ -296,10 +327,29 @@ namespace gs
                         throw new InvalidOperationException("SlopeComposite: non-manifold composite");
                     continue;
                 }
-                if (partial(false, tb, fl) == false) return false;
+                if (terrain_whole(tb, facesOfB[tb])) continue;
+                if (partial(false, tb, facesOfB[tb]) == false) return false;
+            }
+            // the terrain vertex at each composite vertex (copied, or a corner of a cut terrain triangle that stayed)
+            TerrainVertexOf = new int[Composite.MaxVertexID];
+            for (int i = 0; i < TerrainVertexOf.Length; ++i) TerrainVertexOf[i] = -1;
+            if (CopyTerrain)
+                for (int bv = 0; bv < outOf.Length; ++bv)
+                    if (outOf[bv] >= 0) TerrainVertexOf[outOf[bv]] = bv;
+            foreach (int bv in cutVerts) {
+                int cv;
+                if (compVerts.TryGetValue(cutPos(bv), out cv)) TerrainVertexOf[cv] = bv;
             }
             return true;
         }
+
+        /// <summary> build the whole terrain with the region replaced (else only the replacement: Replaced are not in it) </summary>
+        public bool CopyTerrain = true;
+        /// <summary> the terrain triangles replaced (cut by the region), sorted </summary>
+        public readonly List<int> Replaced = new List<int>();
+        readonly HashSet<int> replacedSet = new HashSet<int>();
+        /// <summary> per composite vertex: the terrain vertex at its position, or -1 </summary>
+        public int[] TerrainVertexOf;
 
         static void add(Dictionary<int, List<int>> d, int k, int v)
         {
@@ -322,6 +372,24 @@ namespace gs
             Index3i t = A.GetTriangle(ta);
             foreach (int v in new[] { t.a, t.b, t.c })
                 if (O.Container(SlopeTerrainOverlay.vkeyA(v)) < 0) return false;
+            return true;
+        }
+
+        // a terrain triangle wholly in the region: all its faces in it, no catch point, no boundary of the slope surface
+        // inside, and its corners on the slope surface; nothing of it stays (the slope replaces all of it)
+        bool terrain_whole(int tb, List<int> fl)
+        {
+            foreach (int fi in fl) {
+                var f = O.Faces[fi];
+                if (f.Region == false || f.C0 != -1) return false;
+                foreach (var oe in f.Edges) {
+                    if (O.Sign[oe.P] > 0 || O.Sign[oe.Q] > 0) return false;
+                    if (SlopeTerrainOverlay.ekind(oe.Key) == 0 && A.IsBoundaryEdge(SlopeTerrainOverlay.eedge(oe.Key))) return false;
+                }
+            }
+            Index3i t = B.GetTriangle(tb);
+            foreach (int v in new[] { t.a, t.b, t.c })
+                if (O.Container(SlopeTerrainOverlay.vkeyB(v)) < 0) return false;
             return true;
         }
 
