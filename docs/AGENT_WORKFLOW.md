@@ -131,3 +131,16 @@ from secret tests, which a public repository cannot keep.
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
+- Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
+  - Small, bounded tasks (reading a paper, a license check, one measurement) go to a fresh short session with a
+    precise brief, not to a long-running one.
+  - One long topic per session; at a task boundary push everything, write the hand-over into the PR or a doc, and
+    `/compact` or start fresh. Context over about 500k tokens is a reason to do so.
+  - A session with nothing on the critical path pauses (idle costs nothing); the coordinator wakes it by message.
+  - No parallel subagents for implementation; a subagent only for an independent review or a bounded search.
+  - Measure on the smallest sample that can decide (tens of cases before hundreds), and grow it only if the decision
+    needs it; long runs in the background, one report at the end.
+  - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
+    coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
+  - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+
