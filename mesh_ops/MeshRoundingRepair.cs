@@ -204,6 +204,8 @@ namespace g3
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
         Dictionary<Vector3d, List<int>> atPosition;
+        // per vertex: the smallest id at its position (in atPosition; kept with it by position_add, position_remove)
+        int[] canonId;
         // spatial index over the triangles at the last build; triangles changed since are in dirty, with an index
         // of their own (rebuilt when they change, it is small)
         TriangleBoxTree tree, dirtyTree;
@@ -265,6 +267,7 @@ namespace g3
             coarse = ulpTerm > MaxDisplacement * diag;
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
+                canonId = new int[Mesh.MaxVertexID];
                 foreach (int vid in Mesh.VertexIndices())
                     position_add(vid, Mesh.GetVertex(vid));
             }
@@ -396,15 +399,27 @@ namespace g3
             if (atPosition.TryGetValue(key(p), out list) == false)
                 atPosition[key(p)] = list = new List<int>();
             list.Add(v);
+            int least = list.Count > 1 ? canonId[list[0]] : v;
+            if (v < least)
+                foreach (int u in list)
+                    canonId[u] = v;
+            else
+                canonId[v] = least;
         }
 
         void position_remove(int v, Vector3d p)
         {
             List<int> list;
-            if (atPosition.TryGetValue(key(p), out list)) {
-                list.Remove(v);
+            if (atPosition.TryGetValue(key(p), out list) && list.Remove(v)) {
                 if (list.Count == 0)
                     atPosition.Remove(key(p));
+                else if (canonId[list[0]] == v) {
+                    int least = list[0];
+                    foreach (int u in list)
+                        least = Math.Min(least, u);
+                    foreach (int u in list)
+                        canonId[u] = least;
+                }
             }
         }
 
@@ -414,6 +429,17 @@ namespace g3
         {
             if (atPosition == null)
                 return v;
+            // (v is at its position in the mesh, with the smallest id there in canonId: that one, or the moved vertex
+            // if it is proposed there with a smaller id; the dictionary only if the moved vertex is the smallest one
+            // at v's position, which it leaves, or v is the moved vertex)
+            if (v != movedV) {
+                int least = canonId[v];
+                if (least != movedV) {
+                    if (movedV >= 0 && movedV < least && key(movedPos) == key(Mesh.GetVertex(v)))
+                        return movedV;
+                    return least;
+                }
+            }
             // the smallest id at v's position: the vertices there, the moved one at its proposed position
             Vector3d p = key(pos(v));
             int best = v;
