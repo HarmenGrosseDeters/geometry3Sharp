@@ -180,6 +180,10 @@ var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, Inva
 bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
 
+With the defaults (as upstream) the remeshers check no move for flipped triangles and flip and collapse edges across
+creases. For flat, coarse or creased inputs constrain the features with `MeshConstraintUtil.PreserveBoundaryAndFeatures`
+and set `PreventNormalFlips` (edge flips and collapses) and `MinTriangleQuality` (also the smoothing and projection
+moves); without them a coarse L-shaped part loses a leg and a flat fan folds (docs/ISSUE_CASE_FINDINGS.md, S2 and S3).
 `Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).

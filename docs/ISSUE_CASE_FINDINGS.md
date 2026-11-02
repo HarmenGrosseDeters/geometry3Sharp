@@ -175,7 +175,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   enters positively), or use the spectral conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has
   no pins. Medium cost, changes LSCM results on annuli.
 
-### P2 (open): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
+### P2 (open, decided: kept): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
 - Test: `LongThinTriangleInPlaneX0_ValidChart` (case `_BffDiskTwoTriangles`).
 - Issue: https://github.com/jpcy/xatlas/issues/130 (a long thin triangle in the plane x = 0).
@@ -201,6 +201,33 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   the boundary and needs a distortion A/B (`benchmarks/`). (b) Build BFF's Laplacian on the intrinsic Delaunay
   triangulation (`IntrinsicTriangulation`, non-negative weights); medium cost. (c) Check the result (flips, finiteness,
   boundary on the target circle) and report `SolverFailed`; cheap.
+- Fix attempt (November 2026, `claude/fix-p2`, not fixed; measured with a probe on the `ParameterizationBenchmark`
+  meshes at 4, 8, 30 and 60 rings and the quads above, comparing the conformal and harmonic extensions per mode):
+  - The conjugate v is discretely harmonic at every interior vertex (the Neumann right-hand side is zero there), so
+    the only interior-harmonic function with v = gamma.y on the boundary is the harmonic extension itself: there is
+    no "conformal extension with the exact boundary". Idea (a) as written (keep the conjugate inside, gamma.y on the
+    boundary) is not harmonic next to the boundary and flips triangles: Disk on the ellipsoid cap 23 (30 rings) and
+    194 (60 rings) flips, on the cut-open cylinder 78 to 974 flips, where today there are none.
+  - Where the boundary target pair (u, k~) is consistent the conjugate does give gamma: MinimalAreaDistortion keeps
+    the boundary within 6e-5 (hemisphere, 60 rings) to 7e-4 (cap 0.8 pi) of the UV diagonal, and to 1e-12 on the
+    quads without interior vertices. In Disk mode the pair is not consistent: the five rounds of the fixed point
+    (u from the angles, the angles from the inscribed polygon of the lengths of u) end with u of the previous angles.
+    The conjugate's boundary is then 0.6 % (ellipsoid) to 2.1 % (cylinder, at every resolution) of the diagonal off
+    the circle, and on the quads 0.09 to 176 diagonals. Iterating to convergence brings the ellipsoid and cylinder to
+    4e-4 to 7e-4 (the fixed point residual from 1e-2 to 1e-13 in 20 to 50 rounds), but on the quads the iteration
+    diverges (z = 50: a flip after 20 rounds; z = 1: infinite UVs after 10), so it does not fix this case.
+  - The BFF reference implementation (MIT, github.com/GeometryCollective/boundary-first-flattening, `Bff.cpp`, read
+    to check the construction, nothing taken over) uses the conjugate only for given scale factors and the harmonic
+    extension for given angles, cones and the disk (`flattenToDisk` ends in `flatten(u, ktilde, false)`). Doing the
+    same here (Disk always harmonic) fixes the quad (the two-needle quad: no flip, on the circle; conformal distortion
+    3.6e12, the price of a needle quad on a circle) and is exact on the circle everywhere, but changes Disk broadly:
+    mean / max conformal distortion (area weighted) on the cut-open cylinder 1.029 / 2.42 -> 5.52 / 64146 (60 rings;
+    its rectangle corners must open to pi), the ellipsoid cap 1.014 -> 1.021, the hemisphere and the 0.8 pi cap
+    unchanged to 1e-4. It also makes `Extension` a no-op in Disk mode.
+- Decision (owner, November 2026): P2 stays pinned and documented; Disk keeps the documented "boundary close to the
+  target curve". The harmonic extension for Disk (the reference behaviour) is not taken: it worsens the distortion
+  broadly (the cylinder above). Making the Disk iteration consistent, so that u and the angles agree at the end, is
+  parked as a later research item (it would not fix the quads without interior vertices, where it diverges).
 
 ### P4 (fixed): BFF Disk threw on the needle quad with the short diagonal
 
@@ -274,7 +301,7 @@ test, and while listed the test checks the specific wrong outcome).
   boundary edges if its normal deviates by more than 60 degrees from the removed triangles' normals: small, but it
   only covers one kind. MaxDeviation does not help (the walls are within the deviation of the input).
 
-### S2 (open): Remesher smoothing and projection flip triangles without MinTriangleQuality
+### S2 (open, decided: kept): Remesher smoothing and projection flip triangles without MinTriangleQuality
 
 - Tests: `RemesherIssueCasesTests.FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_basic` / `_0_pro`,
   `RemesherIssueCasesTests.LongThinSharpParts_NoInvertedTriangles_0`.
@@ -294,8 +321,13 @@ test, and while listed the test checks the specific wrong outcome).
   flips an incident non-flat triangle) by default, independently of the quality threshold: changes default results
   of Remesher and RemesherPro (an UPSTREAM_CHANGES row, the RemeshQualityBenchmark A/B), low to medium risk. (b) make
   g3cli-like defaults (MinTriangleQuality 0.2) the library default: a larger behaviour change.
+- Decision (owner, November 2026): the Remesher defaults stay those of upstream, and S2 stays pinned. For inputs like
+  these the docs recommend `PreventNormalFlips` and `MinTriangleQuality` (docs/OPERATIONS.md). Turning a flip guard on
+  by default would also change other results: in a prototype (`claude/fix-s2`) it regressed the hole fill on UTM
+  coordinates, the UTM gear and the boundary of an open surface. A default change would be a separate item with
+  those cases.
 
-### S3 (open): without feature constraints the Remesher cuts the creases of a coarse part
+### S3 (open, decided: kept): without feature constraints the Remesher cuts the creases of a coarse part
 
 - Test: `RemesherIssueCasesTests.CreasedPart_BoundsKept_none`.
 - Issue: https://github.com/MeshInspector/MeshLib/issues/4148 (prose only).
@@ -311,6 +343,8 @@ test, and while listed the test checks the specific wrong outcome).
   (eg 60 degrees): small code, but changes default results on every creased mesh; needs the benchmarks and an
   UPSTREAM_CHANGES row; medium risk. (b) document more prominently that remeshing without
   `PreserveBoundaryAndFeatures` is only for smooth surfaces (no code risk).
+- Decision (owner, November 2026): no default change (upstream behaviour kept), S3 stays pinned; the docs recommend
+  feature constraints (`PreserveBoundaryAndFeatures`) and `PreventNormalFlips` for creased inputs (idea (b)).
 
 ### Fixed: bowtie vertices in the Reducer
 
