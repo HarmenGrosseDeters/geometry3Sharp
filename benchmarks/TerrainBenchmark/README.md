@@ -214,3 +214,24 @@ at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed 
 (simplify 2.1 s, 0.49M of 18.1M). An earlier note of "> 30 min" here was wrong: that run was one command with four
 cases in a row, stopped as a whole after 30 min. Open for 1c: the uneven toe (3 builds), the predicate count per
 output triangle (15000 to 30000), the km-scale cases of TERRAIN.md section 8.
+
+
+### TerrainSlopeDesign with a terrain (`slope ... terrain=wave`, terrain phase 1b)
+
+The same toes in a grid terrain h above the toe with a wave of `amp` (default 0.2 h), grid spacing `tgrid`:
+`dotnet bin/Release/net10.0/TerrainBenchmark.dll slope n=24 r=200 h=60 coords=utm terrain=wave tgrid=5 [composite=1]`.
+`HeightLimit` comes from the terrain (its highest vertex + `Tolerance`). Printed in addition: the overlay and composite
+phases, the catch lines and points, the composite and slope-region triangles, `XYOverlaps` of the composite and the
+oracle on every slope-region triangle. 4 cores, 2026-11-02, `Tolerance` 0.01, slope 1:1, 24-gon:
+
+| case | terrain tris | builds | time | overlay / composite | catch points | region / composite tris | overlaps | oracle | toe lowering |
+|---|---|---|---|---|---|---|---|---|---|
+| r 20 m, h 6 m, tgrid 1, local | 7688 | 3 | 2.9 s | 0.08 / 0.41 s | 606 (1 closed line) | 1157 / 7993 | 0 | 1157 / 1157 | 2.2e-11 m |
+| r 20 m, h 6 m, tgrid 1, UTM | 7688 | 2 | 2.6 s | 0.09 / 0.43 s | 608 (1 closed) | 1205 / 8044 | 0 | 1205 / 1205 | 7.5e-9 m |
+| r 200 m, h 60 m, tgrid 5, UTM | 28322 | 4 | 29.6 s | 0.27 / 0.91 s | 1282 (1 closed) | 3129 / 26384 | 0 | 3129 / 3129 | 1.6e-6 m |
+
+The overlay and the composite are a few percent of the time; the rest is the slope surface of 1a, built up to the
+terrain's highest point. The number of builds is 1a's at that height and does not come from the composite here: with
+`composite=0` the last case also takes 4 builds (27.5 s), and 1a alone takes 2 to 3 builds for heights between 71.9 and
+72.2 m (12.6 to 18.6 s). Where clipped slope triangles fail the support check, the composite raises the measured toe
+lowering in the same loop (a build each). Avoiding repeated builds stays a 1c item.

@@ -1,6 +1,6 @@
 # Terrain phase 1b: plan
 
-Status: plan of the 1b PR. It follows [TERRAIN.md](TERRAIN.md) 5.5 and the 1b row of section 11, on top of 1a
+Status: plan of the 1b PR, with what was built (below). It follows [TERRAIN.md](TERRAIN.md) 5.5 and the 1b row of section 11, on top of 1a
 ([TERRAIN_1A_PLAN.md](TERRAIN_1A_PLAN.md)). Section numbers refer to TERRAIN.md.
 
 ## Scope
@@ -43,6 +43,38 @@ Status: plan of the 1b PR. It follows [TERRAIN.md](TERRAIN.md) 5.5 and the 1b ro
      moved off the slope side by ulps if rounding put them there, so the parts do not overlap in XY;
    - every triangle of `SlopeRegion` passes the exact check against its piece (O1) before `Compute` returns true, in
      the same loop as 1a (a support failure raises λ, a slope failure δ).
+
+## As built: realization details and departures
+
+1. **Catch points in the composite.** Their XY is the interpolated zero of D on the overlay edge; their z is rounded
+   exactly from the planes of their slope triangle (on a slope edge the lower of its two planes, for fill the higher, as
+   1a takes the lowest incident plane). Interpolated heights were 1e-9 m off the plane at UTM, which the support check
+   of thin clipped triangles amplified to excesses of mm.
+2. **Snapping (5.5).** A catch point nearer than `MinFeatureSize` to a vertex of its slope edge or triangle snaps to it;
+   catch points nearer than that to each other share one position if both stay on their slope planes (same slope edge,
+   or one inside a slope triangle and the other inside it or on one of its edges). Where `MinFeatureSize` is larger than
+   the features (the frame "rotated, scale 1e-3, utm": 1.5 cm in a 10 cm scene) a move can cross other parts of the
+   boundary; the composite is checked exactly (each partial triangle's boundary is simple, the parity is consistent, and
+   `XYOverlaps` of the whole composite is 0), and the catch points involved keep their own positions in a rebuild of the
+   composite. A failure without a moved point is `Failed`, never a returned overlap.
+3. **Steps.** Along the toe and the lateral limits the slope ends (at the lowered toe) and the terrain has its own
+   vertices at the crossings of the slope's boundary with terrain edges; where rounding put one on the slope side it is
+   moved by ulps off it. So the composite has no overlaps, and a strip of a few ulps there is not covered (the tests allow
+   8 ulps times the toe and boundary length in the area check).
+4. **SoS-degenerate crossings are snapped to the vertex.** A crossing whose terrain (slope) vertex lies exactly on the
+   slope (terrain) edge's line is that vertex, exactly; computing it rounded put two realized points within ulps of
+   each other on the toe. Points that the realization puts exactly on a constraint split it.
+5. **A 1a defect found by the 1b stress test, fixed here.** On a regular 10-gon the line where two strips are equal passes
+   within ulps of the opposite toe vertex; the map then has a cluster of vertices 1e-14 m apart that the edge collapse
+   could not all remove (link condition), and a degenerate triangle failed the check at every margin (`SlopeViolation`).
+   The realization now merges positions within 64 ulps (z the lowest plane of all of them; the check decides). The
+   support excess that sets the measured toe lowering is now exact: in doubles it was 0 at the origin, so λ was never
+   raised and the margin δ was raised instead, up to its cap. A margin raise keeps the lowering measured in the same
+   build. Test: `RegularPolygon_StripCreaseThroughTheOppositeVertex` (fails without the merge).
+6. **λ.** 1b joins at the lowered toe (`UsedToeLowering`, reported per run). Measured in the stress test (24 random
+   wavy terrains, `RandomTerrains_CatchLinesAndComposite`): 8e-13 to 9e-11 m at the origin, 3e-9 to 3.5e-5 m at UTM; in
+   the benchmark 2.2e-11 m (r 20 m, local), 7.5e-9 m (r 20 m, UTM), 1.6e-6 m (r 200 m, UTM). All within the bound
+   reserved in the tolerance budget (1a).
 
 Not in 1b: mixed cut and fill (`Direction.Auto`, the clamp of 5.5) and `ToeOvertopped`; volumes; `StatusKind`; the
 catch-line accuracy (`IllConditionedCatchLine`, `TangentialContact`, `RequiredCatchLineAccuracy`); the band-only
