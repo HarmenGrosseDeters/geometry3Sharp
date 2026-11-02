@@ -69,6 +69,12 @@ namespace gs
                 if (catchOwn.TryGetValue(k, out p) == false) {
                     p = O.CatchPoint(k);
                     p.x += 0.0; p.y += 0.0;
+                    // a catch point on a boundary edge of the slope surface (the toe, a lateral limit, where a catch line
+                    // ends) on the slope side of the edge's line, by ulps where rounding put it off: the slope part's
+                    // boundary from the edge's end to it then stays on the slope side, which the terrain nodes on the
+                    // edge leave (nudge)
+                    if (SlopeTerrainOverlay.ekind(k) == 0 && A.IsBoundaryEdge(SlopeTerrainOverlay.eedge(k)))
+                        { Vector2d q = onto_slope_side(SlopeTerrainOverlay.eedge(k), p.xy, +1); p = new Vector3d(q.x, q.y, p.z); }
                     p.z = SlopeTerrainOverlay.ekind(k) == 0 ? edge_z(SlopeTerrainOverlay.eedge(k), p.xy) : tri_z(SlopeTerrainOverlay.etri(k), p.xy);
                     catchOwn[k] = p;
                 }
@@ -480,10 +486,7 @@ namespace gs
                 long c1 = slope ? SlopeTerrainOverlay.vkeyA(tv[(j + 1) % 3]) : SlopeTerrainOverlay.vkeyB(tv[(j + 1) % 3]);
                 var seq = new List<Node>();
                 var flags = new List<bool>();
-                // (on an edge of its own surface's boundary the other surface's part takes every overlay vertex: its
-                // constraints there are the overlay edges one by one, so this side keeps them too)
-                bool own = slope ? A.IsBoundaryEdge(te[j]) : B.IsBoundaryEdge(te[j]);
-                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags, own) == false) return null;
+                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags) == false) return null;
                 for (int k = 0; k + 1 < seq.Count; ++k)
                     if (edgeConstraints && flags[k] == slope) constraints.Add(new Index2i(idx(seq[k]), idx(seq[k + 1])));
                 foreach (Node n in seq) inp.EdgeNodes[j].Add(idx(n));
@@ -655,7 +658,7 @@ namespace gs
 
         // the nodes along an edge of the owner triangle (from corner c0 to c1) and, per sub-piece, whether it is in the
         // region; nodes inside a run of equal flags that are not catch points or corners are dropped
-        bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags, bool keepAll = false)
+        bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags)
         {
             // the overlay edges of this edge, each split at its catch point
             var byStart = new Dictionary<long, SlopeTerrainOverlay.OEdge>();
@@ -706,7 +709,7 @@ namespace gs
             // (the flag of the last node is the gap after it, so false at the end)
             for (int i = 0; i < raw.Count; ++i) {
                 Node n = raw[i].Key;
-                bool keep = keepAll || i == 0 || i == raw.Count - 1 || n.Catch || raw[i - 1].Value != raw[i].Value;
+                bool keep = i == 0 || i == raw.Count - 1 || n.Catch || raw[i - 1].Value != raw[i].Value;
                 if (keep == false) continue;
                 if (seq.Count > 0 && seq[seq.Count - 1].Equals(n)) continue;
                 seq.Add(n);
@@ -772,20 +775,28 @@ namespace gs
         {
             Vector2d r;
             if (nudged.TryGetValue(k, out r)) return r;
-            int ea = SlopeTerrainOverlay.vfirst(k);
+            r = onto_slope_side(SlopeTerrainOverlay.vfirst(k), x, -1);
+            nudged[k] = r;
+            return r;
+        }
+
+        // x moved by ulps until it is not on the given side of the line of boundary edge ea of the slope surface:
+        // side -1 off the slope side (on the line or outside), +1 off the outside (on the line or on the slope side)
+        Vector2d onto_slope_side(int ea, Vector2d x, int side)
+        {
             Index2i ev = A.GetEdgeV(ea);
             int ta = A.GetEdgeT(ea).a;
             Index3i t = A.GetTriangle(ta);
             // the edge in the counter-clockwise order of its triangle: the slope is on its left
             Vector2d e0 = A.GetVertex(ev.a).xy, e1 = A.GetVertex(ev.b).xy;
             if (!((t.a == ev.a && t.b == ev.b) || (t.b == ev.a && t.c == ev.b) || (t.c == ev.a && t.a == ev.b))) { Vector2d s = e0; e0 = e1; e1 = s; }
-            Vector2d nrm = new Vector2d(e1.y - e0.y, e0.x - e1.x);
-            r = x;
-            for (int it = 0; it < 64 && ExactPredicates.Orient2d(e0, e1, r) > 0; ++it) {
+            // (the outward normal; moved along it for side -1, against it for +1)
+            Vector2d nrm = new Vector2d(e1.y - e0.y, e0.x - e1.x) * side * -1;
+            Vector2d r = x;
+            for (int it = 0; it < 64 && ExactPredicates.Orient2d(e0, e1, r) * side < 0; ++it) {
                 if (nrm.x != 0) r.x = nrm.x > 0 ? ExactInterval.Up(r.x) : ExactInterval.Down(r.x);
                 if (nrm.y != 0) r.y = nrm.y > 0 ? ExactInterval.Up(r.y) : ExactInterval.Down(r.y);
             }
-            nudged[k] = r;
             return r;
         }
     }
