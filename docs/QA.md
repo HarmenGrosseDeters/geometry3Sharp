@@ -424,7 +424,9 @@ that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANG
 `MeshRepairIssueCasesTests.KnownFailures`, finding R1): `MeshPostRepairCleanup.FindInvertedComponents` takes a
 closed component whose interior lies mostly inside another for a nested one also when their surfaces cross, so of two
 outward boxes crossing at 3 or 10 degrees one is flipped as a cavity, and the repair returns their difference as a
-clean result; the volume check accepts it, because the input's reference solid uses the same nesting rule.
+clean result; the volume check accepts it, because the input's reference solid uses the same nesting rule. The
+analysis and fix ideas of the findings are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md) (also R2, a large
+hole fill rejected by `MeshRobustRepair`'s volume check, by design).
 
 **Alpha wrap (November 2026):** `AlphaWrapIssueCasesTests` rebuilds 9 failure modes from the trackers of CGAL,
 Open3D, MeshLib and Manifold: separate components (one shell each, at two offsets, CGAL#7625), components closer
