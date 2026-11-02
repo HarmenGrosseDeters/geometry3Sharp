@@ -9,7 +9,10 @@ The measurement of [docs/design/SAFE_ROUNDING.md](../../docs/design/SAFE_ROUNDIN
 - **B, snap fallback** (`SnapFallback.cs`, only here): a second resolve of the result, then the vertices of the
   defect triangles snapped to grids of 2^j ulps and resolved again (after Valque and Lazard), within the drift left.
 
-Methods: `plain` (SafeRounding off), `safe` (the default), `again` (safe, then one more resolve), `A`, `B`, `AB`.
+Methods: `plain` (SafeRounding off), `safe` (the default), `again` (safe, then one more resolve), `A`, `B`, `AB`,
+`Bpaper` (B with the published grid of Valque and Lazard, SAFE_ROUNDING.md section 7: [2^23, 2^24) per axis, hot voxels,
+at most 5 iterations, no drift bound), and `patch` (the upper bound of a patch-wise B: the defects grown by three rings,
+resolved alone, timed).
 
 Per result: clean (rounding clean and `MeshRobustRepair.NotCleanReasons` empty), the drift against the bound
 (`MaxLength`) and in ulps of the largest coordinate, the Hausdorff distance to the exact result rounded (an upper
@@ -24,6 +27,8 @@ All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs
 - `utm`: the 114 cases of `SafeRoundingBoundTests.Utm_*` (rotated, scale 1e-3, near UTM coordinates);
 - `cylinder`: the six steps of `ExactBooleanIssueCasesTests.CylinderToolSteppedDown_RepeatedDifference`;
 - `booleans`: the 198 of `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_*`;
+- BooleanComparison case directories (`@bc:list`, lines `<dir>:<Union|Intersection|Difference>`, the directories of
+  `BooleanComparison export` / `pair`);
 - a file list (`@list`): the self-unions of meshes, eg the Thingi10K 400 set of
   `benchmarks/MeshRepairBenchmark/fetch_data.py` (not committed: the meshes have their own licenses).
 
@@ -42,6 +47,6 @@ python3 run.py out/thingi.jsonl @thingi.txt --methods plain,safe -j 4 && python3
 Each case runs in its own process with a time limit (`--timeout`, per method), so a pathological case cannot stop the
 run; the output is appended one line per result, and a run resumes where it stopped. A single case:
 `dotnet bin/Release/net10.0/SnapRoundingExperiment.dll run cluster:Cluster:0:4:5 safe A B` (`SEP_DEBUG=1` prints the
-linear programs of A and the pairs the certificate rejects).
+linear programs of A and the pairs the certificate rejects, `SNAP_TRACE=1` every grid round of B with its time).
 
 The results are in SAFE_ROUNDING.md section 8.

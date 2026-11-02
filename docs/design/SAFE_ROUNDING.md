@@ -1008,9 +1008,11 @@ and BooleanComparison): done.
 |---|---|---|---|---|---|---|
 | generated leftovers (41) | 0 | 10 | 9 | **33** | 16 (10) | 22 |
 | BooleanComparison (261) | 255 | 255 | 257 | 257 | 256 | 257 |
-| Thingi10K self-unions (399 finished) | 188 | 188 | 188 | 209 | pending | 188 |
+| Thingi10K self-unions (399 finished) | 188 | 188 | 188 | 209 | 194 (194) | 188 |
 
-(BooleanComparison: the two cases A and B repair are `cgal/cheese` intersection and difference, which #316 repairs
+(Bpaper on Thingi10K: 6 new clean results, all within the drift bound there, 2 also within the Hausdorff bound; 2
+timeouts. On the generated leftovers its grid is far coarser than the bound at UTM coordinates, 0.3 of a unit there.
+BooleanComparison: the two cases A and B repair are `cgal/cheese` intersection and difference, which #316 repairs
 already; the other 4 unclean results are empty. Thingi10K: again, A and AB ran on the 38 rounding failures only; B on all
 211 unclean results.)
 
