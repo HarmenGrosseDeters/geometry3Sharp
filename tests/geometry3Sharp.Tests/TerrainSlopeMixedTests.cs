@@ -45,6 +45,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(d.AutoFill.PlanArea, d.FillArea);
             Assert.Equal(d.CutVolume + d.FillVolume, d.Volume);
             Assert.Equal(d.AutoCut.SlopeSurface.TriangleCount + d.AutoFill.SlopeSurface.TriangleCount, d.SlopeSurface.TriangleCount);
+            // each region triangle in its run's group: cut below the terrain (excavated), fill above it
+            int nc = d.AutoCut.Pieces.Count;
+            foreach (int t in d.SlopeRegion.TriangleIndices()) {
+                Vector3d c = d.SlopeRegion.GetTriCentroid(t);
+                double tz = TerrainSlopeDesignTests.HeightAt(d.Terrain, c.xy);
+                bool fill = d.SlopeRegion.GetTriangleGroup(t) >= nc;
+                double scale = 1e-9 * (1 + Math.Abs(tz));
+                Assert.True(fill ? c.z >= tz - scale : c.z <= tz + scale, $"region triangle {t}: z {c.z}, terrain {tz}, fill {fill}");
+            }
             // no crack inside: every boundary edge of the composite lies on the terrain's border, or on the toe (the slope
             // steps off the terrain there), or ends at a toe crossing, where the cut part (λ below the toe) and the fill
             // part (λ above) meet at one XY with a step along the catch segment that the terrain part does not share

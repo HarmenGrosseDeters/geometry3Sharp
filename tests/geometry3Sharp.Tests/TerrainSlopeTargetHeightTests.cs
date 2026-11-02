@@ -45,13 +45,16 @@ namespace geometry3Sharp.Tests
             Assert.True(o[0].Points.First().y > o[0].Points.Last().y);
             // a vertex exactly at h (at x = 1 on both edges of the strip's middle): the vertex itself, once
             var w = new DMesh3();
-            int b0 = w.AppendVertex(new Vector3d(0, 0, 0)), b1 = w.AppendVertex(new Vector3d(0.1, 1, 0.3)), b2 = w.AppendVertex(new Vector3d(2, 0, 2)),
-                b3 = w.AppendVertex(new Vector3d(2, 2, 2)), b4 = w.AppendVertex(new Vector3d(0, 2, 0));
+            // (0.1 + (0.45 - 0.1) is 0.44999999999999996: an interpolation with s = 1 would not give the vertex)
+            int b0 = w.AppendVertex(new Vector3d(0.1, 0, 0)), b1 = w.AppendVertex(new Vector3d(0.45, 1, 0.3)), b2 = w.AppendVertex(new Vector3d(2, 0, 2)),
+                b3 = w.AppendVertex(new Vector3d(2, 2, 2)), b4 = w.AppendVertex(new Vector3d(0.1, 2, 0));
             w.AppendTriangle(b0, b2, b1); w.AppendTriangle(b2, b3, b1); w.AppendTriangle(b3, b4, b1); w.AppendTriangle(b4, b0, b1);
             var at = TargetHeightLine.LevelLines(w, 0.3);
             Assert.Single(at);
-            Assert.Contains(new Vector3d(0.1, 1, 0.3), at[0].Points);
-            for (int i = 0; i + 1 < at[0].Points.Count; ++i) Assert.NotEqual(at[0].Points[i], at[0].Points[i + 1]);
+            Assert.Contains(new Vector3d(0.45, 1, 0.3), at[0].Points);
+            // (one point for the vertex, not two a few ulps apart from its two edges)
+            int np = at[0].Points.Count;
+            for (int i = 0; i < np; ++i) Assert.True(at[0].Points[i].Distance(at[0].Points[(i + 1) % np]) > 1e-9, $"points {i} and {(i + 1) % np}: {string.Join(" ", at[0].Points.Select(q => $"({q.x:R},{q.y:R})"))} closed {at[0].Closed}");
         }
 
         static void AssertOnTheSlope(TerrainSlopeDesign d, DMesh3 surface)

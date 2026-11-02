@@ -362,4 +362,10 @@ for the clamp: TERRAIN.md appendix A; the contour by marching triangles, eg de B
     exact check of the clipped region triangles raise λ, which costs a second realization with overlay and composite
     (benchmarks/TerrainBenchmark/README.md). Taken up when a real case is slow (TERRAIN.md section 11, order after
     phase 1).
+- **Mutations of #320** (each must fail a test): the catch point's move onto the slope side, the partner's snap, the
+  joint edge flags, the joint triangulation itself, the z of a moved partner point, ToeOvertopped, the mirroring of
+  the mixed O1 check, a level-line end exactly at h, the level lines' vertex rule: all caught. Not caught, because no
+  test input reaches them: the group offset of a slope triangle that is wholly in the region (the slope triangles are
+  large since D, so a catch line cuts them), the same-segment condition of the partner's snap (no two crossings within
+  its radius on different segments), and a run whose own composite fails while the mixed one succeeds.
 
