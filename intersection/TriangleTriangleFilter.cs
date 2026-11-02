@@ -66,6 +66,17 @@ namespace g3
         {
             if (all_finite(ref A, ref B) == false)
                 return Undecided;
+            int r = by_projection(ia, ref A, ib, ref B);
+            if (r != Undecided)
+                return r;
+            r = in_axis_plane_of(ia, ref A, ib, ref B);
+            return r != Undecided ? r : in_axis_plane_of(ib, ref B, ia, ref A);
+        }
+
+        // the projection along the common axis plane, or along the dominant axis of A's normal (finite input)
+        [MethodImpl(JitHints.Optimize)]
+        static int by_projection(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
             // shared corners: as in ExactTriangleIntersection.IntersectsBeyondShared
             int nShared = 0, sa0 = -1, sb0 = -1, sa1 = -1, sb1 = -1;
             for (int i = 0; i < 3; ++i)
@@ -116,6 +127,88 @@ namespace g3
             if (overlap == false)
                 return Separate;
             return planar ? Intersecting : Undecided;
+        }
+
+        // P in an axis plane x_k = h, Q not in it (finite input). In the determinant of Orient3d(p0, p1, p2, x) the
+        // column k is h - x_k in every row, and subtracting the first row from the others leaves the projections
+        // of P's edge vectors, so
+        //     Orient3d(p0, p1, p2, x) = sign(h - x_k) * Orient2d(drop(p0, k), drop(p1, k), drop(p2, k))
+        // exactly, with drop keeping the other two coordinates in cyclic order (k+1, k+2): a cyclic order of the
+        // columns is an even permutation, so the sign convention is the same for k = 0, 1, 2
+        // (AxisPlaneFactorization_SameSignAsOrient3d checks it against Orient3d). Only the partition matters here:
+        // with P not degenerate in the projection, the side of a corner of Q is the comparison of its coordinate k with
+        // h, exact without a filter (where Orient3d is exactly 0 its exact stage decides slowly: CAD parts, caps and
+        // walls in axis planes that touch along a rim). If no two corners of Q lie strictly on opposite sides, Q meets
+        // the plane in the hull of its corners on it (none, a point or a segment), and the 2D tests along k decide how
+        // that meets P, both ways. Undecided if Q crosses the plane, P is degenerate or the case is not covered.
+        [MethodImpl(JitHints.Optimize)]
+        static int in_axis_plane_of(Index3i ip, ref Triangle3d P, Index3i iq, ref Triangle3d Q)
+        {
+            int k = axis_plane(ref P);
+            if (k < 0)
+                return Undecided;
+            double h = P.V0[k];
+            int s0 = side(Q.V0[k], h), s1 = side(Q.V1[k], h), s2 = side(Q.V2[k], h);
+            bool above = s0 > 0 || s1 > 0 || s2 > 0, below = s0 < 0 || s1 < 0 || s2 < 0;
+            if ((above && below) || (above == false && below == false))
+                return Undecided;       // Q crosses the plane, or lies in it (the planar case: not reached)
+            Vector2d p0 = drop(P.V0, k), p1 = drop(P.V1, k), p2 = drop(P.V2, k);
+            int o = ExactPredicates.Orient2d(p0, p1, p2);
+            if (o == 0)
+                return Undecided;
+            int nShared = 0, sp = -1, sq = -1;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (ip[i] == iq[j]) { nShared++; sp = i; sq = j; }
+            int nZero = (s0 == 0 ? 1 : 0) + (s1 == 0 ? 1 : 0) + (s2 == 0 ? 1 : 0);
+            if (nShared == 0) {
+                if (nZero == 0)
+                    return Separate;    // Q strictly on one side
+                // the corners of Q on the plane (one or two): a point or a segment, against the closed P
+                int z0 = s0 == 0 ? 0 : (s1 == 0 ? 1 : 2), z1 = s2 == 0 ? 2 : (s1 == 0 ? 1 : 0);
+                Vector2d u = drop(Q[z0], k), w = drop(Q[z1], k);
+                if (edge_separates(p0, p1, p2, o, u, w, w))
+                    return Separate;
+                if (nZero == 2) {
+                    // the segment's line with all of P strictly on one side (the separating axes of a segment and
+                    // a triangle in 2D: the edge normals of both)
+                    int a = ExactPredicates.Orient2d(u, w, p0), b = ExactPredicates.Orient2d(u, w, p1), c = ExactPredicates.Orient2d(u, w, p2);
+                    if ((a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0))
+                        return Separate;
+                }
+                return Intersecting;
+            }
+            if (nShared == 2)
+                return Separate;        // the far corner of Q is off the plane: Q meets it only in the shared edge
+            if (nShared != 1)
+                return Undecided;
+            // one shared vertex s (on the plane): the other corners u, w of Q
+            if (nZero == 1)
+                return Separate;        // u and w strictly on one side: Q meets the plane only at s
+            // u on the plane, w off it: Q meets the plane in the segment s-u, which meets P beyond s iff it leaves s
+            // into P's closed corner at s
+            Vector3d u3 = Q[(sq + 1) % 3][k] == h ? Q[(sq + 1) % 3] : Q[(sq + 2) % 3];
+            Vector2d s2d = drop(P[sp], k), pp = drop(P[(sp + 1) % 3], k), pq = drop(P[(sp + 2) % 3], k), u2 = drop(u3, k);
+            if (u2 == s2d)
+                return Undecided;       // a degenerate Q (u at s)
+            if (o < 0) { var t = pp; pp = pq; pq = t; }
+            return in_corner(s2d, pp, pq, u2) ? Intersecting : Separate;
+        }
+
+        // the axis k on which the three corners of T have equal coordinates, else -1
+        static int axis_plane(ref Triangle3d T)
+        {
+            for (int k = 0; k < 3; ++k) {
+                double v = T.V0[k];
+                if (T.V1[k] == v && T.V2[k] == v)
+                    return k;
+            }
+            return -1;
+        }
+
+        static int side(double x, double h)
+        {
+            return x > h ? 1 : (x < h ? -1 : 0);
         }
 
         // all three points of the other triangle strictly outside one edge line of the (non-degenerate, orientation
