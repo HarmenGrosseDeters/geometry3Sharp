@@ -288,6 +288,30 @@ Plan:
 5. Library building blocks: `SlopeTerrainOverlay` and `SlopeComposite` per run (unchanged), the composite's
    `partial` for the shared triangles with the union of both constraint sets, `ExactTriangulation2`.
 
+Details of the composite (from `SlopeComposite.build_once`):
+- `SlopeComposite` takes one overlay. Auto gives it a second, optional overlay of the same terrain B (the fill run's;
+  its own slope surface A_F). The slope part runs per overlay as today (the region triangles of A_C, then of A_F,
+  their groups offset by the cut run's piece count). Composite vertices are found by exact position (`compVerts`),
+  so the two parts join where they share positions: the terrain vertices, and the catch points at the toe crossings.
+- The terrain part: `replacedSet` is the union of both. A terrain triangle replaced by one run only takes that run's
+  `partial` (the other run does not touch it: its faces there are all outside its region). A triangle replaced by
+  both gets one CDT whose part is tb minus (R_C ∪ R_F): the constraints are the sub-pieces of tb's edges outside both
+  regions (the two `edge_sequence`s of an edge merged by their parameter along it; a piece is terrain if it is
+  outside the region in both), and inside the catch segments and the slope boundary edges next to the region, of
+  both overlays. The two regions are disjoint in exact arithmetic (S_fill ≤ S_cut), so their boundaries meet only at
+  points (the toe crossings), and the parity of the union is the part.
+- The catch points of the two runs at one toe crossing: both are the point of the toe where T meets it. Each run snaps
+  its own (`snap_catch_points`); the shared triangle needs both at one position, so the fill run's catch points
+  within the snapping radius of a cut run's catch point at the toe take its position (checked: the crossings of the
+  spike have the same rounded XY in both runs, z −0 against +0, which the composite already treats as one).
+- `terrain_whole` (a terrain triangle wholly in the region, skipped) holds per run; a triangle wholly in one region
+  is in no face of the other's region.
+- What it does not need: an overlay of the two slope surfaces with each other (they never overlap where both are the
+  final surface), or the band-only overlay.
+- Order of work: (1) the second overlay in `SlopeComposite` with the merged `partial`, tested on the spike geometry
+  and random tilted terrains against the clamp at sample points; (2) `Direction.Auto` in `TerrainSlopeDesign` (two
+  runs, the outputs, `ToeOvertopped`); (3) target heights; (4) docs.
+
 ### Target heights (TERRAIN.md 10, the hook for berms)
 
 `TargetHeights` (input, optional): for each height h the level line of the final slope at h, `TargetHeightLines`
