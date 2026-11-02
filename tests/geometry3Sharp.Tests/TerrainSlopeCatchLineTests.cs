@@ -283,7 +283,7 @@ namespace geometry3Sharp.Tests
             var terrain2 = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => x > 0 ? 3 + 2 * x : 3);
             var d2 = Pit(terrain2, TerrainSlopeDesignTests.Square(10, 0), 1);
             Assert.False(d2.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d2.Status);
+            Assert.True(d2.Status == TerrainSlopeDesign.Statuses.NoDaylight, d2.Status + " " + d2.Message);
             AssertCatchLines(d2);
             Assert.Contains(d2.CatchLines, l => l.StartReason == CatchLine.EndReasons.FootprintBoundary);
         }

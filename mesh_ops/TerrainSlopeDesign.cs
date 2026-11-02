@@ -288,7 +288,7 @@ namespace gs
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
-            SimplifyTrace = 0; SimplifyRounds = 0;
+            RayCount = 0; CanonicalProblem = ""; UndercutCauses = new List<SlopeMap.UndercutCause>();
             CapRounds = 0;
             IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
             double givenTolerance = Tolerance;
@@ -847,7 +847,7 @@ namespace gs
             // the domain, a planar map of convex faces
             var box2 = toeBox;
             box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim);
-            var map = new SlopeMap(kernel) { ReferenceSimplify = ReferenceSimplify };
+            var map = new SlopeMap(kernel);
             string why;
             Index2i where;
             if (map.BuildDomain(toePts, Toes.Select(t => t.Closed).ToList(), Toes.Select(t => t.Side).ToList(), box2, out why, out where) == false) {
@@ -858,8 +858,10 @@ namespace gs
             map.LabelDomain(cap);
 
             phase("domain");
-            // insert the pieces
-            for (int k = 0; k < pieces.Count; ++k) {
+            // insert the pieces, in a random order (the expected work of an incremental envelope; the result does not
+            // depend on the order: ties go to the lower plane id, and Simplify makes the canonical partition)
+            int[] order = InsertionOrder != null ? InsertionOrder(pieces.Count) : shuffled(pieces.Count, InsertionSeed);
+            foreach (int k in order) {
                 checkCancel();
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
@@ -867,13 +869,14 @@ namespace gs
 
             phase("insert");
             map.Simplify();
-            SimplifyTrace ^= map.SimplifyTrace;
-            SimplifyRounds = Math.Max(SimplifyRounds, map.SimplifyRounds);
+            RayCount = Math.Max(RayCount, map.RayCount);
+            if (CheckCanonical && CanonicalProblem == "") CanonicalProblem = map.CanonicalProblem();
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
             List<SlopeMap.UndercutCause> causes;
             var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance, out causes);
+            UndercutCauses = causes;
             if (undercut.Count > 0) {
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
                 // (UnsupportedByMethod if any of them is caused through the design area)
@@ -914,11 +917,34 @@ namespace gs
 
         /// <summary> tests: build the map again for every new toe lowering instead of realizing it again </summary>
         internal bool RebuildForEachLowering;
-        /// <summary> tests: SlopeMap.Simplify by its reference (every face in every round) </summary>
-        internal bool ReferenceSimplify;
-        /// <summary> tests: the Simplify traces of the builds of the last Compute, combined </summary>
-        internal ulong SimplifyTrace;
-        internal int SimplifyRounds;
+        /// <summary> tests: the order in which the pieces are inserted (a permutation of 0 .. n-1), instead of the seeded shuffle </summary>
+        internal Func<int, int[]> InsertionOrder;
+        internal ulong InsertionSeed = 0x5EED5EEDUL;
+        /// <summary> tests: the most rays a build's Simplify cut (reflex corners of the label components) </summary>
+        internal int RayCount;
+        /// <summary> tests: check each build's map after Simplify (SlopeMap.CanonicalProblem; the first problem, "" if none) </summary>
+        internal bool CheckCanonical;
+        internal string CanonicalProblem = "";
+        /// <summary> tests: the undercut causes of the last build (one per undercut segment, the first in OrderedFaces) </summary>
+        internal List<SlopeMap.UndercutCause> UndercutCauses = new List<SlopeMap.UndercutCause>();
+
+        // a permutation of 0 .. n-1 (Fisher-Yates with SplitMix64: the same on every platform)
+        internal static int[] shuffled(int n, ulong seed)
+        {
+            var p = new int[n];
+            for (int i = 0; i < n; ++i) p[i] = i;
+            ulong x = seed;
+            for (int i = n - 1; i > 0; --i) {
+                x += 0x9E3779B97F4A7C15UL;
+                ulong z = x;
+                z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+                z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+                z ^= z >> 31;
+                int j = (int)(z % (ulong)(i + 1));
+                int t = p[i]; p[i] = p[j]; p[j] = t;
+            }
+            return p;
+        }
 
         // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
         Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,

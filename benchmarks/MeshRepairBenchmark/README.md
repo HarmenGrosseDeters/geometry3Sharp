@@ -607,6 +607,70 @@ The results agree within the noise; CGAL makes about 10 % more triangles. MeshAl
 small inputs (a few hundred triangles, below 1 s), where the JIT warm-up of the fresh process dominates: warm, in
 one process, 97171.stl takes 182 ms (cold 451 ms; CGAL 598 ms) and 635745.stl 116 ms (CGAL 344 ms).
 
+### Triangle quality against CGAL's alpha wrap (first look, 30 meshes)
+The raw wrap of master (#311), of the branch with the refinement at non-manifold spots (#317, `RefineNonManifold`), and
+CGAL's wrap, with the same relative alpha and offset. This is a first look on a small set, not a full benchmark:
+- the meshes are the first 30 (by id) of a seeded subset (seed 317) of an 800 mesh Thingi10K sample (random, ≤ 100k
+  faces, seed 2611, fetched at run time);
+- `BENCH_FIDELITY=hd` (the certified Hausdorff distances only, no IoU or `fm_*`);
+- CGAL 5.6 (Ubuntu package) as a black box, as above;
+- the times come from overlapping runs (up to 6 processes on 4 cores): compare them only roughly. The timing table
+  above is the reference.
+
+Commands: `BENCH_REPAIR=wrap` / `cgalwrap` with `BENCH_WRAP_ALPHA=300 BENCH_WRAP_OFFSET=3000` (and `100` / `1000`),
+`run.sh` per mesh, then `analyze_wrap.py <#317>.jsonl <master>.jsonl <cgal>.jsonl`. The band is the certified Hausdorff
+distance result → input over offset + alpha.
+
+| alpha / offset = diagonal / 300, / 3000 | #317 | master | CGAL |
+|---|---|---|---|
+| guarantees met (2 meshes above 300k triangles not checked for self-intersections) | 28 + 2 | 28 + 2 | 28 + 2 |
+| triangles < 0.5° / > 170° (sum) | 1 / 2 | 1 / 7 | **0 / 0** |
+| meshes with a triangle < 0.5° / > 170° | 1 / 2 | 1 / 6 | **0 / 0** |
+| min angle: global / median of meshes | 0.12° / 5.02° | 0.22° / 4.96° | **4.38°** / 4.98° |
+| max angle: global / median | 178.5° / 148.4° | 179.1° / 157.5° | **164.1°** / 146.9° |
+| p01 angle (1 % worst min angle): median / min | 18.3° / 10.9° | 18.3° / 10.8° | **20.3°** / 11.4° |
+| triangles > 150° (sum) | 37 | 110 | 4 |
+| band: median / p90 / max | 0.96 / 1.06 / 1.14 | 0.96 / 1.08 / 2.32 | 0.96 / 1.06 / 1.18 |
+| Hausdorff result → input, median (% diagonal) | 0.35 | 0.35 | 0.35 |
+| output triangles, median | 125.7k | 125.7k | 145.3k |
+| time per mesh, median (s; mixed load) | 9.8 | 12.1 | 46.6 |
+
+| alpha / offset = diagonal / 100, / 1000 | #317 | master | CGAL |
+|---|---|---|---|
+| guarantees met | 30 | 30 | 30 |
+| triangles < 0.5° / > 170° (sum) | 0 / 0 | 0 / 1 | 0 / 0 |
+| min angle: global / median | 4.01° / 5.34° | 2.53° / 5.21° | 4.48° / 5.59° |
+| max angle: global / median | 153.2° / 144.8° | 171.3° / 147.4° | 158.6° / 145.7° |
+| p01 angle: median / min | 12.8° / 9.0° | 12.8° / 9.0° | 13.3° / 9.3° |
+| band: median / max | 0.82 / 1.01 | 0.82 / 1.06 | 0.83 / 1.01 |
+| output triangles, median | 14.6k | 14.6k | 16.7k |
+| time per mesh, median (s; mixed load) | 1.8 | 1.7 | 5.4 |
+
+The 19 wrap cases of the 400 set plus 59196 at diagonal / 300, / 3000. For #317 and master these are the runs of #317's
+description, which have no p01; for CGAL, `BENCH_FIDELITY=hd`.
+
+| | #317 | master | CGAL |
+|---|---|---|---|
+| guarantees met (+ not checked above 300k triangles) | 18 + 1 | 18 + 1 | 17 + 2 |
+| triangles < 0.5° / > 170° (sum) | 0 / 1 | 2 / 12 | 0 / 0 |
+| min angle: global / median | 3.52° / 4.75° | 0.43° / 4.63° | 3.73° / 4.82° |
+| max angle: global / median | 170.3° / 150.3° | 179.0° / 165.0° | 160.6° / 149.9° |
+| triangles > 150° (sum) | 33 | 103 | 14 |
+| band: median / max | 0.98 / 1.20 | 0.98 / 1.31 | 0.98 / 1.25 |
+| Hausdorff both ways, IoU (medians) | 0.36 / 2.20 %, 0.769 | 0.36 / 2.18 %, 0.769 | 0.36 / 2.18 %, 0.769 |
+| output triangles, median | 136k | 136k | 150k |
+
+- **CGAL is better on the remaining caps and on the p01 angle.**
+  - With #317 the meshes with a triangle above 170° or below 0.5° where CGAL has none are 102793 and 118678 (subset,
+    300/3000) and 1505037 (wrap cases).
+  - CGAL's p01 angle is about 2° higher at 300/3000 (20.3° against 18.3° median). It is higher on 22 of the 30 meshes,
+    with 10-15 % more triangles.
+  - Per mesh, the global min angle is higher with #317 on 15 of 30 (subset) and 10 of 19 (wrap cases), so the
+    difference is in the tail of large angles and the 1 % quantile, not in the worst needle.
+- **Fidelity and band are the same within the noise.**
+- **Time and size:** CGAL makes 10-15 % more triangles and took about 4-6 times longer here.
+- No change to the wrap is based on this comparison (#317).
+
 ## Holdout selection (second, independent sample)
 All fixes above were developed and measured on the same seeded selection, so the numbers may be tuned
 to it. `fetch_data.py --holdout` draws a second selection of the same shape (6 × 60 broken meshes ≤ 100k
