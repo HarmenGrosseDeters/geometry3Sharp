@@ -111,7 +111,12 @@ Discarded before the variants:
 - **Unguarded operations (#199):** they failed the #199 gate on 14 of 18 meshes. Part of that was the gate's noise
   (see (d)).
 
-G1's misses of (d), as worse/allowed:
+The variants were measured on master before #311, which changed 25 of the 34 raw wraps (rule 2 of the alpha wrap).
+The before/after of the default on the current master, with the noise floor re-measured, is in the [benchmark
+README](../../benchmarks/MeshRepairBenchmark/README.md#alpha-wrap-quality-pass-meshrobustrepairalphawrapqualitypass-stage-7b):
+6 of 18 and 3 of 16 fidelity misses, time 1.21× and 1.07×.
+
+G1's misses of (d) before #311, as worse/allowed:
 
 | mesh | metric | worse / allowed |
 |---|---|---|
