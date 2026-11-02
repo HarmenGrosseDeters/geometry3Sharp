@@ -141,6 +141,27 @@ namespace geometry3Sharp.Tests
             Assert.True(lensPoints < circlePoints, lensPoints + " vs " + circlePoints);
         }
 
+        // ------------------------------------------------------------ a triangle that survives the split of a blocking subsegment
+
+        /// <summary>
+        /// Reduced from the earcut "water" corpus input at 20 degrees with lenses: a triangle whose point lies beyond a subsegment
+        /// got that subsegment split, survived the split (the new vertex lay outside its circumcircle) and was not looked at again,
+        /// so it stayed below the angle (AngleBelowBound). Now it is queued again, as after an encroachment split.
+        /// </summary>
+        [Theory]
+        [InlineData(20.0)]
+        [InlineData(25.0)]
+        public void BlockedSplit_TriangleIsLookedAtAgain(double angle)
+        {
+            var input = new Mesh2Input { X = new double[] { 2139, 2122, 2113, 2125 }, Y = new double[] { 3130, 3148, 3127, 3142 } };
+            input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(2, 3));
+            input.MinAngleDeg = angle; input.SteinerLimit = 20000; input.ConstrainedQuality = true;
+            var o = Run(input);
+            Assert.Equal(Mesh2Status.Success, o.Status);
+            var report = Judge(input, o);
+            Assert.True(report.Ok, report.ToString());
+        }
+
         // ------------------------------------------------------------ invariance, reuse, determinism
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });

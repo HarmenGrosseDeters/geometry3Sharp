@@ -950,6 +950,9 @@ namespace g3
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
                     splitCause = 1;
+                    // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
+                    // encroachment split (found by lenses on the earcut water corpus input)
+                    triangles.Enqueue(t);
                     return SplitSegment(blocked);
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
