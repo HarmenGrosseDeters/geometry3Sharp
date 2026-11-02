@@ -843,12 +843,21 @@ namespace geometry3Sharp.Tests
             var a = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false };
             var b = new MeshRobustRepair(new DMesh3(both)) {
                 AlphaWrapFallback = false, RoundingMaxDisplacement = new MeshRoundingRepair(new DMesh3()).MaxDisplacement,
-                RoundingUlpFactor = new MeshRoundingRepair(new DMesh3()).UlpFactor, RoundingAbsoluteTolerance = 0
+                RoundingUlpFactor = new MeshRoundingRepair(new DMesh3()).UlpFactor, RoundingAbsoluteTolerance = new MeshRoundingRepair(new DMesh3()).AbsoluteTolerance
             };
             Assert.True(a.Apply() && b.Apply());
             Assert.Equal("", Invariance.Difference(a.Mesh, b.Mesh));
-            Assert.Equal(1e-5, a.RoundingMaxDisplacement);
-            Assert.Equal(new MeshRoundingRepair(new DMesh3()).MaxDisplacement, new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union).RoundingMaxDisplacement);
+            // every default is MeshRoundingRepair's own
+            var fresh = new MeshRoundingRepair(new DMesh3());
+            var eb = new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.Equal(fresh.MaxDisplacement, a.RoundingMaxDisplacement);
+            Assert.Equal(fresh.UlpFactor, a.RoundingUlpFactor);
+            Assert.Equal(fresh.AbsoluteTolerance, a.RoundingAbsoluteTolerance);
+            Assert.False(a.StrictRounding);
+            Assert.Equal(fresh.MaxDisplacement, eb.RoundingMaxDisplacement);
+            Assert.Equal(fresh.UlpFactor, eb.RoundingUlpFactor);
+            Assert.Equal(fresh.AbsoluteTolerance, eb.RoundingAbsoluteTolerance);
+            Assert.False(eb.StrictRounding);
         }
 
         [Fact]
@@ -865,6 +874,45 @@ namespace geometry3Sharp.Tests
             Assert.Equal("rounding not clean (StrictRounding)", robust.ExactResolveReason);
             Assert.NotNull(robust.ExactResolveRounding);
             Assert.Equal(0, robust.ExactResolveRounding.UlpFactor);
+        }
+
+        [Fact]
+        public void RoundingSettings_Strict_RepairAfterSeparationHasOnlyTheRelativeBound()
+        {
+            // the pyramid in a dent resolves clean; strict, the repair after the separation runs without the ulp and the
+            // absolute term
+            var robust = new MeshRobustRepair(PyramidInADent(0.49)) { AlphaWrapFallback = false, StrictRounding = true, RoundingAbsoluteTolerance = 1e-9 };
+            Assert.True(robust.Apply());
+            Assert.True(robust.UsedExactResolve, robust.ExactResolveReason);
+            Assert.NotNull(robust.SeparatedRounding);
+            Assert.Equal(0, robust.SeparatedRounding.UlpFactor);
+            Assert.Equal(0, robust.SeparatedRounding.AbsoluteTolerance);
+            Assert.Equal(0, robust.ExactResolveRounding.UlpFactor);
+        }
+
+        [Fact]
+        public void RoundingSettings_Diagnostics_ResetPerApply()
+        {
+            // reused: first a case with the repair after the separation, then one without; the second run's
+            // SeparatedRounding is null, its ExactResolveRounding its own
+            var robust = new MeshRobustRepair(PyramidInADent(0.49)) { AlphaWrapFallback = false };
+            Assert.True(robust.Apply());
+            Assert.NotNull(robust.SeparatedRounding);
+            var ab = NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            DMesh3 both = new DMesh3(ab[0]);
+            new MeshEditor(both).AppendMesh(ab[1]);
+            MeshRoundingRepair first = robust.ExactResolveRounding;
+            robust.Mesh = both;
+            Assert.True(robust.Apply());
+            Assert.True(robust.UsedExactResolve, robust.ExactResolveReason);
+            Assert.Null(robust.SeparatedRounding);
+            Assert.NotNull(robust.ExactResolveRounding);
+            Assert.NotSame(first, robust.ExactResolveRounding);
+            // and a mesh that does not reach the exact resolve (closed and clean): both null
+            robust.Mesh = Sphere(6);
+            Assert.True(robust.Apply());
+            Assert.Null(robust.ExactResolveRounding);
+            Assert.Null(robust.SeparatedRounding);
         }
     }
 }

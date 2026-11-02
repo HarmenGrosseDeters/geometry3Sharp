@@ -93,13 +93,15 @@ namespace gs
         /// <summary>
         /// ExactMeshBoolean.StrictRounding for the exact resolve (and the relative bound only for the repair after
         /// SeparateTouchingVertices): a resolve whose rounding is not clean within the relative bound fails
-        /// (ExactResolveReason "rounding not clean (StrictRounding)"), and the repair goes on with its other stages. Off
-        /// by default
+        /// (ExactResolveReason starts with "rounding not clean (StrictRounding)"), and the repair goes on with its other
+        /// stages. The repair after the separation does not fail on its own: what it leaves is handled as before (another
+        /// round, or the stage's reason). No effect without SafeRounding. Off by default
         /// </summary>
         public bool StrictRounding = false;
         /// <summary>
         /// the repairs of the last exact resolve round: the resolve's SafeRounding (ExactMeshBoolean.Rounding) and the one
-        /// after SeparateTouchingVertices; null if not run (diagnostics)
+        /// after SeparateTouchingVertices; null if not run (diagnostics). Reset by Apply; a later stage that returns before
+        /// its rounds keeps those of an earlier one
         /// </summary>
         public MeshRoundingRepair ExactResolveRounding, SeparatedRounding;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>

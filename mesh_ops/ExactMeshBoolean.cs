@@ -157,7 +157,7 @@ namespace g3
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain (unless StrictRounding); RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
@@ -168,13 +168,14 @@ namespace g3
         public bool SafeRounding = true;
         /// <summary>
         /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
-        /// 1e-5 of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
+        /// RoundingMaxDisplacement of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
         /// distance (docs/design/SAFE_ROUNDING.md section 5)
         /// </summary>
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
-        /// farthest the surface moves, relative to the bounding box diagonal
+        /// farthest the surface moves, relative to the bounding box diagonal. (A larger value also switches off sooner
+        /// what applies where the coordinates are coarse: there the ulp term must exceed this one)
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
