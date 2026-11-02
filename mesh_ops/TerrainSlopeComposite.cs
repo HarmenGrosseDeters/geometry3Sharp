@@ -648,7 +648,13 @@ namespace gs
             }
             Vector2d p0 = O.VertexXY(c0), p1 = O.VertexXY(c1);
             Func<List<KeyValuePair<Node, bool>>, double> param = (run) => (O.VertexXY(run[0].Key.Key) - p0).Dot(p1 - p0);
-            runs.Sort((x, y) => param(x).CompareTo(param(y)));
+            // (runs that start at one point, eg at a terrain vertex where several slope edges meet it: the one that
+            // ends there first, so that the run that goes on along the edge comes after it)
+            Func<List<KeyValuePair<Node, bool>>, double> paramEnd = (run) => (O.VertexXY(run[run.Count - 1].Key.Key) - p0).Dot(p1 - p0);
+            runs.Sort((x, y) => {
+                int c = param(x).CompareTo(param(y));
+                return c != 0 ? c : paramEnd(x).CompareTo(paramEnd(y));
+            });
             var raw = new List<KeyValuePair<Node, bool>>();
             if (runs.Count == 0 || runs[0][0].Key.Key != c0) raw.Add(new KeyValuePair<Node, bool>(V(c0), false));
             foreach (var run in runs) raw.AddRange(run);
