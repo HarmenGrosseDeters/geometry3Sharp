@@ -320,6 +320,60 @@ namespace geometry3Sharp.Tests
             Assert.Contains(o.Triangles, t => t.Contains(o.InputToVertex[0]));
         }
 
+        static Mesh2Input SpikeOf084Degrees(double angle)
+        {
+            // corpus run at 25 degrees (earcut's water-huge, reduced to its ring around one corner): a spike of 0.84 degrees at (4097, 3013).
+            // The first piece of the slanted leg (2^-22) has its split points 1.75e-9 from the vertical leg, within the mesher's tolerance
+            // (2^-41 of the magnitude 4183: 1.90e-9; the oracle's tube is twice that): O11 forbids them, and conforming Delaunay and the angle
+            // bound cannot be reached across the piece (oracle: O11-unsplittable pieces)
+            var input = new Mesh2Input { X = new double[] { 4097, 4097, 4098, 4183, 4050 }, Y = new double[] { 2989, 3013, 2945, 4096, 3675 } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+            input.MinAngleDeg = angle;
+            return input;
+        }
+
+        [Theory]
+        [InlineData(20.0)]
+        [InlineData(25.0)]
+        [InlineData(30.0)]
+        public void SpikeOf084Degrees_PassesTheOracle(double angle)
+        {
+            var report = Judge(SpikeOf084Degrees(angle), out _);
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        [Fact]
+        public void SpikeOf084Degrees_At25_ReachesAnO11UnsplittablePiece()
+        {
+            // the case still reaches what it is for: the mesher stops at a piece it may not split, and the oracle excuses it there (a
+            // hidden vertex and a triangle whose circumcentre lies behind the piece; the local test of the piece itself is not reached here)
+            var report = Judge(SpikeOf084Degrees(25), out _);
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(report.O11GlobalExcused > 0 && report.O11AngleExcused > 0,
+                "excused: " + report.O11LocalExcused + " local, " + report.O11GlobalExcused + " global, " + report.O11AngleExcused + " angle");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarities))]
+        public void SpikeOf084Degrees_Similarity_PassesTheOracle(string name)
+        {
+            var s = Similarity.All().First(x => x.Name == name);
+            var input = SpikeOf084Degrees(25);
+            var e = s.Rotation * Vector3d.AxisX;
+            double norm = Math.Sqrt(e.x * e.x + e.y * e.y), cos = e.x / norm, sin = e.y / norm;
+            for (int i = 0; i < input.Count; ++i) {
+                double x = input.X[i], y = input.Y[i];
+                input.X[i] = s.Scale * (cos * x - sin * y) + s.Translation.x;
+                input.Y[i] = s.Scale * (sin * x + cos * y) + s.Translation.y;
+            }
+            var report = Judge(input, out var moved);
+            Assert.True(report.Ok, name + ": " + report);
+            if (s.IsExact) {
+                Judge(SpikeOf084Degrees(25), out var plain);
+                Assert.Equal(Canonical(plain), Canonical(moved));
+            }
+        }
+
         [Theory]
         [InlineData(20.0)]
         [InlineData(30.0)]

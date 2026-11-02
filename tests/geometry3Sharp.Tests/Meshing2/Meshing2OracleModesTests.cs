@@ -21,7 +21,8 @@ namespace geometry3Sharp.Tests
         static string Verdict(OracleReport r) =>
             string.Join(",", r.Violations.GroupBy(v => v.Kind).OrderBy(g => g.Key).Select(g => g.Key + "x" + g.Count()))
             + " | area2 " + r.Area2 + " | minsin2 " + r.MinSin2 + " | below " + r.BelowAngle + " | ties " + r.TieEdges + " | unique " + r.Unique
-            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused;
+            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused
+            + " | o11 " + r.O11LocalExcused + "/" + r.O11GlobalExcused + "/" + r.O11AngleExcused;
 
         static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
