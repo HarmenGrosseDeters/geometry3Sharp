@@ -454,7 +454,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(Invariance.AllFinite(m), s.Name);
             }
             Assert.True(Math.Abs(back.TriangleCount - m0.TriangleCount) <= 0.03 * m0.TriangleCount, $"{s.Name}: {back.TriangleCount} vs {m0.TriangleCount} triangles");
-            // reuse: the same instance computes the same result again, and parallel equals serial
+            // repeated runs give the same result, and parallel equals serial (an invariance and regression guard; the
+            // filter's decisions themselves are checked against the exact test in TriangleTriangleFilterTests)
             Assert.Equal("", Invariance.Difference(m0, Remesh(input, edge, 0, true, false)));
             Assert.Equal("", Invariance.Difference(m0, Remesh(input, edge, 0, true, true)));
         }

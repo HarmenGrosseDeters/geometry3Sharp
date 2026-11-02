@@ -191,13 +191,15 @@ Inside: grid traversal and query overhead 10-20 %, the pair tests 22 % (`Triangl
 6.1 M with one, 1.4 M with an edge), 855 k exact calls; the gears (18 cases) 9.5 M pair tests, 866 k exact calls, none
 of them coplanar, none intersecting.
 
-**Upper bounds** (a lever's work done twice in a scratch build, the time difference is its cost; and counts):
+**Upper bounds** (a lever's work done twice in a scratch build, the time difference is its cost, given against the
+check's own time, with minus without; and counts. The doubled runs are noisy, about +-5 %, and the instrumented counts
+of 135363 put the exact test at 0.7 s, so the 135363 entry of lever 3 is 4-9 %):
 
 | lever | what it could remove | primitives | gears | Thingi10K (20) | 135363 |
 |---|---|---:|---:|---:|---:|
 | 1. 2D shortcut for coplanar neighbours (`IntersectsBeyondSharedCoplanar`) | the exact tests of coplanar pairs | 8126 calls, 1.8 ms | 0 calls | | 41581 calls, 11 ms |
 | 2. clearance filter | the tests of pairs without a shared vertex, if provably farther apart than the move | 1.6 of 34.5 s (5 %) | 0.3 of 2.5 s (12 %) | 13 of 99 s (13 %) | 1.0-1.3 of 7.5 s (14 %) |
-| 3. axis-plane case in the filter | the exact tests of pairs with a triangle in an axis plane | 1.7 of 34.5 s (5 %) | 0.3-0.5 of 2.5 s (12-20 %) | 1.3 of 99 s (1 %) | 0.5 of 7.5 s (~7 %) |
+| 3. axis-plane case in the filter | the exact tests of pairs with a triangle in an axis plane | 1.7 of 34.5 s (5 %) | 0.3-0.5 of 2.5 s (12-20 %) | 1.3 of 99 s (1 %) | 0.3-0.7 of 7.5 s (4-9 %) |
 
 - Lever 1 is gone: #261's projection filter already decides the coplanar neighbours. Closed (below).
 - Lever 2: the column is the whole cost of the pairs without a shared vertex. Of those, the share farther apart than

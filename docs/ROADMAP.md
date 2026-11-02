@@ -219,8 +219,8 @@ Open tasks further up, and work further down, in the code or in the research lis
   Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
   smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
   free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
-  about 6-10x the time after #261 and the axis-plane case of `TriangleTriangleFilter` (gears -15 %, bit-identical;
-  `benchmarks/SelfIntersectionBenchmark`). The 2D shortcut for coplanar neighbours (#261 took it, under 0.2 % left) and
+  about 6-10x the time after #261 (measured on master b7fbc52); the axis-plane case of `TriangleTriangleFilter` takes
+  the gears 15 % and the primitives 5 % lower, bit-identical (`benchmarks/SelfIntersectionBenchmark`). The 2D shortcut for coplanar neighbours (#261 took it, under 0.2 % left) and
   a clearance filter (at most 5-10 %) were measured and closed there; what is left is the number of candidate pairs.
   Open: the thin walls, where the check blocks the folds but the result
   ends far from the input (next item).

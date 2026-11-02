@@ -20,6 +20,11 @@ namespace g3
     ///   opposite sides of it. Both need A's projection to be one to one (its projected corners not collinear), then
     ///   the triangles meet only at s, or only on the edge. Nearly coplanar neighbours, which the exact test decides
     ///   in its slow stage, are decided here.
+    /// </para><para>
+    /// - one triangle in an axis plane, the other not crossing it: Orient3d against the first is the sign of one
+    ///   coordinate difference times its projected Orient2d, so the sides are exact comparisons, and where the other
+    ///   touches the plane (a point, a segment) Orient2d decides both ways. Caps and walls of CAD parts that touch at a
+    ///   rim, where Orient3d is exactly 0 and its exact stage slow.
     /// </para>
     /// Anything else is left to the exact test (Undecided). The filter only answers where the exact answer is known,
     /// so it never changes a decision of the exact test (checked against it, also on coplanar slivers whose
@@ -140,6 +145,7 @@ namespace g3
         // walls in axis planes that touch along a rim). If no two corners of Q lie strictly on opposite sides, Q meets
         // the plane in the hull of its corners on it (none, a point or a segment), and the 2D tests along k decide how
         // that meets P, both ways. Undecided if Q crosses the plane, P is degenerate or the case is not covered.
+        // As everywhere in this class, a vertex id shared by P and Q means the same position.
         [MethodImpl(JitHints.Optimize)]
         static int in_axis_plane_of(Index3i ip, ref Triangle3d P, Index3i iq, ref Triangle3d Q)
         {
