@@ -18,6 +18,11 @@
       "json",
       "markdown"
     ],
-    "concurrency": 4
+    "concurrency": 4,
+    "thresholds": {
+      "high": 95,
+      "low": 92,
+      "break": 90
+    }
   }
 }

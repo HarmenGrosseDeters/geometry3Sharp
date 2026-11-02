@@ -12,7 +12,8 @@ from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_is_
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-ALL_MESH = {"rounding", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope"}
+ALL_MESH = {"rounding", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope",
+            "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
 
 def run(*changed):
@@ -68,6 +69,11 @@ class SelectShards(unittest.TestCase):
         arithmetic, mesh = run(TESTS + "MeshRoundingRepairTests.cs")
         self.assertEqual("tests", mesh["arrangement-1"])
         self.assertEqual("tests", mesh["rounding"])
+
+    def test_filter_with_and_and_a_negated_term_maps_to_the_positive_class(self):
+        # terrain-overlay: "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains"
+        self.assertEqual(("none", {"terrain-overlay": "tests"}), run(TESTS + "TerrainSlopeCatchLineTests.cs"))
+        self.assertEqual(("none", {"terrain-overlay": "source"}), run("mesh_ops/TerrainSlopeOverlay.cs"))
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding"])
