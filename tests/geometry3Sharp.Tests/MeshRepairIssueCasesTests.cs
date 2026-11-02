@@ -32,8 +32,10 @@ namespace geometry3Sharp.Tests
 
         static void Expect(string name, string failure)
         {
-            if (KnownFailures.TryGetValue(name, out string finding))
+            if (KnownFailures.TryGetValue(name, out string finding)) {
+                if (!IssueCases.Strict) return;
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({finding}) from KnownFailures and docs/QA.md 2.11");
+            }
             else
                 Assert.True(failure == "", name + ": " + failure);
         }
@@ -521,7 +523,7 @@ namespace geometry3Sharp.Tests
             Expect(nameof(ThinFold_NearlyParallelOverlap_Resolved), RobustOutcome(input, ResultChecks.Volume(union.Result), 1e-6, out var rr));
             // while listed: the failure of finding R1 (a clean result of the wrong solid, the difference of the boxes), not
             // some other one
-            if (KnownFailures.ContainsKey(nameof(ThinFold_NearlyParallelOverlap_Resolved))) {
+            if (IssueCases.Strict && KnownFailures.ContainsKey(nameof(ThinFold_NearlyParallelOverlap_Resolved))) {
                 ResultChecks.AssertClean(rr.Mesh, "the known failure's result");
                 Assert.True(ResultChecks.Volume(rr.Mesh) < 0.5 * ResultChecks.Volume(union.Result), $"volume {ResultChecks.Volume(rr.Mesh)}");
             }

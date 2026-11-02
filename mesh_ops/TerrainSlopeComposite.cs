@@ -892,9 +892,65 @@ namespace gs
                 // (on S̃: exactly rounded from the planes of the slope triangles, as 1a realizes its vertices)
                 zs = kind == 2 ? edge_z(SlopeTerrainOverlay.vfirst(k), xy) : tri_z(O.Container(k), xy);
             }
-            if (kind == 2 && slope == false && O.BoundaryKind(SlopeTerrainOverlay.vfirst(k)) != 0)
+            if (kind == 2 && slope == false && O.BoundaryKind(SlopeTerrainOverlay.vfirst(k)) != 0) {
                 xy = nudge(k, xy);
+                Vector3d end;
+                if (escaped(k, xy, out end)) return end;
+            }
             return new Vector3d(xy.x, xy.y, slope ? zs : zt);
+        }
+
+        // a nudged terrain node (the crossing of a slope boundary edge with terrain edge eb) that left both terrain
+        // triangles at eb across another terrain edge at an end of eb (it lies in a triangle at that end): it takes the
+        // position of that end if the end is not on the slope side. Where a boundary edge of the slope runs along
+        // terrain edges within ulps (a toe edge through terrain vertices, rounded in a rotated UTM frame), the terrain
+        // left between them is a sliver narrower than an ulp, and the nudge off the slope side can carry the crossing
+        // across the next terrain edge at that end: the part of its triangle then overlaps the triangle beyond. At the
+        // end the sliver has no area, and the end is a terrain vertex the triangles beyond share. (The test is
+        // structural, not a distance: the same in every 2^k scaling.)
+        bool escaped(long k, Vector2d x, out Vector3d end)
+        {
+            end = Vector3d.Zero;
+            int eb = SlopeTerrainOverlay.vsecond(k);
+            if (in_terrain_triangle(B.GetEdgeT(eb), x)) return false;
+            // (not near an end, eg out of the terrain across a boundary edge: it stays)
+            Index2i ev = B.GetEdgeV(eb);
+            int ve = in_terrain_triangle(B.VtxTrianglesItr(ev.a), x) ? ev.a : in_terrain_triangle(B.VtxTrianglesItr(ev.b), x) ? ev.b : -1;
+            if (ve < 0) return false;
+            Vector3d e = B.GetVertex(ve);
+            int ea = SlopeTerrainOverlay.vfirst(k);
+            Vector2d e0, e1;
+            slope_on_left(ea, out e0, out e1);
+            if (ExactPredicates.Orient2d(e0, e1, e.xy) > 0) return false;
+            // (as the cut triangles take a terrain vertex: -0 as +0)
+            end = new Vector3d(e.x + 0.0, e.y + 0.0, e.z + 0.0);
+            return true;
+        }
+
+        bool in_terrain_triangle(Index2i et, Vector2d x) { return in_terrain_triangle(new[] { et.a, et.b }, x); }
+
+        // in one of the (closed, not degenerate) terrain triangles 'tris' (-1 for none)
+        bool in_terrain_triangle(IEnumerable<int> tris, Vector2d x)
+        {
+            foreach (int t in tris) {
+                if (t < 0) continue;
+                Index3i tv = B.GetTriangle(t);
+                Vector2d a = B.GetVertex(tv.a).xy, b = B.GetVertex(tv.b).xy, c = B.GetVertex(tv.c).xy;
+                int o = ExactPredicates.Orient2d(a, b, c);
+                if (o == 0) continue;
+                if (ExactPredicates.Orient2d(a, b, x) * o >= 0 && ExactPredicates.Orient2d(b, c, x) * o >= 0 && ExactPredicates.Orient2d(c, a, x) * o >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        // the ends of slope edge ea in the counter-clockwise order of its triangle: the slope is on its left
+        void slope_on_left(int ea, out Vector2d e0, out Vector2d e1)
+        {
+            Index2i ev = A.GetEdgeV(ea);
+            Index3i t = A.GetTriangle(A.GetEdgeT(ea).a);
+            e0 = A.GetVertex(ev.a).xy; e1 = A.GetVertex(ev.b).xy;
+            if (!((t.a == ev.a && t.b == ev.b) || (t.b == ev.a && t.c == ev.b) || (t.c == ev.a && t.a == ev.b))) { Vector2d s = e0; e0 = e1; e1 = s; }
         }
 
         // the height of the plane through a, b, c at p, rounded to nearest from the exact value
@@ -943,12 +999,8 @@ namespace gs
         // side -1 off the slope side (on the line or outside), +1 off the outside (on the line or on the slope side)
         Vector2d onto_slope_side(int ea, Vector2d x, int side)
         {
-            Index2i ev = A.GetEdgeV(ea);
-            int ta = A.GetEdgeT(ea).a;
-            Index3i t = A.GetTriangle(ta);
-            // the edge in the counter-clockwise order of its triangle: the slope is on its left
-            Vector2d e0 = A.GetVertex(ev.a).xy, e1 = A.GetVertex(ev.b).xy;
-            if (!((t.a == ev.a && t.b == ev.b) || (t.b == ev.a && t.c == ev.b) || (t.c == ev.a && t.a == ev.b))) { Vector2d s = e0; e0 = e1; e1 = s; }
+            Vector2d e0, e1;
+            slope_on_left(ea, out e0, out e1);
             // (the outward normal; moved along it for side -1, against it for +1)
             Vector2d nrm = new Vector2d(e1.y - e0.y, e0.x - e1.x) * side * -1;
             Vector2d r = x;

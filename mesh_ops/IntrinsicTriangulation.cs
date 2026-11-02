@@ -465,6 +465,9 @@ namespace gs
         /// vertex: the points where it crosses input edges, found by walking straight from the tail in
         /// the direction of its signpost for its length (exact up to rounding; with mollification the
         /// path is computed in the mollified geometry and mapped to the input triangles barycentrically).
+        /// Where the edge runs exactly through an input vertex, or ends at its head through the edges around
+        /// it, the crossings there are all returned: consecutive points can coincide up to rounding (about
+        /// 1e-10 of the edge length), and the last point is the end of the walk, not the exact head position.
         /// </summary>
         public List<Vector3d> TraceEdge(int h)
         {
