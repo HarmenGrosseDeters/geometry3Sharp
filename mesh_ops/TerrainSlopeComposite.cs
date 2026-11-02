@@ -285,7 +285,7 @@ namespace gs
                 if (facesOfA.TryGetValue(ta, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) continue;
                 if (slope_whole(ta, fl)) {
                     Index3i t = A.GetTriangle(ta);
-                    emit(true, A.GetTriangleGroup(ta), A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c));
+                    emit(true, A.GetTriangleGroup(ta) + GroupOffset, A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c));
                     continue;
                 }
                 if (partial(true, ta, fl) == false) return false;
@@ -347,6 +347,8 @@ namespace gs
             return true;
         }
 
+        /// <summary> added to the slope surface's group ids (the second overlay of a mixed run: its pieces after the first's) </summary>
+        public int GroupOffset;
         /// <summary> build the whole terrain with the region replaced (else only the replacement: Replaced are not in it) </summary>
         public bool CopyTerrain = true;
         /// <summary> the terrain triangles replaced (cut by the region), sorted </summary>
@@ -431,20 +433,46 @@ namespace gs
 
         bool partial(bool slope, int tri, List<int> fl)
         {
+            PartInput inp = collect(slope, tri, fl, true);
+            if (inp == null) return false;
+            return triangulate(slope, tri, slope ? A.GetTriangleGroup(tri) + GroupOffset : terrainGroup, inp);
+        }
+
+        // the input of a partial triangle: its nodes (realized positions, and for a catch point its key and the composite
+        // it belongs to), its constraints as node pairs, and per edge of the triangle its nodes in order with the flag
+        // of each gap (in this overlay's region)
+        sealed class PartInput
+        {
+            public readonly List<Vector3d> Pos = new List<Vector3d>();
+            public readonly List<bool> IsCatch = new List<bool>();
+            public readonly List<SlopeComposite> Owner = new List<SlopeComposite>();
+            public readonly List<long> Key = new List<long>();
+            public readonly List<Index2i> Constraints = new List<Index2i>();
+            public readonly List<int>[] EdgeNodes = { new List<int>(), new List<int>(), new List<int>() };
+            public readonly List<bool>[] EdgeFlags = { new List<bool>(), new List<bool>(), new List<bool>() };
+        }
+
+        // edgeConstraints: the sub-pieces of the triangle's edges (in the region for the slope, not in it for the terrain)
+        // as constraints; else only in EdgeNodes / EdgeFlags (a terrain triangle that both overlays of a mixed run cut)
+        PartInput collect(bool slope, int tri, List<int> fl, bool edgeConstraints)
+        {
             int[] tv, te;
             if (slope) {
                 Index3i t = A.GetTriangle(tri), e = A.GetTriEdges(tri);
                 tv = new[] { t.a, t.b, t.c }; te = new[] { e.a, e.b, e.c };
             } else { tv = O.bTriV[tri]; te = O.bTriE[tri]; }
-            var nodes = new List<Node>();
-            var constraints = new List<Index2i>();
+            var inp = new PartInput();
             var nodeIndex = new Dictionary<Node, int>();
             Func<Node, int> idx = (n) => {
                 int i;
                 if (nodeIndex.TryGetValue(n, out i)) return i;
-                i = nodes.Count; nodes.Add(n); nodeIndex[n] = i;
+                i = inp.Pos.Count; nodeIndex[n] = i;
+                Vector3d p = position(slope, n);
+                p.x += 0.0; p.y += 0.0;     // (-0 is +0, also as a dictionary key)
+                inp.Pos.Add(p); inp.IsCatch.Add(n.Catch); inp.Owner.Add(this); inp.Key.Add(n.Key);
                 return i;
             };
+            var constraints = inp.Constraints;
             int edgeKind = slope ? 0 : 1;
             // the edges of the triangle: the sub-pieces in the region (slope) or not in it (terrain) are constraints
             for (int j = 0; j < 3; ++j) {
@@ -455,10 +483,11 @@ namespace gs
                 // (on an edge of its own surface's boundary the other surface's part takes every overlay vertex: its
                 // constraints there are the overlay edges one by one, so this side keeps them too)
                 bool own = slope ? A.IsBoundaryEdge(te[j]) : B.IsBoundaryEdge(te[j]);
-                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags, own) == false) return false;
+                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags, own) == false) return null;
                 for (int k = 0; k + 1 < seq.Count; ++k)
-                    if (flags[k] == slope) constraints.Add(new Index2i(idx(seq[k]), idx(seq[k + 1])));
-                foreach (Node n in seq) idx(n);
+                    if (edgeConstraints && flags[k] == slope) constraints.Add(new Index2i(idx(seq[k]), idx(seq[k + 1])));
+                foreach (Node n in seq) inp.EdgeNodes[j].Add(idx(n));
+                inp.EdgeFlags[j].AddRange(flags);
             }
             // inside: the catch segments, and the boundary of the other surface next to the region
             foreach (int fi in fl) {
@@ -475,23 +504,38 @@ namespace gs
                     else if (sq < 0) constraints.Add(new Index2i(idx(C(oe.Key)), idx(V(oe.Q))));
                 }
             }
+            return inp;
+        }
 
+        // the moved catch points of a failed partial triangle keep their own positions in the next build
+        static void moved_in_failure(PartInput inp)
+        {
+            for (int i = 0; i < inp.Pos.Count; ++i) {
+                if (inp.IsCatch[i] == false) continue;
+                SlopeComposite c = inp.Owner[i];
+                long k = inp.Key[i];
+                if (c.catchAt[k] != c.catchOwn[k]) c.movedInFailure.Add(k);
+            }
+        }
+
+        // the part of the triangle: an exact CDT of the nodes with the constraints, its part by parity from outside
+        bool triangulate(bool slope, int tri, int group, PartInput inp)
+        {
             // positions; nodes at the same XY are one point
             var pts = new List<Vector2d>();
             var zs = new List<double>();
-            var pointOf = new int[nodes.Count];
+            var pointOf = new int[inp.Pos.Count];
             var at = new Dictionary<Vector2d, int>();
-            for (int i = 0; i < nodes.Count; ++i) {
-                Vector3d p = position(slope, nodes[i]);
-                p.x += 0.0; p.y += 0.0;     // (-0 is +0, also as a dictionary key)
+            for (int i = 0; i < inp.Pos.Count; ++i) {
+                Vector3d p = inp.Pos[i];
                 int pi;
                 if (at.TryGetValue(p.xy, out pi) == false) { pi = pts.Count; pts.Add(p.xy); zs.Add(p.z); at[p.xy] = pi; }
-                else if (nodes[i].Catch) zs[pi] = p.z;      // (a catch point is shared with the other part: its z wins)
+                else if (inp.IsCatch[i]) zs[pi] = p.z;      // (a catch point is shared with the other part: its z wins)
                 pointOf[i] = pi;
             }
             // the constraints mod 2 (a segment twice is no boundary), without zero-length ones
             var cset = new HashSet<long>();
-            foreach (Index2i c in constraints) {
+            foreach (Index2i c in inp.Constraints) {
                 int a = pointOf[c.a], b = pointOf[c.b];
                 if (a == b) continue;
                 long k = ukey(a, b);
@@ -527,8 +571,7 @@ namespace gs
             string why;
             if (check_graph(pts, segs, out why) == false) {
                 Problem = $"the region boundary in {(slope ? "slope" : "terrain")} triangle {tri} is not simple after rounding ({why})";
-                foreach (Node n in nodes)
-                    if (n.Catch && catchAt[n.Key] != catchOwn[n.Key]) movedInFailure.Add(n.Key);
+                moved_in_failure(inp);
                 return false;
             }
 
@@ -570,14 +613,12 @@ namespace gs
                         if (label[u] == -1) { label[u] = want; queue.Enqueue(u); }
                         else if (label[u] != want) {
                             Problem = $"inconsistent parity in {(slope ? "slope" : "terrain")} triangle {tri}";
-                            foreach (Node n in nodes)
-                                if (n.Catch && catchAt[n.Key] != catchOwn[n.Key]) movedInFailure.Add(n.Key);
+                            moved_in_failure(inp);
                             return false;
                         }
                     }
                 }
             }
-            int group = slope ? A.GetTriangleGroup(tri) : terrainGroup;
             for (int t = 0; t < tris.Count; ++t) {
                 if (label[t] != 1) continue;
                 Index3i x = tris[t];
