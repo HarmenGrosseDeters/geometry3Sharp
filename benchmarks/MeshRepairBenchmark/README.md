@@ -77,7 +77,7 @@ reference.
 `MeshRepairMetrics.VolumeIoUAtLeast` samples only the octree cells at the surfaces when the input and the result are
 winding-closed, and counts the cells inside with their exact volume
 ([design/VOLUME_CHECK_SAMPLING.md](../../docs/design/VOLUME_CHECK_SAMPLING.md) section 4). A/B in one build (branch
-`claude/iou-sample-region`, 6b1328e): `BENCH_IOU_CELLS=1` and `=0` (the old region) run one after the other on each mesh,
+`claude/iou-sample-region`, 63f4c2e; the later commits change tests and docs only): `BENCH_IOU_CELLS=1` and `=0` (the old region) run one after the other on each mesh,
 `BENCH_REPAIR=robust BENCH_FIDELITY=0 TIMEOUT=300`, 2 meshes in parallel on 4 cores, nothing else running (the first 50
 meshes were re-run because a test build had overlapped them). The statistics come from the new `robust_volume_checks`
 field.
