@@ -434,6 +434,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WavyToe_130mHigh_AtUtm()
+        {
+            // 130 m: fans of needles 90 m long and 1e-10 m wide from a face of the map between two creases that meet at
+            // an angle of 1e-12 (nearly coplanar tangent planes of neighbouring apexes); flips across its sides remove
+            // them (fails without: 3 builds and two margin raises)
+            var d = WavyHambach(130);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+        }
+
+        [Fact]
         public void WavyToe_100mHigh_AtUtm()
         {
             var d = WavyHambach(100);

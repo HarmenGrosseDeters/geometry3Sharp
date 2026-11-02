@@ -844,6 +844,64 @@ namespace gs
             return l > 0 ? area2 / l : 0;
         }
 
+        /// <summary>
+        /// Repair of needles: a triangle thinner than minAltitude has its longest edge flipped if the two new triangles
+        /// are counter-clockwise (exact) and the thinner of them is thicker than the thinner of the two old ones; both
+        /// take the piece (group) of the thicker old triangle. A face of the map narrower than the rounding (two creases
+        /// that meet at an angle of 1e-12, from nearly coplanar tangent planes of neighbouring apexes) can only be
+        /// triangulated into needles; across its sides the flips remove them. Vertices do not move; the exact check of
+        /// every triangle decides afterwards. Returns the number of flips.
+        /// </summary>
+        public static int FlipNeedles(DMesh3 mesh, double minAltitude)
+        {
+            int count = 0;
+            for (int pass = 0; pass < 64; ++pass) {
+                int flips = 0;
+                var needles = mesh.TriangleIndices().Where(t => tri_altitude(mesh, t) < minAltitude).ToList();
+                needles.Sort();
+                foreach (int t in needles) {
+                    if (mesh.IsTriangle(t) == false || tri_altitude(mesh, t) >= minAltitude) continue;
+                    Index3i tv = mesh.GetTriangle(t);
+                    Index3i te = mesh.GetTriEdges(t);
+                    // the longest edge
+                    int best = -1;
+                    double bl = -1;
+                    for (int j = 0; j < 3; ++j) {
+                        double l = mesh.GetVertex(tv[j]).xy.Distance(mesh.GetVertex(tv[(j + 1) % 3]).xy);
+                        if (l > bl) { bl = l; best = j; }
+                    }
+                    int e = te[best];
+                    if (mesh.IsBoundaryEdge(e)) continue;
+                    Index2i et = mesh.GetEdgeT(e);
+                    int t2 = et.a == t ? et.b : et.a;
+                    Index2i ev = mesh.GetEdgeV(e);
+                    Index2i ov = mesh.GetEdgeOpposingV(e);
+                    Vector2d a = mesh.GetVertex(ev.a).xy, b = mesh.GetVertex(ev.b).xy, c = mesh.GetVertex(ov.a).xy, d = mesh.GetVertex(ov.b).xy;
+                    // the new triangles (c, d, b) and (d, c, a) in some orientation: both must be strictly on one side
+                    int o1 = ExactPredicates.Orient2d(c, d, a), o2 = ExactPredicates.Orient2d(c, d, b);
+                    if (o1 == 0 || o2 == 0 || o1 == o2) continue;
+                    double before = Math.Min(tri_altitude(mesh, t), tri_altitude(mesh, t2));
+                    double after = Math.Min(altitude(c, d, a), altitude(c, d, b));
+                    if (!(after > before)) continue;
+                    int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
+                    DMesh3.EdgeFlipInfo info;
+                    if (mesh.FlipEdge(e, out info) != MeshResult.Ok) continue;
+                    mesh.SetTriangleGroup(info.t0, group);
+                    mesh.SetTriangleGroup(info.t1, group);
+                    flips++;
+                }
+                count += flips;
+                if (flips == 0) break;
+            }
+            return count;
+        }
+
+        static double tri_altitude(DMesh3 mesh, int t)
+        {
+            Index3i tv = mesh.GetTriangle(t);
+            return altitude(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy);
+        }
+
         public static int CollapseShortEdges(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, double minLength)
         {
             int count = 0;

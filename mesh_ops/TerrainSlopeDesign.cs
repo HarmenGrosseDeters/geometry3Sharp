@@ -575,6 +575,7 @@ namespace gs
                 return Statuses.SlopeViolation;
             }
             SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            SlopeMap.FlipNeedles(mesh, mergeRadius);
             phase("realize");
             double maxRatio = 0;
             foreach (int tid in mesh.TriangleIndices()) {
