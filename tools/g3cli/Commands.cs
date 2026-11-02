@@ -263,8 +263,9 @@ namespace g3cli
                 ["rounding_clean"] = op.RoundingClean,
                 ["simplify_flat_regions"] = op.SimplifyFlatRegions,
                 ["strict_rounding"] = op.StrictRounding,
-                ["rounding_ulp_factor"] = op.RoundingUlpFactor,
-                ["rounding_absolute_tolerance"] = op.RoundingAbsoluteTolerance,
+                // (the effective values: strict rounding uses neither term)
+                ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
+                ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
             };
@@ -297,17 +298,17 @@ namespace g3cli
         static Param SafeRounding() =>
             new Param("safe_rounding", ParamType.Boolean, "repair the self-intersections and slivers that rounding the new vertices to double leaves " +
                 "(ExactMeshBoolean.SafeRounding, MeshRoundingRepair: local edits checked exactly, each surface point moves at most 1e-5 of the " +
-                "bounding box diagonal); false: plain rounding, faster") { Default = true };
+                "bounding box diagonal, or the larger bound of rounding_ulp_factor / rounding_absolute_tolerance); false: plain rounding, faster") { Default = true };
         static void AddRoundingTolerances(Command c)
         {
             c.Params.Add(new Param("rounding_ulp_factor", ParamType.Number, "safe_rounding far from the origin (eg UTM coordinates): beyond 1e-5 of the " +
                 "bounding box diagonal, edits may move the surface up to this many units in the last place of the largest coordinate " +
-                "(ExactMeshBoolean.RoundingUlpFactor)") { Default = 256.0 });
+                "(ExactMeshBoolean.RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
             c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, "safe_rounding: edits may also move the surface up to this absolute " +
-                "distance (ExactMeshBoolean.RoundingAbsoluteTolerance, 0 = none)") { Default = 0.0 });
+                "distance (ExactMeshBoolean.RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
             c.Params.Add(new Param("strict_rounding", ParamType.Boolean, "safe_rounding within 1e-5 of the diagonal only (no ulp or absolute term); " +
                 "a result that is not clean fails with operation_failed (status RoundingNotClean) instead of being written with defects " +
-                "(ExactMeshBoolean.StrictRounding)") { Default = false });
+                "(ExactMeshBoolean.StrictRounding; the ulp and absolute terms are 0 then, so it cannot be combined with them)") { Default = false });
         }
 
         static void ApplyRoundingTolerances(ExactMeshBoolean op, Args args)
@@ -320,6 +321,9 @@ namespace g3cli
             bool strict = args.Bool("strict_rounding");
             if (strict && args.Bool("safe_rounding") == false)
                 throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
+            // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
+            if (strict && (ulp != 256 || abs != 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' uses the relative bound only: it cannot be combined with 'rounding_ulp_factor' or 'rounding_absolute_tolerance'");
             op.RoundingUlpFactor = ulp;
             op.RoundingAbsoluteTolerance = abs;
             op.StrictRounding = strict;

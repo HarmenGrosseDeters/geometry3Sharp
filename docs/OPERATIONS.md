@@ -553,7 +553,7 @@ the relative bound only and fails instead of writing a result with defects (`Exa
 `RoundingAbsoluteTolerance`, `StrictRounding`).
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift, at most 1e-5 of the bounding box diagonal). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
 and `result_reason`:

@@ -257,6 +257,9 @@ namespace geometry3Sharp.Tests
             Assert.Contains("SnapTolerance", stderr);
             (exit, _, _) = Execute("--case", "f-1/a", "--output", Path.Combine(dir, "x.txt"), "--snap-tolerance", "1");
             Assert.Equal(2, exit);
+            (exit, _, stderr) = Execute("--input", offGrid, "--output", Path.Combine(dir, "x.txt"), "--snap-tolerance", "1", "--milestone", "M1");
+            Assert.Equal(2, exit);
+            Assert.Contains("M1", stderr);
 
             // quality options belong to Triangle input; the text format states its own
             string text = Path.Combine(dir, "f1a.txt");

@@ -581,6 +581,17 @@ namespace g3cli.Tests
             Assert.Equal(ResultCodes.OperationFailed, S(r["code"]));
             Assert.Contains("RoundingNotClean", S(r["message"]));
             Assert.False(File.Exists(strictOut));
+            // strict uses the relative bound only: combined with a tolerance it is refused
+            (exit, r) = Run("resolve", input, strictOut, "--strict-rounding", "--rounding-absolute-tolerance", "1e-3");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            (exit, r) = Run("resolve", input, strictOut, "--strict-rounding", "--rounding-ulp-factor", "1000");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            // an ordinary case is clean also when strict; the report gives the effective terms (none)
+            (exit, r) = Run("resolve", m.Overlapping, m.Path_("strict_ok.obj"), "--strict-rounding");
+            AssertOk(exit, r);
+            Assert.True(B(r["boolean"]["strict_rounding"]));
+            Assert.Equal(0, D(r["boolean"]["rounding_ulp_factor"]));
+            Assert.True(B(r["mesh"]["clean"]));
 
             // without the ulp term: written, but not clean, within a smaller bound
             (exit, r) = Run("resolve", input, m.Path_("utm_noulp.g3mesh"), "--rounding-ulp-factor", "0");

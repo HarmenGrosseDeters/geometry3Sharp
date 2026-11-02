@@ -23,7 +23,8 @@ namespace Meshing2Acceptance
             "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>] [--snap-tolerance <t>]\n" +
             "  output: the plain text output format, or Triangle files when <file> ends in .node, .ele or .poly\n" +
             "  exit code: 0 written, valid and equal to the golden row (or none recorded); 1 written but invalid or different, or the mesher\n" +
-            "  threw or failed where Triangle files were asked for; 2 wrong usage, unreadable input, unwritable output";
+            "  threw or failed where Triangle files were asked for; 2 wrong usage, unreadable input, unwritable output, an option or input the\n" +
+            "  mesher refuses";
 
         public sealed class Result
         {
@@ -250,6 +251,8 @@ namespace Meshing2Acceptance
                         input.SteinerLimit = n;
                     }
                     c = FromInput(input, Path.GetFileNameWithoutExtension(inputPath), milestone == null ? (Milestone?)null : ParseMilestone(milestone), cases);
+                    if (c.Milestone == Milestone.M1 && c.Input.SnapTolerance != 0)
+                        throw new UsageException("a snap tolerance needs M2 or M3: the M1 mesher (DelaunayMesh2) takes none");
                     known = cases.Contains(c);
                     if (known) output.WriteLine("input: the input of case " + c.Id + " (same input_sha256), judged with its expectations");
                 }

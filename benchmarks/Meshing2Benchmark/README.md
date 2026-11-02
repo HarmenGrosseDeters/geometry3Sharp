@@ -239,8 +239,9 @@ excuses like the angle bound there (self-check 7).
   inferred from its options), which know nothing a case states (a required failure, stated areas, kept or removed points), so its exit code 1 means
   "the oracle objects under default expectations", not necessarily a fault of the mesher. It prints the row's fingerprints, the oracle's verdict
   and the comparison with the golden row; exit code 0 if valid and equal (or no row), 1 if invalid or different, if the mesher threw, or if Triangle
-  files were asked for a failed result (they have no failure status; none are written), 2 for wrong usage, an unreadable input or an output
-  directory that does not exist. The written files read back give the golden row's fingerprints (`Meshing2MeshCommandTests`). A snap tolerance (in the text input, or `--snap-tolerance` for Triangle input) is applied by the candidates as in the golden rows (m2.snap, #277).
+  files were asked for a failed result (they have no failure status; none are written), 2 for wrong usage, an unreadable input, an output
+  directory that does not exist, or an option or input the mesher refuses (eg a snap tolerance too small for the coordinates, or a snap
+  tolerance with `--milestone M1`, whose Delaunay mesher has none). The written files read back give the golden row's fingerprints (`Meshing2MeshCommandTests`). A snap tolerance (in the text input, or `--snap-tolerance` for Triangle input) is applied by the candidates as in the golden rows (m2.snap, #277).
 
   ```
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.txt
