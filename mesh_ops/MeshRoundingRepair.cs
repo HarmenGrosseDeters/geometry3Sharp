@@ -1237,6 +1237,29 @@ namespace g3
 
         // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals; NaN if not
         // finite)
+        // v / |v|, or 0 if v is 0 (or its length not finite), computed as Vector3d.Normalize does (times 1 / |v|, so the
+        // bits are the same where that one is above its threshold) but without the threshold: Normalized returns 0 below
+        // the absolute MathUtil.Epsilon, which made the edits depend on the scale. 2^k v gives 2^k times nothing: the same
+        // unit vector, bit for bit
+        static Vector3d unit(Vector3d v)
+        {
+            double l = v.Length;
+            if (!(l > 0 && l < double.PositiveInfinity))
+                return Vector3d.Zero;
+            double inv = 1.0 / l;
+            return new Vector3d(v.x * inv, v.y * inv, v.z * inv);
+        }
+
+        // the unit normal of a triangle as DMesh3.GetTriNormal computes it (MathUtil.Normal: the unit edges a-b and b-c,
+        // their cross product made unit), with unit() instead of Normalize: the same bits where both are longer than
+        // MathUtil.Epsilon, and no threshold below it
+        Vector3d tri_normal(int tid)
+        {
+            Index3i t = Mesh.GetTriangle(tid);
+            Vector3d a = Mesh.GetVertex(t.a), b = Mesh.GetVertex(t.b), c = Mesh.GetVertex(t.c);
+            return unit(unit(b - a).Cross(unit(c - b)));
+        }
+
         static double ulp(double x)
         {
             if (!(x < double.PositiveInfinity))
@@ -1491,9 +1514,11 @@ namespace g3
                 return;
             }
             Vector3d e0 = pos(tv[kl]), e1 = pos(tv[(kl + 1) % 3]), c = pos(apex);
-            Vector3d dir = (e1 - e0).Normalized;
+            // (unit vectors without a threshold: Normalized returns zero below the absolute MathUtil.Epsilon, which made
+            // the moves depend on the scale)
+            Vector3d dir = unit(e1 - e0);
             Vector3d off = (c - e0) - (c - e0).Dot(dir) * dir;
-            if (off.Length < 1e-300) {
+            if (unit(off) == Vector3d.Zero) {
                 // on the line: towards the centroid of the apex's other neighbours
                 Vector3d ctr = Vector3d.Zero;
                 int n = 0;
@@ -1501,9 +1526,9 @@ namespace g3
                 off = ctr / Math.Max(n, 1) - c;
                 off -= off.Dot(dir) * dir;
             }
-            if (off.Length < 1e-300)
+            off = unit(off);
+            if (off == Vector3d.Zero)
                 return;
-            off = off.Normalized;
             for (double s = 2 * h; s <= maxLength; s *= 4)
                 if (try_move(apex, c + s * off))
                     return;
@@ -1515,7 +1540,8 @@ namespace g3
             if (collapse_any(ta, tb))
                 return;
             Index3i a = Mesh.GetTriangle(ta), b = Mesh.GetTriangle(tb);
-            Vector3d na = Mesh.GetTriNormal(ta), nb = Mesh.GetTriNormal(tb);
+            // (the normals without a threshold: GetTriNormal normalizes with the absolute MathUtil.Epsilon)
+            Vector3d na = tri_normal(ta), nb = tri_normal(tb);
             // movable vertices first; each along the other triangle's normal (both ways) or towards the centroid
             // of its neighbours, from a few units in the last place up to maxLength
             var verts = new List<KeyValuePair<int, Vector3d>>();
@@ -1534,8 +1560,12 @@ namespace g3
                 Vector3d ctr = Vector3d.Zero;
                 int n = 0;
                 foreach (int u in Mesh.VtxVerticesItr(v)) { ctr += Mesh.GetVertex(u); n++; }
-                Vector3d toCtr = (n > 0) ? (ctr / n - p).Normalized : Vector3d.Zero;
-                double ulp = 8 * 2.220446049250313e-16 * Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))) + 1e-300;
+                Vector3d toCtr = (n > 0) ? unit(ctr / n - p) : Vector3d.Zero;
+                // (the first step a few units in the last place of p; for p at the origin, of maxLength: an absolute
+                // constant would make the steps depend on the scale)
+                double ulp = 8 * 2.220446049250313e-16 * Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
+                if (!(ulp > 0))
+                    ulp = MeshRoundingRepair.ulp(maxLength);
                 if (Mesh.IsBoundaryVertex(v)) {
                     for (double s = ulp; s <= maxLength; s *= 16)
                         if (try_slide(v, s))
