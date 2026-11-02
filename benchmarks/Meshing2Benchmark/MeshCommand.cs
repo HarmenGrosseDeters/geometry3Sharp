@@ -20,7 +20,7 @@ namespace Meshing2Acceptance
     {
         public const string Usage =
             "mesh --case <id> --output <file>\n" +
-            "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>]\n" +
+            "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>] [--snap-tolerance <t>]\n" +
             "  output: the plain text output format, or Triangle files when <file> ends in .node, .ele or .poly\n" +
             "  exit code: 0 written, valid and equal to the golden row (or none recorded); 1 written but invalid or different, or the mesher\n" +
             "  threw or failed where Triangle files were asked for; 2 wrong usage, unreadable input, unwritable output";
@@ -130,8 +130,6 @@ namespace Meshing2Acceptance
                 var differences = golden.Differences(r.Row).ToList();
                 yield return differences.Count == 0 ? "golden: same as the recorded row" : "golden: DIFFERS: " + string.Join("; ", differences);
             }
-            if (r.Case.Input.SnapTolerance != 0)
-                yield return "note: the input has an explicit snap tolerance, which the mesher does not take yet (m2.snap): the output is without snapping";
         }
 
         sealed class UsageException : Exception { public UsageException(string m) : base(m) { } }
@@ -228,17 +226,23 @@ namespace Meshing2Acceptance
                 string id = Arg(args, "--case"), inputPath = Arg(args, "--input");
                 path = Arg(args, "--output");
                 if (path == null || (id == null) == (inputPath == null)) throw new UsageException("mesh needs --output and exactly one of --case and --input");
-                string milestone = Arg(args, "--milestone"), minAngle = Arg(args, "--min-angle"), maxArea = Arg(args, "--max-area"), limit = Arg(args, "--steiner-limit");
+                string milestone = Arg(args, "--milestone"), minAngle = Arg(args, "--min-angle"), maxArea = Arg(args, "--max-area"), limit = Arg(args, "--steiner-limit"),
+                    snap = Arg(args, "--snap-tolerance");
                 if (id != null) {
-                    if (milestone != null || minAngle != null || maxArea != null || limit != null)
-                        throw new UsageException("--milestone, --min-angle, --max-area and --steiner-limit are for --input; a case has its own");
+                    if (milestone != null || minAngle != null || maxArea != null || limit != null || snap != null)
+                        throw new UsageException("--milestone, --min-angle, --max-area, --steiner-limit and --snap-tolerance are for --input; a case has its own");
                     c = cases.FirstOrDefault(x => x.Id == id) ?? throw new UsageException("unknown case: " + id + " (see 'cases')");
                     known = true;
                 } else {
                     var input = ReadInputFile(inputPath);
                     bool triangle = Ext(inputPath) == ".poly" || Ext(inputPath) == ".node";
-                    if ((minAngle != null || maxArea != null || limit != null) && !triangle)
-                        throw new UsageException("--min-angle, --max-area and --steiner-limit are for Triangle input; the text format states its options");
+                    if ((minAngle != null || maxArea != null || limit != null || snap != null) && !triangle)
+                        throw new UsageException("--min-angle, --max-area, --steiner-limit and --snap-tolerance are for Triangle input; the text format states its options");
+                    if (snap != null) {
+                        double t = Number(snap, "--snap-tolerance");
+                        if (t < 0) throw new UsageException("--snap-tolerance must be >= 0");
+                        input.SnapTolerance = t;
+                    }
                     if (minAngle != null) input.MinAngleDeg = Number(minAngle, "--min-angle");
                     if (maxArea != null) input.MaxArea = Number(maxArea, "--max-area");
                     if (limit != null) {
@@ -263,6 +267,10 @@ namespace Meshing2Acceptance
             Result result;
             try {
                 result = Run(c);
+            } catch (MesherException e) when (e.InnerException is ArgumentException) {
+                // the mesher refused an option or the input (eg a snap tolerance too small for the coordinates)
+                error.WriteLine("invalid input: " + e.InnerException.Message);
+                return 2;
             } catch (MesherException e) {
                 error.WriteLine(e.Message);
                 return 1;

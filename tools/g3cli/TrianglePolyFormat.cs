@@ -228,13 +228,11 @@ namespace g3cli
             // segments that meet other than at a shared end point: their groups are no plane graph
             var bad = new bool[edges.Count];
             var tree = new SegmentQuadtree2d(pts.Select(p => new Vector3d(p.x, p.y, 0)).ToList(), edges, false);
-            var hits = new List<int>();
+            var visitor = new MeetVisitor { Pts = pts, Edges = edges, Bad = bad };
             for (int e = 0; e < edges.Count; ++e) {
-                tree.QueryIntersections(pts[edges[e].a], pts[edges[e].b], hits);
-                foreach (int f in hits) {
-                    if (f == e || !Improper(pts, edges[e], edges[f])) continue;
-                    bad[e] = bad[f] = true;
-                }
+                visitor.E = e;
+                visitor.Box = new AxisAlignedBox2d(pts[edges[e].a], pts[edges[e].b]);
+                tree.Traverse(ref visitor);
             }
 
             var adj = new Dictionary<int, List<(int to, int edge)>>();
@@ -289,50 +287,47 @@ namespace g3cli
                 }
             }
 
-            // the remaining edges around each vertex, counterclockwise by angle
+            // the remaining edges around each vertex, counterclockwise from the direction +x, exactly (half-plane, then orientation;
+            // no atan2, whose values tie for different directions at large coordinates)
             var around = new Dictionary<int, List<int>>();
+            var slot = new Dictionary<(int, int), int>();      // (v, u): the position of u around v
             foreach (var kv in adj) {
                 var l = kv.Value.Where(x => !bridge[x.edge] && !badGroup[group[kv.Key]]).Select(x => x.to).ToList();
                 if (l.Count == 0) continue;
                 Vector2d p = pts[kv.Key];
-                l.Sort((x, y) => Math.Atan2(pts[x].y - p.y, pts[x].x - p.x).CompareTo(Math.Atan2(pts[y].y - p.y, pts[y].x - p.x)));
+                l.Sort((x, y) => CompareAround(p, pts[x], pts[y]));
                 around[kv.Key] = l;
+                for (int i = 0; i < l.Count; ++i) slot[(kv.Key, l[i])] = i;
             }
 
-            // trace every face (directed edges once; the face lies left of its edges); per connected part, the face of the most
-            // negative signed area is its outer face, traversed clockwise
-            var used = new HashSet<(int, int)>();
-            var outer = new Dictionary<int, (double area, List<int> ring)>();
-            var part = new Dictionary<int, int>();
+            // per connected part, its outer face: at the lowest (then leftmost) vertex every neighbour lies above or to the right,
+            // so the region below it is the outer face, on the left of the edge to its last neighbour counterclockwise; trace that
+            // face (at each vertex, the next edge clockwise from the way back), exactly, without areas
+            var part = new HashSet<int>();
+            var rings = new List<int[]>();
             foreach (int start in around.Keys.OrderBy(k => k)) {
-                if (part.ContainsKey(start)) continue;
-                var stack = new Stack<int>(); stack.Push(start); part[start] = start;
-                while (stack.Count > 0) { int v = stack.Pop(); foreach (int w in around[v]) if (!part.ContainsKey(w)) { part[w] = start; stack.Push(w); } }
-            }
-            foreach (int u0 in around.Keys.OrderBy(k => k)) {
-                foreach (int v0 in around[u0]) {
-                    if (used.Contains((u0, v0))) continue;
-                    var ring = new List<int>();
-                    double area = 0;
-                    int u = u0, v = v0, guard = 0;
-                    while (used.Add((u, v))) {
-                        ring.Add(u);
-                        area += pts[u].x * pts[v].y - pts[v].x * pts[u].y;
-                        // at v, the next edge clockwise from the way back to u
-                        var l = around[v];
-                        int i = l.IndexOf(u);
-                        int w = l[(i - 1 + l.Count) % l.Count];
-                        u = v; v = w;
-                        if (++guard > 4 * edges.Count + 8) throw new FormatException(".poly: the segment graph could not be traced");
-                    }
-                    int p = part[u0];
-                    if (!outer.TryGetValue(p, out var best) || area < best.area) outer[p] = (area, ring);
+                if (part.Contains(start)) continue;
+                int lowest = start;
+                var stack = new Stack<int>(); stack.Push(start); part.Add(start);
+                while (stack.Count > 0) {
+                    int v = stack.Pop();
+                    if (pts[v].y < pts[lowest].y || (pts[v].y == pts[lowest].y && pts[v].x < pts[lowest].x)) lowest = v;
+                    foreach (int w in around[v]) if (part.Add(w)) stack.Push(w);
                 }
+                var ring = new List<int>();
+                int u = lowest, n = around[lowest][around[lowest].Count - 1], guard = 0;
+                do {
+                    ring.Add(u);
+                    var l = around[n];
+                    int w = l[(slot[(n, u)] - 1 + l.Count) % l.Count];
+                    u = n; n = w;
+                    if (++guard > 2 * edges.Count + 8) throw new FormatException(".poly: the segment graph could not be traced");
+                } while (u != lowest || n != around[lowest][around[lowest].Count - 1]);
+                if (ring.Count >= 3) rings.Add(ring.ToArray());
             }
             int loops = 0;
-            foreach (var kv in outer.OrderBy(k => k.Key)) {
-                if (kv.Value.ring.Count < 3 || !(kv.Value.area < 0)) continue;
-                input.Rings.Add(new Mesh2Ring(kv.Value.ring.ToArray()));
+            foreach (var ring in rings) {
+                input.Rings.Add(new Mesh2Ring(ring));
                 ++loops;
             }
 
@@ -342,6 +337,65 @@ namespace g3cli
             if (loops == 0)
                 info.Notes.Add("no group of segments encloses a region: the domain is the convex hull of the points minus the holes (as Triangle's -c)");
             return loops;
+        }
+
+        /// <summary>
+        /// Marks segment E and every later segment that meets it other than at one shared end point. Segments that share an end
+        /// point are told apart by their indices before any exact test, so a vertex with many segments costs comparisons, not
+        /// orientation tests; each pair is decided once (only later segments).
+        /// </summary>
+        struct MeetVisitor : IQuadtreeVisitor2d
+        {
+            public IReadOnlyList<Vector2d> Pts;
+            public List<Index2i> Edges;
+            public bool[] Bad;
+            public int E;
+            public AxisAlignedBox2d Box;
+
+            public bool TestRegion(AxisAlignedBox2d region) => region.Intersects(Box);
+
+            public bool Visit(int f)
+            {
+                if (f <= E) return false;
+                Index2i e = Edges[E], g = Edges[f];
+                bool shares = g.a == e.a || g.a == e.b || g.b == e.a || g.b == e.b;
+                if (shares) {
+                    // they touch at the shared point; improper only if they also overlap along one line
+                    if (!Collinear(Pts, e, g) || !Improper(Pts, e, g)) return false;
+                } else {
+                    if (!new AxisAlignedBox2d(Pts[g.a], Pts[g.b]).Intersects(Box) || !Meet(Pts[e.a], Pts[e.b], Pts[g.a], Pts[g.b])) return false;
+                }
+                Bad[E] = Bad[f] = true;
+                return false;
+            }
+        }
+
+        /// <summary> The closed segments ab and cd have a point in common (exact). </summary>
+        static bool Meet(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+            int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+            if (o1 * o2 < 0 && o3 * o4 < 0) return true;       // a proper crossing
+            if (o1 == 0 && OnSegment(a, b, c)) return true;
+            if (o2 == 0 && OnSegment(a, b, d)) return true;
+            if (o3 == 0 && OnSegment(c, d, a)) return true;
+            if (o4 == 0 && OnSegment(c, d, b)) return true;
+            return false;
+        }
+
+        /// <summary> p, collinear with ab, lies on the closed segment ab (coordinate comparisons, exact) </summary>
+        static bool OnSegment(Vector2d a, Vector2d b, Vector2d p) =>
+            Math.Min(a.x, b.x) <= p.x && p.x <= Math.Max(a.x, b.x) && Math.Min(a.y, b.y) <= p.y && p.y <= Math.Max(a.y, b.y);
+
+        static bool Collinear(IReadOnlyList<Vector2d> pts, Index2i e, Index2i f) =>
+            ExactPredicates.Orient2d(pts[e.a], pts[e.b], pts[f.a]) == 0 && ExactPredicates.Orient2d(pts[e.a], pts[e.b], pts[f.b]) == 0;
+
+        /// <summary> Counterclockwise order of directions from p, starting at +x: the half-plane first, then the orientation (exact). </summary>
+        public static int CompareAround(Vector2d p, Vector2d a, Vector2d b)
+        {
+            int ha = a.y > p.y || (a.y == p.y && a.x > p.x) ? 0 : 1, hb = b.y > p.y || (b.y == p.y && b.x > p.x) ? 0 : 1;
+            if (ha != hb) return ha.CompareTo(hb);
+            return -ExactPredicates.Orient2d(p, a, b);      // a before b if b is counterclockwise of a
         }
 
         /// <summary> Two segments that the quadtree reports as meeting meet other than at one shared end point (a crossing, a touch, an overlap). </summary>

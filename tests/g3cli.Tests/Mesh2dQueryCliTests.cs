@@ -500,6 +500,114 @@ namespace g3cli.Tests
         }
 
 
+        // ---- snap tolerance (m2.snap, #277) and the SafeRounding tolerances (#287) ----
+
+        [Fact]
+        public void Mesh2d_SnapTolerance_PutsTheVerticesOnTheGrid()
+        {
+            // points near a unit grid, two of them within one cell: snapped, the square is the grid square 0..10 and the two merge
+            string geometry = "{\"points\": [[0.1,0.2],[10.3,-0.2],[9.8,10.1],[0.2,9.9],[5.02,5.01],[5.04,5.03]], \"rings\": [[0,1,2,3]]}";
+            var (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("snap.obj"), "--quality", "false", "--snap-tolerance", "1");
+            AssertOk(exit, r);
+            Assert.Equal(1, D(r["snap_tolerance"]));
+            Assert.Equal(5, I(r["vertices"]));
+            Assert.Equal(100, D(r["area"]), 12);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).StartsWith("snap:"));
+            DMesh3 mesh = StandardMeshReader.ReadMesh(m.Path_("snap.obj"));
+            Assert.All(mesh.Vertices(), v => { Assert.Equal(Math.Round(v.x), v.x); Assert.Equal(Math.Round(v.y), v.y); });
+
+            // quality refinement on the grid: every vertex it adds is a grid point too
+            (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("snapq.obj"), "--max-area", "4", "--snap-tolerance", "0.5");
+            AssertOk(exit, r);
+            Assert.True(I(r["added_vertices"]) > 0);
+            Assert.All(StandardMeshReader.ReadMesh(m.Path_("snapq.obj")).Vertices(), v => { Assert.Equal(Math.Round(2 * v.x), 2 * v.x); Assert.Equal(Math.Round(2 * v.y), 2 * v.y); });
+
+            // without: the input as given
+            (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("nosnap.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(6, I(r["vertices"]));
+            Assert.Equal(0, D(r["snap_tolerance"]));
+            Assert.NotEqual(100, D(r["area"]), 6);
+
+            (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("snapbad.obj"), "--snap-tolerance", "1e-30");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            Assert.Contains("snap_tolerance", S(r["message"]));
+            (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("snapbad.obj"), "--snap-tolerance", "-1");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+        }
+
+        // a sphere with clusters of pokes (fans of slivers and zero-area triangles), turned and moved to UTM coordinates at
+        // millimetre scale: the case of SafeRoundingBoundTests that the relative bound alone cannot repair (#287)
+        string UtmCluster()
+        {
+            string path = m.Path_("utm_cluster.g3mesh");
+            if (File.Exists(path)) return path;
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            var rnd = new Random(0);
+            foreach (int t0 in mesh.TriangleIndices().Where(t => t % 17 == 0).ToArray()) {
+                int tid = t0;
+                for (int i = 0; i < 4; i++) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b);
+                    Vector3d onEdge = a + (0.2 + 0.6 * rnd.NextDouble()) * (b - a);
+                    if (mesh.PokeTriangle(tid, out DMesh3.PokeTriangleInfo info) != MeshResult.Ok) break;
+                    mesh.SetVertex(info.new_vid, onEdge);
+                    tid = rnd.Next(3) == 0 ? info.new_t1 : rnd.Next(2) == 0 ? info.new_t2 : tid;
+                }
+            }
+            Matrix3d rot = Matrix3d.AxisAngleD(Vector3d.AxisY, 23);
+            foreach (int v in mesh.VertexIndices().ToArray())
+                mesh.SetVertex(v, 1e-3 * (rot * mesh.GetVertex(v)) + new Vector3d(632117.25, 5712043.5, 113.75));
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults).code);
+            return path;
+        }
+
+        [Fact]
+        public void Resolve_RoundingTolerances_AtUtmCoordinates()
+        {
+            string input = UtmCluster();
+            // default: the ulp term (256 ulps of the largest coordinate) lets the repair make it clean
+            var (exit, r) = Run("resolve", input, m.Path_("utm_default.g3mesh"));
+            AssertOk(exit, r);
+            Assert.True(B(r["boolean"]["rounding_clean"]), r["boolean"].ToJsonString());
+            Assert.Equal(256, D(r["boolean"]["rounding_ulp_factor"]));
+            Assert.False(B(r["boolean"]["strict_rounding"]));
+            Assert.True(B(r["mesh"]["clean"]), r["mesh"].ToJsonString());
+            double bound = D(r["boolean"]["rounding"]["max_length"]);
+
+            // strict: the relative bound alone is not enough, so it fails with the reason and writes nothing
+            string strictOut = m.Path_("utm_strict.g3mesh");
+            (exit, r) = Run("resolve", input, strictOut, "--strict-rounding");
+            Assert.Equal(ResultCodes.OperationFailed, S(r["code"]));
+            Assert.Contains("RoundingNotClean", S(r["message"]));
+            Assert.False(File.Exists(strictOut));
+
+            // without the ulp term: written, but not clean, within a smaller bound
+            (exit, r) = Run("resolve", input, m.Path_("utm_noulp.g3mesh"), "--rounding-ulp-factor", "0");
+            AssertOk(exit, r);
+            Assert.False(B(r["boolean"]["rounding_clean"]));
+            Assert.True(D(r["boolean"]["rounding"]["max_length"]) < bound);
+
+            // an absolute tolerance sets the bound
+            (exit, r) = Run("resolve", input, m.Path_("utm_abs.g3mesh"), "--rounding-ulp-factor", "0", "--rounding-absolute-tolerance", "1e-3");
+            AssertOk(exit, r);
+            Assert.Equal(1e-3, D(r["boolean"]["rounding"]["max_length"]));
+            Assert.True(B(r["boolean"]["rounding_clean"]));
+
+            // the same options on boolean; strict needs safe rounding, tolerances are >= 0
+            // (with itself: a cube at the origin would make the diagonal, and so the relative bound, huge)
+            (exit, r) = Run("boolean", input, input, m.Path_("utm_b.g3mesh"), "--op", "union", "--strict-rounding");
+            Assert.Equal(ResultCodes.OperationFailed, S(r["code"]));
+            Assert.Contains("RoundingNotClean", S(r["message"]));
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("b_bad.obj"), "--op", "union", "--strict-rounding", "--no-safe-rounding");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("b_bad.obj"), "--op", "union", "--rounding-ulp-factor", "-1");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            (exit, r) = Run("resolve", m.Overlapping, m.Path_("r_bad.obj"), "--rounding-absolute-tolerance", "-1");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+        }
+
+
         // ---- repair options ----
 
         [Fact]

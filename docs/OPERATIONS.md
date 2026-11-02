@@ -470,7 +470,9 @@ The output lies in the XY plane (z = the heights, or 0), counterclockwise, with 
 `added_vertices` counts those the mesher made (Steiner points, crossings). Rings are outer boundaries or holes (`"hole": true`); without rings the domain is the convex hull of the
 points. `--quality false` gives the constrained Delaunay triangulation only (`ConstrainedDelaunayMesh2`, no Steiner
 points); `--steiner-limit` bounds the inserted points (then `steiner_limit_reached` and a warning); crossing constraints
-are split unless `--resolve-crossings false`. An agent passes the input inline instead of a file:
+are split unless `--resolve-crossings false`; `--snap-tolerance t` snap-rounds the input to a grid of width t first (m2.snap: every
+vertex, also those refinement adds, on the grid; merges and collapsed rings are reported in `warnings`). An agent passes the input
+inline instead of a file:
 
 ```
 g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2]]}' --output plain.off --quality false
@@ -541,7 +543,14 @@ g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 #                   "rounding": { "initial_intersections": ..., "remaining_intersections": 0, "max_drift": ..., ... } }
 g3cli boolean a.stl b.stl plain.stl --op union --no-safe-rounding            # plain rounding, faster ("rounding": null)
 g3cli resolve overlapping.off solid.ply --simplify-flat-regions false        # keep the crossings of coplanar faces
+g3cli resolve site_utm.stl solid.stl --strict-rounding     # fail (RoundingNotClean) rather than write defects
+g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3   # the bound in metres
 ```
+
+Far from the origin (UTM coordinates) the repair may move the surface by up to `--rounding-ulp-factor` (256) units in the
+last place of the largest coordinate beyond the relative bound, or `--rounding-absolute-tolerance`; `--strict-rounding` allows
+the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
+`RoundingAbsoluteTolerance`, `StrictRounding`).
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
 largest drift, at most 1e-5 of the bounding box diagonal). **Robust repair options** (`repair`, `MeshRobustRepair`):

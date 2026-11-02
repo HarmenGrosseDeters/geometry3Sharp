@@ -143,6 +143,153 @@ namespace g3cli.Tests
             Assert.Empty(r["warnings"].AsArray());
         }
 
+        // ---- the ring construction is exact: invariant under 2^k scales and exactly representable offsets ----
+
+        static readonly double[] LShape6 = { 0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2 };
+        static readonly int[][] LLoop = { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 5 }, new[] { 5, 6 }, new[] { 6, 1 } };
+
+        static string Transformed(double[] xy, double scale, double dx, double dy, int[][] segments, double[] holes = null)
+        {
+            var t = new double[xy.Length];
+            for (int i = 0; i < xy.Length; i += 2) { t[i] = xy[i] * scale + dx; t[i + 1] = xy[i + 1] * scale + dy; }
+            return Poly(t, segments, holes?.Select((v, i) => v * scale + (i % 2 == 0 ? dx : dy)).ToArray());
+        }
+
+        public static IEnumerable<object[]> Transforms => new[] {
+            new object[] { 1.0, 0.0, 0.0 }, new object[] { Math.ScaleB(1, -560), 0.0, 0.0 }, new object[] { Math.ScaleB(1, -20), 0.0, 0.0 },
+            new object[] { Math.ScaleB(1, 20), 0.0, 0.0 }, new object[] { Math.ScaleB(1, 500), 0.0, 0.0 },
+            new object[] { 1.0, 1e9, 1e9 }, new object[] { 1.0, 632117.0, 5712043.0 }, new object[] { 0.125, 632117.25, 5712043.5 },
+        };
+
+        [Theory]
+        [MemberData(nameof(Transforms))]
+        public void Rings_AreTheSameUnderScaleAndOffset(double scale, double dx, double dy)
+        {
+            // the L, a figure eight and nested loops with a chord: the same rings (as vertex sequences) whatever the scale or offset
+            var shapes = new[] {
+                (LShape6, LLoop.Concat(new[] { new[] { 1, 4 } }).ToArray()),
+                (new double[] { 0, 0, 1, 0, 1, 1, 0, 1, 2, 1, 2, 2, 1, 2 }, new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 3, 5 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 3 } }),
+                (Outer4.Concat(Inner2).ToArray(), TwoSquares),
+            };
+            foreach (var (xy, segs) in shapes) {
+                var reference = TrianglePolyFormat.ReadPoly(Poly(xy, segs), null, false, out var refInfo);
+                var moved = TrianglePolyFormat.ReadPoly(Transformed(xy, scale, dx, dy, segs), null, false, out var info);
+                Assert.True(refInfo.Loops > 0);
+                Assert.Equal(refInfo.Loops, info.Loops);
+                Assert.Equal(reference.Rings.Select(r => string.Join(",", r.Vertices)), moved.Rings.Select(r => string.Join(",", r.Vertices)));
+                Assert.Empty(info.Notes);
+            }
+            // meshed (where the area is representable): the L's area, scaled
+            if (scale >= Math.ScaleB(1, -20) && scale <= Math.ScaleB(1, 20)) {
+                string path = Write("inv_" + scale + "_" + dx + ".poly", Transformed(LShape6, scale, dx, dy, LLoop));
+                var (exit, r) = Run("mesh2d", path, m.Path_("inv.off"), "--quality", "false");
+                AssertOk(exit, r);
+                Assert.Equal(1, I(r["rings_from_segments"]));
+                Assert.Equal(3 * scale * scale, D(r["area"]), 3 * scale * scale * 1e-9);
+            }
+        }
+
+        [Fact]
+        public void Rings_DirectionsThatTieInFloatingPoint_AreOrderedExactly()
+        {
+            // from (0, 0), the directions to (1e8, 1e8 - 1) and (1e8 + 1, 1e8) differ but have the same atan2: a quad with a chord
+            // to the first, and a separate square; both enclose their regions
+            string poly = Poly(new double[] { 0, 0, 1e8, -1e8, 1e8, 1e8 - 1, 1e8 + 1, 1e8, -10, -10, -5, -10, -5, -5, -10, -5 },
+                new[] { new[] { 1, 2 }, new[] { 2, 4 }, new[] { 4, 3 }, new[] { 3, 1 }, new[] { 1, 3 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 8 }, new[] { 8, 5 } });
+            TrianglePolyFormat.ReadPoly(poly, null, false, out var info);
+            Assert.Equal(2, info.Loops);
+            Assert.Empty(info.Notes);
+        }
+
+        [Fact]
+        public void Rings_APinwheelAroundOneVertex()
+        {
+            // regions in all four quadrants around the origin (a square, a triangle, two squares; five segments leave the origin,
+            // in both half-planes, so the angular order needs both): one outer ring, area 1 + 0.5 + 1 + 1
+            string poly = Poly(new double[] { 0, 0, 1, 0, 1, 1, 0, 1, -1, 1, -1, 0, -1, -1, 0, -1, 1, -1 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 1, 5 }, new[] { 5, 6 }, new[] { 6, 1 },
+                        new[] { 6, 7 }, new[] { 7, 8 }, new[] { 8, 1 }, new[] { 8, 9 }, new[] { 9, 2 } });
+            string path = Write("pinwheel.poly", poly);
+            var (exit, r) = Run("mesh2d", path, m.Path_("pinwheel.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(1, I(r["rings_from_segments"]));
+            Assert.Equal(3.5, D(r["area"]), 12);
+        }
+
+        [Fact]
+        public void CompareAround_IsTheCounterclockwiseOrderFromPlusX()
+        {
+            // sixteen directions around a point far from the origin, in every order: sorted, they run counterclockwise from +x,
+            // also where atan2 ties (directions that differ by one unit at 1e8)
+            var p = new Vector2d(632117.25, 5712043.5);
+            var dirs = new[] { (1.0, 0.0), (2, 1), (1, 1), (1, 2), (0, 1), (-1, 2), (-1, 1), (-2, 1), (-1, 0), (-2, -1), (-1, -1), (-1, -2), (0, -1), (1, -2), (1, -1), (2, -1) }
+                .Select(d => new Vector2d(p.x + d.Item1, p.y + d.Item2)).ToList();
+            var rnd = new Random(3);
+            for (int k = 0; k < 50; ++k) {
+                var shuffled = dirs.OrderBy(_ => rnd.Next()).ToList();
+                shuffled.Sort((a, b) => TrianglePolyFormat.CompareAround(p, a, b));
+                Assert.Equal(dirs, shuffled);
+            }
+            var o = new Vector2d(0, 0);
+            Assert.True(TrianglePolyFormat.CompareAround(o, new Vector2d(1e8, 1e8 - 1), new Vector2d(1e8 + 1, 1e8)) < 0);
+            Assert.Equal(0, TrianglePolyFormat.CompareAround(o, new Vector2d(2, 2), new Vector2d(3, 3)));
+        }
+
+        [Fact]
+        public void Rings_ThreeTrianglesAroundOneVertex()
+        {
+            // three triangles meeting only at the origin, about 120 degrees apart: the six directions there span the full turn,
+            // where an orientation test alone gives no order; one ring, the sum of the areas (2 x area: 60 + 61 + 59)
+            string poly = Poly(new double[] { 0, 0, 10, 0, 8, 6, -5, 9, -9, 4, -5, -9, 1, -10 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 1 }, new[] { 1, 4 }, new[] { 4, 5 }, new[] { 5, 1 }, new[] { 1, 6 }, new[] { 6, 7 }, new[] { 7, 1 } });
+            string path = Write("three.poly", poly);
+            var (exit, r) = Run("mesh2d", path, m.Path_("three.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(1, I(r["rings_from_segments"]));
+            Assert.Equal((60 + 61 + 59) / 2.0, D(r["area"]), 12);
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void Rings_TJunctions_InEveryOrder(bool pointFirst, bool chordFirst)
+        {
+            // a chord of a square ending on its bottom edge at (1, 0): the T point numbered first or last, the chord listed first
+            // or last, so each end of the exact test meets it; always a T-junction (constraints only, with the note)
+            var xy = new List<double> { 0, 0, 2, 0, 2, 2, 0, 2, 1, 1 };
+            if (pointFirst) xy.InsertRange(0, new double[] { 1, 0 }); else xy.AddRange(new double[] { 1, 0 });
+            int o = pointFirst ? 1 : 0, t = pointFirst ? 1 : 6;
+            var loop = new List<int[]> { new[] { 1 + o, 2 + o }, new[] { 2 + o, 3 + o }, new[] { 3 + o, 4 + o }, new[] { 4 + o, 1 + o } };
+            var chord = new[] { t, 5 + o };
+            if (chordFirst) loop.Insert(0, chord); else loop.Add(chord);
+            TrianglePolyFormat.ReadPoly(Poly(xy.ToArray(), loop.ToArray()), null, false, out var info);
+            Assert.Equal(0, info.Loops);
+            Assert.Contains(info.Notes, n => n.Contains("cross or touch"));
+        }
+
+        [Fact]
+        public void Rings_AVertexOfHighDegree()
+        {
+            // a wheel: 2000 spokes from the hub to a rim of 2000 points (on an integer polygon): one ring, the rim
+            int n = 2000;
+            var xy = new List<double> { 0, 0 };
+            var segs = new List<int[]>();
+            for (int i = 0; i < n; ++i) {
+                double a = 2 * Math.PI * i / n;
+                xy.Add(Math.Round(1e6 * Math.Cos(a))); xy.Add(Math.Round(1e6 * Math.Sin(a)));
+                segs.Add(new[] { 1, i + 2 });
+                segs.Add(new[] { i + 2, (i + 1) % n + 2 });
+            }
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var input = TrianglePolyFormat.ReadPoly(Poly(xy.ToArray(), segs.ToArray()), null, false, out var info);
+            Assert.Equal(1, info.Loops);
+            Assert.Equal(n, input.Rings[0].Vertices.Length);
+            Assert.DoesNotContain(0, input.Rings[0].Vertices);
+            Assert.True(sw.Elapsed.TotalSeconds < 20, "reading took " + sw.Elapsed);
+        }
+
         [Fact]
         public void Poly_CrossingLoop_FallsBackToTheHullWithANote()
         {
@@ -153,17 +300,26 @@ namespace g3cli.Tests
             Assert.Equal(0, I(r["rings_from_segments"]));
             Assert.Equal(1, D(r["area"]), 12);
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
-            // a T-junction (an end point on another segment) and an overlap count as such too
-            path = Write("tee.poly", Poly(new double[] { 0, 0, 2, 0, 2, 2, 0, 2, 1, 0, 1, 1 },
-                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 5, 6 } }));
+            // a T-junction (an end point on another segment) and an overlap count as such too; on an L the fallback to the hull
+            // (3.5, the documented limit) is told apart from what -p gives (3)
+            path = Write("tee.poly", Poly(LShape6.Concat(new double[] { 1, 0 }).ToArray(), LLoop.Concat(new[] { new[] { 7, 4 } }).ToArray()));
             (exit, r) = Run("mesh2d", path, m.Path_("tee.obj"), "--quality", "false");
             AssertOk(exit, r);
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
-            path = Write("overlap.poly", Poly(new double[] { 0, 0, 2, 0, 2, 2, 0, 2, 1, 0 },
-                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 1, 5 } }));
+            Assert.Equal(0, I(r["rings_from_segments"]));
+            Assert.Equal(3.5, D(r["area"]), 12);
+            path = Write("overlap.poly", Poly(LShape6.Concat(new double[] { 1, 0 }).ToArray(), LLoop.Concat(new[] { new[] { 1, 7 } }).ToArray()));
             (exit, r) = Run("mesh2d", path, m.Path_("overlap.obj"), "--quality", "false");
             AssertOk(exit, r);
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
+            Assert.Equal(3.5, D(r["area"]), 12);
+            // a separate valid L next to the bad group: the L is meshed, the bad group's region is lost (documented)
+            path = Write("mixed.poly", Poly(LShape6.Concat(new double[] { 1, 0, 10, 0, 12, 0, 12, 1, 11, 1, 11, 2, 10, 2 }).ToArray(),
+                LLoop.Concat(new[] { new[] { 7, 4 }, new[] { 8, 9 }, new[] { 9, 10 }, new[] { 10, 11 }, new[] { 11, 12 }, new[] { 12, 13 }, new[] { 13, 8 } }).ToArray()));
+            (exit, r) = Run("mesh2d", path, m.Path_("mixed.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(1, I(r["rings_from_segments"]));
+            Assert.Equal(3, D(r["area"]), 12);
         }
 
         [Fact]

@@ -319,9 +319,12 @@ namespace g3cli
             c.Params.Add(new Param("steiner_limit", ParamType.Integer, "quality: most Steiner points to insert (default 10 x (points + segments) + 100000)"));
             c.Params.Add(new Param("conforming", ParamType.Boolean, "quality: conforming Delaunay, also without bounds (split segments until none is encroached)"));
             c.Params.Add(new Param("resolve_crossings", ParamType.Boolean, "split crossing constraints; false: a crossing fails with operation_failed") { Default = true });
+            c.Params.Add(new Param("snap_tolerance", ParamType.Number, "snap rounding to a grid of this width anchored at the origin (m2.snap): input " +
+                "points move to their grid points, constraints are routed through them, every vertex ends at least half a cell from every constraint " +
+                "it is not on, and refinement adds vertices on the grid only; collapsed rings and segments are reported in warnings. 0 = only the " +
+                "automatic tolerance (2^-41 of the coordinates). At least 2^-40 of the largest coordinate") { Default = 0.0 });
             c.Params.Add(new Param("poly_heights", ParamType.Boolean, "Triangle input: the first vertex attribute is the height of the point (z of the output)") { Default = false });
             c.Params.Add(Binary());
-            // TODO(m2.snap, #277): expose the snap tolerance (QualityMesh2 / ConstrainedDelaunayMesh2 SnapTolerance) once #277 is merged.
             c.Run = args => {
                 string outputBase = TriangleOutputBase(args.String("output"));
                 if (outputBase == null)
@@ -337,6 +340,9 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'min_angle' must be in [0, 60)");
                 if (args.Has("max_area") && !(args.Number("max_area") > 0))
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_area' must be > 0");
+                double snap = args.Number("snap_tolerance");
+                if (!(snap >= 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'snap_tolerance' must be >= 0");
                 if (args.Has("steiner_limit") && args.Integer("steiner_limit") < 0)
                     throw new CommandException(ResultCodes.InvalidArguments, "'steiner_limit' must be >= 0");
 
@@ -356,14 +362,17 @@ namespace g3cli
                 ConstrainedTriangulation2Result result;
                 try {
                     if (quality) {
-                        var q = new QualityMesh2() { MinAngle = minAngle, ResolveCrossings = args.Bool("resolve_crossings") };
+                        var q = new QualityMesh2() { MinAngle = minAngle, ResolveCrossings = args.Bool("resolve_crossings"), SnapTolerance = snap };
                         if (args.Has("max_area")) q.MaxArea = args.Number("max_area");
                         if (args.Has("steiner_limit")) q.SteinerLimit = args.Integer("steiner_limit");
                         if (args.Has("conforming")) q.Conforming = args.Bool("conforming");
                         result = q.Compute(input);
                     } else {
-                        result = new ConstrainedDelaunayMesh2() { ResolveCrossings = args.Bool("resolve_crossings") }.Compute(input);
+                        result = new ConstrainedDelaunayMesh2() { ResolveCrossings = args.Bool("resolve_crossings"), SnapTolerance = snap }.Compute(input);
                     }
+                } catch (ArgumentException e) when (snap > 0 && e.Message.Contains("SnapTolerance")) {
+                    // too small for the coordinates
+                    throw new CommandException(ResultCodes.InvalidArguments, "'snap_tolerance': " + e.Message);
                 } catch (ArgumentException e) {
                     // indices out of range, non-finite or too large coordinates, a region's area, ...
                     throw new CommandException(args.Has("input") ? ResultCodes.ReadError : ResultCodes.InvalidArguments, "invalid input: " + e.Message);
@@ -432,6 +441,7 @@ namespace g3cli
                 if (files != null) o["files"] = files;
                 if (loops >= 0) o["rings_from_segments"] = loops;
                 o["method"] = quality ? "quality" : "constrained_delaunay";
+                o["snap_tolerance"] = snap;
                 if (quality) {
                     o["min_angle"] = minAngle;
                     o["max_area"] = args.Has("max_area") ? MeshReport.Num(args.Number("max_area")) : null;

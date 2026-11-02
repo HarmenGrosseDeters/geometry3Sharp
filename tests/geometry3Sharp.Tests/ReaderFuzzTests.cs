@@ -299,6 +299,7 @@ namespace geometry3Sharp.Tests
                     if (kind == "poly") {
                         var r = g3cli.TrianglePolyFormat.ReadPoly(text, null, true, out _);
                         items = r.Points.Count + r.Segments.Count + r.HoleSeeds.Count + r.Regions.Count + r.Rings.Sum(g => g.Vertices.Length);
+                        if (r.Rings.Any(g => g.Vertices.Any(v => v < 0 || v >= r.Points.Count))) error = new Exception("a ring index out of range");
                         if (r.Points.Any(p => double.IsNaN(p.x) || double.IsInfinity(p.x) || double.IsNaN(p.y) || double.IsInfinity(p.y))) error = new Exception("a non-finite point was accepted");
                         if (r.Segments.Any(s => s.A < 0 || s.B < 0 || s.A >= r.Points.Count || s.B >= r.Points.Count)) error = new Exception("a segment index out of range was accepted");
                     } else if (kind == "node") {
@@ -316,7 +317,8 @@ namespace geometry3Sharp.Tests
             if (!task.Wait(TimeBudget)) return "no result within " + TimeBudget.TotalSeconds + " s";
             if (error != null) return error.GetType().Name + ": " + error.Message;
             // the result is bounded by the input (rings repeat point indices: at most the segments' end points)
-            if (items > 4 * text.Length + 16) return items + " items from " + text.Length + " bytes";
+            // (each item takes at least two characters: a number and a separator; rings repeat segment end points)
+            if (items > text.Length + 16) return items + " items from " + text.Length + " bytes";
             return "";
         }
 
@@ -328,6 +330,11 @@ namespace geometry3Sharp.Tests
         {
             string valid = ValidTriangleFile(kind);
             Assert.Equal("", CheckTriangleFile(kind, valid));
+            if (kind == "poly") {
+                // the valid file is meaningful: its segments give the L's ring (the hole loop gives a second)
+                g3cli.TrianglePolyFormat.ReadPoly(valid, null, false, out var info);
+                Assert.Equal(2, info.Loops);
+            }
             var failures = new List<string>();
             for (int seed = 0; seed < CasesPerFormat; ++seed) {
                 var rand = new Random(seed * 7919 + kind.Sum(c => (int)c) + 17);

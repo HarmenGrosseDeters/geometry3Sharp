@@ -244,6 +244,20 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(back.TriangleLabels);
             Assert.All(back.TriangleLabels, l => Assert.Equal(7, l));
 
+            // a snap tolerance from the command line: the vertices on its grid; too small for the coordinates: usage error
+            string offGrid = Path.Combine(dir, "offgrid.poly");
+            File.WriteAllText(offGrid, "4 2 0 0\n1 0.1 0.2\n2 10.3 -0.2\n3 9.8 10.1\n4 0.2 9.9\n4 0\n1 1 2\n2 2 3\n3 3 4\n4 4 1\n0\n");
+            (exit, stdout, stderr) = Execute("--input", offGrid, "--output", Path.Combine(dir, "snapped.txt"), "--snap-tolerance", "1");
+            Assert.True(exit == 0, stdout + stderr);
+            Assert.Contains("area2 200", stdout);
+            var snapped = TextFormat.ReadOutput(File.ReadAllText(Path.Combine(dir, "snapped.txt")), out _);
+            Assert.All(snapped.VX, x => Assert.Equal(Math.Round(x), x));
+            (exit, _, stderr) = Execute("--input", offGrid, "--output", Path.Combine(dir, "snapped.txt"), "--snap-tolerance", "1e-30");
+            Assert.Equal(2, exit);
+            Assert.Contains("SnapTolerance", stderr);
+            (exit, _, _) = Execute("--case", "f-1/a", "--output", Path.Combine(dir, "x.txt"), "--snap-tolerance", "1");
+            Assert.Equal(2, exit);
+
             // quality options belong to Triangle input; the text format states its own
             string text = Path.Combine(dir, "f1a.txt");
             File.WriteAllText(text, TextFormat.WriteInput(Reference("f-1/a").Input));
