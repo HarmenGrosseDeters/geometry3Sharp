@@ -242,11 +242,37 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, d.Status);
             Assert.Equal(new[] { new Index2i(0, 1) }, d.ToeProblems);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, d.StatusKind);
             Assert.Null(d.SlopeSurface);
             // slightly gentler than the slope: fine
             pts[2] = new Vector3d(20, 0, 9.9);
             Assert.True(d.Compute(), d.Message);
             AssertAll(d);
+        }
+
+        [Fact]
+        public void StatusKinds_OfEveryStatus()
+        {
+            // TERRAIN.md 5.6: every status has its kind (a new status must be added here)
+            var K = TerrainSlopeDesign.StatusKinds.None;
+            var expected = new Dictionary<TerrainSlopeDesign.Statuses, TerrainSlopeDesign.StatusKinds> {
+                { TerrainSlopeDesign.Statuses.Success, K },
+                { TerrainSlopeDesign.Statuses.NoDaylight, K },
+                { TerrainSlopeDesign.Statuses.InvalidInput, TerrainSlopeDesign.StatusKinds.InvalidInput },
+                { TerrainSlopeDesign.Statuses.NotHeightField, TerrainSlopeDesign.StatusKinds.InvalidInput },
+                { TerrainSlopeDesign.Statuses.NotImplemented, TerrainSlopeDesign.StatusKinds.UnsupportedByMethod },
+                { TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.ToeUndercut, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.SlopeViolation, TerrainSlopeDesign.StatusKinds.NotCertified },
+                { TerrainSlopeDesign.Statuses.CompositeFailed, TerrainSlopeDesign.StatusKinds.Internal },
+                { TerrainSlopeDesign.Statuses.Failed, TerrainSlopeDesign.StatusKinds.Internal },
+                { TerrainSlopeDesign.Statuses.Cancelled, TerrainSlopeDesign.StatusKinds.Cancelled },
+            };
+            foreach (TerrainSlopeDesign.Statuses st in Enum.GetValues(typeof(TerrainSlopeDesign.Statuses))) {
+                Assert.True(expected.ContainsKey(st), $"{st} has no expected kind");
+                Assert.Equal(expected[st], TerrainSlopeDesign.kind_of(st, false));
+            }
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, TerrainSlopeDesign.kind_of(TerrainSlopeDesign.Statuses.ToeUndercut, true));
         }
 
         // a two-level pit floor: the low part's cone passes below the high part of the toe
@@ -261,9 +287,30 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TerrainSlopeDesign.Statuses.ToeUndercut, d.Status);
             Assert.Contains(new Index2i(0, 0), d.ToeProblems);
             Assert.Null(d.SlopeSurface);
+            // the slope is outside the U (Left of this direction), the low leg's cone reaches the high leg through the U's
+            // inside, the design area: the method's limit (a surface on the slope side need not undercut), not infeasible
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, d.StatusKind);
+            // a convex closed toe with the slope inside: the bottom edge (y 0) at z 0, the top edge (y 20) at z 8, joined by
+            // half ellipses (20 m out, long enough to rise 8 m at 0.17, gentler than 1:4). Every straight path between two
+            // toe points runs inside, on the slope side, where no surface within 1:4 rises 8 m in 20 m: infeasible
+            var ring = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(40, 0, 0) };
+            for (int i = 1; i < 12; ++i) {
+                double a = -Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(40 + 20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8.0 * i / 12));
+            }
+            ring.Add(new Vector3d(40, 20, 8)); ring.Add(new Vector3d(0, 20, 8));
+            for (int i = 1; i < 12; ++i) {
+                double a = Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8 - 8.0 * i / 12));
+            }
+            var r = Design(20, 0.01, SlopeToe.Constant(ring, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
+            Assert.False(r.Compute());
+            Assert.True(r.Status == TerrainSlopeDesign.Statuses.ToeUndercut, r.Status + " " + r.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, r.StatusKind);
             // 1:2 (s = 0.5): the low leg's cone reaches the high leg at 10 m, above it: no undercut
             d.Toes[0] = SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(2));
             Assert.True(d.Compute(), d.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.None, d.StatusKind);
             AssertAll(d);
         }
 
@@ -302,6 +349,8 @@ namespace geometry3Sharp.Tests
             var auto = Design(5, 0.01, ok); auto.Direction = TerrainSlopeDesign.Directions.Auto;
             Assert.False(auto.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, auto.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, auto.StatusKind);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, d2.StatusKind);
             var vary = SlopeToe.Constant(Square(10, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)); vary.CutEnd[1] = SlopeSpec.Ratio(2);
             Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, run(vary, 5, 0.01));
         }

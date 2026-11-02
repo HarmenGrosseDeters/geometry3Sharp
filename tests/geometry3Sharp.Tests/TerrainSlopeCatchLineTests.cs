@@ -275,6 +275,7 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d.Status);
             Assert.False(d.IsComplete);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.None, d.StatusKind);    // partial, not a failure
             Assert.NotNull(d.SlopeSurface);
             Assert.Empty(d.CatchLines);       // the region covers the footprint, no line
 
@@ -492,6 +493,7 @@ namespace geometry3Sharp.Tests
             var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1);
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.NotHeightField, d.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, d.StatusKind);
         }
 
         [Fact]

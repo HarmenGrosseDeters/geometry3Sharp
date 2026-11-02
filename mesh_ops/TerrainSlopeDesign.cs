@@ -146,6 +146,34 @@ namespace gs
 
         // outputs
         public Statuses Status;
+        /// <summary>
+        /// what kind of result Status is (TERRAIN.md 5.6), so that "not supported by the phase 1 method" is never taken
+        /// for "geometrically impossible"
+        /// </summary>
+        public enum StatusKinds
+        {
+            /// <summary> Success, or NoDaylight (a partial result, IsComplete = false; not a failure) </summary>
+            None,
+            /// <summary> InvalidInput, NotHeightField: the input is wrong </summary>
+            InvalidInput,
+            /// <summary>
+            /// the phase 1 method (Euclidean cone envelope) cannot handle this design, which is not a proof that it is
+            /// impossible: NotImplemented; ToeUndercut where the cone that causes it reaches the toe through the design area
+            /// </summary>
+            UnsupportedByMethod,
+            /// <summary>
+            /// no surface meets the specification, in any mode: ToeSteeperThanSlope; ToeUndercut where the path from the
+            /// causing part of the toe runs outside the design area, on the slope side
+            /// </summary>
+            GeometricallyInfeasible,
+            /// <summary> the computation could not certify its own result: SlopeViolation, CatchLineAccuracyNotReached </summary>
+            NotCertified,
+            /// <summary> an internal error: Failed, CompositeFailed </summary>
+            Internal,
+            Cancelled
+        }
+        /// <summary> the kind of Status </summary>
+        public StatusKinds StatusKind;
         public string Message = "";
         /// <summary> the slope triangles; group id = index into Pieces. Null if Compute failed </summary>
         public DMesh3 SlopeSurface;
@@ -222,6 +250,7 @@ namespace gs
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
+            undercutThroughDesign = false;
             SimplifyTrace = 0; SimplifyRounds = 0;
             CapRounds = 0;
             try {
@@ -238,6 +267,7 @@ namespace gs
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             }
             IsComplete = Status == Statuses.Success;
+            StatusKind = kind_of(Status, undercutThroughDesign);
             return Status == Statuses.Success;
         }
 
@@ -409,6 +439,61 @@ namespace gs
             }
             for (int i = 1; i <= bins; ++i) top[i] = Math.Max(top[i], top[i - 1]);
             return (r) => r >= maxReach ? top[bins] : top[(int)Math.Min(bins, Math.Ceiling(Math.Max(r, 0) / w))];
+        }
+
+        bool undercutThroughDesign;
+
+        internal static StatusKinds kind_of(Statuses st, bool undercutThroughDesign)
+        {
+            switch (st) {
+                case Statuses.Success: case Statuses.NoDaylight: return StatusKinds.None;
+                case Statuses.InvalidInput: case Statuses.NotHeightField: return StatusKinds.InvalidInput;
+                case Statuses.NotImplemented: return StatusKinds.UnsupportedByMethod;
+                case Statuses.ToeSteeperThanSlope: return StatusKinds.GeometricallyInfeasible;
+                case Statuses.ToeUndercut: return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
+                case Statuses.SlopeViolation: return StatusKinds.NotCertified;
+                case Statuses.Cancelled: return StatusKinds.Cancelled;
+                default: return StatusKinds.Internal;
+            }
+        }
+
+        // The cone of piece c.Cause passes below toe segment c.Piece at c.At; its value there comes from the point p of
+        // the cause's segment nearest to At, along the straight path p -> At. Through the design area: the path leaves p
+        // or reaches At from the design side of its segment, or crosses a toe segment on the way (the method's cones pass
+        // through the design area; a surface restricted to the slope side need not undercut). Otherwise the path runs on
+        // the slope side, where every surface within the slope would undercut: infeasible.
+        bool through_design_area(List<InPiece> pieces, SlopeMap.UndercutCause c, bool fill)
+        {
+            InPiece po = pieces[c.Cause], pk = pieces[c.Piece];
+            Vector2d q = c.At;
+            Vector2d a = po.A.xy, b = po.B.xy, d = b - a;
+            double t = MathUtil.Clamp((q - a).Dot(d) / d.LengthSquared, 0, 1);
+            Vector2d p = a + t * d;
+            if (p.Distance(q) == 0) return false;
+            // the slope side of a piece: left of its direction or right
+            Func<InPiece, bool> slopeLeft = (pc) => {
+                SlopeToe toe = Toes[pc.Toe];
+                if (toe.Closed == false) return toe.Side == SlopeToe.Sides.Left;
+                double area2 = 0;
+                var pts = toe.Points;
+                for (int i = 0; i < pts.Count; ++i) { Vector2d u = pts[i].xy, w = pts[(i + 1) % pts.Count].xy; area2 += u.x * w.y - u.y * w.x; }
+                return (toe.Side == SlopeToe.Sides.Inside) == (area2 > 0);
+            };
+            Func<InPiece, Vector2d, Vector2d, bool> intoDesign = (pc, from, to) => {
+                Vector2d dir = pc.B.xy - pc.A.xy, w = to - from;
+                double cr = dir.x * w.y - dir.y * w.x;
+                return slopeLeft(pc) ? cr < 0 : cr > 0;
+            };
+            if (intoDesign(po, p, q) || intoDesign(pk, q, p)) return true;
+            // a crossing of a toe segment strictly inside the path
+            foreach (InPiece pc in pieces) {
+                if (pc == po || pc == pk) continue;
+                Vector2d u = pc.A.xy, w = pc.B.xy;
+                int o1 = ExactPredicates.Orient2d(p, q, u), o2 = ExactPredicates.Orient2d(p, q, w);
+                int o3 = ExactPredicates.Orient2d(u, w, p), o4 = ExactPredicates.Orient2d(u, w, q);
+                if (o1 * o2 < 0 && o3 * o4 < 0) return true;
+            }
+            return false;
         }
 
         // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
@@ -645,9 +730,12 @@ namespace gs
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
-            var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance);
+            List<SlopeMap.UndercutCause> causes;
+            var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance, out causes);
             if (undercut.Count > 0) {
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
+                // (UnsupportedByMethod if any of them is caused through the design area)
+                undercutThroughDesign = causes.Any(uc => through_design_area(pieces, uc, fill));
                 return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
             }
 
