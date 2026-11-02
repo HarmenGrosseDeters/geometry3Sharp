@@ -211,8 +211,9 @@ namespace geometry3Sharp.Tests
         }
 
         // all dense clusters, unfolded and folded (the pokes 2^-k outside slivers thinner than that: the surface folds
-        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (85 of
-        // 108 and 80 of 90; before the strip zip 51 and 41), the others are counted (docs/design/SAFE_ROUNDING.md
+        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (89 of
+        // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
+        // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
         [Fact]
         public void DenseClusters_WithinTheBound_MostlyClean()
@@ -239,12 +240,12 @@ namespace geometry3Sharp.Tests
                         }
             output.WriteLine($"clean: Cluster {clean[Family.Cluster]} of 108, FoldedCluster {clean[Family.FoldedCluster]} of 90");
             Assert.True(failures.Count == 0, string.Join("\n", failures));
-            Assert.True(clean[Family.Cluster] >= 85 && clean[Family.FoldedCluster] >= 80,
+            Assert.True(clean[Family.Cluster] >= 89 && clean[Family.FoldedCluster] >= 80,
                 $"clean: Cluster {clean[Family.Cluster]}, FoldedCluster {clean[Family.FoldedCluster]}");
         }
 
-        // degenerate input in Booleans: a box cuts the poked and split spheres; 197 of 198 clean (before the strip zip
-        // 183), the one left (ShortEdge 2^-44, union, seed 0) keeps a degenerate triangle
+        // degenerate input in Booleans: a box cuts the poked and split spheres; all 198 clean (before the strip zip 183,
+        // before the moves stopped depending on the scale 197: ShortEdge 2^-44, union, seed 0 kept a degenerate triangle)
         [Fact]
         public void DegenerateInput_InBooleans_CleanWithinTheBound()
         {
@@ -269,7 +270,7 @@ namespace geometry3Sharp.Tests
                         }
             output.WriteLine($"{n - failures.Count} of {n} clean");
             foreach (string s in failures) output.WriteLine(s);
-            Assert.True(failures.Count <= 1, string.Join("\n", failures));
+            Assert.True(failures.Count == 0, string.Join("\n", failures));
         }
 
         // Similarity.All(): the 2^k scales give the same result bit for bit; the others are clean, within the bound and
