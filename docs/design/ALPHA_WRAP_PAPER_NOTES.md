@@ -248,5 +248,5 @@ and rounding.
 | band max / (δ + α) | 8.76 → 1.11 | 1.33 → 0.99 |
 | cells moved by the manifold step | 22987 → 1532 | 2005 → 216 |
 | Steiner points added by the refinement (share of all) | 16606 (0.03 %) | 1682 (0.4 %) |
-| time per mesh, median / p90 | ×1.15 / ×1.36 | ×1.04 / ×1.33 |
+| time per mesh, median / p90 (3 meshes in parallel on 4 cores) | ×1.22 / ×1.44 | ×1.05 / ×1.38 |
 

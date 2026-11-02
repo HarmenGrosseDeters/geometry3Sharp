@@ -99,7 +99,7 @@ namespace gs
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
         /// continues (up to 10 rounds). The facets of moved cells were never gates (circumradius above Alpha, caps up to
         /// 179 degrees, the result up to several Offset + Alpha from the input); with the refinement most spots become
-        /// manifold by carving, which keeps the bounds of the class doc. Costs about 15 % more time at Alpha = 10 Offset.
+        /// manifold by carving, which keeps the bounds of the class doc. Costs about 20 % more time at Alpha = 10 Offset.
         /// false: the manifold step alone, as before.
         /// </summary>
         public bool RefineNonManifold = true;

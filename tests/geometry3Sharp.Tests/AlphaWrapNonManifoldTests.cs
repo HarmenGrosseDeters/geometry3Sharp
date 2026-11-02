@@ -63,7 +63,7 @@ namespace geometry3Sharp.Tests
             Assert.True(MeshAlphaWrap.preferred_flip(false, true, 1e17, false, true, 2e17));
             Assert.False(MeshAlphaWrap.preferred_flip(false, true, 2e17, false, true, 1e17));
             Assert.False(MeshAlphaWrap.preferred_flip(false, true, 1e17, false, true, 1e17));
-            Assert.True(MeshAlphaWrap.preferred_flip(false, true, Math.ScaleB(1.0, -1000), false, true, Math.ScaleB(1.5, -1000)));
+            Assert.True(MeshAlphaWrap.preferred_flip(false, true, 1e-300, false, true, 1.5e-300));
         }
     }
 }
