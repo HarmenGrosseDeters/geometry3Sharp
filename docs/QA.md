@@ -406,6 +406,21 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
+**Point, ray and inside queries (November 2026):** `SpatialQueryIssueCasesTests` rebuilds 12 failure modes from the
+trackers of libigl, trimesh and Open3D: a triangle fan around a ray under all 48 axis permutations and sign flips,
+rays grazing box faces and edges (unit, 2^20, UTM), vertical rays on a mesh scaled by 2^k and 1e-2 ... 1e-6, rays onto
+the shared diagonal and vertices of a split square, parity rays exactly through a vertex or an edge, signed distance
+grids whose sign rays run along the edges of a cube and over a sphere on a 64^3 grid, a query exactly on a face, doubled,
+overlapping and cancelling shells (generalized winding number), a cube with a zero-length edge and needles, a mesh
+with vertices but no triangles, and point in polygon at 4e5, 2^26 and UTM against the same rule decided exactly. Ray
+casts are compared with a brute-force loop over the same leaf predicate, so a difference can only come from the tree:
+the tree equals brute force everywhere (the 0 * inf slab case of libigl does not occur), and the grids, the winding
+numbers and `Polygon2d.Contains` are right. Fixed: `FindNearestHitTriangle` picked among equal-t triangles by traversal
+order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id). Known
+failures, with findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md): `IntrRay3Triangle3.Intersects` is not
+watertight, so a rounded ray onto a shared edge can miss both triangles (Q2, at 1e-3 and 1e-7), and `IsInside`
+counts vertex hits 0 times and edge hits twice (Q3, its documented limitation).
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
