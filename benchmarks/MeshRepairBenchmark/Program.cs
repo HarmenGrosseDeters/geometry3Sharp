@@ -165,6 +165,7 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
                 // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
                 string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
                 if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
@@ -190,6 +191,7 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
                 r["robust_phases"] = robust.PhaseMilliseconds;
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
@@ -531,6 +533,22 @@ class Program
             if (Vol(oriented) < 0)
                 foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
             FidelityFields.Add(oriented, result, r, seed: seed);
+            // BENCH_FM_SEEDS=2,3,4: the sampled measures (IoU, fm_*) again with these seeds, under fm_seeds (noise_floor.py)
+            string more = Environment.GetEnvironmentVariable("BENCH_FM_SEEDS");
+            if (string.IsNullOrEmpty(more) == false) {
+                var bySeed = new System.Collections.Generic.Dictionary<string, object>();
+                foreach (string sd in more.Split(',')) {
+                    int s2 = int.Parse(sd);
+                    var q = new System.Collections.Generic.Dictionary<string, object>();
+                    double mi, ex;
+                    q["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out mi, out ex, 100000, s2);
+                    q["iou_missing"] = mi;
+                    q["iou_extra"] = ex;
+                    FidelityFields.Add(oriented, result, q, seed: s2);
+                    bySeed[s2.ToString()] = q;
+                }
+                r["fm_seeds"] = bySeed;
+            }
         }
     }
 
