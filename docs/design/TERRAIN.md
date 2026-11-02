@@ -1027,12 +1027,12 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
 1. Correctness items found in 1c:
    - Done (#329): the overlapping composite where toe edges run along terrain edges within ulps (a rotated UTM
      frame); a crossing node nudged out of its terrain triangles takes the terrain vertex at that end.
-   - Next, a bugfix: `CompositeFailed` where `NoDaylight` is right. Repro: a 16×16 grid on [-40, 40]², z = 5 + 0.03 x,
-     a toe square of side 10 centred at (37.3, 1.1), `Outside`, ratio 1, `Tolerance` 0.05, `BuildComposite`, rotated
-     31° about z. A slope-side crossing node (toe edge × terrain boundary edge) rounds 1 ulp off the slope side of
-     the toe line, so the slope part's edge to it dips below the nudged terrain nodes (3 overlaps). The fix moves
-     it onto the slope side (`onto_slope_side`) and recomputes its z there.
-   - Then `MinFeatureSize` relative to the input's scale (1(a)): an opt-in local frame (inputs translated to a
+   - Done (this bugfix): `CompositeFailed` where `NoDaylight` is right (a toe leaving the terrain, a rotated
+     frame). A slope-side crossing on a boundary edge of the slope surface (toe, lateral limit or cap) rounded 1 ulp
+     off the slope side of the edge's line, so the slope part's edge to it dipped below the nudged terrain nodes. It
+     is moved onto the slope side (`onto_slope_side`, the mirror of the nudge) and its z taken there
+     (`TerrainSlopeTerrainBoundaryTests`).
+   - Next, `MinFeatureSize` relative to the input's scale (1(a)): an opt-in local frame (inputs translated to a
      local origin, outputs back, the exact checks re-run), with a test that a toe of a few cm at scale 2^-k gives
      the same result scaled.
 2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
