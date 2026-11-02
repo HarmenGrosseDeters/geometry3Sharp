@@ -41,6 +41,12 @@ option. **Owner decision, 2026-11-01: the design of `MESHING2D_SNAP.md` section 
 - the Steiner limit as the practical termination guard;
 - the refusal counts on the corpus before the PR is ready.
 
+**Owner decision, 2026-11-02: the narrow seed rule.** A hole or region seed is dropped only when snapping swept it (it lies between
+an input constraint and its snapped chain, or on that boundary, eg inside a contour that collapsed), as section 3e and the clean-room
+answer 6 describe. A seed merely near moved geometry keeps its meaning. This replaces the wider rule of the first review of #277
+(within one pixel of moved geometry), which could fill an island whose seed lay close to its own, only moved, boundary (second review
+of #277). Off-centre candidates (Üngör) are not built: the corpus counts in section 3g show grid-blocked triangles to be rare.
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
