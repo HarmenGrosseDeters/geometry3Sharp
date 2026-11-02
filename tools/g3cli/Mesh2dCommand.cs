@@ -1,0 +1,344 @@
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using g3;
+
+namespace g3cli
+{
+    /// <summary>
+    /// The 2D mesher input as JSON (the "mesh2d" command): points, segments, rings, hole seeds, regions and heights of a
+    /// ConstrainedMesh2Input. Failures are CommandExceptions with the code given to the parser (read_error for a file,
+    /// invalid_arguments for inline JSON); never another exception.
+    /// </summary>
+    public static class Mesh2dInput
+    {
+        public const string FormatDescription =
+            "{\"points\": [[x, y], ...], \"segments\": [[a, b] or {\"a\", \"b\", \"marker\", \"locked\"}, ...], " +
+            "\"rings\": [[i, j, k, ...] or {\"vertices\": [...], \"hole\": false, \"marker\": 0}, ...], \"hole_seeds\": [[x, y], ...], " +
+            "\"regions\": [{\"ring\": [...] or \"seed\": [x, y], \"label\": 1, \"max_area\": a}, ...], \"heights\": [z per point]}; " +
+            "only points is required, indices refer to points (0-based)";
+
+        /// <summary> Parses the JSON text; code is the result code of every failure. </summary>
+        public static ConstrainedMesh2Input Parse(string json, string code, string what)
+        {
+            JsonDocument doc;
+            try {
+                doc = JsonDocument.Parse(json, new JsonDocumentOptions() { MaxDepth = 16 });
+            } catch (JsonException e) {
+                throw new CommandException(code, what + " is not valid JSON: " + e.Message);
+            }
+            using (doc) {
+                var p = new Parser() { Code = code, What = what };
+                return p.Input(doc.RootElement);
+            }
+        }
+
+        public static ConstrainedMesh2Input ReadFile(string path)
+        {
+            if (File.Exists(path) == false)
+                throw new CommandException(ResultCodes.ReadError, $"file not found: {path}");
+            string text;
+            try {
+                text = File.ReadAllText(path);
+            } catch (Exception e) {
+                throw new CommandException(ResultCodes.ReadError, $"cannot read '{path}': {e.Message}");
+            }
+            return Parse(text, ResultCodes.ReadError, "'" + path + "'");
+        }
+
+        class Parser
+        {
+            public string Code, What;
+
+            CommandException Fail(string where, string message) => new CommandException(Code, $"{What}: {where} {message}");
+
+            public ConstrainedMesh2Input Input(JsonElement root)
+            {
+                if (root.ValueKind != JsonValueKind.Object)
+                    throw Fail("the top level", "must be an object with 'points'");
+                var input = new ConstrainedMesh2Input();
+                bool hasPoints = false;
+                foreach (JsonProperty prop in root.EnumerateObject()) {
+                    switch (prop.Name) {
+                        case "points":
+                            hasPoints = true;
+                            foreach (var (e, i) in Array(prop.Value, "points"))
+                                input.Points.Add(Point(e, $"points[{i}]"));
+                            break;
+                        case "segments":
+                            foreach (var (e, i) in Array(prop.Value, "segments"))
+                                input.Segments.Add(Segment(e, $"segments[{i}]"));
+                            break;
+                        case "rings":
+                            foreach (var (e, i) in Array(prop.Value, "rings"))
+                                input.Rings.Add(Ring(e, $"rings[{i}]"));
+                            break;
+                        case "hole_seeds":
+                            foreach (var (e, i) in Array(prop.Value, "hole_seeds"))
+                                input.HoleSeeds.Add(Point(e, $"hole_seeds[{i}]"));
+                            break;
+                        case "regions":
+                            foreach (var (e, i) in Array(prop.Value, "regions"))
+                                input.Regions.Add(Region(e, $"regions[{i}]"));
+                            break;
+                        case "heights":
+                            input.Heights = new List<double>();
+                            foreach (var (e, i) in Array(prop.Value, "heights"))
+                                input.Heights.Add(Number(e, $"heights[{i}]"));
+                            break;
+                        default:
+                            throw Fail("the top level", $"has an unknown key '{prop.Name}' (known: points, segments, rings, hole_seeds, regions, heights)");
+                    }
+                }
+                if (hasPoints == false)
+                    throw Fail("the top level", "has no 'points'");
+                return input;
+            }
+
+            IEnumerable<(JsonElement, int)> Array(JsonElement e, string where)
+            {
+                if (e.ValueKind != JsonValueKind.Array)
+                    throw Fail(where, "must be an array");
+                return e.EnumerateArray().Select((x, i) => (x, i)).ToList();
+            }
+
+            double Number(JsonElement e, string where)
+            {
+                if (e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out double d) && double.IsFinite(d))
+                    return d;
+                throw Fail(where, "must be a finite number, got " + Raw(e));
+            }
+
+            int Index(JsonElement e, string where)
+            {
+                if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out int i))
+                    return i;
+                throw Fail(where, "must be an integer, got " + Raw(e));
+            }
+
+            bool Bool(JsonElement e, string where)
+            {
+                if (e.ValueKind == JsonValueKind.True) return true;
+                if (e.ValueKind == JsonValueKind.False) return false;
+                throw Fail(where, "must be true or false, got " + Raw(e));
+            }
+
+            static string Raw(JsonElement e)
+            {
+                string s = e.GetRawText();
+                return s.Length > 40 ? s.Substring(0, 40) + "..." : s;
+            }
+
+            Vector2d Point(JsonElement e, string where)
+            {
+                if (e.ValueKind != JsonValueKind.Array || e.GetArrayLength() != 2)
+                    throw Fail(where, "must be [x, y], got " + Raw(e));
+                return new Vector2d(Number(e[0], where + "[0]"), Number(e[1], where + "[1]"));
+            }
+
+            int[] Indices(JsonElement e, string where)
+            {
+                return Array(e, where).Select(x => Index(x.Item1, $"{where}[{x.Item2}]")).ToArray();
+            }
+
+            Mesh2Segment Segment(JsonElement e, string where)
+            {
+                if (e.ValueKind == JsonValueKind.Array) {
+                    if (e.GetArrayLength() != 2)
+                        throw Fail(where, "must be [a, b] or an object, got " + Raw(e));
+                    return new Mesh2Segment(Index(e[0], where + "[0]"), Index(e[1], where + "[1]"));
+                }
+                if (e.ValueKind != JsonValueKind.Object)
+                    throw Fail(where, "must be [a, b] or {\"a\", \"b\", \"marker\", \"locked\"}, got " + Raw(e));
+                int? a = null, b = null; int marker = 0; bool locked = false;
+                foreach (JsonProperty p in e.EnumerateObject()) {
+                    switch (p.Name) {
+                        case "a": a = Index(p.Value, where + ".a"); break;
+                        case "b": b = Index(p.Value, where + ".b"); break;
+                        case "marker": marker = Index(p.Value, where + ".marker"); break;
+                        case "locked": locked = Bool(p.Value, where + ".locked"); break;
+                        default: throw Fail(where, $"has an unknown key '{p.Name}' (known: a, b, marker, locked)");
+                    }
+                }
+                if (a == null || b == null)
+                    throw Fail(where, "needs 'a' and 'b'");
+                return new Mesh2Segment(a.Value, b.Value, marker, locked);
+            }
+
+            Mesh2Ring Ring(JsonElement e, string where)
+            {
+                if (e.ValueKind == JsonValueKind.Array)
+                    return new Mesh2Ring(Indices(e, where));
+                if (e.ValueKind != JsonValueKind.Object)
+                    throw Fail(where, "must be an array of point indices or {\"vertices\", \"hole\", \"marker\"}, got " + Raw(e));
+                int[] vertices = null; bool hole = false; int marker = 0;
+                foreach (JsonProperty p in e.EnumerateObject()) {
+                    switch (p.Name) {
+                        case "vertices": vertices = Indices(p.Value, where + ".vertices"); break;
+                        case "hole": hole = Bool(p.Value, where + ".hole"); break;
+                        case "marker": marker = Index(p.Value, where + ".marker"); break;
+                        default: throw Fail(where, $"has an unknown key '{p.Name}' (known: vertices, hole, marker)");
+                    }
+                }
+                if (vertices == null)
+                    throw Fail(where, "needs 'vertices'");
+                return new Mesh2Ring(vertices, hole, marker);
+            }
+
+            Mesh2Region Region(JsonElement e, string where)
+            {
+                if (e.ValueKind != JsonValueKind.Object)
+                    throw Fail(where, "must be {\"ring\" or \"seed\", \"label\", \"max_area\"}, got " + Raw(e));
+                int[] ring = null; Vector2d? seed = null; int label = 0; double? maxArea = null;
+                foreach (JsonProperty p in e.EnumerateObject()) {
+                    switch (p.Name) {
+                        case "ring": ring = Indices(p.Value, where + ".ring"); break;
+                        case "seed": seed = Point(p.Value, where + ".seed"); break;
+                        case "label": label = Index(p.Value, where + ".label"); break;
+                        case "max_area": maxArea = Number(p.Value, where + ".max_area"); break;
+                        default: throw Fail(where, $"has an unknown key '{p.Name}' (known: ring, seed, label, max_area)");
+                    }
+                }
+                if ((ring == null) == (seed == null))
+                    throw Fail(where, "needs exactly one of 'ring' and 'seed'");
+                return ring != null ? Mesh2Region.ByRing(ring, label, maxArea) : Mesh2Region.BySeed(seed.Value, label, maxArea);
+            }
+        }
+    }
+
+
+    public static partial class Commands
+    {
+        // ---- mesh2d ----
+
+        static double SmallestAngleDegrees(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double best = double.MaxValue;
+            Vector2d[] p = { a, b, c };
+            for (int k = 0; k < 3; ++k) {
+                Vector2d u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+                double ang = Math.Atan2(Math.Abs(u.x * v.y - u.y * v.x), u.x * v.x + u.y * v.y);
+                best = Math.Min(best, ang * 180 / Math.PI);
+            }
+            return best;
+        }
+
+        static Command Mesh2d()
+        {
+            var c = new Command() {
+                Name = "mesh2d",
+                Description = "2D constrained Delaunay triangulation and quality mesh of points, segments, rings (outer boundaries " +
+                    "and holes), hole seeds and labelled regions (ConstrainedDelaunayMesh2, QualityMesh2: Ruppert / Shewchuk refinement " +
+                    "to a minimum angle, maximum area and Steiner point limit). Exact predicates; crossing constraints are split. " +
+                    "Input: a JSON file (input) or inline JSON (geometry): " + Mesh2dInput.FormatDescription + ". " +
+                    "Without rings the domain is the convex hull minus the holes. The output mesh lies in the XY plane (z = heights, " +
+                    "or 0), oriented counterclockwise (normals +z); region labels are its triangle groups (OBJ: 'g' lines).",
+            };
+            c.Params.Add(new Param("input", ParamType.String, "JSON file with the input (see the description); or give geometry") { Positional = true });
+            c.Params.Add(Output());
+            c.Params.Add(new Param("geometry", ParamType.String, "the input as inline JSON text, instead of an input file"));
+            c.Params.Add(new Param("quality", ParamType.Boolean, "refine to the quality bounds (QualityMesh2); false: the constrained Delaunay triangulation only (ConstrainedDelaunayMesh2), min_angle, max_area, steiner_limit and conforming must not be given") { Default = true });
+            c.Params.Add(new Param("min_angle", ParamType.Number, "quality: minimum angle in degrees, in [0, 60) (0 = no angle bound; up to about 33 converges on ordinary input)"));
+            c.Params.Add(new Param("max_area", ParamType.Number, "quality: maximum triangle area (regions can set their own)"));
+            c.Params.Add(new Param("steiner_limit", ParamType.Integer, "quality: most Steiner points to insert (default 10 x (points + segments) + 100000)"));
+            c.Params.Add(new Param("conforming", ParamType.Boolean, "quality: conforming Delaunay, also without bounds (split segments until none is encroached)"));
+            c.Params.Add(new Param("resolve_crossings", ParamType.Boolean, "split crossing constraints; false: a crossing fails with operation_failed") { Default = true });
+            c.Params.Add(Binary());
+            // TODO(m2.snap, #277): expose the snap tolerance (QualityMesh2 / ConstrainedDelaunayMesh2 SnapTolerance) once #277 is merged.
+            c.Run = args => {
+                MeshFiles.CheckWritable(args.String("output"));
+                if (args.Has("input") == args.Has("geometry"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "give exactly one of input (a JSON file) and geometry (inline JSON)");
+                bool quality = args.Bool("quality");
+                string[] qualityOnly = new[] { "min_angle", "max_area", "steiner_limit", "conforming" }.Where(args.Has).ToArray();
+                if (quality == false && qualityOnly.Length > 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, string.Join(", ", qualityOnly) + " need quality (true)");
+                double minAngle = args.Has("min_angle") ? args.Number("min_angle") : 20;
+                if (!(minAngle >= 0 && minAngle < 60))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'min_angle' must be in [0, 60)");
+                if (args.Has("max_area") && !(args.Number("max_area") > 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_area' must be > 0");
+                if (args.Has("steiner_limit") && args.Integer("steiner_limit") < 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'steiner_limit' must be >= 0");
+
+                ConstrainedMesh2Input input = args.Has("input") ? Mesh2dInput.ReadFile(args.String("input"))
+                    : Mesh2dInput.Parse(args.String("geometry"), ResultCodes.InvalidArguments, "geometry");
+
+                ConstrainedTriangulation2Result result;
+                try {
+                    if (quality) {
+                        var q = new QualityMesh2() { MinAngle = minAngle, ResolveCrossings = args.Bool("resolve_crossings") };
+                        if (args.Has("max_area")) q.MaxArea = args.Number("max_area");
+                        if (args.Has("steiner_limit")) q.SteinerLimit = args.Integer("steiner_limit");
+                        if (args.Has("conforming")) q.Conforming = args.Bool("conforming");
+                        result = q.Compute(input);
+                    } else {
+                        result = new ConstrainedDelaunayMesh2() { ResolveCrossings = args.Bool("resolve_crossings") }.Compute(input);
+                    }
+                } catch (ArgumentException e) {
+                    // indices out of range, non-finite or too large coordinates, a region's area, ...
+                    throw new CommandException(args.Has("input") ? ResultCodes.ReadError : ResultCodes.InvalidArguments, "invalid input: " + e.Message);
+                }
+                var diagnostics = result.Diagnostics ?? new string[0];
+                if (result.Status == Triangulation2Status.Failed) {
+                    string where = result.ProblemCoordinate.HasValue
+                        ? $" near ({result.ProblemCoordinate.Value.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, {result.ProblemCoordinate.Value.y.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})" : "";
+                    throw new CommandException(ResultCodes.OperationFailed, $"triangulation failed ({result.FailureKind}){where}: {result.FailureDetail}");
+                }
+                ConstrainedMesh2 m2 = result.Mesh;
+                if (result.Status == Triangulation2Status.Empty || m2 == null || m2.TriangleCount == 0)
+                    throw new CommandException(ResultCodes.OperationFailed, "no triangles: fewer than three distinct points, all points collinear, or everything inside holes");
+
+                var mesh = new DMesh3(MeshComponents.None);
+                mesh.EnableTriangleGroups();
+                for (int i = 0; i < m2.Vertices.Count; ++i)
+                    mesh.AppendVertex(new Vector3d(m2.Vertices[i].x, m2.Vertices[i].y, m2.Heights != null ? m2.Heights[i] : 0));
+                double minAng = double.MaxValue, maxArea = 0, area = 0;
+                var labels = new SortedDictionary<int, int>();
+                for (int t = 0; t < m2.TriangleCount; ++t) {
+                    Index3i tri = m2.Triangles[t];
+                    int label = m2.TriangleLabels[t];
+                    if (mesh.AppendTriangle(tri, label) < 0)
+                        throw new CommandException(ResultCodes.InternalError, $"triangle {t} could not be added to the output mesh");
+                    Vector2d a = m2.Vertices[tri.a], b = m2.Vertices[tri.b], cc = m2.Vertices[tri.c];
+                    double ta = 0.5 * ((b.x - a.x) * (cc.y - a.y) - (b.y - a.y) * (cc.x - a.x));
+                    area += ta;
+                    maxArea = Math.Max(maxArea, ta);
+                    minAng = Math.Min(minAng, SmallestAngleDegrees(a, b, cc));
+                    labels[label] = labels.TryGetValue(label, out int n) ? n + 1 : 1;
+                }
+                MeshFiles.Write(args.String("output"), mesh, args.Bool("binary"), groups: true);
+
+                var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
+                o["method"] = quality ? "quality" : "constrained_delaunay";
+                if (quality) {
+                    o["min_angle"] = minAngle;
+                    o["max_area"] = args.Has("max_area") ? MeshReport.Num(args.Number("max_area")) : null;
+                }
+                o["input_points"] = input.Points.Count;
+                o["input_segments"] = input.Segments.Count;
+                o["vertices"] = m2.Vertices.Count;
+                o["triangles"] = m2.TriangleCount;
+                o["added_vertices"] = m2.Vertices.Count - m2.InputToVertex.Where(v => v >= 0).Distinct().Count();
+                o["subsegments"] = m2.Subsegments.Count;
+                o["smallest_angle"] = MeshReport.Num(minAng);
+                o["largest_area"] = MeshReport.Num(maxArea);
+                o["area"] = MeshReport.Num(area);
+                o["bad_triangles"] = m2.BadTriangles.Count;
+                o["steiner_limit_reached"] = m2.SteinerLimitReached;
+                o["labels"] = new JsonObject(labels.Select(kv => new KeyValuePair<string, JsonNode>(kv.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), kv.Value)));
+                o["mesh"] = MeshReport.Metrics(mesh, false);
+                var warnings = diagnostics.ToList();
+                if (m2.SteinerLimitReached)
+                    warnings.Add("the Steiner point limit was reached: some triangles may miss the quality bounds (bad_triangles)");
+                o["warnings"] = Warnings(warnings);
+                return o;
+            };
+            return c;
+        }
+    }
+}
