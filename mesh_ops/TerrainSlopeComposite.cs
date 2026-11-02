@@ -452,7 +452,10 @@ namespace gs
                 long c1 = slope ? SlopeTerrainOverlay.vkeyA(tv[(j + 1) % 3]) : SlopeTerrainOverlay.vkeyB(tv[(j + 1) % 3]);
                 var seq = new List<Node>();
                 var flags = new List<bool>();
-                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags) == false) return false;
+                // (on an edge of its own surface's boundary the other surface's part takes every overlay vertex: its
+                // constraints there are the overlay edges one by one, so this side keeps them too)
+                bool own = slope ? A.IsBoundaryEdge(te[j]) : B.IsBoundaryEdge(te[j]);
+                if (edge_sequence(edgeKind, te[j], fl, c0, c1, seq, flags, own) == false) return false;
                 for (int k = 0; k + 1 < seq.Count; ++k)
                     if (flags[k] == slope) constraints.Add(new Index2i(idx(seq[k]), idx(seq[k + 1])));
                 foreach (Node n in seq) idx(n);
@@ -611,7 +614,7 @@ namespace gs
 
         // the nodes along an edge of the owner triangle (from corner c0 to c1) and, per sub-piece, whether it is in the
         // region; nodes inside a run of equal flags that are not catch points or corners are dropped
-        bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags)
+        bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags, bool keepAll = false)
         {
             // the overlay edges of this edge, each split at its catch point
             var byStart = new Dictionary<long, SlopeTerrainOverlay.OEdge>();
@@ -662,7 +665,7 @@ namespace gs
             // (the flag of the last node is the gap after it, so false at the end)
             for (int i = 0; i < raw.Count; ++i) {
                 Node n = raw[i].Key;
-                bool keep = i == 0 || i == raw.Count - 1 || n.Catch || raw[i - 1].Value != raw[i].Value;
+                bool keep = keepAll || i == 0 || i == raw.Count - 1 || n.Catch || raw[i - 1].Value != raw[i].Value;
                 if (keep == false) continue;
                 if (seq.Count > 0 && seq[seq.Count - 1].Equals(n)) continue;
                 seq.Add(n);
