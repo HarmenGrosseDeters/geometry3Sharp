@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using Xunit;
@@ -213,6 +214,151 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(fresh, strips));
                 Assert.Equal(f.MaxDrift, reused.MaxDrift);
                 Assert.Equal(f.StripZips, reused.StripZips);
+            }
+        }
+
+        // ---- coordinates far from the origin: the ulp tolerance (docs/design/SAFE_ROUNDING.md section 5) ----
+
+        // the dense clusters, folded clusters, collinear pokes and slivers of SafeRoundingDegenerateInputTests at scale
+        // 1e-3, rotated, near UTM coordinates (up to 5.7e6, one ulp 9.3e-10): 114 inputs whose rounding breaks more than
+        // the relative bound (3.5e-8 here, 37 ulps) can repair
+        static IEnumerable<(string name, DMesh3 mesh)> UtmCases()
+        {
+            Similarity sim = Similarity.ByName("rotated, scale 1e-3, utm");
+            foreach (var f in new[] { SafeRoundingDegenerateInputTests.Family.Cluster, SafeRoundingDegenerateInputTests.Family.FoldedCluster,
+                                      SafeRoundingDegenerateInputTests.Family.Collinear, SafeRoundingDegenerateInputTests.Family.Sliver })
+                foreach (int k in new[] { 0, 30, 36, 44, 52 })
+                    foreach (int count in new[] { 2, 4 })
+                        for (int seed = 0; seed < 3; seed++)
+                            if (k != 0 || f != SafeRoundingDegenerateInputTests.Family.Sliver)
+                                yield return ($"{f} k{k} count {count} seed {seed}",
+                                    Invariance.Transformed(SafeRoundingDegenerateInputTests.Make(f, k, seed, count), sim));
+        }
+
+        static double Ulp(DMesh3 m) => Math.Pow(2, Math.Floor(Math.Log(m.Vertices().Max(v => v.MaxAbs), 2)) - 52);
+
+        [Fact]
+        public void Utm_CleanWithTheUlpTolerance_WithinIt()
+        {
+            // 108 of 114 clean with the default (UlpFactor 256); 92 with the relative bound only (UlpFactor 0, before).
+            // Every result within its bound, MaxDrift <= MaxLength = 256 ulps (0.24 micrometres here)
+            int clean = 0, cleanRelative = 0, removals = 0, n = 0;
+            foreach (var (name, mesh) in UtmCases()) {
+                var op = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union);
+                Assert.True(op.Compute(), name);
+                n++;
+                MeshRoundingRepair r = op.Rounding;
+                double ulp = Ulp(op.Result);
+                Assert.True(r.MaxDrift <= r.MaxLength && r.MaxLength == 256 * ulp, $"{name}: drift {r.MaxDrift:G3}, bound {r.MaxLength:G3}");
+                if (op.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(op.Result) == "")
+                    clean++;
+                removals += r.VertexRemovals;
+                var relative = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { RoundingUlpFactor = 0 };
+                Assert.True(relative.Compute(), name);
+                Assert.Equal(0, relative.Rounding.VertexRemovals);
+                if (relative.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(relative.Result) == "")
+                    cleanRelative++;
+            }
+            Assert.Equal(114, n);
+            Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
+            Assert.True(cleanRelative <= 92, $"relative bound only: {cleanRelative}");
+            Assert.True(removals > 0, "vertex removals");
+        }
+
+        [Fact]
+        public void Utm_PowerOfTwoScales_SameResultScaled()
+        {
+            // the ulp of the largest coordinate scales by 2^k too: the same result, bit for bit
+            var (name, mesh) = UtmCases().First(c => c.name == "Cluster k0 count 4 seed 0");
+            var op0 = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union);
+            Assert.True(op0.Compute());
+            Assert.True(op0.Rounding.VertexRemovals > 0, name);
+            foreach (double s in new[] { 1.0 / 1024, 1024 }) {
+                DMesh3 scaled = new DMesh3(mesh);
+                MeshTransforms.Scale(scaled, s);
+                var op = new ExactMeshBoolean(scaled, new DMesh3(), Ops.Union);
+                Assert.True(op.Compute());
+                Assert.Equal(op0.Rounding.MaxLength * s, op.Rounding.MaxLength);
+                Assert.Equal(op0.Rounding.MaxDrift * s, op.Rounding.MaxDrift);
+                DMesh3 back = new DMesh3(op.Result);
+                MeshTransforms.Scale(back, 1 / s);
+                Assert.True(Invariance.Difference(op0.Result, back) == "", s.ToString());
+            }
+        }
+
+        [Fact]
+        public void OrdinaryMeshes_UlpToleranceChangesNothing()
+        {
+            // near the origin (and at UTM coordinates for meshes of ordinary size) the ulp term is far below the relative
+            // bound: the same result, bit for bit, with and without it
+            foreach (DMesh3 start in new[] { Strips(), SplitSphere(1e-13, 2e-13), PokedSphere(),
+                                             Invariance.Transformed(PokedSphere(), Similarity.ByName("utm")) }) {
+                DMesh3 a = new DMesh3(start), b = new DMesh3(start);
+                var ra = new MeshRoundingRepair(a) { SharedPositionsTouch = true };
+                var rb = new MeshRoundingRepair(b) { SharedPositionsTouch = true, UlpFactor = 0 };
+                ra.Apply(); rb.Apply();
+                Assert.Equal(rb.MaxLength, ra.MaxLength);
+                Assert.Equal(0, ra.VertexRemovals);
+                Assert.Equal("", Invariance.Difference(a, b));
+            }
+        }
+
+        [Fact]
+        public void AbsoluteTolerance_RaisesTheBound()
+        {
+            DMesh3 start = SplitSphere(1e-13, 2e-13), m = new DMesh3(start);
+            var r = new MeshRoundingRepair(m) { AbsoluteTolerance = 1e-3 };
+            Assert.True(r.Apply());
+            Assert.Equal(1e-3, r.MaxLength);
+            Assert.True(r.MaxDrift <= r.MaxLength);
+        }
+
+        [Fact]
+        public void StrictRounding_FailsWithTheReason_InsteadOfDefects()
+        {
+            // a UTM case that the relative bound cannot repair: strict, Compute fails with the defects left, where, and
+            // the drift the smallest rejected edit needed; not strict, it is clean
+            var (name, mesh) = UtmCases().First(c => c.name == "Cluster k0 count 4 seed 0");
+            var strict = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { StrictRounding = true };
+            Assert.False(strict.Compute(), name);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);
+            Assert.Null(strict.Result);
+            Assert.Contains("rounding not clean", strict.Error);
+            Assert.Contains("smallest edit rejected by the bound needed", strict.Error);
+            Assert.True(strict.Rounding.SmallestRejectedDrift > strict.Rounding.MaxLength
+                && strict.Rounding.SmallestRejectedDrift < double.PositiveInfinity, strict.Error);
+            Assert.True(strict.Rounding.RemainingDefectAt.Distance(mesh.GetBounds().Center) < 1, strict.Error);
+            var lenient = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union);
+            Assert.True(lenient.Compute());
+            Assert.True(lenient.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(lenient.Result) == "", name);
+            // an ordinary case: strict and clean, the same result as not strict
+            var ok = new ExactMeshBoolean(PokedSphere(), new DMesh3(), Ops.Union) { StrictRounding = true };
+            Assert.True(ok.Compute(), ok.Error);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, ok.Status);
+            var plain = new ExactMeshBoolean(PokedSphere(), new DMesh3(), Ops.Union);
+            Assert.True(plain.Compute());
+            Assert.Equal("", Invariance.Difference(plain.Result, ok.Result));
+        }
+
+        [Fact]
+        public void Utm_ReusedInstance_EqualsFreshInstance()
+        {
+            // the coarse state (ulp term, fixed vertices ignored, contact pass) does not carry over to the next mesh
+            var (name, mesh) = UtmCases().First(c => c.name == "Cluster k0 count 4 seed 0");
+            var raw = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { SafeRounding = false };
+            Assert.True(raw.Compute());
+            var reused = new MeshRoundingRepair(new DMesh3(raw.Result)) { SharedPositionsTouch = true };
+            reused.Apply();
+            Assert.True(reused.VertexRemovals > 0, name);
+            foreach (int k in new[] { 0, 1 }) {
+                DMesh3 m = PokedSphere(), fresh = PokedSphere();
+                reused.Mesh = m;
+                reused.Apply();
+                var f = new MeshRoundingRepair(fresh) { SharedPositionsTouch = true };
+                f.Apply();
+                Assert.Equal("", Invariance.Difference(fresh, m));
+                Assert.Equal(f.MaxLength, reused.MaxLength);
+                Assert.Equal(0, reused.VertexRemovals);
             }
         }
     }

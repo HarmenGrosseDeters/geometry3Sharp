@@ -76,7 +76,12 @@ namespace g3
             /// </summary>
             OpenInput = 2,
             /// <summary> Compute() was not called yet </summary>
-            NotComputed = 3
+            NotComputed = 3,
+            /// <summary>
+            /// StrictRounding: the rounded result is not clean within the relative bound (see Error: the defects
+            /// left, where, and the drift the smallest rejected edit needed); Result is null
+            /// </summary>
+            RoundingNotClean = 4
         }
 
         /// <summary> the input meshes of A op B (not modified); unused if Meshes is set </summary>
@@ -161,6 +166,17 @@ namespace g3
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
+        /// 1e-5 of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
+        /// distance (docs/design/SAFE_ROUNDING.md section 5)
+        /// </summary>
+        public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
+        /// <summary>
+        /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
+        /// fails with Status RoundingNotClean instead of returning a result with defects. Off by default.
+        /// </summary>
+        public bool StrictRounding = false;
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary>
@@ -357,7 +373,10 @@ namespace g3
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
-                Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
+                Rounding = new MeshRoundingRepair(Result) {
+                    SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v],
+                    UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance
+                };
                 Rounding.Apply();
                 clock.Lap("rounding");
                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
@@ -365,6 +384,16 @@ namespace g3
                 Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
+                Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
+                if (StrictRounding && Rounding.IsClean == false) {
+                    Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
+                        Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
+                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift);
+                    Result = null;
+                    Status = BooleanStatus.RoundingNotClean;
+                    return false;
+                }
             }
             Status = BooleanStatus.Success;
             return true;

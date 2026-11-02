@@ -26,7 +26,10 @@ namespace g3
     /// boundary runs strictly monotone along the segment between its two farthest boundary vertices on both sides and
     /// all of whose vertices, the inner ones too, lie between them along it, is removed, and the triangles outside it
     /// along both sides (distinct, their third corners outside the strip) are split at the vertices of the other side,
-    /// so that both share one chain (StripZips). The
+    /// so that both share one chain (StripZips). Where the coordinates are coarse (far from the origin compared to the
+    /// mesh's size, see UlpFactor), a vertex of valence 3 that the rounding put onto the position of another vertex is
+    /// removed, its three triangles replaced by the one of its neighbours (VertexRemovals), and FixedVertexF is not used
+    /// (the fixed vertices carry rounding errors of the size of the bound there themselves). The
     /// contractions keep the mesh manifold (link condition, DMesh3.CollapseEdge). Edits at the boundary of open
     /// meshes stay on the boundary curve: a boundary vertex keeps its coordinates in a contraction and is
     /// removed only by contracting a boundary edge into its other end (an interior edge between two boundary
@@ -68,10 +71,11 @@ namespace g3
     /// smallest of twice the distance between the flipped edge and the new one, a bound from the distances of the
     /// corners to the other side's triangles (each bounded by the distance to the nearest edge), and 0 for a convex
     /// quad in one plane (exact), for a
-    /// zip twice the distance of the apexes to the edge, for a strip zip twice the largest distance of the strip's
+    /// zip twice the distance of the apexes to the edge, for a vertex removal the distance of the vertex to the new
+    /// triangle (with the vertex moved to its nearest point there, its three triangles tile the new one), for a strip zip twice the largest distance of the strip's
     /// vertices to the line through its ends (with them moved onto it, in their order along it, the old and the new
-    /// triangles cover the same set). An edit after which a drift would exceed MaxDisplacement times
-    /// the diagonal (maxLength) is not applied. By induction over the edits, every point of a triangle lies within the
+    /// triangles cover the same set). An edit after which a drift would exceed maxLength (MaxDisplacement
+    /// times the diagonal, or the ulp or the absolute term, see UlpFactor) is not applied. By induction over the edits, every point of a triangle lies within the
     /// largest drift of its vertices of the surface at the start, and every point of that surface within it of the
     /// repaired one: each edit moves every point of the triangles it removes to within its bound of the triangles it
     /// adds or of a simplex spanned by their vertices, and back (a contraction of an ear, whose vertex has a single
@@ -129,6 +133,31 @@ namespace g3
         public int Collapses, Flips, Moves, Zips;
         /// <summary> of the Zips: strips of degenerate triangles zipped at once (see class comment) </summary>
         public int StripZips;
+        /// <summary>
+        /// the tolerance in units in the last place of the largest coordinate: the bound maxLength is the largest of
+        /// MaxDisplacement times the diagonal, UlpFactor times ulp(largest absolute coordinate) and AbsoluteTolerance.
+        /// Far from the origin compared to its size (eg UTM coordinates), a mesh's rounding errors exceed the relative
+        /// bound; there the ulp term lets the edits remove what the rounding broke (owner decision of 2026-11-02, 256:
+        /// 0.24 micrometres at 5.7e6). It changes nothing unless the largest coordinate exceeds about 1.75e8 times the
+        /// diagonal (docs/design/SAFE_ROUNDING.md section 5). 0 turns it off.
+        /// </summary>
+        public double UlpFactor = 256;
+        /// <summary> an absolute tolerance the caller sets (eg 1e-6 for metres in GIS), see UlpFactor; 0 = none </summary>
+        public double AbsoluteTolerance = 0;
+        /// <summary>
+        /// of the edits: vertices of valence 3 removed where the rounding put them onto the position of another
+        /// vertex (only with SharedPositionsTouch, and only where the ulp term of the bound is active, see UlpFactor)
+        /// </summary>
+        public int VertexRemovals;
+        /// <summary> the bound on the drift: the largest of the three terms (see UlpFactor) </summary>
+        public double MaxLength { get { return maxLength; } }
+        /// <summary>
+        /// the smallest drift that an edit rejected by the bound would have needed (infinity if none was rejected): how
+        /// large the bound would have to be for that edit (StrictRounding of ExactMeshBoolean reports it)
+        /// </summary>
+        public double SmallestRejectedDrift;
+        /// <summary> the centroid of a defect left after the repair (a degenerate triangle, else an intersecting one) </summary>
+        public Vector3d RemainingDefectAt;
         /// <summary> the most triangles of a strip that is zipped at once </summary>
         public int MaxStripTriangles = 64;
         // strips proposed at most per degenerate triangle (see try_strip)
@@ -151,6 +180,8 @@ namespace g3
         }
 
         double areaEps, maxLength;
+        // the ulp term of the bound is active (see UlpFactor)
+        bool coarse;
         // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
         // applied
         double[] drift;
@@ -181,7 +212,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = StripZips = RemovedComponents = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
             MaxDrift = 0;
             drift = new double[Mesh.MaxVertexID];
             touched.Clear();
@@ -201,7 +232,15 @@ namespace g3
             }
             double diag = gs.MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength;
             areaEps = DegenerateArea * diag * diag;
-            maxLength = MaxDisplacement * diag;
+            // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit)
+            double largest = 0;
+            foreach (Vector3d v in Mesh.Vertices())
+                largest = Math.Max(largest, v.MaxAbs);
+            double ulpTerm = UlpFactor * ulp(largest);
+            maxLength = Math.Max(MaxDisplacement * diag, Math.Max(ulpTerm, AbsoluteTolerance));
+            coarse = ulpTerm > MaxDisplacement * diag;
+            SmallestRejectedDrift = double.PositiveInfinity;
+            RemainingDefectAt = Vector3d.Zero;
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
                 foreach (int vid in Mesh.VertexIndices())
@@ -216,6 +255,35 @@ namespace g3
             evaluations = pairTests = 0;
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count);
             EvaluationLimitReached = false;
+            repair_passes(ref pairs, ref bad);
+            // vertices that the rounding put onto the position of another (they touch: SharedPositionsTouch takes them as
+            // shared, MeshRobustRepair.NotCleanReason as intersecting): a vertex of valence 3 there is removed, if the
+            // result improves. Only where the coordinates are coarse (the ulp term of the bound is active): elsewhere
+            // such contacts are where solids touch (ExactMeshBoolean)
+            if (coarse && atPosition != null && EvaluationLimitReached == false && remove_contact_vertices() > 0) {
+                // (and the passes again where the removals changed the mesh)
+                bad = degenerate_triangles();
+                pairs = intersecting_pairs();
+                repair_passes(ref pairs, ref bad);
+            }
+            if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
+                bad = degenerate_triangles();
+                if (pairs.Count > 0)
+                    pairs = intersecting_pairs();
+            }
+            RemainingIntersections = pairs.Count;
+            RemainingDegenerate = bad.Count;
+            int at = bad.Count > 0 ? bad[0] : pairs.Count > 0 ? pairs[0].a : -1;
+            if (at >= 0 && Mesh.IsTriangle(at))
+                RemainingDefectAt = Mesh.GetTriCentroid(at);
+            return IsClean;
+        }
+
+
+        // the passes over the defects (see Apply), until one changes nothing
+        [MethodImpl(JitHints.Optimize)]
+        void repair_passes(ref List<Index2i> pairs, ref List<int> bad)
+        {
             for (int pass = 0; pass < MaxPasses && (pairs.Count > 0 || bad.Count > 0); ++pass) {
                 int edits = Collapses + Flips + Moves + Zips;
                 // after the first pass, only where the mesh changed since (elsewhere the same edits would fail again)
@@ -243,16 +311,7 @@ namespace g3
                 if (Collapses + Flips + Moves + Zips == edits || EvaluationLimitReached)
                     break;
             }
-            if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
-                bad = degenerate_triangles();
-                if (pairs.Count > 0)
-                    pairs = intersecting_pairs();
-            }
-            RemainingIntersections = pairs.Count;
-            RemainingDegenerate = bad.Count;
-            return IsClean;
         }
-
 
         // ---- geometry of the current mesh, or of a proposed edit (one vertex at another position) ----
 
@@ -496,7 +555,7 @@ namespace g3
         // (displacement: how far a vertex moves; surface, if hasSurface: a bound on how far the surface moves, for flips
         // and zips)
         [MethodImpl(JitHints.Optimize)]
-        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false)
+        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false)
         {
             // the drift bound first (it does not count as an evaluation): the vertices of the edit get the largest
             // drift among them plus this edit's
@@ -511,8 +570,11 @@ namespace g3
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
             editDrift = most + step;
-            if (!(step >= 0) || !(editDrift <= maxLength))
+            if (!(step >= 0) || !(editDrift <= maxLength)) {
+                if (editDrift < SmallestRejectedDrift)
+                    SmallestRejectedDrift = editDrift;
                 return false;
+            }
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
@@ -592,7 +654,7 @@ namespace g3
             cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
             movedV = saveV; movedPos = savePos;
             // (with as many degenerate triangles as before, it must remove an intersection)
-            if (newB == oldB && oldI == 0)
+            if (newB == oldB && oldI == 0 && removesContact == false)
                 return false;
             for (int i = 0; i < added.Count; ++i) {
                 if (degen[i])
@@ -613,7 +675,8 @@ namespace g3
                     if (degen[j] == false && intersects(t, ref tris[i], added[j], ref tris[j]))
                         if (++newI > oldI) return false;
             }
-            return newI + newB < oldI + oldB;
+            // (an edit that removes a contact may keep the counts)
+            return newI + newB < oldI + oldB || (removesContact && newI + newB <= oldI + oldB);
         }
 
         // the proposed edit (improves) was applied: its vertices get its drift
@@ -695,9 +758,11 @@ namespace g3
             return Math.Min(segment_distance(p, a, b), Math.Min(segment_distance(p, b, c), segment_distance(p, c, a)));
         }
 
+        // (not where the coordinates are coarse: there the fixed vertices carry rounding errors of the size of the
+        // bound themselves, and keeping them makes the edits on the others cascade beyond it)
         bool is_fixed(int v)
         {
-            return FixedVertexF != null && FixedVertexF(v);
+            return coarse == false && FixedVertexF != null && FixedVertexF(v);
         }
 
         // contracting edge eid = (a, b), b kept at p, keeps the boundary curve (see class comment): a boundary
@@ -1147,6 +1212,117 @@ namespace g3
             Zips++;
             StripZips++;
             return true;
+        }
+
+        // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals)
+        static double ulp(double x)
+        {
+            if (!(x < double.PositiveInfinity))
+                return double.NaN;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            return e > 52 ? BitConverter.Int64BitsToDouble((long)(e - 52) << 52) : double.Epsilon;
+        }
+
+        // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
+        // first vertex of valence 3 whose removal improves; repeated while it removes some (at most once per vertex)
+        [MethodImpl(JitHints.Optimize)]
+        int remove_contact_vertices()
+        {
+            int removedNow = 0;
+            for (bool again = true; again; ) {
+                again = false;
+                var groups = new List<List<int>>();
+                foreach (List<int> list in atPosition.Values)
+                    if (list.Count > 1) {
+                        var g = new List<int>(list);
+                        g.Sort();
+                        groups.Add(g);
+                    }
+                groups.Sort((x, y) => x[0].CompareTo(y[0]));
+                foreach (List<int> g in groups)
+                    foreach (int u in g)
+                        if (Mesh.IsVertex(u) && try_remove_vertex(u)) {
+                            removedNow++;
+                            again = true;
+                            break;
+                        }
+            }
+            return removedNow;
+        }
+
+        // remove u, a vertex of valence 3 with the triangles (u, a, b), (u, b, c), (u, c, a), by the triangle (a, b, c).
+        // How far the surface moves: with u moved to its nearest point q in (a, b, c), the three triangles tile (a, b, c)
+        // (q in the closed triangle), so the old and the new triangles are within dist(u, (a, b, c)) of each other
+        [MethodImpl(JitHints.Optimize)]
+        bool try_remove_vertex(int u)
+        {
+            if (Mesh.GetVtxEdgeCount(u) != 3 || Mesh.IsBoundaryVertex(u) || EvaluationLimitReached)
+                return false;
+            int[] fan = new int[3];
+            int nf = 0;
+            foreach (int t in Mesh.VtxTrianglesItr(u)) {
+                if (nf == 3) return false;
+                fan[nf++] = t;
+            }
+            if (nf != 3)
+                return false;
+            // the ring a, b, c in the orientation of the fan
+            Index3i t0 = Mesh.GetTriangle(fan[0]);
+            int k0 = t0.a == u ? 0 : t0.b == u ? 1 : 2;
+            int a = t0[(k0 + 1) % 3], b = t0[(k0 + 2) % 3], c = -1;
+            foreach (int t in fan) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k)
+                    if (tv[k] != u && tv[k] != a && tv[k] != b)
+                        c = tv[k];
+            }
+            if (c < 0 || runs3(fan, u, b, c) == false || runs3(fan, u, c, a) == false
+                || Mesh.FindTriangle(a, b, c) != DMesh3.InvalidID)
+                return false;
+            begin_edit();
+            removed.Add(fan[0]); removed.Add(fan[1]); removed.Add(fan[2]);
+            added.Add(new Index3i(a, b, c)); addedFrom.Add(-1);
+            var tri = new Triangle3d(pos(a), pos(b), pos(c));
+            double surface = new DistPoint3Triangle3(pos(u), tri).Get();
+            if (improves(0, surface, true, true) == false)
+                return false;
+            int gid = Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(fan[0]) : -1;
+            var old = new Index3i[3];
+            var oldGid = new int[3];
+            for (int i = 0; i < 3; ++i) {
+                old[i] = Mesh.GetTriangle(fan[i]);
+                oldGid[i] = Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(fan[i]) : -1;
+                Mesh.RemoveTriangle(fan[i], false, false);
+            }
+            int tid = Mesh.AppendTriangle(a, b, c, gid);
+            if (tid < 0) {
+                // (not expected: (a, b, c) does not exist and each of its edges loses a fan triangle) undone
+                for (int i = 0; i < 3; ++i) {
+                    int back = Mesh.AppendTriangle(old[i].a, old[i].b, old[i].c, oldGid[i]);
+                    if (back >= 0)
+                        mark_dirty(back);
+                }
+                return false;
+            }
+            mark_dirty(tid);
+            position_remove(u, Mesh.GetVertex(u));
+            Mesh.RemoveVertex(u, false, false);
+            touched.Add(a); touched.Add(b); touched.Add(c);
+            commit_drift();
+            VertexRemovals++;
+            return true;
+        }
+
+        // does one of the triangles run through u, v, w (in this cyclic order)
+        bool runs3(int[] tris, int u, int v, int w)
+        {
+            foreach (int t in tris) {
+                Index3i tv = Mesh.GetTriangle(t);
+                if (runs(tv, u, v) && runs(tv, v, w))
+                    return true;
+            }
+            return false;
         }
 
         // does triangle t run through u then v
