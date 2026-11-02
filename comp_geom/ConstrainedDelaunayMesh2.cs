@@ -99,6 +99,13 @@ namespace g3
         /// <summary> The constrained triangulation in the making; the refinement of <see cref="QualityMesh2"/> works on it. </summary>
         internal sealed class Builder
         {
+            /// <summary>
+            /// the input segments in [HullSegmentsFrom, HullSegmentsTo) are the snapped chains of the hull edges (QualityMesh2 on a
+            /// grid, owner decision of 2026-11-02, MESHING2D_HULL_GRID.md section 7): they become hull sources, and ConstrainHull
+            /// adds no hull edges of its own then
+            /// </summary>
+            internal int HullSegmentsFrom = int.MaxValue, HullSegmentsTo = int.MaxValue;
+            internal bool HullFromSegments => HullSegmentsFrom != int.MaxValue;
             internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
             internal readonly CancellationToken cancel;
@@ -420,7 +427,13 @@ namespace g3
                     }
                 }
                 if (input.Segments != null)
-                    foreach (var s in input.Segments) Add(s.A, s.B, Make(s.A, s.B, -1, s.Marker, s.Locked));
+                    for (int si = 0; si < input.Segments.Count; ++si) {
+                        var s = input.Segments[si];
+                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked);
+                        // the snapped chains of the hull edges of a hull domain (QualityMesh2 on a grid): hull sources
+                        source.Hull = si >= HullSegmentsFrom && si < HullSegmentsTo;
+                        Add(s.A, s.B, source);
+                    }
                 // in input order: reverse the stack once
                 var pending = new Stack<Piece>(work);
                 // Each crossing of two input segments makes at most one vertex, so more new vertices than pairs of sources mean the
