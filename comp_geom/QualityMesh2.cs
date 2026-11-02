@@ -125,6 +125,13 @@ namespace g3
             readonly ConstrainedDelaunayMesh2.Builder b;
             DelaunayKernel2 k;
             readonly double sin2Min;
+            /// <summary> cot(theta / 2) of the angle bound theta: an off-centre lies |pq| cot(theta / 2) / 2 from the midpoint of pq </summary>
+            readonly double halfCot;
+            /// <summary> bad triangles are split at off-centres (Ungor 2004) instead of circumcentres </summary>
+            readonly bool offCentres;
+
+            /// <summary> benchmarks only: off-centres on or off (null: the default, on) </summary>
+            [ThreadStatic] internal static bool? OffCentresForBenchmarks;
             readonly Queue<long> segments = new Queue<long>();
             readonly Queue<int> triangles = new Queue<int>();
             readonly HashSet<long> unsplittable = new HashSet<long>();
@@ -147,6 +154,8 @@ namespace g3
                 this.options = options; b = builder; this.snap = snap; grid = snap?.Grid;
                 double s = Math.Sin(options.MinAngle * Math.PI / 180);
                 sin2Min = s * s;
+                halfCot = HalfCot(sin2Min);
+                offCentres = OffCentresForBenchmarks ?? true;
             }
 
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
@@ -813,12 +822,58 @@ namespace g3
                     && Math.Abs(c.x) <= DelaunayMesh2.CoordinateLimit && Math.Abs(c.y) <= DelaunayMesh2.CoordinateLimit;
             }
 
+            /// <summary> the off-centre of t (<see cref="OffCentre(Vector2d, Vector2d, Vector2d, double, out Vector2d)"/>). It differs from
+            /// the circumcentre only where the smallest angle is below half the bound, so a triangle bad by size alone takes its circumcentre </summary>
+            bool OffCentre(int t, out Vector2d c)
+            {
+                c = default(Vector2d);
+                if (!offCentres || double.IsInfinity(halfCot)) return false;
+                return OffCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), halfCot, out c);
+            }
+
+            /// <summary> cot(theta / 2) of an angle theta given by sin^2 theta, from square roots only (no Tan: its last bit may differ by
+            /// runtime): (1 + cos theta) / sin theta; infinite for 0 </summary>
+            internal static double HalfCot(double sin2) => sin2 > 0 ? (1 + Math.Sqrt(1 - sin2)) / Math.Sqrt(sin2) : double.PositiveInfinity;
+
+            /// <summary>
+            /// The off-centre of triangle abc (Ungor 2004): on the perpendicular bisector of the shortest edge pq, on the side of the
+            /// circumcentre, where the triangle of pq and the point has the angle bound theta at the point: |pq| cot(theta / 2) / 2 from the
+            /// midpoint of pq. False if the circumcentre is not farther than that (it is then the point to insert) or nothing can be
+            /// computed in doubles. Computed in the triangle's frame scaled by a power of two (<see cref="Local"/>): an input scaled by
+            /// 2^k gives the point scaled by 2^k, bit for bit
+            /// </summary>
+            internal static bool OffCentre(Vector2d a, Vector2d b, Vector2d c, double halfCot, out Vector2d point)
+            {
+                point = default(Vector2d);
+                var d1 = b - a; var d2 = c - a;
+                int ex = ScaleOf(d1.x, d1.y, d2.x, d2.y);
+                var p1 = ScaleB(d1, -ex); var p2 = ScaleB(d2, -ex);
+                double d = 2 * (p1.x * p2.y - p1.y * p2.x);
+                if (d == 0) return false;
+                double b2 = p1.LengthSquared, c2 = p2.LengthSquared;
+                var u = new Vector2d((p2.y * b2 - p1.y * c2) / d, (p1.x * c2 - p2.x * b2) / d);
+                // the shortest edge, opposite corner j (ties go to the first)
+                var corners = new[] { Vector2d.Zero, p1, p2 };
+                int j = 0; double best = double.MaxValue;
+                for (int i = 0; i < 3; ++i) {
+                    double l2 = (corners[(i + 2) % 3] - corners[(i + 1) % 3]).LengthSquared;
+                    if (l2 < best) { best = l2; j = i; }
+                }
+                var m = (corners[(j + 1) % 3] + corners[(j + 2) % 3]) * 0.5;
+                double off = Math.Sqrt(best) * 0.5 * halfCot, dist = (u - m).Length;
+                if (!(dist > off) || double.IsInfinity(dist)) return false;
+                var o = m + (u - m) * (off / dist);
+                point = new Vector2d(a.x + ExactPoint3.ScaleB(o.x, ex), a.y + ExactPoint3.ScaleB(o.y, ex));
+                return !double.IsNaN(point.x) && !double.IsNaN(point.y) && !double.IsInfinity(point.x) && !double.IsInfinity(point.y);
+            }
+
             ConstrainedTriangulation2Result SplitTriangle(int t)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
-                if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
+                if (OffCentre(t, out var oc)) c = grid != null ? grid.Round(oc) : oc;
+                else if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {

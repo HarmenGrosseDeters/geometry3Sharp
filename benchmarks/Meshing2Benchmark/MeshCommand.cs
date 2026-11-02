@@ -32,6 +32,16 @@ namespace Meshing2Acceptance
             return e;
         }
 
+        /// <summary>
+        /// for before/after measurements on the calling thread: G3_M2_OFFCENTRES (0 or 1) switches off-centres; unset keeps the library
+        /// default
+        /// </summary>
+        public static void ApplyRefinementVariant()
+        {
+            bool? Flag(string name) { var v = Environment.GetEnvironmentVariable(name); return v == null ? (bool?)null : v != "0"; }
+            g3.QualityMesh2.Refiner.OffCentresForBenchmarks = Flag("G3_M2_OFFCENTRES");
+        }
+
         public const string Usage =
             "mesh --case <id> --output <file>\n" +
             "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>] [--snap-tolerance <t>]\n" +
@@ -104,7 +114,7 @@ namespace Meshing2Acceptance
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
-            var thread = new System.Threading.Thread(() => { try { output = candidate.Run(c.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+            var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(c.Input); } catch (Exception e) { error = e; } }, 256 << 20);
             var clock = System.Diagnostics.Stopwatch.StartNew();
             thread.Start();
             thread.Join();
