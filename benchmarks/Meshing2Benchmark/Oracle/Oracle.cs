@@ -422,6 +422,55 @@ namespace Meshing2Acceptance
                 return true;
             }
 
+            /// <summary>
+            /// Input point i lies on a hull tip that collapsed on the grid (D14; owner decision 2026-11-02, MESHING2D_HULL_GRID.md
+            /// section 7, Q-H4): at some corner of a hull domain's hull (D13) both hull edges pass one pixel, so snap rounding routes
+            /// both edges' chains through its vertex and the tip between has no area. Point i is that corner, with some other used
+            /// output vertex in such a pixel, or i's own pixel is such a pixel (it lies on the shared chain). Passing a pixel is decided
+            /// as for grid splits: the edge crosses its interior, a hair smaller, or passes its centre (the half-open pixels of snap
+            /// rounding; a corner on a pixel boundary is not excused; review). Only with an explicit tolerance at M3, where the mesher
+            /// snap-rounds the hull edges; the mesher reports such vertices in its diagnostics.
+            /// </summary>
+            bool CollapsedHullTip(int i, HashSet<int> usedVertices)
+            {
+                if (!(input.SnapTolerance > 0) || !domain.IsHull || e.Milestone != Milestone.M3) return false;
+                int own = map[i];
+                if (own < 0) return false;
+                Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
+                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Pt Centre(Pt x) => new Pt(Index(x.Qx) * pixel, Index(x.Qy) * pixel);
+                Pt pc = Centre(v[own]);
+                Q magnitude = Q.Max(Q.Abs(pc.Qx), Q.Abs(pc.Qy));
+                Q narrow = half - Q.Max(half * new Q(BigInteger.One, BigInteger.One << 40), magnitude * new Q(BigInteger.One, BigInteger.One << 48));
+                bool Passes(Pt a, Pt b, Pt c)
+                {
+                    if (Exact.Orient(a, b, c) == 0 && c.Qx >= Q.Min(a.Qx, b.Qx) && c.Qx <= Q.Max(a.Qx, b.Qx) && c.Qy >= Q.Min(a.Qy, b.Qy) && c.Qy <= Q.Max(a.Qy, b.Qy)) return true;
+                    Q x0 = c.Qx - narrow, x1 = c.Qx + narrow, y0 = c.Qy - narrow, y1 = c.Qy + narrow;
+                    if (Q.Max(a.Qx, b.Qx) <= x0 || Q.Min(a.Qx, b.Qx) >= x1 || Q.Max(a.Qy, b.Qy) <= y0 || Q.Min(a.Qy, b.Qy) >= y1) return false;
+                    int pos = 0, neg = 0;
+                    foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(a, b, corner);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    return pos > 0 && neg > 0;
+                }
+                foreach (var ring in domain.Outers)
+                    for (int c = 0; c < ring.Length; ++c) {
+                        Pt cp = ring[c], prev = ring[(c + ring.Length - 1) % ring.Length], next = ring[(c + 1) % ring.Length];
+                        if (!inPts[i].Equals(cp)) {
+                            if (Passes(cp, prev, pc) && Passes(cp, next, pc)) return true;
+                            continue;
+                        }
+                        foreach (int j in usedVertices) {
+                            if (j == own) continue;
+                            var q = Centre(v[j]);
+                            if (q.Equals(pc)) continue;
+                            if (Passes(cp, prev, q) && Passes(cp, next, q)) return true;
+                        }
+                    }
+                return false;
+            }
+
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
             {
                 Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
@@ -739,7 +788,7 @@ namespace Meshing2Acceptance
                     int m = map[i];
                     bool isUsed = m >= 0 && usedSet.Contains(m);
                     if (isUsed) continue;
-                    if (InClosure(inPts[i])) r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
+                    if (InClosure(inPts[i]) && !CollapsedHullTip(i, usedSet)) r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
                 }
                 if (o.IdentityRules)
                     for (int i = input.Count; i < v.Length; ++i)

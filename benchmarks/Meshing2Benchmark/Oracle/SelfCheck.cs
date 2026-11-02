@@ -418,6 +418,40 @@ namespace Meshing2Acceptance
             Mesh2Output OutV(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
                 Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            // 0. a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): the corner (0, 0) of a hull triangle of
+            //    7.1 degrees (pixel 1/4) is in no triangle; accepted when an output vertex lies in a pixel both hull edges at the corner
+            //    pass ((3/4, 0): the edge to (10, 5/4) passes it at height 3/32), not when the next vertex is beyond that ((2, 0): the edge
+            //    passes 1/4 above its pixel's centre), nor without a tolerance
+            foreach (var (qx, snapped, ok, what) in new[] { (0.75, true, true, "a hull tip collapsed through a pixel both hull edges pass"),
+                                                          (2.0, true, false, "a hull corner in no triangle, the next vertex in a pixel only one hull edge passes"),
+                                                          (0.75, false, false, "a hull corner in no triangle without a tolerance") }) {
+                var input = Points(0, 0, 10, 0, 10, 1.25, 10, 0.5);
+                input.MinAngleDeg = 20;
+                if (snapped) input.SnapTolerance = 0.25;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 10, 10, 10, qx }, VY = new[] { 0, 0, 1.25, 0.5, 0 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 4, 1, 3 }, new[] { 4, 3, 2 } }, BadTriangles = new[] { 0, 1 }, Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                bool unused = report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 0 "));
+                must((ok ? "accept: " : "reject: ") + what, unused != ok, "report: " + report);
+            }
+
+            // 0b. ... but not a 90 degree corner whose neighbour's pixel a hull edge only touches at its boundary (the square
+            //     (0.5, 0.5) - (10.5, 10.5) with points (10.4, 10.5) and (10.5, 10.4), pixel 1: the corner (11, 11) in no triangle; the
+            //     edge y = 10.5 only touches the pixel of (10, 11); review of the rule)
+            {
+                var input = Points(0.5, 0.5, 10.5, 0.5, 10.5, 10.5, 0.5, 10.5, 10.4, 10.5, 10.5, 10.4);
+                input.MinAngleDeg = 20;
+                input.SnapTolerance = 1;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 1, 11, 11, 1, 10, 11 }, VY = new double[] { 1, 1, 11, 11, 11, 10 },
+                    InputToVertex = new[] { 0, 1, 2, 3, 4, 5 }, Triangles = new[] { new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 0, 4, 3 } }, BadTriangles = new int[0],
+                    Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("reject: a 90 degree hull corner in no triangle, a hull edge touching the next pixel at its boundary",
+                    report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 2 ")), "report: " + report);
+            }
+
             // 1. an input point lands on the centre of its pixel (grid of pixel tol, anchored at the origin, half-open pixels): (dx, dy) is
             //    the input's offset from (5, 5), (ox, oy) the output's, both in units of tol
             foreach (var (dx, dy, ox, oy, snap, ok, what) in new[] {
