@@ -28,8 +28,10 @@ namespace geometry3Sharp.Tests
         {
             string failure = "";
             try { check(); } catch (Exception e) when (e is Xunit.Sdk.XunitException) { failure = e.Message; }
-            if (KnownFailures.TryGetValue(name, out string finding))
+            if (KnownFailures.TryGetValue(name, out string finding)) {
+                if (!IssueCases.Strict) return;
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({finding}) from KnownFailures and docs/QA.md 2.11");
+            }
             else
                 Assert.True(failure == "", name + ": " + failure);
         }

@@ -41,6 +41,8 @@ namespace g3
         /// targets), junctions are pinned, and so are corners along the curves, where the curve turns by more
         /// than cornerAngle degrees (default: creaseAngle). Without pinned corners, collapses and smoothing
         /// slide corner vertices along the curve and round off eg the corners of the outer boundary ring.
+        /// Bowtie vertices (fans of triangles that meet only there, eg two cones tip to tip) are pinned too: otherwise a
+        /// collapse removes them and joins the fans, and the smoothing moves them with all fans.
         /// </summary>
         public static void PreserveBoundaryAndFeatures(MeshConstraints cons, DMesh3 mesh, double creaseAngle = 30, double cornerAngle = -1)
         {
@@ -56,6 +58,13 @@ namespace g3
                 pin_curve_corners(cons, mesh, span.Vertices, false, cornerDot, pinned);
             foreach (EdgeLoop loop in topo.Loops)
                 pin_curve_corners(cons, mesh, loop.Vertices, true, cornerDot, pinned);
+            foreach (int vid in MeshIterators.BowtieVertices(mesh)) {
+                VertexConstraint vc = cons.GetVertexConstraint(vid);
+                vc.Target = null;
+                vc.Fixed = true;
+                vc.FixedSetID = -1;
+                cons.SetOrUpdateVertexConstraint(vid, vc);
+            }
         }
         /// <summary> PreserveBoundaryAndFeatures on the remesher's mesh and constraints (created if null) </summary>
         public static void PreserveBoundaryAndFeatures(Remesher r, double creaseAngle = 30, double cornerAngle = -1)
