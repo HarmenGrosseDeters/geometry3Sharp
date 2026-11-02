@@ -58,15 +58,17 @@ namespace gs
         AxisAlignedBox2d face_box(int f)
         {
             var b = AxisAlignedBox2d.Empty;
-            foreach (int h in cycle(f)) b.Contain(K.Approx(hOrig[h]));
+            int h0 = fEdge[f], h = h0, guard = 0;
+            do { b.Contain(K.Approx(hOrig[h])); h = hNext[h]; if (++guard > 100000) throw new InvalidOperationException("SlopeMap: broken cycle"); } while (h != h0);
             b.Expand(1e-9 * (b.MaxDim + Math.Max(Math.Max(Math.Abs(b.Min.x), Math.Abs(b.Max.x)), Math.Max(Math.Abs(b.Min.y), Math.Abs(b.Max.y)))));
             return b;
         }
 
-        void qt_update(int f)
+        void qt_update(int f) { qt_set(f, face_box(f)); }
+
+        void qt_set(int f, AxisAlignedBox2d box)
         {
             if (fQt[f] >= 0) qt.Remove(fQt[f]);
-            AxisAlignedBox2d box = face_box(f);
             fBox[f] = box;
             int id = qt.Insert(box);
             while (qtFace.Count <= id) qtFace.Add(-1);
@@ -413,8 +415,9 @@ namespace gs
                     if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
                         continue;
                 }
-                List<int> c = cycle(f);
-                var pos = c.Select(h => K.Approx(hOrig[h])).ToList();
+                var pos = prefilterPos;
+                pos.Clear();
+                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); h = hNext[h]; } while (h != h0); }
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
@@ -431,6 +434,8 @@ namespace gs
                 insert_into(f, label, relevant);
             }
         }
+
+        readonly List<Vector2d> prefilterPos = new List<Vector2d>();
 
         static void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
@@ -511,9 +516,12 @@ namespace gs
         void insert_into(int f, int label, List<int> planes)
         {
             // W = f ∩ {P_j < label for all j}, clipped virtually first, so that f is only split if W is not empty
-            List<int> c = cycle(f);
-            var verts = c.Select(h => hOrig[h]).ToList();
-            var elines = c.Select(h => hLine[h]).ToList();
+            // (the corners and the lines of the edges from them, walked in place into lists of the right size)
+            int n = 0;
+            { int h0 = fEdge[f], h = h0; do { ++n; h = hNext[h]; if (n > 100000) throw new InvalidOperationException("SlopeMap: broken cycle"); } while (h != h0); }
+            var verts = new List<int>(n + 2);
+            var elines = new List<int>(n + 2);
+            { int h0 = fEdge[f], h = h0; do { verts.Add(hOrig[h]); elines.Add(hLine[h]); h = hNext[h]; } while (h != h0); }
             var applied = new List<int>();
             foreach (int p in planes) {
                 int line = K.PlaneLine(p, label);
@@ -576,7 +584,7 @@ namespace gs
             if (anyNeg == false) return false;
             if (anyPos == false) return true;
             // (vertex, line of the edge from it) of the part where the line is negative or zero
-            var nv = new List<int>(); var nl = new List<int>();
+            var nv = new List<int>(n + 1); var nl = new List<int>(n + 1);
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
                 if (s[i] <= 0) {
@@ -761,7 +769,10 @@ namespace gs
             fEdge[f] = fPrev;
             fAlive[g] = false;
             if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
-            qt_update(f);
+            // the union's corners are corners of f or g: the union of their boxes contains its box (no cycle needed)
+            var ub = fBox[f];
+            ub.Contain(fBox[g]);
+            qt_set(f, ub);
             return true;
         }
 
