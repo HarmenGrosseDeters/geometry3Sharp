@@ -383,3 +383,25 @@ The wavy case now spends 9.7 s inserting (49M side tests, 4.2 s of them filtered
 experiment with a shuffled piece order (not committed) made 151k faces and 18M predicates instead (insert + simplify
 17.7 → 5.8 s), but with another triangulation of the same surface (16007 instead of 46805 triangles): a randomized
 order needs a canonical result first (idea D of the 1c plan).
+
+### Randomized insertion with a canonical result (idea D, `TERRAIN_1C_PLAN.md` section 9)
+
+The pieces in a seeded random order, the labels by (height, plane id), and `Simplify` as the canonical partition (one
+convex face per part of a label component between the rays from its reflex corners). The output is the same for every
+insertion order, and it has far fewer triangles. A/B on the same machine at the same time (2026-11-02), first call of
+a process, median of 3 (the #314 head against this branch):
+
+| case | #314 | D | insert | simplify | slope triangles | region triangles |
+|---|---|---|---|---|---|---|
+| wavy 48-gon r 150 m, Hambach 2 m, replacement | 27.4 s | **8.8 s** (3.1×) | 9.7 → 3.4 s | 7.6 → 0.16 s | 475 | 43055 → 2268 |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 7.3 s | **3.6–4.0 s** (1.9×) | 3.9 → 3.1 s | 2.9 → 0.18 s | 487 | – |
+| L shape 120 m, Hambach 2 m, full | 4.9 s | 5.0 s | | | | |
+| octagon r 100 m, Hambach 1 m, replacement | 6.1 s | 8.8 s | 0.48 → 0.44 s | 0.13 → 0.05 s | 409 → 159 | 2432 → 2278 |
+| one toe edge, 1 m, catch line / replacement (warm, repeat=8) | 0.27 / 0.40 s | 0.28 / 0.41 s | | | | |
+
+The octagon is slower: its slope faces are now large (159 triangles instead of 409), and the exact check of the
+region triangles that the composite clips from them measures a support excess above the first toe lowering, so a
+second realization runs, with a second overlay and composite (λ 3.0e-8 → 5.1e-8 m). The insert and simplify of the
+map are faster there too. A way back is a first lowering that covers the clipped triangles (a change of the lowering's
+estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in this PR.
+
