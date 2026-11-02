@@ -133,7 +133,8 @@ namespace g3
             /// <summary>
             /// benchmarks only (per thread): when set, refinement adds what it inserts and refuses here, by cause: 0 subsegments split as
             /// encroached, 1 subsegments split because a triangle's point lies behind them, 2 because the point encroaches them, 3
-            /// circumcentres, 4 off-centres, 5 grid-blocked triangles, 6 subsegments with no split point on the grid
+            /// circumcentres, 4 off-centres, 5 grid-blocked triangles, 6 subsegments with no split point on the grid (5 and 6 of the last sweep
+            /// only, the others summed over all)
             /// </summary>
             [ThreadStatic] internal static long[] CountsForBenchmarks;
             int splitCause;
@@ -250,7 +251,7 @@ namespace g3
                 }
                 if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
-                    b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because their circumcentre's pixel is taken or crossed by a constraint, "
+                    b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because the pixel of their circumcentre (or off-centre and then circumcentre) is taken or crossed by a constraint, "
                         + GridUnsplittable + " subsegments with no split point on the grid");
                 // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
                 var bad = k.NonDelaunayEdges();
@@ -560,6 +561,12 @@ namespace g3
                     double longest = ExactPoint3.ScaleB(Math.Max(q0.LengthSquared, Math.Max((r0 - q0).LengthSquared, r0.LengthSquared)), 2 * ex);
                     if (longest > Math.Max(h * h, locked2) * (1 - 1.0 / (1L << 40))) return true;
                 }
+                return BadByAngle(t);
+            }
+
+            /// <summary> t is below the angle bound and that is not forced by the input (the angle part of <see cref="Bad"/>) </summary>
+            bool BadByAngle(int t)
+            {
                 if (options.MinAngle <= 0) return false;
                 if (MinSin2(t, out int corner) >= sin2Min) return false;
                 // the small angle lies between two constrained edges: forced by the input (O3)
@@ -832,12 +839,13 @@ namespace g3
                     && Math.Abs(c.x) <= DelaunayMesh2.CoordinateLimit && Math.Abs(c.y) <= DelaunayMesh2.CoordinateLimit;
             }
 
-            /// <summary> the off-centre of t (<see cref="OffCentre(Vector2d, Vector2d, Vector2d, double, out Vector2d)"/>). It differs from
-            /// the circumcentre only where the smallest angle is below half the bound, so a triangle bad by size alone takes its circumcentre </summary>
+            /// <summary> the off-centre of t (<see cref="OffCentre(Vector2d, Vector2d, Vector2d, double, out Vector2d)"/>), for a triangle
+            /// bad by its angle only: one bad by size alone, or whose small angle is forced by the input (O3, a small input angle), takes
+            /// its circumcentre, which halves it (review: such a needle under an area bound got off-centres, which only shave it) </summary>
             bool OffCentre(int t, out Vector2d c)
             {
                 c = default(Vector2d);
-                if (!offCentres || double.IsInfinity(halfCot)) return false;
+                if (!offCentres || double.IsInfinity(halfCot) || !BadByAngle(t)) return false;
                 return OffCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), halfCot, out c);
             }
 
@@ -877,12 +885,13 @@ namespace g3
                 return !double.IsNaN(point.x) && !double.IsNaN(point.y) && !double.IsInfinity(point.x) && !double.IsInfinity(point.y);
             }
 
-            ConstrainedTriangulation2Result SplitTriangle(int t)
+            ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
-                bool off = OffCentre(t, out var oc);
+                Vector2d oc = default(Vector2d);
+                bool off = tryOffCentre && OffCentre(t, out oc);
                 if (off) c = grid != null ? grid.Round(oc) : oc;
                 else if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
@@ -909,11 +918,12 @@ namespace g3
                     if (unsplittable.Contains(key) && grid == null) exempt.Add(TriangleKey(t));
                     return null;
                 }
-                if (grid != null && ConstraintInPixel(at, c)) { exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
+                // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)
+                if (grid != null && ConstraintInPixel(at, c)) { if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
                 int before = k.VertexCount;
                 if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
                 k.InsertPoint(c.x, c.y);
-                if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); if (grid != null) ++GridBlocked; return null; }
+                if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
                 if (CountsForBenchmarks != null) ++CountsForBenchmarks[off ? 4 : 3];
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);

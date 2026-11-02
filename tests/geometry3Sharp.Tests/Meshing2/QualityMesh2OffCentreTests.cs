@@ -115,5 +115,63 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(differ > 0, "off-centres changed no mesh");
         }
+
+        /// <summary>
+        /// the same on the snap grid: off-centres are rounded to the grid, and a refused off-centre (its pixel holds a constraint, or it
+        /// adds no vertex) falls back to the circumcentre. Both ways pass the oracle, and off-centres change some meshes.
+        /// </summary>
+        [Fact]
+        public void GridFuzz_WithAndWithoutOffCentres_PassTheOracle_AndDiffer()
+        {
+            var random = new Random(322);
+            int differ = 0;
+            for (int iter = 0; iter < 36; ++iter) {
+                var x = new System.Collections.Generic.List<double> { 0, 16, 16, 0 }; var y = new System.Collections.Generic.List<double> { 0, 0, 16, 16 };
+                var input = new Mesh2Input();
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                int m = 4 + random.Next(12);
+                for (int i = 0; i < m; ++i) {
+                    for (int k = 0; k < 2; ++k) { x.Add(1 + Math.Round(random.NextDouble() * 14 * 64) / 64); y.Add(1 + Math.Round(random.NextDouble() * 14 * 64) / 64); }
+                    input.Segments.Add(new SegmentInput(x.Count - 2, x.Count - 1));
+                }
+                input.X = x.ToArray(); input.Y = y.ToArray();
+                input.SnapTolerance = new[] { 0.25, 0.5, 0.3, 1.0 / 3, 0.125, 1.0 / 16 }[iter % 6];
+                input.MinAngleDeg = new[] { 20.0, 25, 30 }[iter % 3];
+                input.SteinerLimit = 50000;
+                var outputs = new Mesh2Output[2];
+                foreach (bool on in new[] { true, false }) {
+                    QualityMesh2.Refiner.OffCentresForBenchmarks = on;
+                    try { outputs[on ? 0 : 1] = new QualityMesh2Candidate().Run(input); }
+                    finally { QualityMesh2.Refiner.OffCentresForBenchmarks = null; }
+                    Assert.Equal(Mesh2Status.Success, outputs[on ? 0 : 1].Status);
+                    var report = Oracle.Check(input, outputs[on ? 0 : 1], new OracleExpect { Milestone = Milestone.M3 });
+                    Assert.True(report.Ok, "iteration " + iter + (on ? " with" : " without") + " off-centres: " + report);
+                }
+                if (outputs[0].VX.Length != outputs[1].VX.Length || !outputs[0].VX.SequenceEqual(outputs[1].VX)) ++differ;
+            }
+            Assert.True(differ > 0, "off-centres changed no mesh on the grid");
+        }
+            [Theory]
+        [InlineData(0.3, 1.0, 0.002)]
+        [InlineData(0.5, 2.0, 0.001)]
+        [InlineData(2.0, 5.0, 0.01)]
+        [InlineData(6.0, 20.0, 0.01)]
+        public void SmallInputAngle_UnderAnAreaBound_TakesCircumcentres(double inputDeg, double boundDeg, double maxArea)
+        {
+            double a = inputDeg * Math.PI / 180;
+            var input = new Mesh2Input { X = new double[] { 0, 4, 4 * Math.Cos(a) }, Y = new double[] { 0, 0, 4 * Math.Sin(a) } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+            input.MinAngleDeg = boundDeg; input.MaxArea = maxArea; input.SteinerLimit = 20000;
+            var outputs = new Mesh2Output[2];
+            foreach (bool on in new[] { true, false }) {
+                QualityMesh2.Refiner.OffCentresForBenchmarks = on;
+                try { outputs[on ? 0 : 1] = new QualityMesh2Candidate().Run(input); }
+                finally { QualityMesh2.Refiner.OffCentresForBenchmarks = null; }
+                var report = Oracle.Check(input, outputs[on ? 0 : 1], new OracleExpect { Milestone = Milestone.M3 });
+                Assert.True(report.Ok, (on ? "with" : "without") + " off-centres: " + report);
+            }
+            Assert.Equal(outputs[1].VX, outputs[0].VX);
+            Assert.Equal(outputs[1].VY, outputs[0].VY);
+        }
     }
 }
