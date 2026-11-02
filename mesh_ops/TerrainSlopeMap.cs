@@ -746,10 +746,11 @@ namespace gs
         // inputs need it: on a regular polygon the line where the strips of two pieces are equal passes within a few
         // ulps of the opposite vertex, which leaves a cluster of map vertices there; collapsing their edges one by one
         // can fail the link condition and leave a degenerate triangle.
-        static void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos,
+        void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos,
                                           Dictionary<Vector2d, List<int>> barriersAt, double radius,
                                           Dictionary<Vector2d, Vector2d> repOf)
         {
+            MergedCount = 0;
             if (!(radius > 0)) return;
             var order = labelsAt.Keys.ToList();
             order.Sort((a, b) => {
@@ -778,6 +779,7 @@ namespace gs
                     }
                 if (best != p) {
                     repOf[p] = best;
+                    MergedCount++;
                     foreach (int l in labelsAt[p]) if (labelsAt[best].Contains(l) == false) labelsAt[best].Add(l);
                     // (and its barriers: the vertex is on the barriers of both, which classifies its boundary edges)
                     List<int> bp, bq;
@@ -798,6 +800,8 @@ namespace gs
         /// <summary> Realize: the barriers (toe segments first, then the lateral limits) through each rounded position on one </summary>
         public readonly Dictionary<Vector2d, List<int>> BarriersAt = new Dictionary<Vector2d, List<int>>();
         public int ToeBarrierCount { get { return toeBarriers; } }
+        /// <summary> Realize: the positions merged into another one (0 without a merge radius) </summary>
+        public int MergedCount;
 
         /// <summary>
         /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes

@@ -292,7 +292,7 @@ namespace gs
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
             // needs, measured; a slope or orientation failure raises the margin δ
-            double delta = SlopeMargin, lambdaReq = -1;
+            double delta = SlopeMargin, lambdaReq = -1, lambdaFloor = 0;
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
                 BuildResult br;
@@ -313,10 +313,17 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
+                if (br.MergeLambda > 0) {
+                    // the realization merged near positions: their triangles may rise above S̃ by 2 sMax (r + e_xy),
+                    // which the toe lowering must cover (measured: only in a run that merges)
+                    lambdaFloor = Math.Max(lambdaFloor, br.MergeLambda);
+                    lambdaReq = Math.Max(lambdaReq, lambdaFloor);
+                    continue;
+                }
                 if (attempt >= 7)
                     return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
-                if (br.SlopeFailures == 0 && 4 * br.MaxExcess <= br.LambdaBound && br.MaxExcess > 0) {
-                    lambdaReq = Math.Max(2 * br.Lambda, 4 * br.MaxExcess);
+                if (br.SlopeFailures == 0 && 4 * br.MaxExcess <= br.LambdaBound && br.MaxExcess > 0 && br.Lambda < br.LambdaBound) {
+                    lambdaReq = Math.Max(Math.Max(2 * br.Lambda, 4 * br.MaxExcess), lambdaFloor);
                     continue;
                 }
                 if (delta * 8 > 1e-3)
@@ -325,6 +332,7 @@ namespace gs
                 // (support failures next to the slope failures keep their measured lowering; the next build caps it at
                 // its own bound)
                 lambdaReq = (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1;
+                if (lambdaFloor > 0) lambdaReq = Math.Max(lambdaReq, lambdaFloor);
             }
         }
 
@@ -335,6 +343,7 @@ namespace gs
             public int SlopeFailures;          // slope (i) or XY orientation
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
+            public double MergeLambda;         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
         }
@@ -419,7 +428,10 @@ namespace gs
             // tolerance budget: lowering, slope margin, cone facets (TERRAIN.md 5.1)
             // (and the vertices merged within 64 ulps by the realization: z, the lowest plane of all of them, is at most
             // sMax times the distance below the surface at the kept position)
-            double mergeShare = 2 * 64 * exy * sMax;
+            // (the triangles of a merged vertex leave their cells: below S̃ by at most 4 sMax (r + e_xy), above by at
+            // most 2 sMax (r + e_xy), which the toe lowering covers, see MergeLambda; r = 64 e_xy)
+            double mergeRadius = 64 * exy;
+            double mergeShare = 4 * sMax * (mergeRadius + exy);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare;
             if (!(facetShare > 0))
                 return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare:G3})");
@@ -512,7 +524,21 @@ namespace gs
             checkCancel();
             // (positions within a few ulps are one vertex: clusters of near-degenerate crossings that the collapse
             // below cannot always resolve; larger distances are left to it, which keeps the cells)
-            mesh = map.Realize(cap, fill, 64 * exy);
+            // (merging needs the lowering below; without room for it under the bound, or if the merge makes the mesh
+            // non-manifold, the realization runs without it and the check decides)
+            double mergeLambda = 4 * ez + 2 * sMax * (mergeRadius + exy);
+            bool mayMerge = mergeLambda <= lambdaBound;
+            try {
+                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0);
+            } catch (InvalidOperationException) when (mayMerge) {
+                mesh = map.Realize(cap, fill, 0);
+                map.MergedCount = 0;
+            }
+            if (map.MergedCount > 0 && lambda < mergeLambda) {
+                br.MergeLambda = mergeLambda;
+                Attempts++;
+                return Statuses.SlopeViolation;
+            }
             SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
             phase("realize");
             double maxRatio = 0;

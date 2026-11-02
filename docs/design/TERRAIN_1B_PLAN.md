@@ -131,3 +131,14 @@ overlay of the efficiency bullet of 5.5; km-scale benchmarks. These are 1c (or l
   no surface has. No coverage: the messages and returns of internal-error paths (a face with 1 or 3 sign changes, an
   edge with three faces, a chain that does not close: none occur, the review's brute force confirms) and the sign
   forcing of a computed D whose double sign is wrong. Proposed break: 90.
+- **Re-review of the post-review fixes** (a fresh agent, given the diffs of b04def85 and c81a7c80 and the budget
+  derivation). Confirmed: the exact `plane_excess`, the barrier union, the fold check (correct; it catches combinatorial
+  folds, `Orient2d` the geometric ones). Found, and fixed:
+  - the share 2 · 64 ulps · sMax bounded only the merged vertices. The triangles of a moved vertex leave their cells, so
+    the surface can lie up to 4 sMax (r + e_xy) below S̃ and up to 2 sMax (r + e_xy) above it (r = 64 e_xy; analytic
+    ridge-and-valley constructions). Now the budget reserves 4 sMax (r + e_xy), and a build that merges is repeated
+    with a toe lowering of at least 4 e_z + 2 sMax (r + e_xy) (the merge only runs if that fits under λ's bound);
+    a merge that makes the mesh non-manifold falls back to the realization without it;
+  - the λ loop could repeat a build at λ's bound without trying a larger margin: λ is raised only while below it.
+  Test: the lowering of the regular 10-gon run (which merges) is at least 2 sMax · 65 ulps. In that run the measured
+  λ is larger anyway, so removing the merge lowering does not make it fail; the bound rests on the derivation.

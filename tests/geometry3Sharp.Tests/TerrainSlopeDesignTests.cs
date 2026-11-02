@@ -381,6 +381,11 @@ namespace geometry3Sharp.Tests
             var toe = SlopeToe.Constant(Ngon(10, 9.642226746139222, 0, 0.29190628476995334), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.9346294006959672));
             var d = Run(13.65915220256275, 0.05, toe);
             AssertAll(d);
+            // the merged vertices' triangles may rise above S̃ by 2 sMax (r + e_xy), r = 64 ulps: the toe lowering of a
+            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy)
+            double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
+            Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
