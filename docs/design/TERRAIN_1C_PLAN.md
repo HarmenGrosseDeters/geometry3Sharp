@@ -358,4 +358,8 @@ for the clamp: TERRAIN.md appendix A; the contour by marching triangles, eg de B
     the region fail there, on master too. The frame tests of this package use δ = 1e-4.
   - A toe corner on a terrain vertex, made a near-coincidence by a rotated UTM frame, gives overlapping composite
     triangles on master too (a square pit with its corners on the grid nodes); its own item.
+  - Follow-up item: the octagon on the 1 m grid is slower since #318 (6.1 → 8.8 s): its large slope faces make the
+    exact check of the clipped region triangles raise λ, which costs a second realization with overlay and composite
+    (benchmarks/TerrainBenchmark/README.md). Taken up when a real case is slow (TERRAIN.md section 11, order after
+    phase 1).
 
