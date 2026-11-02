@@ -139,9 +139,11 @@ output that does not copy it), and the peak below that 3.1 GB at any toe size on
 - `Replacement`: `Replacement` holds only the part of the composite that replaces terrain triangles: the slope region
   and the pieces of the cut terrain triangles. `ReplacedTerrainTriangles` (sorted) are the terrain triangles it
   replaces; `CompositeTerrainVertices` gives, per vertex of `Composite` or `Replacement`, the terrain vertex at its
-  position (or -1; one per position, if the terrain has several vertices at one position). Replacement plus the other
-  terrain triangles, joined at those vertices, is the full composite: the same triangles and vertex positions (`TerrainSlopeReplacementTests`: random terrains cut and fill, at UTM,
-  invariance over `Similarity.All()`, reuse).
+  position (or -1; one per position, if the terrain has several vertices at one position), and
+  `TerrainCompositeVertices` the other way round, per terrain vertex (all of several at one position). Replacement plus
+  the other terrain triangles, joined through `TerrainCompositeVertices`, is the full composite: the same triangles, the
+  same vertices (as many, an unwelded seam stays unwelded where the composite keeps it) (`TerrainSlopeReplacementTests`: random terrains cut and fill, at UTM,
+  invariance over `Similarity.All()`, reuse, an unwelded terrain).
 - Terrain triangles wholly in the region (all overlay faces in it, no catch point, no boundary of the slope surface
   inside, corners on the slope surface) contribute nothing and are skipped before their CDT (checked against the CDT
   on the tests and three Hambach cases before it was removed: the same composites;

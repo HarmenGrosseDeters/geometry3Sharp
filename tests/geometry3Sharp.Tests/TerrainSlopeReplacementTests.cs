@@ -56,7 +56,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(triangles(full.Composite), joined);
             // the same vertices
             var keptVerts = new HashSet<int>(kept.SelectMany(t => { Index3i tv = terrain.GetTriangle(t); return new[] { tv.a, tv.b, tv.c }; }));
-            var fullPos = full.Composite.Vertices().Select(pos).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            // (as sets; the counts with their multiplicity below)
+            var fullPos = full.Composite.Vertices().Select(pos).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
             var joinedPos = r.Vertices().Select(pos).Concat(keptVerts.Select(v => pos(terrain.GetVertex(v)))).Distinct()
                 .OrderBy(x => x, StringComparer.Ordinal).ToList();
             Assert.Equal(fullPos, joinedPos);
@@ -73,9 +74,27 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(pos(terrain.GetVertex(tv)), pos(r.GetVertex(v)));
                 named.Add(tv);
             }
+            // (one terrain vertex per position: with one vertex per position every kept one there is named)
             foreach (int v in keptVerts)
                 if (replPos.ContainsKey(pos(terrain.GetVertex(v))))
-                    Assert.Contains(v, named);
+                    Assert.Contains(pos(terrain.GetVertex(v)), named.Select(x => pos(terrain.GetVertex(x))));
+            // joined through TerrainCompositeVertices (every terrain vertex names the replacement vertex at its position,
+            // also several at one position): exactly the full composite's vertices, as many as it has
+            Assert.NotNull(repl.TerrainCompositeVertices);
+            int joinedCount = r.VertexCount;
+            foreach (int v in keptVerts) {
+                int cv = repl.TerrainCompositeVertices[v];
+                string pv = pos(terrain.GetVertex(v));
+                // (a named one is the replacement vertex at its position; one not named is its own vertex, as in the full
+                // composite, also at a replacement position: the other side of an unwelded seam stays unwelded)
+                if (cv >= 0) Assert.Equal(replPos[pv], cv);
+                else joinedCount++;
+            }
+            Assert.Equal(full.Composite.VertexCount, joinedCount);
+            foreach (int v in terrain.VertexIndices()) {
+                int cv = full.TerrainCompositeVertices[v];
+                if (cv >= 0) Assert.Equal(pos(terrain.GetVertex(v)), pos(full.Composite.GetVertex(cv)));
+            }
             // and the full composite names its terrain vertices too
             foreach (int v in full.Composite.VertexIndices()) {
                 int tv = full.CompositeTerrainVertices[v];
@@ -170,6 +189,69 @@ namespace geometry3Sharp.Tests
                     Assert.True(floor > 0.99 * 16 * 16, $"pit floor {floor}");
                 }
             }
+        }
+
+        [Fact]
+        public void TerrainAboveTheSlopeAwayFromTheRegion_StaysTerrain()
+        {
+            // a pit at z 0 in flat terrain at z 3 (the region ends 3 m from the toe), and 30 m away a plateau at z 60, above
+            // the slope there (about 30 m high; the cap at 50): its terrain triangles have no catch point, no boundary of
+            // the slope surface and D < 0 everywhere, but they are not connected to the toe, so not in the region, and
+            // stay terrain: no plateau triangle is replaced (it has no region face, so the whole-replaced test is not even
+            // asked)
+            Func<double, double, double> z = (x, y) => (Math.Abs(x - 30) <= 4 && Math.Abs(y) <= 4) ? 60 : 3;
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 100, 100, z);
+            foreach (var kind in new[] { TerrainSlopeDesign.CompositeKinds.Full, TerrainSlopeDesign.CompositeKinds.Replacement }) {
+                var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+                var dsg = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, HeightLimit = 50, Tolerance = 0.05, BuildComposite = true, CompositeKind = kind };
+                Assert.True(dsg.Compute(), dsg.Status + " " + dsg.Message);
+                Assert.Single(dsg.CatchLines);
+                if (kind == TerrainSlopeDesign.CompositeKinds.Full) TerrainSlopeCatchLineTests.AssertComposite(dsg);
+                else {
+                    // no plateau triangle is replaced
+                    foreach (int t in dsg.ReplacedTerrainTriangles) {
+                        Index3i tv = terrain.GetTriangle(t);
+                        Assert.True(terrain.GetVertex(tv.a).x < 20, $"terrain triangle {t} replaced");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void UnweldedTerrain_ReplacementPlusTerrainIsFull()
+        {
+            // a terrain with a seam: the vertices of one grid column twice, the triangles right of it on the copies; the
+            // seam runs through the pit, so the region is on both sides. Both copies of a vertex there name the one
+            // replacement vertex
+            Func<TerrainSlopeDesign> make = () => {
+                var g = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 32, 32, (x, y) => 4 + 0.05 * x + 0.03 * y);
+                var terrain = new DMesh3(false, false, false, true);
+                foreach (int v in g.VertexIndices()) terrain.AppendVertex(g.GetVertex(v));
+                double seam = 5;
+                var copy = new Dictionary<int, int>();
+                foreach (int t in g.TriangleIndices()) {
+                    Index3i tv = g.GetTriangle(t);
+                    var c = (g.GetVertex(tv.a) + g.GetVertex(tv.b) + g.GetVertex(tv.c)) / 3;
+                    Func<int, int> map = (v) => {
+                        if (c.x < seam || g.GetVertex(v).x != seam) return v;
+                        int o;
+                        if (copy.TryGetValue(v, out o) == false) { o = terrain.AppendVertex(g.GetVertex(v)); copy[v] = o; }
+                        return o;
+                    };
+                    terrain.AppendTriangle(map(tv.a), map(tv.b), map(tv.c));
+                }
+                Assert.True(copy.Count > 10);
+                var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+                return new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, HeightLimit = 30, Tolerance = 0.05, BuildComposite = true };
+            };
+            var full = make(); var repl = make();
+            repl.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
+            full.Compute(); repl.Compute();
+            Assert.NotNull(full.Composite);
+            AssertReplacementIsFull(full, repl);
+            // (the seam is in the replaced part: two terrain vertices name one replacement vertex)
+            var named = repl.TerrainCompositeVertices.Where(v => v >= 0).GroupBy(v => v).Count(gr => gr.Count() > 1);
+            Assert.True(named > 0, "no seam vertex in the replacement");
         }
 
         static Similarity ZUp(Similarity s) =>

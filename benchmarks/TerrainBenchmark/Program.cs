@@ -471,8 +471,12 @@ class Program
                 joined = new DMesh3(d.Replacement);
                 var replaced = new HashSet<int>(d.ReplacedTerrainTriangles);
                 var at = new Dictionary<int, int>();
-                for (int v = 0; v < d.CompositeTerrainVertices.Length; ++v) if (d.Replacement.IsVertex(v) && d.CompositeTerrainVertices[v] >= 0) at[d.CompositeTerrainVertices[v]] = v;
-                Func<int, int> jv = (tv) => { int o; if (at.TryGetValue(tv, out o) == false) { o = joined.AppendVertex(d.Terrain.GetVertex(tv)); at[tv] = o; } return o; };
+                Func<int, int> jv = (tv) => {
+                    int o = d.TerrainCompositeVertices[tv];
+                    if (o >= 0) return o;
+                    if (at.TryGetValue(tv, out o) == false) { o = joined.AppendVertex(d.Terrain.GetVertex(tv)); at[tv] = o; }
+                    return o;
+                };
                 foreach (int t in d.Terrain.TriangleIndices()) {
                     if (replaced.Contains(t)) continue;
                     Index3i tv = d.Terrain.GetTriangle(t);

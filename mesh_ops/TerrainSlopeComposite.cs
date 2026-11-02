@@ -333,12 +333,16 @@ namespace gs
             // the terrain vertex at each composite vertex (copied, or a corner of a cut terrain triangle that stayed)
             TerrainVertexOf = new int[Composite.MaxVertexID];
             for (int i = 0; i < TerrainVertexOf.Length; ++i) TerrainVertexOf[i] = -1;
+            // and the other way round, per terrain vertex (several terrain vertices at one position, an unwelded TIN, all
+            // name the one composite vertex there)
+            CompositeVertexOf = new int[B.MaxVertexID];
+            for (int i = 0; i < CompositeVertexOf.Length; ++i) CompositeVertexOf[i] = -1;
             if (CopyTerrain)
                 for (int bv = 0; bv < outOf.Length; ++bv)
-                    if (outOf[bv] >= 0) TerrainVertexOf[outOf[bv]] = bv;
+                    if (outOf[bv] >= 0) { TerrainVertexOf[outOf[bv]] = bv; CompositeVertexOf[bv] = outOf[bv]; }
             foreach (int bv in cutVerts) {
                 int cv;
-                if (compVerts.TryGetValue(cutPos(bv), out cv)) TerrainVertexOf[cv] = bv;
+                if (compVerts.TryGetValue(cutPos(bv), out cv)) { TerrainVertexOf[cv] = bv; CompositeVertexOf[bv] = cv; }
             }
             return true;
         }
@@ -350,6 +354,8 @@ namespace gs
         readonly HashSet<int> replacedSet = new HashSet<int>();
         /// <summary> per composite vertex: the terrain vertex at its position, or -1 </summary>
         public int[] TerrainVertexOf;
+        /// <summary> per terrain vertex: the composite vertex at its position (copied, or a corner of a cut triangle), or -1 </summary>
+        public int[] CompositeVertexOf;
 
         static void add(Dictionary<int, List<int>> d, int k, int v)
         {
@@ -377,6 +383,10 @@ namespace gs
 
         // a terrain triangle wholly in the region: all its faces in it, no catch point, no boundary of the slope surface
         // inside, and its corners on the slope surface; nothing of it stays (the slope replaces all of it)
+        // (the clauses overlap: a catch point needs a positive sign and the reverse; a corner off the slope surface needs a
+        // boundary of it inside; and only triangles with a region face are tested, where a face outside the region with
+        // D < 0 is cut off by the toe, a boundary. Tests: TerrainTriangleAroundThePit_IsNotWhollyReplaced for the boundary,
+        // the pairs sign + catch point and boundary + corners by the composite area checks of the stress tests)
         bool terrain_whole(int tb, List<int> fl)
         {
             foreach (int fi in fl) {

@@ -173,9 +173,15 @@ namespace gs
         public List<int> ReplacedTerrainTriangles = new List<int>();
         /// <summary>
         /// with BuildComposite: per vertex of Composite or Replacement, the terrain vertex at its position, or -1 (one per
-        /// position: of terrain vertices that share a position, an unwelded TIN, one is named)
+        /// position: of terrain vertices that share a position, an unwelded TIN, one is named; TerrainCompositeVertices
+        /// names all)
         /// </summary>
         public int[] CompositeTerrainVertices;
+        /// <summary>
+        /// with BuildComposite: per terrain vertex, the vertex of Composite or Replacement at its position, or -1. Joining
+        /// Replacement with the terrain triangles not replaced: a vertex of them is this vertex where it is not -1
+        /// </summary>
+        public int[] TerrainCompositeVertices;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
@@ -209,7 +215,7 @@ namespace gs
         {
             Status = Statuses.InvalidInput; Message = "";
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
-            Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null;
+            Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
@@ -229,7 +235,7 @@ namespace gs
             }
             if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
-                Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null;
+                Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             }
             IsComplete = Status == Statuses.Success;
             return Status == Statuses.Success;
@@ -438,6 +444,7 @@ namespace gs
                         Replacement = CompositeKind == CompositeKinds.Replacement ? br.Composite : null;
                         ReplacedTerrainTriangles = br.Replaced ?? new List<int>();
                         CompositeTerrainVertices = br.TerrainVertexOf;
+                        TerrainCompositeVertices = br.CompositeVertexOf;
                         Pieces = pieces.Select(p => new SlopePiece() {
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
@@ -471,7 +478,7 @@ namespace gs
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
             public List<int> Replaced;
-            public int[] TerrainVertexOf;
+            public int[] TerrainVertexOf, CompositeVertexOf;
         }
 
         double terrainZMin, terrainZMax;
@@ -812,6 +819,7 @@ namespace gs
                 br.Composite = comp.Composite;
                 br.Replaced = comp.Replaced.ToList();
                 br.TerrainVertexOf = comp.TerrainVertexOf;
+                br.CompositeVertexOf = comp.CompositeVertexOf;
             }
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
         }
