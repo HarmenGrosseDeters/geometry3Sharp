@@ -380,8 +380,17 @@ namespace gs
                 ids.Add(new Index3i(NewId, vb, vc)); tris.Add(new Triangle3d(m, b, c));
                 ids.Add(new Index3i(vb, NewId, d)); tris.Add(new Triangle3d(b, m, pd));
                 ids.Add(new Index3i(NewId, va, d)); tris.Add(new Triangle3d(m, a, pd));
+                // valid, and no new extreme: no new triangle with a smaller smallest or a larger largest angle than the
+                // two old ones had (a split near a corner would make a new needle or cap)
+                double oldMin = Math.Min(min_angle(a, b, c), min_angle(b, a, pd)), oldMax = Math.Max(max_angle(a, b, c), max_angle(b, a, pd));
                 bool valid = true;
-                foreach (Triangle3d nt in tris) { Vector3d n; if (!unit_normal(nt.V0, nt.V1, nt.V2, out n)) { valid = false; break; } }
+                foreach (Triangle3d nt in tris) {
+                    Vector3d n;
+                    if (!unit_normal(nt.V0, nt.V1, nt.V2, out n) || min_angle(nt.V0, nt.V1, nt.V2) < oldMin || !(max_angle(nt.V0, nt.V1, nt.V2) < oldMax)) {
+                        valid = false;
+                        break;
+                    }
+                }
                 if (!valid) continue;
                 removed.Add(t); removed.Add(other);
                 if (accept(ids, tris, removed) == false) continue;

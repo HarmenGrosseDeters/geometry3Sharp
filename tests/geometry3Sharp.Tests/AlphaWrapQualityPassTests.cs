@@ -356,6 +356,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(q, true));
             Assert.True(q.TriangleCount > simp.TriangleCount && q.TriangleCount <= Math.Floor(simp.TriangleCount * 1.05), $"{simp.TriangleCount} -> {q.TriangleCount}");
             Assert.True(CapShare(q, 150) < CapShare(simp, 150), $"caps {CapShare(simp, 150)} -> {CapShare(q, 150)}");
+            // no new extremes: the smallest angle does not drop, the largest does not grow
+            Assert.True(q.TriangleIndices().Min(t => MinAngle(q, t)) >= simp.TriangleIndices().Min(t => MinAngle(simp, t)) - 1e-9);
+            Assert.True(CapShare(q, 175) <= CapShare(simp, 175) * simp.TriangleCount / q.TriangleCount + 1e-12);
             // splits only: the surface is the same (every new vertex lies on an old edge), so it is as close to the wrap
             Assert.True(HausdorffUpper(q, wrap, tol) <= HausdorffUpper(simp, wrap, tol) + 0.01 * tol);
             Assert.Equal(MeshTopologySummary.Compute(simp).Genus, MeshTopologySummary.Compute(q).Genus);
