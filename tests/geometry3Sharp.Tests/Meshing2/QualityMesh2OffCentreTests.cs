@@ -151,7 +151,14 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(differ > 0, "off-centres changed no mesh on the grid");
         }
-            [Theory]
+
+        /// <summary>
+        /// a wedge whose input angle is below half the bound, under an area bound: the triangles at the apex are bad by size only (their
+        /// small angle is the input's), so they take circumcentres, which halve them, not off-centres, which only shave them (review of
+        /// #322). Every other triangle meets the bound here, so the mesh is the same with and without off-centres; a future change that
+        /// leaves some apex triangle bad by its angle may make it differ for a sound reason.
+        /// </summary>
+        [Theory]
         [InlineData(0.3, 1.0, 0.002)]
         [InlineData(0.5, 2.0, 0.001)]
         [InlineData(2.0, 5.0, 0.01)]
@@ -167,6 +174,7 @@ namespace geometry3Sharp.Tests
                 QualityMesh2.Refiner.OffCentresForBenchmarks = on;
                 try { outputs[on ? 0 : 1] = new QualityMesh2Candidate().Run(input); }
                 finally { QualityMesh2.Refiner.OffCentresForBenchmarks = null; }
+                Assert.Equal(Mesh2Status.Success, outputs[on ? 0 : 1].Status);
                 var report = Oracle.Check(input, outputs[on ? 0 : 1], new OracleExpect { Milestone = Milestone.M3 });
                 Assert.True(report.Ok, (on ? "with" : "without") + " off-centres: " + report);
             }
