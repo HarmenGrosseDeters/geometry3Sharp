@@ -4,7 +4,7 @@ Owner decision of 2026-11-01 (licensing hygiene for the BSL-1.0 release): every 
 section or a specification item. The mesher is written clean-room from [MESHING2D_SPEC.md](MESHING2D_SPEC.md), [MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md)
 and the published literature; Triangle and Triangle.NET were never read by the implementing session. A separate session may compare the code with them later
 and report similarities only; a flagged part is rewritten by a clean session from the spec. The stage 6b check (2026-11-02, [MESHING2D_PROVENANCE_CHECK.md](MESHING2D_PROVENANCE_CHECK.md)) found no copied
-expression in the comparison with Triangle.NET; the comparison with `triangle.c` itself is still open.
+expression in the comparison with Triangle.NET, nor in the direct comparison with Triangle 1.6 (`triangle.c`) that followed it (stage 6b-2, same file).
 
 Expression rules followed: the data structure is a plain triangle array with one twin index per half-edge (half-edge `3t + k` from corner `k` to corner `k + 1`
 of triangle `t`, `Next(e)` by arithmetic on that index); no orientation is packed into index bits, no successor tables, no names or decomposition taken from an

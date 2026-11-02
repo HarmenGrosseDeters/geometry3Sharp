@@ -23,13 +23,9 @@ constants, names, comments, messages) is not. Classes: **(A)** copied or closely
   `benchmarks/Meshing2Benchmark/Oracle/*.cs` (lower priority, token comparison and a read of its error bounds only).
 - **Reference side read**: Triangle.NET, upstream `github.com/wo80/Triangle.NET` (MIT), commit
   `fa6f2fdbbbfa9312e92929bd8fbb9c21da0f7769` (2026-06-10), the library project `src/Triangle` (193 C# files).
-- **Not read: Triangle 1.6 (`triangle.c`, `triangle.h`).** Both official sources were refused by this session's egress proxy
-  (`www.netlib.org`, `netlib.org` and `www.cs.cmu.edu`: HTTP 403 on CONNECT, 2026-11-02); the block was not circumvented.
-  Triangle.NET is a close C# port of Triangle and keeps much of its routine decomposition, comments and constants, so it served
-  as the proxy for both. What the proxy cannot show is expression that exists only in the C original, chiefly its memory layout;
-  our layout (below, K1) is a flat integer array and differs from any pointer-based layout by construction. A direct check against
-  `triangle.c` stays open until the owner allows one of the two hosts for a session (then about one hour: the distinctive routines
-  listed below against the C source).
+- **Triangle 1.6 (`triangle.c`, `triangle.h`)**: not readable in the first pass (both official hosts refused by the egress
+  proxy, not circumvented), so Triangle.NET, a close C# port, served as the proxy for both. Read directly in a second pass,
+  stage 6b-2, below.
 - **Similarity tool**: JPlag was planned (C# against Triangle.NET), but running the downloaded JPlag jar was refused by the
   session's permission policy, so a token-normalised comparison was scripted instead (Python 3, own code, reads files as data):
   comments and strings stripped, identifiers mapped to one token, numbers to one token, keywords and punctuation kept; for each
@@ -116,6 +112,47 @@ Lines are those of master `a988a21`.
 | O1 | all files | token comparison | C | – | 2 to 19 % in shared 12-grams, at the noise floor; the long runs are constructors and declarations. One shared comment phrase, "inside the circumcircle of the triangle", plain English. |
 | O2 | `Oracle.cs` 556-598 | static error bounds of the fast filters | B | constant, name | (3 + 16u)u and (10 + 96u)u are the bounds of [Sh97]. The comment names them by the identifiers of Shewchuk's public-domain predicates code; both are from [Sh97], not from the mesher. See E4. |
 
+## Direct comparison with triangle.c (stage 6b-2)
+
+A second dirty-side session (2026-11-02) compared the mesher with the C original directly; the owner had allowed the hosts for it.
+
+- **Reference side read**: Triangle 1.6, the official archive `triangle.zip` from `netlib.org/voronoi` (sha256
+  `1766327add038495fa3499e9b7cc642179229750f7201b94f8e1b7bee76f8480`, files dated 2005-07-28), chiefly `triangle.c`.
+  (`www.netlib.org` is still refused by the proxy; the bare host served the same archive. Nothing was circumvented.)
+- **Our side**: master `7ed6db7`; the mesher files are unchanged since `a988a21`, so the line numbers above hold.
+- **Tool**: the token comparison of the first pass, adapted to C against C# (Python 3, own code, reads files as data): comments,
+  strings and preprocessor lines stripped; identifiers, numbers and type keywords each mapped to one token; `->` mapped to `.`;
+  share of our tokens in shared 12-grams (8-grams as a second setting), longest covered run, and separately shared comment word
+  6-grams, string literals, numeric literals and identifiers of six or more letters. Calibration: the noise floor from the same
+  unrelated upstream files as above, and a positive control, Triangle.NET (the known port) against `triangle.c`.
+- **By hand**: the routines of the first pass's list, now against the C source, plus what only the C source can show: its memory
+  layout, its messages and its comments.
+
+### Tool result
+
+| | share in shared 12-grams (8-grams) | longest covered run | shared comment 6-grams | shared strings |
+|---|---:|---:|---:|---:|
+| our mesher, 10 files (46 000 tokens) | 4.0 to 10.8 % (27 to 40 %); `Triangulation2Result.cs` 30.4 % (115 tokens, an enum and a constructor) | 18 to 53 | 0 | 0 |
+| *noise floor: unrelated upstream files* | *5.8 to 13.5 % (31 to 47 %)* | *up to 38* | *1* | *0* |
+| *positive control: Triangle.NET, 7 core files* | *17.9 to 53.7 %* | *27 to 928* | *103 to 1222 per file* | – |
+
+The tool separates the known port clearly; our mesher is at the noise floor of unrelated code. The runs above the floor's 38
+tokens were inspected: four consecutive calls of one shape (`DelaunayKernel2.cs` 197-201, `DelaunayKernel2.Constraints.cs` 209-215),
+the barycentric height interpolation (`ConstrainedDelaunayMesh2.cs` 368-370) and the exact dot-product sign (`QualityMesh2.cs` 371);
+all match repetitive arithmetic of the reference only after normalisation and are generic. No comment phrase and no message is shared.
+Shared identifiers are the field's vocabulary, as above.
+
+### Findings
+
+| # | Our file : lines | Routine | Class | Category | Note |
+|---|---|---|---|---|---|
+| T1 | `DelaunayKernel2.cs` 17-65, 212-215 | storage | C | structure | The memory layout the first pass could not check: ours (K1) shares nothing with the C original's. |
+| T2 | all routines K1-K8, C1-C8, Q1-Q9, S1 | as above | as above | – | Each class of the first pass holds against the C source; no routine moves to (A). In particular the small-input-angle test (Q4), the shell split (Q7), encroachment (Q2), the queue (Q1), point location (K7), segment recovery (C3, C4), crossings (C5) and the domain fill (C6) are computed and decomposed differently, with different constants. |
+| T3 | `QualityMesh2.cs` 735; `DelaunayKernel2.Constraints.cs` 169 | `SplitTriangle` | B | name | The plain English name of the operation (insert a point that splits a triangle); generic, no rename needed. |
+| T4 | `QualityMesh2.cs` 33 | default `MinAngle = 20` | B | constant | 20 degrees is the customary default of Delaunay refinement, just below the ~20.7° bound of [S02]. |
+
+**No (A) finding.** The direct comparison confirms the result of the first pass.
+
 ## Edits to the provenance log (no rewrite needed)
 
 The claims of [MESHING2D_PROVENANCE.md](MESHING2D_PROVENANCE.md) match the code; checked row by row against the routines above.
@@ -129,7 +166,3 @@ Four places were stated more precisely, applied in the same PR as this report:
   from outside and from seeds is what the definition forces.
 - **E4** (oracle section): the two bounds cited as [Sh97]'s, without the identifiers of Shewchuk's public-domain predicates code.
   The same identifiers in the comment at `Oracle.cs` 556-558 are public domain, not mesher expression, and stay as they are.
-
-## Open
-
-- The direct comparison with Triangle 1.6 (`triangle.c`), blocked by the network policy of this session (above).
