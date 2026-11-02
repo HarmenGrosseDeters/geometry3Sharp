@@ -406,6 +406,27 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
+**Simplification (November 2026):** `ReducerIssueCasesTests` rebuilds 13 failure modes from the trackers of
+meshoptimizer, libigl, Manifold and CGAL: a noisy terrain reduced to 20%, a 24-triangle patch reduced to 10, almost
+flat grids (singular quadrics), a flat and a curved grid at z = 900 and at UTM offsets (translation), a pinched 4 x 1 x 1
+body reduced to 1 triangle, a 100 x 20 torus reduced coarsely (genus), a pyramid with a sliver base, a box-cylinder
+union rotated by -89.999999999999 degrees, a sphere with 50 tiny cylinders (unreachable target), an unwelded quad,
+two cones tip to tip, self-intersecting input, and a target already met. The results are checked for validity,
+closedness, folds, bounds, volume, Euler characteristic and components. Fixed: the Reducer joined the fans of a bowtie
+vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Known failure S1
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses fold a noisy terrain and stand triangles up
+at an open border (the flip test compares with the current, not the input normals).
+
+**Remeshing (November 2026):** `RemesherIssueCasesTests` rebuilds 10 failure modes from the trackers of PMP,
+geogram, CGAL and MeshLib (Remesher, RemesherPro, RegionRemesher): a flat non-convex fan with fixed boundary, open
+surfaces with the recommended boundary constraints, nearly touching sheets with PreventSelfIntersections, a partial
+remesh with locked vertices (bit-exact), zero-area triangles and kinks, slivers and needles (termination), a degenerate
+face on the border, two cones tip to tip, long thin sharp parts, and a creased L prism (bounds). The box corners of
+pmp-library #132 are already covered by `FeaturePreservationTests`. Fixed: `PreserveBoundaryAndFeatures` now pins
+bowtie vertices (the remesher joined the two cones). Known failures: S2, without the opt-in `MinTriangleQuality`
+smoothing folds the fan and leaves a flat triangle on a crease of a long thin box (with 0.2 they pass); S3, without feature
+constraints a coarse L prism loses a leg (volume 3 -> 0.73, bounds shifted by 1).
+
 **Point, ray and inside queries (November 2026):** `SpatialQueryIssueCasesTests` rebuilds 12 failure modes from the
 trackers of libigl, trimesh and Open3D: a triangle fan around a ray under all 48 axis permutations and sign flips,
 rays grazing box faces and edges (unit, 2^20, UTM), vertical rays on a mesh scaled by 2^k and 1e-2 ... 1e-6, rays onto
