@@ -167,8 +167,8 @@ namespace gs
         /// doubling), and after each round the share of the union that is in only one of the solids gets a
         /// confidence interval (Wilson score, z standard deviations); the answer is given as soon as the interval
         /// lies on one side of 1 - minIoU and the input's solid has been found. An early answer differs from the one
-        /// with all samples only by chance, about the probability of a z-sigma deviation (z = 4: about 3e-5, twice
-        /// that with cells, times the number of rounds).
+        /// with all samples only by chance, about the probability of a z-sigma deviation (z = 4: about 3e-5, times the
+        /// number of rounds; with cells, two intervals share it).
         /// If the oriented input and the result are both winding-closed (ExactMeshBoolean.IsWindingClosed), the
         /// samples are drawn only from the cells of an octree that the surfaces touch (VolumeSampleCells); the cells
         /// no triangle touches lie inside or outside each solid entirely and count with their exact volume. This
@@ -322,6 +322,27 @@ namespace gs
             return volume_iou_at_least(referenceInside, new SampleRegion(box), null, SolidInside(result), minIoU, out iou, samples, seed, z, null);
         }
 
+        // erfc(x) for x >= 0, fractional error below 1.2e-7 (Chebyshev fit; W. H. Press et al., Numerical Recipes, 6.2)
+        static double erfc(double x)
+        {
+            double t = 1 / (1 + 0.5 * x);
+            return t * Math.Exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806
+                + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+        }
+
+        // the z of each of two intervals that together miss at most as often as one interval at z (Bonferroni: each gets
+        // half of the two-sided tail probability erfc(z / sqrt 2)); z = 4 gives about 4.17
+        internal static double BonferroniZ(double z)
+        {
+            double target = 0.5 * erfc(z / Math.Sqrt(2));
+            double lo = z, hi = z + 4;
+            for (int i = 0; i < 100; ++i) {
+                double mid = 0.5 * (lo + hi);
+                if (erfc(mid / Math.Sqrt(2)) > target) lo = mid; else hi = mid;
+            }
+            return hi;
+        }
+
         // Wilson score interval of a share k / n, z standard deviations
         static void wilson(int k, int count, double z, out double lo, out double hi)
         {
@@ -338,19 +359,21 @@ namespace gs
         // K the known volume of the union, Ko its part in only one solid, S the sampled volume, u the share of the
         // samples in the union and q the share of those in only one solid. u and q get Wilson intervals; p is
         // monotone in q (for u > 0) and in u (for fixed q), so its bounds are at the corners of the two intervals. The
-        // answer is given when they lie on one side of 1 - minIoU. Without known volume (K = 0), p = q: only q's
-        // interval is used, the rule of the region path. Each interval misses with about the probability of a
-        // z-sigma deviation, so the early answer is wrong at most about twice as often as on the region path.
+        // answer is given when they lie on one side of 1 - minIoU. Both intervals use BonferroniZ(z): together they miss
+        // at most as often as one interval at z, the rule of the region path. Without known volume (K = 0), p = q:
+        // only q's interval is used, at z, exactly as on the region path.
         static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, VolumeSampleCells cells, Func<Vector3d, bool> resultInside,
             double minIoU, out double iou, int samples, int seed, double z, VolumeCheckStats stats)
         {
-            double K = 0, Ko = 0, Kb = 0, S = 0, knownInput = 0;
+            double K = 0, Ko = 0, Kb = 0, S = 0, knownInput = 0, zEach = z;
             if (cells != null) {
                 K = cells.KnownUnion;
                 Kb = cells.KnownBoth;
                 Ko = cells.KnownOnlyA + cells.KnownOnlyB;
                 knownInput = cells.KnownBoth + cells.KnownOnlyA;
                 S = cells.SampledVolume;
+                if (K > 0)
+                    zEach = BonferroniZ(z);
                 if (cells.Sampled.Count == 0)
                     samples = 0;
             }
@@ -382,14 +405,14 @@ namespace gs
                 if (decidable) {
                     double qLow = 0, qHigh = 1;
                     if (union > 0)
-                        wilson(onlyOne, union, z, out qLow, out qHigh);
+                        wilson(onlyOne, union, zEach, out qLow, out qHigh);
                     if (K == 0) {
                         // Wilson score interval of the share p of the union in only one solid (1 - IoU)
                         pLow = qLow;
                         pHigh = qHigh;
                     } else {
                         double uLow, uHigh;
-                        wilson(union, done, z, out uLow, out uHigh);
+                        wilson(union, done, zEach, out uLow, out uHigh);
                         uLow = Math.Max(uLow, 0); uHigh = Math.Min(uHigh, 1);
                         qLow = Math.Max(qLow, 0); qHigh = Math.Min(qHigh, 1);
                         pLow = double.MaxValue; pHigh = double.MinValue;

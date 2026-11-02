@@ -99,8 +99,11 @@ spacing w / 2^L per axis (exact, by halving), and cell (i, j, k) of level L span
 level L and its children share their bounds bit for bit, and a 2^k scale gives the same cells, scaled. A cell is
 *touched* if a triangle of either mesh meets the closed box (`TriangleTouchesBox`: the 13 axes of the separating axis
 theorem, each decided by the signs of exact predicates; complete for degenerate triangles too). Untouched cells are
-classified by the fast winding numbers of both meshes at the centre, if both are within 0.25 of an integer (otherwise the
-cell counts as touched). Touched cells are refined level by level while their 8 children per cell fit in a budget of
+classified by the exact winding numbers of both meshes at the centre (`ExactWinding`: the signed crossings of a segment
+to a point outside R, each decided by `ExactPredicates.Orient3d`; a segment through an edge, a vertex or in a triangle's
+plane is degenerate and another direction is tried, as the exact classification of `ExactMeshBoolean` does). All
+untouched children of a cell are classified by one evaluation: every closed child contains the parent's centre, so
+together they form a connected set that no triangle meets. Touched cells are refined level by level while their 8 children per cell fit in a budget of
 4096 child tests, to at most 12 levels; the touched cells of the last level are sampled.
 
 **The region contains input_solid ∪ result_solid.** Let solid_X = {p : w_X(p) > 1/2} for the winding number w_X.
@@ -120,15 +123,15 @@ cell counts as touched). Touched cells are refined level by level while their 8 
    consistent, with a bias of order 1/n, as before). The cells inside exactly one solid are known too (K_o, in K); they
    enter the numerator of 1 - IoU exactly.
 
-The classification uses the fast winding number, as the inside tests of the estimator do: both assume its error stays
-below 1/2 away from the surface (the old region assumed the same with its 0.4 margin). The 0.25 integer test at the
-centre turns a large error there into a sampled cell instead of a wrong class.
+The classification is exact (the coordinator asked for it: the fast winding number of Barill et al. has no guaranteed
+error bound, and a wrong rounding of it would bias the known volume). The samples in the touched cells are still
+classified by the fast winding number (> 0.5), as before; there the estimate is the old one, restricted to S.
 
 **Stop rule.** p = 1 - IoU = (K_o + S u q) / (K + S u), u the share of the samples in the union, q the share of those in
-only one solid. Both get Wilson intervals (z = 4); p is monotone in q (for u > 0) and in u (for fixed q), so its interval
-comes from the four corners. With K = 0, p = q and only q's interval is used: the old rule. Each interval misses with
-about the probability of a z-sigma deviation, so an early answer is wrong at most about twice as often as before (z = 4:
-about 6e-5 per round).
+only one solid. Both get Wilson intervals; p is monotone in q (for u > 0) and in u (for fixed q), so its interval comes
+from the four corners. The two intervals split the miss probability of one interval at z (Bonferroni): each uses z'
+with erfc(z' / sqrt 2) = erfc(z / sqrt 2) / 2, z' = 4.17 for z = 4. So an early answer is wrong at most as often as
+before per round (z = 4: about 6e-5 two-sided). With K = 0, p = q and only q's interval is used, at z: the old rule.
 
 **Tests** (`VolumeSampleCellsTests`, `VolumeIoUSamplingTests`, `RepairSpeedTests`): the exact test against the
 floating SAT on small integers (40000 triangles, a quarter degenerate) and at contacts one ulp apart, also at 2^20; the

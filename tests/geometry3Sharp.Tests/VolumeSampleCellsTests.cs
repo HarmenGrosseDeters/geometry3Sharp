@@ -125,6 +125,54 @@ namespace geometry3Sharp.Tests
                 off + new Vector3d(1 + ulp, 0.5, 0.8), far));
         }
 
+        [Fact]
+        public void ExactWinding_AgreesWithTheFastWindingNumber()
+        {
+            // nested shells, a box with a face in the planes of axis rays, and touching boxes: the exact winding number at
+            // random points away from the surfaces equals the rounded fast winding number
+            var meshes = new[] {
+                Union(Sphere(Vector3d.Zero, 2), Reversed(Sphere(Vector3d.Zero, 1)), Sphere(Vector3d.Zero, 0.5)),
+                Union(Box(Vector3d.Zero, Vector3d.One), Box(new Vector3d(0.25, 0.25, 0.25), new Vector3d(0.75, 0.75, 0.75))),
+                Union(Box(Vector3d.Zero, Vector3d.One), Box(new Vector3d(1, 0, 0), new Vector3d(2, 1, 1))),
+            };
+            var rnd = new Random(9);
+            foreach (DMesh3 m in meshes) {
+                var tree = new DMeshAABBTree3(m, true);
+                AxisAlignedBox3d root = MeshRepairMetrics.TriangleBounds(m);
+                root.Expand(0.01 * root.DiagonalLength);
+                var seen = new HashSet<int>();
+                for (int n = 0; n < 2000; ++n) {
+                    Vector3d p = root.Min + new Vector3d(rnd.NextDouble() * root.Width, rnd.NextDouble() * root.Height, rnd.NextDouble() * root.Depth);
+                    double fw = tree.FastWindingNumber(p);
+                    if (Math.Abs(fw - Math.Round(fw)) > 0.1) continue;      // near the surface
+                    int w;
+                    Assert.True(VolumeSampleCells.ExactWinding(m, tree, p, root, out w));
+                    Assert.Equal((int)Math.Round(fw), w);
+                    seen.Add(w);
+                }
+                Assert.True(seen.Count >= 2);
+            }
+            // on the grid: points in the planes of faces and on the lines of edges (degenerate rays are retried)
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            var bt = new DMeshAABBTree3(box, true);
+            var rb = new AxisAlignedBox3d(-Vector3d.One, 2 * Vector3d.One);
+            int wi;
+            Assert.True(VolumeSampleCells.ExactWinding(box, bt, new Vector3d(0.5, 0.5, 0.5), rb, out wi));
+            Assert.Equal(1, wi);
+            Assert.True(VolumeSampleCells.ExactWinding(box, bt, new Vector3d(1.5, 0.5, 1), rb, out wi));
+            Assert.Equal(0, wi);
+            Assert.True(VolumeSampleCells.ExactWinding(Reversed(box), new DMeshAABBTree3(Reversed(box), true), new Vector3d(0.5, 0.5, 0.5), rb, out wi));
+            Assert.Equal(-1, wi);
+        }
+
+        [Fact]
+        public void BonferroniZ_SplitsTheTail()
+        {
+            // two intervals at z' miss together at most as often as one at z: z' = 4.17 for z = 4, 2.24 for 1.96
+            Assert.InRange(MeshRepairMetrics.BonferroniZ(4), 4.16, 4.18);
+            Assert.InRange(MeshRepairMetrics.BonferroniZ(1.959964), 2.240, 2.242);
+        }
+
         // ---------------------------------------------------------------- the region covers the union
 
         public static IEnumerable<object[]> CoverCases()

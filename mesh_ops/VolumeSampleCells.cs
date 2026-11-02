@@ -11,8 +11,8 @@ namespace gs
     /// cells), refined level by level where a triangle of either mesh touches a cell.
     ///
     /// The winding number of a winding-closed mesh is an integer that changes only across its surface (Jacobson et al.
-    /// 2013), so it is constant on a cell that no triangle touches (decided exactly: TriangleTouchesBox). One
-    /// evaluation at the cell's centre classifies the whole cell: inside both solids, inside one of them, or in
+    /// 2013), so it is constant on a cell that no triangle touches (decided exactly: TriangleTouchesBox). One exact
+    /// evaluation at the cell's centre (ExactWinding, a ray with exactly decided crossings) classifies the whole cell: inside both solids, inside one of them, or in
     /// neither. Those cells are known exactly and are not sampled (stratified sampling); only the touched cells of the
     /// last level are (Sampled, Next). The union of both solids is then covered exactly by the known cells plus the
     /// sampled ones (docs/design/VOLUME_CHECK_SAMPLING.md, section 4), and the estimate of the IoU stays unbiased.
@@ -27,12 +27,11 @@ namespace gs
         /// <summary> tests of child cells (the cost of the build), for all levels together </summary>
         internal const int DefaultChildBudget = 4096;
         internal const int DefaultMaxDepth = 12;
-        /// <summary> a centre's fast winding number must be this close to an integer to classify its cell </summary>
-        internal const double IntegerMargin = 0.25;
 
         // the root box, and the cell spacing of each level: w / 2^L (exact, so that neighbouring cells of any level
         // share their faces bit for bit)
         readonly Vector3d origin;
+        readonly AxisAlignedBox3d root;
         readonly Vector3d[] spacing;
 
         /// <summary> sampled cells (touched by a triangle, or not classified), as boxes, in a fixed order </summary>
@@ -44,9 +43,9 @@ namespace gs
         /// <summary> volume of the sampled cells </summary>
         internal double SampledVolume;
         internal int ChildTests, Depth;
-        /// <summary> cells whose centre's winding number was not close to an integer (sampled, not classified) </summary>
+        /// <summary> untouched cells without a non-degenerate ray from their centre (sampled, not classified; not expected) </summary>
         internal int Unclassified;
-        /// <summary> centres at which the winding numbers were evaluated </summary>
+        /// <summary> centres at which the exact winding numbers were evaluated </summary>
         internal int WindingEvaluations;
 
         internal double KnownUnion { get { return KnownBoth + KnownOnlyA + KnownOnlyB; } }
@@ -61,9 +60,8 @@ namespace gs
         }
 
         /// <summary>
-        /// Builds the cells over root for the meshes a and b (both winding-closed, with their trees; insideA / insideB
-        /// are the solids as the estimator sees them: fast winding number &gt; 0.5). serial: no parallel loop (the
-        /// same result).
+        /// Builds the cells over root for the meshes a and b (both winding-closed, with their trees; their triangles
+        /// within root). serial: no parallel loop (the same result).
         /// </summary>
         internal VolumeSampleCells(DMesh3 a, DMeshAABBTree3 treeA, DMesh3 b, DMeshAABBTree3 treeB, AxisAlignedBox3d root,
             int childBudget = DefaultChildBudget, int maxDepth = DefaultMaxDepth, bool serial = false, bool keepKnown = false)
@@ -71,13 +69,12 @@ namespace gs
             if (keepKnown)
                 Known = new List<KeyValuePair<AxisAlignedBox3d, int>>();
             origin = root.Min;
+            this.root = root;
             Vector3d w = root.Max - root.Min;
             spacing = new Vector3d[maxDepth + 1];
             spacing[0] = w;
             for (int L = 1; L <= maxDepth; ++L)
                 spacing[L] = 0.5 * spacing[L - 1];      // (exact)
-            treeA.FastWindingNumber(Vector3d.Zero);     // caches, before parallel use
-            treeB.FastWindingNumber(Vector3d.Zero);
 
             var level = new List<Cell>();
             int rootClass = classify(a, treeA, b, treeB, new Cell(0, 0, 0), 0);
@@ -148,20 +145,107 @@ namespace gs
             AxisAlignedBox3d bx = box(c, L);
             if (Touches(a, treeA, bx) || Touches(b, treeB, bx))
                 return -1;
-            return classify_at(treeA, treeB, bx);
+            return classify_at(a, treeA, b, treeB, bx);
         }
 
-        // the class of an untouched cell from the winding numbers at its centre (-1: not close to integers)
-        int classify_at(DMeshAABBTree3 treeA, DMeshAABBTree3 treeB, AxisAlignedBox3d bx)
+        // the class of an untouched cell from the exact winding numbers at its centre (-1: no ray without a degenerate
+        // crossing was found, not expected)
+        int classify_at(DMesh3 a, DMeshAABBTree3 treeA, DMesh3 b, DMeshAABBTree3 treeB, AxisAlignedBox3d bx)
         {
             System.Threading.Interlocked.Increment(ref WindingEvaluations);
             Vector3d centre = 0.5 * (bx.Min + bx.Max);
-            double wa = treeA.FastWindingNumber(centre), wb = treeB.FastWindingNumber(centre);
-            if (Math.Abs(wa - Math.Round(wa)) > IntegerMargin || Math.Abs(wb - Math.Round(wb)) > IntegerMargin) {
+            int wa, wb;
+            if (ExactWinding(a, treeA, centre, root, out wa) == false || ExactWinding(b, treeB, centre, root, out wb) == false) {
                 System.Threading.Interlocked.Increment(ref Unclassified);
                 return -1;
             }
-            return (wa > 0.5 ? 1 : 0) | (wb > 0.5 ? 2 : 0);
+            return (wa > 0 ? 1 : 0) | (wb > 0 ? 2 : 0);
+        }
+
+        /// <summary>
+        /// The winding number of a winding-closed mesh at p (not on its surface), exactly: the signed crossings of the
+        /// segment from p to a point q outside root (which holds the mesh, so w(q) = 0), each decided by the signs of
+        /// ExactPredicates.Orient3d. A segment through an edge or a vertex of a crossed triangle, or in a triangle's
+        /// plane, is degenerate: another direction is tried (fixed sequence; the result does not depend on it). False if
+        /// no direction of 64 works.
+        /// </summary>
+        internal static bool ExactWinding(DMesh3 mesh, DMeshAABBTree3 tree, Vector3d p, AxisAlignedBox3d root, out int winding)
+        {
+            winding = 0;
+            Vector3d c = root.Center;
+            double ext = 4 * Math.Max(root.MaxDim, Math.Max(Math.Max(Math.Abs(p.x - c.x), Math.Abs(p.y - c.y)), Math.Abs(p.z - c.z)));
+            var rnd = new Random(17);
+            Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
+            for (int attempt = 0; attempt < 64; ++attempt) {
+                // a far point: one coordinate at +-ext from the centre, the others within, odd fractions of ext
+                int axis = rnd.Next(3);
+                var dir = new Vector3d(rnd.Next(-1000, 1001), rnd.Next(-1000, 1001), rnd.Next(-1000, 1001)) / 1024.0;
+                dir[axis] = rnd.Next(2) == 0 ? -1 : 1;
+                Vector3d q = c + ext * dir;
+                // pruning of the tree's boxes against the segment, widened (only the pruning; the crossings are exact)
+                double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z));
+                int w = 0;
+                bool degenerate = false;
+                Vector3d pp = p, qq = q;
+                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (tb, depth) => degenerate == false && segment_meets_box(pp, qq, tb, pad),
+                    NextTriangleF = (tid) => {
+                        if (degenerate) return;
+                        mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
+                        int sp = ExactPredicates.Orient3d(v0, v1, v2, pp), sq = ExactPredicates.Orient3d(v0, v1, v2, qq);
+                        if (sp == 0 && sq == 0) {
+                            // in the plane of the triangle, or a triangle of no area (crossing it changes nothing)
+                            if (collinear(v0, v1, v2) == false)
+                                degenerate = true;
+                            return;
+                        }
+                        if (sp == 0 || sq == 0 || sp == sq)
+                            return;     // an end on the plane (outside the triangle: p is off the surface, q outside root)
+                        int o0 = ExactPredicates.Orient3d(pp, qq, v0, v1), o1 = ExactPredicates.Orient3d(pp, qq, v1, v2),
+                            o2 = ExactPredicates.Orient3d(pp, qq, v2, v0);
+                        if (o0 == 0 || o1 == 0 || o2 == 0) {
+                            // through the line of an edge: degenerate if within the triangle's edges
+                            if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
+                                degenerate = true;
+                            return;
+                        }
+                        // from q (w = 0) towards p: entering the back side of a triangle adds 1
+                        if (o0 == o1 && o1 == o2)
+                            w += sp < 0 ? 1 : -1;
+                    }
+                });
+                if (degenerate == false) {
+                    winding = w;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool collinear(Vector3d a, Vector3d b, Vector3d c)
+        {
+            return ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y)) == 0
+                && ExactPredicates.Orient2d(new Vector2d(a.y, a.z), new Vector2d(b.y, b.z), new Vector2d(c.y, c.z)) == 0
+                && ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x)) == 0;
+        }
+
+        // does the segment pq meet the box widened by pad (slab test in doubles; conservative with the pad)
+        static bool segment_meets_box(Vector3d p, Vector3d q, AxisAlignedBox3d box, double pad)
+        {
+            double t0 = 0, t1 = 1;
+            for (int k = 0; k < 3; ++k) {
+                double lo = box.Min[k] - pad, hi = box.Max[k] + pad, d = q[k] - p[k];
+                if (d == 0) {
+                    if (p[k] < lo || p[k] > hi) return false;
+                    continue;
+                }
+                double ta = (lo - p[k]) / d, tb = (hi - p[k]) / d;
+                if (ta > tb) { double t = ta; ta = tb; tb = t; }
+                t0 = Math.Max(t0, ta - 1e-9);
+                t1 = Math.Min(t1, tb + 1e-9);
+                if (t0 > t1) return false;
+            }
+            return true;
         }
 
         // The 8 children of a touched cell into cls[offset..offset+7]. Every closed child contains the parent's centre, so
@@ -178,7 +262,7 @@ namespace gs
                 }
                 if (first < 0) {
                     first = c;
-                    cl = classify_at(treeA, treeB, bx);
+                    cl = classify_at(a, treeA, b, treeB, bx);
                 }
                 cls[offset + c] = cl;
             }
