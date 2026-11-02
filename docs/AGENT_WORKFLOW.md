@@ -11,6 +11,13 @@ research and from our own PRs shape it:
 Large role-play setups (MetaGPT, ChatDev) cost a lot for mixed gains. We use only the separations that measurably
 help: specification vs implementation, and implementation vs review and acceptance tests.
 
+## Credo: correct by construction, fast by design
+
+- Correctness is not negotiable; a speedup that changes results needs a guarantee and the owner.
+- Complexity and data structures right from the start; constant factors later, bit-identical.
+- Pay for exactness only where needed: a floating-point filter, exact on the close cases.
+- A time budget against a reference is part of the brief; measure the upper bound before the design.
+
 ## 1. Tiers: the process scales with the risk
 
 | Tier | Examples | Process |
