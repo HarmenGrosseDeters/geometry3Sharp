@@ -33,6 +33,27 @@ records or citing papers, and keep their *(full text needed)* marks. License sta
 come from the raw LICENSE file of the named repository; the others still come from project pages or package indexes.
 Everything still marked *(full text needed)* must be checked before an implementation brief is written.
 
+A second follow-up session (2026-11-02, with `peterwonka.net`, `igl.ethz.ch`, `cims.nyu.edu`, `cs.ubc.ca`,
+`cs.unc.edu` and `api.crossref.org` allowed) read:
+- Harmon et al. 2011, full text (author PDF, `igl.ethz.ch/projects/contact-aware-modeling/CAGM.pdf`, 10 pages);
+- El Topo's `license.txt` and `readme.md` (`raw.githubusercontent.com/tysonbrochu/eltopo/master/`);
+- the Crossref records of Wang et al. 2019, Gumhold et al. 2003, Brochu & Bridson 2009, Brochu et al. 2012 and
+  Harmon et al. 2011 (citations below confirmed against them).
+
+Still not readable in the second follow-up: `cs.ubc.ca` and `cs.unc.edu` answer every path with a redirect to
+`www.cs.ubc.ca` / `www.cs.unc.edu`, which the proxy still blocks (El Topo paper, Cohen et al. 1996);
+`peterwonka.net` answers 406 from its Mod Security filter (a bot check, not circumvented; Wang et al. 2019); no
+allowed host has Gumhold et al. 2003 (`www.academia.edu` not retried).
+
+A third follow-up session (2026-11-02, with `www.cs.ubc.ca` and `www.cs.unc.edu` allowed) read:
+- Brochu & Bridson 2009, full text (`www.cs.ubc.ca/labs/imager/tr/2009/eltopo/sisc2009.pdf`, the published SIAM
+  version, 22 pages); section 3.1 below is now from the full text.
+
+Still not readable in the third follow-up: Cohen et al. 1996. `www.cs.unc.edu` answers, but the project page named in
+the paper's header (`www.cs.unc.edu/~geom/envelope.html`) and the other paths tried there answer 404; the only full
+text found by search is on `www.cs.umd.edu`, which the proxy blocks (403, not circumvented). Its *(full text needed)*
+marks stay.
+
 Licensing rules applied (CLAUDE.md, AGENTS.md): implement from papers; port only MIT / BSD / Apache; never GPL
 (CGAL); MPL-2.0 (TetWild, fTetWild, Sacht & Jacobson's code) not ported.
 
@@ -55,7 +76,8 @@ W. Wright, *Simplification Envelopes*, SIGGRAPH 1996, pp. 119-128, doi:10.1145/2
   between them, which guarantees the one-sided deviation and keeps the genus.
 - Assumptions: an orientable manifold input; the offsets are built by moving vertices along normals and shrinking the
   offset locally where it would self-intersect, so the available tolerance is smaller than ε where the surface is
-  curved or thin (abstract-level; *(full text needed)* for the exact construction). Zelinka & Garland 2002 (§3.1.4,
+  curved or thin (abstract-level; *(full text needed)* for the exact construction; still not read in the third
+  follow-up: no copy on `www.cs.unc.edu`, the copy on `www.cs.umd.edu` is blocked). Zelinka & Garland 2002 (§3.1.4,
   full text read) describe it the same way: per-vertex offsets along the normals, new faces intersected with the
   envelopes; input-sensitive (each envelope is the size of the input), manifold and orientable input only, no
   topology change; 178 s vs 19 s for the permission grid on the bunny at ε = 1 %.
@@ -191,11 +213,12 @@ collapse.
 ### 2.2 Methods from the literature
 
 **Intersection free simplification** — S. Gumhold, P. Borodin, R. Klein, *Intersection Free Simplification*,
-International Journal of Shape Modeling 9(2):155-176, 2003, doi:10.1142/S0218654303000097.
+International Journal of Shape Modeling 9(2):155-176, December 2003, doi:10.1142/S0218654303000097 (Crossref
+confirmed).
 - Pair contraction with a priority queue and a spatial search structure; the collision test of the simplices affected
   by a contraction is done lazily for the contraction about to be applied. This is our design. Which search structure
-  and which per-query costs they report is *(full text needed; `www.academia.edu` still blocked in the follow-up
-  session)*.
+  and which per-query costs they report is *(full text needed; no allowed host has it, `www.academia.edu` blocked in the
+  first follow-up session)*.
 - **Already adopted** (the `Reducer`'s check follows the same scheme).
 
 **Spatial hashing** — M. Teschner, B. Heidelberger, M. Müller, D. Pomeranets, M. Gross, *Optimized Spatial Hashing
@@ -257,27 +280,74 @@ grid query.
 ### 3.1 Methods from the literature
 
 **El Topo** — T. Brochu, R. Bridson, *Robust Topological Operations for Dynamic Explicit Surfaces*, SIAM J. Sci.
-Comput. 31(4):2472-2493, 2009. Every mesh operation (split, collapse, flip, smoothing) is an atomic edit cancelled if
-it would introduce an intersection; vertex motion is checked by continuous collision detection (CCD), new triangles
-statically; the broad phase is an acceleration grid of element boxes. The intersection-free invariant is what later
-multimaterial front tracking relies on (F. Da, C. Batty, E. Grinspun, *Multimaterial Mesh-Based Surface Tracking*,
-SIGGRAPH 2014 / arXiv 1306.3113 for the front-tracking variant). Exact CCD for El Topo: T. Brochu, E. Edwards,
-R. Bridson, *Efficient Geometrically Exact Continuous Collision Detection*, ACM TOG 31(4) (SIGGRAPH 2012).
-- License: the UBC project page calls El Topo "public domain"; the GitHub repository's own LICENSE file is still
-  unchecked (the follow-up session could not reach `github.com/tysonbrochu/eltopo`, the UBC page was blocked, and
-  `raw.githubusercontent.com` returned 404 for `LICENSE`/`README` on `master` and `main`). **Reference only until the
-  LICENSE file is checked**; implementing from the paper needs no license.
-- Cost: they report that the checks are the main cost of robust operations; the paper's own numbers are
-  *(full text needed)*.
+Comput. 31(4):2472-2493, 2009, doi:10.1137/080737617 (Crossref confirmed; full text read). The CCD it uses is
+T. Brochu, R. Bridson, *Numerically Robust Continuous Collision Detection for Dynamic Explicit Surfaces*, UBC
+TR-2009-03 (the paper's ref. [4]); its exact successor is T. Brochu, E. Edwards, R. Bridson, *Efficient Geometrically
+Exact Continuous Collision Detection*, ACM TOG 31(4) (SIGGRAPH 2012), doi:10.1145/2185520.2185592. The
+intersection-free invariant is what later multimaterial front tracking relies on (F. Da, C. Batty, E. Grinspun,
+*Multimaterial Mesh-Based Surface Tracking*, SIGGRAPH 2014 / arXiv 1306.3113).
+- Guarantee: if the current mesh is intersection-free, the mesh after the step (motion, split, flip, collapse,
+  null-space smoothing, merge, separation) is intersection-free (§3.2). Each operation is either rolled back or, for
+  motion, corrected by collision response; the guarantee is *no intersection*, not a minimum distance.
+- Per operation (§3.5-3.7):
+  - split: the edge midpoint "will not introduce any new intersections" (stated without qualification; our
+    `Remesher.split_creates_intersection` documents two ways it can: the rounded midpoint, and a triangle that
+    touched an old one only at an edge end point); an
+    offset (butterfly) position is checked by CCD of the pseudomotion midpoint → target and falls back to the
+    midpoint;
+  - flip: static: no existing edge intersects the two new triangles, *and no vertex lies inside the tetrahedron* of the
+    two old and two new triangles; also rejected if the volume change exceeds γ (0.1 ξ³, ξ the initial mean edge);
+  - collapse: CCD of both end points moving to the new position (butterfly, or the ridge vertex), retried towards the
+    midpoint; no safe fallback, so it is abandoned if no collision-free trajectory is found;
+  - smoothing: one global pseudotrajectory, then the collision resolution below;
+  - merge (zippering): new triangles tested statically, degenerate cases counted as intersections.
+- Collision resolution (§3.8): (1) proximity repulsion: pairs closer than the proximity threshold ε_p get velocity
+  impulses that would carry them ε_p apart over Δt ("this small minimum separation significantly helps in avoiding
+  degenerate geometric cases"; soft, only for the next step); (2) three sweeps of per-pair CCD impulses; (3) impact
+  zones (Harmon et al. 2008) as fail-safe, a linear solve per zone, repeated until no collision; termination argued
+  "assuming adequately accurate linear solves". The CCD has no false negatives and false positives only where the
+  forward error bound exceeds the result.
+- Assumptions: closed, consistently oriented meshes (open surfaces in §4.4 by freezing boundary edges); no two
+  triangles on the same three vertices; non-manifold edges only with an even number of consistently oriented
+  triangles; linear vertex trajectories; an intersection-free start. Splits and collapses skip non-manifold edges.
+- Cost (§4.5, Table 4.4, single core 2.4 GHz Core2 Duo, unoptimized C++): per step on 1.5-3.5k / 5.9-14k / 23-56k
+  triangles, mesh improvement 0.11 / 0.52 / 2.08 s, topology 0.04 / 0.21 / 0.85 s, collisions 0.07 / 0.31 / 1.41 s.
+  "The timings for topology change and mesh improvement operations include the time taken for intersection and
+  collision queries"; "collision detection is a major bottleneck of our system" (§5). Broad phase: a regular grid of
+  bounding boxes per element type (vertex, edge, triangle); linear in the objects tested, only near-linear in time.
+  No reuse of distances or clearance between operations; the clearance filter of this section is not in the paper.
+- License: **BSD 2-Clause** ("Copyright (c) 2009-2018, Tyson Brochu and Robert Bridson", `license.txt` on `master`
+  of `github.com/tysonbrochu/eltopo`; LICENSE file checked). The paper itself (§5) calls the 2009 code "public domain"
+  at the UBC page; the current repository's `license.txt` is what applies to a port. Porting would be allowed under
+  the project rules (BSD), with the copyright notice kept; the paper is enough for what sections 3 and 5 need.
+- Relevance: bottleneck 3: the same per-operation static/CCD tests our `PreventSelfIntersections` does, with the same
+  cost profile (checks dominate); nothing that makes them cheaper. Bottleneck 5: the flip test's tetrahedron
+  containment is the static test that catches a flip sweeping over a whole component (a nesting change, section 5.1);
+  ε_p repulsion is a soft minimum separation for motion, not an operation filter. Bottlenecks 1, 2, 4: not relevant
+  (no deviation bound; its quality operations are standard).
 
 **Interference-aware modelling and minimum separation** — D. Harmon, D. Panozzo, O. Sorkine, D. Zorin,
-*Interference-Aware Geometric Modeling*, ACM TOG 30(6), article 137 (SIGGRAPH Asia 2011): interference handling for
-modelling operations, with a minimum separation between surfaces. Tight Inclusion CCD (B. Wang, Z. Ferguson,
+*Interference-Aware Geometric Modeling*, ACM TOG 30(6), article 137 (SIGGRAPH Asia 2011),
+doi:10.1145/2070781.2024171 (Crossref confirmed; Crossref gives pages 1-10, not the article number). Full text read:
+- Collision *response* for interactive modelling: an edit is a linear trajectory per vertex; CCD (Provot's cubics,
+  broad phase Self-CCD or the Teschner et al. 2003 hash grid, "complete interchangeability") finds the interference;
+  one space-time interference volume constraint is driven to zero by a projection step in the modelling subspace.
+  Needs an intersection-free start and fails on zero-area triangles and zero-length edges (their Limitations).
+- Minimum separation (§5.2): the CCD time is replaced by the time at which a vertex comes within a fixed, global
+  distance h of the triangle's *plane* (roots of the degree-6 polynomial ((x3-x0)·n)² - h²‖n‖²,
+  n = (x1-x0)×(x2-x0)), then a projection test that the point lies inside the triangle; edge-edge is built analogously from Provot's
+  cubic. Cost: "the increased proximity increases the amount of primitives that make it to low-level intersection
+  tests" (no number given).
+- Numerical margin: they return max(0, t_i - 1/100) to absorb root-finding error; a heuristic, not a bound.
+- Cost: detection is 51 % of the runtime; 1.1-11.8 ms per iteration and 76-917 ms per edit on 5.8K-38K vertices,
+  single-threaded (Table 1).
+- No reuse of distances or clearance between edits; the clearance filter of this section is not in the paper.
+
+Tight Inclusion CCD (B. Wang, Z. Ferguson,
 T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large Scale Benchmark and an Inclusion-Based Algorithm for
 Continuous Collision Detection*, ACM TOG 40(5), 2021): conservative CCD with minimum separation. License: MIT
 (`Continuous-Collision-Detection/Tight-Inclusion`, `main` branch, Copyright (c) 2020 the six authors; LICENSE file
-checked). Harmon et al. 2011: the full text could not be read (`igl.ethz.ch` and `cims.nyu.edu` blocked), so what
-exactly its separation constraint checks, and at what cost, is still *(full text needed)*.
+checked).
 
 **Clearance filter** (the lemma of section 2.2). It fits the remesher much better than the `Reducer`:
 - smoothing / tangential relocation moves are small against the local spacing, and a split's new vertex lies on the
@@ -364,9 +434,9 @@ Full text read (arXiv:1611.02147v1).
 
 **Remeshing without large and small angles** — Y. Wang, D.-M. Yan, X. Liu, C. Tang, J. Guo, X. Zhang, P. Wonka,
 *Isotropic Surface Remeshing without Large and Small Angles*, IEEE TVCG 25(7):2430-2442, 2019,
-doi:10.1109/TVCG.2018.2837115 (the IEEE record omits X. Zhang; full text not read, `peterwonka.net` blocked in the
-follow-up session). Vertex insertion removes obtuse angles, vertex
-removal improves small angles; runs as a post-process after any remesher at the speed of real-time adaptive
+doi:10.1109/TVCG.2018.2837115 (Crossref lists all seven authors, X. Zhang = Xiaopeng Zhang; the IEEE record omits
+him; full text not read: `peterwonka.net` answers 406 from its Mod Security filter; *(full text needed)*).
+Vertex insertion removes obtuse angles, vertex removal improves small angles; runs as a post-process after any remesher at the speed of real-time adaptive
 remeshing. **Recommendation: candidate operators** for the same pass (insertion / removal with the same guards); no
 fidelity bound of its own.
 
@@ -395,8 +465,10 @@ US 12,094,060 and US 12,333,653, scope not checked). **Not applicable** as a por
 - **Sizing below the wall thickness** (exists: `RemeshSizing.FromWallThickness`, `MeshWallThickness`): the
   local-feature-size sizing of Botsch et al., *Polygon Mesh Processing*, ch. 6; Dunyach et al. 2013 for the
   curvature part.
-- **Minimum separation** (Harmon et al. 2011; Tight Inclusion's minimum separation, Wang et al. 2021): instead of
-  forbidding only intersections, forbid that an operation brings non-adjacent geometry closer than δ. With the
+- **Minimum separation** (Harmon et al. 2011, a fixed global h inside CCD; Tight Inclusion's minimum separation,
+  Wang et al. 2021): instead of
+  forbidding only intersections, forbid that an operation brings non-adjacent geometry closer than δ. A δ tied to
+  the local thickness and the comparison with C − δ are our proposal, not from these papers. With the
   clearance machinery of section 3 this is nearly free (it is the same comparison with C − δ), and it stops walls
   from approaching each other before they fold. A δ above the local wall thickness would block every operation near
   the wall, so δ is a fraction of the local thickness: a safeguard against near-contact, not a replacement for the
@@ -405,7 +477,11 @@ US 12,094,060 and US 12,333,653, scope not checked). **Not applicable** as a por
   a move that passes through a wall only if the end state has no intersection, i.e. the moving star swallows or
   releases a whole component or sheet piece (a change of nesting); otherwise the star, still attached to its link on
   the original side, intersects the wall in the end state and the static check sees it. The pass-level
-  `RejectInvertingPasses` already catches inside-out components.
+  `RejectInvertingPasses` already catches inside-out components. For a flip, El Topo closes this gap statically:
+  besides testing the new triangles, it rejects the flip if any vertex lies inside the tetrahedron spanned by the
+  four vertices (the volume swept by the flip), which catches a swept-over component without CCD (Brochu & Bridson
+  2009 §3.5.2, full text read). The same idea for a collapse or a smoothing move would need the swept volume of a
+  moving star, which is what CCD computes.
 - **Contact-aware flows** — L. Sacht, E. Vouga, A. Jacobson, *Nested Cages*, ACM TOG 34(6) (SIGGRAPH Asia 2015):
   decimation, flow and contact-aware optimization keep coarse layers nested without intersections; relevant as a
   model for "push walls apart before coarsening", not as a remeshing step.
