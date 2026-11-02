@@ -524,6 +524,11 @@ class Program
                 r[k + "_converged"] = h.Converged;
             }
         }
+        // BENCH_FIDELITY=hd: the certified Hausdorff distances only (quick comparisons of the triangle quality)
+        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") == "hd") {
+            r["fidelity_ms"] = sw.ElapsedMilliseconds;
+            return;
+        }
         double missing, extra;
         r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
         r["iou_missing"] = missing;
