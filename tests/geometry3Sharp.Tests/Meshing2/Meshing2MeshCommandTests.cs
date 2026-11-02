@@ -139,6 +139,40 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Execute_NoOracle_WritesTheMeshWithoutJudging()
+        {
+            // timing the mesher alone: the same mesh is written, nothing is judged or compared, exit 0; the times are printed either way
+            string dir = TempDir(), judged = Path.Combine(dir, "judged.txt"), plain = Path.Combine(dir, "plain.txt");
+            var (exit, stdout, stderr) = Execute("--case", "f-23/angle-20", "--output", judged);
+            Assert.True(exit == 0, stdout + stderr);
+            Assert.Contains("oracle VALID", stdout);
+            Assert.Matches("time: mesh [0-9]+ ms, oracle [0-9]+ ms", stdout);
+            (exit, stdout, stderr) = Execute("--case", "f-23/angle-20", "--output", plain, "--no-oracle");
+            Assert.True(exit == 0, stdout + stderr);
+            Assert.Contains("oracle: not run (--no-oracle)", stdout);
+            Assert.Matches("time: mesh [0-9]+ ms, oracle not run", stdout);
+            Assert.DoesNotContain("golden:", stdout);
+            Assert.Equal(File.ReadAllText(judged), File.ReadAllText(plain));
+        }
+
+        [Fact]
+        public void OracleExpectation_StatedArea_JudgesASeedOnlyHole()
+        {
+            // F-17/b: a hole marker inside a contour that collapses into one pixel. The oracle cannot compute such an area: without the
+            // area the case states, the verdict is CannotJudge; with it (the oracle command's --stated-area), the output is judged
+            var c = Catalogue.Rows().First(r => r.Case != null && r.Case.Id == "f-17/b").Case;
+            var output = CandidateRegistry.For(c.Milestone).Run(c.Input);
+            var plain = Oracle.Check(c.Input, output, MeshCommand.OracleExpectation(c.Milestone, null, null, null));
+            Assert.True(plain.Has(Violation.CannotJudge), plain.ToString());
+            string area = c.Expect.StatedArea.Value.ToDecimal(30), tolerance = c.Expect.StatedAreaTolerance.ToDecimal(30);
+            var stated = Oracle.Check(c.Input, output, MeshCommand.OracleExpectation(c.Milestone, null, area, tolerance));
+            Assert.True(stated.Ok, stated.ToString());
+            // and a wrong area is judged as such
+            var wrong = Oracle.Check(c.Input, output, MeshCommand.OracleExpectation(c.Milestone, null, "90", tolerance));
+            Assert.False(wrong.Ok);
+        }
+
+        [Fact]
         public void Execute_InputOfACase_IsJudgedWithTheCasesExpectations()
         {
             // F-9 requires a failure (crossings with noding off): from its text the same verdict as from the case, and its golden row

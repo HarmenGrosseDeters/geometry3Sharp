@@ -330,7 +330,18 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) that cannot be split on the grid </summary>
-            bool Behind(int[] t, Pt p, int skip)
+            bool Behind(int[] t, Pt p, int skip) => Behind(t, p, skip, GridUnsplittableMemo);
+
+            bool GridUnsplittableMemo(int a, int b)
+            {
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
+                if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(a, b);
+                return u;
+            }
+
+            /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) for which unsplittable holds </summary>
+            bool Behind(int[] t, Pt p, int skip, Func<int, int, bool> unsplittable)
             {
                 Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
                 var g = new Pt((a.Qx + b.Qx + c.Qx) / 3, (a.Qy + b.Qy + c.Qy) / 3);
@@ -339,10 +350,7 @@ namespace Meshing2Acceptance
                     Pt sa = v[s.A], sb = v[s.B];
                     int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
                     if (o1 * o2 >= 0 || Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) > 0) continue;
-                    long key = s.A < s.B ? ((long)s.A << 32) | (uint)s.B : ((long)s.B << 32) | (uint)s.A;
-                    unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
-                    if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(s.A, s.B);
-                    if (u) return true;
+                    if (unsplittable(s.A, s.B)) return true;
                 }
                 return false;
             }
@@ -354,6 +362,136 @@ namespace Meshing2Acceptance
             /// </summary>
             bool HiddenByGridUnsplittable(int[] t, int id)
                 => input.SnapTolerance > 0 && e.Milestone == Milestone.M3 && o.Subsegments != null && Behind(t, v[id], id);
+
+            Dictionary<long, bool> o11Memo;
+
+            /// <summary>
+            /// Subsegment a-b is an O11-unsplittable piece (without an explicit tolerance, at M3): every split point the mesher may choose
+            /// for it lies within its tolerance of an input constraint that is not the piece's own, so the mesher refuses it
+            /// (`NearOtherSource`: O11 merges a point within the tolerance of a constraint into that constraint). Conforming Delaunay (O2) and
+            /// the angle bound cannot be reached across such a piece, as across a piece with no split point on the grid; the three
+            /// exemptions below mirror the grid's, with this one predicate (found with the corpus at 25 degrees, earcut's water-huge: a
+            /// ring corner of 0.84 degrees, a leg's first piece of 2^-22 whose midpoint lies 1.75e-9 from the other leg, the mesher's
+            /// tolerance 1.98e-9). See <see cref="ComputeO11Unsplittable"/>; on the grid ValidGridSplit decides.
+            /// </summary>
+            bool O11Unsplittable(int a, int b)
+            {
+                if (input.SnapTolerance > 0 || e.Milestone != Milestone.M3 || tube2.Sign == 0) return false;
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                o11Memo = o11Memo ?? new Dictionary<long, bool>();
+                if (!o11Memo.TryGetValue(key, out bool u)) o11Memo[key] = u = ComputeO11Unsplittable(a, b);
+                return u;
+            }
+
+            /// <summary>
+            /// The piece predicate, decided exactly:
+            /// - its own constraints: the input constraints that hold both ends within the mesher's tolerance (a hair more): the mesher makes
+            ///   such vertices vertices of the constraint and merges the sources of the shared piece; this also covers a split point that
+            ///   rounding put off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of
+            ///   a hull edge has none here and is judged);
+            /// - its candidate split points: the midpoint, and the concentric-shell point from either end (QualityMesh2.SplitSegment: next
+            ///   to a vertex that existed before refinement, the power of two from it nearest the middle, if within the middle third). Which
+            ///   one the mesher took depends on which ends existed before refinement (input points and crossings), so all must qualify;
+            /// - another input constraint (not a hull edge: the mesher's NearOtherSource knows input constraints only) within the mesher's
+            ///   tolerance (half the tube: 2^-41 against the tube's 2^-40 of the magnitude; less 2^-7 of it, as the mesher decides in doubles)
+            ///   of every candidate. With a tube given to the oracle (--tube) the tolerance follows it;
+            /// - which meets each own constraint in at most one point (its ends and the own constraint's ends within the tube of the other
+            ///   are one point): nearly coincident lines, eg a double-digitised border, are merged by the mesher into pieces of both, and
+            ///   such a piece is split (review of the first version).
+            /// </summary>
+            bool ComputeO11Unsplittable(int ia, int ib)
+            {
+                Pt pa = v[ia], pb = v[ib];
+                // the mesher's tolerance is half the tube (2^-41 against 2^-40 of the same magnitude); a constraint holding both ends within it
+                // (a hair more, to be safe) is one of the piece's own: the mesher makes such vertices vertices of its chain and merges the
+                // sources of the shared piece (InsertPiece, Near; second review: two constraints crossing at a tiny angle). A split point
+                // counts as refused only a hair inside the tolerance, as the mesher decides in rounded doubles (second review)
+                Q tol2 = tube2 / 4, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7), half2 = tol2 * new Q((BigInteger.One << 7) - BigInteger.One, BigInteger.One << 7);
+                var own = new List<(Pt a, Pt b)>();
+                var ownIds = new HashSet<int>();
+                for (int k = 0; k < sources.Count; ++k) {
+                    if (!MayBeNear(k, ia) || !MayBeNear(k, ib)) continue;
+                    var c = sources[k];
+                    Q da = Exact.Dist2ToSegment(c.a, c.b, pa), db = Exact.Dist2ToSegment(c.a, c.b, pb);
+                    if (da <= ownTol2 && db <= ownTol2) { own.Add((c.a, c.b)); ownIds.Add(k); }
+                }
+                if (own.Count == 0) return false;
+                var candidates = new List<Pt> { new Pt((pa.Qx + pb.Qx) / 2, (pa.Qy + pb.Qy) / 2) };
+                double length = Math.Sqrt(ToD(Exact.Len2(pa, pb)));
+                long bits = BitConverter.DoubleToInt64Bits(length / 2);
+                int field = (int)((bits >> 52) & 0x7FF);
+                if (field == 0 || field == 0x7FF) return false;   // (no shell point computable: not excused)
+                {
+                    // the power of two at or below half the length, from the bits, and the nearer of it and its double (as the mesher's)
+                    double lower = BitConverter.Int64BitsToDouble((long)field << 52), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
+                    if (d > length / 3 && d < 2 * length / 3) {
+                        Q f = Q.FromDouble(d / length);
+                        candidates.Add(new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f));
+                        candidates.Add(new Pt(pb.Qx + (pa.Qx - pb.Qx) * f, pb.Qy + (pa.Qy - pb.Qy) * f));
+                    }
+                }
+                for (int k = 0; k < sources.Count; ++k) {
+                    // (the filter on the ends: a constraint near only the middle of the piece and farther than the tube from both its ends
+                    // meets an own constraint near both of its own ends, so the coincidence test below rejects it anyway)
+                    if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
+                    var c = sources[k];
+                    if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
+                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b))) continue;
+                    return true;
+                }
+                return false;
+            }
+
+            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines) </summary>
+            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d)
+            {
+                var near = new List<Pt>();
+                if (Exact.Dist2ToSegment(c, d, a) <= tube2) near.Add(a);
+                if (Exact.Dist2ToSegment(c, d, b) <= tube2) near.Add(b);
+                if (Exact.Dist2ToSegment(a, b, c) <= tube2) near.Add(c);
+                if (Exact.Dist2ToSegment(a, b, d) <= tube2) near.Add(d);
+                for (int i = 0; i < near.Count; ++i)
+                    for (int j = i + 1; j < near.Count; ++j)
+                        if (Exact.Len2(near[i], near[j]) > tube2) return true;
+                return false;
+            }
+
+            /// <summary> the local test: a-b is an O11-unsplittable piece; only that edge, never an unconstrained edge next to it </summary>
+            bool O11UnsplittableSubsegment(int a, int b)
+            {
+                if (!O11Unsplittable(a, b)) return false;
+                r.O11LocalExcused++;
+                return true;
+            }
+
+            int o11Pending;
+
+            /// <summary> the global test: vertex id is hidden from t by an O11-unsplittable piece (the segment from t's centroid to id crosses it) </summary>
+            bool HiddenByO11Unsplittable(int[] t, int id)
+            {
+                if (o.Subsegments == null || !Behind(t, v[id], id, O11Unsplittable)) return false;
+                ++o11Pending;   // (counted when t ends with no violation: both paths then count the same, whatever order they visit vertices in)
+                return true;
+            }
+
+            /// <summary>
+            /// The angle bound: t's circumcentre lies behind an O11-unsplittable piece (the segment from t's centroid to it crosses the
+            /// piece). Ruppert's rule splits the piece instead of inserting across it; no split point may be placed, so t stays
+            /// </summary>
+            bool CircumcentreBehindO11Unsplittable(int[] t)
+            {
+                // (without an explicit tolerance, at M3: the piece predicate decides that, and the exact circumcentre is computed only then)
+                if (input.SnapTolerance > 0 || o.Subsegments == null) return false;
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2;
+                if (d.Sign == 0) return false;
+                Q b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                var p = new Pt(a.Qx + (cy * b2 - by * c2) / d, a.Qy + (bx * c2 - cx * b2) / d);
+                if (!Behind(t, p, -1, O11Unsplittable)) return false;
+                r.O11AngleExcused++;
+                return true;
+            }
+
 
             /// <summary>
             /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
@@ -1274,7 +1412,7 @@ namespace Meshing2Acceptance
                     int a = uses[0].a, b = uses[0].b;
                     int c = o.Triangles[uses[0].tri][uses[0].opposite], d = o.Triangles[uses[1].tri][uses[1].opposite];
                     int sign = InCircle(a, b, c, d);
-                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One) || (constrained && GridUnsplittableSubsegment(a, b))))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
+                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One) || (constrained && (GridUnsplittableSubsegment(a, b) || O11UnsplittableSubsegment(a, b)))))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
                     if (sign == 0 && !constrained) { r.TieEdges++; r.Unique = false; }
                 }
                 long work = (long)o.Triangles.Length * v.Length;
@@ -1290,14 +1428,19 @@ namespace Meshing2Acceptance
                     var used = new HashSet<int>(o.Triangles.SelectMany(t => t));
                     if (Fast) GlobalDelaunayIndexed(used.ToArray(), conforming);
                     else
-                        foreach (var t in o.Triangles)
+                        foreach (var t in o.Triangles) {
+                            o11Pending = 0;
+                            bool flagged = false;
                             foreach (int id in used) {
                                 if (id == t[0] || id == t[1] || id == t[2]) continue;
-                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id)))) {
+                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
                                     r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                                    flagged = true;
                                     break;
                                 }
                             }
+                            if (!flagged) r.O11GlobalExcused += o11Pending;
+                        }
                 }
             }
 
@@ -1341,11 +1484,14 @@ namespace Meshing2Acceptance
                 var tree = (int[])used.Clone();
                 BuildTree(tree, 0, tree.Length, 0);
                 foreach (var t in o.Triangles) {
+                    o11Pending = 0;
+                    bool flagged = false;
                     bool Check(int id)
                     {
                         if (id == t[0] || id == t[1] || id == t[2]) return false;
-                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id)))) {
+                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
                             r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                            flagged = true;
                             return true;
                         }
                         return false;
@@ -1365,8 +1511,9 @@ namespace Meshing2Acceptance
                         if (double.IsNaN(reach) || double.IsInfinity(reach)) scan = true;
                         else { x0 = cx - reach; x1 = cx + reach; y0 = cy - reach; y1 = cy + reach; }
                     }
-                    if (scan) { foreach (int id in used) if (Check(id)) break; continue; }
-                    QueryTree(tree, 0, tree.Length, 0, x0, x1, y0, y1, Check);
+                    if (scan) { foreach (int id in used) if (Check(id)) break; }
+                    else QueryTree(tree, 0, tree.Length, 0, x0, x1, y0, y1, Check);
+                    if (!flagged) r.O11GlobalExcused += o11Pending;
                 }
             }
 
@@ -1536,7 +1683,7 @@ namespace Meshing2Acceptance
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
                     if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
-                    if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t)) continue;
+                    if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t) || CircumcentreBehindO11Unsplittable(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }

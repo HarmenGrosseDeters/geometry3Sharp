@@ -29,7 +29,7 @@ namespace Meshing2Acceptance
                 Console.WriteLine("no corpus at " + dir + ": run python3 benchmarks/Meshing2Benchmark/corpus/fetch.py first");
                 return 2;
             }
-            var angles = (arg(args, "--angles") ?? "0,20,30").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
+            var angles = (arg(args, "--angles") ?? "0,20,25,30").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
             string filter = arg(args, "--filter");
             int seconds = int.Parse(arg(args, "--seconds") ?? "120", CultureInfo.InvariantCulture);
             int judgeLimit = int.Parse(arg(args, "--judge-limit") ?? "60000", CultureInfo.InvariantCulture);
@@ -99,7 +99,7 @@ namespace Meshing2Acceptance
             if (output.VX.Length > judgeLimit) { detail = size + " (above --judge-limit)"; return "unjudged"; }
             var report = Oracle.Check(input, output, new OracleExpect { Milestone = m });
             string text = report.ToString();
-            if (report.MergeZoneExcused > 0) size += ", " + report.MergeZoneExcused + " excused in merge zones";
+            if (report.ExcusedSummary() != "") size += ", " + report.ExcusedSummary();
             detail = size + (report.Ok ? "" : "; " + (text.Length > 300 ? text.Substring(0, 300) : text));
             return report.Ok ? "ok" : "VIOLATION " + string.Join(",", report.Violations.Select(v => v.Kind.ToString()).Distinct());
         }
