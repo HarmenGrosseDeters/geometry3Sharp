@@ -26,9 +26,11 @@ namespace Meshing2Acceptance
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
   mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
-                                    format; prints the row's fingerprints and whether they equal the golden row
-  mesh --input <in.txt> --output <file> [--milestone M1|M2|M3]
-                                    the same for an input in the plain text input format (milestone inferred from its options)
+                                    format, or Triangle .node/.ele/.poly files if <file> ends so; prints the row's fingerprints and
+                                    whether they equal the golden row
+  mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle d] [--max-area a] [--steiner-limit n]
+                                    the same for an input file (the text input format or Triangle's); an input equal to a case is
+                                    that case; otherwise the milestone is inferred from its options and default expectations judge it
   cases                             list the cases with their generators and input hashes
   compare [--rows <file>]           our rows against rows of another producer, read from <file> or G3_MESH2_REFERENCE_ROWS;
                                     skipped with a message if there are none; not part of CI
@@ -247,27 +249,8 @@ namespace Meshing2Acceptance
             return 0;
         }
 
-        /// <summary> 0: written, valid and equal to the golden row (or none recorded); 1: written, but invalid or different; 2: usage. </summary>
-        static int Mesh(string[] args)
-        {
-            string id = Arg(args, "--case"), inputPath = Arg(args, "--input"), path = Arg(args, "--output");
-            if (path == null || (id == null) == (inputPath == null)) { Console.Error.WriteLine("mesh needs --output and exactly one of --case and --input"); return 2; }
-            Mesh2Case c;
-            if (id != null) {
-                c = AllCases().FirstOrDefault(x => x.Id == id);
-                if (c == null) { Console.Error.WriteLine("unknown case: " + id + " (see 'cases')"); return 2; }
-            } else {
-                Milestone? m = Arg(args, "--milestone") == null ? (Milestone?)null : MilestoneArg(args, Milestone.M1);
-                c = MeshCommand.FromInput(TextFormat.ReadInput(File.ReadAllText(inputPath)), Path.GetFileNameWithoutExtension(inputPath), m);
-            }
-            var result = MeshCommand.Run(c);
-            File.WriteAllText(path, result.Text);
-            var golden = id != null ? MeshCommand.FindGolden(Path.GetDirectoryName(GoldenPath(c.Milestone)), c) : null;
-            foreach (var line in MeshCommand.Summary(result, golden)) Console.WriteLine(line);
-            Console.WriteLine("wrote " + path);
-            bool differs = golden != null && golden.Differences(result.Row).Any();
-            return result.Report.Ok && !differs ? 0 : 1;
-        }
+        static int Mesh(string[] args) =>
+            MeshCommand.Execute(args.Skip(1).ToList(), Console.Out, Console.Error, AllCases().ToList(), Path.GetDirectoryName(GoldenPath(Milestone.M1)));
 
         static int ListCases()
         {

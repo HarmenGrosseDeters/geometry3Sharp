@@ -89,7 +89,7 @@ namespace g3cli
 
             public double Number(string s, string name)
             {
-                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) && double.IsFinite(d)) return d;
+                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) && !double.IsNaN(d) && !double.IsInfinity(d)) return d;
                 throw Fail($"{name} is not a finite number: {s}");
             }
         }

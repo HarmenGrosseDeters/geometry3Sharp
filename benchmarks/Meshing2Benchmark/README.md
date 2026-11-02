@@ -229,14 +229,22 @@ excuses like the angle bound there (self-check 7).
 - **M2 and M3 have no rows yet**, because nothing has passed their gates: [plan, section 4](../../docs/design/MESHING2D_PLAN.md).
 - **Rows of another producer** stay out of the repository until the owner decides: `compare --rows <file>` or `G3_MESH2_REFERENCE_ROWS`, skipped with a message if absent, not in CI.
 - **Our output as a file**, to set beside a reference output: `mesh --case <id> --output <file>` runs the candidate of the golden rows (the same one and
-  the same options) on a case and writes the result in the plain text output format (format, section 4); `mesh --input <in.txt> --output <file>
-  [--milestone M1|M2|M3]` does the same for an input in the plain text input format, such as converted public data (milestone inferred from the
-  options when not given). It prints the row's fingerprints, the oracle's verdict and, for a case, whether the row equals the recorded golden row;
-  exit code 0 if valid and equal (or no row recorded), 1 otherwise. The written file read back gives the golden row's fingerprints
-  (`Meshing2MeshCommandTests`). The snap tolerance of an input is not applied before m2.snap (#277) is merged; the command says so.
+  the same options) on a case and writes the result in the plain text output format (format, section 4), or as Triangle's `.node` / `.ele` / `.poly`
+  files when `<file>` ends so (the common exchange format of 2D meshers; written from Triangle's published format description, no Triangle code).
+  `mesh --input <file> --output <file>` takes an input file: the plain text input format, or Triangle `.poly` / `.node` (simple closed loops of
+  segments bound the domain as with Triangle `-p`, hole points remove holes, regional attributes are integer labels; quality options from
+  `--min-angle`, `--max-area`, `--steiner-limit`). An input equal to a case (the same input_sha256, eg written by `case`) is that case: judged with
+  its expectations and compared with its golden row. Any other input is judged with the default expectations of its milestone (`--milestone`, or
+  inferred from its options), which know nothing a case states (a required failure, stated areas, kept or removed points), so its exit code 1 means
+  "the oracle objects under default expectations", not necessarily a fault of the mesher. It prints the row's fingerprints, the oracle's verdict
+  and the comparison with the golden row; exit code 0 if valid and equal (or no row), 1 if invalid or different, if the mesher threw, or if Triangle
+  files were asked for a failed result (they have no failure status; none are written), 2 for wrong usage, an unreadable input or an output
+  directory that does not exist. The written files read back give the golden row's fingerprints (`Meshing2MeshCommandTests`). The snap tolerance of
+  an input is not applied before m2.snap (#277) is merged; the command says so.
 
   ```
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.txt
   #   triangles_fp b26c528c..., subsegments_fp b03956b9..., vertices_fp d265ee67..., oracle VALID, golden: same as the recorded row
-  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.txt --output lake_ours.txt
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.ele    # ours.node, .ele, .poly
+  dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.poly --output lake_ours.ele --min-angle 30
   ```

@@ -47,6 +47,7 @@
     <ProjectReference Include="..\..\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" />
     <Compile Include="..\..\benchmarks\Meshing2Benchmark\Candidates\*.cs" Link="Meshing2\Candidates\%(Filename)%(Extension)" />
     <Compile Include="..\..\benchmarks\Meshing2Benchmark\MeshCommand.cs" Link="Meshing2\Candidates\MeshCommand.cs" />
+    <Compile Include="..\..\tools\g3cli\TrianglePolyFormat.cs" Link="Meshing2\Candidates\TrianglePolyFormat.cs" />
     <None Include="..\..\benchmarks\Meshing2Benchmark\golden\*.json" Link="Meshing2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\docs\design\MESHING2D_GOLDEN_FORMAT.md" Link="Meshing2\MESHING2D_GOLDEN_FORMAT.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\docs\design\MESHING2D_CATALOGUE.md" Link="Meshing2\MESHING2D_CATALOGUE.md" CopyToOutputDirectory="PreserveNewest" />

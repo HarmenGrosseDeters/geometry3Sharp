@@ -477,6 +477,43 @@ g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2
 #   -> "triangles": 2, "added_vertices": 0 (the diagonal 0-2 is kept as an edge)
 ```
 
+Triangle's `.poly` / `.node` files, the common exchange format of 2D meshers, are read and written too (by extension). A
+`.poly` gives the domain Triangle `-p` gives: simple closed loops of segments bound it, hole points remove holes, regional
+attributes are integer labels with optional maximum areas; `--poly-heights` takes the first vertex attribute as the
+height. An output ending in `.node`, `.ele` or `.poly` writes all three files. An L-shape with a square hole:
+
+```
+cat > l.poly <<'POLY'
+10 2 0 1
+1 0 0
+2 2 0
+3 2 1
+4 1 1
+5 1 2
+6 0 2
+7 0.25 0.25
+8 0.75 0.25
+9 0.75 0.75
+10 0.25 0.75
+10 1
+1 1 2 5
+2 2 3 5
+3 3 4 0
+4 4 5 0
+5 5 6 0
+6 6 1 0
+7 7 8 9
+8 8 9 9
+9 9 10 9
+10 10 7 9
+1
+1 0.5 0.5
+0
+POLY
+g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
+#   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,

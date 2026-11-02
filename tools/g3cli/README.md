@@ -14,7 +14,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
-| `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`); writes the mesh in the XY plane, z = heights | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
+| `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 
 ## Build and run
@@ -118,6 +118,8 @@ g3cli resolve assembly.off solid.ply
 # 2D quality mesh of a domain given as JSON (file or inline), then heights sampled on it
 g3cli mesh2d field.json field.obj --min-angle 30 --max-area 50
 g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,4],[0,4]], "heights": [0,4,8,4]}' --output tin.obj --max-area 0.5
+# Triangle's files: a .poly in, .node / .ele / .poly out (closed loops of segments bound the domain, as Triangle -p)
+g3cli mesh2d lake.poly lake.ele --min-angle 30 --max-area 2
 g3cli query2d tin.obj --points "1,1;3,2.5" --rect "0,0,1,1" --nearest 2
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation

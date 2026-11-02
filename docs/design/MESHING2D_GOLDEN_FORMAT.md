@@ -284,8 +284,9 @@ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- oracl
 
 `dotnet run ... -- case --case m1/grid-8x8 --output grid.txt` writes one input in the plain text format; `cases` lists all of them with their hashes.
 `dotnet run ... -- mesh --case <id> --output <file>` writes **our** output of a case in the plain text output format (section 4), made by the
-producer and options of our golden row, and prints that row's fingerprints; `mesh --input <input.txt> --output <file>` does the same for any input
-in the text format of section 2.6.
+producer and options of our golden row, and prints that row's fingerprints; `mesh --input <input.txt> --output <file>` meshes an input in the text
+format of section 2.6 (an input equal to a case is that case; others are judged with default expectations). Both also read and write Triangle's
+`.node` / `.poly` / `.ele` files, by extension (benchmarks/Meshing2Benchmark/README.md).
 
 ## 8. Rows of another producer
 
