@@ -62,7 +62,9 @@ namespace geometry3Sharp.Tests
             foreach (var (name, mesh) in new[] { ("valid", output) }.Concat(Corrupted(output))) {
                 var fast = Oracle.Check(row.Case.Input, mesh, row.Case.Expect);
                 var reference = Oracle.Check(row.Case.Input, mesh, row.Case.Expect.WithReference().WithGlobalDelaunayLimit(long.MaxValue));
-                Assert.True(fast.GlobalDelaunayChecked && reference.GlobalDelaunayChecked);
+                // a corrupted copy may stop both paths before the global pass; the valid mesh must reach it
+                Assert.True(fast.GlobalDelaunayChecked == reference.GlobalDelaunayChecked && (fast.GlobalDelaunayChecked || name != "valid"),
+                    id + " " + name + ": global pass fast " + fast.GlobalDelaunayChecked + " / reference " + reference.GlobalDelaunayChecked);
                 Assert.True(Verdict(fast) == Verdict(reference), id + " " + name + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
             }
         }
