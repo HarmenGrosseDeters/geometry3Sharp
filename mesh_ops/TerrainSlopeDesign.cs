@@ -563,17 +563,21 @@ namespace gs
             Func<InPiece, bool> slopeLeft = (pc) => {
                 SlopeToe toe = Toes[pc.Toe];
                 if (toe.Closed == false) return toe.Side == SlopeToe.Sides.Left;
-                double area2 = 0;
+                // (the orientation of the simple polygon, exact: Orient2d at its lowest vertex, lexicographically)
                 var pts = toe.Points;
-                for (int i = 0; i < pts.Count; ++i) { Vector2d u = pts[i].xy, w = pts[(i + 1) % pts.Count].xy; area2 += u.x * w.y - u.y * w.x; }
-                return (toe.Side == SlopeToe.Sides.Inside) == (area2 > 0);
+                int m = 0;
+                for (int i = 1; i < pts.Count; ++i)
+                    if (pts[i].x < pts[m].x || (pts[i].x == pts[m].x && pts[i].y < pts[m].y)) m = i;
+                int ccw = ExactPredicates.Orient2d(pts[(m + pts.Count - 1) % pts.Count].xy, pts[m].xy, pts[(m + 1) % pts.Count].xy);
+                return (toe.Side == SlopeToe.Sides.Inside) == (ccw > 0);
             };
-            Func<InPiece, Vector2d, Vector2d, bool> intoDesign = (pc, from, to) => {
-                Vector2d dir = pc.B.xy - pc.A.xy, w = to - from;
-                double cr = dir.x * w.y - dir.y * w.x;
-                return slopeLeft(pc) ? cr < 0 : cr > 0;
+            // (exact: the side of the path's other end against the line of the segment it starts from; p is the rounded
+            // nearest point, the decisions are exact on these doubles)
+            Func<InPiece, Vector2d, bool> intoDesign = (pc, other) => {
+                int side = ExactPredicates.Orient2d(pc.A.xy, pc.B.xy, other);
+                return slopeLeft(pc) ? side < 0 : side > 0;
             };
-            if (intoDesign(po, p, q) || intoDesign(pk, q, p)) return true;
+            if (intoDesign(po, q) || intoDesign(pk, p)) return true;
             // a crossing of a toe segment strictly inside the path
             foreach (InPiece pc in pieces) {
                 if (pc == po || pc == pk) continue;
