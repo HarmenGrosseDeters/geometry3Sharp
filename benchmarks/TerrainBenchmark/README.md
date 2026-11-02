@@ -270,9 +270,13 @@ within `reach` of the toe, every `tstride`-th. A hypothetical new pit floor belo
 | the same | 1 m | 2417800 | 43.6 s | 2.7 / 21.9 / 14.7 s | 1 | 1 closed (2651) | 2352484 | 0 | 3200 / 3200 | 3.7e-7 m | Success |
 | L shape 120 m at −335 m, 1:2 | 2 m | 612180 | 12.5 s | 2.1 / 5.5 / 3.4 s | 1 | 2 closed (3049) | 542894 | 0 | 3319 / 3319 | 5.0e-6 m | Success |
 | wavy 48-gon r 150 m (toe z ±4 m) at −340 m, 1:1.5 | 2 m | 749070 | 135 s | 132 s in 1a | 1 | – | – | – | – | 5.0e-9 m | **Failed** (non-manifold realization) |
+| the same, after the fix of d744efb8 | 2 m | 749070 | 966 s | 926 / 20 / 9.3 s | 3 (δ 6.4e-5) | 1 closed (7523) | 960980 | 0 | 253093 / 253093 | 4.0e-5 m | Success, peak 5.1 GB |
 | the same, `Tolerance` 0.2 | 2 m | 749070 | 92 s | 90 s in 1a | 3 | – | – | – | – | 1.1e-2 m | **SlopeViolation** (13 triangles at δ 5e-4) |
 
-Without the terrain, the wavy toe succeeds up to h 60 m (12 s) and fails with `SlopeViolation` (1 triangle) at
-h 100 m. Open, for 1c: the uneven toe at large heights (230 m here, reach about 350 m) fails in 1a, once with a
+Without the terrain, the wavy toe succeeded up to h 60 m (12 s) and failed with `SlopeViolation` (1 triangle) at
+h 100 m. After d744efb8 (two realization defects: needles from edge collapses next to collinear vertices, and faces
+narrower than the rounding) h 100 m takes one build (24 s, a unit test now) and the full case succeeds, but its margin
+is still raised twice (needles at δ 1e-6 and 8e-6 that are not yet understood), and the smaller margin share leaves a
+smaller facet angle, so 16 min and 253k slope triangles: the next 1c item. Open, for 1c: the uneven toe at large heights (230 m here, reach about 350 m) fails in 1a, once with a
 non-manifold realization that is reported as `Failed`, not caught by the check; and on the 1 m grid the overlay
 (22 s) and the composite (15 s) dominate, which the band-only overlay of 5.5 addresses. Peak memory 3.1 GB on the 1 m grid.
