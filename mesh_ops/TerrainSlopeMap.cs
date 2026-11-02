@@ -726,7 +726,7 @@ namespace gs
                     barrierPos.Add(p); barrierPos.Add(q);
                     at(p, hBar[h]); at(q, hBar[h]);
                 }
-            merge_close_positions(labelsAt, barrierPos, mergeRadius, repOf);
+            merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             foreach (int f in faces) {
                 int group = owner[fLabel[f]];
                 var verts = cycle(f).Select(h => hOrig[h]).ToList();
@@ -746,7 +746,8 @@ namespace gs
         // inputs need it: on a regular polygon the line where the strips of two pieces are equal passes within a few
         // ulps of the opposite vertex, which leaves a cluster of map vertices there; collapsing their edges one by one
         // can fail the link condition and leave a degenerate triangle.
-        static void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos, double radius,
+        static void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos,
+                                          Dictionary<Vector2d, List<int>> barriersAt, double radius,
                                           Dictionary<Vector2d, Vector2d> repOf)
         {
             if (!(radius > 0)) return;
@@ -778,6 +779,10 @@ namespace gs
                 if (best != p) {
                     repOf[p] = best;
                     foreach (int l in labelsAt[p]) if (labelsAt[best].Contains(l) == false) labelsAt[best].Add(l);
+                    // (and its barriers: the vertex is on the barriers of both, which classifies its boundary edges)
+                    List<int> bp, bq;
+                    if (barriersAt.TryGetValue(p, out bp) && barriersAt.TryGetValue(best, out bq))
+                        foreach (int bar in bp) if (bq.Contains(bar) == false) bq.Add(bar);
                     continue;
                 }
                 long k = cx * 0x100000007L + cy;

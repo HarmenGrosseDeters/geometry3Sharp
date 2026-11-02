@@ -409,9 +409,12 @@ namespace gs
             UsedSlopeMargin = delta; UsedMinFeatureSize = minFeature; UsedToeLowering = lambda;
 
             // tolerance budget: lowering, slope margin, cone facets (TERRAIN.md 5.1)
-            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0;
+            // (and the vertices merged within 64 ulps by the realization: z, the lowest plane of all of them, is at most
+            // sMax times the distance below the surface at the kept position)
+            double mergeShare = 2 * 64 * exy * sMax;
+            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare;
             if (!(facetShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0:G3})");
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare:G3})");
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
             double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
             foreach (var pc in pieces)
@@ -521,6 +524,15 @@ namespace gs
                 }
                 maxRatio = Math.Max(maxRatio, ratio_bound(a, b, cc, pc.Spec));
             }
+            // consistently oriented: the two triangles of an interior edge run along it in opposite directions (two
+            // counter-clockwise triangles on the same side of an edge would overlap; the overlay needs a height field)
+            foreach (int e in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(e);
+                if (et.b < 0) continue;
+                Index2i ev = mesh.GetEdgeV(e);
+                if (runs_along(mesh.GetTriangle(et.a), ev.a, ev.b) == runs_along(mesh.GetTriangle(et.b), ev.a, ev.b))
+                    return fail(Statuses.Failed, $"the realized slope surface folds over at edge {e}");
+            }
             br.Mesh = mesh;
             phase("check");
             PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
@@ -573,6 +585,12 @@ namespace gs
                 br.Composite = comp.Composite;
             }
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
+        }
+
+        // does triangle t have the directed edge a -> b?
+        static bool runs_along(Index3i t, int a, int b)
+        {
+            return (t.a == a && t.b == b) || (t.b == a && t.c == b) || (t.c == a && t.a == b);
         }
 
         // the plane of (a, b, c) at p's XY minus p.z, its positive part (for the measured toe lowering): exact, rounded
