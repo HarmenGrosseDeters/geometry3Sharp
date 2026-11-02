@@ -216,16 +216,17 @@ namespace g3
             }
         }
 
-        /// <summary> (internal) the box test of Query: closed boxes, as Query compares them </summary>
-        internal static bool Overlap(ref AxisAlignedBox3d a, ref AxisAlignedBox3d b)
+        /// <summary>
+        /// (internal) would Query(box) call f for the present triangle tid? Exactly its test: the closed boxes overlap,
+        /// or the triangle is not on a level and its box is not finite
+        /// </summary>
+        internal bool QueryMatches(int tid, ref AxisAlignedBox3d box)
         {
-            return overlap(ref a, ref b);
-        }
-
-        /// <summary> (internal) a box with only finite coordinates (Query returns the others for every box) </summary>
-        internal static bool IsFinite(ref AxisAlignedBox3d b)
-        {
-            return is_finite(ref b);
+            if (tid < 0 || tid >= entries.Length || entries[tid].Present == false)
+                return false;
+            if (entries[tid].Level < 0 && is_finite(ref entries[tid].Box) == false)
+                return true;
+            return overlap(ref entries[tid].Box, ref box);
         }
 
         static bool is_finite(ref AxisAlignedBox3d b)

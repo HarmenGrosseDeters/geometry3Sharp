@@ -464,7 +464,8 @@ namespace g3
             if (newTris.Count == 0)
                 return false;
             // against the rest: one grid query with the union of the new triangles' boxes, then for each candidate
-            // the new triangles whose box meets its stored box, as the grid compares them. These are exactly the pairs
+            // the new triangles whose query would have returned it (TriangleHashGrid.QueryMatches, the grid's own
+            // test against the stored box). These are exactly the pairs
             // that a query per new triangle would test (each box lies in the union), so the answer is the same; the
             // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
             // of about ten times
@@ -481,15 +482,12 @@ namespace g3
                 // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
                 // be used here: flat boxes of triangles in one axis plane never overlap by it)
                 if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                AxisAlignedBox3d stored;
-                if (triangleGrid.TryGetBox(tc, out stored) == false) return;
-                bool storedFinite = TriangleHashGrid.IsFinite(ref stored);
                 Index3i ic = mesh.GetTriangle(tc);
                 Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                 // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
                 if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
                 for (int i = 0; i < newTris.Count && hit == false; ++i) {
-                    if (storedFinite && TriangleHashGrid.Overlap(ref stored, ref gridNewBoxes[i]) == false)
+                    if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
                         continue;
                     Triangle3d A = newTris[i];
                     if (TriangleTriangleFilter.IntersectsBeyondShared(newIds[i], ref A, ic, ref C))

@@ -250,14 +250,16 @@ above; none of the measured levers takes a material share of it.
 `Reducer.collapse_creates_intersection` used to query `TriangleHashGrid` once per new triangle of a collapse, about 14
 per collapse. All of them share the kept vertex, so their boxes overlap, and the same cells and candidates were visited
 again and again. The check now queries the grid once, with the union of the new triangles' boxes. For each candidate
-it then tests the new triangles whose box meets the candidate's stored box, with the grid's own closed-box test. Each
+it then tests the new triangles whose query would have returned that candidate. `TriangleHashGrid.QueryMatches` gives
+the grid's own test: the closed stored boxes overlap, or the triangle is unplaced with a box that is not finite. Each
 box lies in the union, so these are exactly the pairs the queries per triangle tested, and the answers are the same.
 
 Upper bound, counted on scratch instrumentation (18 alpha wraps of the 400 set, `SimplifyWithin`):
 - the queries per triangle return each candidate 2.69 times;
 - the union box returns 1.22 times the distinct candidates, and the box filter leaves exactly the distinct ones;
 - grid entries visited: 3.57× fewer;
-- the grid traversal is 29 % of `SimplifyWithin`, so at most about 21 %.
+- the grid traversal is 29 % of `SimplifyWithin`, so at most about 21 % there. The bound holds for this set only: on
+  the synthetic tilted plates below, the grid takes a larger share, and the change saves more.
 
 Measured with `reducer runs=5`, minimum ms, master b860629 against this change:
 
@@ -267,13 +269,13 @@ Measured with `reducer runs=5`, minimum ms, master b860629 against this change:
 | harness tilt plate50 jitter0.5 | 1516 | 1040 | -31 % | same |
 | harness tilt plate50 | 3868 | 2561 | -34 % | same |
 | harness plate100 | 372 | 327 | -12 % | same |
-| jitter plate z0 | 82 | 79 | | same |
-| jitter plate z0 to 50 | 91 | 80 | | same |
+| jitter plate z0 | 82 | 79 | -4 % | same |
+| jitter plate z0 to 50 | 91 | 80 | -12 % | same |
 | jitter plate tilted to 50 | 3475 | 2380 | -32 % | same |
 | jitter plate tilted | 3479 | 2205 | -37 % | same |
 | integer plate | 363 | 317 | -13 % | same |
 | bumpy sphere | 288 | 255 | -11 % | same |
-| box grid | 1709 | 1753 | (noise) | same |
+| box grid | 1709 | 1753 | +3 % (noise) | same |
 
 On the 18 alpha wraps, `SimplifyWithin` takes 96.9 s in total on master and 86.6 s with the change (-10.6 %; per mesh
 -2 % to -20 %). The result is bit-identical on all 18. The rest of the upper bound goes to the box tests per candidate
