@@ -216,6 +216,18 @@ namespace g3
             }
         }
 
+        /// <summary> (internal) the box test of Query: closed boxes, as Query compares them </summary>
+        internal static bool Overlap(ref AxisAlignedBox3d a, ref AxisAlignedBox3d b)
+        {
+            return overlap(ref a, ref b);
+        }
+
+        /// <summary> (internal) a box with only finite coordinates (Query returns the others for every box) </summary>
+        internal static bool IsFinite(ref AxisAlignedBox3d b)
+        {
+            return is_finite(ref b);
+        }
+
         static bool is_finite(ref AxisAlignedBox3d b)
         {
             double s = b.Min.x + b.Min.y + b.Min.z + b.Max.x + b.Max.y + b.Max.z;
