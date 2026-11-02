@@ -469,8 +469,9 @@ needle quad whose boundary scale factors overflow, now `SolverFailed` (P4); LSCM
 unpinned ring of a low-poly cylinder and reported success, now LSCM and ARAP report `FlippedTriangles` (with the map)
 for a map with flipped or degenerate UV triangles (P1; the collapse itself stays). Known failures
 ([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): BFF Disk with the conformal extension does not keep the boundary on the circle on
-meshes without interior vertices, and on two needles gives a flipped sliver (P2); LSCM with automatic pins is
-asymmetric by 1e-4 on a symmetric patch (P3).
+meshes without interior vertices, and on two needles gives a flipped sliver (P2). By design: LSCM with automatic pins is
+asymmetric by 1e-4 on a symmetric patch (P3: the minimizer depends on the pins, and the farthest pairs are two mirrored
+diagonals at the same distance, so no rule on the geometry alone picks a mirrored pair; bounded at 1e-3 in the test).
 
 **Simplification (November 2026):** `ReducerIssueCasesTests` rebuilds 13 failure modes from the trackers of
 meshoptimizer, libigl, Manifold and CGAL: a noisy terrain reduced to 20%, a 24-triangle patch reduced to 10, almost

@@ -13,9 +13,12 @@ namespace g3
     ///
     /// Works on any connected mesh with at least one boundary loop (discs, annuli, ...). Two (or more) pinned
     /// vertices fix the similarity transform; by default two boundary vertices far apart are pinned, and the
-    /// result is scaled to the surface area. Triangles can flip on strongly curved inputs (and on annuli the
-    /// free inner boundary can collapse): such a map is reported as ParameterizationStatus.FlippedTriangles, not
-    /// as a success; use SLIM for a guaranteed flip-free map.
+    /// result is scaled to the surface area. On a surface that is not developable the map depends on which vertices
+    /// are pinned (beyond a similarity), so a mirror-symmetric input gives a mirror-symmetric map only with pins at a
+    /// mirrored pair (set PinnedVertices; the automatic pair need not be one, eg when two mirrored pairs are equally
+    /// far apart). Triangles can flip on strongly curved inputs (and on annuli the free inner boundary can collapse):
+    /// such a map is reported as ParameterizationStatus.FlippedTriangles, not as a success; use SLIM for a guaranteed
+    /// flip-free map.
     /// </summary>
     /// <example>
     /// var lscm = new LSCMParameterization(mesh);

@@ -24,8 +24,6 @@ namespace geometry3Sharp.Tests
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
             [nameof(LongThinTriangleInPlaneX0_ValidChart) + "_BffDiskTwoTriangles"] =
                 "finding P2: BFF Disk with the conformal extension leaves the circle without interior vertices; on two needles (long edge weight -2.5e4) a flipped sliver",
-            [nameof(TwoIdenticalRectangularHoles_SymmetricResult) + "_LscmAutomaticPins"] =
-                "finding P3: LSCM with automatic pins is not symmetric on a symmetric patch (pin dependence, 1e-4 relative)",
         };
 
         static void Expect(string name, Action check)
@@ -552,15 +550,18 @@ namespace geometry3Sharp.Tests
                 string va = AtlasCharts(Atlas(m, UVAtlasGenerator.Methods.Auto), out _);
                 Assert.True(va == "", $"atlas: {va}");
             });
-            string lscmCase = nameof(TwoIdenticalRectangularHoles_SymmetricResult) + "_LscmAutomaticPins";
-            double asymAuto = double.NaN;
-            Expect(lscmCase, () => {
-                asymAuto = asymmetry("lscm", new LSCMParameterization(m).Compute());
-                Assert.True(asymAuto <= 1e-6, $"lscm: mirrored distances differ by {asymAuto} of the size");
-            });
-            if (IssueCases.Strict && KnownFailures.ContainsKey(lscmCase))
-                // finding P3: the automatic pins are not a mirrored pair, and the LSCM minimizer depends on the pins
-                Assert.True(asymAuto > 1e-6 && asymAuto < 1e-3, $"P3: asymmetry {asymAuto}");
+            // LSCM with automatic pins (finding P3, by design): on a surface that is not developable the LSCM minimizer
+            // depends on the two pins beyond a similarity, and no rule that picks a pair from the geometry alone can pick a
+            // mirrored pair here: the farthest pairs are the two diagonals, mirror images of each other, at the same
+            // distance, so any symmetric rule rates them equal. The map is symmetric only up to that pin dependence
+            // (9.4e-5 of the UV size); bounded here so that a larger asymmetry (eg from a solver change) fails
+            double asymAuto = asymmetry("lscm", new LSCMParameterization(m).Compute());
+            Assert.True(asymAuto < 1e-3, $"lscm, automatic pins: mirrored distances differ by {asymAuto} of the size");
+            int[] loop = m.BoundaryEdgeIndices().Select(e => m.GetEdgeV(e).a).Distinct().ToArray();
+            Func<int, int, double> dist = (a, b) => m.GetVertex(a).Distance(m.GetVertex(b));
+            double diameter = loop.Max(a => loop.Max(b => dist(a, b)));
+            Assert.True(diameter - dist(ids[0, 0], ids[nx, ny]) <= 1e-12 * diameter, "a diagonal is not the farthest pair");
+            Assert.True(diameter - dist(ids[nx, 0], ids[0, ny]) <= 1e-12 * diameter, "the mirrored diagonal is not the farthest pair");
         }
 
         // ---------------------------------------------------------------------------------------------------------------
