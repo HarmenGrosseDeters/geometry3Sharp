@@ -60,6 +60,15 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < r.CatchLines.Count; ++i)
                     Assert.Equal(r.CatchLines[i].Points, d.CatchLines[i].Points.Select(p => Back(s, p)).ToList());
                 Assert.Equal(r.UsedToeLowering * s.Scale, d.UsedToeLowering);
+                // the catch line's gradients, unchanged, and its uncertainties, scaled (TERRAIN.md 5.5)
+                for (int i = 0; i < r.CatchLines.Count; ++i) {
+                    Assert.Equal(r.CatchLines[i].Gradient, d.CatchLines[i].Gradient);
+                    Assert.Equal(r.CatchLines[i].Uncertainty.Select(u => u * s.Scale).ToList(), d.CatchLines[i].Uncertainty);
+                }
+                // the volumes, scaled (TERRAIN.md 5.7)
+                Assert.Equal(r.Volume * s.Scale * s.Scale * s.Scale, d.Volume);
+                Assert.Equal(r.PlanArea * s.Scale * s.Scale, d.PlanArea);
+                Assert.Equal(r.SlopeArea * s.Scale * s.Scale, d.SlopeArea);
             } else {
                 // the same lines within the rounding of the frame (positions; the slope is the same within Tolerance)
                 var refPts = r.CatchLines.SelectMany(l => l.Points).ToList();
@@ -72,6 +81,10 @@ namespace geometry3Sharp.Tests
                     }
                 double lr = r.CatchLines.Sum(l => length(l)), ld = d.CatchLines.Sum(l => length(l)) / s.Scale;
                 Assert.True(Math.Abs(lr - ld) <= 1e-3 * lr, $"catch line length {ld} vs {lr}");
+                // the volumes within the slope's Tolerance over the plan area (another frame, other facets)
+                double vd = d.Volume / (s.Scale * s.Scale * s.Scale);
+                Assert.True(Math.Abs(vd - r.Volume) <= 2 * 0.02 * r.PlanArea, $"volume {vd} vs {r.Volume}");
+                TerrainSlopeVolumeTests.AssertVolumesMatchComposite(d, false);
             }
         }
 

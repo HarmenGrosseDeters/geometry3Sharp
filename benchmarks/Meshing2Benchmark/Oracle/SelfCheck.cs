@@ -418,6 +418,40 @@ namespace Meshing2Acceptance
             Mesh2Output OutV(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
                 Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            // 0. a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): the corner (0, 0) of a hull triangle of
+            //    7.1 degrees (pixel 1/4) is in no triangle; accepted when an output vertex lies in a pixel both hull edges at the corner
+            //    pass ((3/4, 0): the edge to (10, 5/4) passes it at height 3/32), not when the next vertex is beyond that ((2, 0): the edge
+            //    passes 1/4 above its pixel's centre), nor without a tolerance
+            foreach (var (qx, snapped, ok, what) in new[] { (0.75, true, true, "a hull tip collapsed through a pixel both hull edges pass"),
+                                                          (2.0, true, false, "a hull corner in no triangle, the next vertex in a pixel only one hull edge passes"),
+                                                          (0.75, false, false, "a hull corner in no triangle without a tolerance") }) {
+                var input = Points(0, 0, 10, 0, 10, 1.25, 10, 0.5);
+                input.MinAngleDeg = 20;
+                if (snapped) input.SnapTolerance = 0.25;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 10, 10, 10, qx }, VY = new[] { 0, 0, 1.25, 0.5, 0 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 4, 1, 3 }, new[] { 4, 3, 2 } }, BadTriangles = new[] { 0, 1 }, Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                bool unused = report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 0 "));
+                must((ok ? "accept: " : "reject: ") + what, unused != ok, "report: " + report);
+            }
+
+            // 0b. ... but not a 90 degree corner whose neighbour's pixel a hull edge only touches at its boundary (the square
+            //     (0.5, 0.5) - (10.5, 10.5) with points (10.4, 10.5) and (10.5, 10.4), pixel 1: the corner (11, 11) in no triangle; the
+            //     edge y = 10.5 only touches the pixel of (10, 11); review of the rule)
+            {
+                var input = Points(0.5, 0.5, 10.5, 0.5, 10.5, 10.5, 0.5, 10.5, 10.4, 10.5, 10.5, 10.4);
+                input.MinAngleDeg = 20;
+                input.SnapTolerance = 1;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 1, 11, 11, 1, 10, 11 }, VY = new double[] { 1, 1, 11, 11, 11, 10 },
+                    InputToVertex = new[] { 0, 1, 2, 3, 4, 5 }, Triangles = new[] { new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 0, 4, 3 } }, BadTriangles = new int[0],
+                    Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("reject: a 90 degree hull corner in no triangle, a hull edge touching the next pixel at its boundary",
+                    report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 2 ")), "report: " + report);
+            }
+
             // 1. an input point lands on the centre of its pixel (grid of pixel tol, anchored at the origin, half-open pixels): (dx, dy) is
             //    the input's offset from (5, 5), (ox, oy) the output's, both in units of tol
             foreach (var (dx, dy, ox, oy, snap, ok, what) in new[] {
@@ -562,6 +596,128 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 // the triangle on the unsplittable subsegment itself, not only its neighbour (whose circumcircle holds (5, 5) too)
                 must(what, kind == Violation.NotDelaunayLocal ? report.Has(kind) : report.ToString().Contains("vertex 7 inside the circumcircle of 4 5 6"), "report: " + report);
+            }
+            // 7b. O11-unsplittable pieces: without an explicit tolerance, a subsegment that lies within the tube of another input constraint
+            //     has no split point (O11 merges a point there into that constraint), so conforming Delaunay (O2) and the angle bound cannot
+            //     be reached across it, as across a piece with no split point on the grid (found with the corpus at 25 degrees, earcut's
+            //     water-huge). Legs A (4, 8)-(12, 8) and B (4, 8)-(12, 8.25) meet at 1.8 degrees; B's piece (4, 8)-(5, 8.03125) ends 1/32
+            //     from A. Global: the triangle above B, its vertices farther than the tube from both legs (no merge zone), holds the vertex
+            //     (4.5, 8) of another triangle in its circumcircle, hidden by the piece. Judged: a tube of 1/64 (the split points outside half of it),
+            //     B alone (its own constraint does not count), both triangles moved right by 1.5 (the vertex then sees the triangle past the
+            //     piece's end, across B's next piece, which reaches 1/4 from A), and an explicit tolerance (the grid decides there)
+            //     Counted only for a triangle with no violation: with a visible vertex in the same circumcircle (5, 8.4 or 4, 8.2, before or
+            //     after the hidden one in the order of the vertices), the hidden one is not counted, whichever the oracle reaches first
+            foreach (var (tubeDenominator, legA, dx, snap, visible, excused, what) in new[] {
+                (16, true, 0.0, 0.0, 0, true, "O11-unsplittable: a vertex hidden behind the piece is excused (O11, O2)"),
+                (64, true, 0.0, 0.0, 0, false, "O11-unsplittable: the same with the piece's midpoint outside half the tube is judged"),
+                (16, false, 0.0, 0.0, 0, false, "O11-unsplittable: the same without the other constraint is judged (a piece's own constraint does not count)"),
+                (16, true, 1.5, 0.0, 0, false, "O11-unsplittable: the same with the vertex not behind the piece is judged"),
+                (16, true, 0.0, 1.0 / 1024, 0, false, "O11-unsplittable: the same with an explicit tolerance is judged (the grid decides there)"),
+                (16, true, 0.0, 0.0, 1, false, "O11-unsplittable: a triangle with a visible vertex in its circumcircle counts no hidden one"),
+                (16, true, 0.0, 0.0, 2, false, "O11-unsplittable: the same with the visible vertex first") }) {
+                double dy = dx / 6;   // (raised with the move: its vertices stay farther than the tube from B, its circumcircle holds (6, 8))
+                var xy = new List<double> { 0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8, 12, 8.375, 5, 8.046875, 4.25 + dx, 8.125 + dy, 4.75 + dx, 8.125 + dy, 4.5 + dx, 8.25 + dy,
+                    4.5 + dx, 8, 4 + dx, 7.5, 5 + dx, 7.5 };
+                var input = Points(xy.ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                if (legA) input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(4, 6));
+                input.MinAngleDeg = 20; input.SnapTolerance = snap;
+                var tris = new List<int[]> { new[] { 8, 9, 10 }, new[] { 11, 12, 13 } };   // (the second puts the vertex into the mesh: only used vertices are judged)
+                if (visible > 0) {
+                    // a vertex in plain sight inside the circumcircle of 8 9 10 (centre (4.5, 7.9375), radius 0.3125), above B, in a triangle of
+                    // its own; with visible 2 it takes the slot of a ring corner, before the hidden vertex 11
+                    double vx = visible == 1 ? 4.6 : 4.4, vy = 8.2;
+                    var input2 = Points(xy.Concat(new[] { vx, vy, vx + 0.5, 9.5, vx - 0.5, 9.5 }).ToArray());
+                    input2.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    input2.Segments.AddRange(input.Segments);
+                    input2.MinAngleDeg = 20;
+                    input = input2;
+                    tris.Add(new[] { 14, 15, 16 });
+                }
+                var o = Out(input, tris.ToArray());
+                o.Subsegments.Add(new SubsegmentOutput(4, 7)); o.Subsegments.Add(new SubsegmentOutput(7, 6));
+                if (legA) { o.Subsegments.Add(new SubsegmentOutput(4, 11)); o.Subsegments.Add(new SubsegmentOutput(11, 5)); }
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, tubeDenominator) });
+                bool hiddenReported = report.ToString().Contains("vertex 11 inside the circumcircle of 8 9 10");
+                if (visible > 0)
+                    must(what, report.ToString().Contains("vertex 14 inside the circumcircle of 8 9 10") && report.O11GlobalExcused == 0, "report: " + report + ", counted " + report.O11GlobalExcused);
+                else
+                    must(what, report.GlobalDelaunayChecked && hiddenReported != excused && (report.O11GlobalExcused > 0) == excused, "report: " + report);
+            }
+            // 7c. the angle bound at the same piece: a flat triangle above B (base angles 3.6 degrees) whose circumcentre lies behind the
+            //     piece is excused; judged with the piece's end outside the tube, with B alone, moved right by 1.5 (its circumcentre then lies
+            //     behind B's next piece), and with an explicit tolerance
+            foreach (var (tubeDenominator, legA, dx, snap, excused, what) in new[] {
+                (16, true, 0.0, 0.0, true, "O11-unsplittable: a triangle below the angle whose circumcentre lies behind the piece is excused"),
+                (64, true, 0.0, 0.0, false, "O11-unsplittable: the same with the piece's midpoint outside half the tube is judged (angle)"),
+                (16, false, 0.0, 0.0, false, "O11-unsplittable: the same without the other constraint is judged (angle)"),
+                (16, true, 1.5, 0.0, false, "O11-unsplittable: the same with the circumcentre not behind the piece is judged"),
+                (16, true, 0.0, 1.0 / 1024, false, "O11-unsplittable: the same with an explicit tolerance is judged (angle)") }) {
+                double dy = dx / 6;
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8, 12, 8.375, 5, 8.046875, 4.25 + dx, 8.203125 + dy, 4.75 + dx, 8.203125 + dy, 4.5 + dx, 8.21875 + dy);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                if (legA) input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(4, 6));
+                input.MinAngleDeg = 20; input.SnapTolerance = snap;
+                var o = Out(input, new[] { new[] { 8, 9, 10 } }); o.BadTriangles = new[] { 0 };
+                o.Subsegments.Add(new SubsegmentOutput(4, 7)); o.Subsegments.Add(new SubsegmentOutput(7, 6));
+                if (legA) o.Subsegments.Add(new SubsegmentOutput(4, 5));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, tubeDenominator) });
+                must(what, report.ToString().Contains("triangle 8 9 10 is below 20 degrees") != excused && (report.O11AngleExcused > 0) == excused, "report: " + report);
+            }
+            // 7d. the local test on the piece itself, and the predicate's conditions. B runs from (4, 8) at slope m (5/128 unless stated), A' from (4.25, 8) to (12, 8),
+            //     ending before it meets B (no apex, so no merge zone); the piece of B from x0 to x1 is a subsegment, a vertex below it lies
+            //     in the circumcircle of the triangle above it. Excused only when every split point the mesher may choose (the midpoint and
+            //     the concentric-shell points from either end) lies within half the tube (the mesher's tolerance) of A', the piece has an own
+            //     constraint, and A' meets it in at most one point. Judged:
+            //     - a tube of 1/64 (the midpoint outside half of it); B alone; the edge not a subsegment; an explicit tolerance;
+            //     - A' only from 4.4 to 5.1, 0.04 and 0.02 below B: wholly within B's tube, nearly coincident with it (the mesher merges);
+            //     - A' from 3 to 12 crossing B under the piece at 3.6 degrees: both piece ends lie within the tolerance of A', so the mesher
+            //       makes the piece one of A' too and splits it (second review);
+            //     - slope 1/16: the split points lie within the tube but not within half of it;
+            //     - B horizontal (the piece of length 1/2: its shell points are its midpoint) and A' rising at 0.01 with the midpoint at
+            //       (1 - 2^-9) of the tolerance from it: between the margin and the tolerance; and A' with the piece's ends at 0.9 and
+            //       (1 + 2^-9) of the tolerance from it: within the margin of ownership, so A' counts as the piece's own;
+            //     - a piece of 1.4 at slope 0.035: the midpoint lies within half the tube, the shell point nearer B's far end does not;
+            //     - A' alone: the piece lies on no constraint;
+            //     - B only from 4.4 to 5.1, wholly within the tube of A' (merged into it);
+            //     - the long piece again with the shared edge met from the other side first (the oracle takes the piece's ends in the
+            //       other order: the shell point outside half the tube is then the one from the first end).
+            //     Excused also: B reaching 2^23 away with the piece's end 2^-30 off it, more than 16 ulps of the end, less than of B's far
+            //     end (a split point is computed from the constraint's end; review of the first version)
+            const double M = 5.0 / 128;   // (B's slope: the piece's far end 5/128 from A', beyond the tolerance 1/32, its split points within it)
+            double B(double x) => 8 + M * (x - 4);
+            foreach (var (tubeDenominator, legA, legB, constrained, snap, ax0, ay0, ax1, ay1, m, x0, x1, farB, excused, what, bx0, bLen, flip) in new (int, bool, bool, bool, double, double, double, double, double, double, double, double, bool, bool, string, double, double, bool)[] {
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, true, "O11-unsplittable: the piece itself is excused from the local test", 4.0, 0.0, false),
+                (64, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: the same with the piece's midpoint outside half the tube is judged (local)", 4.0, 0.0, false),
+                (16, false, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: the same without the other constraint is judged (local)", 4.0, 0.0, false),
+                (16, true, true, false, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: an unconstrained edge there is judged (local)", 4.0, 0.0, false),
+                (16, true, true, true, 1.0 / 1024, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: the same with an explicit tolerance is judged (local)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.4, B(4.4) - 0.04, 5.1, B(5.1) - 0.02, M, 4.5, 5.0, false, false, "O11-unsplittable: a short constraint wholly within the tube of the piece's own is judged (merged, O11)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 3.0, B(3) - 0.109375, 12.0, B(12) + 0.453125, M, 4.5, 5.0, false, false, "O11-unsplittable: a constraint crossing the piece's own at a tiny angle, both ends within the tolerance, is its own (judged)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 1.0 / 16, 4.5, 5.0, false, false, "O11-unsplittable: split points within the tube but not within half of it are judged", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.026190524253007, 12.0, 8.103690524253008, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a split point a hair inside the tolerance is judged (the mesher decides in doubles)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.026532521059163, 12.0, 8.075917068537814, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a piece with an end a hair beyond the tolerance of the other constraint counts it as its own (judged)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: a shell point outside half the tube is judged, the midpoint inside it", 4.0, 0.0, false),
+                (16, true, false, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: a piece on no input constraint is judged", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, true, true, "O11-unsplittable: a piece off its own long constraint by its rounding is excused", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: a short own constraint wholly within the tube of another is judged (merged, O11)", 4.4, 0.7, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: the same shell case with the piece's ends in the other order is judged", 4.0, 0.0, true) }) {
+                double big = farB ? 1 << 24 : 16;
+                double bl = bLen == 0 ? (farB ? 1 << 23 : 8) : bLen;
+                double y0 = 8 + m * (x0 - 4), y1 = 8 + m * (x1 - 4) + (farB ? 1.0 / (1 << 30) : 0), xm = (x0 + x1) / 2, ym = 8 + m * (xm - 4);
+                var input = Points(0, 0, big, 0, big, big, 0, big, bx0, 8 + m * (bx0 - 4), bx0 + bl, 8 + m * (bx0 + bl - 4), ax0, ay0, ax1, ay1, x0, y0, x1, y1, xm, ym + 0.2734375, xm, 7.90625);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                if (legB) input.Segments.Add(new SegmentInput(4, 5));
+                if (legA) input.Segments.Add(new SegmentInput(6, 7));
+                input.MinAngleDeg = 20; input.SnapTolerance = snap;
+                var o = Out(input, flip ? new[] { new[] { 9, 8, 11 }, new[] { 8, 9, 10 } } : new[] { new[] { 8, 9, 10 }, new[] { 9, 8, 11 } });
+                if (constrained) { o.Subsegments.Add(new SubsegmentOutput(4, 8)); o.Subsegments.Add(new SubsegmentOutput(8, 9)); o.Subsegments.Add(new SubsegmentOutput(9, 5)); }
+                if (legA) o.Subsegments.Add(new SubsegmentOutput(6, 7));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, tubeDenominator) });
+                must(what, report.ToString().Contains(flip ? "edge 9-8 is not locally Delaunay against 10" : "edge 8-9 is not locally Delaunay against 11") != excused
+                    && (report.O11LocalExcused > 0) == excused, "report: " + report);
             }
             // 3. a hole marker that snapping swept, here inside a contour that collapsed, is dropped, not obeyed (clean-room answer 6).
             //    Still obeyed: a marker in a contour that did not move, also next to a near-duplicate point merged into its corner, and a

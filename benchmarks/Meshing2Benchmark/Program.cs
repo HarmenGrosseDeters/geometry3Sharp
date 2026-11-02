@@ -22,7 +22,7 @@ namespace Meshing2Acceptance
                                     rewrite the rows; <file> has one line per changed case: <case><TAB><reason>
   golden verify-changes --base <old.json> [--current <new.json>]
                                     every changed row states a new reason (the gate on a pull request)
-  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--case <id>] [--row <file>]
+  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--stated-area <a> [--stated-area-tolerance <t>]] [--case <id>] [--row <file>]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
   mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
@@ -40,7 +40,7 @@ namespace Meshing2Acceptance
                                     time and allocation of the M1 kernel alone (spec 3.1)
   snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
   rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
-  corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
+  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
@@ -54,6 +54,8 @@ namespace Meshing2Acceptance
             string oracleMode = Arg(args, "--oracle");
             if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
             Oracle.ForceReference = oracleMode == "reference";
+            // mesh --no-oracle times the mesher alone: nothing is judged, so the self-check is not needed either
+            if (args[0] == "mesh" && Has(args, "--no-oracle")) return Mesh(args);
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);
@@ -112,7 +114,7 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
                 string text = report.ToString();
                 Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
-                    + (report.MergeZoneExcused > 0 ? report.MergeZoneExcused + " excused in merge zones, " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                    + (report.ExcusedSummary() != "" ? report.ExcusedSummary() + ", " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
                 if (!report.Ok) ++bad;
             }
             return bad == 0 ? 0 : 1;
@@ -226,9 +228,7 @@ namespace Meshing2Acceptance
             if (inputPath == null || outputPath == null) { Console.Error.WriteLine(Usage); return 2; }
             var input = TextFormat.ReadInput(File.ReadAllText(inputPath));
             var output = TextFormat.ReadOutput(File.ReadAllText(outputPath), out string producer);
-            var e = new OracleExpect { Milestone = MilestoneArg(args, Milestone.M1) };
-            string tube = Arg(args, "--tube");
-            if (tube != null && tube != "auto") e.Tube = Q.FromDouble(TextFormat.ParseCoordinate(tube));
+            var e = MeshCommand.OracleExpectation(MilestoneArg(args, Milestone.M1), Arg(args, "--tube"), Arg(args, "--stated-area"), Arg(args, "--stated-area-tolerance"));
             var report = Oracle.Check(input, output, e);
             foreach (var v in report.Violations) Console.WriteLine("VIOLATION " + v);
             Console.WriteLine((report.Ok ? "VALID" : "INVALID") + " " + producer + ": " + output.Triangles.Length + " triangles, unique " + report.Unique.ToString().ToLowerInvariant()

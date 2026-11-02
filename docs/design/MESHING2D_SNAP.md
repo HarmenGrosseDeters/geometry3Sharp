@@ -338,6 +338,29 @@ exactly; 12000 meshes at 20° and 30° pass the oracle):
   subsegment instead, and there is no split point). Ties of shortest edges are tried both ways for a small input angle. On a grid that
   doubles do not hold exactly (k w rounds), vertices are taken at the centre of their pixel and matched by it, and pixel corners touched
   by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller, and more at large coordinates).
+- **Oracle, without an explicit tolerance: O11-unsplittable pieces** (owner decision 2026-11-02, option B of the water-huge finding).
+  The same three exemptions apply at a subsegment that the mesher may not split, because O11 merges a point within its tolerance of
+  an input constraint into that constraint (`NearOtherSource`). Conforming Delaunay (O2) and the angle bound cannot be reached across
+  such a piece, as across a piece with no split point on the grid. One predicate (`O11Unsplittable`) serves all three exemptions:
+  - the local test of the piece itself (never an unconstrained edge next to it);
+  - a vertex behind it in the global test, seen from the triangle's centroid;
+  - a triangle below the angle whose exact circumcentre lies behind it.
+
+  The predicate, decided exactly:
+  - The piece has an own input constraint, one that holds both its ends within the mesher's tolerance (half the tube). The mesher makes
+    such vertices vertices of that constraint and merges the sources of the shared piece.
+  - Every split point the mesher may choose lies a hair (2^-7) inside that tolerance of another input constraint, as the mesher decides
+    in doubles. Those points are the midpoint and the concentric-shell point from either end, as in `QualityMesh2.SplitSegment`.
+  - That other constraint meets each own one in at most one point. Nearly coincident lines are merged by the mesher into pieces of both,
+    and such a piece is split.
+
+  The exemptions are counted in every report (`O11LocalExcused`, `O11GlobalExcused`, `O11AngleExcused`), as the merge zone's are; a
+  triangle's hidden vertices count only when the triangle has no violation. Self-checks 7b to 7d cover them.
+  They were found with the corpus at 25 degrees: earcut's water-huge has a ring corner of 0.84 degrees, and the first piece of one leg
+  (2^-22 long) has its midpoint 1.75e-9 from the other leg, against a mesher tolerance of 1.98e-9. Two independent reviews narrowed the
+  first version (both ends within the tube, ownership by ulps) to this one. With a tube given to the oracle (`--tube`) the tolerance
+  follows that tube. Its reduction to five points is
+  `QualityMesh2Tests.SpikeOf084Degrees_*`.
 - **The corpus** (item 6; `Meshing2Benchmark gridcounts`, the 84 corpus inputs at a tolerance of 2^-10 and 10^-3 of their extent;
   counts summed, inputs with any in brackets):
 

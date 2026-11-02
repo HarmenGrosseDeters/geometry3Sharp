@@ -165,7 +165,7 @@ without demanding it; both lie in the gap band of D14 (pixel width tol), where m
 ## Corpus: public test fixtures (2026-11-01)
 
 The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
-licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20 and 30 degrees:
+licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20, 25 and 30 degrees (25 since the O11-unsplittable finding below):
 
 ```
 python3 benchmarks/Meshing2Benchmark/corpus/fetch.py
@@ -186,6 +186,7 @@ Found and fixed by the run (each with a regression test or self-check):
 | delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
 | earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
 | earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
+| earcut water-huge (M3 at 25 degrees; 0, 20 and 30 never ran 25) | oracle: a vertex in a circumcircle across a leg of the 0.84 degree corner | the leg's first piece (2^-22) has its midpoint 1.75e-9 from the other leg, within the mesher's tolerance (1.98e-9): O11 forbids the split point, so conforming Delaunay cannot be reached across it. The oracle mirrors the grid's three unsplittable exemptions for such O11-unsplittable pieces, counted per report (self-checks 7b to 7d, `SpikeOf084Degrees_*`). With it: 84 inputs, 330 M3 runs pass, 6 unjudged; excused once (water-huge at 25, 1 global), none in the catalogue rows |
 | earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
 
 ## The oracle's fast path (2026-11-01)

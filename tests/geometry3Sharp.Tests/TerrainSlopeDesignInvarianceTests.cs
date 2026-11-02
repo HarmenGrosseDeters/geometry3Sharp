@@ -105,6 +105,7 @@ namespace geometry3Sharp.Tests
             d.CancelF = () => ++calls > 3;
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.Cancelled, d.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.Cancelled, d.StatusKind);
             Assert.Null(d.SlopeSurface);
         }
     }

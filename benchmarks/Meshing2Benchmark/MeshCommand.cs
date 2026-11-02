@@ -18,9 +18,24 @@ namespace Meshing2Acceptance
     /// </summary>
     public static class MeshCommand
     {
+        /// <summary>
+        /// The expectations of the `oracle` command: the milestone, the tube (null or "auto": the oracle's own), and the area the case
+        /// states with its tolerance (a seed-only hole removes a cell of the input constraints, which the oracle does not compute: such a
+        /// case must state its area, eg F-17/b, or the verdict is CannotJudge)
+        /// </summary>
+        public static OracleExpect OracleExpectation(Milestone m, string tube, string statedArea, string statedAreaTolerance)
+        {
+            var e = new OracleExpect { Milestone = m };
+            if (tube != null && tube != "auto") e.Tube = Q.FromDouble(TextFormat.ParseCoordinate(tube));
+            if (statedArea != null) e.StatedArea = Q.FromDouble(TextFormat.ParseCoordinate(statedArea));
+            if (statedAreaTolerance != null) e.StatedAreaTolerance = Q.FromDouble(TextFormat.ParseCoordinate(statedAreaTolerance));
+            return e;
+        }
+
         public const string Usage =
             "mesh --case <id> --output <file>\n" +
             "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>] [--snap-tolerance <t>]\n" +
+            "  --no-oracle (either form): mesh and write only, no oracle and no self-check (timing the mesher; exit 0 when written); the times are printed\n" +
             "  output: the plain text output format, or Triangle files when <file> ends in .node, .ele or .poly\n" +
             "  exit code: 0 written, valid and equal to the golden row (or none recorded); 1 written but invalid or different, or the mesher\n" +
             "  threw or failed where Triangle files were asked for; 2 wrong usage, unreadable input, unwritable output, an option or input the\n" +
@@ -36,6 +51,10 @@ namespace Meshing2Acceptance
             public GoldenRow Row;
             /// <summary> the output in the text format of section 4 </summary>
             public string Text;
+            /// <summary> false with --no-oracle: the report is empty, nothing was judged </summary>
+            public bool Judged = true;
+            /// <summary> wall-clock time of the mesher (on its thread) and of the oracle, milliseconds </summary>
+            public double MeshMs, OracleMs;
         }
 
         /// <summary>
@@ -81,17 +100,21 @@ namespace Meshing2Acceptance
         }
 
         /// <summary> Runs the candidate of the case's milestone (on a thread with a large stack, as `rows` does), judges the result and makes its row and text. </summary>
-        public static Result Run(Mesh2Case c)
+        public static Result Run(Mesh2Case c, bool judge = true)
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
             var thread = new System.Threading.Thread(() => { try { output = candidate.Run(c.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             thread.Start();
             thread.Join();
+            double meshMs = clock.Elapsed.TotalMilliseconds;
             if (error != null) throw new MesherException(candidate.Name, error);
-            var report = Oracle.Check(c.Input, output, c.Expect);
+            clock.Restart();
+            var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
+            double oracleMs = clock.Elapsed.TotalMilliseconds;
             return new Result {
-                Case = c, Producer = candidate.Name, Output = output, Report = report,
+                Case = c, Producer = candidate.Name, Output = output, Report = report, Judged = judge, MeshMs = meshMs, OracleMs = oracleMs,
                 Row = GoldenRow.From(c, candidate.Name, output, report, ""),
                 Text = TextFormat.WriteOutput(output, candidate.Name),
             };
@@ -124,6 +147,8 @@ namespace Meshing2Acceptance
             if (r.Row.IdentityFp != null) yield return "identity_fp " + r.Row.IdentityFp;
             yield return "area2 " + r.Row.Area2;
             yield return "min_angle_sin2 " + (r.Row.MinAngleSin2 ?? "-");
+            yield return "time: mesh " + r.MeshMs.ToString("F0", CultureInfo.InvariantCulture) + " ms, oracle " + (r.Judged ? r.OracleMs.ToString("F0", CultureInfo.InvariantCulture) + " ms" : "not run");
+            if (!r.Judged) { yield return "oracle: not run (--no-oracle), no golden comparison"; yield break; }
             yield return "oracle " + (r.Report.Ok ? "VALID" : "INVALID: " + r.Report);
             if (golden == null) {
                 yield return "golden: no recorded row for " + r.Case.Id;
@@ -269,7 +294,7 @@ namespace Meshing2Acceptance
 
             Result result;
             try {
-                result = Run(c);
+                result = Run(c, !args.Contains("--no-oracle"));
             } catch (MesherException e) when (e.InnerException is ArgumentException) {
                 // the mesher refused an option or the input (eg a snap tolerance too small for the coordinates)
                 error.WriteLine("invalid input: " + e.InnerException.Message);
@@ -301,8 +326,9 @@ namespace Meshing2Acceptance
                 error.WriteLine("cannot write the output: " + e.Message);
                 return 2;
             }
-            var golden = known ? FindGolden(goldenDir, c) : null;
+            var golden = known && result.Judged ? FindGolden(goldenDir, c) : null;
             foreach (var line in Summary(result, golden)) output.WriteLine(line);
+            if (!result.Judged) return 0;
             bool differs = golden != null && golden.Differences(result.Row).Any();
             return result.Report.Ok && !differs ? 0 : 1;
         }
