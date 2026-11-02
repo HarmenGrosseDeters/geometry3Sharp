@@ -418,6 +418,40 @@ namespace Meshing2Acceptance
             Mesh2Output OutV(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
                 Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            // 0. a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): the corner (0, 0) of a hull triangle of
+            //    7.1 degrees (pixel 1/4) is in no triangle; accepted when an output vertex lies in a pixel both hull edges at the corner
+            //    pass ((3/4, 0): the edge to (10, 5/4) passes it at height 3/32), not when the next vertex is beyond that ((2, 0): the edge
+            //    passes 1/4 above its pixel's centre), nor without a tolerance
+            foreach (var (qx, snapped, ok, what) in new[] { (0.75, true, true, "a hull tip collapsed through a pixel both hull edges pass"),
+                                                          (2.0, true, false, "a hull corner in no triangle, the next vertex in a pixel only one hull edge passes"),
+                                                          (0.75, false, false, "a hull corner in no triangle without a tolerance") }) {
+                var input = Points(0, 0, 10, 0, 10, 1.25, 10, 0.5);
+                input.MinAngleDeg = 20;
+                if (snapped) input.SnapTolerance = 0.25;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 10, 10, 10, qx }, VY = new[] { 0, 0, 1.25, 0.5, 0 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 4, 1, 3 }, new[] { 4, 3, 2 } }, BadTriangles = new[] { 0, 1 }, Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                bool unused = report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 0 "));
+                must((ok ? "accept: " : "reject: ") + what, unused != ok, "report: " + report);
+            }
+
+            // 0b. ... but not a 90 degree corner whose neighbour's pixel a hull edge only touches at its boundary (the square
+            //     (0.5, 0.5) - (10.5, 10.5) with points (10.4, 10.5) and (10.5, 10.4), pixel 1: the corner (11, 11) in no triangle; the
+            //     edge y = 10.5 only touches the pixel of (10, 11); review of the rule)
+            {
+                var input = Points(0.5, 0.5, 10.5, 0.5, 10.5, 10.5, 0.5, 10.5, 10.4, 10.5, 10.5, 10.4);
+                input.MinAngleDeg = 20;
+                input.SnapTolerance = 1;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 1, 11, 11, 1, 10, 11 }, VY = new double[] { 1, 1, 11, 11, 11, 10 },
+                    InputToVertex = new[] { 0, 1, 2, 3, 4, 5 }, Triangles = new[] { new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 0, 4, 3 } }, BadTriangles = new int[0],
+                    Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("reject: a 90 degree hull corner in no triangle, a hull edge touching the next pixel at its boundary",
+                    report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 2 ")), "report: " + report);
+            }
+
             // 1. an input point lands on the centre of its pixel (grid of pixel tol, anchored at the origin, half-open pixels): (dx, dy) is
             //    the input's offset from (5, 5), (ox, oy) the output's, both in units of tol
             foreach (var (dx, dy, ox, oy, snap, ok, what) in new[] {
@@ -696,6 +730,76 @@ namespace Meshing2Acceptance
                     must(ok ? "merge zone: a skinny triangle 1.8e-7 from a 1 degree apex is exempt" : "merge zone: a skinny triangle 2.1e-7 from the apex is still judged",
                         angleFlagged != ok, "report: " + report);
                 }
+            }
+
+            // 6a. the same needle where the second segment leaves the apex to the left, at 179 degrees to the first: no merge zone on
+            //     that side (the segments are not within the tube of each other there; review of the hull pairing)
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180), r = 1.2e-7;
+                var input = Points(1000, 0, 1100, 0, 1000 - 100 * c, 100 * sn, 1000 + r, 0, 1000 + 1.5 * r, 0.008 * r, 1000 + 1.25 * r, 0.0095 * r,
+                    900, -100, 1200, -100, 1200, 100, 900, 100);
+                input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                input.Rings.Add(new RingInput(new[] { 6, 7, 8, 9 }, false));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 3, 4, 5 } }); o.BadTriangles = new[] { 0 };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("merge zone: a skinny triangle at an apex of 179 degrees is judged", report.Has(Violation.AngleBelowBound), "report: " + report);
+            }
+
+            // 6b. the merge zone where a segment meets a hull edge (hull domain, D13): the mesher refuses a split point of the hull edge
+            //     within the tolerance of the segment (O11), so the zone counts the pair; the same radii as in 6 (tube 1200 / 2^40, the
+            //     apex a hull corner, the segment at 1 degree to the hull edge). The needle 3-4-5's two small corners are no boundary
+            //     corners: its edges are shared with three neighbours (6 on the hull, 7 and 10 across the segment), which lie in the zone
+            //     too (Herne tiles). Judged: beyond the zone, with an explicit tolerance (the grid refuses nothing this way), and on the
+            //     obtuse side of the apex (review of the pairing: there the sources are not within the tube of each other). Exempt
+            //     too with the roles swapped: the segment along the hull's inside, the hull edge at 1 degree to it
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
+                var needle = new[] { new[] { 3, 4, 5 }, new[] { 3, 6, 4 }, new[] { 3, 5, 7 }, new[] { 5, 4, 10 } };
+                double[] Triangle(double r) => new[] { 1000 + r, 0.0005 * r, 1000 + 1.5 * r, 0.008 * r, 1000 + 1.25 * r, 0.0095 * r, 1000 + 1.3 * r, 0, 1000 + 0.9 * r, 0.3 * r };
+                void Case(string what, bool exempt, double[] xy, int[][] triangles, double snap = 0, (int, int) segment = default)
+                {
+                    // (with a tolerance the input lies on its grid, 2^-44 here, so that the oracle reaches the angle bound)
+                    if (snap > 0) xy = xy.Select(x => Math.Round(x / snap) * snap).ToArray();
+                    var input = Points(xy);
+                    if (segment.Item1 >= 0) input.Segments.Add(segment == default ? new SegmentInput(0, 2) : new SegmentInput(segment.Item1, segment.Item2));
+                    input.MinAngleDeg = 20;
+                    input.SnapTolerance = snap;
+                    var o = Out(input, triangles); o.BadTriangles = Enumerable.Range(0, triangles.Length).ToArray();
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    string text = report.ToString();
+                    bool judged = text.Contains("triangle " + string.Join(" ", triangles[0]) + " is below");
+                    must((exempt ? "hull merge zone, exempt: " : "hull merge zone, judged: ") + what,
+                        !report.Has(Violation.NotPositive) && (exempt ? !report.Has(Violation.AngleBelowBound) : judged), "report: " + text);
+                }
+                double[] Join(params double[][] parts) => parts.SelectMany(x => x).ToArray();
+                var corners = new double[] { 1200, 100, 1000, 100 };
+                Case("a needle 1.8e-7 from a 1 degree apex of a segment and a hull edge", true,
+                    Join(new double[] { 1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn }, Triangle(1.2e-7), corners, new[] { 1000 + 1.4 * 1.2e-7, 0.2 * 1.2e-7 }), needle);
+                Case("the needle 2.1e-7 from the apex", false,
+                    Join(new double[] { 1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn }, Triangle(1.4e-7), corners, new[] { 1000 + 1.4 * 1.4e-7, 0.2 * 1.4e-7 }), needle);
+                Case("the exempt needle with an explicit tolerance (2^-44)", false,
+                    Join(new double[] { 1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn }, Triangle(1.2e-7), corners, new[] { 1000 + 1.4 * 1.2e-7, 0.2 * 1.2e-7 }), needle, Math.Pow(2, -44));
+                // mirrored at x = 1000: the apex (1000, 0) a collinear point of the hull edge from (800, 0), the segment to the right, the
+                // needle on the left, at 179 degrees to the segment
+                var left = Triangle(1.2e-7).Select((x, i) => i % 2 == 0 ? 2000 - x : x).ToArray();
+                Case("a needle on the obtuse side of a collinear hull point", false,
+                    Join(new double[] { 1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn }, left, new double[] { 1200, 100, 800, 100, 2000 - (1000 + 1.4 * 1.2e-7), 0.2 * 1.2e-7, 800, 0 }),
+                    new[] { new[] { 3, 5, 4 }, new[] { 3, 4, 6 }, new[] { 3, 7, 5 }, new[] { 5, 10, 4 } });
+                // the roles swapped: the segment (1000, 0) - (1100, 0) inside, the hull edge from the apex to (1000 + 100 cos 1,
+                // 100 sin 1), the hull's other corners below; the needle's vertices lie in the segment's tube only, its neighbours 7 and
+                // 10 between the needle and the hull edge (wedges at its small corners of 173 and 162 degrees, not forced)
+                double r0 = 1.2e-7;
+                var swapped = Triangle(r0);
+                swapped[8] = 1000 + 0.9 * r0; swapped[9] = 0.012 * r0;
+                Case("the needle near the segment, the hull edge at 1 degree to it", true,
+                    Join(new double[] { 1000, 0, 1100, 0, 1000 + 100 * c, 100 * sn }, swapped, new double[] { 1200, -100, 1000, -100, 1000 + 1.55 * r0, 0.026 * r0 }),
+                    needle, 0, (0, 1));
+                // no segment: the hull's corner at the apex is 1 degree (edges to (1200, 0) and to (1000 + 100 cos 1, 100 sin 1)); the
+                // mesher never refuses a hull split point near another hull edge, so two hull edges make no zone
+                Case("a needle at a hull corner of 1 degree (two hull edges)", false,
+                    Join(new double[] { 1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn }, swapped, new double[] { 1100, 0.5, 1050, 0.3, 1000 + 1.55 * r0, 0.026 * r0 }),
+                    needle, 0, (-1, -1));
             }
 
             // 7. conforming in the merge zone: a vertex inside the circumcircle of a triangle 1.8e-7 from a 1 degree apex is excused,
@@ -1097,10 +1201,14 @@ namespace Meshing2Acceptance
                 return input;
             }
             int[] R(params int[] v) => v;
+            // (both paths: the filtered one, with the shoelace for a single simple ring and the slabs over box-filtered pairs otherwise,
+            // and the reference path, the slabs over all pairs)
             void Area(string name, Q expected, Mesh2Input input)
             {
                 var domain = new Domain(input);
                 must("domain area: " + name, domain.Area == expected, "got " + domain.Area);
+                var reference = new Domain(input, false);
+                must("domain area, reference path: " + name, reference.Area == expected, "got " + reference.Area);
             }
             double[] S(params double[] extra) => new double[] { 0, 0, 10, 0, 10, 10, 0, 10 }.Concat(extra).ToArray();
             Area("square, either orientation, closing point", 100, Rings(S(), (R(3, 2, 1, 0, 3), false)));
@@ -1108,6 +1216,26 @@ namespace Meshing2Acceptance
             Area("a collinear hull has no area", 0, Points(0, 0, 1, 1, 2, 2));
             Area("hole", 96, Rings(S(2, 2, 4, 2, 4, 4, 2, 4), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true)));
             Area("F-7 bowtie", new Q(1, 2), Rings(new double[] { 0, 0, 1, 1, 1, 0, 0, 1 }, (R(0, 1, 2, 3), false)));
+            // a single ring that is not simple must not take the shoelace: a figure eight touching itself at (5, 5) (lobes turning the
+            // same way: shoelace and parity agree, both paths must still get it), a lobe inside the square touching it at a vertex only
+            // (parity: a hole of 3/2, the shoelace would add it: 203/2; review of the speed-up), a lobe inside the other with the same
+            // turning (parity: a hole, the shoelace would add it), a spike back along an edge (zero width: area unchanged)
+            Area("a ring touching itself at a vertex", 50, Rings(new double[] { 0, 0, 5, 5, 10, 0, 10, 10, 5, 5, 0, 10 }, (R(0, 1, 2, 3, 1, 5), false)));
+            Area("a lobe touching the ring at a vertex only is a hole", new Q(197, 2), Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 1, 1, 2 }, (R(0, 1, 2, 3, 0, 4, 5), false)));
+            // a single hole ring (the outer ring has two points, no area): nothing is inside, also on the shoelace path (review)
+            Area("a lone hole ring", 0, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 20, 20, 30, 30 }, (R(0, 1, 2, 3), true), (R(4, 5), false)));
+            Area("a lobe inside the ring, turning the same way, is a hole", 96, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 2, 4, 2, 4, 4, 2, 4 },
+                (R(0, 1, 2, 3, 0, 4, 5, 6, 7, 4), false)));
+            Area("a spike back along an edge", 100, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 5, 10, 5, 15 }, (R(0, 1, 2, 4, 5, 4, 3), false)));
+            // a star of 40 spikes, simple: the shoelace and the slabs agree (the area is the shoelace's, by construction)
+            {
+                var xy = new List<double>();
+                for (int i = 0; i < 80; ++i) { double rad = i % 2 == 0 ? 8 : 1 + (i % 7) * 0.25, a = 2 * Math.PI * i / 80; xy.Add(rad * Math.Cos(a)); xy.Add(rad * Math.Sin(a)); }
+                var star = Rings(xy.ToArray(), (Enumerable.Range(0, 80).ToArray(), false));
+                Q twice = Q.Zero;
+                for (int i = 0; i < 80; ++i) { int j = (i + 1) % 80; twice += Q.FromDouble(xy[2 * i]) * Q.FromDouble(xy[2 * j + 1]) - Q.FromDouble(xy[2 * j]) * Q.FromDouble(xy[2 * i + 1]); }
+                Area("a simple star of 40 spikes", Q.Abs(twice) * new Q(1, 2), star);
+            }
             Area("F-43 touching holes", 92, Rings(S(2, 2, 4, 2, 4, 4, 2, 4, 6, 2, 6, 4), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true), (R(5, 8, 9, 6), true)));
             Area("F-43 hole on the boundary", 94, Rings(S(0, 4, 3, 4, 3, 6, 0, 6), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true)));
             Area("F-44 a square in a hole does not fill back", 64, Rings(S(2, 2, 8, 2, 8, 8, 2, 8, 4, 4, 6, 4, 6, 6, 4, 6), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true), (R(8, 9, 10, 11), true)));
