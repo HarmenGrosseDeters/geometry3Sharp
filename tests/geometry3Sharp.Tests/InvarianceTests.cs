@@ -305,6 +305,34 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.GeometricDifference(w0.Result, Invariance.MappedBack(w.Result, s)));
         }
 
+        // the refinement at non-manifold spots (AlphaWrapTests.Wrap_NonManifoldSpots_AngleBoundOnAllTriangles) under every
+        // similarity: every triangle within the angle bound (rotated: those with a circumradius up to alpha); the 2^k scales
+        // give the same wrap bit for bit
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void AlphaWrap_NonManifoldSpots_AngleBoundUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = AlphaWrapTests.RandomSoup(42);
+            var w0 = new MeshAlphaWrap(input) { RelativeAlpha = 20, RelativeOffset = 200 };
+            Assert.True(w0.Compute(), w0.Error);
+            var w = new MeshAlphaWrap(Invariance.Transformed(input, s)) { RelativeAlpha = 20, RelativeOffset = 200 };
+            if (s.IsRotated) {
+                w.Alpha = s.ApplyLength(w0.UsedAlpha);
+                w.Offset = s.ApplyLength(w0.UsedOffset);
+            }
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            // (a rotation changes the box and with it the refinement: there one pinch can remain for the manifold step, whose
+            // facets have no bound; the triangles of the carving keep it)
+            if (s.IsRotated)
+                AlphaWrapTests.AssertSeparationBound(w, s.Name);
+            else
+                AlphaWrapTests.AssertAngleBoundOnAllTriangles(w, s.Name);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.GeometricDifference(w0.Result, Invariance.MappedBack(w.Result, s)));
+        }
+
         [Fact]
         public void AlphaWrap_RepeatedRuns_BitIdentical()
         {

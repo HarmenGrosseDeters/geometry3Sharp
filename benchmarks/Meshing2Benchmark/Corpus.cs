@@ -87,7 +87,7 @@ namespace Meshing2Acceptance
         {
             Mesh2Output output = null; Exception error = null;
             var sw = Stopwatch.StartNew();
-            var thread = new System.Threading.Thread(() => { try { output = candidate.Run(input); } catch (Exception e) { error = e; } }, 256 << 20);
+            var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(input); } catch (Exception e) { error = e; } }, 256 << 20);
             thread.IsBackground = true;
             thread.Start();
             if (!thread.Join(seconds * 1000)) { detail = "after " + seconds + " s"; return "TIMEOUT"; }

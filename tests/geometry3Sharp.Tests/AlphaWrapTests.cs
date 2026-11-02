@@ -699,11 +699,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, w.Counts["rejected_rule1"]);
             Assert.Equal(1, w.Counts["box_retries"]);       // the first box (same margin on all sides) failed
             CheckWrap(w, Vertices(s));
-            // without the retry: box corners on the result, which the result check reports as Failed, not Success
+            // without the retry: box corners on the result, or (with the refinement at non-manifold spots, which can carve
+            // them away) the rejected rule 1 points, which the result check reports as Failed, not Success
             var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false };
             Assert.False(symmetric.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
-            Assert.Equal("result box corners on the result", symmetric.Error);
+            Assert.True(symmetric.Error == "result box corners on the result"
+                || symmetric.Error == "result rule 1 Steiner points rejected (offset not guaranteed)", symmetric.Error);
             Assert.True(symmetric.Counts["rejected_rule1"] > 0);
         }
 
@@ -799,7 +801,7 @@ namespace geometry3Sharp.Tests
         }
 
         // random soups of 3 to 42 triangles in the unit cube, the k-th of the sequence from seed 1
-        static DMesh3 RandomSoup(int k)
+        internal static DMesh3 RandomSoup(int k)
         {
             var rnd = new Random(1);
             DMesh3 m = null;
@@ -905,6 +907,56 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, ProjectionFallbacks(w));
         }
 
+
+        /// <summary> the angle bound of the class doc for every result triangle: min angle at least asin(b / (2 alpha)), max
+        /// angle at most 180 degrees minus twice that, b = min(offset, alpha - offset) (less 1e-5 of it) </summary>
+        internal static void AssertAngleBoundOnAllTriangles(MeshAlphaWrap w, string what)
+        {
+            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = (1 - 1e-5) * Math.Min(off, alpha - off);
+            double lo = Math.Asin(bound / (2 * alpha)) * 180 / Math.PI;
+            DMesh3 r = w.Result;
+            foreach (int tid in r.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                r.GetTriVertices(tid, ref a, ref b, ref c);
+                Func<Vector3d, Vector3d, double> ang = (u, v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
+                double a0 = ang(b - a, c - a), a1 = ang(a - b, c - b), a2 = ang(a - c, b - c);
+                double min = Math.Min(a0, Math.Min(a1, a2)), max = Math.Max(a0, Math.Max(a1, a2));
+                Assert.True(min >= lo && max <= 180 - 2 * lo, $"{what}: triangle {tid} with angles {min} / {max}, bound {lo}");
+            }
+        }
+
+        [Theory]
+        [InlineData(42)]
+        [InlineData(173)]
+        public void Wrap_NonManifoldSpots_AngleBoundOnAllTriangles(int k)
+        {
+            // Random soups with many pinches of the carved surface (63 and 95 cells moved by the manifold step at
+            // alpha = 10 offset). The manifold step moved outside cells inside, and their facets, never gates, made 9 and
+            // 5 triangles outside the angle bound (min 0.83 and 1.43 degrees against 2.87; caps). The refinement at the
+            // non-manifold spots inserts Steiner points there first, so that carving makes the surface manifold: every
+            // triangle within the bound, and the result within offset + alpha of the input (before: beyond offset + 2 alpha on soup 42)
+            DMesh3 m = RandomSoup(k);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
+            Assert.True(w.Compute(), w.Error);
+            CheckWrap(w, Vertices(m));
+            AssertAngleBoundOnAllTriangles(w, "soup " + k);
+            AssertSeparationBound(w, "soup " + k);
+            var oracle = Oracle(w);
+            double band = 0;
+            foreach (int tid in w.Result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                w.Result.GetTriVertices(tid, ref a, ref b, ref c);
+                foreach (Vector3d q in new[] { (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2 })
+                    band = Math.Max(band, oracle(q));
+            }
+            // (sampled at centroids and edge midpoints: a lower bound of the true band, against offset + alpha)
+            Assert.True(band <= w.UsedOffset + w.UsedAlpha, $"sampled result {band} from the input, offset + alpha {w.UsedOffset + w.UsedAlpha}");
+
+            // reused instance: the same result
+            var vertices = Vertices(w.Result);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(vertices, Vertices(w.Result));
+        }
 
         [Fact]
         public void Wrap_ManifoldStep_KeepsBoxCornerCellsOutside()
