@@ -1235,17 +1235,21 @@ namespace g3
             return true;
         }
 
-        // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals; NaN if not
-        // finite)
-        // v / |v|, or 0 if v is 0 (or its length not finite), computed as Vector3d.Normalize does (times 1 / |v|, so the
-        // bits are the same where that one is above its threshold) but without the threshold: Normalized returns 0 below
-        // the absolute MathUtil.Epsilon, which made the edits depend on the scale. 2^k v gives 2^k times nothing: the same
-        // unit vector, bit for bit
-        static Vector3d unit(Vector3d v)
+        // v / |v|, or 0 if v is 0 or not finite, computed as Vector3d.Normalize does (times 1 / |v|, so the bits are the
+        // same where that one is above its threshold) but without the threshold: Normalized returns 0 below the absolute
+        // MathUtil.Epsilon, which made the edits depend on the scale. Components below 1e-150 or above 1e150, whose
+        // squares would underflow or overflow, are first scaled by an exact power of two. So 2^k v gives the same unit
+        // vector as v, bit for bit
+        internal static Vector3d unit(Vector3d v)
         {
-            double l = v.Length;
-            if (!(l > 0 && l < double.PositiveInfinity))
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0 && m < double.PositiveInfinity))
                 return Vector3d.Zero;
+            if (m < 1e-150)
+                v *= 4.149515568880993E+180;        // 2^600
+            else if (m > 1e150)
+                v *= 2.409919865102884E-181;        // 2^-600
+            double l = v.Length;
             double inv = 1.0 / l;
             return new Vector3d(v.x * inv, v.y * inv, v.z * inv);
         }
@@ -1260,6 +1264,8 @@ namespace g3
             return unit(unit(b - a).Cross(unit(c - b)));
         }
 
+        // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals; NaN if not
+        // finite)
         static double ulp(double x)
         {
             if (!(x < double.PositiveInfinity))

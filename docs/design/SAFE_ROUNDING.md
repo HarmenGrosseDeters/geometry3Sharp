@@ -183,6 +183,21 @@ compared with the sphere (`SameSolid` within `MaxDrift`); the others with the ex
   world output. Practice, as in GIS: work in local coordinates. Since the
   ulp tolerance of section 5, 108 of 114 such cases are clean, within 251 ulps.
 
+- **Scale invariance (bugfix, 2026-11-02, found by the snap-rounding experiment).** The moves of `fix_degenerate` and
+  `fix_intersection` took their directions from `Normalized` and `GetTriNormal`, which return 0 below the absolute
+  `MathUtil.Epsilon`, and the first step of a vertex at the origin was an absolute 1e-300. So a cap whose apex lies
+  1e-17 off its base got no move at scale 1 but one at 2^10: 88 of the 198 dense clusters differed at 2^-10 or 2^10.
+  The directions are now threshold-free unit vectors, computed as `Normalize` does (the same bits wherever its threshold
+  did not bite), and the first step at the origin is ulp(maxLength). After it no cluster differs, also at 2^±60
+  (`SafeRoundingBoundTests.Clusters_PowerOfTwoScales_SameResultScaled`, `CornerAtTheOrigin_*`). Results changed only
+  where the threshold bit:
+  - dense clusters 85 → 89 of 108 clean (folded 80 of 90), Booleans 197 → 198 of 198;
+  - the cylinder step 2 (R22) is clean: all six steps;
+  - BooleanComparison `profile --repeat 1 --safe-rounding` (cgal, thingi, cherchi_small, grid:5, spheres:20): 261 of 263
+    hashes identical; the other two, `cgal/cheese` intersection and difference, are now clean (5 and 4 degenerate
+    triangles before);
+  - the strip test's counterfactual (no strip zip) is now clean with 16 moves at 5 times the drift of the strip zips.
+
 ## 3. Snap rounding with guarantees: evaluation (concept)
 
 **Baseline, the current SafeRounding on Thingi10K.** MeshRepairBenchmark 400 set, `robust`, master `6ce2ad3`,
