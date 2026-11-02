@@ -250,3 +250,122 @@ slit tip as a reflex corner, the removal of vertices on the box boundary, and a 
 is not the apex. The numbers are in benchmarks/TerrainBenchmark/README.md; the octagon on the 1 m grid is slower (a
 second realization, see there).
 
+
+## 10. Mixed cut and fill, target heights (next package)
+
+**Owner decision 2026-11-02:** accepted as below: two independent runs on T, one partial triangulation of the
+terrain triangles both replace, the fill run's mirrored undercut as `ToeOvertopped`, `CutVolume` / `FillVolume` /
+`CutArea` / `FillArea`, target heights as the contour of `SlopeRegion` at z = h. Implemented after #318.
+
+### Mixed cut and fill (`Direction.Auto`, TERRAIN.md 5.5)
+
+The final surface is the clamp max(S_fill, min(T, S_cut)), the median of the three since S_fill ≤ S_cut; S_fill ≤
+S_cut holds iff neither surface fails its own toe check (appendix A of TERRAIN.md): the cut run's `ToeUndercut`, and the
+fill run's mirrored undercut, reported as `ToeOvertopped` in Auto. So the cut region {T > S_cut} and the fill region
+{T < S_fill} are disjoint, and each is the region of its own run on T.
+
+Spike (2026-11-02, public API, square toe at z 0 in a terrain tilted 0.15, 1:1.5): the cut run and the fill run on T
+each succeed with one open catch line from toe to toe; both lines end at the same two crossing points of the toe with
+the terrain, (−2, ±10). 3 of the 36 + 21 replaced terrain triangles are replaced by both runs (the ones at the
+crossings). Running fill on the cut composite instead (min(T, S_cut) as the terrain) fails (`NoDaylight`, a closed
+catch line of 90 points): the realized cut surface lies λ below S_cut and the fill surface λ above S_fill, so along
+the whole cut stretch of the toe, where both start at the toe height, the realized fill surface lies above the
+realized cut slope in a band (2λ / (s_C + s_F) wide). Not that way.
+
+Plan:
+1. Auto needs a terrain. Run cut and fill on T as today, each with its own pieces, specs (`CutStart/End`,
+   `FillStart/End`), local height limit, λ and checks; an undercut of the fill run is `ToeOvertopped`
+   (GeometricallyInfeasible, or UnsupportedByMethod through the design area, as for the undercut).
+2. The composite: the terrain with the replaced triangles of both runs taken out; the triangles of both runs'
+   replacements; the terrain triangles replaced by both get one partial triangulation with the constraints of both
+   overlays (the catch segments of both, the region boundaries of both; parity per run, a part is cut, fill or
+   terrain). The two regions meet only at the toe crossings, so the constraint graph stays simple there; where the
+   rounded catch points of the two runs at one crossing differ, they are snapped to one (as the composite snaps
+   catch points today).
+3. Outputs: `CutVolume`, `FillVolume`, `CutArea`, `FillArea` (TERRAIN.md 7), the catch lines of both (in order: cut
+   then fill, each line knows its direction), `SlopeSurface` of both (groups: pieces of the cut run, then of the fill
+   run), `Pieces` with their direction. `Volume` / `PlanArea` stay the single-direction totals (cut + fill in Auto).
+4. Tests: the counterexample of appendix A (`ToeOvertopped`); a toe crossing a tilted terrain (both volumes against
+   the separate runs, the composite manifold and a height field, the clamp checked at sample points against
+   median(S_fill, T, S_cut) of the separate surfaces); a toe fully below / fully above the terrain (Auto equals Cut /
+   Fill bit for bit); invariance over `Similarity.All()`; reuse; insertion order (D) for both runs.
+5. Library building blocks: `SlopeTerrainOverlay` and `SlopeComposite` per run (unchanged), the composite's
+   `partial` for the shared triangles with the union of both constraint sets, `ExactTriangulation2`.
+
+Details of the composite (from `SlopeComposite.build_once`):
+- `SlopeComposite` takes one overlay. Auto gives it a second, optional overlay of the same terrain B (the fill run's;
+  its own slope surface A_F). The slope part runs per overlay as today (the region triangles of A_C, then of A_F,
+  their groups offset by the cut run's piece count). Composite vertices are found by exact position (`compVerts`),
+  so the two parts join where they share positions: the terrain vertices, and the catch points at the toe crossings.
+- The terrain part: `replacedSet` is the union of both. A terrain triangle replaced by one run only takes that run's
+  `partial` (the other run does not touch it: its faces there are all outside its region). A triangle replaced by
+  both gets one CDT whose part is tb minus (R_C ∪ R_F): the constraints are the sub-pieces of tb's edges outside both
+  regions (the two `edge_sequence`s of an edge merged by their parameter along it; a piece is terrain if it is
+  outside the region in both), and inside the catch segments and the slope boundary edges next to the region, of
+  both overlays. The two regions are disjoint in exact arithmetic (S_fill ≤ S_cut), so their boundaries meet only at
+  points (the toe crossings), and the parity of the union is the part.
+- The catch points of the two runs at one toe crossing: both are the point of the toe where T meets it. Each run snaps
+  its own (`snap_catch_points`); the shared triangle needs both at one position, so the fill run's catch points
+  within the snapping radius of a cut run's catch point at the toe take its position (checked on four tilted terrains: they
+  are not the same, 3e-13 to 6e-13 m apart in XY, as the cut run ends λ below the toe and the fill run λ above; so the
+  snap to one position is needed).
+- Found on the way (a bug of the single-direction composite, on master too): a 7-gon pit (r 11, phase 0.2, 1:1.5)
+  in a grid of 23 × 25 cells over (−60, 60)², tilted 0.07 towards 2.1 rad, gives `CompositeFailed` (overlapping
+  composite triangles) for cut and for fill alone. Fixed first in this package, with that case as its test.
+- `terrain_whole` (a terrain triangle wholly in the region, skipped) holds per run; a triangle wholly in one region
+  is in no face of the other's region.
+- What it does not need: an overlay of the two slope surfaces with each other (they never overlap where both are the
+  final surface), or the band-only overlay.
+- Order of work: (1) the second overlay in `SlopeComposite` with the merged `partial`, tested on the spike geometry
+  and random tilted terrains against the clamp at sample points; (2) `Direction.Auto` in `TerrainSlopeDesign` (two
+  runs, the outputs, `ToeOvertopped`); (3) target heights; (4) docs.
+
+### Target heights (TERRAIN.md 10, the hook for berms)
+
+`TargetHeights` (input, optional): for each height h the level line of the final slope at h, `TargetHeightLines`
+(output, polylines, closed where they close). On the slope surface the level line is exact in the kernel: the line of
+a face's plane with the horizontal plane at h; chained across the faces. Realized: the contour of the realized
+`SlopeRegion` (with a terrain; else `SlopeSurface`) at z = h, vertex signs exact (z − h), crossing points on the
+edges interpolated and rounded, chained by edge; open lines end where the region ends (catch line, lateral limit).
+Tests: a square pit over flat terrain (lines at h are squares offset by h / s, closed), an open toe (lines end at the
+lateral limits), heights outside the slope's range (no line), invariance, and the line lying on the slope surface
+(each point on a triangle of `SlopeRegion` within the rounding).
+
+Docs: OPERATIONS.md entries for Auto, target heights, the volumes and the 1c outputs; SOURCES.md (no new sources
+for the clamp: TERRAIN.md appendix A; the contour by marching triangles, eg de Berg et al. for the chaining).
+
+### Implemented (#320)
+
+- **The composite fix at a toe crossing** (first two commits). Root cause: the catch point where a catch line ends on a
+  toe edge, rounded off the edge's line to the outside, so the slope part's boundary from the toe vertex to it left the
+  slope side, where the terrain nodes on the edge are moved to. The catch point is now moved by ulps onto the slope
+  side of the edge's line, the mirror of the terrain nodes' nudge (`TerrainSlopeToeCrossingTests`: 5 cases, cut and
+  fill, 2 failing before; 12 tests fail without the move). A first fix kept every node on the slope part's boundary
+  edges; it broke a fill run in a UTM frame (non-manifold), so it was replaced.
+- **Auto** as planned. Two points the plan did not have:
+  - At a toe crossing the fill point takes the cut point's XY only. It keeps its own z: a shared vertex would be λ below
+    the toe for the cut slope's exact check and λ above it for the fill slope's, which no single height is. The two
+    parts meet at one XY with a step, as the slope and the terrain do along the toe.
+  - The pair is found on the same toe segment, each the other's nearest, within 1e-4 of the toes' size. The distance
+    is (λ_cut + λ_fill) / (the terrain's slope along the toe): 3e-13 m in the spike, 5e-8 at UTM and scale 1e-3, so
+    MinFeatureSize is not the radius. A pair whose move fails keeps its own positions in the next build (its own
+    set, not the partner's own snapping, which is not blocked by it).
+- **Target heights:** `TargetHeights`, `TargetHeightLines` (`TargetHeightLine`: height, points, closed), the level lines
+  of `SlopeRegion` (else `SlopeSurface`), oriented with the higher side on the left.
+- **Not changed, noted:**
+  - MinFeatureSize, 2 (8 ulp(max |xy|) + 4 ulp(2 max |z|) / s_min) / δ, is absolute: about 1.5 cm at UTM with the
+    default δ = 1e-6. A toe of a few cm (the test geometries at scale 1e-3 in UTM) is below it, and the composite or
+    the region fail there, on master too. The frame tests of this package use δ = 1e-4.
+  - A toe corner on a terrain vertex, made a near-coincidence by a rotated UTM frame, gives overlapping composite
+    triangles on master too (a square pit with its corners on the grid nodes); its own item.
+  - Follow-up item: the octagon on the 1 m grid is slower since #318 (6.1 → 8.8 s): its large slope faces make the
+    exact check of the clipped region triangles raise λ, which costs a second realization with overlay and composite
+    (benchmarks/TerrainBenchmark/README.md). Taken up when a real case is slow (TERRAIN.md section 11, order after
+    phase 1).
+- **Mutations of #320** (each must fail a test): the catch point's move onto the slope side, the partner's snap, the
+  joint edge flags, the joint triangulation itself, the z of a moved partner point, ToeOvertopped, the mirroring of
+  the mixed O1 check, a level-line end exactly at h, the level lines' vertex rule: all caught. Not caught, because no
+  test input reaches them: the group offset of a slope triangle that is wholly in the region (the slope triangles are
+  large since D, so a catch line cuts them), the same-segment condition of the partner's snap (no two crossings within
+  its radius on different segments), and a run whose own composite fails while the mixed one succeeds.
+

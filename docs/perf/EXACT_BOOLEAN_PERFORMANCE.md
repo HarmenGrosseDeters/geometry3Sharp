@@ -54,6 +54,42 @@ alternating rounds, 4 cores, warm) and `perf/exact_hashes.sh` (0 differences in 
 6. Indirect predicates: they would save part of the 10-13 % exact work on the real-world classes, net estimated 2-6 %;
    up to 40 % on n-ary grids. The compiler session has tested kernels, not wired in.
 
+### SafeRounding on rotated inputs (November 2026)
+
+On rotated (general double) inputs `MeshRoundingRepair` took 72-86 % of a resolve (ROADMAP, shared hotspots). The
+upper bound first (profile with `dotnet-trace`, counters in a scratch build), per candidate:
+
+| candidate | measured bound | built |
+|---|---|---|
+| kernel B (64-bit integer `orient3d`) admitting more exact stages | already 99.9-100 % of them; a 2-limb path would add at most 16,711 calls | no |
+| `canonical()`: the vertex list of a position looked up on every call | 4M-930M dictionary lookups, about 20 % of the CPU | yes: the smallest id per position kept per vertex |
+| `intersecting_pairs()`: a full search after every pass, also with nothing changed, behind a lock | 8-37 % of the rounding | yes: only the changed triangles searched again; per-triangle slots, no lock |
+| work past the evaluation limit (`MaxPairTests`): 16-30M proposals built only to find `SmallestRejectedDrift` | 42327 rotated: 8.5 s of 23.6 s; 1368057: 20 s of 33.5 s | yes: `try_move` computes only the drift of the move (the same value) |
+| the budget itself (`MaxPairTests` 20M pair tests, reached after 13-15 s on 5 of 6 cases) | most of what is left | no: a policy question for the owner |
+
+Results bit-identical: the six rotated Thingi10K cases (`BooleanComparison export` of 67709, 42327, 1368057, 102375,
+498458, 486343; union, intersection, difference) give the same hashes as master, and so do the 263 runs of the hash
+gate (`profile --repeat 1 --safe-rounding` on `cases-cgal.txt`, `cases-thingi.txt`, `cases-cherchi_small.txt`,
+`grid:5`, `spheres:20`). `MeshRoundingRepair.CheckOnThisThread` (tests) compares every incremental search with a full
+one and every canonical id with the dictionary.
+
+`profile --repeat 1 --safe-rounding` on the six cases (18 runs), 4 cores, one run at a time, sums in seconds:
+
+| build | rounding phase | whole boolean |
+|---|---|---|
+| master be1a640 | 281.9 | 476.5 |
+| + canonical ids | 233.0 (−17 %) | 424.5 (−11 %) |
+| + incremental pairs | 208.6 (−26 %) | 389.6 (−18 %) |
+| + drift only past the limit | 183.7 (−35 %) | 368.1 (−23 %) |
+
+Largest single gains: 1368057 union rounding 54.6 → 19.0 s, 42327 union 30.6 → 17.1 s. Raw output:
+[perf/saferounding_rotated_2026-11-02.jsonl](../../benchmarks/BooleanComparison/perf/saferounding_rotated_2026-11-02.jsonl).
+
+MeshRepair-400 (`MeshRepairBenchmark`, default repair, 3 meshes at a time, master and the branch one after the other):
+all 400 results the same (`after_hash`); repair time 456 s on both (−0.4 %, noise). The robust path rarely reaches
+the rotated rounding (42327 takes 1 s there), so the gain is on `ExactMeshBoolean` with general double input.
+What is left on the rotated cases is mostly the evaluation budget (the last row of the first table).
+
 ## 1. Current profile
 
 State: master after #181 plus #183. Warm runs: the booleans run in one process after a warm-up, the best of 3

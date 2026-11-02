@@ -1,4 +1,8 @@
-# Inside / outside for open and broken inputs (ROADMAP Phase 5 #5): upper bound, literature, sketch
+# Inside / outside for open and broken inputs (ROADMAP Phase 5 #5): upper bound, literature, sketch, spike
+
+**Outcome of the spike (2026-11-02): stop.** With the open inputs resolved by the generalized winding number,
+3 of the 111 fallbacks become exact results (the stop rule asked for at least 50 to go on, and stops below 25), and
+12.7 % of the patches labelled by the winding number lie within 0.05 of a half-integer. Section 6 has the numbers.
 
 Owner decision 2026-11-02: report only, nothing built. The owner decides after this note.
 
@@ -63,9 +67,10 @@ the paper.
 | Jacobson, Kavan, Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 | not in this session (in SOURCES, in use) | the generalized winding number (GWN) as a smooth inside / outside measure for open, non-manifold, self-intersecting meshes; graph cut segmentation of a tet mesh | in use already (volume IoU, `FastWindingNumber`); the segmentation step is the missing part |
 | Barill, Dickson, Schmidt, Levin, Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 2018 | not in this session (in SOURCES, in use) | hierarchical, approximate GWN evaluation | in use (`DMeshAABBTree3.FastWindingNumber`); approximate, not suited to an exact decision |
 | Feng, Gillespie, Crane, *Winding Numbers on Discrete Surfaces*, ACM TOG 42(4) 2023 | listing only (SIGGRAPH archive, project page) | winding numbers of curves on surfaces (jump Laplace equation), with broken and non-bounding curves fixed | a model (integer jumps across a cut, the fix for non-bounding parts); for curves on surfaces, not surfaces in space |
-| Feng, Crane, *A Heat Method for Generalized Signed Distance*, ACM TOG 2024 | listing only (project page nzfeng.github.io, geometry-central docs) | signed distance to broken geometry (holes, self-intersections, noise, non-orientable) by diffusing normals, then a Poisson solve; on tet meshes, grids, point clouds | yes, as a robust sign for the volume check and for labelling cells; needs a 3D volume discretization and a sparse solve |
+| Feng, Crane, *A Heat Method for Generalized Signed Distance*, ACM TOG 43(4) 92, 2024 | **read (full text)** by a probe session, from the authors' PDF; relayed by the coordinator | diffuse the oriented normals by one backward-Euler step of heat flow (t = h²), normalize, integrate by a Poisson solve (Neumann boundary condition, constant from the mean or a constraint on the input); the sign comes from the orientation of the diffused normals. In 3D on a conforming tet mesh (Crouzeix-Raviart) or a regular grid (step 1 in closed form, a 7-point Laplacian), with a sparse direct solver. No formal guarantee for broken input; its robustness to holes, noise, self-intersections and non-manifold input is empirical, and it needs mostly consistent orientation. It completes large holes better than the GWN (which gives saddle patches there). Cells thinner than h can get a wrong sign | a floating-point fallback or tie-breaker for cells where the GWN is ambiguous (open or holed input), never a certified label; not for nested or n-ary labels (below) |
+| Feng, *Algorithms for Generalized Signed Distance and Winding Numbers*, PhD thesis, CMU-CS-26-104, 2026 (nzfeng.github.io/thesis/Thesis.pdf) | **read** by a probe session; relayed by the coordinator | no guarantees for broken input anywhere (explicitly not robust in the sense of exact predicates); large holes are fundamentally ambiguous, and no method decides them. For watertight input, exact closest point plus the classic winding number (our exact path). Contouring the GWN at ½ is called its weak spot: in a 2D benchmark more than half the area was misclassified in about 10 % of the cases. The heat method's sign was about 3× more accurate, but needs reliable normals (it tolerates about 30 % flipped normals, the GWN does not, while the GWN is less sensitive to normal noise). Signed distances give only binary labels: winding numbers, not SDFs, are the tool for nested or self-overlapping (n-ary) labels, and the heat method fails on three-region input. In 3D a grid or a constrained tet mesh containing the input faces, solved by algebraic multigrid with a direct fallback; benchmarks at 64³. Points as Tori (TOG 2026) is for point clouds and learned. Code: MIT | keep the GWN (and the exact winding where closed); the heat method at most as a fallback for large holes with consistent normals |
 | Martens, Trettner, Bessmeltsev, *The Antipodal Method: Fast, Accurate, and Robust 3D Generalized Winding Numbers*, arXiv 2605.01536 (May 2026; also listed as ACM TOG, DOI 10.1145/3811323) | **read** (arxiv.org, abstract and HTML v1, the main text up to about 100k characters; the supplement not read) | see the box below | the closest fit for a per-cell decision, but its error control is ours to add (box below) |
-| Xie, Hafner, Wojtan (ISTA), *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), article 41, 2026 (SIGGRAPH 2026, DOI 10.1145/3811339) | **not read, not verified**: listing only (search result). dl.acm.org, doi.org and the ISTA page do not resolve in this session | by its listing, one ray-mesh test plus a sum over boundary edges per query, as Antipodal | read the full text before relying on it, in particular what "exact" means there |
+| Xie, Hafner, Wojtan (ISTA), *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), article 41, 2026 (SIGGRAPH 2026, DOI 10.1145/3811339; paper CC BY 4.0) | **read (full text)** by a probe session, from research-explorer.ista.ac.at; relayed by the coordinator (the hosts do not resolve in this session) | GWN(M) = the signed ray-crossing count of M plus a cone C − GWN(C), where C joins every boundary edge of M to an apex behind the ray, so that C never meets the ray (Stokes on R³ minus the ray); GWN(C) is a sum of Van Oosterom-Strackee solid angles over the cone's triangles. "Exact" means without approximation, not exact arithmetic: all in double, ray casts in single precision (Embree), no exact predicates. No error bound for the boundary term, only empirical errors on Thingi10K (at most 1.46e-7 against Jacobson 2013); queries within 1e-14 of the surface are excluded. Cost O(\|B\|) per query plus one ray (\|B\| about \|F\|^0.28 on Thingi10K; soups gain nothing), about 100× faster than hierarchical or fast winding numbers in their tests. Rays through edges or vertices: the solid angle of the closed local patch instead; queries near the surface: the direct GWN per triangle. **Code (boundaryblaze on git.ista.ac.at): no license, all rights reserved: not read, not ported, not run; implement from the paper only** | as Antipodal: the ray part can be made exact with our predicates (symbolic perturbation instead of thresholds); the certified bound of the boundary term remains our own work |
 | Martens, Bessmeltsev, *One-shot method for computing generalized winding numbers*, CGF 44(5) 2025 | not read; cited by Antipodal | an earlier exact method by the same group | as Antipodal |
 | Xu, Barbič, *Signed Distance Fields for Polygon Soup Meshes*, GI 2014 | listing only | signed distance for soups via an offset surface | older alternative, close to what the wrap fallback already does |
 | Spainhour, Weiss, ACM TOG 45(3) 2026 | not read; cited by Antipodal | GWN for parametric surfaces | not for triangle meshes |
@@ -92,6 +97,20 @@ Licenses (AGENT_WORKFLOW §3):
 - **antipodal** (github.com/MartensCedric/antipodal; Trettner, Martens 2026): MIT, LICENSE read. Both may be read and
   ported, with a SOURCES entry.
 - **The papers**: implement from them.
+
+Already in the ROADMAP (Phase 2 and the open-task table):
+- `ExactMeshBoolean` uses exact winding numbers per patch (signed ray crossings, stacks of coincident triangles) and the
+  GWN for open inputs, `ceil(w − ½)` per patch.
+- Where an open boundary of an input lies on an edge that other pieces meet, no inside / outside choice fits all
+  pieces. The pieces that run such an edge the same way are not joined there, so the result is open along it
+  (`ConflictEdges`), by design.
+- The GWN propagated across patches (integer jumps, "same value" for facing sides, merged within a tolerance) was
+  tried on branch `claude/exact-boolean-gwn-propagation` (commit 0db709c5). It only moves the cracks:
+  - synthetic sweep: 4 better and 2 worse at tolerance 0.5, 6 and 0 at 0.3;
+  - Thingi10K, 195 open meshes: boundary edges 303564 → 272575, but 128 of the 585 results with fewer and 136 with
+    more, closed results 128 → 127. No clear gain, not merged.
+- The volume check already uses cells with the exact winding for closed meshes (#305, option A; sampling, B, as the
+  fallback).
 
 ## 3. What the library has, what is missing
 
@@ -153,3 +172,43 @@ tolerances. Bit-identical under 2^k scales and the existing invariance tests app
   percent of the cells on these meshes. Then the certified decision is not cheap, and the signed heat method becomes
   the question, as its own item.
 - Step 1 (the volume check reference) can be measured on its own first, as the cheapest part of the bound.
+
+## 6. Spike result (2026-11-02, scratch, not merged)
+
+**What was tried.** `ExactMeshBoolean` already labels open meshes by the GWN per patch (`AllowOpenMeshes`, true by
+default). Open inputs were refused before it: `MeshRobustRepair.resolve_exactly` returns "not closed (winding
+number)" when `IsWindingClosed` fails. The spike skipped that gate with a switch, so that open inputs are resolved
+with GWN labels (step 2 of the sketch). For the input route that also covers step 1, since the volume check then
+compares against the input's GWN > ½ solid, the same definition. Counters recorded how many patches had a GWN within
+0.05 or 0.01 of a half-integer. Code: worktree of master 58a782b, not pushed.
+
+**Measured.** `MeshRobustRepair` on all 798 meshes of the 400 set and the holdout, switch off against on
+(`BENCH_FIDELITY=0`, P=3):
+
+| | value |
+|---|---|
+| fallbacks with the switch off (solidify 77, wrap 34) | 111 |
+| of them exact with the switch on | **3** (1211688, 1211690, 74153, all from solidify) |
+| still a fallback | 108 |
+| regressions (exact or repair → fallback) | 0; no exact result changed |
+| patches labelled by the GWN | 112440 |
+| within 0.05 / 0.01 of a half-integer | **12.7 %** / 7.1 % |
+| total time | 5168 s → 5460 s (+6 %) |
+
+Why the fallbacks remain, from the reasons with the switch on:
+- **62 cases (52 + 5 + 4 + 1): the resolve of the open input is "not closed".** Once the gate is gone, the
+  GWN-labelled result has cracks, and it stays open where open input boundaries meet other pieces (`ConflictEdges`).
+  This is the structural limit that the propagation experiment had already met: no labelling per patch or per cell
+  closes these surfaces, because no inside / outside choice fits all pieces there.
+- **32 cases (20 + 7 + 5): "volume differs from the input".** The result is closed, but its volume differs from the
+  input's GWN solid. The resolve takes one GWN value per patch, while the reference samples the GWN point by point,
+  and near ½ (12.7 % of the patches) the two differ.
+- The rest: degenerate triangles, failed resolves, too many self-intersections, unchanged.
+
+**Decision by the stop rule: stop.** 3 instead of at least 50, and the share of ambiguous patches is far above "a
+few percent". The certified boundary term (Antipodal / FEWN plus our own error bound) would not change this: the 62
+open results are not a precision problem, and the 32 volume differences come from the reference definition. A
+closing step for the cracks would be a different item, namely a surface reconstruction across the missing surface;
+the literature above (Feng's thesis) calls large holes undecidable. The wrap fallback stays the answer for these
+inputs.
+
