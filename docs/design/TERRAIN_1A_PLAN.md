@@ -153,22 +153,22 @@ Performance numbers are not claimed in 1a; the km-scale benchmark is 1c.
 ## Mutation survivors of the kernel shard (follow-up of #267)
 
 `tests/mutation/terrain-kernel-stryker.json` (`ExactSlopeKernel`): 60.59 % in #267's first run, 70.00 % at its merge,
-**85.22 %** after this follow-up (196 killed, 34 survived; then one dead line removed). Tests added for the
-non-equivalent survivors (`ExactSlopeKernelTests`): Approx and ApproxHeight accuracy (also for nearly parallel
-lines), a nearly vertical plane whose Nz interval contains 0, the counters, the shortcut's match of Q and R by both
-coordinates, a clockwise nearly vertical plane with sides decided by the exact stage, and a crossing whose W interval
-contains 0. The remaining survivors, one by one:
+**89.08 %** (204 killed, 25 survived) in the last full run of this follow-up; one more survivor (line 235, the `true`
+of a Q match) is killed since by a fixed test (checked by applying the mutant by hand): 205 of 229, 89.5 %.
+Tests added for the non-equivalent survivors (`ExactSlopeKernelTests`): Approx and ApproxHeight accuracy (also for
+nearly parallel lines), a nearly vertical plane whose Nz interval contains 0, the counters (also: the shortcut
+decides without a predicate call, a tight crossing is approximated without a construction), the shortcut's match of
+Q and R by both coordinates, a clockwise nearly vertical plane with sides decided by the exact stage, and a crossing
+whose W interval contains 0. One dead line was removed. The remaining 24 survivors, one row per mutant group (an
+independent review checked the classification):
 
-| line | code | mutants | class |
+| line:col | code | mutants | class |
 |---|---|---|---|
-| 33 | `Pa = -1, Pb = -1` (field initializer of `Line`) | `+1` | not activatable: Stryker cannot switch a field initializer per test (a point line with Pa = 1 would index plane -1 and throw in every test with point lines) |
+| 33:38 | `Pb = -1` (field initializer of `Line`) | `+1` | equivalent: `Pb` is read only when `Pa >= 0` (a plane-pair line, which sets both) |
 | 78 | message of the vertical-plane exception | `""` | equivalent (text) |
-| 79 | `if (s < 0)` (orient so that Nz > 0) | `s > 0`, `s <= 0`, `!(s < 0)` | equivalent: every predicate is a product in which each plane's N enters once with its Nz sign; flipping all planes alike (the mutants flip all counter- or all clockwise ones, and the cap like the others) changes no sign. `s == 0` throws before |
-| 83 | the negation of the exact normal after the flip | `!(pl.exact)`, `true` | dead code (`exact` is reset right after; the exact values are computed again from the reordered points): **removed** |
-| 99, 104, 136, 147, 190, 200 | `if (x.exact) return;` and `x.exact = true;` (plane, line, vertex) | statement removed, `false` | equivalent: caching only (the exact values are recomputed, the same) |
-| 163 | `if (l1 > l2) swap` (the cache key of a crossing) | `<`, `>=`, negation | equivalent: the key only has to be the same for both orders of one pair, and a crossing is the same point either way (X, Y, W all change sign) |
-| 212 | `l.Pa >= 0` in the shortcut | `> 0` | equivalent: plane 0 then takes the predicate instead of the shortcut, with the same result |
-| 218, 221, 250, 254 | `s * sw` (signs ±1, W ≠ 0) | `s / sw` | equivalent: for ±1 operands the quotient is the product |
-| 234, 235, 236 | `return true` of a found defining point | `false` | equivalent: the shortcut does not fire, the predicate decides the same |
+| 79 | `if (s < 0)` (orient so that Nz > 0) | `s > 0`, `s <= 0`, `!(s < 0)` (3) | equivalent: all planes end with Nz of one sign, and every predicate and height is invariant under negating every N (the line sign is Nz_a Nz_b (h_a - h_b)); `s <= 0` equals `s < 0` as s is ±1 here |
+| 99, 104, 136, 147, 190, 200 | `if (x.exact) return;` and `x.exact = true;` (plane, line, vertex) | statement removed, `false` (6) | equivalent: caching only; no counter is touched |
+| 163 | `if (l1 > l2) swap` (the cache key of a crossing) | `<`, `>=`, negation (3) | equivalent: swapping the lines negates X, Y and W, and Side, Orient, Approx and Rounded are invariant |
+| 218, 221, 250, 254 | `s * sw` (signs ±1, never 0) | `s / sw` (4) | equivalent: for ±1 operands the quotient is the product |
 | 238 | `return false` (no defining point) | `true` | equivalent: z is NaN then, and `za == zb` is false |
-| 280, 283, 284 | the acceptance test of `Approx` (interval midpoints) | arithmetic and logical variants | equivalent for the result: `Approx` is a heuristic (bounding boxes, ear quality, the conservative prefilter), and every variant that accepts a less accurate value is still within the tested 2e-12 here, or rejects and falls back to the exact rounding |
+| 283:27, 284 | the acceptance test of `Approx` | X width minus Y width; `IsFinite ||`; `err <`; `1e-12 / (...)`; `|x| - |y|` (5) | equivalent or boundary only: they move the acceptance threshold of a heuristic whose both outcomes are valid (the interval estimate within the tested 2e-12, or the exact rounding); the variants that always fall back are killed by the counter test |

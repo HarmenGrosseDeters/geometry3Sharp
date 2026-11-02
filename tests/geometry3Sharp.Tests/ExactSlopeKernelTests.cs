@@ -315,7 +315,8 @@ namespace geometry3Sharp.Tests
             Vector3d o = new Vector3d(0, 0, 0);
             var orders = new[] {
                 (new[] { o, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) }, new[] { o, new Vector3d(1, 0, 1), new Vector3d(0, 1, 0) }),
-                (new[] { new Vector3d(1, 0, 0), o, new Vector3d(0, 1, 0) }, new[] { new Vector3d(1, 0, 1), o, new Vector3d(0, 1, 0) }),
+                // (counter-clockwise, so that AddPlane keeps o as Q)
+                (new[] { new Vector3d(0, 1, 0), o, new Vector3d(1, 0, 0) }, new[] { new Vector3d(0, 1, 0), o, new Vector3d(1, 0, 1) }),
                 (new[] { new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), o }, new[] { new Vector3d(1, 0, 1), new Vector3d(0, 1, 0), o }),
             };
             foreach (var (pa, pb) in orders) {
