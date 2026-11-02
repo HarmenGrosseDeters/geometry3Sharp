@@ -695,21 +695,23 @@ namespace gs
         }
 
         // a nudged terrain node (the crossing of a slope boundary edge with terrain edge eb) that left both terrain
-        // triangles at eb: it takes the position of the nearer end of eb if that end is not on the slope side and nearer
-        // than minFeature. Where a boundary edge of the slope runs along terrain edges within ulps (a toe edge through
-        // terrain vertices, rounded in a rotated UTM frame), the terrain left between them is a sliver narrower than an
-        // ulp, and the nudge off the slope side can carry the crossing across the next terrain edge at that end: the
-        // part of its triangle then overlaps the triangle beyond. At the end the sliver has no area, and the end is a
-        // terrain vertex the triangles beyond share.
+        // triangles at eb across another terrain edge at an end of eb (it lies in a triangle at that end): it takes the
+        // position of that end if the end is not on the slope side. Where a boundary edge of the slope runs along
+        // terrain edges within ulps (a toe edge through terrain vertices, rounded in a rotated UTM frame), the terrain
+        // left between them is a sliver narrower than an ulp, and the nudge off the slope side can carry the crossing
+        // across the next terrain edge at that end: the part of its triangle then overlaps the triangle beyond. At the
+        // end the sliver has no area, and the end is a terrain vertex the triangles beyond share. (The test is
+        // structural, not a distance: the same in every 2^k scaling.)
         bool escaped(long k, Vector2d x, out Vector3d end)
         {
             end = Vector3d.Zero;
             int eb = SlopeTerrainOverlay.vsecond(k);
-            if (in_terrain_triangle_at(eb, x)) return false;
+            if (in_terrain_triangle(B.GetEdgeT(eb), x)) return false;
+            // (not near an end, eg out of the terrain across a boundary edge: it stays)
             Index2i ev = B.GetEdgeV(eb);
-            Vector3d p = B.GetVertex(ev.a), q = B.GetVertex(ev.b);
-            Vector3d e = p.xy.DistanceSquared(x) <= q.xy.DistanceSquared(x) ? p : q;
-            if (e.xy.Distance(x) >= minFeature) return false;
+            int ve = in_terrain_triangle(B.VtxTrianglesItr(ev.a), x) ? ev.a : in_terrain_triangle(B.VtxTrianglesItr(ev.b), x) ? ev.b : -1;
+            if (ve < 0) return false;
+            Vector3d e = B.GetVertex(ve);
             int ea = SlopeTerrainOverlay.vfirst(k);
             Vector2d e0, e1;
             slope_on_left(ea, out e0, out e1);
@@ -719,11 +721,12 @@ namespace gs
             return true;
         }
 
-        // in one of the (closed) terrain triangles at edge eb
-        bool in_terrain_triangle_at(int eb, Vector2d x)
+        bool in_terrain_triangle(Index2i et, Vector2d x) { return in_terrain_triangle(new[] { et.a, et.b }, x); }
+
+        // in one of the (closed, not degenerate) terrain triangles 'tris' (-1 for none)
+        bool in_terrain_triangle(IEnumerable<int> tris, Vector2d x)
         {
-            Index2i et = B.GetEdgeT(eb);
-            foreach (int t in new[] { et.a, et.b }) {
+            foreach (int t in tris) {
                 if (t < 0) continue;
                 Index3i tv = B.GetTriangle(t);
                 Vector2d a = B.GetVertex(tv.a).xy, b = B.GetVertex(tv.b).xy, c = B.GetVertex(tv.c).xy;
