@@ -84,6 +84,11 @@ namespace gs
             int t2 = new_half_edge(v, hFace[t], hLine[t]);
             hBar[h2] = hBar[h]; hBarSide[h2] = hBarSide[h];
             hBar[t2] = hBar[t]; hBarSide[t2] = hBarSide[t];
+            // (Simplify: a ray's chord split by a later ray stays a cut)
+            if (cut != null) {
+                if (cut.Contains(h)) cut.Add(h2);
+                if (cut.Contains(t)) cut.Add(t2);
+            }
             // h: u -> v, h2: v -> w; t: w -> v, t2: v -> u
             int hn = hNext[h], tn = hNext[t];
             hNext[h] = h2; hPrev[h2] = h; hNext[h2] = hn; if (hn >= 0) hPrev[hn] = h2;
@@ -391,6 +396,7 @@ namespace gs
         public void InsertPiece(int k, List<int> strip, List<int> fanA, List<double> angA, List<int> fanB, List<double> angB,
                                 Vector3d A, Vector3d B, double zmin, double slb, AxisAlignedBox2d reach, double theta)
         {
+            ordered = null;
             foreach (int p in strip) owner[p] = k;
             foreach (int p in fanA) owner[p] = k;
             foreach (int p in fanB) owner[p] = k;
@@ -416,8 +422,8 @@ namespace gs
                         continue;
                 }
                 var pos = prefilterPos;
-                pos.Clear();
-                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); h = hNext[h]; } while (h != h0); }
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
@@ -436,14 +442,21 @@ namespace gs
         }
 
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
+        readonly List<int> prefilterVerts = new List<int>();
 
-        static void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
+        void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
             double refAngle = double.NaN, lo = 0, hi = 0;
-            foreach (var q in pos) {
+            for (int i = 0; i < pos.Count; ++i) {
+                Vector2d q = pos[i];
                 Vector2d d = q - apex;
-                if (d.LengthSquared < 1e-30 * (apex.LengthSquared + 1)) continue;
+                // (a corner at the apex (exact) has no direction: the corners next to it bound the face's. A corner near
+                // it: its approximate position (within 1e-12 of its coordinates, Approx) gives its direction within
+                // 0.1 theta only from a distance of 1e-11 / theta of the coordinates; nearer, all of the fan)
+                if (d.x == 0 && d.y == 0 && K.IsAt(prefilterVerts[i], apex)) continue;
+                double near = 1e-11 * (Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(apex.x) + Math.Abs(apex.y)) / theta;
+                if (d.Length < near) { relevant.AddRange(fan); return; }
                 double a = Math.Atan2(d.y, d.x);
                 if (double.IsNaN(refAngle)) { refAngle = a; continue; }
                 double r = wrap(a - refAngle);
@@ -522,13 +535,20 @@ namespace gs
             var verts = new List<int>(n + 2);
             var elines = new List<int>(n + 2);
             { int h0 = fEdge[f], h = h0; do { verts.Add(hOrig[h]); elines.Add(hLine[h]); h = hNext[h]; } while (h != h0); }
+            // (a plane the same as the label's, a line that is zero everywhere: F_k equals the label where it is the
+            // maximum; the lower plane id wins the tie, so that the labels do not depend on the order of the pieces)
             var applied = new List<int>();
+            int tied = int.MaxValue;
             foreach (int p in planes) {
                 int line = K.PlaneLine(p, label);
-                if (clip(ref verts, ref elines, line) == false)
+                int r = clip(ref verts, ref elines, line);
+                if (r < 0)
                     return;     // empty
+                if (r == 0) { tied = Math.Min(tied, p); continue; }
                 applied.Add(line);
             }
+            if (tied < int.MaxValue && tied > label)
+                return;
             // replay the lines that bound W, in order
             var bounding = new HashSet<int>(elines);
             int cur = f;
@@ -550,9 +570,11 @@ namespace gs
                     split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord);
                     if (neg >= 0) next.Add(neg);
                     if (pos >= 0) {
-                        // all zero: the same height everywhere, keep the earlier plane
+                        // all zero: the same plane, the lower id
                         if (neg >= 0 || all_positive(pos, K.PlaneLine(p, fLabel[pos])))
                             fLabel[pos] = p;
+                        else
+                            fLabel[pos] = Math.Min(p, fLabel[pos]);
                         next.Add(pos);
                     }
                 }
@@ -571,8 +593,9 @@ namespace gs
             return any;
         }
 
-        // keep the part of the polygon where the line is negative; false if nothing is left
-        bool clip(ref List<int> verts, ref List<int> elines, int line)
+        // keep the part of the polygon where the line is negative or zero: -1 if no corner is negative (nothing is
+        // left, or a line zero at every corner, of two planes that are the same, which leaves the polygon as it is: 0)
+        int clip(ref List<int> verts, ref List<int> elines, int line)
         {
             int n = verts.Count;
             var s = new int[n];
@@ -581,8 +604,8 @@ namespace gs
                 s[i] = K.Side(verts[i], line);
                 if (s[i] < 0) anyNeg = true; else if (s[i] > 0) anyPos = true;
             }
-            if (anyNeg == false) return false;
-            if (anyPos == false) return true;
+            if (anyNeg == false) return anyPos ? -1 : 0;
+            if (anyPos == false) return 1;
             // (vertex, line of the edge from it) of the part where the line is negative or zero
             var nv = new List<int>(n + 1); var nl = new List<int>(n + 1);
             for (int i = 0; i < n; ++i) {
@@ -600,241 +623,286 @@ namespace gs
                 }
             }
             verts = nv; elines = nl;
-            return true;
+            return 1;
         }
 
         // ---------------------------------------------------------------- simplification
 
         /// <summary>
-        /// Merge neighbouring faces with the same label where their union is convex, and remove the vertices that are
-        /// then left in the middle of a straight edge between two faces. This removes the splits along lines of planes
-        /// that were not the minimum in the end (they cross true creases at arbitrary, sometimes nearly coincident,
-        /// points). Exact: convexity by Orient.
+        /// Replace the faces by the canonical partition of the labelled domain, a function of the labels only and not of
+        /// the order in which the pieces split the faces (docs/design/TERRAIN_1C_PLAN.md, section 9):
+        /// a component (the faces of one label, connected across edges that are no barrier) is cut along a ray from
+        /// each of its reflex corners, the extension of the edge into the corner up to the first point of the
+        /// component's boundary; each part of a component between the rays is one convex face, and a vertex of degree
+        /// two between collinear edges of one barrier (or none) is removed. A convex component is one face. Exact:
+        /// Orient and Side only. The faces are then listed in a canonical order (OrderedFaces).
         /// </summary>
         public void Simplify()
         {
-            if (ReferenceSimplify) { simplify_reference(); return; }
-            // the steps of simplify_reference in the same order, but a face is only visited when it or a neighbour
-            // changed since its last visit: a pair that failed fails again until one of its faces changes, and a
-            // vertex removal depends on the face and its neighbours only. So the result is the same, bit for bit
-            // (the reference visited every face in each of its rounds: 168 rounds over 198k faces in the 1a speed case)
-            int n = fEdge.Count;
-            var version = new int[n];
-            var failed = new HashSet<(int, int, int, int)>();
-            var mergeDirty = new bool[n];
-            var removeDirty = new bool[n];
-            for (int f = 0; f < n; ++f) { mergeDirty[f] = fAlive[f] && fDomain[f]; removeDirty[f] = fAlive[f]; }
-            // (a changed face marks its neighbours too: the pairs with it have a new version. For the merges this is a
-            // safeguard only: f tries all its neighbours right after its own merge, and the convexity test is symmetric)
-            Action<int> touched = (x) => {
-                mergeDirty[x] = removeDirty[x] = true;
-                int e0 = fEdge[x], e = e0;
+            int nf = fEdge.Count;
+            // the components
+            var uf = new int[nf];
+            for (int i = 0; i < nf; ++i) uf[i] = i;
+            for (int f = 0; f < nf; ++f) {
+                if (in_domain(f) == false) continue;
+                int h0 = fEdge[f], h = h0;
                 do {
-                    int y = hFace[hTwin[e]];
-                    if (y >= 0) mergeDirty[y] = removeDirty[y] = true;
-                    e = hNext[e];
-                } while (e != e0);
-            };
-            bool changed = true;
-            SimplifyRounds = 0;
-            while (changed) {
-                changed = false;
-                SimplifyRounds++;
-                for (int f = 0; f < n; ++f) {
-                    if (mergeDirty[f] == false) continue;
-                    mergeDirty[f] = false;
-                    if (fAlive[f] == false || fDomain[f] == false) continue;
-                    for (bool again = true; again;) {
-                        again = false;
-                        // (the cycle walked in place: the walk stops at the first change)
-                        int h0 = fEdge[f], h = h0;
-                        do {
-                            int g = hFace[hTwin[h]];
-                            if (!(g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0)) {
-                                var key = (f, g, version[f], version[g]);
-                                if (failed.Contains(key) == false) {
-                                    if (try_merge(f, g)) { trace(1, f, g); version[f]++; touched(f); again = true; changed = true; break; }
-                                    failed.Add(key);
-                                }
-                            }
-                            h = hNext[h];
-                        } while (h != h0);
+                    int g = hFace[hTwin[h]];
+                    if (hBar[h] < 0 && g >= 0 && in_domain(g) && fLabel[g] == fLabel[f]) union(uf, f, g);
+                    h = hNext[h];
+                } while (h != h0);
+            }
+            comp = new List<int>(nf);
+            for (int f = 0; f < nf; ++f) comp.Add(in_domain(f) ? find(uf, f) : -1);
+            cut = new HashSet<int>();
+            // the reflex corners of their boundaries: (the boundary edge out of the corner, the line of the edge into
+            // it, the start of that edge)
+            var rays = new List<Index3i>();
+            for (int f = 0; f < nf; ++f) {
+                if (comp[f] < 0) continue;
+                int h0 = fEdge[f], h = h0;
+                do {
+                    if (separates(h)) {
+                        int x = next_boundary(h);
+                        if (reflex(h, x)) rays.Add(new Index3i(x, hLine[h], hOrig[h]));
                     }
-                    // (the faces after f in this round see f's changes in this round, as in the reference; f itself
-                    // is visited again in the next round, as the reference visits every face)
-                }
-                for (int f = 0; f < n; ++f) {
-                    if (removeDirty[f] == false) continue;
-                    removeDirty[f] = false;
-                    if (fAlive[f] == false) continue;
-                    int h0 = fEdge[f], h = h0;
-                    do {
-                        int g = hFace[hTwin[h]];
-                        if (try_remove_vertex(h)) {
-                            trace(2, f, h);
-                            version[f]++;
-                            if (g >= 0) version[g]++;
-                            touched(f);
-                            if (g >= 0) touched(g);
-                            changed = true;
-                            break;
-                        }
-                        h = hNext[h];
-                    } while (h != h0);
+                    h = hNext[h];
+                } while (h != h0);
+            }
+            foreach (Index3i r in rays) cut_ray(r.a, r.b, r.c);
+            RayCount = rays.Count;
+            // the parts between the rays: one face each
+            nf = fEdge.Count;
+            uf = new int[nf];
+            for (int i = 0; i < nf; ++i) uf[i] = i;
+            for (int f = 0; f < nf; ++f) {
+                if (fAlive[f] == false || comp[f] < 0) continue;
+                int h0 = fEdge[f], h = h0;
+                do {
+                    if (separates(h) == false && cut.Contains(h) == false) union(uf, f, hFace[hTwin[h]]);
+                    h = hNext[h];
+                } while (h != h0);
+            }
+            var members = new Dictionary<int, List<int>>();
+            for (int f = 0; f < nf; ++f) {
+                if (fAlive[f] == false || comp[f] < 0) continue;
+                int r = find(uf, f);
+                List<int> l;
+                if (members.TryGetValue(r, out l) == false) { l = new List<int>(); members[r] = l; }
+                l.Add(f);
+            }
+            foreach (var kv in members)
+                if (kv.Value.Count > 1) merge_part(kv.Key, kv.Value);
+            // the vertices left in the middle of a straight edge
+            for (int f = 0; f < nf; ++f) {
+                if (fAlive[f] == false || comp[f] < 0) continue;
+                for (bool again = true; again;) {
+                    again = false;
+                    foreach (int h in cycle(f))
+                        if (hAlive[h] && hFace[h] == f && try_remove_vertex(h)) again = true;
                 }
             }
+            comp = null; cut = null;
+            ordered = null;
+            OrderedFaces();
         }
 
-        /// <summary> tests: Simplify by the reference (every face in every round) </summary>
-        internal bool ReferenceSimplify;
-        /// <summary> tests: a hash of the steps of Simplify in order (merges f, g and vertex removals in f at h) </summary>
-        internal ulong SimplifyTrace;
-        internal int SimplifyRounds;
-        void trace(int kind, int a, int b) { SimplifyTrace = (SimplifyTrace ^ (ulong)(kind * 0x9E3779B1L + a * 0x85EBCA77L + b * 0xC2B2AE3DL)) * 0x100000001B3UL; }
+        /// <summary> Simplify: the number of rays cut (the reflex corners of the components) </summary>
+        internal int RayCount;
 
-        void simplify_reference()
+        List<int> comp;
+        HashSet<int> cut;
+        List<int> ordered;
+
+        bool in_domain(int f) { return f >= 0 && fAlive[f] && fDomain[f]; }
+
+        static int find(int[] uf, int x)
         {
-            // greedy in face order, rounds until nothing changes; a pair that failed is tried again only after one of
-            // its faces changed (the convexity of the union depends on the two faces only)
-            var version = new int[fEdge.Count];
-            var failed = new HashSet<(int, int, int, int)>();
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                for (int f = 0; f < fEdge.Count; ++f) {
-                    if (fAlive[f] == false || fDomain[f] == false) continue;
-                    for (bool again = true; again;) {
-                        again = false;
-                        foreach (int h in cycle(f)) {
-                            int g = hFace[hTwin[h]];
-                            if (g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0) continue;
-                            var key = (f, g, version[f], version[g]);
-                            if (failed.Contains(key)) continue;
-                            if (try_merge_reference(f, g)) { trace(1, f, g); version[f]++; again = true; changed = true; break; }
-                            failed.Add(key);
-                        }
-                    }
-                }
-                for (int f = 0; f < fEdge.Count; ++f) {
-                    if (fAlive[f] == false) continue;
-                    foreach (int h in cycle(f)) {
-                        int g = hFace[hTwin[h]];
-                        if (try_remove_vertex_reference(h)) {
-                            trace(2, f, h);
-                            version[f]++;
-                            if (g >= 0) version[g]++;
-                            changed = true;
-                            break;
-                        }
-                    }
-                }
+            while (uf[x] != x) { uf[x] = uf[uf[x]]; x = uf[x]; }
+            return x;
+        }
+
+        // (the smaller root becomes the root: the roots do not depend on the order of the unions)
+        static void union(int[] uf, int a, int b)
+        {
+            a = find(uf, a); b = find(uf, b);
+            if (a < b) uf[b] = a; else if (b < a) uf[a] = b;
+        }
+
+        int comp_of(int f) { return (f < 0 || f >= comp.Count) ? -1 : comp[f]; }
+
+        // the half-edge lies between two components (a barrier, or another label, or outside the domain)
+        bool separates(int h) { return hBar[h] >= 0 || comp_of(hFace[h]) != comp_of(hFace[hTwin[h]]); }
+
+        // the next boundary half-edge of the component after h (around the end of h, through the component's faces)
+        int next_boundary(int h)
+        {
+            int x = hNext[h];
+            for (int guard = 0; separates(x) == false; ++guard) {
+                if (guard > 100000) throw new InvalidOperationException("SlopeMap: broken boundary");
+                x = hNext[hTwin[x]];
             }
+            return x;
         }
 
-        // the reference's steps as on master (before the in-place walks and the collinearity shortcuts), so that the
-        // test compares the new steps with the old ones
-        bool try_merge_reference(int f, int g)
+        // the component's corner between its boundary edges h (u -> v) and x (v -> w) is reflex (the component lies to
+        // the left of its boundary: the faces are counter-clockwise); a slit's tip (w = u) is a full turn
+        bool reflex(int h, int x)
         {
-            List<int> cf = cycle(f);
-            int n = cf.Count;
-            // the run of f's edges shared with g (contiguous: two convex faces meet in one segment)
-            int start = -1;
-            for (int i = 0; i < n; ++i) {
-                bool shared = hFace[hTwin[cf[i]]] == g, prevShared = hFace[hTwin[cf[(i + n - 1) % n]]] == g;
-                if (shared && prevShared == false) { start = i; break; }
-            }
-            if (start < 0) return false;    // all edges shared: not possible for faces with area
-            int r = 0;
-            while (hFace[hTwin[cf[(start + r) % n]]] == g) r++;
-            for (int i = r; i < n; ++i) if (hFace[hTwin[cf[(start + i) % n]]] == g) return false;    // not contiguous
-            int h1 = cf[start], hr = cf[(start + r - 1) % n];
-            int fPrev = hPrev[h1], fNext = hNext[hr];               // f's edges ending at a, starting at b
-            int t1 = hTwin[h1], tr = hTwin[hr];
-            int gNext = hNext[t1], gPrev = hPrev[tr];               // g's edges starting at a, ending at b
-            if (hBar[h1] >= 0) return false;
-            for (int i = 0; i < r; ++i) if (hBar[cf[(start + i) % n]] >= 0) return false;
-            int a = hOrig[h1], b = hOrig[fNext];
-            // convex at a: (origin of fPrev, a, dest of gNext); at b: (origin of gPrev, b, dest of fNext)
-            if (K.Orient(hOrig[fPrev], a, hOrig[hTwin[gNext]]) < 0) return false;
-            if (K.Orient(hOrig[gPrev], b, hOrig[hTwin[fNext]]) < 0) return false;
-            // the union must not be degenerate (both faces have area, so it has)
-            hNext[fPrev] = gNext; hPrev[gNext] = fPrev;
-            hNext[gPrev] = fNext; hPrev[fNext] = gPrev;
-            for (int i = 0; i < r; ++i) { int h = cf[(start + i) % n]; hAlive[h] = false; hAlive[hTwin[h]] = false; }
-            int e = gNext;
-            do { hFace[e] = f; e = hNext[e]; } while (e != gNext);
-            fEdge[f] = fPrev;
-            fAlive[g] = false;
-            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
-            qt_update(f);
-            return true;
+            int u = hOrig[h], v = hOrig[x], w = hOrig[hTwin[x]];
+            if (u == w) return true;
+            if (on_one_line(h, x)) return false;
+            return K.Orient(u, v, w) < 0;
         }
 
-        bool try_remove_vertex_reference(int h)
+        // the half-edges out of the origin of e (all of them: around the box boundary from one outside half-edge to
+        // the other)
+        readonly List<int> outBuffer = new List<int>();
+        List<int> outgoing(int e0)
         {
-            int p = hPrev[h];
-            int v = hOrig[h];
-            int t = hTwin[h], tp = hTwin[p];        // t: w -> v, tp: v -> u
-            if (hFace[t] < 0 || hFace[h] < 0) return false;    // the box boundary stays
-            if (hNext[t] != tp) return false;       // another edge at v
-            if (hBar[h] != hBar[p]) return false;
-            int u = hOrig[p], w = hOrig[t];
-            if (K.Orient(u, v, w) != 0) return false;
-            int f = hFace[h], g = hFace[t];
-            // keep p (u -> v becomes u -> w) and its twin tp (v -> u becomes w -> u)
-            int hn = hNext[h], tn = hPrev[t];
-            hNext[p] = hn; hPrev[hn] = p;
-            hOrig[tp] = w;
-            hNext[tn] = tp; hPrev[tp] = tn;
-            hAlive[h] = false; hAlive[t] = false;
-            if (f >= 0 && fEdge[f] == h) fEdge[f] = p;
-            if (g >= 0 && fEdge[g] == t) fEdge[g] = tp;
-            return true;
-        }
-
-        bool try_merge(int f, int g)
-        {
-            // the run of f's edges shared with g (contiguous: two convex faces meet in one segment): its first edge is
-            // the first shared edge, from fEdge[f] on, whose previous edge is not shared
-            int h0 = fEdge[f], x = h0, start = -1, guard = 0;
+            var r = outBuffer;
+            r.Clear();
+            int e = e0;
+            bool open = false;
             do {
-                if (hFace[hTwin[x]] == g && hFace[hTwin[hPrev[x]]] != g) { start = x; break; }
-                x = hNext[x];
-                if (++guard > 100000) throw new InvalidOperationException("SlopeMap: broken cycle");
-            } while (x != h0);
-            if (start < 0) return false;    // all edges shared: not possible for faces with area
-            int r = 0, hr = start;
-            for (x = start; hFace[hTwin[x]] == g; x = hNext[x]) { hr = x; r++; }
-            for (int y = x; y != start; y = hNext[y]) if (hFace[hTwin[y]] == g) return false;    // not contiguous
-            int h1 = start;
-            int fPrev = hPrev[h1], fNext = hNext[hr];               // f's edges ending at a, starting at b
-            int t1 = hTwin[h1], tr = hTwin[hr];
-            int gNext = hNext[t1], gPrev = hPrev[tr];               // g's edges starting at a, ending at b
-            if (hBar[h1] >= 0) return false;
-            x = h1;
-            for (int i = 0; i < r; ++i, x = hNext[x]) if (hBar[x] >= 0) return false;
-            int a = hOrig[h1], b = hOrig[fNext];
-            // convex at a: (origin of fPrev, a, dest of gNext); at b: (origin of gPrev, b, dest of fNext). Two edges on
-            // the same line are collinear without a predicate (the usual case: faces split by a line that goes on; the
-            // filter cannot decide an exact zero, so the exact stage would run every time)
-            if (on_one_line(fPrev, gNext) == false && orient_cached(hOrig[fPrev], a, hOrig[hTwin[gNext]]) < 0) return false;
-            if (on_one_line(gPrev, fNext) == false && orient_cached(hOrig[gPrev], b, hOrig[hTwin[fNext]]) < 0) return false;
-            // the union must not be degenerate (both faces have area, so it has)
-            hNext[fPrev] = gNext; hPrev[gNext] = fPrev;
-            hNext[gPrev] = fNext; hPrev[fNext] = gPrev;
-            // (the run's own links are unchanged by the relinking above)
-            x = h1;
-            for (int i = 0; i < r; ++i, x = hNext[x]) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
-            int e = gNext;
-            do { hFace[e] = f; e = hNext[e]; } while (e != gNext);
-            fEdge[f] = fPrev;
-            fAlive[g] = false;
-            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
-            // the union's corners are corners of f or g: the union of their boxes contains its box (no cycle needed)
-            var ub = fBox[f];
-            ub.Contain(fBox[g]);
-            qt_set(f, ub);
-            return true;
+                r.Add(e);
+                if (r.Count > 100000) throw new InvalidOperationException("SlopeMap: broken vertex");
+                int t = hTwin[e];
+                if (hFace[t] < 0) { open = true; break; }
+                e = hNext[t];
+            } while (e != e0);
+            if (open) {
+                e = e0;
+                while (hFace[e] >= 0) {
+                    e = hTwin[hPrev[e]];
+                    if (e == e0) break;
+                    r.Add(e);
+                    if (r.Count > 100000) throw new InvalidOperationException("SlopeMap: broken vertex");
+                }
+            }
+            return r;
+        }
+
+        // the line crosses the face's interior (corners on both sides)
+        bool crosses(int f, int line)
+        {
+            bool neg = false, pos = false;
+            int h0 = fEdge[f], h = h0;
+            do {
+                int s = K.Side(hOrig[h], line);
+                if (s < 0) neg = true; else if (s > 0) pos = true;
+                if (neg && pos) return true;
+                h = hNext[h];
+            } while (h != h0);
+            return false;
+        }
+
+        // Cut the component along the ray from the corner (the origin of x) on the line, away from u, up to the first
+        // point of the component's boundary. The faces are convex, so the ray crosses each face it enters along one
+        // chord that a split by the whole line makes; at a vertex it goes on in the face that the line crosses there
+        // (the face behind holds the chord, and no face has the line through its interior behind the corner: the
+        // edge into the corner is there), or along an edge on the line.
+        void cut_ray(int x, int line, int u)
+        {
+            int c = comp_of(hFace[x]);
+            int e = x, at = hOrig[x];
+            // the points of a line are in the order of CompareXY along it: the ray's direction in that order
+            int dir = K.CompareXY(at, u);
+            for (int guard = 0; ; ++guard) {
+                if (guard > hOrig.Count) throw new InvalidOperationException("SlopeMap: ray");
+                List<int> outs = outgoing(e);
+                if (guard > 0)
+                    foreach (int o in outs) if (separates(o)) return;
+                int ahead = -1, along = -1;
+                foreach (int o in outs) {
+                    int f = hFace[o];
+                    if (comp_of(f) != c) continue;
+                    if (crosses(f, line)) { ahead = f; break; }
+                    int w = hOrig[hTwin[o]];
+                    if (along < 0 && K.Side(w, line) == 0 && K.CompareXY(w, at) == dir) along = o;
+                }
+                if (ahead >= 0) {
+                    int neg, pos, chord;
+                    split_face(ahead, line, out neg, out pos, out chord);
+                    while (comp.Count < fEdge.Count) comp.Add(c);
+                    cut.Add(chord); cut.Add(hTwin[chord]);
+                    int a0 = hOrig[chord], a1 = hOrig[hTwin[chord]];
+                    if (a0 == at) { at = a1; e = hTwin[chord]; }
+                    else if (a1 == at) { at = a0; e = chord; }
+                    else throw new InvalidOperationException("SlopeMap: ray chord");
+                    continue;
+                }
+                if (along < 0 || separates(along)) throw new InvalidOperationException("SlopeMap: ray");
+                cut.Add(along); cut.Add(hTwin[along]);
+                at = hOrig[hTwin[along]];
+                e = hTwin[along];
+            }
+        }
+
+        // the faces of a part (convex, simply connected) become the face 'rep': its boundary half-edges linked in one
+        // cycle, the half-edges inside removed
+        void merge_part(int rep, List<int> faces)
+        {
+            Func<int, bool> bound = (h) => separates(h) || cut.Contains(h);
+            var boundary = new List<int>();
+            foreach (int f in faces)
+                foreach (int h in cycle(f)) {
+                    if (bound(h)) boundary.Add(h);
+                    else hAlive[h] = false;
+                }
+            var next = new Dictionary<int, int>(boundary.Count);
+            foreach (int h in boundary) {
+                int x = hNext[h];
+                for (int guard = 0; bound(x) == false; ++guard) {
+                    if (guard > 100000) throw new InvalidOperationException("SlopeMap: broken part");
+                    x = hNext[hTwin[x]];
+                }
+                next[h] = x;
+            }
+            int h0 = boundary[0], y = h0, count = 0;
+            do {
+                int z = next[y];
+                hNext[y] = z; hPrev[z] = y; hFace[y] = rep;
+                ++count;
+                y = z;
+            } while (y != h0 && count <= boundary.Count);
+            if (count != boundary.Count)
+                throw new InvalidOperationException("SlopeMap: a part is not simply connected");
+            foreach (int f in faces) if (f != rep) fAlive[f] = false;
+            fEdge[rep] = h0;
+        }
+
+        /// <summary>
+        /// the domain faces in a canonical order (their corners from the lowest in CompareXY, compared in turn, then the
+        /// label), each face's cycle starting at its lowest corner: after Simplify, a function of the partition only
+        /// </summary>
+        public List<int> OrderedFaces()
+        {
+            if (ordered != null) return ordered;
+            var faces = new List<int>();
+            for (int f = 0; f < fEdge.Count; ++f) {
+                if (in_domain(f) == false) continue;
+                int best = fEdge[f];
+                foreach (int h in cycle(f))
+                    if (K.CompareXY(hOrig[h], hOrig[best]) < 0) best = h;
+                fEdge[f] = best;
+                faces.Add(f);
+            }
+            faces.Sort((a, b) => {
+                if (a == b) return 0;
+                int ha = fEdge[a], hb = fEdge[b];
+                do {
+                    int c = K.CompareXY(hOrig[ha], hOrig[hb]);
+                    if (c != 0) return c;
+                    ha = hNext[ha]; hb = hNext[hb];
+                } while (ha != fEdge[a] && hb != fEdge[b]);
+                if (ha == fEdge[a] && hb != fEdge[b]) return -1;
+                if (hb == fEdge[b] && ha != fEdge[a]) return 1;
+                if (fLabel[a] != fLabel[b]) return fLabel[a].CompareTo(fLabel[b]);
+                return a.CompareTo(b);
+            });
+            ordered = faces;
+            return ordered;
         }
 
         // the half-edges x and y lie on the same line of the kernel (both ends of every half-edge lie exactly on its line:
@@ -842,40 +910,72 @@ namespace gs
         // keeps the lines of the edges it keeps), so their ends are exactly collinear
         bool on_one_line(int x, int y) { return hLine[x] >= 0 && hLine[x] == hLine[y]; }
 
-        // the kernel's orientation of three of its vertices, remembered (vertices never move: the same corner of a
-        // merge is tested again whenever one of its faces changed, about 4 times on average in the 1a speed case)
-        readonly Dictionary<(int, int, int), int> orientMemo = new Dictionary<(int, int, int), int>();
-        int orient_cached(int u, int v, int w)
-        {
-            int o;
-            var key = (u, v, w);
-            if (orientMemo.TryGetValue(key, out o)) return o;
-            o = K.Orient(u, v, w);
-            orientMemo[key] = o;
-            return o;
-        }
-
         // h: v -> w in a face; v of degree 2 (its two edges are h and the twin of hPrev[h]) and straight: remove it
         bool try_remove_vertex(int h)
         {
+            if (removable(h) == false) return false;
             int p = hPrev[h];
-            int v = hOrig[h];
             int t = hTwin[h], tp = hTwin[p];        // t: w -> v, tp: v -> u
-            if (hFace[t] < 0 || hFace[h] < 0) return false;    // the box boundary stays
-            if (hNext[t] != tp) return false;       // another edge at v
-            if (hBar[h] != hBar[p]) return false;
-            int u = hOrig[p], w = hOrig[t];
-            if (on_one_line(p, h) == false && K.Orient(u, v, w) != 0) return false;
+            int w = hOrig[t];
             int f = hFace[h], g = hFace[t];
             // keep p (u -> v becomes u -> w) and its twin tp (v -> u becomes w -> u)
             int hn = hNext[h], tn = hPrev[t];
             hNext[p] = hn; hPrev[hn] = p;
             hOrig[tp] = w;
-            hNext[tn] = tp; hPrev[tp] = tn;
+            if (tn >= 0) { hNext[tn] = tp; hPrev[tp] = tn; }
             hAlive[h] = false; hAlive[t] = false;
             if (f >= 0 && fEdge[f] == h) fEdge[f] = p;
             if (g >= 0 && fEdge[g] == t) fEdge[g] = tp;
             return true;
+        }
+
+        bool removable(int h)
+        {
+            int p = hPrev[h];
+            int v = hOrig[h];
+            int t = hTwin[h], tp = hTwin[p];        // t: w -> v, tp: v -> u
+            if (hFace[h] < 0) return false;
+            if (hFace[t] < 0 || hFace[tp] < 0) {
+                // on the box boundary: both edges on it (nothing is outside)
+                if (hFace[t] >= 0 || hFace[tp] >= 0) return false;
+            } else if (hNext[t] != tp) return false;       // another edge at v
+            if (hBar[h] != hBar[p]) return false;
+            int u = hOrig[p], w = hOrig[t];
+            if (on_one_line(p, h) == false && K.Orient(u, v, w) != 0) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// tests: what makes the faces no canonical partition after Simplify ("" if nothing): a domain face that is not
+        /// strictly convex at a corner (exact), or a vertex that Simplify removes
+        /// </summary>
+        internal string CanonicalProblem()
+        {
+            // the links: every live half-edge of a domain face in one cycle of that face, twins paired
+            var inCycle = new HashSet<int>();
+            foreach (int f in OrderedFaces()) {
+                foreach (int h in cycle(f)) {
+                    if (hAlive[h] == false) return $"face {f}: a dead half-edge in its cycle";
+                    if (hFace[h] != f) return $"face {f}: a half-edge of face {hFace[h]} in its cycle";
+                    if (hPrev[hNext[h]] != h) return $"face {f}: next and prev disagree";
+                    if (hTwin[hTwin[h]] != h || hOrig[hTwin[h]] != hOrig[hNext[h]]) return $"face {f}: a twin does not match";
+                    if (inCycle.Add(h) == false) return $"face {f}: a half-edge twice";
+                }
+            }
+            for (int h = 0; h < hOrig.Count; ++h)
+                if (hAlive[h] && in_domain(hFace[h]) && inCycle.Contains(h) == false) return $"half-edge {h} of face {hFace[h]} is in no cycle";
+            foreach (int f in OrderedFaces()) {
+                var c = cycle(f);
+                bool turns = false;
+                for (int i = 0; i < c.Count; ++i) {
+                    int o = K.Orient(hOrig[c[i]], hOrig[c[(i + 1) % c.Count]], hOrig[c[(i + 2) % c.Count]]);
+                    if (o < 0) return $"face {f} is not convex";
+                    if (o > 0) turns = true;
+                    if (removable(c[i])) return $"face {f}: a vertex of degree 2 on a straight edge";
+                }
+                if (turns == false) return $"face {f} has no area";
+            }
+            return "";
         }
 
         // ---------------------------------------------------------------- results
@@ -890,15 +990,14 @@ namespace gs
         /// <summary> an undercut toe segment (piece), the piece whose face lies on it, and a point of it where it does </summary>
         public struct UndercutCause { public int Piece, Cause; public Vector2d At; }
 
-        /// <summary> Undercuts, with the first cause of each undercut segment (in half-edge order) </summary>
+        /// <summary> Undercuts, with the first cause of each undercut segment (in the order of OrderedFaces) </summary>
         public List<int> Undercuts(List<Vector3d[]> pieceEnds, double tol, out List<UndercutCause> causes)
         {
             var result = new SortedSet<int>();
             var first = new Dictionary<int, UndercutCause>();
-            for (int h = 0; h < hOrig.Count; ++h) {
-                if (hAlive[h] == false) continue;
+            foreach (int h in OrderedFaces().SelectMany(cycle)) {
                 int b = hBar[h], f = hFace[h];
-                if (b < 0 || b >= toeBarriers || f < 0 || fDomain[f] == false) continue;
+                if (b < 0 || b >= toeBarriers) continue;
                 int o;
                 if (owner.TryGetValue(fLabel[f], out o) == false || o == b || o < 0) continue;
                 Vector3d A = pieceEnds[b][0], B = pieceEnds[b][1];
@@ -927,8 +1026,7 @@ namespace gs
             // the planes incident to each rounded position (all domain faces, the cap too)
             var labelsAt = new Dictionary<Vector2d, List<int>>();
             var faces = new List<int>();
-            for (int f = 0; f < fEdge.Count; ++f) {
-                if (fAlive[f] == false || fDomain[f] == false) continue;
+            foreach (int f in OrderedFaces()) {
                 foreach (int h in cycle(f)) {
                     Vector2d r = K.Rounded(hOrig[h]);
                     List<int> ls;
@@ -967,6 +1065,7 @@ namespace gs
                     barrierPos.Add(p); barrierPos.Add(q);
                     at(p, hBar[h]); at(q, hBar[h]);
                 }
+            foreach (var l in BarriersAt.Values) l.Sort();
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),

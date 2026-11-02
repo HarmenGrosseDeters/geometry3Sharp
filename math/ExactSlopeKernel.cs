@@ -281,6 +281,35 @@ namespace g3
             return new Vector2d(v.rx, v.ry);
         }
 
+        /// <summary>
+        /// the lexicographic order of the exact positions (x, then y): -1, 0 or +1. A function of the positions only,
+        /// not of the lines that define the vertices (the rounded positions decide where they differ).
+        /// </summary>
+        public int CompareXY(int a, int b)
+        {
+            if (a == b) return 0;
+            // (rounding to nearest is monotone: different rounded coordinates order the exact ones; the same rounded
+            // coordinate needs the exact values, x_a / w_a against x_b / w_b)
+            Vector2d ra = Rounded(a), rb = Rounded(b);
+            if (ra.x != rb.x) return ra.x < rb.x ? -1 : 1;
+            Vertex p = vertices[a], q = vertices[b];
+            exact_vertex(p); exact_vertex(q);
+            int sw = p.eW.Sign * q.eW.Sign;
+            int sx = (p.eX * q.eW - q.eX * p.eW).Sign * sw;
+            if (sx != 0) return sx;
+            if (ra.y != rb.y) return ra.y < rb.y ? -1 : 1;
+            return (p.eY * q.eW - q.eY * p.eW).Sign * sw;
+        }
+
+        /// <summary> the vertex lies exactly at the double point p </summary>
+        public bool IsAt(int vertex, Vector2d p)
+        {
+            Vertex v = vertices[vertex];
+            if (v.L1 < 0) return v.x == p.x && v.y == p.y;
+            exact_vertex(v);
+            return (v.eX - E(p.x) * v.eW).Sign == 0 && (v.eY - E(p.y) * v.eW).Sign == 0;
+        }
+
         /// <summary> an approximation of the vertex position (for bounding boxes and heuristics only) </summary>
         public Vector2d Approx(int vertex)
         {
