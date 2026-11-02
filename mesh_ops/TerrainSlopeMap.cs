@@ -680,7 +680,7 @@ namespace gs
         /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there (rounded
         /// to nearest), faces triangulated at their exact corners; group id = piece; z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -697,8 +697,11 @@ namespace gs
                 if (fLabel[f] != cap) faces.Add(f);
             }
             var outId = new Dictionary<Vector2d, int>();
+            var repOf = new Dictionary<Vector2d, Vector2d>();
             Func<int, int> outVertex = (v) => {
                 Vector2d r = K.Rounded(v);
+                Vector2d rep;
+                if (repOf.TryGetValue(r, out rep)) r = rep;
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
@@ -711,8 +714,19 @@ namespace gs
             OutLabels.Clear();
             OnBarrier.Clear();
             var barrierPos = new HashSet<Vector2d>();
+            BarriersAt.Clear();
+            Action<Vector2d, int> at = (p, bar) => {
+                List<int> l;
+                if (BarriersAt.TryGetValue(p, out l) == false) { l = new List<int>(); BarriersAt[p] = l; }
+                if (l.Contains(bar) == false) l.Add(bar);
+            };
             for (int h = 0; h < hOrig.Count; ++h)
-                if (hAlive[h] && hBar[h] >= 0 && hFace[h] >= 0 && fDomain[hFace[h]]) { barrierPos.Add(K.Rounded(hOrig[h])); barrierPos.Add(K.Rounded(hOrig[hTwin[h]])); }
+                if (hAlive[h] && hBar[h] >= 0 && hFace[h] >= 0 && fDomain[hFace[h]]) {
+                    Vector2d p = K.Rounded(hOrig[h]), q = K.Rounded(hOrig[hTwin[h]]);
+                    barrierPos.Add(p); barrierPos.Add(q);
+                    at(p, hBar[h]); at(q, hBar[h]);
+                }
+            merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             foreach (int f in faces) {
                 int group = owner[fLabel[f]];
                 var verts = cycle(f).Select(h => hOrig[h]).ToList();
@@ -720,16 +734,80 @@ namespace gs
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
                     int tid = mesh.AppendTriangle(a, b, c, group);
-                    if (tid < 0) throw new InvalidOperationException("SlopeMap: non-manifold realization");
+                    if (tid < 0) throw new NonManifoldRealization();
                 }
             }
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
 
+        // Positions nearer than the radius become one vertex (z the lowest of the planes of all of them; the exact check
+        // of every triangle decides), and a position on a barrier only goes to another one on a barrier. Near-degenerate
+        // inputs need it: on a regular polygon the line where the strips of two pieces are equal passes within a few
+        // ulps of the opposite vertex, which leaves a cluster of map vertices there; collapsing their edges one by one
+        // can fail the link condition and leave a degenerate triangle.
+        void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos,
+                                          Dictionary<Vector2d, List<int>> barriersAt, double radius,
+                                          Dictionary<Vector2d, Vector2d> repOf)
+        {
+            MergedCount = 0;
+            if (!(radius > 0)) return;
+            var order = labelsAt.Keys.ToList();
+            order.Sort((a, b) => {
+                bool ba = barrierPos.Contains(a), bb = barrierPos.Contains(b);
+                if (ba != bb) return ba ? -1 : 1;
+                int ca = labelsAt[a].Count, cb = labelsAt[b].Count;
+                if (ca != cb) return cb.CompareTo(ca);
+                return a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
+            });
+            var grid = new Dictionary<long, List<Vector2d>>();
+            Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
+            foreach (Vector2d p in order) {
+                long cx = cell(p.x), cy = cell(p.y);
+                Vector2d best = p;
+                double bestD = radius;
+                for (long i = cx - 1; i <= cx + 1; ++i)
+                    for (long j = cy - 1; j <= cy + 1; ++j) {
+                        List<Vector2d> reps;
+                        if (grid.TryGetValue(i * 0x100000007L + j, out reps) == false) continue;
+                        foreach (Vector2d q in reps) {
+                            double d = p.Distance(q);
+                            if (d >= bestD) continue;
+                            if (barrierPos.Contains(p) && barrierPos.Contains(q) == false) continue;
+                            best = q; bestD = d;
+                        }
+                    }
+                if (best != p) {
+                    repOf[p] = best;
+                    MergedCount++;
+                    foreach (int l in labelsAt[p]) if (labelsAt[best].Contains(l) == false) labelsAt[best].Add(l);
+                    // (and its barriers: the vertex is on the barriers of both, which classifies its boundary edges)
+                    List<int> bp, bq;
+                    if (barriersAt.TryGetValue(p, out bp) && barriersAt.TryGetValue(best, out bq))
+                        foreach (int bar in bp) if (bq.Contains(bar) == false) bq.Add(bar);
+                    continue;
+                }
+                long k = cx * 0x100000007L + cy;
+                List<Vector2d> list;
+                if (grid.TryGetValue(k, out list) == false) { list = new List<Vector2d>(); grid[k] = list; }
+                list.Add(p);
+            }
+        }
+
         /// <summary> Realize: per vertex of the mesh, the planes of its faces, and whether it lies on a toe or a lateral limit </summary>
         public readonly List<List<int>> OutLabels = new List<List<int>>();
         public readonly List<bool> OnBarrier = new List<bool>();
+        /// <summary> Realize: the barriers (toe segments first, then the lateral limits) through each rounded position on one </summary>
+        public readonly Dictionary<Vector2d, List<int>> BarriersAt = new Dictionary<Vector2d, List<int>>();
+        public int ToeBarrierCount { get { return toeBarriers; } }
+        /// <summary> Realize: a triangle would make the mesh non-manifold (a merge can; caught to realize without it) </summary>
+        public sealed class NonManifoldRealization : InvalidOperationException
+        {
+            public NonManifoldRealization() : base("SlopeMap: non-manifold realization") { }
+        }
+
+        /// <summary> Realize: the positions merged into another one (0 without a merge radius) </summary>
+        public int MergedCount;
 
         /// <summary>
         /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes

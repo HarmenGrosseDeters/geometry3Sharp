@@ -65,7 +65,7 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    and the wrap session: a tighter sample region for the IoU check (only 16 % of samples hit the union; upper bound about
    10 % of the 400-set time; measurement and options in [design/VOLUME_CHECK_SAMPLING.md](design/VOLUME_CHECK_SAMPLING.md),
    parked 2026-11-02). It must provably contain the union of both solids, so the estimator stays unbiased with
-   lower variance; results are no longer bit-identical, the quality thresholds stay; its own PR with an A/B; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
+   lower variance; results are no longer bit-identical, the quality thresholds stay; its own PR with an A/B; **started 2026-11-02 (owner: option A, cells for closed meshes, with B, today's region, as the fallback; design in [design/VOLUME_CHECK_SAMPLING.md](design/VOLUME_CHECK_SAMPLING.md))**; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
    **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
@@ -92,7 +92,8 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    After 7b, in the same session (owner 2026-11-02): one bundled Reducer measurement, upper bounds only, from
    [design/RESEARCH_REDUCER_REMESHER.md](design/RESEARCH_REDUCER_REMESHER.md) (#286): `MaxDeviation` by speculative
    parallel certification (bit-identical) and an adaptive permission-grid accept filter; the self-intersection check
-   (73 % in `TriangleHashGrid.Query` on the wrap meshes) by one union-box query per collapse. Building needs the
+   (73 % in `TriangleHashGrid.Query` on the wrap meshes) by one union-box query per collapse. Owner 2026-11-02: the same union-box lever is measured for
+   `Remesher.PreventSelfIntersections` too (6-10x after #298; every other lever closed there). Building needs the
    owner's go. The research session reads the full texts now (hosts allowed by the owner).
    Also started 2026-11-02, above the session limit by owner exception: a medium **Remesher session** for the cost of
    `PreventSelfIntersections` (about 17x; levers: the coplanar 2D shortcut, unblocked since #249/#256, and a clearance

@@ -373,6 +373,50 @@ namespace geometry3Sharp.Tests
         // A: open, uneven, mixed specs (failed with SlopeViolation: the sector window wrapped at +-pi, and the
         // planes of a failed attempt were kept for the next one)
         [Fact]
+        public void RegularPolygon_StripCreaseThroughTheOppositeVertex()
+        {
+            // found by the 1b stress test: on a regular 10-gon the line where the strips of two pieces are equal passes
+            // within a few ulps of the opposite toe vertex, which left a cluster of map vertices 1e-14 apart there; their
+            // edges could not all be collapsed (link condition) and a degenerate triangle failed the check at every margin
+            var toe = SlopeToe.Constant(Ngon(10, 9.642226746139222, 0, 0.29190628476995334), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.9346294006959672));
+            var d = Run(13.65915220256275, 0.05, toe);
+            AssertAll(d);
+            // the merged vertices' triangles may rise above S̃ by 2 sMax (r + e_xy), r = 64 ulps: the toe lowering of a
+            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy)
+            double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
+            Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
+            output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
+        }
+
+        // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
+        // polygons) and whose measured lowering alone stays below what the merge needs
+        [Theory]
+        [InlineData(16, 21.30606409921593, 0.07628677649250569, 1.4751108086086395)]
+        [InlineData(4, 23.804800668174774, 0.6008761141453293, 2.775734977692242)]
+        public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
+        {
+            var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+            var d = Run(r * 0.6, 0.05, toe);
+            AssertAll(d);
+            // the triangles of a merged vertex may rise above S̃ by 2 sMax (r + e_xy): the lowering covers it
+            Assert.True(d.MergedPositions > 0);
+            Assert.True(d.MergeLambdaRequired > 0);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+        }
+
+        [Fact]
+        public void Merge_Shares()
+        {
+            // below S̃ by at most 4 sMax (r + e_xy), above by at most 2 sMax (r + e_xy) plus the vertex rounding 4 e_z,
+            // r = 64 e_xy (TERRAIN_1B_PLAN.md, reviews)
+            double exy = Math.Pow(2, -30), ez = 3 * Math.Pow(2, -31), s = 1.5;
+            Assert.Equal(64 * exy, TerrainSlopeDesign.MergeRadius(exy));
+            Assert.Equal(4 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
+            Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
+        }
+
+        [Fact]
         public void Review_OpenUneven_MixedSlopes()
         {
             var pts = P((12, 16, 0), (0.934, 24, 0), (-12.773, 19.097, 0), (-11.63, 4.284, 1), (-24, -6.67, 0), (-14, -18, 1), (-1, -19, 0), (13.011, -19, 0), (16, -6, 0));
