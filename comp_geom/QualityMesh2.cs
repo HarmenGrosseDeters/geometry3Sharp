@@ -704,7 +704,9 @@ namespace g3
                 foreach (int e in k.Star(v)) {
                     int c = k.Seg[e];
                     if (c < 0) continue;
-                    foreach (int src in k.Sources[c]) if (!b.sources[src].Hull && !result.Contains(src)) result.Add(src);
+                    // the hull edges of a hull domain count (D13: the hull is its boundary, so an input segment at a small angle to it makes a
+                    // small input angle as two segments would; found with CDT's issue-211, a segment at 0.096 degrees to a hull edge)
+                    foreach (int src in k.Sources[c]) if (!result.Contains(src)) result.Add(src);
                 }
                 return result;
             }
