@@ -13,7 +13,8 @@ namespace g3
     /// cotangents.
     ///
     /// Starts from LSCM (or InitialUV). Works on any connected mesh with a boundary. Does not guarantee
-    /// a flip-free result (use SLIM for that).
+    /// a flip-free result (use SLIM for that): a map with flipped or zero-area UV triangles is reported as
+    /// ParameterizationStatus.FlippedTriangles, not as a success.
     /// </summary>
     public class ARAPParameterization
     {
@@ -115,7 +116,7 @@ namespace g3
             Result.Iterations = iter;
             Result.Converged = converged;
             Result.Energy = energy;
-            return Result;
+            return Result = ParameterizationResult.RejectFlipped(Result, "ARAP");
         }
 
         // per corner k of each triangle: weight w = cot/2 of the angle at k and the 2D edge e opposite k (from

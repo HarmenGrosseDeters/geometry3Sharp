@@ -22,8 +22,6 @@ namespace geometry3Sharp.Tests
     {
         /// <summary> case name -> finding; a listed case must still fail </summary>
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            [nameof(LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion) + "_LscmAndArap"] =
-                "finding P1: LSCM on a low-poly cylinder (annulus) collapses the unpinned boundary ring and reports Success",
             [nameof(LongThinTriangleInPlaneX0_ValidChart) + "_BffDiskTwoTriangles"] =
                 "finding P2: BFF Disk with the conformal extension leaves the circle without interior vertices; on two needles (long edge weight -2.5e4) a flipped sliver",
             [nameof(TwoIdenticalRectangularHoles_SymmetricResult) + "_LscmAutomaticPins"] =
@@ -69,12 +67,17 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// "" if r is a valid success: UVs for every vertex id, finite at every vertex of a triangle, (0,0) at unused
         /// vertices, a distortion, positive total signed UV area (the surface's orientation), and with flipFree no
-        /// flipped or zero-area UV triangle on a non-degenerate surface triangle; otherwise the reasons
+        /// flipped or zero-area UV triangle on a non-degenerate surface triangle; otherwise the reasons. A method
+        /// without the flip-free promise may instead report FlippedTriangles (finding P1), with its map kept and
+        /// checked the same way, and flipped triangles in it.
         /// </summary>
         static string Valid(DMesh3 m, ParameterizationResult r, bool flipFree)
         {
             var e = new List<string>();
-            if (!r.Succeeded) return $"status {r.Status} ({r.Error})";
+            bool flippedStatus = !flipFree && r.Status == ParameterizationStatus.FlippedTriangles;
+            if (!r.Succeeded && !flippedStatus) return $"status {r.Status} ({r.Error})";
+            if (flippedStatus && !(r.Distortion != null && r.Distortion.FlippedTriangles + r.Distortion.DegenerateUVTriangles > 0))
+                return $"status {r.Status} without flipped or degenerate triangles";
             if (r.UV == null || r.UV.Length < m.MaxVertexID) return "no UVs";
             var used = new HashSet<int>();
             foreach (int t in m.TriangleIndices()) { Index3i tv = m.GetTriangle(t); used.Add(tv.a); used.Add(tv.b); used.Add(tv.c); }
@@ -412,7 +415,7 @@ namespace geometry3Sharp.Tests
             // https://github.com/libigl/libigl/issues/680: a terrain with three peaks: the LSCM start had flips, SLIM failed,
             // ARAP overlapped. Rebuilt: a square grid with three tall narrow Gaussian peaks. Correct (as documented): SLIM
             // and Tutte succeed without flipped or degenerate UV triangles, Tutte also without overlaps; LSCM, ARAP and BFF
-            // give finite UVs with the surface's orientation.
+            // give finite UVs with the surface's orientation (LSCM and ARAP may say FlippedTriangles, with the map).
             Expect(nameof(ThreePeakTerrain_SlimAndTutteFlipFree), () => {
                 Func<double, double, double> peaks = (x, y) => {
                     double z = 0;
@@ -443,7 +446,9 @@ namespace geometry3Sharp.Tests
             // https://github.com/GeometryCollective/boundary-first-flattening/issues/97: a low-poly cylinder (an annulus)
             // without a seam was flattened badly distorted. Rebuilt: an open cylinder of 8 sides and 3 rings. Correct: a
             // method for discs says InvalidTopology; a method that takes it (LSCM: annuli) gives a valid flip-free map of
-            // bounded distortion (a cylinder maps conformally onto a planar annulus); the atlas cuts it into discs.
+            // bounded distortion (a cylinder maps conformally onto a planar annulus), or says that its map has flipped
+            // triangles (FlippedTriangles); the atlas cuts it into discs. Finding P1 (fixed: LSCM and ARAP reported
+            // Success for the collapsed ring).
             var m = new DMesh3();
             int sides = 8, rings = 3;
             for (int j = 0; j <= rings; ++j)
@@ -458,6 +463,12 @@ namespace geometry3Sharp.Tests
                 }
             Action<string, ParameterizationResult> check = (name, r) => {
                 if (r.Status == ParameterizationStatus.InvalidTopology) { Assert.Null(r.UV); return; }
+                if (r.Status == ParameterizationStatus.FlippedTriangles) {
+                    // only from a method without the flip-free promise; the map is kept and has the flips
+                    Assert.True(name == "lscm" || name == "arap", $"{name}: {r.Status}");
+                    Assert.True(r.UV != null && r.Distortion.FlippedTriangles + r.Distortion.DegenerateUVTriangles > 0 && r.Error != null, $"{name}: {r.Error}");
+                    return;
+                }
                 string v = Valid(m, r, true);
                 Assert.True(v == "", $"{name}: {v}");
                 Assert.True(r.Distortion.MeanConformal < 1.5, $"{name}: mean conformal distortion {r.Distortion.MeanConformal}");
@@ -475,15 +486,15 @@ namespace geometry3Sharp.Tests
             string lscmCase = nameof(LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion) + "_LscmAndArap";
             ParameterizationResult rl = new LSCMParameterization(m).Compute(), ra = new ARAPParameterization(m).Compute();
             Expect(lscmCase, () => { check("lscm", rl); check("arap", ra); });
-            if (IssueCases.Strict && KnownFailures.ContainsKey(lscmCase)) {
-                // finding P1: Success, but the boundary ring without the pins collapses onto a segment (all its v = 0);
-                // ARAP, started from that map, keeps flipped triangles
-                Assert.True(rl.Succeeded && Flipped(m, rl) > 0 && rl.Distortion.MaxConformal > 1e6, $"P1: {rl.Status}, {(rl.Succeeded ? Flipped(m, rl) : -1)} flipped");
-                var box = new AxisAlignedBox2d(rl.UV[0]);
-                foreach (int v in m.VertexIndices()) box.Contain(rl.UV[v]);
-                Assert.True(Enumerable.Range(rings * sides, sides).All(i => Math.Abs(rl.UV[i].y) < 1e-9 * box.DiagonalLength), "P1: the far ring is not collapsed");
-                Assert.True(ra.Succeeded && Flipped(m, ra) > 0, $"P1: arap {ra.Status}");
-            }
+            // finding P1: the boundary ring without the pins collapses onto a segment (all its v = 0); ARAP, started from
+            // that map, keeps flipped triangles. Both now say so instead of Success
+            Assert.Equal(ParameterizationStatus.FlippedTriangles, rl.Status);
+            Assert.True(Flipped(m, rl) > 0 && rl.Distortion.MaxConformal > 1e6, $"P1: {Flipped(m, rl)} flipped");
+            var box = new AxisAlignedBox2d(rl.UV[0]);
+            foreach (int v in m.VertexIndices()) box.Contain(rl.UV[v]);
+            Assert.True(Enumerable.Range(rings * sides, sides).All(i => Math.Abs(rl.UV[i].y) < 1e-9 * box.DiagonalLength), "P1: the far ring is not collapsed");
+            Assert.Equal(ParameterizationStatus.FlippedTriangles, ra.Status);
+            Assert.True(Flipped(m, ra) > 0, "P1: arap");
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -561,7 +572,8 @@ namespace geometry3Sharp.Tests
             // https://github.com/GeometryCollective/boundary-first-flattening/issues/81 and /issues/61: strong negative
             // curvature (saddles) gave UV overlaps. Rebuilt: a monkey saddle disc z = 2 (x^3 - 3 x y^2) and a saddle
             // z = 1.5 (x^2 - y^2). Correct: SLIM and Tutte locally injective (no flipped or degenerate triangle), Tutte also
-            // globally (it promises a bijection); the others finite with the orientation of the surface. The atlas is
+            // globally (it promises a bijection); the others finite with the orientation of the surface (LSCM and ARAP may
+            // say FlippedTriangles, with the map). The atlas is
             // overlap-free (it promises that).
             Expect(nameof(StrongSaddles_LocallyInjective), () => {
                 var surfaces = new (string, Func<double, double, double>)[] {

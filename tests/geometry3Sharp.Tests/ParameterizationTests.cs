@@ -427,6 +427,85 @@ namespace geometry3Sharp.Tests
             Assert.True(MaxEdgeLengthError(mesh, r.UV) < 1e-6);
         }
 
+        /// <summary> open cylinder (an annulus) of the given sides and rings, radius 1, rings 0.6 apart, no seam </summary>
+        static DMesh3 SeamlessCylinder(int sides, int rings)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= rings; ++j)
+                for (int i = 0; i < sides; ++i) {
+                    double a = 2 * Math.PI * i / sides;
+                    m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), 0.6 * j));
+                }
+            for (int j = 0; j < rings; ++j)
+                for (int i = 0; i < sides; ++i) {
+                    int a = j * sides + i, b = j * sides + (i + 1) % sides, c = a + sides, d = b + sides;
+                    m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c);
+                }
+            return m;
+        }
+
+        static int Bad(ParameterizationDistortion d) => d.FlippedTriangles + d.DegenerateUVTriangles;
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void LSCM_ARAP_FlippedMap_IsNotSuccess_InvariantUnderSimilarities(string name)
+        {
+            // finding P1 (docs/ISSUE_CASE_FINDINGS.md): on a low-poly cylinder LSCM collapses the unpinned ring (2
+            // flipped triangles), ARAP from it keeps flips. Both reported Success; now FlippedTriangles, with the map
+            // kept. Every similarity gives that status; a 2^k scale the same map, scaled, bit for bit. The reused
+            // instance gives the same again. The flat annulus (no flips) stays a success.
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m0 = SeamlessCylinder(8, 3), m = Invariance.Transformed(m0, sim);
+            ParameterizationResult l0 = new LSCMParameterization(m0).Compute();
+            var lscm = new LSCMParameterization(m);
+            var arap = new ARAPParameterization(m);
+            foreach (int pass in new[] { 0, 1 }) {
+                ParameterizationResult l = lscm.Compute(), a = arap.Compute();
+                foreach (var (what, r) in new[] { ("lscm", l), ("arap", a) }) {
+                    Assert.True(r.Status == ParameterizationStatus.FlippedTriangles, $"{what}, pass {pass}: {r.Status}");
+                    Assert.False(r.Succeeded);
+                    // (the collapsed triangles have areas of rounding noise, about 1e-16: at UTM coordinates their
+                    // sign comes out positive, they count as degenerate instead of flipped)
+                    Assert.True(r.UV != null && r.Distortion != null && Bad(r.Distortion) > 0, what);
+                    Assert.Contains("flipped", r.Error);
+                    Assert.Equal(Bad(r.Distortion), Bad(ParameterizationDistortion.Compute(m, r.UV)));
+                }
+                Assert.Equal(Bad(l0.Distortion), Bad(l.Distortion));
+                if (sim.IsExact)
+                    foreach (int v in m.VertexIndices())
+                        Assert.Equal(sim.Scale * l0.UV[v], l.UV[v]);
+            }
+            DMesh3 flat = Invariance.Transformed(FlatAnnulus(), sim);
+            Assert.True(new LSCMParameterization(flat).Compute().Succeeded);
+            Assert.True(new ARAPParameterization(flat).Compute().Succeeded);
+        }
+
+        [Fact]
+        public void ARAP_FlippedInitialMap_IsNotSuccess()
+        {
+            // ARAP without iterations returns its start: a flipped one (the flat disc mirrored in one triangle's
+            // vertex) is FlippedTriangles, the unflipped one Success. Independent of LSCM
+            DMesh3 mesh = FlatDisc(4, 12);
+            var uv = new Vector2d[mesh.MaxVertexID];
+            foreach (int v in mesh.VertexIndices()) uv[v] = mesh.GetVertex(v).xy;
+            var ok = new ARAPParameterization(mesh) { InitialUV = uv, MaxIterations = 0 }.Compute();
+            Assert.True(ok.Succeeded, ok.Error);
+            Assert.Equal(0, ok.Distortion.FlippedTriangles);
+            Index3i t = mesh.GetTriangle(mesh.TriangleIndices().First());
+            int inner = new[] { t.a, t.b, t.c }.First(v => !mesh.IsBoundaryVertex(v));
+            int[] others = new[] { t.a, t.b, t.c }.Where(v => v != inner).ToArray();
+            Vector2d mid = 0.5 * (uv[others[0]] + uv[others[1]]);
+            uv[inner] = mid + 3 * (mid - uv[inner]);   // past the opposite edge: that triangle flips
+            var bad = new ARAPParameterization(mesh) { InitialUV = uv, MaxIterations = 0 }.Compute();
+            Assert.Equal(ParameterizationStatus.FlippedTriangles, bad.Status);
+            Assert.True(bad.UV != null && bad.Distortion.FlippedTriangles > 0);
+            // a vertex moved onto the opposite edge: a zero-area (here: rounding-noise area) triangle, also not a success
+            uv[inner] = mid + 1e-14 * (uv[others[0]] - uv[others[1]]).Perp;
+            var flat = new ARAPParameterization(mesh) { InitialUV = uv, MaxIterations = 0 }.Compute();
+            Assert.Equal(ParameterizationStatus.FlippedTriangles, flat.Status);
+            Assert.True(flat.Distortion.FlippedTriangles + flat.Distortion.DegenerateUVTriangles > 0);
+        }
+
         [Fact]
         public void LSCM_TJunction_DegenerateTriangleDoesNotDistort()
         {
