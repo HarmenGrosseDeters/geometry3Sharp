@@ -255,3 +255,24 @@ The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44×
 a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
 the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
 of the cap now lies at H − λ (the planes are lowered, the cap is not).
+
+### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
+
+The DGM1 2022 of `fetch_data.py` (only the 12 DGM tiles are needed: `dgm2022`, 3 x 4 km, no gaps, z −325 to +103 m) as
+the terrain: `slope ... cx=<E> cy=<N> cz=<toe z> terrain=dgm [grid=dgm2022] [tstride=1] [reach=400]`, the grid nodes
+within `reach` of the toe, every `tstride`-th. A hypothetical new pit floor below the deepest part of today's pit
+(E 328375, N 5642875, floor around −300 m), cut slope up to today's terrain, `Tolerance` 0.05 unless noted, 4 cores,
+2026-11-02, with idea A of 1c:
+
+| toe | grid | terrain tris | time | 1a / overlay / composite | builds | catch lines (points) | composite tris | overlaps | O1 | λ | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| octagon r 100 m at −330 m, 1:1.5 | 4 m | 124500 | 4.3 s | 2.2 / 0.58 / 0.85 s | 1 | 1 closed (967) | 122830 | 0 | 1511 / 1511 | 8.6e-8 m | Success |
+| the same | 1 m | 2417800 | 43.6 s | 2.7 / 21.9 / 14.7 s | 1 | 1 closed (2651) | 2352484 | 0 | 3200 / 3200 | 3.7e-7 m | Success |
+| L shape 120 m at −335 m, 1:2 | 2 m | 612180 | 12.5 s | 2.1 / 5.5 / 3.4 s | 1 | 2 closed (3049) | 542894 | 0 | 3319 / 3319 | 5.0e-6 m | Success |
+| wavy 48-gon r 150 m (toe z ±4 m) at −340 m, 1:1.5 | 2 m | 749070 | 135 s | 132 s in 1a | 1 | – | – | – | – | 5.0e-9 m | **Failed** (non-manifold realization) |
+| the same, `Tolerance` 0.2 | 2 m | 749070 | 92 s | 90 s in 1a | 3 | – | – | – | – | 1.1e-2 m | **SlopeViolation** (13 triangles at δ 5e-4) |
+
+Without the terrain, the wavy toe succeeds up to h 60 m (12 s) and fails with `SlopeViolation` (1 triangle) at
+h 100 m. Open, for 1c: the uneven toe at large heights (230 m here, reach about 350 m) fails in 1a, once with a
+non-manifold realization that is reported as `Failed`, not caught by the check; and on the 1 m grid the overlay
+(22 s) and the composite (15 s) dominate, which the band-only overlay of 5.5 addresses. Peak memory 3.1 GB on the 1 m grid.
