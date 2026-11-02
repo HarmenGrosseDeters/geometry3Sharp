@@ -433,6 +433,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Gear_SameResultUnderSimilarity(string name)
+        {
+            // caps in an axis plane and walls that touch them at the rim: the pairs TriangleTriangleFilter decides by
+            // the axis plane (an exact comparison and Orient2d) instead of the exact test's slow stage
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = Gear(24, 0.2, 3);
+            double edge = MeanEdge(input);
+            DMesh3 m0 = Remesh(input, edge, 0, true, false);
+            DMesh3 moved = Invariance.Transformed(input, s);
+            DMesh3 result = Remesh(moved, s.ApplyLength(edge), 0, true, false);
+            DMesh3 back = Invariance.MappedBack(result, s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m0));
+            Assert.True(MeshRepairMetrics.SelfIntersections(result) <= MeshRepairMetrics.SelfIntersections(moved), s.Name);
+            foreach (DMesh3 m in new[] { m0, result }) {
+                Assert.True(m.IsClosed() && m.CheckValidity(false, FailMode.ReturnOnly), s.Name);
+                Assert.True(Invariance.AllFinite(m), s.Name);
+            }
+            Assert.True(Math.Abs(back.TriangleCount - m0.TriangleCount) <= 0.03 * m0.TriangleCount, $"{s.Name}: {back.TriangleCount} vs {m0.TriangleCount} triangles");
+            // repeated runs give the same result, and parallel equals serial (an invariance and regression guard; the
+            // filter's decisions themselves are checked against the exact test in TriangleTriangleFilterTests)
+            Assert.Equal("", Invariance.Difference(m0, Remesh(input, edge, 0, true, false)));
+            Assert.Equal("", Invariance.Difference(m0, Remesh(input, edge, 0, true, true)));
+        }
+
+        [Theory]
         [InlineData(false)]
         [InlineData(true)]
         public void ParallelEqualsSerial_RepeatedRuns(bool pro)
