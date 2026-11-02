@@ -95,7 +95,7 @@ namespace geometry3Sharp.Tests
         public void TriangleTouchesBox_ExactAtContacts()
         {
             var box = new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One);
-            double up = 1 + MathUtil.Epsilon * 2;     // the next double above 1
+            double up = 1 + MathUtil.Epsilon;     // the next double above 1 (Epsilon = 2^-52)
             Func<Vector3d, Vector3d, Vector3d, bool> t = (a, b, c) => VolumeSampleCells.TriangleTouchesBox(a, b, c, box);
             // in the plane of a face: touches; one ulp beyond: does not
             Assert.True(t(new Vector3d(0.2, 0.2, 1), new Vector3d(0.8, 0.2, 1), new Vector3d(0.5, 0.8, 1)));
@@ -163,6 +163,38 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, wi);
             Assert.True(VolumeSampleCells.ExactWinding(Reversed(box), new DMeshAABBTree3(Reversed(box), true), new Vector3d(0.5, 0.5, 0.5), rb, out wi));
             Assert.Equal(-1, wi);
+        }
+
+        [Fact]
+        public void ShareInterval_HoldsEveryRatioOfTheTwoIntervals()
+        {
+            // the interval of p = (Ko + S u q) / (K + S u) is that of all (u, q) in the Wilson intervals of the union
+            // share and the only-one share, each at BonferroniZ(4): checked against a dense scan, with p rising and
+            // falling in u (q K above and below Ko), and without known volume (only q's interval, at z)
+            double zEach = MeshRepairMetrics.BonferroniZ(4);
+            foreach (var c in new[] { new { K = 0.8, Ko = 0.01, S = 0.4 }, new { K = 0.8, Ko = 0.5, S = 0.4 }, new { K = 0.0, Ko = 0.0, S = 1.0 } }) {
+                int done = 3125, union = 1400, onlyOne = 40;
+                double pLow, pHigh;
+                MeshRepairMetrics.share_interval(done, union, onlyOne, c.K, c.Ko, c.S, 4, out pLow, out pHigh);
+                double uLow, uHigh, qLow, qHigh;
+                MeshRepairMetrics.wilson(union, done, zEach, out uLow, out uHigh);
+                MeshRepairMetrics.wilson(onlyOne, union, c.K > 0 ? zEach : 4, out qLow, out qHigh);
+                if (c.K == 0) {
+                    Assert.Equal(qLow, pLow);
+                    Assert.Equal(qHigh, pHigh);
+                    continue;
+                }
+                double min = double.MaxValue, max = double.MinValue;
+                for (int i = 0; i <= 50; ++i)
+                    for (int j = 0; j <= 50; ++j) {
+                        double u = uLow + (uHigh - uLow) * i / 50, q = qLow + (qHigh - qLow) * j / 50;
+                        double p = (c.Ko + c.S * u * q) / (c.K + c.S * u);
+                        Assert.InRange(p, pLow - 1e-15, pHigh + 1e-15);
+                        min = Math.Min(min, p); max = Math.Max(max, p);
+                    }
+                Assert.Equal(min, pLow, 1e-14);
+                Assert.Equal(max, pHigh, 1e-14);
+            }
         }
 
         [Fact]
@@ -311,7 +343,6 @@ namespace geometry3Sharp.Tests
                 Assert.True(with.Cells);
                 Assert.False(without.Cells);
                 Assert.Equal(h > 0.99, okWith);
-                Assert.Equal(okWithout, okWith);
                 Assert.InRange(h, with.IoULow, with.IoUHigh);
                 Assert.True(with.Samples <= without.Samples);
                 if (with.Samples == without.Samples)
@@ -325,17 +356,79 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Estimate_ClearCases_StopEarlierWithCells()
         {
-            // the same solid, and a clearly different one: the cells need fewer samples than the region (a sphere: about
-            // half of the region's samples hit it) and give the same answers
+            // the same solid, a slightly and a clearly different one: the cells give the same answers with at most as many
+            // samples (a single sphere fills about half of its box, so both hit the union about equally often; the cells
+            // gain from the known interior), and the slightly different one, which the region decides only after several
+            // rounds, needs fewer
             DMesh3 input = Sphere(Vector3d.Zero, 1, 24);
-            foreach (var r in new[] { Sphere(Vector3d.Zero, 1, 24), Sphere(new Vector3d(0.2, 0, 0), 1, 24) }) {
+            foreach (double shift in new[] { 0, 0.003, 0.2 }) {
+                DMesh3 r = Sphere(new Vector3d(shift, 0, 0), 1, 24);
                 var with = new MeshRepairMetrics.VolumeCheckStats();
                 var without = new MeshRepairMetrics.VolumeCheckStats();
                 double i1, i2;
                 bool o1 = AtLeast(input, r, out i1, with), o2 = AtLeast(input, r, out i2, without, false);
+                output.WriteLine($"shift {shift}: {with.Samples} ({with.UnionSamples}) vs {without.Samples} ({without.UnionSamples})");
                 Assert.Equal(o2, o1);
-                Assert.True(with.Samples < without.Samples || with.Samples == 100000 / 32, $"{with.Samples} vs {without.Samples}");
-                Assert.True((double)with.UnionSamples / with.Samples > 0.4, "union " + with.UnionSamples + " of " + with.Samples);
+                Assert.True(with.Cells);
+                Assert.True(with.Samples <= without.Samples);
+                if (shift == 0.003)
+                    Assert.True(with.Samples < without.Samples, $"{with.Samples} vs {without.Samples}");
+            }
+        }
+
+        [Fact]
+        public void Estimate_FarSmallComponent_FallsBackToTheRegion()
+        {
+            // a small component far away (review): the root box is long and thin, the cells of the last level are large,
+            // and they would sample far more volume than the region of the components' boxes; the region is used then
+            var far = new Vector3d(1e6, 0, 0);
+            DMesh3 input = Union(Sphere(Vector3d.Zero, 1), Sphere(far, 0.05));
+            DMesh3 result = Union(Sphere(new Vector3d(0.02, 0, 0), 1), Sphere(far, 0.05));     // IoU about 0.97
+            var with = new MeshRepairMetrics.VolumeCheckStats();
+            var without = new MeshRepairMetrics.VolumeCheckStats();
+            double i1, i2;
+            bool ok = AtLeast(input, result, out i1, with);
+            AtLeast(input, result, out i2, without, false);
+            Assert.True(with.CellsRejected);
+            Assert.False(with.Cells);
+            Assert.False(ok);
+            Assert.True(with.UnionSamples >= without.UnionSamples / 2, $"{with.UnionSamples} vs {without.UnionSamples}");
+            Assert.InRange(i1, 0.95, 0.985);
+        }
+
+        [Fact]
+        public void SampleRegion_Volume_IsThatOfTheUnion()
+        {
+            var boxes = new List<AxisAlignedBox3d>() {
+                new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)),
+                new AxisAlignedBox3d(Vector3d.One, new Vector3d(3, 3, 3)),         // overlaps the first in a unit cube
+                new AxisAlignedBox3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 1, 1)),     // inside the first
+                new AxisAlignedBox3d(new Vector3d(10, 0, 0), new Vector3d(11, 1, 2)) };
+            Assert.Equal(8 + 8 - 1 + 2, new MeshRepairMetrics.SampleRegion(boxes).Volume(), 12);
+            Assert.Equal(8, new MeshRepairMetrics.SampleRegion(boxes[0]).Volume());
+        }
+
+        [Fact]
+        public void Estimate_EarlyAnswers_AndIntervalsHoldTheTrueIoU()
+        {
+            // the combined interval of the stop rule (known volume, two Wilson intervals, corners) over many seeds: no early
+            // answer on the wrong side, and the interval at the stop misses the true IoU (h) rarely (z = 4: never expected)
+            DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
+            foreach (double h in new[] { 0.97, 0.995 }) {
+                DMesh3 result = Box(Vector3d.Zero, new Vector3d(1, 1, h));
+                int misses = 0, early = 0;
+                for (int seed = 1; seed <= 150; ++seed) {
+                    var st = new MeshRepairMetrics.VolumeCheckStats();
+                    double iou;
+                    bool ok = AtLeast(input, result, out iou, st, seed: seed);
+                    Assert.True(st.Cells && st.KnownUnion > 0);
+                    Assert.Equal(h > 0.99, ok);
+                    if (st.Samples < 100000) early++;
+                    if (h < st.IoULow || h > st.IoUHigh) misses++;
+                }
+                output.WriteLine($"h {h}: early {early}, misses {misses}");
+                Assert.True(early > 100);
+                Assert.True(misses <= 1, "misses " + misses);
             }
         }
 

@@ -258,6 +258,8 @@ namespace gs
         {
             /// <summary> the cells were used (both meshes winding-closed); otherwise the region of sample_region </summary>
             internal bool Cells;
+            /// <summary> the cells were built but sampled more volume than the region, which was used instead </summary>
+            internal bool CellsRejected;
             internal int Samples, UnionSamples, SampledCells, ChildTests, Depth, Unclassified, WindingEvaluations;
             /// <summary> volume of the sampled region, and of the cells known to be in the union (exactly) </summary>
             internal double SampledVolume, KnownUnion, KnownBoth;
@@ -285,6 +287,18 @@ namespace gs
                 root.Contain(TriangleBounds(result.Mesh));
                 root.Expand(0.01 * root.DiagonalLength);
                 var cells = new VolumeSampleCells(input.Mesh, input.Tree, result.Mesh, result.Tree, root, childBudget);
+                // the cells are kept only if they sample less volume than the region of the components' boxes: with small
+                // components far apart, the cells at the depth the budget allows can be far larger
+                SampleRegion region = sample_region(input.Mesh, result.Mesh);
+                if (cells.SampledVolume > region.Volume()) {
+                    if (stats != null) {
+                        stats.CellsRejected = true;
+                        stats.BuildTicks = timer.ElapsedTicks;
+                    }
+                    timer.Restart();
+                    atLeast = volume_iou_at_least(input.Inside, region, null, result.Inside, minIoU, out iou, samples, seed, z, stats);
+                    goto done;
+                }
                 if (stats != null) {
                     stats.Cells = true;
                     stats.SampledCells = cells.Sampled.Count;
@@ -306,6 +320,7 @@ namespace gs
                 timer.Restart();
                 atLeast = volume_iou_at_least(input.Inside, region, null, result.Inside, minIoU, out iou, samples, seed, z, stats);
             }
+        done:
             if (stats != null)
                 stats.SampleTicks = timer.ElapsedTicks;
             if (double.IsNaN(iou) && has_solid(input.Inside, input.Mesh, seed)) {
@@ -344,7 +359,7 @@ namespace gs
         }
 
         // Wilson score interval of a share k / n, z standard deviations
-        static void wilson(int k, int count, double z, out double lo, out double hi)
+        internal static void wilson(int k, int count, double z, out double lo, out double hi)
         {
             double n = count, ph = k / n, z2 = z * z;
             double center = (ph + z2 / (2 * n)) / (1 + z2 / n);
@@ -362,18 +377,44 @@ namespace gs
         // answer is given when they lie on one side of 1 - minIoU. Both intervals use BonferroniZ(z): together they miss
         // at most as often as one interval at z, the rule of the region path. Without known volume (K = 0), p = q:
         // only q's interval is used, at z, exactly as on the region path.
+        // the interval of p = 1 - IoU after done samples, union of them in the union, onlyOne in only one solid; K, Ko the
+        // known volume of the union and of its part in only one solid, S the sampled volume (see below); z for one
+        // interval, BonferroniZ(z) for each of the two when K > 0
+        internal static void share_interval(int done, int union, int onlyOne, double K, double Ko, double S, double z, out double pLow, out double pHigh)
+        {
+            double zEach = K > 0 ? BonferroniZ(z) : z;
+            double qLow = 0, qHigh = 1;
+            if (union > 0)
+                wilson(onlyOne, union, zEach, out qLow, out qHigh);
+            if (K == 0) {
+                // Wilson score interval of the share p of the union in only one solid (1 - IoU)
+                pLow = qLow;
+                pHigh = qHigh;
+                return;
+            }
+            double uLow, uHigh;
+            wilson(union, done, zEach, out uLow, out uHigh);
+            uLow = Math.Max(uLow, 0); uHigh = Math.Min(uHigh, 1);
+            qLow = Math.Max(qLow, 0); qHigh = Math.Min(qHigh, 1);
+            pLow = double.MaxValue; pHigh = double.MinValue;
+            foreach (double uu in new[] { uLow, uHigh })
+                foreach (double qq in new[] { qLow, qHigh }) {
+                    double pc = (Ko + S * uu * qq) / (K + S * uu);
+                    pLow = Math.Min(pLow, pc);
+                    pHigh = Math.Max(pHigh, pc);
+                }
+        }
+
         static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, VolumeSampleCells cells, Func<Vector3d, bool> resultInside,
             double minIoU, out double iou, int samples, int seed, double z, VolumeCheckStats stats)
         {
-            double K = 0, Ko = 0, Kb = 0, S = 0, knownInput = 0, zEach = z;
+            double K = 0, Ko = 0, Kb = 0, S = 0, knownInput = 0;
             if (cells != null) {
                 K = cells.KnownUnion;
                 Kb = cells.KnownBoth;
                 Ko = cells.KnownOnlyA + cells.KnownOnlyB;
                 knownInput = cells.KnownBoth + cells.KnownOnlyA;
                 S = cells.SampledVolume;
-                if (K > 0)
-                    zEach = BonferroniZ(z);
                 if (cells.Sampled.Count == 0)
                     samples = 0;
             }
@@ -402,28 +443,8 @@ namespace gs
                 // no sample (or known cell) in the input's solid yet: it may be small rather than absent, which only
                 // all samples (and has_solid) can tell
                 bool decidable = (union > 0 || K > 0) && (inputSolid > 0 || knownInput > 0);
-                if (decidable) {
-                    double qLow = 0, qHigh = 1;
-                    if (union > 0)
-                        wilson(onlyOne, union, zEach, out qLow, out qHigh);
-                    if (K == 0) {
-                        // Wilson score interval of the share p of the union in only one solid (1 - IoU)
-                        pLow = qLow;
-                        pHigh = qHigh;
-                    } else {
-                        double uLow, uHigh;
-                        wilson(union, done, zEach, out uLow, out uHigh);
-                        uLow = Math.Max(uLow, 0); uHigh = Math.Min(uHigh, 1);
-                        qLow = Math.Max(qLow, 0); qHigh = Math.Min(qHigh, 1);
-                        pLow = double.MaxValue; pHigh = double.MinValue;
-                        foreach (double uu in new[] { uLow, uHigh })
-                            foreach (double qq in new[] { qLow, qHigh }) {
-                                double pc = (Ko + S * uu * qq) / (K + S * uu);
-                                pLow = Math.Min(pLow, pc);
-                                pHigh = Math.Max(pHigh, pc);
-                            }
-                    }
-                }
+                if (decidable)
+                    share_interval(done, union, onlyOne, K, Ko, S, z, out pLow, out pHigh);
                 if (done == samples)
                     break;
                 if (decidable && (pHigh < maxShare || pLow > maxShare))
@@ -656,6 +677,40 @@ namespace gs
                 double sum = 0;
                 for (int i = 0; i < boxes.Count; ++i)
                     cumulative[i] = sum += boxes[i].Volume;
+            }
+
+            /// <summary>
+            /// the volume of the union of the boxes, exactly up to rounding (coordinate compression in x and y, the z
+            /// intervals merged per cell)
+            /// </summary>
+            public double Volume()
+            {
+                if (boxes.Count == 1)
+                    return boxes[0].Volume;
+                var xs = boxes.SelectMany(b => new[] { b.Min.x, b.Max.x }).Distinct().OrderBy(v => v).ToArray();
+                var ys = boxes.SelectMany(b => new[] { b.Min.y, b.Max.y }).Distinct().OrderBy(v => v).ToArray();
+                double volume = 0;
+                var zs = new List<Interval1d>();
+                for (int i = 0; i + 1 < xs.Length; ++i) {
+                    double xm = 0.5 * (xs[i] + xs[i + 1]);
+                    for (int j = 0; j + 1 < ys.Length; ++j) {
+                        double ym = 0.5 * (ys[j] + ys[j + 1]);
+                        zs.Clear();
+                        foreach (var b in boxes)
+                            if (b.Min.x <= xm && xm <= b.Max.x && b.Min.y <= ym && ym <= b.Max.y)
+                                zs.Add(new Interval1d(b.Min.z, b.Max.z));
+                        if (zs.Count == 0) continue;
+                        zs.Sort((u, v) => u.a.CompareTo(v.a));
+                        double len = 0, lo = zs[0].a, hi = zs[0].b;
+                        for (int k = 1; k < zs.Count; ++k) {
+                            if (zs[k].a > hi) { len += hi - lo; lo = zs[k].a; hi = zs[k].b; }
+                            else hi = Math.Max(hi, zs[k].b);
+                        }
+                        len += hi - lo;
+                        volume += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]) * len;
+                    }
+                }
+                return volume;
             }
 
             public bool Contains(Vector3d p)

@@ -194,7 +194,9 @@ namespace gs
                         mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
                         int sp = ExactPredicates.Orient3d(v0, v1, v2, pp), sq = ExactPredicates.Orient3d(v0, v1, v2, qq);
                         if (sp == 0 && sq == 0) {
-                            // in the plane of the triangle, or a triangle of no area (crossing it changes nothing)
+                            // in the plane of the triangle, or a triangle of no area (crossing it changes nothing). For a
+                            // closed mesh the edge tests of the neighbours also catch a segment through a triangle in its
+                            // plane (it enters the coplanar region through an edge or a vertex); kept as the direct test
                             if (collinear(v0, v1, v2) == false)
                                 degenerate = true;
                             return;
@@ -284,16 +286,18 @@ namespace gs
         /// <summary> does a triangle of mesh touch the closed box (exactly, TriangleTouchesBox)? </summary>
         internal static bool Touches(DMesh3 mesh, DMeshAABBTree3 tree, AxisAlignedBox3d box)
         {
-            // the tree's boxes are stored as centre and extent, which can round inwards by an ulp: the pruning box is
-            // widened by a few ulps of the coordinates (only the pruning; the triangles are tested exactly)
-            double mag = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)),
-                Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z))));
-            AxisAlignedBox3d query = box;
-            query.Expand(16 * MathUtil.Epsilon * mag);
+            // the tree's boxes are stored as centre and extent, which can round inwards by an ulp of their own
+            // coordinates: each is widened by a few ulps of its magnitude and the cell's (only the pruning; the
+            // triangles are tested exactly)
+            double mag = magnitude(box);
             bool found = false;
             Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
             tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                NextBoxDF = (tb, depth) => found == false && closed_overlap(tb, query),
+                NextBoxDF = (tb, depth) => {
+                    if (found) return false;
+                    tb.Expand(16 * MathUtil.Epsilon * Math.Max(mag, magnitude(tb)));
+                    return closed_overlap(tb, box);
+                },
                 NextTriangleF = (tid) => {
                     if (found) return;
                     mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
@@ -302,6 +306,12 @@ namespace gs
                 }
             });
             return found;
+        }
+
+        static double magnitude(AxisAlignedBox3d b)
+        {
+            return Math.Max(Math.Max(Math.Max(Math.Abs(b.Min.x), Math.Abs(b.Max.x)), Math.Max(Math.Abs(b.Min.y), Math.Abs(b.Max.y))),
+                Math.Max(Math.Abs(b.Min.z), Math.Abs(b.Max.z)));
         }
 
         static bool closed_overlap(AxisAlignedBox3d p, AxisAlignedBox3d q)

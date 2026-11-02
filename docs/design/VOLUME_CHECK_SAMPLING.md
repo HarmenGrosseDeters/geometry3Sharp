@@ -106,6 +106,12 @@ untouched children of a cell are classified by one evaluation: every closed chil
 together they form a connected set that no triangle meets. Touched cells are refined level by level while their 8 children per cell fit in a budget of
 4096 child tests, to at most 12 levels; the touched cells of the last level are sampled.
 
+**Fallback when the cells are worse.** The cells are kept only if their sampled volume S is at most the volume of the
+old region (the union of the components' expanded boxes, computed exactly by coordinate compression). With a small
+component far away, the root box is long and thin, and the cells of the depth the budget allows can sample far more
+volume than the old region (found by the independent review: a unit sphere and a speck at 10^6 gave about 9 union
+samples instead of 1500); then the old region is used.
+
 **The region contains input_solid ∪ result_solid.** Let solid_X = {p : w_X(p) > 1/2} for the winding number w_X.
 1. Every point of R lies in exactly one cell of the final set (the known cells and the sampled ones), up to the shared
    faces (measure zero): the children of a cell partition it, and refinement only replaces a cell by its children.
@@ -133,7 +139,10 @@ from the four corners. The two intervals split the miss probability of one inter
 with erfc(z' / sqrt 2) = erfc(z / sqrt 2) / 2, z' = 4.17 for z = 4. So an early answer is wrong at most as often as
 before per round (z = 4: about 6e-5 two-sided). With K = 0, p = q and only q's interval is used, at z: the old rule.
 
-**Tests** (`VolumeSampleCellsTests`, `VolumeIoUSamplingTests`, `RepairSpeedTests`): the exact test against the
+**Tests** (`VolumeSampleCellsTests`, `VolumeIoUSamplingTests`, `RepairSpeedTests`): the exact winding number against the
+rounded fast winding number (nested shells, touching boxes, points in face planes); the interval of the stop rule against a
+brute-force scan of both intervals (p rising and falling in u, the Bonferroni z); over 150 seeds no early answer on the
+wrong side; the fallback for a far small component; the exact test against the
 floating SAT on small integers (40000 triangles, a quarter degenerate) and at contacts one ulp apart, also at 2^20; the
 cover on nested, touching, thin-shell, coplanar, disjoint solids and with faces exactly on cell planes (every point of a
 known cell has its class, corners included; known and sampled cells tile R); the stratified estimate (known volume,
