@@ -72,6 +72,44 @@ self-intersections, its Hausdorff upper bound is below 1 % of the diagonal in bo
 is above 0.99. Thingi10K has no reference repairs, so the input itself (its winding number solid) is the
 reference.
 
+## Volume check: sample cells for closed meshes (`robust`, 2026-11-02)
+
+`MeshRepairMetrics.VolumeIoUAtLeast` samples only the octree cells at the surfaces when the input and the result are
+winding-closed, and counts the cells inside with their exact volume
+([design/VOLUME_CHECK_SAMPLING.md](../../docs/design/VOLUME_CHECK_SAMPLING.md) section 4). A/B in one build (branch
+`claude/iou-sample-region`, 6b1328e): `BENCH_IOU_CELLS=1` and `=0` (the old region) run one after the other on each mesh,
+`BENCH_REPAIR=robust BENCH_FIDELITY=0 TIMEOUT=300`, 2 meshes in parallel on 4 cores, nothing else running (the first 50
+meshes were re-run because a test build had overlapped them). The statistics come from the new `robust_volume_checks`
+field.
+
+| 400 set | region (before) | cells |
+|---|---|---|
+| repaired (`analyze_fidelity.py` criterion) | 273 | **273**, no mesh flips |
+| repair path (kept / exact / solidify / wrap, exact reason) | | the same on every mesh |
+| volume checks / with cells | 445 / 0 | 445 / 195 (189 meshes); 117 more built cells that sampled more volume than the region and fell back to it |
+| volume phases (`volume` + `exact.volume`) | 320.6 s | **295.7 s (−7.8 %)** |
+| the 195 checks with cells (build + sampling) | 98.5 s | **67.9 s (−31 %)** |
+| samples, all checks | 8.23 M | 6.49 M |
+| samples in the union, the 195 checks | 17.0 % | 38.0 % |
+| median interval width of the IoU at the stop, the 195 checks | 0.0073 | 0.0066 |
+| repair time, all meshes | 1777.2 s | 1777.2 s |
+| largest change of `robust_repair_iou` | | 0.0028 |
+
+- The noise check: the 250 checks without cells do the same work in both runs; their sampling took 153.3 s and 153.2 s.
+- At a fixed sample count the estimate is about 3x more accurate (RMS error 5.4e-4 against 1.5e-3, 20000 samples near the
+  threshold, `VolumeIoUSamplingTests`). Most checks stop after the first round of 3125 samples, though, so the gain in
+  time is smaller than the gain in variance. The volume phases also hold the setup of the inside tests (the oriented
+  copy and the trees), which the cells do not change.
+- The whole repair is not measurably faster: 25 s of 1777 s is below the run-to-run noise of the other phases.
+- Child budget 4096, chosen on the 25 meshes of the 60-mesh subset (`random.seed(7)`) that use the cells: check time
+  16.4 s (region), 11.3 s (16384), 8.7 s (4096) and 8.9 s (8192), the last three before the exact classification. The
+  exact classification costs about 50 ms per check.
+- Open levers: the 117 checks whose cells were rejected (multi-component inputs: the root box is much larger than the
+  components' boxes; one octree per component box would fit them), and the first round of 3125 samples.
+
+Commands: `python3 fetch_data.py --no-large`, then for each mesh `BENCH_IOU_CELLS=1|0 BENCH_REPAIR=robust BENCH_FIDELITY=0
+TIMEOUT=300 ./run.sh <mesh>`; the comparison script summed `robust_phases`, `robust_volume_checks` and `criteria.repaired`.
+
 ## Re-measured after the boolean performance work (`robust`, 2026-10-28)
 Master `e90a034` (after #181 and #183), default options, `BENCH_P=2` on 4 cores and nothing else running, `TIMEOUT=300`
 (large set 900), `analyze_fidelity.py` and the `robust_phases` of each run:

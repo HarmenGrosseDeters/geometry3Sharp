@@ -151,3 +151,13 @@ known cell has its class, corners included; known and sampled cells tile R); the
 narrower interval, fewer samples); unbiasedness over 40 seeds; the RMS error near the threshold (5.4e-4 against 1.5e-3
 before, fails on the old code); invariance over `Similarity.All()` (2^k bit for bit); parallel equals serial; reuse of the
 input's solid and of a `MeshRobustRepair` instance; fallback B on open inputs and open results (bit-identical).
+
+## 5. A/B on the 400 set
+
+Full numbers and commands: [MeshRepairBenchmark README](../../benchmarks/MeshRepairBenchmark/README.md), section "Volume check:
+sample cells for closed meshes". In short: no verdict and no repair path changed (273 repaired either way); the volume
+phases dropped from 320.6 s to 295.7 s (−7.8 %), the 195 checks that use the cells from 98.5 s to 67.9 s (−31 %), with
+38 % instead of 17 % of their samples in the union. The whole repair is not measurably faster. The gain stays below the
+upper bound of section 1 because most checks stop after the first round anyway, the cells apply to 195 of 445 checks,
+and the setup of the inside tests is unchanged. 117 checks built cells that sampled more than the region and fell back
+(multi-component inputs); one octree per component box is the next lever if this is taken further.
