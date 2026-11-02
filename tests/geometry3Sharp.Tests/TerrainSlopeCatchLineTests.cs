@@ -100,10 +100,12 @@ namespace geometry3Sharp.Tests
         static double XYArea(DMesh3 m)
         {
             double area = 0;
+            // (relative to a corner of the bounds: at UTM the products of raw coordinates would round away the area)
+            Vector2d o = m.GetBounds().Min.xy;
             foreach (int tid in m.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 m.GetTriVertices(tid, ref a, ref b, ref c);
-                area += 0.5 * Math.Abs(Orient(a.xy, b.xy, c.xy));
+                area += 0.5 * Math.Abs(Orient(a.xy - o, b.xy - o, c.xy - o));
             }
             return area;
         }
@@ -121,8 +123,15 @@ namespace geometry3Sharp.Tests
                 Assert.True(ExactPredicates.Orient2d(a.xy, b.xy, e.xy) > 0, $"composite triangle {tid} not counter-clockwise");
             }
             Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(c));
+            // (no gaps: the area of the terrain, up to the rounding of the area sums and the ulps by which terrain
+            // vertices on the toe and the lateral limits are moved off the slope side, a strip of a few ulps there)
             double at = XYArea(d.Terrain), ac = XYArea(c);
-            Assert.True(Math.Abs(at - ac) <= 1e-9 * at, $"composite area {ac} vs terrain {at}");
+            var bb = d.Terrain.GetBounds();
+            double maxAbs = Math.Max(Math.Max(Math.Abs(bb.Min.x), Math.Abs(bb.Max.x)), Math.Max(Math.Abs(bb.Min.y), Math.Abs(bb.Max.y)));
+            double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(maxAbs) + 1) - maxAbs);
+            double toeLength = d.Toes.Sum(t => Enumerable.Range(0, t.SegmentCount).Sum(i => t.Points[i].xy.Distance(t.Points[(i + 1) % t.Points.Count].xy)));
+            double slack = 1e-12 * at + 8 * ulp * (toeLength + 2 * (bb.Width + bb.Height));
+            Assert.True(Math.Abs(at - ac) <= slack, $"composite area {ac} vs terrain {at} (slack {slack})");
             foreach (int tid in r.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, e = Vector3d.Zero;
                 r.GetTriVertices(tid, ref a, ref b, ref e);
@@ -272,6 +281,46 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d2.Status);
             AssertCatchLines(d2);
             Assert.Contains(d2.CatchLines, l => l.StartReason == CatchLine.EndReasons.FootprintBoundary);
+        }
+
+        [Fact]
+        public void TwoPits_WallsMeet_OneCatchLine()
+        {
+            // two pits whose slopes meet in a ridge below the terrain: one region, one catch line around both
+            var terrain = Grid(new AxisAlignedBox2d(-70, -50, 70, 50), 28, 20, (x, y) => 12 + 0.02 * x);
+            var a = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0, new Vector2d(-14, 0)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var b = SlopeToe.Constant(Ngon(7, 9, 2, new Vector2d(16, 1)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5));
+            var d = new TerrainSlopeDesign() { Toes = { a, b }, Terrain = terrain, Tolerance = 0.03, BuildComposite = true };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            Assert.Single(d.CatchLines);
+            Assert.True(d.CatchLines[0].Closed);
+            Assert.Contains(d.SlopeRegion.TriangleIndices(), t => d.Pieces[d.SlopeRegion.GetTriangleGroup(t)].Toe == 0);
+            Assert.Contains(d.SlopeRegion.TriangleIndices(), t => d.Pieces[d.SlopeRegion.GetTriangleGroup(t)].Toe == 1);
+        }
+
+        [Fact]
+        public void TerrainWithAHole_NoDaylightThere()
+        {
+            // a hole in the terrain across the catch line (at 18 from the centre): the region reaches the terrain's
+            // boundary there, so the result is partial; the catch line ends at the hole on both sides, and the
+            // composite keeps the hole
+            var terrain = Grid(new AxisAlignedBox2d(-60, -60, 60, 60), 24, 24, (x, y) => 10);
+            foreach (int t in terrain.TriangleIndices().ToList()) {
+                Vector3d c = terrain.GetTriCentroid(t);
+                if (Math.Abs(c.x - 17) < 4 && Math.Abs(c.y) < 4) terrain.RemoveTriangle(t, true, false);
+            }
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d.Status);
+            Assert.False(d.IsComplete);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            Assert.Single(d.CatchLines);
+            Assert.False(d.CatchLines[0].Closed);
+            Assert.Equal(CatchLine.EndReasons.FootprintBoundary, d.CatchLines[0].StartReason);
+            Assert.Equal(CatchLine.EndReasons.FootprintBoundary, d.CatchLines[0].EndReason);
         }
 
         [Fact]

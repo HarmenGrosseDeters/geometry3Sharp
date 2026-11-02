@@ -65,10 +65,15 @@ namespace gs
             keys.Sort();
             var snapped = new HashSet<long>();
             foreach (long k in keys) {
-                Vector3d p = O.CatchPoint(k);
-                p.x += 0.0; p.y += 0.0;
-                p.z = SlopeTerrainOverlay.ekind(k) == 0 ? edge_z(SlopeTerrainOverlay.eedge(k), p.xy) : tri_z(SlopeTerrainOverlay.etri(k), p.xy);
+                Vector3d p;
+                if (catchOwn.TryGetValue(k, out p) == false) {
+                    p = O.CatchPoint(k);
+                    p.x += 0.0; p.y += 0.0;
+                    p.z = SlopeTerrainOverlay.ekind(k) == 0 ? edge_z(SlopeTerrainOverlay.eedge(k), p.xy) : tri_z(SlopeTerrainOverlay.etri(k), p.xy);
+                    catchOwn[k] = p;
+                }
                 catchAt[k] = p;
+                if (noSnap.Contains(k)) continue;
                 // the slope vertices of its edge (on an edge of A) or of its triangle (inside one)
                 int[] vs;
                 if (SlopeTerrainOverlay.ekind(k) == 0) { Index2i ev = A.GetEdgeV(SlopeTerrainOverlay.eedge(k)); vs = new[] { ev.a, ev.b }; }
@@ -89,7 +94,8 @@ namespace gs
             find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
             for (int i = 0; i < order.Count; ++i)
                 for (int j = i + 1; j < order.Count && catchAt[order[j]].x - catchAt[order[i]].x < minFeature; ++j)
-                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature && mergeable(order[i], order[j])) {
+                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature && mergeable(order[i], order[j])
+                        && noSnap.Contains(order[i]) == false && noSnap.Contains(order[j]) == false) {
                         long r0 = find(order[i]), r1 = find(order[j]);
                         if (r0 == r1 || mergeable(r0, r1) == false) continue;
                         // (the position must lie on the planes of all slope triangles that use it: a vertex, else a
@@ -99,7 +105,12 @@ namespace gs
                         bool keep0 = p0 != p1 ? p0 < p1 : r0 < r1;
                         if (keep0) parent[r1] = r0; else parent[r0] = r1;
                     }
-            foreach (long k in keys) catchAt[k] = catchAt[find(k)];
+            foreach (long k in keys) {
+                catchAt[k] = catchAt[find(k)];
+                List<long> l;
+                if (catchOfVertex.TryGetValue(catchAt[k], out l) == false) { l = new List<long>(); catchOfVertex[catchAt[k]] = l; }
+                l.Add(k);
+            }
         }
 
         // a node of a partial triangle: an overlay vertex (Catch = false) or a catch point (Catch = true, Key an edge key)
@@ -114,15 +125,58 @@ namespace gs
         static Node V(long k) { return new Node() { Catch = false, Key = k }; }
         static Node C(long k) { return new Node() { Catch = true, Key = k }; }
 
+        // catch points that keep their own position: a move made the region boundary of a triangle not simple
+        readonly HashSet<long> noSnap = new HashSet<long>();
+        readonly Dictionary<long, Vector3d> catchOwn = new Dictionary<long, Vector3d>();
+        List<long> movedInFailure = new List<long>();
+
         public bool Build()
         {
-            snap_catch_points();
-            Region = new DMesh3(false, false, false, true);
-            Composite = new DMesh3(false, false, false, true);
             for (int i = 0; i < O.Faces.Count; ++i) {
                 add(facesOfA, O.Faces[i].TA, i);
                 add(facesOfB, O.Faces[i].TB, i);
             }
+            while (true) {
+                if (build_once() && no_overlaps()) return true;
+                // a snapped or merged catch point can cross another part of the boundary where the features are below
+                // MinFeatureSize: those points keep their own positions, and the composite is built again
+                int before = noSnap.Count;
+                foreach (long k in movedInFailure) noSnap.Add(k);
+                if (noSnap.Count == before) return false;
+            }
+        }
+
+        // the composite is a height field (exact); overlapping triangles name the moved catch points at their vertices
+        bool no_overlaps()
+        {
+            List<Index2i> pairs = TerrainVolumeDifference.XYOverlapPairs(Composite);
+            if (pairs.Count == 0) return true;
+            Problem = $"{pairs.Count} pairs of composite triangles overlap in XY";
+            foreach (Index2i pr in pairs)
+                foreach (int t in new[] { pr.a, pr.b }) {
+                    Index3i tv = Composite.GetTriangle(t);
+                    foreach (int v in new[] { tv.a, tv.b, tv.c }) {
+                        List<long> ks;
+                        if (catchOfVertex.TryGetValue(Composite.GetVertex(v), out ks))
+                            foreach (long k in ks)
+                                if (catchAt[k] != catchOwn[k]) movedInFailure.Add(k);
+                    }
+                }
+            return false;
+        }
+
+        // the catch points at each realized position (to find the moved ones)
+        readonly Dictionary<Vector3d, List<long>> catchOfVertex = new Dictionary<Vector3d, List<long>>();
+
+        bool build_once()
+        {
+            catchOfVertex.Clear();
+            Problem = "";
+            movedInFailure = new List<long>();
+            regionVerts.Clear(); compVerts.Clear(); catchAt.Clear();
+            snap_catch_points();
+            Region = new DMesh3(false, false, false, true);
+            Composite = new DMesh3(false, false, false, true);
             // the slope part
             foreach (int ta in A.TriangleIndices()) {
                 if (cancel != null && cancel()) throw new OperationCanceledException();
@@ -290,7 +344,12 @@ namespace gs
             foreach (long k in cset) segs.Add(new Index2i((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
             segs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             string why;
-            if (check_graph(pts, segs, out why) == false) { Problem = $"the region boundary in {(slope ? "slope" : "terrain")} triangle {tri} is not simple after rounding ({why})"; return false; }
+            if (check_graph(pts, segs, out why) == false) {
+                Problem = $"the region boundary in {(slope ? "slope" : "terrain")} triangle {tri} is not simple after rounding ({why})";
+                foreach (Node n in nodes)
+                    if (n.Catch && catchAt[n.Key] != catchOwn[n.Key]) movedInFailure.Add(n.Key);
+                return false;
+            }
 
             // CDT in a large outer triangle; the part is found by parity from outside
             var box = new AxisAlignedBox2d(pts[0]);
@@ -328,7 +387,12 @@ namespace gs
                     foreach (int u in edgeTris[k]) {
                         if (u == t) continue;
                         if (label[u] == -1) { label[u] = want; queue.Enqueue(u); }
-                        else if (label[u] != want) { Problem = $"inconsistent parity in {(slope ? "slope" : "terrain")} triangle {tri}"; return false; }
+                        else if (label[u] != want) {
+                            Problem = $"inconsistent parity in {(slope ? "slope" : "terrain")} triangle {tri}";
+                            foreach (Node n in nodes)
+                                if (n.Catch && catchAt[n.Key] != catchOwn[n.Key]) movedInFailure.Add(n.Key);
+                            return false;
+                        }
                     }
                 }
             }
