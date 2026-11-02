@@ -199,3 +199,55 @@ alpha wrap section of `docs/SOURCES.md`; candidates for the raw-wrap investigati
 So with α/δ = 30, a facet with a minimum angle of 0.05° cannot come from the paper's idealized loop. With α/δ = 10
 (the repair fallback), caps of 178° cannot either. Comparing the bad facets against the list above (manifold step
 or pocket removal, rejected points, vertex pairs closer than min(α, δ), R > α) should identify their origin.
+
+## 6. Correction and results (2026-11-02, #311 and the follow-up PR)
+
+**Correction of the [derived] bound for `MeshAlphaWrap`.** The paper's Lemma 2 gives a vertex spacing of at least
+min(α, δ). For our implementation the bound is weaker: at least **min(δ, α − δ)**, less the contact margin (1e-6 δ)
+and rounding.
+- Lemma 1 has k_cn outside the offset volume whenever R2 fires. In our code R2 also fires when the whole dual edge
+  lies inside the offset volume (the bisection branch of rule 1 finds no exit). Then dist(k_cn) < δ, and the R2 point
+  lies only R − δ + dist(k_cn) ≥ α − δ inside the empty ball.
+- The cell "intersects" the input up to the contact margin, so dist(k_cn) < R + contact.
+- So the angle bound is sin θ_min ≥ min(δ, α − δ) / (2α). For δ < α/2 this is δ/(2α), the same numbers as the table
+  above (2.87° at α/δ = 10, 0.955° at α/δ = 30), but the form min(α, δ) does not hold for our code when α < 2δ.
+- The independent review of #311 checked this derivation.
+
+**Where the triangles below the bound came from** (all checked per triangle):
+1. **Rule 2 on flat box-corner cells** (fixed in #311). `dual_edge` clamps the circumcenter of flat cells to 4 box
+   diagonals. Rule 2 projected the clamped point, which lies outside the cell's circumsphere, so it neither removes the
+   cell nor keeps the spacing. Points 1e-6 α apart and needles of 5e-5° followed (Thingi10K 59196, 163738). Rule 2 now
+   projects the cell's own circumcenter, guarded by an exact InSphere test.
+2. **The manifold step** (`make_manifold`, our addition: the paper has no manifold step and leaves pinches, Section 8).
+   It moves outside cells inside, and their facets were never gates.
+   - After #311, on an 800 mesh Thingi10K sample (random, ≤ 100k faces, both α/δ = 10 and 30), every triangle below
+     0.5° or above 170° has a circumradius above α. Every triangle with a circumradius up to α satisfies the bound.
+   - With `MakeManifold` off, no result facet has a circumradius above α.
+   - Moving a different (outside) cell inside instead almost never helps: 1 of 328 caps had a neighbouring outside
+     cell whose new facets all have a circumradius up to α. The outside cells at the surface were carved through large
+     facets.
+   - The step also widens the band: the result reached up to 8.8 (δ + α) from the input, against the documented about
+     δ + 2α.
+3. Rejected Steiner points and `PointLimitReached` would leave large facets too; neither occurred on the sample.
+
+**Refinement at the non-manifold spots** (`MeshAlphaWrap.RefineNonManifold`, default on: owner decision 2026-11-02,
+accepting the time cost in the table below).
+- Before the manifold step, every outside cell that a trial run of the manifold step would move inside gets a Steiner
+  point on the offset surface, and the refinement continues, up to 10 rounds. The point is either:
+  - the projection of its circumcenter, at least min(δ, α − δ) deep inside its circumsphere; or
+  - the first offset crossing on the dual edge of a facet towards an inside cell, for a facet with a circumradius of at
+    least that much.
+- This is the separation argument of restricted Delaunay refinement (Boissonnat and Oudot 2005: a dense enough sample
+  gives a manifold restricted Delaunay surface). It is not a method of the paper.
+- On the 800 mesh sample (798 evaluated), with no guarantee failures:
+
+| | α/δ = 10 (repair fallback) | α/δ = 30 (defaults) |
+|---|---|---|
+| triangles below 0.5° | 28 → 5 | 0 → 1 |
+| triangles above 170° | 327 → 40 | 42 → 6 |
+| meshes with a triangle below 0.5° / above 170° | 19 / 166 → 5 / 34 | 0 / 38 → 1 / 6 |
+| band max / (δ + α) | 8.76 → 1.11 | 1.33 → 0.99 |
+| cells moved by the manifold step | 22987 → 1532 | 2005 → 216 |
+| Steiner points added by the refinement (share of all) | 16606 (0.03 %) | 1682 (0.4 %) |
+| time per mesh, median / p90 (3 meshes in parallel on 4 cores) | ×1.22 / ×1.44 | ×1.05 / ×1.38 |
+
