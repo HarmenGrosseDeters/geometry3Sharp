@@ -438,5 +438,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Vector3d.Zero, r.RemainingDefectAt);
             Assert.Equal(0, r.VertexRemovals);
         }
+
+        [Fact]
+        public void FixedVertices_KeptWhereCoarse_UnlessTheCallerAllowsIt()
+        {
+            // FixedVertexF is public: by default it applies also where the coordinates are coarse (FixedWhereCoarse);
+            // ExactMeshBoolean, whose fixed vertices are the rounded input vertices, turns that off. Over the UTM cases,
+            // the vertices marked fixed move less often with it on than with it off
+            int movedKept = 0, movedFree = 0;
+            foreach (var (name, mesh) in UtmCases().Where(c => c.name.Contains("count 4"))) {
+                var raw = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { SafeRounding = false };
+                Assert.True(raw.Compute(), name);
+                var start = new Dictionary<int, Vector3d>();
+                foreach (int v in raw.Result.VertexIndices())
+                    if (v % 2 == 0) start[v] = raw.Result.GetVertex(v);
+                foreach (bool keep in new[] { true, false }) {
+                    DMesh3 m = new DMesh3(raw.Result);
+                    var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, FixedVertexF = (v) => start.ContainsKey(v), FixedWhereCoarse = keep };
+                    r.Apply();
+                    int moved = start.Count(kv => m.IsVertex(kv.Key) && m.GetVertex(kv.Key) != kv.Value);
+                    if (keep) movedKept += moved; else movedFree += moved;
+                }
+            }
+            Assert.True(movedKept < movedFree, $"fixed vertices moved: {movedKept} kept, {movedFree} free");
+        }
     }
 }

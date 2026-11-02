@@ -377,7 +377,7 @@ namespace g3
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
                 Rounding = new MeshRoundingRepair(Result) {
-                    SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v],
+                    SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance
                 };
                 Rounding.Apply();

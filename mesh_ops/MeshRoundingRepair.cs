@@ -28,8 +28,8 @@ namespace g3
     /// along both sides (distinct, their third corners outside the strip) are split at the vertices of the other side,
     /// so that both share one chain (StripZips). Where the coordinates are coarse (far from the origin compared to the
     /// mesh's size, see UlpFactor), a vertex of valence 3 that the rounding put onto the position of another vertex is
-    /// removed, its three triangles replaced by the one of its neighbours (VertexRemovals), and FixedVertexF is not used
-    /// (the fixed vertices carry rounding errors of the size of the bound there themselves). The
+    /// removed, its three triangles replaced by the one of its neighbours (VertexRemovals), and FixedVertexF is not used if
+    /// FixedWhereCoarse is false (the fixed vertices carry rounding errors of the size of the bound there themselves). The
     /// contractions keep the mesh manifold (link condition, DMesh3.CollapseEdge). Edits at the boundary of open
     /// meshes stay on the boundary curve: a boundary vertex keeps its coordinates in a contraction and is
     /// removed only by contracting a boundary edge into its other end (an interior edge between two boundary
@@ -110,6 +110,13 @@ namespace g3
         public bool SharedPositionsTouch = false;
         /// <summary> vertices whose position is kept where possible (tried last as the moved vertex; a strip zip removes the inner vertices of its strip, fixed or not); null = none </summary>
         public Func<int, bool> FixedVertexF = null;
+        /// <summary>
+        /// whether FixedVertexF applies also where the coordinates are coarse (see UlpFactor). True by default. There the
+        /// fixed vertices carry rounding errors of the size of the bound themselves, and keeping them can make the edits
+        /// on the others cascade beyond it; ExactMeshBoolean, whose fixed vertices are the rounded input vertices, sets
+        /// it to false
+        /// </summary>
+        public bool FixedWhereCoarse = true;
         /// <summary> passes over the defects </summary>
         public int MaxPasses = 4;
         /// <summary>
@@ -770,11 +777,10 @@ namespace g3
             return Math.Min(segment_distance(p, a, b), Math.Min(segment_distance(p, b, c), segment_distance(p, c, a)));
         }
 
-        // (not where the coordinates are coarse: there the fixed vertices carry rounding errors of the size of the
-        // bound themselves, and keeping them makes the edits on the others cascade beyond it)
+        // (where the coordinates are coarse only with FixedWhereCoarse)
         bool is_fixed(int v)
         {
-            return coarse == false && FixedVertexF != null && FixedVertexF(v);
+            return (coarse == false || FixedWhereCoarse) && FixedVertexF != null && FixedVertexF(v);
         }
 
         // contracting edge eid = (a, b), b kept at p, keeps the boundary curve (see class comment): a boundary

@@ -309,8 +309,11 @@ a vertex of valence 3 instead of the weld.
 - `UlpFactor` 256 and `AbsoluteTolerance` 0; maxLength is the largest of the three terms, `MaxLength` reports it. On
   `ExactMeshBoolean` they are `RoundingUlpFactor` and `RoundingAbsoluteTolerance`.
 - **Coarse coordinates:** where the ulp term exceeds the relative one,
-  - FixedVertexF is not used: the fixed input vertices carry rounding errors of the size of the bound there themselves,
-    and keeping them made the edits on the others cascade beyond it (at 256, 8 cases needed 257 to 261 ulps);
+  - `ExactMeshBoolean` does not keep its fixed vertices there (`FixedWhereCoarse` false): they are the rounded input
+    vertices, which carry rounding errors of the size of the bound there themselves, and keeping them made the edits on
+    the others cascade beyond it (at 256, 8 cases needed 257 to 261 ulps). For a public caller of `MeshRoundingRepair`,
+    `FixedVertexF` keeps applying (`FixedWhereCoarse` true by default). It is a preference anyway ("kept where possible",
+    tried last as the moved vertex; contractions and strip zips can still remove fixed vertices);
   - after the passes, a vertex of valence 3 at the position of another vertex is removed, its three triangles replaced
     by the one of its neighbours, if the result improves (`VertexRemovals`). The passes then run again.
 - **Bound of the removal:** δ = dist(u, (a, b, c)). With u moved to its nearest point q in the closed triangle, the
