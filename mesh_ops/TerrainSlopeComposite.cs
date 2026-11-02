@@ -92,25 +92,42 @@ namespace gs
             // position with, else it becomes one. (Pairs from a grid of cells of size minFeature, so a line along y is
             // not quadratic.)
             Func<long, int> priority = (x) => snapped.Contains(x) ? 0 : SlopeTerrainOverlay.ekind(x) == 0 ? 1 : 2;
+            Dictionary<long, long> repOf = MergeNear(keys, catchAt, priority, mergeable, noSnap, minFeature);
+            foreach (long k in keys) {
+                catchAt[k] = catchAt[repOf[k]];
+                List<long> l;
+                if (catchOfVertex.TryGetValue(catchAt[k], out l) == false) { l = new List<long>(); catchOfVertex[catchAt[k]] = l; }
+                l.Add(k);
+            }
+        }
+
+        /// <summary>
+        /// the representative of each point: in the order of priority, then key, each point (not in fixed) joins the
+        /// nearest representative nearer than radius that it may share a position with, else it becomes one; so every
+        /// point is less than radius from its representative (no chains)
+        /// </summary>
+        internal static Dictionary<long, long> MergeNear(List<long> keys, Dictionary<long, Vector3d> at, Func<long, int> priority,
+                                                         Func<long, long, bool> mayShare, HashSet<long> fixedPoints, double radius)
+        {
             var order = new List<long>(keys);
             order.Sort((x, y) => priority(x) != priority(y) ? priority(x).CompareTo(priority(y)) : x.CompareTo(y));
             var grid = new Dictionary<long, List<long>>();
-            Func<double, long> cell = (x) => (long)Math.Floor(x / minFeature);
+            Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
             var repOf = new Dictionary<long, long>();
             foreach (long k in order) {
                 repOf[k] = k;
-                if (noSnap.Contains(k)) continue;
-                Vector2d p = catchAt[k].xy;
+                if (fixedPoints.Contains(k)) continue;
+                Vector2d p = at[k].xy;
                 long cx = cell(p.x), cy = cell(p.y), best = -1;
-                double bestD = minFeature;
+                double bestD = radius;
                 for (long gx = cx - 1; gx <= cx + 1; ++gx)
                     for (long gy = cy - 1; gy <= cy + 1; ++gy) {
                         List<long> l;
                         if (grid.TryGetValue(gx * 0x100000007L + gy, out l) == false) continue;
                         foreach (long r in l) {
-                            double dd = catchAt[r].xy.Distance(p);
-                            if (dd < bestD && mergeable(k, r)) { bestD = dd; best = r; }
-                            else if (dd == bestD && best >= 0 && r < best && mergeable(k, r)) best = r;
+                            double dd = at[r].xy.Distance(p);
+                            if (dd < bestD && mayShare(k, r)) { bestD = dd; best = r; }
+                            else if (dd == bestD && best >= 0 && r < best && mayShare(k, r)) best = r;
                         }
                     }
                 if (best >= 0) { repOf[k] = best; continue; }
@@ -119,12 +136,7 @@ namespace gs
                 if (grid.TryGetValue(ck, out cl) == false) { cl = new List<long>(); grid[ck] = cl; }
                 cl.Add(k);
             }
-            foreach (long k in keys) {
-                catchAt[k] = catchAt[repOf[k]];
-                List<long> l;
-                if (catchOfVertex.TryGetValue(catchAt[k], out l) == false) { l = new List<long>(); catchOfVertex[catchAt[k]] = l; }
-                l.Add(k);
-            }
+            return repOf;
         }
 
         // a node of a partial triangle: an overlay vertex (Catch = false) or a catch point (Catch = true, Key an edge key)

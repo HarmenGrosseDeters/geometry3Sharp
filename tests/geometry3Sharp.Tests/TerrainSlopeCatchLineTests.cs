@@ -347,6 +347,38 @@ namespace geometry3Sharp.Tests
             Assert.Equal(8, d.CatchLines[0].Points.Last().z, 6);
         }
 
+        [Theory]
+        [InlineData(3, 0.8)]
+        [InlineData(12, 0.8)]
+        [InlineData(20, 0.55)]
+        [InlineData(7, 0.95)]
+        public void CatchPointMerge_NoChains(int n, double spacing)
+        {
+            // points on a line, spaced below the merge radius: each may join a representative, but none may move by the
+            // radius or more (a union-find closure moved the first point to the last: 1.67 radius for 3 points at 0.8, the
+            // spacing times 1.044 along the line)
+            double radius = 0.01;
+            var keys = new List<long>();
+            var at = new Dictionary<long, Vector3d>();
+            for (int i = 0; i < n; ++i) {
+                long k = SlopeTerrainOverlay.ekey(1, 100 + i, 7);
+                keys.Add(k);
+                at[k] = new Vector3d(5.6e6 + i * spacing * radius, 3.5e5 + 0.3 * i * spacing * radius, 100);
+            }
+            var rep = SlopeComposite.MergeNear(keys, at, k => 2, (a, b) => true, new HashSet<long>(), radius);
+            int merged = 0;
+            foreach (long k in keys) {
+                double move = at[k].xy.Distance(at[rep[k]].xy);
+                Assert.True(move < radius, $"point {keys.IndexOf(k)} moves by {move / radius:F3} radius");
+                if (rep[k] != k) merged++;
+            }
+            Assert.True(merged > 0);
+            // fixed points neither move nor take others
+            var fixedPts = new HashSet<long>(keys);
+            rep = SlopeComposite.MergeNear(keys, at, k => 2, (a, b) => true, fixedPts, radius);
+            Assert.All(keys, k => Assert.Equal(k, rep[k]));
+        }
+
         [Fact]
         public void Overlay_IsReusable()
         {
