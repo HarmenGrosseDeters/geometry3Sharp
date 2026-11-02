@@ -1112,10 +1112,14 @@ namespace Meshing2Acceptance
             Area("a collinear hull has no area", 0, Points(0, 0, 1, 1, 2, 2));
             Area("hole", 96, Rings(S(2, 2, 4, 2, 4, 4, 2, 4), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true)));
             Area("F-7 bowtie", new Q(1, 2), Rings(new double[] { 0, 0, 1, 1, 1, 0, 0, 1 }, (R(0, 1, 2, 3), false)));
-            // a single ring that is not simple must not take the shoelace: a figure eight with lobes turning the same way touches itself
-            // at (5, 5) (its signed area would count both lobes, its parity area too), a lobe inside the other with the same turning
-            // (parity: a hole, the shoelace would add it), a spike back along an edge (zero width: area unchanged)
+            // a single ring that is not simple must not take the shoelace: a figure eight touching itself at (5, 5) (lobes turning the
+            // same way: shoelace and parity agree, both paths must still get it), a lobe inside the square touching it at a vertex only
+            // (parity: a hole of 3/2, the shoelace would add it: 203/2; review of the speed-up), a lobe inside the other with the same
+            // turning (parity: a hole, the shoelace would add it), a spike back along an edge (zero width: area unchanged)
             Area("a ring touching itself at a vertex", 50, Rings(new double[] { 0, 0, 5, 5, 10, 0, 10, 10, 5, 5, 0, 10 }, (R(0, 1, 2, 3, 1, 5), false)));
+            Area("a lobe touching the ring at a vertex only is a hole", new Q(197, 2), Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 1, 1, 2 }, (R(0, 1, 2, 3, 0, 4, 5), false)));
+            // a single hole ring (the outer ring has two points, no area): nothing is inside, also on the shoelace path (review)
+            Area("a lone hole ring", 0, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 20, 20, 30, 30 }, (R(0, 1, 2, 3), true), (R(4, 5), false)));
             Area("a lobe inside the ring, turning the same way, is a hole", 96, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 2, 4, 2, 4, 4, 2, 4 },
                 (R(0, 1, 2, 3, 0, 4, 5, 6, 7, 4), false)));
             Area("a spike back along an edge", 100, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 5, 10, 5, 15 }, (R(0, 1, 2, 4, 5, 4, 3), false)));
