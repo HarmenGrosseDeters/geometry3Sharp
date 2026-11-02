@@ -95,7 +95,7 @@ namespace g3
     /// work per defect.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
-    public class MeshRoundingRepair
+    public partial class MeshRoundingRepair
     {
         /// <summary> the mesh, repaired in place </summary>
         public DMesh3 Mesh;
@@ -339,12 +339,19 @@ namespace g3
 
         int movedV = -1;
         Vector3d movedPos;
+        // several vertices at other positions (a proposed separation, MeshRoundingRepair.Separation.cs), or null
+        Dictionary<int, Vector3d> moveSet;
         // the vertex a proposed contraction removes, or -1
         int vanishing = -1;
 
         Vector3d pos(int v)
         {
-            return (v == movedV) ? movedPos : Mesh.GetVertex(v);
+            Vector3d p;
+            if (v == movedV)
+                return movedPos;
+            if (moveSet != null && moveSet.TryGetValue(v, out p))
+                return p;
+            return Mesh.GetVertex(v);
         }
 
         Triangle3d triangle(Index3i t)
@@ -495,14 +502,15 @@ namespace g3
                 dirtyTids = new List<int>();
                 var boxes = new List<AxisAlignedBox3d>();
                 int save = movedV;
-                movedV = -1;
+                Dictionary<int, Vector3d> saveSet = moveSet;
+                movedV = -1; moveSet = null;
                 foreach (int t in dirty) {
                     if (Mesh.IsTriangle(t) == false)
                         continue;
                     dirtyTids.Add(t);
                     boxes.Add(box(Mesh.GetTriangle(t)));
                 }
-                movedV = save;
+                movedV = save; moveSet = saveSet;
                 dirtyTree = new TriangleBoxTree(boxes);
             }
             dirtyTree.Query(query, (i) => result.Add(dirtyTids[i]));
@@ -603,6 +611,7 @@ namespace g3
             }
             int saveV = movedV;
             Vector3d savePos = movedPos;
+            Dictionary<int, Vector3d> saveSet = moveSet;
             // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
             List<int> there;
             if (atPosition != null && saveV >= 0 && savePos != Mesh.GetVertex(saveV) && atPosition.TryGetValue(key(savePos), out there))
@@ -610,7 +619,7 @@ namespace g3
                     if (u != saveV && u != vanishing)
                         return false;
             // the cheap tests first: degenerate triangles and orientation, then the intersections
-            movedV = -1;
+            movedV = -1; moveSet = null;
             int oldI = 0, oldB = 0;
             var oldCross = new Vector3d[removed.Count];
             Vector3d crossSum = Vector3d.Zero;
@@ -628,7 +637,7 @@ namespace g3
                 else
                     crossSum += oldCross[i];
             }
-            movedV = saveV; movedPos = savePos;
+            movedV = saveV; movedPos = savePos; moveSet = saveSet;
             int newI = 0, newB = 0;
             var tris = new Triangle3d[added.Count];
             var degen = new bool[added.Count];
@@ -647,7 +656,7 @@ namespace g3
                     return false;
             }
 
-            movedV = -1;
+            movedV = -1; moveSet = null;
             var removedSet = new HashSet<int>(removed);
             // (the same triangles were evaluated for the last proposal, eg a move by another distance: the same count)
             bool cached = version == cacheVersion && removed.Count == cacheRemoved.Count;
@@ -674,7 +683,7 @@ namespace g3
             }
             cacheVersion = version; cacheOldI = oldI;
             cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
-            movedV = saveV; movedPos = savePos;
+            movedV = saveV; movedPos = savePos; moveSet = saveSet;
             // (with as many degenerate triangles as before, it must remove an intersection)
             if (newB == oldB && oldI == 0 && removesContact == false)
                 return false;
