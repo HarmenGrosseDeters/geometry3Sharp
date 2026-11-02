@@ -102,31 +102,51 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Simplify_EqualsItsReference()
+        public void InsertionOrder_DoesNotChangeTheResult()
         {
-            // Simplify visits only the faces that changed or have a changed neighbour; the reference visits every face
-            // in every round. The same steps in the same order: the same result, bit for bit, on the stress set
-            int n = 0;
+            // ties go to the lower plane id and Simplify makes the canonical partition: the in-order insertion, the
+            // reversed one and several seeded shuffles give the same result, bit for bit, on the stress set
+            var orders = new List<Func<int, int[]>>() {
+                n => Enumerable.Range(0, n).ToArray(),
+                n => Enumerable.Range(0, n).Reverse().ToArray(),
+                n => TerrainSlopeDesign.shuffled(n, 1),
+                n => TerrainSlopeDesign.shuffled(n, 2),
+                n => TerrainSlopeDesign.shuffled(n, 0xC0FFEE),
+            };
+            int cases = 0, withRays = 0;
             foreach (var make in Cases()) {
                 var a = make();
-                var b = make();
-                b.ReferenceSimplify = true;
-                bool ra = a.Compute(), rb = b.Compute();
-                n++;
-                Assert.Equal(b.Status, a.Status);
-                Assert.Equal(rb, ra);
-                Assert.Equal(b.Attempts, a.Attempts);
-                Assert.Equal(b.UsedToeLowering, a.UsedToeLowering);
-                Assert.True(b.PredicateCalls >= a.PredicateCalls);
-                // (the same steps, not only the same result: the merges and vertex removals in the same order)
-                Assert.Equal(b.SimplifyTrace, a.SimplifyTrace);
-                Assert.NotEqual(0UL, a.SimplifyTrace);
-                if (b.SlopeSurface != null) Assert.Equal("", Invariance.Difference(b.SlopeSurface, a.SlopeSurface));
-                if (b.Composite != null) Assert.Equal("", Invariance.Difference(b.Composite, a.Composite));
-                Assert.Equal(b.CatchLines.Count, a.CatchLines.Count);
-                for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(b.CatchLines[i].Points, a.CatchLines[i].Points);
-                output.WriteLine($"{n}: {a.Status}, simplify rounds {a.SimplifyRounds}, predicates {a.PredicateCalls} (reference {b.PredicateCalls})");
+                a.CheckCanonical = true;
+                bool ra = a.Compute();
+                Assert.Equal("", a.CanonicalProblem);
+                cases++;
+                if (a.RayCount > 0) withRays++;
+                foreach (var order in orders) {
+                    var b = make();
+                    b.InsertionOrder = order;
+                    bool rb = b.Compute();
+                    Assert.Equal(a.Status, b.Status);
+                    Assert.Equal(ra, rb);
+                    Assert.Equal(a.Attempts, b.Attempts);
+                    Assert.Equal(a.UsedToeLowering, b.UsedToeLowering);
+                    Assert.Equal(a.RayCount, b.RayCount);
+                    Assert.Equal(a.ToeProblems, b.ToeProblems);
+                    Assert.Equal(a.SlopeSurface == null, b.SlopeSurface == null);
+                    if (a.SlopeSurface != null) {
+                        Assert.Equal("", Invariance.Difference(a.SlopeSurface, b.SlopeSurface));
+                        // (and the pieces of the triangles)
+                        foreach (int t in a.SlopeSurface.TriangleIndices())
+                            Assert.Equal(a.SlopeSurface.GetTriangleGroup(t), b.SlopeSurface.GetTriangleGroup(t));
+                    }
+                    Assert.Equal(a.Composite == null, b.Composite == null);
+                    if (a.Composite != null) Assert.Equal("", Invariance.Difference(a.Composite, b.Composite));
+                    Assert.Equal(a.CatchLines.Count, b.CatchLines.Count);
+                    for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(a.CatchLines[i].Points, b.CatchLines[i].Points);
+                }
+                output.WriteLine($"{cases}: {a.Status}, rays {a.RayCount}, triangles {(a.SlopeSurface == null ? 0 : a.SlopeSurface.TriangleCount)}");
             }
+            // (the rays have to be exercised: components that are not convex)
+            Assert.True(withRays >= 3, $"{withRays}");
         }
     }
 }

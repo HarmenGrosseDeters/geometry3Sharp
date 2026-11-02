@@ -189,3 +189,54 @@ first call of a process takes about 0.7 s more (JIT): 1.01 s, 0.63 s and 1.61 s 
   `CatchLineAccuracyNotReached` with the catch lines kept (also when a smaller Tolerance fails, eg below the numerical
   margins; `TerrainSlopeAccuracyTests`). The undercut path of StatusKind is decided exactly on the doubles (Orient2d;
   at a toe vertex both adjacent segments; a touch counts as through the design area, the conservative side).
+
+## 9. Randomized insertion order with a canonical result (idea D)
+
+The pieces are inserted in a seeded random order (Fisher–Yates with SplitMix64, the same on every platform;
+`TerrainSlopeDesign.InsertionOrder` replaces it in tests). The map after `Simplify` is a function of the input only,
+not of that order:
+
+- **Labels: the lexicographic minimum of (height, plane id).** A point gets the plane of the lowest piece; where two
+  pieces are equally low over an area (their planes are the same plane, as a fan plane that repeats a neighbouring
+  strip), the lower plane id wins, and within a piece the maximum takes the lowest id of equal planes. In the insert, a
+  plane that is the same as the face's label (its line with it is zero at every corner) wins the face only if its id is
+  lower; before, the earlier label kept it, so the order decided. A function of the point, so its minimum over the
+  pieces does not depend on the order.
+- **The fan planes of a face: all of them near the apex.** The insert takes the fan planes whose angles lie within
+  2θ of the face's angular range as seen from the apex, from the approximate corners. A corner 1e-13 m from the apex has
+  a direction from its approximation that is off by more than θ, so a plane was left out, the piece's maximum came out
+  too low there, and a sliver of 1e-27 m² got another label, depending on which faces the earlier pieces had left.
+  Within 1e-11 / θ of the coordinates of the apex all fan planes are taken (the approximation is within 1e-12 of the
+  coordinates). Found by inserting every piece a second time without the prefilters: no face changed, yet two orders
+  differed; with all fan planes they agreed.
+- **The partition: canonical.** `Simplify` no longer merges pairs greedily (that result depended on the order of the
+  splits: 16007 against 46805 triangles for one surface). A component (the faces of one label, connected across edges
+  that are no barrier) is cut along one ray from each reflex corner of its boundary: the extension of the boundary edge
+  into the corner, up to the first point of the component's boundary (rays cross each other and go on). Every corner of
+  a part between the rays is then at most 180°, so each part is convex and simply connected, and becomes one face; a
+  convex component is one face. Then every vertex of degree two between collinear edges of the same barrier (or none)
+  is removed, the box boundary included. All of it uses Orient and Side only; the order along a ray uses `CompareXY`,
+  the exact lexicographic order of two kernel vertices (the rounded coordinates first, which rounding to nearest keeps
+  in order, then the exact ones). This is the reflex-vertex decomposition of a polygon by segments (Keil's survey,
+  below), except that a ray does not stop at another ray: then no ray depends on the order of the others.
+- **The order of the output.** `OrderedFaces`: the faces sorted by their corners from the lowest in `CompareXY`, each
+  cycle starting there. `Realize` and `Undercuts` walk the faces in that order, so the mesh, its vertex and triangle
+  ids and the first undercut cause are the same for every insertion order.
+
+Tests: `InsertionOrder_DoesNotChangeTheResult` (in order, reversed and three seeds against the default, on the 19
+stress cases: status, builds, toe lowering, rays, toe problems, slope surface and composite bit for bit with the
+triangle groups, catch lines; and `SlopeMap.CanonicalProblem`: every face strictly convex somewhere and convex at every
+corner, no vertex left that `Simplify` removes). The invariance over `Similarity.All()` and the determinism tests run
+as before.
+
+The composite needed one fix that the new surface showed: along a terrain edge, `edge_sequence` sorted the runs of
+overlay edges by the parameter of their first vertex only. Several runs start at one point when slope edges meet at a
+terrain vertex (the square pit's corner on a grid node in `NoDaylight_KeepsThePartialResult`); the run that goes on
+along the edge then came first, and the partial triangle took a sliver of the next one (non-manifold composite). The
+runs that start at one point are ordered by the parameter of their end.
+
+Tests whose input no longer reaches a repair: `Merge_RaisesTheToeLowering` takes two other regular polygons (a sweep
+over 3000 random ones found three that merge); `RegularPolygon_StripCreaseThroughTheOppositeVertex` no longer leaves a
+cluster (no merge, so the lowering of a merge is checked only if one happens); `WavyToe_130mHigh_AtUtm` has no needle
+fan (no flip; the flips keep their unit tests in `TerrainSlopeRepairTests`); `TwoPits_MeetInARidge` checks the ridge
+height at (0, 0) on the surface and on the ridge's vertices, which are now only its corners.

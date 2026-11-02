@@ -143,6 +143,20 @@ namespace geometry3Sharp.Tests
         static List<Vector3d> Ngon(int n, double r, double z, double phase = 0.1) =>
             Enumerable.Range(0, n).Select(i => new Vector3d(r * Math.Cos(phase + 2 * Math.PI * i / n), r * Math.Sin(phase + 2 * Math.PI * i / n), z)).ToList();
 
+        // the height of the surface at p (in the triangle that contains it, linear)
+        internal static double HeightAt(DMesh3 m, Vector2d p)
+        {
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = m.GetVertex(m.GetTriangle(t).a), b = m.GetVertex(m.GetTriangle(t).b), c = m.GetVertex(m.GetTriangle(t).c);
+                double det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+                if (det == 0) continue;
+                double u = ((p.x - a.x) * (c.y - a.y) - (c.x - a.x) * (p.y - a.y)) / det;
+                double v = ((b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y)) / det;
+                if (u >= -1e-12 && v >= -1e-12 && u + v <= 1 + 1e-12) return a.z + u * (b.z - a.z) + v * (c.z - a.z);
+            }
+            return double.NaN;
+        }
+
         static TerrainSlopeDesign Run(double height, double tol, params SlopeToe[] toes)
         {
             var d = Design(height, tol, toes);
@@ -388,9 +402,13 @@ namespace geometry3Sharp.Tests
             var b = SlopeToe.Constant(Square(8, 0, new Vector2d(12, 0)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
             var d = Run(10, 0.01, a, b);
             AssertAll(d);
-            // the ridge at x = 0 lies at height 4 (4 m from both toes)
-            double top = d.SlopeSurface.Vertices().Where(v => Math.Abs(v.x) < 1e-9 && Math.Abs(v.y) < 4).Select(v => v.z).DefaultIfEmpty(double.NaN).Max();
+            // the ridge at x = 0 lies at height 4 (4 m from both toes): the surface there, at y = 0 and on the ridge's
+            // vertices between the walls (|y| <= 8)
+            double top = HeightAt(d.SlopeSurface, new Vector2d(0, 0));
             Assert.True(Math.Abs(top - 4) < 0.01, top.ToString());
+            var ridge = d.SlopeSurface.Vertices().Where(v => Math.Abs(v.x) < 1e-9 && Math.Abs(v.y) <= 8 + 1e-9).ToList();
+            Assert.NotEmpty(ridge);
+            Assert.All(ridge, v => Assert.True(Math.Abs(v.z - 4) < 0.01, v.ToString()));
         }
 
         [Fact]
@@ -440,18 +458,21 @@ namespace geometry3Sharp.Tests
             var d = Run(13.65915220256275, 0.05, toe);
             AssertAll(d);
             // the merged vertices' triangles may rise above S̃ by 2 sMax (r + e_xy), r = 64 ulps: the toe lowering of a
-            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy)
+            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy).
+            // (Since the canonical partition (TERRAIN_1C_PLAN.md, section 9) the crease no longer leaves a cluster here:
+            // no merge, and no lowering for one)
             double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
             double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
-            Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
+            if (d.MergedPositions > 0)
+                Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
         // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
         // polygons) and whose measured lowering alone stays below what the merge needs
         [Theory]
-        [InlineData(16, 21.30606409921593, 0.07628677649250569, 1.4751108086086395)]
-        [InlineData(4, 23.804800668174774, 0.6008761141453293, 2.775734977692242)]
+        [InlineData(16, 27.33760196358785, 0.4471245046924448, 2.280296943513815)]
+        [InlineData(22, 12.984759201288576, 0.5293125866583142, 3.0107992275202644)]
         public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
         {
             var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
@@ -495,18 +516,19 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WavyToe_130mHigh_AtUtm()
         {
-            // 130 m: fans of needles 90 m long and 1e-10 m wide from a face of the map between two creases that meet at
-            // an angle of 1e-12 (nearly coplanar tangent planes of neighbouring apexes); flips across its sides remove
-            // them (fails without: 3 builds and two margin raises)
+            // 130 m: the greedy simplification left fans of needles 90 m long and 1e-10 m wide from a face of the map
+            // between two creases that meet at an angle of 1e-12 (nearly coplanar tangent planes of neighbouring
+            // apexes), which flips across its sides removed (3 builds and two margin raises without them). The
+            // canonical partition (TERRAIN_1C_PLAN.md, section 9) makes no such fan here; flips, where a realization
+            // needs them, need the lowering of a repair (2 sMax (r + e_xy) above S̃)
             var d = WavyHambach(130);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             AssertO1(d);
             AssertSurface(d);
             Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
             Assert.Equal(1, d.Attempts);
-            // the flips need the lowering of a repair (2 sMax (r + e_xy) above S̃)
-            Assert.True(d.NeedleFlips > 0);
             Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+            output.WriteLine($"flips {d.NeedleFlips}, merged {d.MergedPositions}, rays {d.RayCount}, {d.SlopeSurface.TriangleCount} triangles");
         }
 
         [Fact]
