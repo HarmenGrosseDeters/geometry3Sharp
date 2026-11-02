@@ -174,6 +174,7 @@ namespace gs
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
+            MergedPositions = 0; MergeLambdaRequired = 0;
             try {
                 Status = compute();
             } catch (OperationCanceledException) {
@@ -430,8 +431,8 @@ namespace gs
             // sMax times the distance below the surface at the kept position)
             // (the triangles of a merged vertex leave their cells: below S̃ by at most 4 sMax (r + e_xy), above by at
             // most 2 sMax (r + e_xy), which the toe lowering covers, see MergeLambda; r = 64 e_xy)
-            double mergeRadius = 64 * exy;
-            double mergeShare = 4 * sMax * (mergeRadius + exy);
+            double mergeRadius = MergeRadius(exy);
+            double mergeShare = MergeShare(exy, sMax);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare;
             if (!(facetShare > 0))
                 return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare:G3})");
@@ -526,7 +527,7 @@ namespace gs
             // below cannot always resolve; larger distances are left to it, which keeps the cells)
             // (merging needs the lowering below; without room for it under the bound, or if the merge makes the mesh
             // non-manifold, the realization runs without it and the check decides)
-            double mergeLambda = 4 * ez + 2 * sMax * (mergeRadius + exy);
+            double mergeLambda = MergeLambda(ez, exy, sMax);
             bool mayMerge = mergeLambda <= lambdaBound;
             try {
                 mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0);
@@ -534,6 +535,7 @@ namespace gs
                 mesh = map.Realize(cap, fill, 0);
                 map.MergedCount = 0;
             }
+            MergedPositions = map.MergedCount; MergeLambdaRequired = map.MergedCount > 0 ? mergeLambda : 0;
             if (map.MergedCount > 0 && lambda < mergeLambda) {
                 br.MergeLambda = mergeLambda;
                 Attempts++;
@@ -653,6 +655,16 @@ namespace gs
             double limit = ExactInterval.Up(r * spec.S);
             return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? Math.Min(1, RatioOfLimit(limit, spec.S)) : 1;
         }
+
+        // the merge of the realization (TERRAIN_1B_PLAN.md, reviews): positions nearer than 64 e_xy are one vertex; the
+        // triangles of a moved vertex leave their cells, below S̃ by at most 4 sMax (r + e_xy), which the budget
+        // reserves, and above it by at most 2 sMax (r + e_xy), which the toe lowering of a merging build covers
+        internal static double MergeRadius(double exy) { return 64 * exy; }
+        internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy); }
+        internal static double MergeLambda(double ez, double exy, double sMax) { return 4 * ez + 2 * sMax * (MergeRadius(exy) + exy); }
+        /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>
+        internal int MergedPositions;
+        internal double MergeLambdaRequired;
 
         /// <summary> an upper bound of limit / s: rounded to nearest, one ulp up (s &gt; 0) </summary>
         internal static double RatioOfLimit(double limit, double s)

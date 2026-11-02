@@ -389,6 +389,33 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
+        // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
+        // polygons) and whose measured lowering alone stays below what the merge needs
+        [Theory]
+        [InlineData(16, 21.30606409921593, 0.07628677649250569, 1.4751108086086395)]
+        [InlineData(4, 23.804800668174774, 0.6008761141453293, 2.775734977692242)]
+        public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
+        {
+            var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+            var d = Run(r * 0.6, 0.05, toe);
+            AssertAll(d);
+            // the triangles of a merged vertex may rise above S̃ by 2 sMax (r + e_xy): the lowering covers it
+            Assert.True(d.MergedPositions > 0);
+            Assert.True(d.MergeLambdaRequired > 0);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+        }
+
+        [Fact]
+        public void Merge_Shares()
+        {
+            // below S̃ by at most 4 sMax (r + e_xy), above by at most 2 sMax (r + e_xy) plus the vertex rounding 4 e_z,
+            // r = 64 e_xy (TERRAIN_1B_PLAN.md, reviews)
+            double exy = Math.Pow(2, -30), ez = 3 * Math.Pow(2, -31), s = 1.5;
+            Assert.Equal(64 * exy, TerrainSlopeDesign.MergeRadius(exy));
+            Assert.Equal(4 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
+            Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
+        }
+
         [Fact]
         public void Review_OpenUneven_MixedSlopes()
         {
