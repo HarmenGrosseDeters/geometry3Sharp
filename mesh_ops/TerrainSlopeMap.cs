@@ -449,10 +449,9 @@ namespace gs
             double refAngle = double.NaN, lo = 0, hi = 0;
             foreach (var q in pos) {
                 Vector2d d = q - apex;
-                // (a corner at the apex has no direction, the corners next to it bound the face's. A corner near it:
-                // its approximate position (within 1e-12 of its coordinates, Approx) gives its direction within
-                // 0.1 theta only from a distance of 1e-11 / theta of the coordinates; nearer, all of the fan)
-                if (d.x == 0 && d.y == 0) continue;
+                // (a corner near the apex: its approximate position (within 1e-12 of its coordinates, Approx) gives its
+                // direction within 0.1 theta only from a distance of 1e-11 / theta of the coordinates; nearer, all of the
+                // fan. Also a corner whose approximation is the apex: it may lie next to it)
                 double near = 1e-11 * (Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(apex.x) + Math.Abs(apex.y)) / theta;
                 if (d.Length < near) { relevant.AddRange(fan); return; }
                 double a = Math.Atan2(d.y, d.x);
@@ -949,6 +948,19 @@ namespace gs
         /// </summary>
         internal string CanonicalProblem()
         {
+            // the links: every live half-edge of a domain face in one cycle of that face, twins paired
+            var inCycle = new HashSet<int>();
+            foreach (int f in OrderedFaces()) {
+                foreach (int h in cycle(f)) {
+                    if (hAlive[h] == false) return $"face {f}: a dead half-edge in its cycle";
+                    if (hFace[h] != f) return $"face {f}: a half-edge of face {hFace[h]} in its cycle";
+                    if (hPrev[hNext[h]] != h) return $"face {f}: next and prev disagree";
+                    if (hTwin[hTwin[h]] != h || hOrig[hTwin[h]] != hOrig[hNext[h]]) return $"face {f}: a twin does not match";
+                    if (inCycle.Add(h) == false) return $"face {f}: a half-edge twice";
+                }
+            }
+            for (int h = 0; h < hOrig.Count; ++h)
+                if (hAlive[h] && in_domain(hFace[h]) && inCycle.Contains(h) == false) return $"half-edge {h} of face {hFace[h]} is in no cycle";
             foreach (int f in OrderedFaces()) {
                 var c = cycle(f);
                 bool turns = false;

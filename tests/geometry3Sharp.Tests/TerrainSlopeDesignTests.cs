@@ -463,6 +463,7 @@ namespace geometry3Sharp.Tests
             // no merge, and no lowering for one)
             double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
             double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
+            Assert.Equal(0, d.MergedPositions);
             if (d.MergedPositions > 0)
                 Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");

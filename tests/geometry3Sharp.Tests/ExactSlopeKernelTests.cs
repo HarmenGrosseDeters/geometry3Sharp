@@ -147,6 +147,37 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CompareXY_IsTheExactLexicographicOrder()
+        {
+            var K = new ExactSlopeKernel();
+            // P = (1, 5) on the vertical x = 1; Q on a line that leans by 2^-52 over 1e6: x = 1 + 3 * 2^-52 / 1e6, y = 3.
+            // The same rounded x (1), so the rounded y (5 > 3) would order them the wrong way: x decides, exactly
+            int vert = K.PointLine(new Vector2d(1, 0), new Vector2d(1, 1));
+            int lean = K.PointLine(new Vector2d(1, 0), new Vector2d(1 + Math.Pow(2, -52), 1e6));
+            int y5 = K.PointLine(new Vector2d(0, 5), new Vector2d(1, 5));
+            int y3 = K.PointLine(new Vector2d(0, 3), new Vector2d(1, 3));
+            int P = K.Crossing(vert, y5), Q = K.Crossing(lean, y3);
+            Assert.Equal(K.Rounded(P).x, K.Rounded(Q).x);
+            Assert.Equal(-1, K.CompareXY(P, Q));
+            Assert.Equal(1, K.CompareXY(Q, P));
+            // the same with the lines the other way round (the sign of W flips)
+            int y3r = K.PointLine(new Vector2d(1, 3), new Vector2d(0, 3));
+            int Qr = K.Crossing(y3r, lean);
+            Assert.Equal(0, K.CompareXY(Q, Qr));
+            Assert.Equal(-1, K.CompareXY(P, Qr));
+            // the same exact x: y decides, exactly (Q2 = (1 + 4 * 2^-52 / 1e6, 4) against Q)
+            int y4 = K.PointLine(new Vector2d(0, 4), new Vector2d(1, 4));
+            int Q2 = K.Crossing(lean, y4);
+            Assert.Equal(-1, K.CompareXY(Q, Q2));
+            int R = K.Crossing(vert, y3);
+            Assert.Equal(1, K.CompareXY(P, R));
+            Assert.Equal(-1, K.CompareXY(R, Q));
+            // one position, two vertices
+            Assert.Equal(0, K.CompareXY(P, K.PointVertex(new Vector2d(1, 5))));
+            Assert.Equal(0, K.CompareXY(P, P));
+        }
+
+        [Fact]
         public void Planes_EitherOrientation_AndVertical()
         {
             var K = new ExactSlopeKernel();
