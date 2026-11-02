@@ -73,6 +73,34 @@ namespace geometry3Sharp.Tests
             Assert.True(checkedNear > 100, "few points near the boundary: " + checkedNear);
         }
 
+        /// <summary> exact answers with mixed exponents: a factor of the filter near underflow next to a large one (review: the filter
+        /// once checked only the sum of the two sides, and answered these wrongly) </summary>
+        [Fact]
+        public void InLens_MixedExponents_AreExact()
+        {
+            // the angle at p is about 95.7 degrees: outside the lens, though |pa|^2 underflows next to |pc|^2 = 1e200
+            Assert.False(QualityMesh2.Refiner.InLens(new Vector2d(0, 0), new Vector2d(1e100, 0), new Vector2d(1e-200, 1e-199)));
+            // p seen under almost exactly 120 degrees, |pa|^2 subnormal: decided exactly, against integers
+            var r = new Random(7);
+            for (int i = 0; i < 4000; ++i) {
+                double t = (r.NextDouble() - 0.5) * 1e-5, scale = Math.Pow(2, -r.Next(520, 560)), far = Math.Pow(2, r.Next(60, 110));
+                var a = new Vector2d(0, 0); var c = new Vector2d(far, 0);
+                var p = new Vector2d(scale * 0.5, scale * (Math.Sqrt(3) / 2 + t));   // near the ray at 60 degrees from a: apc near 120
+                Assert.Equal(Exact(a, c, p), QualityMesh2.Refiner.InLens(a, c, p));
+            }
+        }
+
+        /// <summary> the lens test in integers on the exact values of the doubles (an independent reference) </summary>
+        static bool Exact(Vector2d a, Vector2d c, Vector2d p)
+        {
+            var v = new[] { a.x, a.y, c.x, c.y, p.x, p.y };
+            // all as integers times 2^e with a common e: doubles are m 2^k with |m| < 2^53 and k >= -1074
+            var q = v.Select(x => { long bits = BitConverter.DoubleToInt64Bits(x); int exp = (int)((bits >> 52) & 0x7FF); long m = bits & 0xFFFFFFFFFFFFFL;
+                if (exp != 0) m |= 1L << 52; else exp = 1; var b = new BigInteger(m) << (exp - 1); return x < 0 ? -b : b; }).ToArray();
+            BigInteger ux = q[0] - q[4], uy = q[1] - q[5], wx = q[2] - q[4], wy = q[3] - q[5], dot = ux * wx + uy * wy;
+            return dot < 0 && 4 * dot * dot >= (ux * ux + uy * uy) * (wx * wx + wy * wy);
+        }
+
         // ------------------------------------------------------------ the rule: when lenses are used
 
         static Mesh2Input Fuzz(int seed, double angle, bool constrained)
@@ -139,6 +167,27 @@ namespace geometry3Sharp.Tests
                 circlePoints += Run(input, false).VX.Length;
             }
             Assert.True(lensPoints < circlePoints, lensPoints + " vs " + circlePoints);
+        }
+
+        /// <summary> lenses on the snap grid (the library default with a snap tolerance): the constrained quality mode passes the oracle,
+        /// and lenses change some meshes there (review: no lens run on the grid was tested before) </summary>
+        [Fact]
+        public void GridFuzz_ConstrainedQuality_PassesTheOracle()
+        {
+            int differ = 0;
+            for (int seed = 0; seed < 30; ++seed) {
+                var input = Fuzz(2000 + seed, new[] { 20.0, 25 }[seed % 2], true);
+                // without the hole: a segment through the hole on the grid can leave a constructed vertex in no triangle, with circles
+                // and conforming too (on master; pinned and reported separately, not a lens matter)
+                input.Rings.RemoveAt(1);
+                input.SnapTolerance = new[] { 0.25, 0.5, 0.3, 1.0 / 3, 0.125 }[seed % 5];
+                var o = Run(input);
+                Assert.Equal(Mesh2Status.Success, o.Status);
+                var report = Judge(input, o);
+                Assert.True(report.Ok, "seed " + seed + ": " + report);
+                if (!Same(o, Run(input, false))) ++differ;
+            }
+            Assert.True(differ > 0, "lenses changed no mesh on the grid");
         }
 
         // ------------------------------------------------------------ a triangle that survives the split of a blocking subsegment
@@ -218,6 +267,8 @@ namespace geometry3Sharp.Tests
             Assert.False(TextFormat.ReadInput(text).ConstrainedQuality);
             Assert.Throws<FormatException>(() => TextFormat.ReadInput(withMode.Replace("mode constrained", "mode conforming")));
             Assert.Throws<FormatException>(() => TextFormat.ReadInput(withMode.Replace("conforming 0", "conforming 1")));
+            input.Conforming = true;   // the writer refuses what the reader rejects
+            Assert.Throws<InvalidOperationException>(() => TextFormat.WriteInput(input));
         }
 
         /// <summary> the worked example of MESHING2D_GOLDEN_FORMAT.md keeps its hash: inputs without the mode are written as before </summary>

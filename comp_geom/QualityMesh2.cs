@@ -495,10 +495,13 @@ namespace g3
             {
                 if (DotSign(a, c, p) >= 0) return false;
                 double ax = a.x - p.x, ay = a.y - p.y, cx = c.x - p.x, cy = c.y - p.y;
-                double d = ax * cx + ay * cy, lhs = 4 * d * d, rhs = (ax * ax + ay * ay) * (cx * cx + cy * cy), scale = lhs + rhs;
-                // each of d, |pa|^2 and |pc|^2 is within a few ulps of its exact value once the differences are (they round once each),
-                // so lhs and rhs are within some 20 ulps: a relative margin of 2^-40 decides safely; outside the range, or closer, integers
-                if (scale > 1e-280 && scale < 1e280 && Math.Abs(lhs - rhs) > scale * (1.0 / (1L << 40))) return lhs > rhs;
+                double d = ax * cx + ay * cy, la = ax * ax + ay * ay, lc = cx * cx + cy * cy;
+                double lhs = 4 * d * d, rhs = la * lc, scale = lhs + rhs;
+                // with |pa|^2 and |pc|^2 each in the normal range, their errors are a few ulps, and the error of d is at most some 4 ulps of
+                // |pa| |pc| (Cauchy-Schwarz; d itself may cancel), so lhs and rhs are within some 40 ulps of rhs <= scale: a relative margin
+                // of 2^-40 decides safely. A factor near underflow loses its relative accuracy (review: |pa|^2 subnormal next to a large
+                // |pc|^2), so each factor is checked, not only the sum; outside the range, or closer, integers decide
+                if (la > 1e-280 && lc > 1e-280 && la < 1e140 && lc < 1e140 && Math.Abs(lhs - rhs) > scale * (1.0 / (1L << 40))) return lhs > rhs;
                 double[] v = { a.x, a.y, c.x, c.y, p.x, p.y };
                 var m = new BigInteger[6];
                 var ex = new int[6];

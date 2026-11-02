@@ -50,7 +50,11 @@ namespace Meshing2Acceptance
             sb.Append("size_constant ").Append(input.SizeConstant == null ? "-" : Token(input.SizeConstant.Value)).Append('\n');
             sb.Append("resolve_crossings ").Append(input.ResolveCrossings ? 1 : 0).Append('\n');
             sb.Append("conforming ").Append(input.Conforming ? 1 : 0).Append('\n');
-            if (input.ConstrainedQuality) sb.Append("mode constrained\n");
+            if (input.ConstrainedQuality) {
+                // the reader rejects the pair, so the writer does too (review)
+                if (input.Conforming) throw new InvalidOperationException("the constrained quality mode contradicts conforming");
+                sb.Append("mode constrained\n");
+            }
             sb.Append("end\n");
             return sb.ToString();
         }
