@@ -161,3 +161,10 @@ phases dropped from 320.6 s to 295.7 s (−7.8 %), the 195 checks that use the c
 upper bound of section 1 because most checks stop after the first round anyway, the cells apply to 195 of 445 checks,
 and the setup of the inside tests is unchanged. 117 checks built cells that sampled more than the region and fell back
 (multi-component inputs); one octree per component box is the next lever if this is taken further.
+
+**Per-component octree: measured and closed (2026-11-02).** Upper bound from the same 400-set A/B data (cells run, 1777.2 s
+repair): the 119 checks (118 meshes) that built cells and fell back to the region take 96.8 s, 5.45 % of the repair time
+(the hard bound, if they cost nothing). If they gained what the cell checks gained (−31 %), the saving would be 30.0 s,
+1.7 %, below the 3 % line set for building it. The wasted cell build before the fallback is 4.9 s (0.3 %); a pre-check
+of the volumes would avoid most of it, not worth a PR with an A/B either. Largest fallbacks: 1501550 (5.5 s), 1619332
+(4.5 s), 1505037 (3.9 s), 498458 (3.3 s), 61765 (2.8 s). Coordinator decision: not built.
