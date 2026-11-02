@@ -126,5 +126,73 @@ class AnalysisScripts(unittest.TestCase):
         self.assertRegex(out, r'without result \(exception, timeout\)\s+1')
 
 
+class WrapQualityGate(unittest.TestCase):
+    """paired_fidelity.py (#199 gate, and its noise-aware variant) and noise_floor.py"""
+
+    def base(self, name, **kw):
+        r = row(name, robust_used_wrap=True, fm_ok=True, fm_topo_out={}, fm_topo_changes={}, robust_topology_changed=False,
+                apply_returned=True, after_closed=True, fm_max_fwd=0.002, fm_reversed_fwd=0.0, fm_f_0001=0.9,
+                fm_q_out={'tris': 100, 'degenerate': 0, 'minangle': [2, 10, 20, 40], 'sj': [.1, .3, .5, .8],
+                          'maxangle': [170, 120, 100, 80], 'aspect': [20, 5, 3, 1.5], 'cond': [20, 5, 3, 1.3],
+                          **{k: 1 for k in ('minangle_lt30', 'minangle_lt10', 'minangle_lt1', 'maxangle_gt90', 'maxangle_gt160',
+                                            'aspect_gt13', 'sj_lt05', 'cond_gt13')}})
+        r.update(kw)
+        return r
+
+    def test_noise_floor_and_gates(self):
+        sys.path.insert(0, HERE)
+        import noise_floor, paired_fidelity
+        # baseline with two other seeds: fm_max_fwd varies by 0.0004, fm_reversed_fwd by 0.0003, the rest not
+        b = self.base('a.stl', fm_seeds={'2': {'fm_max_fwd': 0.0024, 'fm_reversed_fwd': 0.0003, 'fm_f_0001': 0.9},
+                                         '3': {'fm_max_fwd': 0.0021, 'fm_reversed_fwd': 0.0, 'fm_f_0001': 0.9}})
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, 'base.jsonl'), os.path.join(d, 'noise.json')
+            open(src, 'w').write(json.dumps(b) + '\n')
+            noise_floor.main([out, src])
+            with open(out) as fo:
+                n = json.load(fo)
+        self.assertAlmostEqual(n['a.stl']['fm_max_fwd'], 0.0004)
+        self.assertAlmostEqual(n['a.stl']['fm_reversed_fwd'], 0.0003)
+        self.assertEqual(n['a.stl']['fm_f_0001'], 0)
+        self.assertEqual(n['a.stl']['fm_q_out.minangle[0]'], 0)
+        # a candidate within the noise (but above 5 %): fails the #199 gate, passes the noise-aware one
+        c = self.base('a.stl', fm_max_fwd=0.0023, fm_reversed_fwd=0.0002)
+        old = paired_fidelity.compare([b], [c], [b], expected=1, subset=True)
+        new = paired_fidelity.compare([b], [c], [b], expected=1, subset=True, noise=n)
+        # (the synthetic rows have only some of the measures: the 'missing' or 'unavailable' failures of the others are left out)
+        per_mesh = lambda r: sorted({f['metric'] for f in r['failures'] if f['file'] != '*' and ':' not in f['metric']})
+        self.assertEqual(per_mesh(old), ['fm_max_fwd', 'fm_reversed_fwd'])
+        self.assertEqual(per_mesh(new), [])
+        # beyond the noise: fails both; a worse worst angle (deterministic, 5 %) fails both
+        c = self.base('a.stl', fm_max_fwd=0.003)
+        self.assertEqual(per_mesh(paired_fidelity.compare([b], [c], [b], expected=1, subset=True, noise=n)), ['fm_max_fwd'])
+        q = dict(b['fm_q_out']); q['minangle'] = [1.8, 10, 20, 40]
+        c = self.base('a.stl', fm_q_out=q)
+        self.assertEqual(per_mesh(paired_fidelity.compare([b], [c], [b], expected=1, subset=True, noise=n)), ['fm_q_out.minangle[0]'])
+        # better is never a failure
+        c = self.base('a.stl', fm_max_fwd=0.001, fm_f_0001=0.95)
+        self.assertEqual(per_mesh(paired_fidelity.compare([b], [c], [b], expected=1, subset=True, noise=n)), [])
+
+
+class WrapQualityAcceptance(unittest.TestCase):
+    def test_criteria(self):
+        sys.path.insert(0, HERE)
+        import wrap_quality_acceptance as wqa
+        q = lambda p01: {'minangle': [1, p01, 5, 30]}
+        base = {'file': 'a.stl', 'robust_used_wrap': True, 'q_min_angle': 1.0, 'q_max_angle': 175, 'q_lt05': 0,
+                'q_gt170_share': 0.005, 'q_lt10_share': 0.07, 'q_lt20_share': 0.2, 'q_gt150_share': 0.05, 'fm_q_out': q(3)}
+        good = dict(base, q_min_angle=1.5, q_max_angle=170, q_gt170_share=0.0005, q_lt10_share=0.02, q_lt20_share=0.1,
+                    q_gt150_share=0.01, fm_q_out=q(8))
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': good}), {'a.stl': []})
+        for change, crit in [({'q_lt05': 1}, 'c1a'), ({'q_min_angle': 0.9}, 'c1a'), ({'q_max_angle': 176}, 'c1b'),
+                             ({'q_gt170_share': 0.002}, 'c1c'), ({'fm_q_out': q(3)}, 'c2'), ({'q_lt20_share': 0.2}, 'c2'),
+                             ({'q_gt150_share': 0.06}, 'c2')]:
+            self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, **change)}), {'a.stl': [crit]}, change)
+        # rounding of an untouched triangle's angles (1e-13 degrees) is not a change
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, q_min_angle=1.0 - 1e-13, q_max_angle=175 + 1e-13)}), {'a.stl': []})
+        # not a wrap case: not judged
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, robust_used_wrap=False)}), {})
+
+
 if __name__ == '__main__':
     unittest.main()
