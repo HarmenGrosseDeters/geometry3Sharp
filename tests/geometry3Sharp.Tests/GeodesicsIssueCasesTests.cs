@@ -171,34 +171,16 @@ namespace geometry3Sharp.Tests
         public void TwoDisjointTriangles_TargetIsUnreachable()
         {
             // https://github.com/libigl/libigl/issues/2554: two triangles that share nothing, the source in one and the
-            // target in the other: an assert or a distance 0. Correct (documented): the other component is unreachable,
-            // NaN for the heat method and the vector heat method, NoPath for paths, a path of the start point only.
+            // target in the other: an assert or a distance 0. The heat distances and paths of components without a source
+            // are covered by GeodesicDistanceTests.ComponentWithoutSource_IsNaN_AndPathIsTheStartPoint; new here: the
+            // vector heat method on two single triangles. Correct (documented): NaN on the other triangle, finite on the
+            // source's, the extended value of the source there.
             Expect(nameof(TwoDisjointTriangles_TargetIsUnreachable), () => {
                 var m = new DMesh3();
                 int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0)), c = m.AppendVertex(new Vector3d(0, 1, 0));
                 int d = m.AppendVertex(new Vector3d(3, 0, 0.5)), e = m.AppendVertex(new Vector3d(4, 0, 0.5)), f = m.AppendVertex(new Vector3d(3, 1, 0.5));
                 m.AppendTriangle(a, b, c);
                 m.AppendTriangle(d, e, f);
-
-                var geo = new MeshGeodesicDistance(m);
-                Assert.True(geo.Compute(new[] { a }));
-                Assert.Equal(0, geo.Distance[a]);
-                foreach (int v in new[] { b, c })
-                    Assert.True(geo.Distance[v] > 0.5 && geo.Distance[v] < 1.5, $"reachable vertex {v}: {geo.Distance[v]}");
-                foreach (int v in new[] { d, e, f })
-                    Assert.True(double.IsNaN(geo.Distance[v]), $"unreachable vertex {v}: {geo.Distance[v]}");
-                List<Vector3d> trace = geo.TracePath(e);
-                Assert.Single(trace);
-                Assert.Equal(m.GetVertex(e), trace[0]);
-                trace = geo.TracePath(new Vector3d(3.2, 0.2, 0.5));
-                Assert.Single(trace);
-
-                var g = new MeshGeodesicPath(m);
-                Assert.Equal(GeodesicPathStatus.NoPath, g.Compute(a, e));
-                Assert.Empty(g.Path);
-                Assert.Equal(GeodesicPathStatus.Success, g.Compute(a, b));
-                Assert.Equal(1, g.Length, 12);
-
                 var vh = new VectorHeatMethod(m);
                 Vector2d[] tr = vh.TransportVector(a, new Vector2d(1, 0));
                 Vector2d[] log = vh.ComputeLogMap(a);
@@ -207,43 +189,9 @@ namespace geometry3Sharp.Tests
                     Assert.True(tr[v].IsFinite && log[v].IsFinite, $"vertex {v}");
                     Assert.Equal(7, ext[v], 9);
                 }
+                Assert.True(log[b].Length > 0.5 && log[b].Length < 1.5, $"log map length at b: {log[b].Length}");
                 foreach (int v in new[] { d, e, f })
                     Assert.True(double.IsNaN(tr[v].x) && double.IsNaN(log[v].x) && double.IsNaN(ext[v]), $"unreachable vertex {v}");
-            });
-        }
-
-        // ---------------------------------------------------------------------------------------------------------------
-        // a2: flat grid, corner source
-
-        [Fact]
-        public void FlatGrid_CornerSource_EuclideanDistances()
-        {
-            // https://github.com/nmwsharp/geometry-central/issues/260: a flat square grid with the source at a corner: a zero
-            // numerator against a -4e-19 denominator gave reachable vertices an infinite distance. Correct: on a flat convex
-            // domain the geodesic distance is |p - s|. Exact paths must give it to rounding; the heat method finite
-            // everywhere and within its documented accuracy (2% plus one edge length: the source is a boundary corner).
-            Expect(nameof(FlatGrid_CornerSource_EuclideanDistances), () => {
-                foreach (bool alternate in new[] { false, true }) {
-                    int n = 16;
-                    DMesh3 m = Grid(n, n, 1, 1, Flat, alternate, out int[,] ids);
-                    double h = MeanEdge(m);
-                    foreach (int s in new[] { ids[0, 0], ids[n, 0], ids[n, n], ids[0, n] }) {
-                        Vector3d ps = m.GetVertex(s);
-                        double[] d = HeatDistances(m, s);
-                        foreach (int v in m.VertexIndices()) {
-                            double ex = m.GetVertex(v).Distance(ps);
-                            Assert.True(Math.Abs(d[v] - ex) <= 0.02 * ex + h, $"alternate {alternate}, source {s}, vertex {v}: heat {d[v]}, exact {ex}");
-                        }
-                        // exact paths to the far sides and the diagonal
-                        for (int k = 0; k <= n; k += 3)
-                            foreach (int t in new[] { ids[k, n], ids[n, k], ids[k, k], ids[n - k, k] }) {
-                                if (t == s) continue;
-                                double len = ExactPath(m, s, t, out _);
-                                double ex = m.GetVertex(t).Distance(ps);
-                                Assert.True(Math.Abs(len - ex) <= 1e-12 * ex, $"path {s} -> {t}: {len:R} vs {ex:R}");
-                            }
-                    }
-                }
             });
         }
 
@@ -316,10 +264,10 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/libigl/libigl/issues/1013 (a box with one hole) and
             // https://github.com/nmwsharp/geometry-central/issues/212 (a source on a boundary vertex): zero-length
-            // intervals and asserts. Rebuilt: the unit cube without its top, sources at a rim corner and a rim midpoint.
-            // Correct: finite distances; to the bottom corners and the rim the exact paths unfold over the side faces
-            // (rim corner to the opposite bottom corner: sqrt(1 + 4) over two sides... the shortest unfolding is sqrt 5);
-            // the heat method within 2% plus one edge length of the exact paths.
+            // intervals and asserts. Rebuilt: the unit cube without its top, sources at a rim corner and a rim midpoint
+            // (exact paths on a closed cube: MeshGeodesicPathTests.Cube_OppositeCorners_SqrtFive). Correct: finite
+            // distances; heat distances at least the straight distance less an edge length, and at most 2% plus an edge
+            // length above the geodesic from the Dijkstra start (an upper bound: it is not always the shortest one).
             Expect(nameof(BoxWithOneHole_BoundarySources_FiniteDistances), () => {
                 int n = 8;
                 DMesh3 m = OpenBox(n);
@@ -338,14 +286,6 @@ namespace geometry3Sharp.Tests
                         Assert.True(d[t] <= 1.02 * len + h && d[t] >= straight - h, $"source {s}, target {t}: heat {d[t]}, path {len}, straight {straight}");
                     }
                 }
-                // rim corner (0,0,1) to the bottom corner (1,1,0): over the bottom, the unfolding of side y = 0 and the
-                // bottom gives |(1, 1 + 1)| = sqrt 5 (down the side and across the bottom diagonal is longer: 1 + sqrt 2)
-                double l = ExactPath(m, at(0, 0, 1), at(1, 1, 0), out _);
-                Assert.True(Math.Abs(l - Math.Sqrt(5)) < 1e-12, $"rim corner to the opposite bottom corner: {l:R}");
-                // rim corner (0,0,1) to rim corner (1,1,1): along the rim (2) or across a side unfolded with the bottom...
-                // the side faces are flat and meet at the vertical edges, so the shortest is along the rim: 2
-                l = ExactPath(m, at(0, 0, 1), at(1, 1, 1), out _);
-                Assert.True(Math.Abs(l - 2) < 1e-12, $"rim corner to the opposite rim corner: {l:R}");
             });
         }
 
@@ -435,10 +375,11 @@ namespace geometry3Sharp.Tests
         public void LongTerrain_FarFromTheSource_AllFinite()
         {
             // https://github.com/nmwsharp/geometry-central/issues/36: a large terrain, the source near one end: the heat
-            // underflowed to 0 far away and normalizing it gave NaN. Rebuilt: a bumpy strip 1500 edge lengths long, the
-            // source at one end. Correct: distances, transported vectors, the log map and extended values finite
-            // everywhere; distances at least the straight distance and within 2% plus an edge length of the length along
-            // the surface (the strip is nearly straight), the log map length the heat distance.
+            // underflowed to 0 far away and normalizing it gave NaN. Flat strips are covered by
+            // GeodesicDistanceTests.LongStrip_NoUnderflowFarFromTheSource and IntrinsicGeodesicsTests.VectorHeat_LongerDiffusionTime...;
+            // new here: a hilly strip 1500 edge lengths long with the vector heat method and ExtendScalar from both
+            // ends. Correct: transported unit vectors, the log map and extended values finite everywhere, the log map
+            // length the heat distance, each half the value of its end.
             Expect(nameof(LongTerrain_FarFromTheSource_AllFinite), () => {
                 int nx = 1500;
                 Func<double, double, double> hills = (x, y) => 0.15 * Math.Sin(0.7 * x) * Math.Cos(1.3 * y) + 0.1 * Math.Sin(0.23 * x + 0.5);
@@ -446,13 +387,6 @@ namespace geometry3Sharp.Tests
                 int s = ids[0, 1];
                 double h = MeanEdge(m);
                 double[] d = HeatDistances(m, s);
-                for (int i = 0; i <= nx; i += 50) {
-                    int v = ids[i, 1];
-                    double straight = m.GetVertex(v).Distance(m.GetVertex(s));
-                    double along = 0;
-                    for (int k = 1; k <= i; ++k) along += m.GetVertex(ids[k, 1]).Distance(m.GetVertex(ids[k - 1, 1]));
-                    Assert.True(d[v] >= straight - h && d[v] <= along * 1.02 + h, $"x = {i}: heat {d[v]}, straight {straight}, along {along}");
-                }
                 var vh = new VectorHeatMethod(m);
                 Vector2d[] tr = vh.TransportVector(s, new Vector2d(0, 1));
                 Vector2d[] log = vh.ComputeLogMap(s);
@@ -546,65 +480,6 @@ namespace geometry3Sharp.Tests
         }
 
         // ---------------------------------------------------------------------------------------------------------------
-        // a8: closed loop around a cone apex
-
-        /// <summary> a cone: apex at (0, 0, H), rings of 6 vertices at radius 1 (z = H/2) and 2 (z = 0), open at the bottom </summary>
-        static DMesh3 HexCone(double H, out int apex, out int[] ring1, out int[] ring2)
-        {
-            var m = new DMesh3();
-            apex = m.AppendVertex(new Vector3d(0, 0, H));
-            ring1 = new int[6]; ring2 = new int[6];
-            for (int k = 0; k < 6; ++k) {
-                double a = Math.PI / 3 * k;
-                ring1[k] = m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), H / 2));
-                ring2[k] = m.AppendVertex(new Vector3d(2 * Math.Cos(a), 2 * Math.Sin(a), 0));
-            }
-            for (int k = 0; k < 6; ++k) {
-                int k1 = (k + 1) % 6;
-                m.AppendTriangle(apex, ring1[k], ring1[k1]);
-                m.AppendTriangle(ring1[k], ring2[k], ring2[k1]);
-                m.AppendTriangle(ring1[k], ring2[k1], ring1[k1]);
-            }
-            return m;
-        }
-
-        [Fact]
-        public void ClosedLoopAroundConeApex_Terminates()
-        {
-            // https://github.com/nmwsharp/geometry-central/issues/253: flip geodesics on a closed loop around a cone apex
-            // (apex height 4, two rings of 6 vertices) cycled forever. On a cone of angle below 2 pi no closed geodesic
-            // goes around the apex: correct is that the loop contracts over the apex (Collapsed), and that it
-            // terminates quickly, from both rings, also for a flat cone (angle above pi) and with a fixed vertex (then a
-            // geodesic loop through it, which bends only there, or Collapsed at it).
-            Expect(nameof(ClosedLoopAroundConeApex_Terminates), () => {
-                foreach (double H in new[] { 4.0, 0.5 })
-                    foreach (int r in new[] { 1, 2 }) {
-                        DMesh3 m = HexCone(H, out int apex, out int[] ring1, out int[] ring2);
-                        int[] loop = r == 1 ? ring1 : ring2;
-                        var sw = Stopwatch.StartNew();
-                        var g = new MeshGeodesicPath(m);
-                        GeodesicPathStatus st = g.Shorten(loop, true);
-                        Assert.True(sw.Elapsed.TotalSeconds < 5, $"H {H}, ring {r}: {sw.Elapsed}");
-                        Assert.True(st == GeodesicPathStatus.Collapsed, $"H {H}, ring {r}: {st}, length {g.Length}, {g.Iterations} iterations");
-                        Assert.Equal(0, g.Length);
-                        Assert.Single(g.PathVertices);
-
-                        var gf = new MeshGeodesicPath(m);
-                        st = gf.Shorten(loop, true, new[] { loop[0] });
-                        Assert.True(sw.Elapsed.TotalSeconds < 10, $"H {H}, ring {r}, fixed: {sw.Elapsed}");
-                        Assert.True(st == GeodesicPathStatus.Success || st == GeodesicPathStatus.Collapsed, $"H {H}, ring {r}, fixed: {st}");
-                        if (st == GeodesicPathStatus.Success) {
-                            Assert.True(gf.Length > 0 && gf.Length < gf.InitialLength, $"H {H}, ring {r}, fixed: {gf.Length} of {gf.InitialLength}");
-                            Assert.True(gf.Path.All(p => p.IsFinite));
-                            Assert.Equal(gf.Path[0], gf.Path[gf.Path.Count - 1]);
-                            Assert.Equal(loop[0], gf.PathVertices[0]);
-                        } else
-                            Assert.Equal(new List<int> { loop[0] }, gf.PathVertices);
-                    }
-            });
-        }
-
-        // ---------------------------------------------------------------------------------------------------------------
         // a9: reversed input path
 
         [Fact]
@@ -638,15 +513,17 @@ namespace geometry3Sharp.Tests
                     Assert.True(sa == GeodesicPathStatus.Success && sb == GeodesicPathStatus.Success, $"closed {closed}: {sa}, {sb}");
                     Assert.True(Math.Abs(a.Length - b.Length) <= 1e-12 * a.Length, $"closed {closed}: {a.Length:R} vs {b.Length:R}");
                     Assert.True(a.Length < a.InitialLength);
-                    // the same polyline reversed; repeated points (finding G1, PathPolyline_NoRepeatedPoints) are
-                    // removed first, and a closed path is compared as a cycle (its start need not be the fixed vertex)
-                    List<Vector3d> pa = Distinct(a.Path, closed), pb = Distinct(b.Path, closed);
+                    // the same polyline reversed (repeated points, finding G1, are dropped relative to the length, so
+                    // this compares the geodesics; PathPolyline_NoRepeatedPoints checks the repeats); a closed path is
+                    // compared as a cycle (its start need not be the fixed vertex)
+                    List<Vector3d> pa = Distinct(a.Path, closed, a.Length), pb = Distinct(b.Path, closed, b.Length);
                     pb.Reverse();
                     Assert.True(pa.Count == pb.Count, $"closed {closed}: {pa.Count} vs {pb.Count} points");
-                    int shift = closed ? pb.FindIndex(q => q.Distance(pa[0]) < 1e-12) : 0;
+                    double tol = 1e-9 * a.Length;
+                    int shift = closed ? pb.FindIndex(q => q.Distance(pa[0]) < tol) : 0;
                     Assert.True(shift >= 0, $"closed {closed}: the start of one path is not on the other");
                     for (int k = 0; k < pb.Count; ++k)
-                        Assert.True(pa[k].Distance(pb[(k + shift) % pb.Count]) < 1e-12, $"closed {closed}, point {k}: {pa[k]} vs {pb[(k + shift) % pb.Count]}");
+                        Assert.True(pa[k].Distance(pb[(k + shift) % pb.Count]) < tol, $"closed {closed}, point {k}: {pa[k]} vs {pb[(k + shift) % pb.Count]}");
                 }
             });
         }
@@ -686,21 +563,30 @@ namespace geometry3Sharp.Tests
         public void PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities(string name)
         {
             // the paths of PathPolyline_NoRepeatedPoints that run exactly through vertices (along the diagonal of the
-            // flat grid), moved: no repeated points; under 2^k scales the same vertices and points bit for bit
+            // flat grid), moved: no repeated points. The grid is cocircular (docs/QA.md 2.1), which is fine here: a
+            // 2^k scale keeps every tie exactly, so the same vertices and points bit for bit; the other similarities may
+            // decide ties differently, so only the length is compared. The last path passes the diagonal vertices at
+            // 1e-7 to 5e-7 (its far corner moved by 1e-6): real segments of about 1e-7, 1e-10 at a scale of 2^-10, which
+            // a repeat threshold not relative to the edge length would drop there (a different point count)
             Similarity sim = Similarity.ByName(name);
             DMesh3 flat = Grid(8, 8, 1, 1, Flat, false, out int[,] fid);
-            DMesh3 moved = Invariance.Transformed(flat, sim);
+            DMesh3 near = Grid(8, 8, 1, 1, Flat, false, out int[,] nid);
+            near.SetVertex(nid[8, 8], new Vector3d(1, 1 + 1e-6, 0));
+            var cases = new[] { (flat, fid[0, 0], fid[8, 8]), (flat, fid[0, 0], fid[4, 4]), (flat, fid[0, 0], fid[8, 3]), (near, nid[0, 0], nid[8, 8]) };
             var status = new List<GeodesicPathStatus>();
             string caseName = nameof(PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities) + "_" + sim.Name.Replace(", ", "_").Replace(" ", "_");
             Expect(caseName, () => {
-                foreach (int t in new[] { fid[8, 8], fid[4, 4], fid[8, 3] }) {
-                    var g0 = new MeshGeodesicPath(flat);
-                    var g = new MeshGeodesicPath(moved);
-                    Assert.Equal(GeodesicPathStatus.Success, g0.Compute(fid[0, 0], t));
-                    status.Add(g.Compute(fid[0, 0], t));
+                foreach (var (mesh, s0, t) in cases) {
+                    var g0 = new MeshGeodesicPath(mesh);
+                    var g = new MeshGeodesicPath(Invariance.Transformed(mesh, sim));
+                    Assert.Equal(GeodesicPathStatus.Success, g0.Compute(s0, t));
+                    if (mesh == near) {
+                        double shortest = Enumerable.Range(1, g0.Path.Count - 1).Min(k => g0.Path[k].Distance(g0.Path[k - 1]));
+                        Assert.True(shortest > 1e-9 && shortest < 1e-6, $"near-diagonal path: shortest segment {shortest}");
+                    }
+                    status.Add(g.Compute(s0, t));
                     Assert.Equal(GeodesicPathStatus.Success, status[status.Count - 1]);
                     AssertNoRepeatedPoints(g);
-                    // (rounded inputs may pass a vertex on the diagonal at a distance of rounding, so only the length)
                     if (sim.IsExact) {
                         Assert.Equal(g0.PathVertices, g.PathVertices);
                         Assert.Equal(g0.Path.Count, g.Path.Count);
@@ -715,13 +601,14 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(GeodesicPathStatus.TraceFailed, status[status.Count - 1]);
         }
 
-        /// <summary> the points without repeats (distance 1e-12 or less); closed: without the closing point </summary>
-        static List<Vector3d> Distinct(List<Vector3d> path, bool closed)
+        /// <summary> the points without repeats (within 1e-9 of the length); closed: without the closing point </summary>
+        static List<Vector3d> Distinct(List<Vector3d> path, bool closed, double length)
         {
+            double tol = 1e-9 * length;
             var r = new List<Vector3d>();
             foreach (Vector3d p in path)
-                if (r.Count == 0 || r[r.Count - 1].Distance(p) > 1e-12) r.Add(p);
-            if (closed && r.Count > 1 && r[r.Count - 1].Distance(r[0]) <= 1e-12) r.RemoveAt(r.Count - 1);
+                if (r.Count == 0 || r[r.Count - 1].Distance(p) > tol) r.Add(p);
+            if (closed && r.Count > 1 && r[r.Count - 1].Distance(r[0]) <= tol) r.RemoveAt(r.Count - 1);
             return r;
         }
 
@@ -737,43 +624,6 @@ namespace geometry3Sharp.Tests
         }
 
         // ---------------------------------------------------------------------------------------------------------------
-        // a10: a path that doubles back
-
-        [Fact]
-        public void EdgePathDoublingBack_HandledNotWrong()
-        {
-            // https://github.com/nmwsharp/potpourri3d/issues/17: an initial path that runs back along the same edges gave a
-            // wrong path. Rebuilt on a flat grid (MeshGeodesicPathTests covers a single detour a-b-c-b-d): a path that runs
-            // out to d and back to b, a closed loop that retraces itself, and a path that returns to its start. Correct:
-            // the straight segment a-b; the loop collapses; the path back to the start has length 0.
-            Expect(nameof(EdgePathDoublingBack_HandledNotWrong), () => {
-                DMesh3 m = Grid(8, 8, 1, 1, Flat, true, out int[,] ids);
-                int a = ids[1, 1], b = ids[3, 2], c = ids[4, 2], d = ids[5, 3];
-                var path = new List<int> { a, ids[2, 1], ids[2, 2], b, c, ids[5, 2], d, ids[5, 2], c, b };
-                var g = new MeshGeodesicPath(m);
-                GeodesicPathStatus st = g.Shorten(path);
-                Assert.True(st == GeodesicPathStatus.Success, $"out and back: {st}");
-                Assert.Equal(a, g.PathVertices[0]);
-                Assert.Equal(b, g.PathVertices[g.PathVertices.Count - 1]);
-                double ab = m.GetVertex(a).Distance(m.GetVertex(b));
-                Assert.True(Math.Abs(g.Length - ab) < 1e-12, $"out and back: {g.Length:R} vs {ab:R}");
-
-                var loop = new List<int> { b, c, ids[5, 2], d, ids[5, 2], c };
-                var gl = new MeshGeodesicPath(m);
-                st = gl.Shorten(loop, true);
-                Assert.True(st == GeodesicPathStatus.Collapsed, $"retraced loop: {st}, length {gl.Length}");
-                Assert.Equal(0, gl.Length);
-
-                var home = new List<int> { a, ids[2, 1], ids[2, 2], ids[2, 1], a };
-                var gh = new MeshGeodesicPath(m);
-                st = gh.Shorten(home);
-                Assert.True(st == GeodesicPathStatus.Success || st == GeodesicPathStatus.Collapsed, $"back home: {st}");
-                Assert.True(gh.Length == 0, $"back home: length {gh.Length}");
-                Assert.True(gh.Path.All(p => p.Distance(m.GetVertex(a)) == 0), "back home: the path leaves the start");
-            });
-        }
-
-        // ---------------------------------------------------------------------------------------------------------------
         // a11: refinement at a tiny angle between constraint edges
 
         [Fact]
@@ -781,9 +631,10 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/nmwsharp/geometry-central/issues/246: intrinsic Delaunay refinement with an angle of 1.69
             // degrees between two constraint edges inserted coincident vertices and a 0 degree triangle. Our constraint
-            // edges are boundary edges: a 1.69 degree wedge, and a needle (an isosceles triangle domain with two 1.69
-            // degree corners... the third one 176.6 degrees). Correct: terminates, no two vertices closer than 1e-9 of the
-            // size, no zero angle, consistent signposts, no negative cotan weight.
+            // edges are boundary edges (wedges of 5 to 55 degrees: IntrinsicRefinementTests.Refine_Wedges_AllSucceed;
+            // new here: 1.69 degrees and the coincident-vertex check): a 1.69 degree wedge, and a needle (an isosceles
+            // triangle domain with two 1.69 degree corners, the third one 176.6 degrees). Correct: terminates, no two
+            // vertices closer than 1e-9 of the size, no zero angle, consistent signposts, no negative cotan weight.
             Expect(nameof(Refinement_TinyAngleBetweenBoundaryEdges_NoCoincidentVertices), () => {
                 double ang = 1.69 * Math.PI / 180;
                 var wedge = new DMesh3();

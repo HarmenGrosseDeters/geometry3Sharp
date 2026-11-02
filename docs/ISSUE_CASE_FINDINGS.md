@@ -24,7 +24,11 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   stops, and `build_output` then appends the exact vertex position as well.
 - Fix: `MeshGeodesicPath.build_output` (mesh_ops/MeshGeodesicPath.cs, around line 554) drops a point within 1e-9 of
   the edge length of the previous one; a joint keeps its exact position. Relative to the edge length, so 2^k scales
-  give the same points bit for bit. With the fix reverted the three tests above fail (10 cases).
+  give the same points bit for bit. `IntrinsicTriangulation.TraceEdge` (public, unchanged) documents that it can return
+  such repeats. With the fix reverted 8 cases fail (`PathPolyline_NoRepeatedPoints` and 7 cases of the invariance
+  theory; the G3 case fails either way; `ReversedEdgePath_SameGeodesicReversed` compares with a tolerance relative to
+  the length, so it checks the reversal only). A path that passes the diagonal vertices of a grid at 1e-7 has real
+  segments of 1e-10 at a scale of 2^-10: an absolute 1e-9 threshold (mutant) drops them and fails that case.
 
 ### G2 (open): tangent frames at coincident vertices
 
@@ -96,7 +100,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   enters positively), or use the spectral conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has
   no pins. Medium cost, changes LSCM results on annuli.
 
-### P2 (open): BFF Disk on two needles sharing their long edge
+### P2 (open): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
 - Test: `LongThinTriangleInPlaneX0_ValidChart` (case `_BffDiskTwoTriangles`).
 - Issue: https://github.com/jpcy/xatlas/issues/130 (a long thin triangle in the plane x = 0).
@@ -104,13 +108,38 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   quad of aspect 5e4, no interior vertex). `BoundaryFirstFlattening` with `BoundaryMode = Disk` returns `Success` with
   one flipped triangle; the four UVs lie about 1.5e6 from the origin in a sliver of 0.8 x 4155, not on a circle. The
   default mode (MinimalAreaDistortion), LSCM, ARAP, SLIM, Tutte and the atlas are fine, as is the single triangle.
-- Cause (not verified in the code): the long shared edge lies opposite two angles of almost 180 degrees, so its cotan
-  weight is about -2.5e4 (the short edges +5e4); with the Disk mode's Neumann-to-Dirichlet solve and the conformal
-  extension on this indefinite, badly scaled Laplacian the result is garbage; the success is not checked.
-- Fix ideas: (a) build BFF's Laplacian on the intrinsic Delaunay triangulation (as the geodesics do: `IntrinsicTriangulation`
-  flips the long edge to the short diagonal, all weights non-negative); medium cost, changes BFF results on obtuse
-  meshes, needs a benchmark A/B of the distortion. (b) Check the result (flips, finiteness, boundary on the target
-  circle) and report `SolverFailed`; cheap.
+- Cause (probed on the same quad with z = ±0.01, 1, 50, 200, 400, both diagonals): two independent parts.
+  (a) With the default `Extension = Conformal` the result is not cyclic at any z, also on the Delaunay (short)
+  diagonal: the fourth UV is 4 % (z = 50) to 55 % (z = 200) of the radius off the circle through the other three, at
+  z = 1 the UVs are 1.2e5 away. `Extension = Harmonic` gives the exact inscribed quad (off by 1e-16) at z = 1 to 400,
+  also with the negative cotan weight. In the conformal branch (parameterization/BoundaryFirstFlattening.cs, the
+  `else` after `if (Extension == ExtensionModes.Harmonic)`, around line 216) v comes from the Neumann solve of the
+  harmonic conjugate on all vertices, boundary ones included, and only its mean is shifted to gamma.y: the boundary
+  keeps v of the conjugate instead of the curve's gamma.y, which without interior vertices alone moves the corners
+  off the circle. (b) At z = 0.01 the boundary curve itself is degenerate: the boundary scale factors are ±18.8
+  (exp(18.8) = 1.5e8), so even the harmonic extension puts a UV at 6e6 (circle radius 3e6). The long shared edge lies
+  opposite two angles of almost 180 degrees: its cotan weight w = 1/2 (cot a + cot b) is about -2.5e4, the short
+  edges +2.5e4; the Neumann-to-Dirichlet solve on this indefinite, badly scaled Laplacian gives the extreme scale
+  factors. On the other diagonal they are ±392 at z = 1 and overflow at z = 0.01 (finding P4).
+- Fix ideas: (a) in the conformal extension, keep v = gamma.y on the boundary (or report the boundary error), so Disk
+  is exactly a circle as documented for Harmonic; small code change, but it changes every Disk/conformal result near
+  the boundary and needs a distortion A/B (`benchmarks/`). (b) Build BFF's Laplacian on the intrinsic Delaunay
+  triangulation (`IntrinsicTriangulation`, non-negative weights); medium cost. (c) Check the result (flips, finiteness,
+  boundary on the target circle) and report `SolverFailed`; cheap.
+
+### P4 (fixed): BFF Disk threw on the needle quad with the short diagonal
+
+- Test: `LongThinTriangleInPlaneX0_ValidChart` (the short-diagonal quad), `BffDisk_InvariantUnderSimilarities`.
+- Issue: https://github.com/jpcy/xatlas/issues/130 (found by the independent review).
+- Input -> wrong result: the quad of P2 triangulated (0,3,2), (3,1,2) (the Delaunay diagonal), z = ±0.01:
+  `Compute()` threw an `ArithmeticException` (NaN in `Math.Sign`) in `inscribedAngles` (BoundaryFirstFlattening.cs,
+  the bisection) instead of returning a status.
+- Cause: the boundary scale factors of the Neumann-to-Dirichlet solve are so large (P2 (b)) that the target lengths
+  exp(u) * l overflow, and the inscribed-circle bisection gets NaN.
+- Fix: the Disk iteration checks the target lengths before each `inscribedAngles`; not positive and finite gives
+  `SolverFailed` ("BFF Disk: boundary target lengths are not positive and finite"). With the guard reverted 9 cases
+  fail (the test above and the 8 cases of the invariance theory, whose quad must give `SolverFailed` under every
+  similarity; on a curved cap the Disk UVs are the same bit for bit under 2^k scales).
 
 ### P3 (open): LSCM with automatic pins is not symmetric
 
@@ -131,6 +160,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 
 - Closed spheres get `InvalidTopology` from every single-chart method, two discs or an annulus either
   `InvalidTopology` or a valid map, and the atlas cuts all of them into disc charts (libigl #1407, #1401).
+- The other methods take the needle quads, also with the short diagonal (LSCM, ARAP, SLIM, Tutte, BFF default, atlas).
 - Unused vertices, also at 1e7, do not change the UVs (to 1e-9; libigl #343); degenerate patches either fail with a
   status or have finite UVs (libigl #2439); the orientation follows the surface for all methods, also facing -z, in
   the plane x = 0 and with given LSCM pins (libigl #91); SLIM and Tutte stay flip-free on a three-peak terrain and on

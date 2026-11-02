@@ -25,7 +25,7 @@ namespace geometry3Sharp.Tests
             [nameof(LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion) + "_LscmAndArap"] =
                 "finding P1: LSCM on a low-poly cylinder (annulus) collapses the unpinned boundary ring and reports Success",
             [nameof(LongThinTriangleInPlaneX0_ValidChart) + "_BffDiskTwoTriangles"] =
-                "finding P2: BFF Disk on two needles sharing their long edge (negative cotan weight -5e4) gives a flipped sliver",
+                "finding P2: BFF Disk with the conformal extension leaves the circle without interior vertices; on two needles (long edge weight -2.5e4) a flipped sliver",
             [nameof(TwoIdenticalRectangularHoles_SymmetricResult) + "_LscmAutomaticPins"] =
                 "finding P3: LSCM with automatic pins is not symmetric on a symmetric patch (pin dependence, 1e-4 relative)",
         };
@@ -263,14 +263,13 @@ namespace geometry3Sharp.Tests
         // b1: closed surfaces, several components, holes
 
         [Fact]
-        public void ClosedSphere_ComponentsAndHoles_StatusOrValidMap()
+        public void ComponentsAndHoles_StatusOrValidMap()
         {
-            // https://github.com/libigl/libigl/issues/1407 and /issues/1401: a closed sphere (no boundary), meshes with
-            // several components or holes: crashes and numerical failures. Correct: a closed surface gets InvalidTopology
-            // from every single-chart method; two discs and an annulus either InvalidTopology or a valid map; the atlas
-            // cuts all of them into disc charts.
-            Expect(nameof(ClosedSphere_ComponentsAndHoles_StatusOrValidMap), () => {
-                DMesh3 sphere = Icosphere(2);
+            // https://github.com/libigl/libigl/issues/1407 and /issues/1401: a closed sphere (no boundary; in
+            // ClosedIcosphere_EveryChartIsADisc), meshes with several components or holes: crashes and numerical
+            // failures. Correct: two discs and an annulus get InvalidTopology or a valid map from every single-chart
+            // method; the atlas cuts both into disc charts with every method.
+            Expect(nameof(ComponentsAndHoles_StatusOrValidMap), () => {
                 DMesh3 two = FlatDisc();
                 DMesh3 other = FlatDisc();
                 MeshTransforms.Translate(other, new Vector3d(5, 0, 1));
@@ -278,17 +277,15 @@ namespace geometry3Sharp.Tests
                 DMesh3 annulus = Polar(6, 24, (r, a) => new Vector3d((1 + r) * Math.Cos(a), (1 + r) * Math.Sin(a), 0));
                 annulus.RemoveVertex(0, true, false);       // the center: a hole of 24 sides
                 foreach (var (name, flipFree, run) in Methods) {
-                    ParameterizationResult r = run(sphere);
-                    Assert.True(r.Status == ParameterizationStatus.InvalidTopology && r.UV == null, $"{name}, sphere: {r.Status}");
                     foreach (var (what, mesh) in new[] { ("two discs", two), ("annulus", annulus) }) {
-                        r = run(mesh);
+                        ParameterizationResult r = run(mesh);
                         if (r.Status != ParameterizationStatus.InvalidTopology) {
                             string v = Valid(mesh, r, false);
                             Assert.True(v == "", $"{name}, {what}: {v}");
                         }
                     }
                 }
-                foreach (var (what, mesh) in new[] { ("sphere", sphere), ("two discs", two), ("annulus", annulus) })
+                foreach (var (what, mesh) in new[] { ("two discs", two), ("annulus", annulus) })
                     foreach (var method in AtlasMethods) {
                         string v = AtlasCharts(Atlas(mesh, method), out _);
                         Assert.True(v == "", $"atlas {method}, {what}: {v}");
@@ -341,10 +338,8 @@ namespace geometry3Sharp.Tests
                 });
                 // a disc poked on many triangles at an edge midpoint (collinear triangles)
                 DMesh3 poked = FlatDisc();
-                foreach (int t in poked.TriangleIndices().Where(t => t % 5 == 0).ToList()) {
-                    Index3i tv = poked.GetTriangle(t);
+                foreach (int t in poked.TriangleIndices().Where(t => t % 5 == 0).ToList())
                     poked.PokeTriangle(t, new Vector3d(0.5, 0.5, 0), out _);
-                }
                 // a fan of needles: angles of 1e-9 at the center
                 DMesh3 needles = Polar(4, 24, (r, a) => {
                     int j = (int)Math.Round(a / (2 * Math.PI / 24));
@@ -482,7 +477,9 @@ namespace geometry3Sharp.Tests
                 // finding P1: Success, but the boundary ring without the pins collapses onto a segment (all its v = 0);
                 // ARAP, started from that map, keeps flipped triangles
                 Assert.True(rl.Succeeded && Flipped(m, rl) > 0 && rl.Distortion.MaxConformal > 1e6, $"P1: {rl.Status}, {(rl.Succeeded ? Flipped(m, rl) : -1)} flipped");
-                Assert.True(Enumerable.Range(rings * sides, sides).All(i => Math.Abs(rl.UV[i].y) < 1e-9 * rl.UV[0].Length), "P1: the far ring is not collapsed");
+                var box = new AxisAlignedBox2d(rl.UV[0]);
+                foreach (int v in m.VertexIndices()) box.Contain(rl.UV[v]);
+                Assert.True(Enumerable.Range(rings * sides, sides).All(i => Math.Abs(rl.UV[i].y) < 1e-9 * box.DiagonalLength), "P1: the far ring is not collapsed");
                 Assert.True(ra.Succeeded && Flipped(m, ra) > 0, $"P1: arap {ra.Status}");
             }
         }
@@ -592,11 +589,18 @@ namespace geometry3Sharp.Tests
         public void ClosedIcosphere_EveryChartIsADisc()
         {
             // https://github.com/jpcy/xatlas/issues/146: on a closed icosphere one chart had no boundary, which crashed the
-            // flattening. Correct: every chart is a disc with one boundary loop and UV area, for every atlas method and
-            // for a coarse (20 triangles) and a finer icosphere.
+            // flattening; also libigl #1407 (a closed sphere into a single-chart method). UVAtlasTests covers closed
+            // surfaces with Auto and Charts (Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion) and the disc cut
+            // (DiscCut_ClosedSurfaces_BecomeDiscs); new here: icospheres down to 20 triangles, Cones and SingleChart,
+            // and the disc check per chart. Correct: every chart is a disc with one boundary loop and UV area; the
+            // single-chart methods return InvalidTopology without UVs.
             Expect(nameof(ClosedIcosphere_EveryChartIsADisc), () => {
                 foreach (int sub in new[] { 0, 1, 3 }) {
                     DMesh3 m = Icosphere(sub);
+                    foreach (var (name, flipFree, run) in Methods) {
+                        ParameterizationResult r = run(m);
+                        Assert.True(r.Status == ParameterizationStatus.InvalidTopology && r.UV == null, $"{name}, icosphere {sub}: {r.Status}");
+                    }
                     foreach (var method in AtlasMethods) {
                         UVAtlasGenerator g = Atlas(m, method);
                         string v = AtlasCharts(g, out _);
@@ -623,10 +627,14 @@ namespace geometry3Sharp.Tests
             var two = new DMesh3(one);
             two.AppendVertex(new Vector3d(0, 500, -0.01));
             two.AppendTriangle(1, 0, 3);
+            // the same quad with the other (short) diagonal: Delaunay, all cotan weights positive
+            var shortDiagonal = new DMesh3();
+            foreach (int v in two.VertexIndices()) shortDiagonal.AppendVertex(two.GetVertex(v));
+            shortDiagonal.AppendTriangle(0, 3, 2); shortDiagonal.AppendTriangle(3, 1, 2);
             Expect(nameof(LongThinTriangleInPlaneX0_ValidChart), () => {
-                foreach (var (what, m) in new[] { ("one", one), ("two", two) }) {
+                foreach (var (what, m) in new[] { ("one", one), ("two", two), ("short diagonal", shortDiagonal) }) {
                     foreach (var (name, flipFree, run) in Methods) {
-                        if (name == "bff disk" && what == "two") continue;
+                        if (name == "bff disk" && what != "one") continue;
                         string v = Valid(m, run(m), true);
                         Assert.True(v == "", $"{name}, {what}: {v}");
                     }
@@ -642,12 +650,74 @@ namespace geometry3Sharp.Tests
                 string v = Valid(two, rd, true);
                 Assert.True(v == "", $"bff disk, two: {v}");
             });
+            // the short diagonal threw an ArithmeticException (NaN target lengths into Math.Sign in inscribedAngles):
+            // correct is a failure status or a valid map (finding P4, fixed: SolverFailed)
+            ParameterizationResult rs = null;
+            Exception thrown = null;
+            try { rs = new BoundaryFirstFlattening(shortDiagonal) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk }.Compute(); }
+            catch (Exception e) { thrown = e; }
+            Assert.True(thrown == null, $"bff disk, short diagonal: {thrown?.GetType().Name} {thrown?.Message}");
+            if (!rs.Succeeded)
+                Assert.True(rs.Status == ParameterizationStatus.SolverFailed && rs.UV == null && rs.Error != null, $"bff disk, short diagonal: {rs.Status}");
+            else {
+                string vs = Valid(shortDiagonal, rs, true);
+                Assert.True(vs == "", $"bff disk, short diagonal: {vs}");
+            }
             if (KnownFailures.ContainsKey(diskCase)) {
                 // finding P2: Success, one triangle flipped, and the four UVs a sliver about 1.5e6 from the origin
                 // instead of a quadrilateral inscribed in a circle
                 Assert.True(rd.Succeeded && Flipped(two, rd) == 1, $"P2: {rd.Status}");
                 Assert.True(rd.UV.Take(4).All(q => q.Length > 1e5), "P2: the UVs are no longer far away");
+                // its first cause, on a well-shaped quad (z = 50): the harmonic extension puts the four boundary
+                // vertices on a circle, the conformal one (the default) moves them off it (the harmonic conjugate
+                // replaces the boundary v of the curve)
+                var quad = new DMesh3(two);
+                quad.SetVertex(2, new Vector3d(0, 500, 50)); quad.SetVertex(3, new Vector3d(0, 500, -50));
+                Func<BoundaryFirstFlattening.ExtensionModes, double> offCircle = ext => {
+                    ParameterizationResult q = new BoundaryFirstFlattening(quad) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk, Extension = ext }.Compute();
+                    Assert.True(q.Succeeded);
+                    return OffCircle(q.UV[0], q.UV[1], q.UV[2], q.UV[3]);
+                };
+                Assert.True(offCircle(BoundaryFirstFlattening.ExtensionModes.Harmonic) < 1e-12, "P2: harmonic extension off the circle");
+                Assert.True(offCircle(BoundaryFirstFlattening.ExtensionModes.Conformal) > 1e-2, "P2: conformal extension on the circle now");
             }
+        }
+
+        /// <summary> relative distance of d from the circle through a, b, c </summary>
+        static double OffCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            double D = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+            double ux = (a.LengthSquared * (b.y - c.y) + b.LengthSquared * (c.y - a.y) + c.LengthSquared * (a.y - b.y)) / D;
+            double uy = (a.LengthSquared * (c.x - b.x) + b.LengthSquared * (a.x - c.x) + c.LengthSquared * (b.x - a.x)) / D;
+            var o = new Vector2d(ux, uy);
+            double R = o.Distance(a);
+            return Math.Abs(o.Distance(d) - R) / R;
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void BffDisk_InvariantUnderSimilarities(string name)
+        {
+            // BFF Disk changed for finding P4 (a failure status for non-finite target lengths): on a curved cap the same
+            // UVs, scaled (bit for bit under 2^k scales, UV distances to the coordinate resolution otherwise), and the
+            // needle quad of LongThinTriangleInPlaneX0_ValidChart fails with SolverFailed under every similarity
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 cap = Polar(8, 24, (r, a) => new Vector3d(r * Math.Cos(a), r * Math.Sin(a), 0.4 * (1 - r * r)));
+            Func<DMesh3, ParameterizationResult> disk = m => new BoundaryFirstFlattening(m) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk }.Compute();
+            ParameterizationResult r0 = disk(cap), r = disk(Invariance.Transformed(cap, sim));
+            Assert.True(Valid(cap, r0, true) == "" && Valid(cap, r, true) == "", $"{r0.Status} {r.Status}");
+            if (sim.IsExact)
+                foreach (int v in cap.VertexIndices()) Assert.Equal(r0.UV[v], r.UV[v] / sim.Scale);
+            else {
+                double worst = 0;
+                foreach (int v in cap.VertexIndices())
+                    worst = Math.Max(worst, Math.Abs(r0.UV[v].Distance(r0.UV[0]) - r.UV[v].Distance(r.UV[0]) / sim.Scale));
+                Assert.True(worst < 1e-6, $"UV distances differ by {worst}");
+            }
+            var quad = new DMesh3();
+            foreach (var q in new[] { new Vector3d(0, 0, 0), new Vector3d(0, 1000, 0), new Vector3d(0, 500, 0.01), new Vector3d(0, 500, -0.01) }) quad.AppendVertex(q);
+            quad.AppendTriangle(0, 3, 2); quad.AppendTriangle(3, 1, 2);
+            Assert.Equal(ParameterizationStatus.SolverFailed, disk(Invariance.Transformed(quad, sim)).Status);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -689,6 +759,7 @@ namespace geometry3Sharp.Tests
                 ParameterizationResult r = p.Compute();
                 Assert.True(r.Succeeded, $"{r.Status} {r.Error}");
                 Assert.True(p.ChartCount == 12, $"{p.ChartCount} charts");
+                // only the signed areas see a mirror: the distance check below holds for mirrored copies too
                 int flipped = Flipped(m, r);
                 Assert.True(flipped == 0, $"{flipped} UV triangles mirrored by the packing");
                 foreach (var verts in chartVerts) {
