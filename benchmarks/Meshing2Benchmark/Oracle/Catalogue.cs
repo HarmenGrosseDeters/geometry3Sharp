@@ -46,7 +46,9 @@ namespace Meshing2Acceptance
         /// make the oracle's exact reference path take half a minute (F-14/b to e: 40 stacked squares, covered with m2.snap): judged by `rows`
         /// </summary>
         public static readonly HashSet<string> SlowRows = new HashSet<string> {
-            "F-4/a", "F-4/b", "F-4/c", "F-5", "F-22/a", "F-26", "F-27", "F-37", "F-38/d", "F-38/e", "F-40/angle-40", "F-41/a", "F-42",
+            // (above about 5 s with the oracle; F-4/a, F-4/b, F-5, F-26, F-27, F-37, F-38/d, F-38/e, F-41/a and F-42 left the list once the
+            // oracle got faster: 0.1 to 4 s each, measured 2026-11-02 for the reference comparison)
+            "F-4/c", "F-22/a", "F-40/angle-40",
             "F-14/b", "F-14/c", "F-14/d", "F-14/e"
         };
 

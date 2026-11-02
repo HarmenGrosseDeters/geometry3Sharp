@@ -800,6 +800,38 @@ namespace Meshing2Acceptance
                 return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
             }
 
+            List<(Pt a, Pt b, int marker, int sourceId, bool locked)> hullSources;
+
+            /// <summary>
+            /// The hull edges of a hull domain (D13) at M3, where refinement constrains the hull: the boundary, so an input segment at a small
+            /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Not a merge zone: the mesher does
+            /// not refuse split points near the hull (review of the fix). The hull here has no collinear corners, while the mesher's hull
+            /// sources are split at collinear input points; at such a point the mesher exempts less and refines more, which the oracle
+            /// accepts. Empty otherwise.
+            /// </summary>
+            /// <summary> vertex i may lie within the tube of hull edge h: their boxes in doubles, widened by the tube and a relative margin, meet </summary>
+            bool NearHull((Pt a, Pt b, int marker, int sourceId, bool locked) h, int i)
+            {
+                if (e.Reference || !vKnown[i] || !tube2.Bounds(out _, out double t2) || double.IsInfinity(t2)) return true;
+                if (!h.a.Bounds(false, out double ax0, out double ax1) || !h.b.Bounds(false, out double bx0, out double bx1)
+                    || !h.a.Bounds(true, out double ay0, out double ay1) || !h.b.Bounds(true, out double by0, out double by1)) return true;
+                double reach = Math.Sqrt(t2) * (1 + 1e-9) + 1e-300;
+                double x0 = Math.Min(ax0, bx0) - reach, x1 = Math.Max(ax1, bx1) + reach, y0 = Math.Min(ay0, by0) - reach, y1 = Math.Max(ay1, by1) + reach;
+                return !(vxh[i] < x0 || vxl[i] > x1 || vyh[i] < y0 || vyl[i] > y1);
+            }
+
+            List<(Pt a, Pt b, int marker, int sourceId, bool locked)> HullSources()
+            {
+                if (hullSources != null) return hullSources;
+                hullSources = new List<(Pt, Pt, int, int, bool)>();
+                if (e.Milestone == Milestone.M3 && domain.IsHull) {
+                    int id = 1 << 30;
+                    foreach (var ring in domain.Outers)
+                        for (int i = 0; i < ring.Length; ++i) { Pt a = ring[i], b = ring[(i + 1) % ring.Length]; if (!a.Equals(b)) hullSources.Add((a, b, 0, id++, false)); }
+                }
+                return hullSources;
+            }
+
             /// <summary>The input constraints: segments and the edges of all rings.</summary>
             void Sources()
             {
@@ -1576,6 +1608,11 @@ namespace Meshing2Acceptance
                 Pt p = v[ip], q = v[iq];
                 var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
                 var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();
+                foreach (var h in HullSources()) {
+                    // (a box filter in doubles first: a large hull is scanned per bad triangle; the exact test decides)
+                    if (NearHull(h, ip) && WithinTube(h, p)) sp.Add(h);
+                    if (NearHull(h, iq) && WithinTube(h, q)) sq.Add(h);
+                }
                 foreach (var a in sp)
                     foreach (var c in sq) {
                         if (a.sourceId == c.sourceId) continue;
