@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <!-- the generated families of degenerate input, one source with the tests -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\DegenerateFamilies.cs" Link="DegenerateFamilies.cs" />
+    <!-- the exact d-separation certificate, tested in SeparationCertificateTests -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\SeparationCertificate.cs" Link="SeparationCertificate.cs" />
+  </ItemGroup>
+
+</Project>
