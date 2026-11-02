@@ -7,14 +7,14 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | Command | Operation | Library classes |
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
-| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
+| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`, and the SafeRounding settings as for `boolean`: `--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--strict-rounding`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, `exact_resolve_rounding` and `separated_rounding`: the two rounding repairs of the exact stage, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
-| `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`); writes the mesh in the XY plane, z = heights | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
+| `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 
 ## Build and run
@@ -111,6 +111,8 @@ g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 
 g3cli boolean a.stl b.stl odd.stl --op xor --more c.stl              # inside an odd number of the inputs
 g3cli boolean a.stl b.stl fast.stl --op union --no-safe-rounding     # plain rounding, faster
+g3cli resolve site_utm.stl solid.stl --strict-rounding                # fail (RoundingNotClean) instead of writing defects
+g3cli repair scan.obj fixed.stl --rounding-max-displacement 1e-6       # the exact stage's rounding repairs move less (default 1e-5 of the diagonal)
 
 # self-intersecting / overlapping shells in one file -> one clean solid
 g3cli resolve assembly.off solid.ply
@@ -118,6 +120,9 @@ g3cli resolve assembly.off solid.ply
 # 2D quality mesh of a domain given as JSON (file or inline), then heights sampled on it
 g3cli mesh2d field.json field.obj --min-angle 30 --max-area 50
 g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,4],[0,4]], "heights": [0,4,8,4]}' --output tin.obj --max-area 0.5
+# Triangle's files: a .poly in, .node / .ele / .poly out (the domain is what segments enclose, as Triangle -p; see below)
+g3cli mesh2d lake.poly lake.ele --min-angle 30 --max-area 2
+g3cli mesh2d parcels.poly parcels.obj --snap-tolerance 0.01        # snap rounding to a 1 cm grid first (m2.snap)
 g3cli query2d tin.obj --points "1,1;3,2.5" --rect "0,0,1,1" --nearest 2
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
@@ -176,6 +181,29 @@ The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossi
 (below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
 label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
 without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.
+
+### Triangle files (`.poly`, `.node`, `.ele`)
+
+Read and written from Triangle's published file format description (no Triangle code; [SOURCES](../../docs/SOURCES.md)), by the
+extension of `input` and `output`. How a `.poly` maps to the mesher's input:
+
+| `.poly` | mesher input |
+|---|---|
+| vertices, numbered from 0 or 1 (the first one decides); `#` comments | points; the first vertex attribute is the height with `--poly-heights`, other attributes and vertex markers are ignored |
+| 0 vertices | the vertices of the `.node` file of the same name |
+| segments with markers | segments with markers |
+| what the segments enclose (Triangle `-p` eats triangles from the convex hull until a segment stops it) | each connected group of segments, without its bridges and dangling chains, adds the boundary of its outer face as an outer ring (`rings_from_segments`): nested loops, chords and loops that share a vertex give what `-p` gives |
+| hole points | hole seeds: each removes the region of the constraints around it |
+| regional attributes and area constraints | seed regions; the attribute must be an integer (the label), a negative area means none |
+
+Limits: a group of segments that cross, touch (an end point on another segment) or overlap is no plane graph here, as Triangle
+would split it at the crossings first; it stays constraints only and does not bound the domain, and without any ring the domain is
+the convex hull (as `-c`). Both cases are reported in `warnings`. The construction is exact (orientation tests, no angles or
+areas), so it does not depend on the scale or on the offset of the coordinates (eg UTM). A vertex with d segments costs about d²
+index comparisons (20 000 segments at one vertex: about 6 s to read). Second-order triangles and `.edge` / `.neigh` files are not read.
+Written: `<name>.node` (boundary marker: the subsegment marker at the vertex, 1 for unmarked boundaries), `<name>.ele` (labels as
+the triangle attribute when there are regions), `<name>.poly` (no vertices, the subsegments with markers, the input's hole points
+and seed regions; regions given by ring have no `.poly` form, a warning says so), all numbered from 1.
 
 ## MCP server
 

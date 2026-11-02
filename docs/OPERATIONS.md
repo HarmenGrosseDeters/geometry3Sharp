@@ -470,11 +470,50 @@ The output lies in the XY plane (z = the heights, or 0), counterclockwise, with 
 `added_vertices` counts those the mesher made (Steiner points, crossings). Rings are outer boundaries or holes (`"hole": true`); without rings the domain is the convex hull of the
 points. `--quality false` gives the constrained Delaunay triangulation only (`ConstrainedDelaunayMesh2`, no Steiner
 points); `--steiner-limit` bounds the inserted points (then `steiner_limit_reached` and a warning); crossing constraints
-are split unless `--resolve-crossings false`. An agent passes the input inline instead of a file:
+are split unless `--resolve-crossings false`; `--snap-tolerance t` snap-rounds the input to a grid of width t first (m2.snap: every
+vertex, also those refinement adds, on the grid; merges and collapsed rings are reported in `warnings`). An agent passes the input
+inline instead of a file:
 
 ```
 g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2]]}' --output plain.off --quality false
 #   -> "triangles": 2, "added_vertices": 0 (the diagonal 0-2 is kept as an edge)
+```
+
+Triangle's `.poly` / `.node` files, the common exchange format of 2D meshers, are read and written too (by extension). A
+`.poly` gives the domain Triangle `-p` gives (what the segments enclose; mapping and limits in the [g3cli README](../tools/g3cli/README.md#triangle-files-poly-node-ele)), hole points remove holes, regional
+attributes are integer labels with optional maximum areas; `--poly-heights` takes the first vertex attribute as the
+height. An output ending in `.node`, `.ele` or `.poly` writes all three files. An L-shape with a square hole:
+
+```
+cat > l.poly <<'POLY'
+10 2 0 1
+1 0 0
+2 2 0
+3 2 1
+4 1 1
+5 1 2
+6 0 2
+7 0.25 0.25
+8 0.75 0.25
+9 0.75 0.75
+10 0.25 0.75
+10 1
+1 1 2 5
+2 2 3 5
+3 3 4 0
+4 4 5 0
+5 5 6 0
+6 6 1 0
+7 7 8 9
+8 8 9 9
+9 9 10 9
+10 10 7 9
+1
+1 0.5 0.5
+0
+POLY
+g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
+#   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
@@ -504,10 +543,21 @@ g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 #                   "rounding": { "initial_intersections": ..., "remaining_intersections": 0, "max_drift": ..., ... } }
 g3cli boolean a.stl b.stl plain.stl --op union --no-safe-rounding            # plain rounding, faster ("rounding": null)
 g3cli resolve overlapping.off solid.ply --simplify-flat-regions false        # keep the crossings of coplanar faces
+g3cli resolve site_utm.stl solid.stl --strict-rounding     # fail (RoundingNotClean) rather than write defects
+g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3   # the bound in metres
 ```
 
+Far from the origin (UTM coordinates) the repair may move the surface by up to `--rounding-ulp-factor` (256) units in the
+last place of the largest coordinate beyond the relative bound, or `--rounding-absolute-tolerance`; `--strict-rounding` allows
+the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
+`RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
+the diagonal, `RoundingMaxDisplacement`). `repair` takes the same four options for its exact stage (`MeshRobustRepair`), where a
+strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
+after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
+repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
+
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift, at most 1e-5 of the bounding box diagonal). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
 and `result_reason`:
