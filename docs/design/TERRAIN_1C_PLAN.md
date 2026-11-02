@@ -125,7 +125,8 @@ position, so they share its vertices: `AssertComposite` checks one vertex per po
 ### Baseline for the band-only overlay and composite (Hambach, 1 m grid)
 
 Measured in benchmarks/TerrainBenchmark/README.md (slope design on the Hambach DGM): one toe edge of 200 m gives its
-catch line in 0.82 s (terrain check 0.06, 1a 0.02, overlay 0.42 s); the composite adds 4.6 s, nearly all copying the
-untouched terrain. The octagon: overlay 9.9 s, composite 12.2 s, peak 1.74 GB (3.1 GB before the candidate
-restriction). Targets of the band-only work: the composite for one edge below 1 s, and the peak below that 3.1 GB at
-any toe size on the 1 m grid.
+catch line in 0.86 s (terrain check 0.07, 1a 0.02, overlay 0.44 s); the composite adds 1.4 s (4.6 s before its
+overlap check was restricted), of which 1.0 s builds the 2 million copied terrain triangles into the output mesh.
+The octagon: overlay 8.9 s, composite 6.7 s, peak 1.50 GB (3.1 GB before the candidate restriction). Targets of the
+band-only work: the composite for one edge below 1 s (it needs a cheaper copy of the untouched terrain, or an
+output that does not copy it), and the peak below that 3.1 GB at any toe size on the 1 m grid.

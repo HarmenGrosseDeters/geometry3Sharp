@@ -287,8 +287,11 @@ non-manifold realization that is reported as `Failed`, not caught by the check; 
 (22 s) and the composite (15 s) dominate, which the band-only overlay of 5.5 addresses. Peak memory 3.1 GB on the 1 m grid.
 
 After the local height limit (the cap at the highest terrain near the toe, raised while the region reaches it), the
-overlay restricted to the terrain triangles within the box of the slope surface, and the terrain check reduced to
-finiteness (2026-11-02, the same machine; phase times summed over both builds):
+overlay restricted to the terrain triangles within the box of the slope surface, the terrain check reduced to
+finiteness, and the composite's overlap check restricted to the triangles it makes and their surroundings, with the
+untouched terrain copied by vertex id (2026-11-02, the same machine; phase times summed over both builds; earlier
+values in parentheses, from the tables above or the run before the composite change; the composite triangles are the
+same):
 
 ```
 dotnet bin/Release/net10.0/TerrainBenchmark.dll slope <toe> cx=328375.25 cy=<N> cz=<toe z> ratio=1.5 tol=0.05 terrain=dgm reach=450 [tstride=1|2] [composite=0]
@@ -296,15 +299,16 @@ dotnet bin/Release/net10.0/TerrainBenchmark.dll slope <toe> cx=328375.25 cy=<N> 
 
 | toe | grid | terrain tris | time | terrain check / 1a / overlay / composite | builds | catch lines (points) | composite tris | overlaps | O1 | λ | peak |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| one edge, 200 m at −320 m (N 5642700.5), catch line only | 1 m | 1978200 | **0.82 s** | 0.06 / 0.02 / 0.42 / – s | 2 | 1 (426) | – | – | – | 5.0e-9 m | 0.48 GB |
-| the same, with the composite | 1 m | 1978200 | 5.6 s | 0.08 / 0.02 / 0.46 / 4.6 s | 2 | 1 (426) | 1972425 | 0 | 421 / 421 | 5.0e-9 m | 1.06 GB |
-| octagon r 100 m at −330 m | 1 m | 2417800 | 24.4 s (43.6) | 0.08 / 1.8 / 9.9 / 12.2 s | 2 | 1 closed (2548) | 2352098 | 0 | 2920 / 2920 | 1.2e-7 m | 1.74 GB (3.1) |
-| L shape 120 m at −335 m | 2 m | 612180 | 6.7 s | 0.03 / 1.2 / 2.5 / 2.7 s | 2 | 2 closed (2089) | 573032 | 0 | 2370 / 2370 | 2.4e-6 m | 0.67 GB |
-| wavy 48-gon r 150 m at −340 m | 2 m | 749070 | 87.6 s (157) | 0.04 / 74.3 / 7.0 / 3.8 s | 2 | 1 closed (4357) | 759911 | 0 | 55769 / 55769 | 1.4e-6 m | 1.55 GB (2.9) |
+| one edge, 200 m at −320 m (N 5642700.5), catch line only | 1 m | 1978200 | **0.86 s** | 0.07 / 0.02 / 0.44 / – s | 2 | 1 (426) | – | – | – | 5.0e-9 m | 0.48 GB |
+| the same, with the composite | 1 m | 1978200 | 2.3 s (5.6) | 0.09 / 0.02 / 0.48 / 1.4 s (4.6) | 2 | 1 (426) | 1972425 | 0 | 421 / 421 | 5.0e-9 m | 0.88 GB (1.06) |
+| octagon r 100 m at −330 m | 1 m | 2417800 | 17.8 s (43.6) | 0.07 / 1.7 / 8.9 / 6.7 s (12.2) | 2 | 1 closed (2548) | 2352098 | 0 | 2920 / 2920 | 1.2e-7 m | 1.50 GB (3.1) |
+| L shape 120 m at −335 m | 2 m | 612180 | 6.5 s | 0.03 / 1.0 / 2.8 / 2.3 s | 2 | 2 closed (2089) | 573032 | 0 | 2370 / 2370 | 2.4e-6 m | 0.64 GB |
+| wavy 48-gon r 150 m at −340 m | 2 m | 749070 | 87.4 s (157) | 0.03 / 74.0 / 7.3 / 3.6 s | 2 | 1 closed (4357) | 759911 | 0 | 55769 / 55769 | 1.4e-6 m | 1.49 GB (2.9) |
 
-(Earlier values in parentheses. All rows at 1:1.5: the L shape row above at 1:2 is not comparable. Two builds: the
-local cap was raised once.) One toe edge on the 1 m grid now gives its catch line in 0.82 s (before: 4.3 s, of which
-the terrain check 2.8 s and the overlay index 1.1 s); with the composite it takes 5.6 s, nearly all of it copying
-the 2 million untouched terrain triangles into the composite. This phase split is the baseline for the band-only
+(All rows at 1:1.5: the L shape row above at 1:2 is not comparable. Two builds: the
+local cap was raised once.) One toe edge on the 1 m grid now gives its catch line in 0.86 s (before: 4.3 s, of which
+the terrain check 2.8 s and the overlay index 1.1 s); with the composite it takes 2.3 s. Of the composite's 1.4 s
+(instrumented once): the overlap check 0.13 s (3.3 s over the whole composite before), the slope part 0.16 s, and
+1.0 s building the 2 million copied terrain triangles into the composite mesh. This phase split is the baseline for the band-only
 overlay and composite (5.5 of the 1c plan); the peak of 3.1 GB on the 1 m grid is its memory target. On the wavy
 toe the slope surface itself (insert and simplify, 74 s) is what remains, ideas B to D.
