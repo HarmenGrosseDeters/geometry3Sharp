@@ -308,6 +308,12 @@ namespace geometry3Sharp.Tests
             Assert.False(r.Compute());
             Assert.True(r.Status == TerrainSlopeDesign.Statuses.ToeUndercut, r.Status + " " + r.Message);
             Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, r.StatusKind);
+            // the same ring clockwise (the slope side from the orientation, exact)
+            var cw = Enumerable.Reverse(ring).ToList();
+            var r2 = Design(20, 0.01, SlopeToe.Constant(cw, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
+            Assert.False(r2.Compute());
+            Assert.True(r2.Status == TerrainSlopeDesign.Statuses.ToeUndercut, r2.Status + " " + r2.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, r2.StatusKind);
             // 1:2 (s = 0.5): the low leg's cone reaches the high leg at 10 m, above it: no undercut
             d.Toes[0] = SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(2));
             Assert.True(d.Compute(), d.Message);

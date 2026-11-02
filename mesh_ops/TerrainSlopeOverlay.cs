@@ -176,7 +176,7 @@ namespace gs
         public bool Compute()
         {
             // (a second call starts from scratch)
-            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear(); CatchFaces.Clear();
+            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear(); CatchFaces.Clear(); facesAtVertex = null;
             containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
             NoDaylight = false; ReachedHeightLimit = false; NotHeightField = false; Problem = ""; PhaseSeconds.Clear();
             NearTerrain.Clear(); NearBox = AxisAlignedBox2d.Empty;
@@ -521,6 +521,47 @@ namespace gs
         /// corner on the plane of the slope triangle)
         /// </summary>
         public void FaceGradient(int face, out double gradient, out bool coplanar)
+        {
+            face_gradient(face, out gradient, out coplanar);
+        }
+
+        /// <summary>
+        /// a catch-line segment on this face: its gradient, and whether it touches a planar contact. The segment's own
+        /// face cannot be planar (a region face has D &lt; 0 somewhere); a face where the slope and the terrain coincide
+        /// counts as no work (an exact 0), so the region ends at it, and the catch line runs along its border: a coplanar
+        /// face that shares an overlay vertex with the segment's face marks it (TERRAIN.md 5.5, TangentialContact)
+        /// </summary>
+        public void SegmentContact(int face, out double gradient, out bool tangential)
+        {
+            face_gradient(face, out gradient, out tangential);
+            if (tangential) return;
+            if (facesAtVertex == null) {
+                facesAtVertex = new Dictionary<long, List<int>>();
+                for (int fi = 0; fi < Faces.Count; ++fi)
+                    foreach (var oe in Faces[fi].Edges)
+                        foreach (long k in new[] { oe.P, oe.Q }) {
+                            List<int> l;
+                            if (facesAtVertex.TryGetValue(k, out l) == false) { l = new List<int>(); facesAtVertex[k] = l; }
+                            if (l.Contains(fi) == false) l.Add(fi);
+                        }
+            }
+            // (a neighbour across an edge or at a corner: the catch line may touch the contact at a corner only)
+            foreach (var oe in Faces[face].Edges)
+                foreach (long k in new[] { oe.P, oe.Q }) {
+                    List<int> l;
+                    if (facesAtVertex.TryGetValue(k, out l) == false) continue;
+                    foreach (int g in l) {
+                        if (g == face) continue;
+                        double gg; bool cp;
+                        face_gradient(g, out gg, out cp);
+                        if (cp) { tangential = true; return; }
+                    }
+                }
+        }
+
+        Dictionary<long, List<int>> facesAtVertex;
+
+        void face_gradient(int face, out double gradient, out bool coplanar)
         {
             Face f = Faces[face];
             Index3i av = A.GetTriangle(f.TA), bv = B.GetTriangle(f.TB);

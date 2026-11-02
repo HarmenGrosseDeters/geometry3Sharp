@@ -80,10 +80,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RaisedCap_VolumeOfTheLastBuildOnly()
+        {
+            // the local height limit raised (the start estimate off): two builds, the first one reaching its cap; the
+            // volume is the final build's (it was the sum of both), the pieces sum up to it, and it matches the composite
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.05, BuildComposite = true, CapEstimateRounds = 0 };
+            Assert.True(d.Compute(), d.Message);
+            Assert.True(d.CapRounds >= 2);
+            Assert.Equal(d.Volume, d.Pieces.Sum(p => p.Volume), 9);
+            AssertVolumesMatchComposite(d, false);
+        }
+
+        [Fact]
         public void Volumes_AreReusable()
         {
             var d = TerrainSlopeCatchLineTests.RandomTerrainCase(2, true, 0);
-            d.Compute();
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
             double v = d.Volume, a = d.PlanArea, sa = d.SlopeArea;
             var per = d.Pieces.Select(p => p.Volume).ToList();
             d.Compute();

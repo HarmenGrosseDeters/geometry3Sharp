@@ -161,7 +161,8 @@ namespace gs
         public double CatchLineWarningThreshold = double.PositiveInfinity;
         /// <summary>
         /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none). Reached by a smaller
-        /// Tolerance (UsedTolerance), else CatchLineAccuracyNotReached
+        /// Tolerance (UsedTolerance; the whole design again, at most three times: Attempts, PhaseSeconds and the
+        /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
         public double RequiredCatchLineAccuracy = double.NaN;
         public Func<bool> CancelF = () => false;
@@ -294,9 +295,19 @@ namespace gs
             UsedTolerance = Tolerance;
             try {
                 // (a smaller Tolerance until RequiredCatchLineAccuracy is met, at most 3 times)
+                List<CatchLine> previous = null;
                 for (int round = 0; ; ++round) {
                     Status = compute();
-                    if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) break;
+                    if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
+                        // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
+                        // the previous round's catch lines show where)
+                        if (round > 0 && Status != Statuses.Cancelled) {
+                            Message = $"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy; a smaller Tolerance ({Tolerance:G3}) failed: {Status}: {Message}";
+                            Status = Statuses.CatchLineAccuracyNotReached;
+                            CatchLines = previous;
+                        }
+                        break;
+                    }
                     double next;
                     int verdict = catch_line_accuracy(out next);
                     if (verdict == 0) break;
@@ -305,6 +316,7 @@ namespace gs
                                       (verdict == 2 ? " (the terrain's vertical uncertainty or a tangential contact alone exceeds it)" : ""));
                         break;
                     }
+                    previous = CatchLines;
                     Tolerance = next; UsedTolerance = next;
                     IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
                 }
@@ -319,10 +331,12 @@ namespace gs
             }
             if (Status == Statuses.CatchLineAccuracyNotReached) {
                 // (the catch lines are kept, with their uncertainties: they show where the accuracy is not reached)
-                SlopeSurface = null; SlopeRegion = null; Composite = null;
+                SlopeSurface = null; SlopeRegion = null; Composite = null; Pieces = new List<SlopePiece>();
+                Volume = PlanArea = SlopeArea = 0;
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             } else if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
+                Volume = PlanArea = SlopeArea = 0;
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             }
             IsComplete = Status == Statuses.Success;
@@ -363,6 +377,12 @@ namespace gs
                 return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
+            if (!(TerrainVerticalUncertainty >= 0) || double.IsInfinity(TerrainVerticalUncertainty))
+                return fail(Statuses.InvalidInput, "TerrainVerticalUncertainty must be >= 0 and finite");
+            if (double.IsNaN(RequiredCatchLineAccuracy) == false && !(RequiredCatchLineAccuracy > 0 && RequiredCatchLineAccuracy < double.PositiveInfinity))
+                return fail(Statuses.InvalidInput, "RequiredCatchLineAccuracy must be positive and finite (or NaN: none)");
+            if (double.IsNaN(CatchLineWarningThreshold) || !(CatchLineWarningThreshold > 0))
+                return fail(Statuses.InvalidInput, "CatchLineWarningThreshold must be positive (+infinity: none)");
             double heightLimit = HeightLimit;
             bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
             if (Terrain != null) {
@@ -551,7 +571,7 @@ namespace gs
         // or reaches At from the design side of its segment, or crosses a toe segment on the way (the method's cones pass
         // through the design area; a surface restricted to the slope side need not undercut). Otherwise the path runs on
         // the slope side, where every surface within the slope would undercut: infeasible.
-        bool through_design_area(List<InPiece> pieces, SlopeMap.UndercutCause c, bool fill)
+        bool through_design_area(List<InPiece> pieces, SlopeMap.UndercutCause c)
         {
             InPiece po = pieces[c.Cause], pk = pieces[c.Piece];
             Vector2d q = c.At;
@@ -578,15 +598,36 @@ namespace gs
                 return slopeLeft(pc) ? side < 0 : side > 0;
             };
             if (intoDesign(po, q) || intoDesign(pk, p)) return true;
-            // a crossing of a toe segment strictly inside the path
+            // at an end of the cause's segment (a toe vertex) the slope side is a wedge: the path must stay on the slope
+            // side of the other segment there too (conservative: either one says design, it is the method's limit)
+            if (t == 0 || t == 1) {
+                Vector2d corner = t == 0 ? po.A.xy : po.B.xy;
+                foreach (InPiece pc in pieces)
+                    // (not the undercut segment itself: q lies on it, and its side is the test of p above)
+                    if (pc != po && pc != pk && pc.Toe == po.Toe && (pc.A.xy == corner || pc.B.xy == corner) && intoDesign(pc, q)) return true;
+            }
+            // a crossing or a touch of another toe segment on the way (a touch counts as through: conservative)
             foreach (InPiece pc in pieces) {
                 if (pc == po || pc == pk) continue;
                 Vector2d u = pc.A.xy, w = pc.B.xy;
+                if (u == p || w == p || u == q || w == q) continue;     // (a segment that only meets the path at its ends)
                 int o1 = ExactPredicates.Orient2d(p, q, u), o2 = ExactPredicates.Orient2d(p, q, w);
                 int o3 = ExactPredicates.Orient2d(u, w, p), o4 = ExactPredicates.Orient2d(u, w, q);
-                if (o1 * o2 < 0 && o3 * o4 < 0) return true;
+                if (o1 * o2 <= 0 && o3 * o4 <= 0 && (o1 != 0 || o2 != 0 || o3 != 0 || o4 != 0)) return true;
+                if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0 && overlap_collinear(p, q, u, w)) return true;
             }
+            // (open toes: a straight path on the slope side can leave the strip between the lateral limits, where nothing
+            // is specified; it still counts as infeasible here, as the method treats the slope side as unbounded)
             return false;
+        }
+
+        // collinear segments pq and uw overlap (exact on the doubles: along the dominant axis)
+        static bool overlap_collinear(Vector2d p, Vector2d q, Vector2d u, Vector2d w)
+        {
+            bool xs = Math.Abs(q.x - p.x) >= Math.Abs(q.y - p.y);
+            double a0 = xs ? Math.Min(p.x, q.x) : Math.Min(p.y, q.y), a1 = xs ? Math.Max(p.x, q.x) : Math.Max(p.y, q.y);
+            double b0 = xs ? Math.Min(u.x, w.x) : Math.Min(u.y, w.y), b1 = xs ? Math.Max(u.x, w.x) : Math.Max(u.y, w.y);
+            return a0 <= b1 && b0 <= a1;
         }
 
         // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
@@ -627,6 +668,8 @@ namespace gs
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
                         }).ToList();
+                        // (assigned per build: a raised cap or another accuracy round builds again)
+                        Volume = PlanArea = SlopeArea = 0;
                         if (br.Volumes != null)
                             for (int i = 0; i < Pieces.Count; ++i) {
                                 Pieces[i].Volume = br.Volumes[i]; Pieces[i].PlanArea = br.PlanAreas[i]; Pieces[i].SlopeArea = br.SlopeAreas[i];
@@ -834,7 +877,7 @@ namespace gs
             if (undercut.Count > 0) {
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
                 // (UnsupportedByMethod if any of them is caused through the design area)
-                undercutThroughDesign = causes.Any(uc => through_design_area(pieces, uc, fill));
+                undercutThroughDesign = causes.Any(uc => through_design_area(pieces, uc));
                 return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
             }
 
@@ -978,7 +1021,7 @@ namespace gs
                 l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear();
                 foreach (int fi in overlay.CatchFaces[li]) {
                     double g; bool coplanar;
-                    overlay.FaceGradient(fi, out g, out coplanar);
+                    overlay.SegmentContact(fi, out g, out coplanar);
                     l.Gradient.Add(g); l.Tangential.Add(coplanar);
                 }
             }

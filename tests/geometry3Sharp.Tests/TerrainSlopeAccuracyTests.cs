@@ -72,8 +72,10 @@ namespace geometry3Sharp.Tests
         {
             // nearly parallel on +x (gradient 0.2): Tolerance 0.05 gives 0.25 m there. Required 0.15 m: Tolerance ~ 0.027
             var d = Pit(1, 3, 0.8);
-            d.RequiredCatchLineAccuracy = 0.15;
+            d.RequiredCatchLineAccuracy = 0.15; d.BuildComposite = true;
             Assert.True(d.Compute(), d.Status + " " + d.Message);
+            // (the volume of the last round only, as the composite's)
+            TerrainSlopeVolumeTests.AssertVolumesMatchComposite(d, false);
             Assert.True(d.UsedTolerance < 0.03 && d.UsedTolerance > 0.01, $"{d.UsedTolerance}");
             Assert.Equal(0.05, d.Tolerance);    // (the caller's input is kept)
             Assert.All(d.CatchLines.SelectMany(l => l.Uncertainty), u => Assert.True(u <= 0.15));
@@ -118,6 +120,75 @@ namespace geometry3Sharp.Tests
             o2.FaceGradient(0, out g, out coplanar);
             Assert.False(coplanar);
             Assert.Equal(0.25, g, 12);
+        }
+
+        [Theory]
+        [InlineData(0.0, true)]
+        [InlineData(0.01, false)]
+        public void CatchLineAlongAPlanarContact_IsTangential(double lift, bool tangential)
+        {
+            // a slope surface that lies in the terrain plane z = 0 for x <= 5 (lifted by 'lift') and falls to -5 at the toe
+            // x = 10: the region is x > 5, and its catch line runs along x = 5, the border of the planar contact (D = 0
+            // there counts as no work). Lifted, there is no contact: the segments are not tangential
+            var a = new DMesh3(false, false, false, true);
+            Func<double, double, double, int> v = (x, y, z) => a.AppendVertex(new Vector3d(x, y, z));
+            int p0 = v(0, 0, lift), p1 = v(5, 0, 0), p2 = v(5, 10, 0), p3 = v(0, 10, lift), p4 = v(10, 0, -5), p5 = v(10, 10, -5);
+            foreach (var t in new[] { new Index3i(p0, p1, p2), new Index3i(p0, p2, p3), new Index3i(p1, p4, p5), new Index3i(p1, p5, p2) })
+                a.AppendTriangle(t, 0);
+            var kinds = new Dictionary<int, int>();
+            foreach (int e in a.BoundaryEdgeIndices()) {
+                Index2i ev = a.GetEdgeV(e);
+                kinds[e] = (a.GetVertex(ev.a).x == 10 && a.GetVertex(ev.b).x == 10) ? SlopeTerrainOverlay.KindToe : SlopeTerrainOverlay.KindOther;
+            }
+            var b = new DMesh3(false, false, false, true);
+            int q0 = b.AppendVertex(new Vector3d(-1, -1, 0)), q1 = b.AppendVertex(new Vector3d(11, -1, 0));
+            int q2 = b.AppendVertex(new Vector3d(11, 11, 0)), q3 = b.AppendVertex(new Vector3d(-1, 11, 0));
+            b.AppendTriangle(q0, q1, q2); b.AppendTriangle(q0, q2, q3);
+            var o = new SlopeTerrainOverlay(a, b, false, kinds, null);
+            Assert.True(o.Compute(), o.Problem);
+            Assert.NotEmpty(o.CatchLines);
+            int segs = 0, marked = 0;
+            for (int li = 0; li < o.CatchLines.Count; ++li)
+                foreach (int f in o.CatchFaces[li]) {
+                    double g; bool tg;
+                    o.SegmentContact(f, out g, out tg);
+                    segs++;
+                    if (tg) marked++;
+                    Assert.True(g > 0);
+                }
+            Assert.True(segs > 0);
+            if (tangential) Assert.Equal(segs, marked); else Assert.Equal(0, marked);
+        }
+
+        [Fact]
+        public void RequiredAccuracy_ASmallerToleranceThatFails_IsNotReached()
+        {
+            // required 1e-7 m: the next Tolerance (about 1e-8) is below the numerical margins and its build fails; that is
+            // the accuracy not reached (NotCertified, the catch lines of the previous round kept), not an input error
+            var d = Pit(1, 3, 0.8);
+            d.RequiredCatchLineAccuracy = 1e-7;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.CatchLineAccuracyNotReached, d.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.NotCertified, d.StatusKind);
+            Assert.NotEmpty(d.CatchLines);
+            Assert.All(d.CatchLines, l => Assert.Equal(l.Gradient.Count, l.Uncertainty.Count));
+            Assert.Equal(0, d.Volume);
+            Assert.Null(d.SlopeSurface);
+            Assert.Equal(0.05, d.Tolerance);
+        }
+
+        [Fact]
+        public void AccuracyInputs_AreValidated()
+        {
+            foreach (Action<TerrainSlopeDesign> bad in new Action<TerrainSlopeDesign>[] {
+                x => x.TerrainVerticalUncertainty = -1, x => x.TerrainVerticalUncertainty = double.NaN,
+                x => x.RequiredCatchLineAccuracy = 0, x => x.RequiredCatchLineAccuracy = double.PositiveInfinity,
+                x => x.CatchLineWarningThreshold = 0, x => x.CatchLineWarningThreshold = double.NaN }) {
+                var d = Pit(1, 6, 0);
+                bad(d);
+                Assert.False(d.Compute());
+                Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            }
         }
     }
 }

@@ -181,7 +181,11 @@ first call of a process takes about 0.7 s more (JIT): 1.01 s, 0.63 s and 1.61 s 
   `Tolerance` × plan area) and against `TerrainVolumeDifference(Terrain, Composite)` (`TerrainSlopeVolumeTests`).
 - **Catch-line accuracy (5.5).** Per segment `CatchLine.Gradient` (|∇(S − T)| on its face), `Uncertainty`
   ((`Tolerance` + `TerrainVerticalUncertainty`) / gradient + `MinFeatureSize`, the move of the composite's snapping; a
-  local linearized estimate, not a proven bound) and `Tangential` (the two planes coincide, exact). Reports:
+  local linearized estimate, not a proven bound) and `Tangential`: the segment touches a planar contact (a face whose
+  two planes coincide, exact, sharing an overlay vertex with the segment's face; such a face counts as no work, so the
+  region, and the catch line, ends at its border). Reports:
   `IllConditionedCatchLine` above `CatchLineWarningThreshold`, `TangentialContact`. `RequiredCatchLineAccuracy`: a
   smaller `Tolerance` (`UsedTolerance`, global, at most three rounds; the per-piece refinement of 5.5 is later), else
-  `CatchLineAccuracyNotReached` with the catch lines kept (`TerrainSlopeAccuracyTests`).
+  `CatchLineAccuracyNotReached` with the catch lines kept (also when a smaller Tolerance fails, eg below the numerical
+  margins; `TerrainSlopeAccuracyTests`). The undercut path of StatusKind is decided exactly on the doubles (Orient2d;
+  at a toe vertex both adjacent segments; a touch counts as through the design area, the conservative side).
