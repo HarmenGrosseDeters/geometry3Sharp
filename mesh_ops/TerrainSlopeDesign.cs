@@ -93,6 +93,11 @@ namespace gs
             NoDaylight,
             /// <summary> the terrain is not a height field: triangles degenerate in XY or overlapping in XY </summary>
             NotHeightField,
+            /// <summary>
+            /// the composite could not be built (Message): SlopeSurface and CatchLines are kept and complete, Composite and
+            /// SlopeRegion are null
+            /// </summary>
+            CompositeFailed,
             Cancelled,
             /// <summary> an internal error (Message); no result </summary>
             Failed
@@ -139,7 +144,10 @@ namespace gs
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
         public List<Index2i> ToeProblems = new List<Index2i>();
-        /// <summary> SlopeViolation: the failing triangles of the last attempt (ids of that mesh, which is not returned) </summary>
+        /// <summary>
+        /// SlopeViolation: the failing triangles of the last attempt (ids of the slope surface of that attempt or, if
+        /// the composite's slope triangles failed, of its SlopeRegion; neither is returned)
+        /// </summary>
         public List<int> ProblemTriangles = new List<int>();
         /// <summary>
         /// an upper bound of slope / spec slope over the triangles, at most 1 on success: the double ratio rounded up
@@ -175,7 +183,7 @@ namespace gs
                 Status = Statuses.Failed;
                 Message = e.Message;
             }
-            if (Status != Statuses.Success && Status != Statuses.NoDaylight) {
+            if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
             }
             IsComplete = Status == Statuses.Success;
@@ -292,7 +300,7 @@ namespace gs
                 if (attempt > 0 && st == Statuses.InvalidInput)
                     return fail(Statuses.SlopeViolation, $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
                 if (st != Statuses.SlopeViolation) {
-                    if (st == Statuses.Success || st == Statuses.NoDaylight) {
+                    if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
                         CatchLines = br.CatchLines;
                         SlopeRegion = br.Region;
@@ -563,7 +571,7 @@ namespace gs
             if (BuildComposite) {
                 var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF);
                 if (comp.Build() == false)
-                    return fail(Statuses.Failed, "composite: " + comp.Problem);
+                    return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
                 // the clipped slope triangles get the same exact check (O1)
                 foreach (int tid in comp.Region.TriangleIndices()) {
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;

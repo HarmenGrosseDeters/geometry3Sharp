@@ -158,6 +158,10 @@ namespace gs
         /// <summary> false if the overlay is inconsistent (Problem); throws OperationCanceledException on cancel </summary>
         public bool Compute()
         {
+            // (a second call starts from scratch)
+            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear();
+            containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
+            NoDaylight = false; Problem = "";
             // B triangles counter-clockwise, and an index over them
             var bTris = new List<int>();
             var boxes = new List<AxisAlignedBox2d>();

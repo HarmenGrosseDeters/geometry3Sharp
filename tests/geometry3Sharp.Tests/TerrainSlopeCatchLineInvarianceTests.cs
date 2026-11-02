@@ -48,7 +48,11 @@ namespace geometry3Sharp.Tests
             var r = reference.Value;
             Assert.True(r.CatchLines.Count == d.CatchLines.Count, $"{d.CatchLines.Count} lines vs {r.CatchLines.Count}: " +
                 string.Join("; ", d.CatchLines.Select(l => $"{l.Points.Count} pts closed {l.Closed} {l.StartReason}/{l.EndReason}")));
-            for (int i = 0; i < r.CatchLines.Count; ++i) Assert.Equal(r.CatchLines[i].Closed, d.CatchLines[i].Closed);
+            for (int i = 0; i < r.CatchLines.Count; ++i) {
+                Assert.Equal(r.CatchLines[i].Closed, d.CatchLines[i].Closed);
+                Assert.Equal(r.CatchLines[i].StartReason, d.CatchLines[i].StartReason);
+                Assert.Equal(r.CatchLines[i].EndReason, d.CatchLines[i].EndReason);
+            }
             if (s.IsExact) {
                 // 2^k: the same result, scaled, bit for bit
                 Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
@@ -88,6 +92,11 @@ namespace geometry3Sharp.Tests
             var firstLines = a.CatchLines;
             Assert.True(a.Compute());
             Assert.Equal("", Invariance.Difference(first, a.Composite));
+            Assert.Equal(firstLines.Count, a.CatchLines.Count);
+            for (int i = 0; i < firstLines.Count; ++i) {
+                Assert.Equal(firstLines[i].Points, a.CatchLines[i].Points);
+                Assert.Equal(firstLines[i].Closed, a.CatchLines[i].Closed);
+            }
             // another input on the same instance equals a fresh instance
             var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 10, 10, (x, y) => 6);
             var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(2));

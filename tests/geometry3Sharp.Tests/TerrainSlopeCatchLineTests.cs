@@ -324,6 +324,55 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void GivenHeightLimit_TheRegionEndsThere()
+        {
+            // a terrain rising with x, the slope built only up to 8: on the high side the slope does not daylight below
+            // the limit, so the line around the low side ends there (HeightLimit) at both ends, and the result is partial
+            var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            d.HeightLimit = 8;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d.Status);
+            Assert.False(d.IsComplete);
+            AssertCatchLines(d);
+            AssertComposite(d);
+            Assert.NotEmpty(d.CatchLines);
+            Assert.All(d.CatchLines, l => Assert.False(l.Closed));
+            Assert.Single(d.CatchLines);
+            Assert.Equal(CatchLine.EndReasons.HeightLimit, d.CatchLines[0].StartReason);
+            Assert.Equal(CatchLine.EndReasons.HeightLimit, d.CatchLines[0].EndReason);
+            // the ends lie on the level line of the limit
+            Assert.Equal(8, d.CatchLines[0].Points[0].z, 6);
+            Assert.Equal(8, d.CatchLines[0].Points.Last().z, 6);
+        }
+
+        [Fact]
+        public void Overlay_IsReusable()
+        {
+            // the overlay and the composite classes give the same result when run again on the same instance
+            var terrain = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => 6 + 0.1 * x);
+            var d0 = TerrainSlopeDesignTests.Design(9, 0.02, SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
+            Assert.True(d0.Compute());
+            var kinds = new Dictionary<int, int>();
+            foreach (int e in d0.SlopeSurface.BoundaryEdgeIndices()) {
+                Vector2d m = 0.5 * (d0.SlopeSurface.GetVertex(d0.SlopeSurface.GetEdgeV(e).a).xy + d0.SlopeSurface.GetVertex(d0.SlopeSurface.GetEdgeV(e).b).xy);
+                kinds[e] = Math.Max(Math.Abs(m.x), Math.Abs(m.y)) <= 8 + 1e-9 ? SlopeTerrainOverlay.KindToe : SlopeTerrainOverlay.KindOther;
+            }
+            var o = new SlopeTerrainOverlay(d0.SlopeSurface, terrain, false, kinds, null);
+            Assert.True(o.Compute(), o.Problem);
+            var first = o.CatchLines.Select(l => l.Points.ToList()).ToList();
+            int faces = o.Faces.Count;
+            Assert.True(o.Compute(), o.Problem);
+            Assert.Equal(faces, o.Faces.Count);
+            Assert.Equal(first, o.CatchLines.Select(l => l.Points.ToList()).ToList());
+            var c = new SlopeComposite(o, d0.Pieces.Count, 1e-9, null);
+            Assert.True(c.Build(), c.Problem);
+            DMesh3 comp = c.Composite;
+            Assert.True(c.Build(), c.Problem);
+            Assert.Equal("", Invariance.Difference(comp, c.Composite));
+        }
+
+        [Fact]
         public void TerrainNotAHeightField_IsRejected()
         {
             var terrain = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 4, 4, (x, y) => 5);

@@ -132,6 +132,18 @@ namespace gs
 
         public bool Build()
         {
+            // (a second call starts from scratch)
+            facesOfA.Clear(); facesOfB.Clear(); noSnap.Clear(); catchOwn.Clear(); nudged.Clear();
+            try {
+                return build();
+            } catch (InvalidOperationException e) {
+                Problem = e.Message;
+                return false;
+            }
+        }
+
+        bool build()
+        {
             for (int i = 0; i < O.Faces.Count; ++i) {
                 add(facesOfA, O.Faces[i].TA, i);
                 add(facesOfB, O.Faces[i].TB, i);
@@ -537,7 +549,9 @@ namespace gs
             return z;
         }
 
-        // a terrain node on a boundary edge of the slope surface, moved by ulps off the slope side if it is on it
+        // a terrain node on a boundary edge of the slope surface, moved by ulps off the slope side if it is on it (a node
+        // exactly on the line stays: it does not overlap the slope, and it may be a vertex both share, eg a toe vertex on
+        // a terrain edge)
         Vector2d nudge(long k, Vector2d x)
         {
             Vector2d r;
