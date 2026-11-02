@@ -44,32 +44,53 @@ All 798 results are clean. Of the 111 meshes that leave the exact resolve for a 
   results that are not clean are open inputs: "not closed" alone 32, with self-intersections 82, with bowties 9, with
   an inside-out component 1. Their large Hausdorff distances to the exact result come in part from the parts of open
   inputs that the union discards: the same decision, inside the Boolean.
-
-  The brief mentions "9 open inputs where snap rounding B failed the Hausdorff bound". In §8.4 I can identify the 9
-  open inputs with bowties, and the open inputs among the 38 rounding failures (32). I list both and make no claim
-  beyond §8.4.
+- **Snap rounding B** ([SAFE_ROUNDING.md](SAFE_ROUNDING.md) §8, criterion 2). With B on every unclean self-union
+  there are 21 new clean results, but **9 of them lie 1.0 to 9.3e4 times the Hausdorff bound from the exact result**.
+  These are open inputs: B's second resolve takes the union again and drops what the winding number of the snapped
+  mesh excludes. The drift bound does not cover that side of the Hausdorff distance, so it is the same inside / outside
+  decision.
 
 A better decision on these inputs could move up to about 100 meshes from the fallbacks to the exact resolve, which
 keeps the input surface. The time saved is at most about half of the repair time.
 
 ## 2. Literature
 
-| work | what it gives | applicable here |
-|---|---|---|
-| Jacobson, Kavan, Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 | the generalized winding number (GWN) as a smooth inside / outside measure for open, non-manifold, self-intersecting meshes; graph cut segmentation of a tet mesh | in use already (volume IoU, `FastWindingNumber`); the segmentation step is the missing part |
-| Barill, Dickson, Schmidt, Levin, Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 2018 | hierarchical, approximate GWN evaluation | in use (`DMeshAABBTree3.FastWindingNumber`); approximate, not suited to an exact decision |
-| Feng, Gillespie, Crane, *Winding Numbers on Discrete Surfaces*, ACM TOG 2023 | winding numbers of curves on surfaces (jump Laplace equation), with broken and non-bounding curves fixed | a model (integer jumps across a cut, the fix for non-bounding parts); for curves on surfaces, not surfaces in space |
-| Feng, Crane, *A Heat Method for Generalized Signed Distance*, ACM TOG 2024 | signed distance to broken geometry (holes, self-intersections, noise, non-orientable) by diffusing normals, then a Poisson solve; on tet meshes, grids, point clouds | yes, as a robust sign for the volume check and for labelling cells; needs a 3D volume discretization and a sparse solve |
-| Martens, Trettner, Bessmeltsev, *The Antipodal Method: Fast, Accurate, and Robust 3D Generalized Winding Numbers*, arXiv 2605.01536 (May 2026) | the GWN as a signed ray-crossing count plus a boundary integral; exact for meshes, fast | the closest fit for an exact or certified per-cell decision (the ray count is exact; only the boundary term is real-valued) |
-| *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG (DOI 10.1145/3811339; year and authors to be confirmed: doi.org is blocked in this session) | the same decomposition: one ray-mesh test plus a sum over boundary edges | the same use; read the full text before relying on it |
-| Xu, Barbič, *Signed Distance Fields for Polygon Soup Meshes*, GI 2014 | signed distance for soups via an offset surface | older alternative, close to what the wrap fallback already does |
-| Spainhour, Weiss and co-authors 2024 / 2026 | GWN for parametric (rational) curves and surfaces | not for triangle meshes |
+Read: what was read in this session, and on which host. Listing: only a search result or project page was seen, not
+the paper.
+
+| work | read? | what it gives | applicable here |
+|---|---|---|---|
+| Jacobson, Kavan, Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 | not in this session (in SOURCES, in use) | the generalized winding number (GWN) as a smooth inside / outside measure for open, non-manifold, self-intersecting meshes; graph cut segmentation of a tet mesh | in use already (volume IoU, `FastWindingNumber`); the segmentation step is the missing part |
+| Barill, Dickson, Schmidt, Levin, Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 2018 | not in this session (in SOURCES, in use) | hierarchical, approximate GWN evaluation | in use (`DMeshAABBTree3.FastWindingNumber`); approximate, not suited to an exact decision |
+| Feng, Gillespie, Crane, *Winding Numbers on Discrete Surfaces*, ACM TOG 42(4) 2023 | listing only (SIGGRAPH archive, project page) | winding numbers of curves on surfaces (jump Laplace equation), with broken and non-bounding curves fixed | a model (integer jumps across a cut, the fix for non-bounding parts); for curves on surfaces, not surfaces in space |
+| Feng, Crane, *A Heat Method for Generalized Signed Distance*, ACM TOG 2024 | listing only (project page nzfeng.github.io, geometry-central docs) | signed distance to broken geometry (holes, self-intersections, noise, non-orientable) by diffusing normals, then a Poisson solve; on tet meshes, grids, point clouds | yes, as a robust sign for the volume check and for labelling cells; needs a 3D volume discretization and a sparse solve |
+| Martens, Trettner, Bessmeltsev, *The Antipodal Method: Fast, Accurate, and Robust 3D Generalized Winding Numbers*, arXiv 2605.01536 (May 2026; also listed as ACM TOG, DOI 10.1145/3811323) | **read** (arxiv.org, abstract and HTML v1, the main text up to about 100k characters; the supplement not read) | see the box below | the closest fit for a per-cell decision, but its error control is ours to add (box below) |
+| Xie, Hafner, Wojtan (ISTA), *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), article 41, 2026 (SIGGRAPH 2026, DOI 10.1145/3811339) | **not read, not verified**: listing only (search result). dl.acm.org, doi.org and the ISTA page do not resolve in this session | by its listing, one ray-mesh test plus a sum over boundary edges per query, as Antipodal | read the full text before relying on it, in particular what "exact" means there |
+| Martens, Bessmeltsev, *One-shot method for computing generalized winding numbers*, CGF 44(5) 2025 | not read; cited by Antipodal | an earlier exact method by the same group | as Antipodal |
+| Xu, Barbič, *Signed Distance Fields for Polygon Soup Meshes*, GI 2014 | listing only | signed distance for soups via an offset surface | older alternative, close to what the wrap fallback already does |
+| Spainhour, Weiss, ACM TOG 45(3) 2026 | not read; cited by Antipodal | GWN for parametric surfaces | not for triangle meshes |
+
+**The Antipodal Method, as read:**
+- **Decomposition.** w(p) = χ(x₀) + (1/4π) Σ over the boundary segments (a, b) of the signed area of the spherical
+  triangle (a, b, x₁), projected onto the unit sphere around p. χ(x₀) is the signed count of the surface's crossings
+  along the ray from p towards a random direction x₀, and x₁ = −x₀ is its antipode. The cost per query is O(B + log F),
+  with B the boundary segments and F the faces; the boundary sum is about 92 % of it.
+- **What is exact.** The formula is exact in the continuous setting. The implementation is floating point (f64 or
+  f32, spherical areas by `atan2`); the reference values were computed in double with a double-double accumulator.
+- **No formal error bound** is given for the boundary term. For robustness, rays that pass too close to the boundary,
+  hit a cusp, or are nearly tangent (thresholds 1e-4) are discarded and a new random ray is shot. Off-by-integer
+  errors are analysed in the supplement (not read). Query points closer than 1e-6 to the surface are excluded. Rays
+  exactly through edges or vertices are not treated separately in the main text.
+- **Consequences for this library.** The ray parity χ can be made exact with the existing exact predicates (`Orient3d`
+  for crossings, with symbolic perturbation for degenerate rays). The boundary term needs an a-priori error bound of
+  our own (a sum of B `atan2` terms), and the random ray must become a deterministic choice.
 
 Licenses (AGENT_WORKFLOW §3):
-- **geometry-central** (with the signed heat solver): MIT. It may be read and ported, with a SOURCES entry.
+- **geometry-central** (with the signed heat solver): MIT, LICENSE read. It may be read and ported, with a SOURCES entry.
 - **libigl**: MPL-2.0. Do not port.
-- **The authors' signed-heat-3d** and the **antipodal code** (github.com/MartensCedric/antipodal): check the license
-  before reading.
+- **signed-heat-3d** (Feng 2024): MIT, LICENSE read.
+- **antipodal** (github.com/MartensCedric/antipodal; Trettner, Martens 2026): MIT, LICENSE read. Both may be read and
+  ported, with a SOURCES entry.
 - **The papers**: implement from them.
 
 ## 3. What the library has, what is missing
@@ -106,7 +127,9 @@ Missing:
      Inputs whose integer winding is consistent keep their labels.
    - A surface between cells labelled in and out is closed by construction, so the result is closed and the
      resolve's "not winding-closed" exit goes away.
-   - **Decision:** exact ray parity plus a boundary term with an error bound. If the bound does not decide a cell,
+   - **Decision:** exact ray parity (exact predicates; a deterministic ray direction with symbolic perturbation in
+     place of the paper's random re-shoot) plus the boundary term in floating point, with an error bound of our own.
+     Antipodal gives none, so the bound is new work and part of the spike's cost. If the bound does not decide a cell,
      use a second rule: the label of the neighbouring cell across the face with the largest area, or the signed heat
      sign.
    - **Exact code** (CLAUDE.md): `mesh_ops/ExactMesh*` bans FMA, `float` and parallel loops. The GWN evaluation that
