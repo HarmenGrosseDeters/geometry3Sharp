@@ -330,7 +330,18 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) that cannot be split on the grid </summary>
-            bool Behind(int[] t, Pt p, int skip)
+            bool Behind(int[] t, Pt p, int skip) => Behind(t, p, skip, GridUnsplittableMemo);
+
+            bool GridUnsplittableMemo(int a, int b)
+            {
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
+                if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(a, b);
+                return u;
+            }
+
+            /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) for which unsplittable holds </summary>
+            bool Behind(int[] t, Pt p, int skip, Func<int, int, bool> unsplittable)
             {
                 Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
                 var g = new Pt((a.Qx + b.Qx + c.Qx) / 3, (a.Qy + b.Qy + c.Qy) / 3);
@@ -339,10 +350,7 @@ namespace Meshing2Acceptance
                     Pt sa = v[s.A], sb = v[s.B];
                     int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
                     if (o1 * o2 >= 0 || Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) > 0) continue;
-                    long key = s.A < s.B ? ((long)s.A << 32) | (uint)s.B : ((long)s.B << 32) | (uint)s.A;
-                    unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
-                    if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(s.A, s.B);
-                    if (u) return true;
+                    if (unsplittable(s.A, s.B)) return true;
                 }
                 return false;
             }
@@ -354,6 +362,136 @@ namespace Meshing2Acceptance
             /// </summary>
             bool HiddenByGridUnsplittable(int[] t, int id)
                 => input.SnapTolerance > 0 && e.Milestone == Milestone.M3 && o.Subsegments != null && Behind(t, v[id], id);
+
+            Dictionary<long, bool> o11Memo;
+
+            /// <summary>
+            /// Subsegment a-b is an O11-unsplittable piece (without an explicit tolerance, at M3): every split point the mesher may choose
+            /// for it lies within its tolerance of an input constraint that is not the piece's own, so the mesher refuses it
+            /// (`NearOtherSource`: O11 merges a point within the tolerance of a constraint into that constraint). Conforming Delaunay (O2) and
+            /// the angle bound cannot be reached across such a piece, as across a piece with no split point on the grid; the three
+            /// exemptions below mirror the grid's, with this one predicate (found with the corpus at 25 degrees, earcut's water-huge: a
+            /// ring corner of 0.84 degrees, a leg's first piece of 2^-22 whose midpoint lies 1.75e-9 from the other leg, the mesher's
+            /// tolerance 1.98e-9). See <see cref="ComputeO11Unsplittable"/>; on the grid ValidGridSplit decides.
+            /// </summary>
+            bool O11Unsplittable(int a, int b)
+            {
+                if (input.SnapTolerance > 0 || e.Milestone != Milestone.M3 || tube2.Sign == 0) return false;
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                o11Memo = o11Memo ?? new Dictionary<long, bool>();
+                if (!o11Memo.TryGetValue(key, out bool u)) o11Memo[key] = u = ComputeO11Unsplittable(a, b);
+                return u;
+            }
+
+            /// <summary>
+            /// The piece predicate, decided exactly:
+            /// - its own constraints: the input constraints that hold both ends within the mesher's tolerance (a hair more): the mesher makes
+            ///   such vertices vertices of the constraint and merges the sources of the shared piece; this also covers a split point that
+            ///   rounding put off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of
+            ///   a hull edge has none here and is judged);
+            /// - its candidate split points: the midpoint, and the concentric-shell point from either end (QualityMesh2.SplitSegment: next
+            ///   to a vertex that existed before refinement, the power of two from it nearest the middle, if within the middle third). Which
+            ///   one the mesher took depends on which ends existed before refinement (input points and crossings), so all must qualify;
+            /// - another input constraint (not a hull edge: the mesher's NearOtherSource knows input constraints only) within the mesher's
+            ///   tolerance (half the tube: 2^-41 against the tube's 2^-40 of the magnitude; less 2^-7 of it, as the mesher decides in doubles)
+            ///   of every candidate. With a tube given to the oracle (--tube) the tolerance follows it;
+            /// - which meets each own constraint in at most one point (its ends and the own constraint's ends within the tube of the other
+            ///   are one point): nearly coincident lines, eg a double-digitised border, are merged by the mesher into pieces of both, and
+            ///   such a piece is split (review of the first version).
+            /// </summary>
+            bool ComputeO11Unsplittable(int ia, int ib)
+            {
+                Pt pa = v[ia], pb = v[ib];
+                // the mesher's tolerance is half the tube (2^-41 against 2^-40 of the same magnitude); a constraint holding both ends within it
+                // (a hair more, to be safe) is one of the piece's own: the mesher makes such vertices vertices of its chain and merges the
+                // sources of the shared piece (InsertPiece, Near; second review: two constraints crossing at a tiny angle). A split point
+                // counts as refused only a hair inside the tolerance, as the mesher decides in rounded doubles (second review)
+                Q tol2 = tube2 / 4, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7), half2 = tol2 * new Q((BigInteger.One << 7) - BigInteger.One, BigInteger.One << 7);
+                var own = new List<(Pt a, Pt b)>();
+                var ownIds = new HashSet<int>();
+                for (int k = 0; k < sources.Count; ++k) {
+                    if (!MayBeNear(k, ia) || !MayBeNear(k, ib)) continue;
+                    var c = sources[k];
+                    Q da = Exact.Dist2ToSegment(c.a, c.b, pa), db = Exact.Dist2ToSegment(c.a, c.b, pb);
+                    if (da <= ownTol2 && db <= ownTol2) { own.Add((c.a, c.b)); ownIds.Add(k); }
+                }
+                if (own.Count == 0) return false;
+                var candidates = new List<Pt> { new Pt((pa.Qx + pb.Qx) / 2, (pa.Qy + pb.Qy) / 2) };
+                double length = Math.Sqrt(ToD(Exact.Len2(pa, pb)));
+                long bits = BitConverter.DoubleToInt64Bits(length / 2);
+                int field = (int)((bits >> 52) & 0x7FF);
+                if (field == 0 || field == 0x7FF) return false;   // (no shell point computable: not excused)
+                {
+                    // the power of two at or below half the length, from the bits, and the nearer of it and its double (as the mesher's)
+                    double lower = BitConverter.Int64BitsToDouble((long)field << 52), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
+                    if (d > length / 3 && d < 2 * length / 3) {
+                        Q f = Q.FromDouble(d / length);
+                        candidates.Add(new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f));
+                        candidates.Add(new Pt(pb.Qx + (pa.Qx - pb.Qx) * f, pb.Qy + (pa.Qy - pb.Qy) * f));
+                    }
+                }
+                for (int k = 0; k < sources.Count; ++k) {
+                    // (the filter on the ends: a constraint near only the middle of the piece and farther than the tube from both its ends
+                    // meets an own constraint near both of its own ends, so the coincidence test below rejects it anyway)
+                    if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
+                    var c = sources[k];
+                    if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
+                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b))) continue;
+                    return true;
+                }
+                return false;
+            }
+
+            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines) </summary>
+            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d)
+            {
+                var near = new List<Pt>();
+                if (Exact.Dist2ToSegment(c, d, a) <= tube2) near.Add(a);
+                if (Exact.Dist2ToSegment(c, d, b) <= tube2) near.Add(b);
+                if (Exact.Dist2ToSegment(a, b, c) <= tube2) near.Add(c);
+                if (Exact.Dist2ToSegment(a, b, d) <= tube2) near.Add(d);
+                for (int i = 0; i < near.Count; ++i)
+                    for (int j = i + 1; j < near.Count; ++j)
+                        if (Exact.Len2(near[i], near[j]) > tube2) return true;
+                return false;
+            }
+
+            /// <summary> the local test: a-b is an O11-unsplittable piece; only that edge, never an unconstrained edge next to it </summary>
+            bool O11UnsplittableSubsegment(int a, int b)
+            {
+                if (!O11Unsplittable(a, b)) return false;
+                r.O11LocalExcused++;
+                return true;
+            }
+
+            int o11Pending;
+
+            /// <summary> the global test: vertex id is hidden from t by an O11-unsplittable piece (the segment from t's centroid to id crosses it) </summary>
+            bool HiddenByO11Unsplittable(int[] t, int id)
+            {
+                if (o.Subsegments == null || !Behind(t, v[id], id, O11Unsplittable)) return false;
+                ++o11Pending;   // (counted when t ends with no violation: both paths then count the same, whatever order they visit vertices in)
+                return true;
+            }
+
+            /// <summary>
+            /// The angle bound: t's circumcentre lies behind an O11-unsplittable piece (the segment from t's centroid to it crosses the
+            /// piece). Ruppert's rule splits the piece instead of inserting across it; no split point may be placed, so t stays
+            /// </summary>
+            bool CircumcentreBehindO11Unsplittable(int[] t)
+            {
+                // (without an explicit tolerance, at M3: the piece predicate decides that, and the exact circumcentre is computed only then)
+                if (input.SnapTolerance > 0 || o.Subsegments == null) return false;
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2;
+                if (d.Sign == 0) return false;
+                Q b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                var p = new Pt(a.Qx + (cy * b2 - by * c2) / d, a.Qy + (bx * c2 - cx * b2) / d);
+                if (!Behind(t, p, -1, O11Unsplittable)) return false;
+                r.O11AngleExcused++;
+                return true;
+            }
+
 
             /// <summary>
             /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
@@ -420,6 +558,55 @@ namespace Meshing2Acceptance
                         if (ok) return false;
                     }
                 return true;
+            }
+
+            /// <summary>
+            /// Input point i lies on a hull tip that collapsed on the grid (D14; owner decision 2026-11-02, MESHING2D_HULL_GRID.md
+            /// section 7, Q-H4): at some corner of a hull domain's hull (D13) both hull edges pass one pixel, so snap rounding routes
+            /// both edges' chains through its vertex and the tip between has no area. Point i is that corner, with some other used
+            /// output vertex in such a pixel, or i's own pixel is such a pixel (it lies on the shared chain). Passing a pixel is decided
+            /// as for grid splits: the edge crosses its interior, a hair smaller, or passes its centre (the half-open pixels of snap
+            /// rounding; a corner on a pixel boundary is not excused; review). Only with an explicit tolerance at M3, where the mesher
+            /// snap-rounds the hull edges; the mesher reports such vertices in its diagnostics.
+            /// </summary>
+            bool CollapsedHullTip(int i, HashSet<int> usedVertices)
+            {
+                if (!(input.SnapTolerance > 0) || !domain.IsHull || e.Milestone != Milestone.M3) return false;
+                int own = map[i];
+                if (own < 0) return false;
+                Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
+                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Pt Centre(Pt x) => new Pt(Index(x.Qx) * pixel, Index(x.Qy) * pixel);
+                Pt pc = Centre(v[own]);
+                Q magnitude = Q.Max(Q.Abs(pc.Qx), Q.Abs(pc.Qy));
+                Q narrow = half - Q.Max(half * new Q(BigInteger.One, BigInteger.One << 40), magnitude * new Q(BigInteger.One, BigInteger.One << 48));
+                bool Passes(Pt a, Pt b, Pt c)
+                {
+                    if (Exact.Orient(a, b, c) == 0 && c.Qx >= Q.Min(a.Qx, b.Qx) && c.Qx <= Q.Max(a.Qx, b.Qx) && c.Qy >= Q.Min(a.Qy, b.Qy) && c.Qy <= Q.Max(a.Qy, b.Qy)) return true;
+                    Q x0 = c.Qx - narrow, x1 = c.Qx + narrow, y0 = c.Qy - narrow, y1 = c.Qy + narrow;
+                    if (Q.Max(a.Qx, b.Qx) <= x0 || Q.Min(a.Qx, b.Qx) >= x1 || Q.Max(a.Qy, b.Qy) <= y0 || Q.Min(a.Qy, b.Qy) >= y1) return false;
+                    int pos = 0, neg = 0;
+                    foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(a, b, corner);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    return pos > 0 && neg > 0;
+                }
+                foreach (var ring in domain.Outers)
+                    for (int c = 0; c < ring.Length; ++c) {
+                        Pt cp = ring[c], prev = ring[(c + ring.Length - 1) % ring.Length], next = ring[(c + 1) % ring.Length];
+                        if (!inPts[i].Equals(cp)) {
+                            if (Passes(cp, prev, pc) && Passes(cp, next, pc)) return true;
+                            continue;
+                        }
+                        foreach (int j in usedVertices) {
+                            if (j == own) continue;
+                            var q = Centre(v[j]);
+                            if (q.Equals(pc)) continue;
+                            if (Passes(cp, prev, q) && Passes(cp, next, q)) return true;
+                        }
+                    }
+                return false;
             }
 
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
@@ -739,7 +926,7 @@ namespace Meshing2Acceptance
                     int m = map[i];
                     bool isUsed = m >= 0 && usedSet.Contains(m);
                     if (isUsed) continue;
-                    if (InClosure(inPts[i])) r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
+                    if (InClosure(inPts[i]) && !CollapsedHullTip(i, usedSet)) r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
                 }
                 if (o.IdentityRules)
                     for (int i = input.Count; i < v.Length; ++i)
@@ -798,6 +985,65 @@ namespace Meshing2Acceptance
             {
                 if (e.Reference || !vKnown[i] || double.IsNaN(sBox[4 * k])) return true;
                 return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
+            }
+
+            /// <summary>
+            /// A uniform grid over boxes in doubles (fast path only): Query returns, in ascending order, every box that may meet the
+            /// query box, among them every box that does (the boxes of the cells it covers, and the unknown ones). A box not returned
+            /// is apart from the query box by more than the query's widening on some axis.
+            /// </summary>
+            sealed class BoxGrid
+            {
+                readonly double x0, y0, cell; readonly int nx, ny;
+                readonly Dictionary<long, List<int>> cells = new Dictionary<long, List<int>>();
+                readonly List<int> unknown = new List<int>();
+                readonly int[] stamp; int round;
+                public BoxGrid(double[] box, int count)
+                {
+                    stamp = new int[count];
+                    double xl = double.PositiveInfinity, xh = double.NegativeInfinity, yl = double.PositiveInfinity, yh = double.NegativeInfinity;
+                    for (int i = 0; i < count; ++i) {
+                        if (double.IsNaN(box[4 * i])) continue;
+                        xl = Math.Min(xl, box[4 * i]); xh = Math.Max(xh, box[4 * i + 1]); yl = Math.Min(yl, box[4 * i + 2]); yh = Math.Max(yh, box[4 * i + 3]);
+                    }
+                    x0 = xl; y0 = yl;
+                    double extent = Math.Max(xh - xl, yh - yl);
+                    cell = extent > 0 && !double.IsInfinity(extent) ? extent / Math.Max(1, Math.Sqrt(count)) : 1;
+                    nx = (int)Math.Min(1 << 14, Math.Max(1, Math.Ceiling((xh - xl) / cell) + 1));
+                    ny = (int)Math.Min(1 << 14, Math.Max(1, Math.Ceiling((yh - yl) / cell) + 1));
+                    for (int i = 0; i < count; ++i) {
+                        if (double.IsNaN(box[4 * i])) { unknown.Add(i); continue; }
+                        Cells(box[4 * i], box[4 * i + 1], box[4 * i + 2], box[4 * i + 3], out int i0, out int i1, out int j0, out int j1);
+                        // (a box over many cells is returned always instead: long diagonal edges would fill the grid quadratically; review)
+                        if ((long)(i1 - i0 + 1) * (j1 - j0 + 1) > 256) { unknown.Add(i); continue; }
+                        for (int ci = i0; ci <= i1; ++ci)
+                            for (int cj = j0; cj <= j1; ++cj) {
+                                long key = (long)ci * ny + cj;
+                                if (!cells.TryGetValue(key, out var list)) cells.Add(key, list = new List<int>());
+                                list.Add(i);
+                            }
+                    }
+                }
+                void Cells(double xl, double xh, double yl, double yh, out int i0, out int i1, out int j0, out int j1)
+                {
+                    int Clamp(double v, int n) => double.IsNaN(v) ? 0 : (int)Math.Max(0, Math.Min(n - 1, Math.Floor(v)));
+                    i0 = Clamp((xl - x0) / cell, nx); i1 = Clamp((xh - x0) / cell, nx);
+                    j0 = Clamp((yl - y0) / cell, ny); j1 = Clamp((yh - y0) / cell, ny);
+                }
+                /// <summary> the boxes that may meet [xl, xh] x [yl, yh] (with the box's own coordinates outside the grid clamped to its border cells) </summary>
+                public List<int> Query(double xl, double xh, double yl, double yh)
+                {
+                    var result = new List<int>(unknown);
+                    if (++round == int.MaxValue) { Array.Clear(stamp, 0, stamp.Length); round = 1; }
+                    foreach (int i in unknown) stamp[i] = round;
+                    Cells(xl, xh, yl, yh, out int i0, out int i1, out int j0, out int j1);
+                    for (int ci = i0; ci <= i1; ++ci)
+                        for (int cj = j0; cj <= j1; ++cj)
+                            if (cells.TryGetValue((long)ci * ny + cj, out var list))
+                                foreach (int i in list) if (stamp[i] != round) { stamp[i] = round; result.Add(i); }
+                    result.Sort();
+                    return result;
+                }
             }
 
             const int HullSourceIds = 1 << 30;
@@ -1031,7 +1277,21 @@ namespace Meshing2Acceptance
             bool InteriorBeside(Pt m, Q ux, Q uy, List<(Pt a, Pt b)> rings, double farGap = double.PositiveInfinity)
             {
                 Q limit = new Q(-1, 1);
+                // (on the fast path a lower bound of each distance from doubles where it is surely positive: the probe needs only a
+                // distance below every ring edge's, any smaller one gives the same answer; exact where the bound is not positive)
+                var md = PtD(m);
+                bool filterOn = !e.Reference && !double.IsNaN(md.x) && !double.IsNaN(md.y);
                 foreach (var ring in rings) {
+                    if (filterOn) {
+                        var cd = PtD(ring.a); var dd = PtD(ring.b);
+                        double mag = Math.Max(Math.Max(Math.Abs(md.x), Math.Abs(md.y)), Math.Max(Math.Max(Math.Abs(cd.x), Math.Abs(cd.y)), Math.Max(Math.Abs(dd.x), Math.Abs(dd.y))));
+                        double low = Math.Sqrt(Dist2D(cd, dd, md.x, md.y)) - mag * 1e-12;
+                        if (low > 0 && FilterRange(mag)) {
+                            Q lq = Q.FromDouble(low);
+                            if (limit.Sign < 0 || lq * lq < limit) limit = lq * lq;
+                            continue;
+                        }
+                    }
                     if (Exact.OnClosedSegment(ring.a, ring.b, m)) continue;
                     Q d = Exact.Dist2ToSegment(ring.a, ring.b, m);
                     if (limit.Sign < 0 || d < limit) limit = d;
@@ -1055,12 +1315,33 @@ namespace Meshing2Acceptance
                 return new Pt((a.Qx + b.Qx + c.Qx) * third, (a.Qy + b.Qy + c.Qy) * third);
             }
 
+            BoxGrid triangleGrid;
+
             int LocateExact(Pt p)
             {
-                for (int i = 0; i < o.Triangles.Length; ++i) {
+                bool Contains(int i)
+                {
                     var t = o.Triangles[i];
-                    if (Exact.Orient(v[t[0]], v[t[1]], p) >= 0 && Exact.Orient(v[t[1]], v[t[2]], p) >= 0 && Exact.Orient(v[t[2]], v[t[0]], p) >= 0) return i;
+                    return Exact.Orient(v[t[0]], v[t[1]], p) >= 0 && Exact.Orient(v[t[1]], v[t[2]], p) >= 0 && Exact.Orient(v[t[2]], v[t[0]], p) >= 0;
                 }
+                // on the fast path only the triangles whose box may hold p, in ascending order: the first that contains p is the full
+                // scan's (the coverage probes of poly2tri's debug2 scanned all 10 000 triangles each, 22 s)
+                if (!e.Reference && p.Bounds(false, out double pxl, out double pxh) && p.Bounds(true, out double pyl, out double pyh)) {
+                    if (triangleGrid == null) {
+                        var box = new double[4 * o.Triangles.Length];
+                        for (int i = 0; i < o.Triangles.Length; ++i) {
+                            var t = o.Triangles[i];
+                            if (t.All(j => vKnown[j])) {
+                                box[4 * i] = t.Min(j => vxl[j]); box[4 * i + 1] = t.Max(j => vxh[j]);
+                                box[4 * i + 2] = t.Min(j => vyl[j]); box[4 * i + 3] = t.Max(j => vyh[j]);
+                            } else for (int k = 0; k < 4; ++k) box[4 * i + k] = double.NaN;
+                        }
+                        triangleGrid = new BoxGrid(box, o.Triangles.Length);
+                    }
+                    foreach (int i in triangleGrid.Query(pxl, pxh, pyl, pyh)) if (Contains(i)) return i;
+                    return -1;
+                }
+                for (int i = 0; i < o.Triangles.Length; ++i) if (Contains(i)) return i;
                 return -1;
             }
 
@@ -1082,24 +1363,55 @@ namespace Meshing2Acceptance
                 // each ring edge's box in doubles (an interval around the exact one), for the filter below
                 var ringBox = new double[4 * allRingEdges.Count];
                 for (int g = 0; g < allRingEdges.Count; ++g) SegmentBox(allRingEdges[g].a, allRingEdges[g].b, 0, ringBox, 4 * g);
+                // on the fast path grids over the vertices and the ring edges: every source scanned all of both (sources x vertices, sources
+                // x ring edges; 39 s of poly2tri's debug2 with 10 000 of each). They return supersets in ascending order, so the lists
+                // below are the same as from the full scans
+                BoxGrid vertexGrid = null, ringGrid = null;
+                if (!e.Reference) {
+                    var vbox = new double[4 * v.Length];
+                    for (int i = 0; i < v.Length; ++i) {
+                        if (vKnown[i]) { vbox[4 * i] = vxl[i]; vbox[4 * i + 1] = vxh[i]; vbox[4 * i + 2] = vyl[i]; vbox[4 * i + 3] = vyh[i]; }
+                        else for (int j = 0; j < 4; ++j) vbox[4 * i + j] = double.NaN;
+                    }
+                    vertexGrid = new BoxGrid(vbox, v.Length);
+                    ringGrid = new BoxGrid(ringBox, allRingEdges.Count);
+                }
                 for (int k = 0; k < sources.Count; ++k) {
                     var s = sources[k];
                     var near = new List<int>();
-                    for (int i = 0; i < v.Length; ++i) if (MayBeNear(k, i) && Exact.Dist2ToSegment(s.a, s.b, v[i]) <= tube2) near.Add(i);
+                    bool boxed = vertexGrid != null && !double.IsNaN(sBox[4 * k]);
+                    var vertexCandidates = boxed ? vertexGrid.Query(sBox[4 * k], sBox[4 * k + 1], sBox[4 * k + 2], sBox[4 * k + 3]) : null;
+                    if (boxed) { foreach (int i in vertexCandidates) if (MayBeNear(k, i) && InTube(s.a, s.b, v[i])) near.Add(i); }
+                    else for (int i = 0; i < v.Length; ++i) if (MayBeNear(k, i) && InTube(s.a, s.b, v[i])) near.Add(i);
                     // only ring edges whose box meets the source's box widened by the tube can cut the source or lie within the tube of
                     // a point on it; the others are certainly farther (the filter skips no exact test that could succeed)
                     int kk = k;
                     bool Meets(int g) => e.Reference || double.IsNaN(sBox[4 * kk]) || double.IsNaN(ringBox[4 * g])
                         || !(ringBox[4 * g + 1] < sBox[4 * kk] || ringBox[4 * g] > sBox[4 * kk + 1] || ringBox[4 * g + 3] < sBox[4 * kk + 2] || ringBox[4 * g + 2] > sBox[4 * kk + 3]);
-                    var ringEdges = Enumerable.Range(0, allRingEdges.Count).Where(Meets).Select(g => allRingEdges[g]).ToList();
                     // a lower bound of the distance from any point of the source to the ring edges left out: the gap between the boxes
                     var own = new double[4];
                     SegmentBox(s.a, s.b, 0, own, 0);
                     double farGap = double.PositiveInfinity;
-                    for (int g = 0; g < allRingEdges.Count; ++g) {
-                        if (Meets(g)) continue;
-                        double gap = Math.Max(Math.Max(ringBox[4 * g] - own[1], own[0] - ringBox[4 * g + 1]), Math.Max(ringBox[4 * g + 2] - own[3], own[2] - ringBox[4 * g + 3]));
-                        farGap = Math.Min(farGap, gap);
+                    List<(Pt a, Pt b)> ringEdges;
+                    if (boxed && !double.IsNaN(own[0])) {
+                        // the edges in the cells around the source's box widened by w; those not returned are farther than w (a smaller
+                        // lower bound than the full scan's: it only shortens InteriorBeside's probe, whose answer it does not change)
+                        double w = Math.Max(Math.Max(sBox[4 * k + 1] - sBox[4 * k], sBox[4 * k + 3] - sBox[4 * k + 2]), 0);
+                        var candidates = ringGrid.Query(Math.Min(sBox[4 * k], own[0]) - w, Math.Max(sBox[4 * k + 1], own[1]) + w, Math.Min(sBox[4 * k + 2], own[2]) - w, Math.Max(sBox[4 * k + 3], own[3]) + w);
+                        ringEdges = new List<(Pt a, Pt b)>();
+                        foreach (int g in candidates) {
+                            if (Meets(g)) { ringEdges.Add(allRingEdges[g]); continue; }
+                            double gap = Math.Max(Math.Max(ringBox[4 * g] - own[1], own[0] - ringBox[4 * g + 1]), Math.Max(ringBox[4 * g + 2] - own[3], own[2] - ringBox[4 * g + 3]));
+                            farGap = Math.Min(farGap, gap);
+                        }
+                        if (candidates.Count < allRingEdges.Count) farGap = Math.Min(farGap, w);
+                    } else {
+                        ringEdges = Enumerable.Range(0, allRingEdges.Count).Where(Meets).Select(g => allRingEdges[g]).ToList();
+                        for (int g = 0; g < allRingEdges.Count; ++g) {
+                            if (Meets(g)) continue;
+                            double gap = Math.Max(Math.Max(ringBox[4 * g] - own[1], own[0] - ringBox[4 * g + 1]), Math.Max(ringBox[4 * g + 2] - own[3], own[2] - ringBox[4 * g + 3]));
+                            farGap = Math.Min(farGap, gap);
+                        }
                     }
                     foreach (var piece in RetainedPieces(s.a, s.b, ringEdges, double.IsNaN(own[0]) || !(farGap > 0) ? allRingEdges : null, farGap)) {
                         var candidates = new HashSet<int>(near);
@@ -1107,11 +1419,11 @@ namespace Meshing2Acceptance
                         // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
                         // source and of a ring edge through the end also ends the chain.
                         // A ring edge along the source itself cuts nothing: it would make every vertex a start and a goal (review of M2)
-                        bool Along((Pt a, Pt b) g) => Exact.Dist2ToSegment(g.a, g.b, s.a) <= tube2 && Exact.Dist2ToSegment(g.a, g.b, s.b) <= tube2
-                            || Exact.Dist2ToSegment(s.a, s.b, g.a) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, g.b) <= tube2;
-                        var cutFrom = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.from) <= tube2 && !Along(g)).ToList();
-                        var cutTo = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.to) <= tube2 && !Along(g)).ToList();
-                        bool OnCut(List<(Pt a, Pt b)> cut, int i) => tube2.Sign > 0 && cut.Any(g => Exact.Dist2ToSegment(g.a, g.b, v[i]) <= tube2);
+                        bool Along((Pt a, Pt b) g) => InTube(g.a, g.b, s.a) && InTube(g.a, g.b, s.b)
+                            || InTube(s.a, s.b, g.a) && InTube(s.a, s.b, g.b);
+                        var cutFrom = ringEdges.Where(g => InTube(g.a, g.b, piece.from) && !Along(g)).ToList();
+                        var cutTo = ringEdges.Where(g => InTube(g.a, g.b, piece.to) && !Along(g)).ToList();
+                        bool OnCut(List<(Pt a, Pt b)> cut, int i) => tube2.Sign > 0 && cut.Any(g => InTube(g.a, g.b, v[i]));
                         var starts = candidates.Where(i => Exact.Len2(v[i], piece.from) <= tube2 || OnCut(cutFrom, i)).ToList();
                         var goals = new HashSet<int>(candidates.Where(i => Exact.Len2(v[i], piece.to) <= tube2 || OnCut(cutTo, i)));
                         var previous = new Dictionary<int, int>();
@@ -1176,7 +1488,16 @@ namespace Meshing2Acceptance
                 var pieces = new List<(Pt, Pt)>();
                 Q ax = a.Qx, ay = a.Qy, ux = b.Qx - ax, uy = b.Qy - ay, uu = ux * ux + uy * uy;
                 var ts = new List<Q> { Q.Zero, Q.One };
+                // (a filter in doubles on the fast path: a ring edge whose ends lie surely on one side of a-b's line, or a-b's ends surely
+                // on one side of its line, neither crosses nor overlaps a-b; poly2tri's debug2 has thousands of ring edges near each
+                // source, all exact before)
+                var ad = PtD(a); var bd = PtD(b);
+                bool filterOn = !e.Reference && !double.IsNaN(ad.x) && !double.IsNaN(bd.x);
                 foreach (var ring in rings) {
+                    if (filterOn) {
+                        var cd = PtD(ring.a); var dd = PtD(ring.b);
+                        if (SurelyOneSide(ad, bd, cd, dd) || SurelyOneSide(cd, dd, ad, bd)) continue;
+                    }
                     Q cx = ring.a.Qx, cy = ring.a.Qy, wx = ring.b.Qx - cx, wy = ring.b.Qy - cy;
                     Q denom = ux * wy - uy * wx;
                     Q acx = cx - ax, acy = cy - ay;
@@ -1225,7 +1546,7 @@ namespace Meshing2Acceptance
                     int a = uses[0].a, b = uses[0].b;
                     int c = o.Triangles[uses[0].tri][uses[0].opposite], d = o.Triangles[uses[1].tri][uses[1].opposite];
                     int sign = InCircle(a, b, c, d);
-                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One) || (constrained && GridUnsplittableSubsegment(a, b))))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
+                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One) || (constrained && (GridUnsplittableSubsegment(a, b) || O11UnsplittableSubsegment(a, b)))))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
                     if (sign == 0 && !constrained) { r.TieEdges++; r.Unique = false; }
                 }
                 long work = (long)o.Triangles.Length * v.Length;
@@ -1241,14 +1562,19 @@ namespace Meshing2Acceptance
                     var used = new HashSet<int>(o.Triangles.SelectMany(t => t));
                     if (Fast) GlobalDelaunayIndexed(used.ToArray(), conforming);
                     else
-                        foreach (var t in o.Triangles)
+                        foreach (var t in o.Triangles) {
+                            o11Pending = 0;
+                            bool flagged = false;
                             foreach (int id in used) {
                                 if (id == t[0] || id == t[1] || id == t[2]) continue;
-                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id)))) {
+                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
                                     r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                                    flagged = true;
                                     break;
                                 }
                             }
+                            if (!flagged) r.O11GlobalExcused += o11Pending;
+                        }
                 }
             }
 
@@ -1292,11 +1618,14 @@ namespace Meshing2Acceptance
                 var tree = (int[])used.Clone();
                 BuildTree(tree, 0, tree.Length, 0);
                 foreach (var t in o.Triangles) {
+                    o11Pending = 0;
+                    bool flagged = false;
                     bool Check(int id)
                     {
                         if (id == t[0] || id == t[1] || id == t[2]) return false;
-                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id)))) {
+                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
                             r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                            flagged = true;
                             return true;
                         }
                         return false;
@@ -1316,8 +1645,9 @@ namespace Meshing2Acceptance
                         if (double.IsNaN(reach) || double.IsInfinity(reach)) scan = true;
                         else { x0 = cx - reach; x1 = cx + reach; y0 = cy - reach; y1 = cy + reach; }
                     }
-                    if (scan) { foreach (int id in used) if (Check(id)) break; continue; }
-                    QueryTree(tree, 0, tree.Length, 0, x0, x1, y0, y1, Check);
+                    if (scan) { foreach (int id in used) if (Check(id)) break; }
+                    else QueryTree(tree, 0, tree.Length, 0, x0, x1, y0, y1, Check);
+                    if (!flagged) r.O11GlobalExcused += o11Pending;
                 }
             }
 
@@ -1487,7 +1817,7 @@ namespace Meshing2Acceptance
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
                     if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
-                    if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t)) continue;
+                    if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t) || CircumcentreBehindO11Unsplittable(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -1589,7 +1919,12 @@ namespace Meshing2Acceptance
                     if (t.Any(i => NearHull(k, i) && WithinTube(hull[k], v[i]))) near.Add(hull[k]);
                 double tube2Hi = double.PositiveInfinity;
                 if (Fast && tube2.Bounds(out _, out double t2h)) tube2Hi = t2h;
-                foreach (var a in near)
+                // (the bound's sine squared from above, for the filter on the pair's sine below: no pair whose sine is surely above it
+                // can qualify)
+                double sin2LowHi = double.PositiveInfinity;
+                if (Fast && sin2Low.Bounds(out _, out double s2h)) sin2LowHi = s2h;
+                foreach (var a in near) {
+                    var da = Fast ? Direction(a) : default((double x, double y));
                     for (int kc = 0; kc < sources.Count + hull.Count; ++kc) {
                         bool cHull = kc >= sources.Count;
                         var c = cHull ? hull[kc - sources.Count] : sources[kc];
@@ -1600,27 +1935,42 @@ namespace Meshing2Acceptance
                         // sin(a, c) and the pairs with a large sine are rejected below anyway, so the widening uses the double sine of the
                         // pair with a factor 2 of slack.)
                         double[] box = cHull ? hullBox : sBox; int kb = cHull ? kc - sources.Count : kc;
-                        if (!double.IsInfinity(tube2Hi) && !double.IsNaN(box[4 * kb]) && vKnown[t[0]]) {
-                            double ux = ToD(a.b.Qx - a.a.Qx), uy = ToD(a.b.Qy - a.a.Qy), wx = ToD(c.b.Qx - c.a.Qx), wy = ToD(c.b.Qy - c.a.Qy);
-                            double sinD = Math.Abs(ux * wy - uy * wx) / Math.Sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy));
+                        if (Fast && !double.IsInfinity(tube2Hi) && !double.IsNaN(box[4 * kb]) && vKnown[t[0]]) {
+                            // (the directions in doubles, once per source: they were converted from the rationals for every pair and
+                            // triangle, most of the angle check's time on the Herne tiles)
+                            var dc = cHull ? Direction(c) : SourceDirection(kc);
+                            // (the directions normalised to a largest coordinate of 1 first: the product of their squared lengths underflowed
+                            // at directions of 1e-81 and gave an infinite sine, which skipped every pair; review)
+                            double na = Math.Max(Math.Abs(da.x), Math.Abs(da.y)), nc = Math.Max(Math.Abs(dc.x), Math.Abs(dc.y));
+                            double ax1 = da.x / na, ay1 = da.y / na, cx1 = dc.x / nc, cy1 = dc.y / nc;
+                            double sinD = Math.Abs(ax1 * cy1 - ay1 * cx1) / Math.Sqrt((ax1 * ax1 + ay1 * ay1) * (cx1 * cx1 + cy1 * cy1));
                             // (a lower bound of the sine: the double sine has an absolute error far below 1e-13; nearly parallel sources
                             // are not filtered; found by the bounds review)
                             double sinLow = sinD - 1e-13;
-                            if (sinLow > 0 && !double.IsNaN(sinD)) {
+                            if (sinLow > 0 && !double.IsNaN(sinD) && !double.IsInfinity(sinD) && na > 0 && nc > 0 && !double.IsInfinity(na) && !double.IsInfinity(nc)) {
+                                // a sine surely at or above the bound's: the exact test below rejects the pair (sin2 >= sin2Low)
+                                if (sinLow * sinLow * (1 - 1e-12) > sin2LowHi) continue;
                                 double reach = 2 * ZoneFactor * Math.Sqrt(tube2Hi) / sinLow;
                                 if (vxh[t[0]] < box[4 * kb] - reach || vxl[t[0]] > box[4 * kb + 1] + reach || vyh[t[0]] < box[4 * kb + 2] - reach || vyl[t[0]] > box[4 * kb + 3] + reach) continue;
                             }
                         }
-                        Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
-                        Q cross = d1x * d2y - d1y * d2x;
-                        if (cross.Sign == 0) continue;
-                        Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
-                        if (sin2 >= sin2Low) continue;
-                        Q zone2 = tube2 * (ZoneFactor * ZoneFactor) / sin2;   // (ZoneFactor tube / sin)^2
+                        // the pair's sine, zone and apex depend on the pair only: computed once (most of the angle check's remaining
+                        // time on the Herne tiles, where many nearly parallel sources pass the filters above)
+                        var pair = Pair(a, c);
+                        if (!pair.crosses) continue;
+                        if (pair.sin2 >= sin2Low) continue;
+                        Q zone2 = pair.zone2;
+                        // (a filter in doubles: the vertex surely farther from c than the zone's radius; the distance's rounding is far
+                        // below 2^-40 of the coordinates' magnitude, the slack allowed)
+                        if (Fast && vKnown[t[0]] && pair.zoneHi < double.PositiveInfinity) {
+                            var ca = PtD(c.a); var cb = PtD(c.b);
+                            double px = o.VX[t[0]], py = o.VY[t[0]];
+                            double m = Math.Max(Math.Max(Math.Abs(px), Math.Abs(py)), Math.Max(Math.Max(Math.Abs(ca.x), Math.Abs(ca.y)), Math.Max(Math.Abs(cb.x), Math.Abs(cb.y))));
+                            if (FilterRange(m) && Math.Sqrt(Dist2D(ca, cb, px, py)) - m * 1e-12 > pair.zoneHi) continue;
+                        }
                         if (Exact.Dist2ToSegment(c.a, c.b, v[t[0]]) > zone2) continue;
-                        Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
-                        if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
-                        var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
+                        if (!pair.apexOnBoth) continue;
+                        var apex = pair.apex;
                         if (!t.All(i => Exact.Len2(apex, v[i]) <= zone2)) continue;
                         // the small angle is that between a branch of a and a branch of c leaving the apex (their directions with a
                         // positive dot product), and the triangle lies on its side: on the obtuse side (eg past a collinear split point
@@ -1629,8 +1979,103 @@ namespace Meshing2Acceptance
                         // on either side
                         if (AcuteSide(apex, a, c, t)) return true;
                     }
+                }
                 return false;
             }
+
+            Dictionary<(int, int), (bool crosses, Q sin2, Q zone2, double zoneHi, bool apexOnBoth, Pt apex)> pairs;
+
+            static (double x, double y) PtD(Pt p) => (ToD(p.Qx), ToD(p.Qy));
+
+            /// <summary> the filters in doubles run only for magnitudes in [1e-140, 1e140]: no square of a difference or of a length
+            /// overflows, none falls into the subnormals (review: Dist2D overflowed at 1.3e154 and the filter rejected a hit) </summary>
+            static bool FilterRange(double mag) => mag > 1e-140 && mag < 1e140;
+
+            double tubeHi = double.NaN;
+
+            /// <summary>
+            /// p lies within the tube of segment a-b (exact). On the fast path a filter in doubles first: a point surely farther than the
+            /// tube is rejected without the exact test (the coordinates round by up to 2^-53 of the largest, the distance a little more;
+            /// 1e-12 of it is the slack)
+            /// </summary>
+            bool InTube(Pt a, Pt b, Pt p)
+            {
+                if (!e.Reference) {
+                    if (double.IsNaN(tubeHi)) tubeHi = tube2.Bounds(out _, out double t2h) && !double.IsInfinity(t2h) ? Math.Sqrt(t2h) * (1 + 1e-12) : double.PositiveInfinity;
+                    if (!double.IsInfinity(tubeHi)) {
+                        var ad = PtD(a); var bd = PtD(b); var pd = PtD(p);
+                        double mag = Math.Max(Math.Max(Math.Max(Math.Abs(ad.x), Math.Abs(ad.y)), Math.Max(Math.Abs(bd.x), Math.Abs(bd.y))), Math.Max(Math.Abs(pd.x), Math.Abs(pd.y)));
+                        double low = Math.Sqrt(Dist2D(ad, bd, pd.x, pd.y)) - mag * 1e-12;
+                        if (!double.IsNaN(low) && FilterRange(mag) && low > tubeHi) return false;
+                    }
+                }
+                return Exact.Dist2ToSegment(a, b, p) <= tube2;
+            }
+
+            /// <summary> c and d lie surely strictly on one side of the line through a and b (doubles with a generous error bound; false
+            /// when unsure) </summary>
+            static bool SurelyOneSide((double x, double y) a, (double x, double y) b, (double x, double y) c, (double x, double y) d)
+            {
+                double ux = b.x - a.x, uy = b.y - a.y, c1x = c.x - a.x, c1y = c.y - a.y, d1x = d.x - a.x, d1y = d.y - a.y;
+                double l1 = ux * c1y, r1 = uy * c1x, l2 = ux * d1y, r2 = uy * d1x;
+                double o1 = l1 - r1, o2 = l2 - r2;
+                // (the coordinates are the exact points rounded once, by up to 2^-53 of the largest coordinate M; each difference is then
+                // off by at most 3 such roundings, each product by that times the other factor, and the products and the difference
+                // round once more: 1e-12 of M times the factors, plus 1e-12 of the terms, is far above it)
+                double big = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Max(Math.Abs(c.x), Math.Abs(c.y)), Math.Max(Math.Abs(d.x), Math.Abs(d.y))));
+                double delta = big * 1e-12;
+                double e1 = delta * (Math.Abs(ux) + Math.Abs(uy) + Math.Abs(c1x) + Math.Abs(c1y) + delta) + (Math.Abs(l1) + Math.Abs(r1)) * 1e-12 + double.Epsilon;
+                double e2 = delta * (Math.Abs(ux) + Math.Abs(uy) + Math.Abs(d1x) + Math.Abs(d1y) + delta) + (Math.Abs(l2) + Math.Abs(r2)) * 1e-12 + double.Epsilon;
+                if (double.IsNaN(o1) || double.IsNaN(o2) || double.IsInfinity(e1) || double.IsInfinity(e2)) return false;
+                return (o1 > e1 && o2 > e2) || (o1 < -e1 && o2 < -e2);
+            }
+
+            /// <summary> squared distance in doubles from (px, py) to segment ab (a filter only) </summary>
+            static double Dist2D((double x, double y) a, (double x, double y) b, double px, double py)
+            {
+                double ux = b.x - a.x, uy = b.y - a.y, l2 = ux * ux + uy * uy;
+                double t = l2 > 0 ? ((px - a.x) * ux + (py - a.y) * uy) / l2 : 0;
+                t = Math.Max(0, Math.Min(1, t));
+                double dx = a.x + t * ux - px, dy = a.y + t * uy - py;
+                return dx * dx + dy * dy;
+            }
+
+            /// <summary> for sources a and c: whether their lines cross, the sine squared of their angle, the merge zone's radius squared
+            /// (ZoneFactor tube / sin)^2, and their crossing point if it lies on both (exact; memoized per pair of source ids) </summary>
+            (bool crosses, Q sin2, Q zone2, double zoneHi, bool apexOnBoth, Pt apex) Pair((Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c)
+            {
+                pairs = pairs ?? new Dictionary<(int, int), (bool, Q, Q, double, bool, Pt)>();
+                if (pairs.TryGetValue((a.sourceId, c.sourceId), out var known)) return known;
+                Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
+                Q cross = d1x * d2y - d1y * d2x;
+                (bool, Q, Q, double, bool, Pt) result;
+                if (cross.Sign == 0) result = (false, Q.Zero, Q.Zero, double.PositiveInfinity, false, default(Pt));
+                else {
+                    Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
+                    Q zone2 = tube2 * (ZoneFactor * ZoneFactor) / sin2;   // (ZoneFactor tube / sin)^2
+                    Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
+                    bool onBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
+                    // (the zone's radius from above in doubles, for the filter; infinite when it cannot be bounded)
+                    double zoneHi = zone2.Bounds(out _, out double z2h) && !double.IsInfinity(z2h) ? Math.Sqrt(z2h) * (1 + 1e-12) : double.PositiveInfinity;
+                    result = (true, sin2, zone2, zoneHi, onBoth, onBoth ? new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y) : default(Pt));
+                }
+                pairs[(a.sourceId, c.sourceId)] = result;
+                return result;
+            }
+
+            (double x, double y)[] sourceDirections;
+
+            /// <summary> source k's direction in doubles (fast path only; the filters around it allow for its rounding) </summary>
+            (double x, double y) SourceDirection(int k)
+            {
+                if (sourceDirections == null) {
+                    sourceDirections = new (double, double)[sources.Count];
+                    for (int i = 0; i < sources.Count; ++i) sourceDirections[i] = Direction(sources[i]);
+                }
+                return sourceDirections[k];
+            }
+
+            static (double x, double y) Direction((Pt a, Pt b, int marker, int sourceId, bool locked) s) => (ToD(s.b.Qx - s.a.Qx), ToD(s.b.Qy - s.a.Qy));
 
             /// <summary>
             /// Spec 1.4: a triangle that refinement cannot improve because of floating-point precision stays as it is. Its shortest edge is

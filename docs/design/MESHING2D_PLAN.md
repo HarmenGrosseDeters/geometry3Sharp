@@ -262,6 +262,10 @@ ALKIS and DGM tiles (local only).
 4. **Merge-zone exemptions** (#252 for the angle bound, #265 for conforming): in the zone of 3 tube / sin(angle) around the apex of two input
    segments at a small angle the mesher places no point (it would merge the chains, O11), and the oracle excuses the angle bound and conforming
    Delaunay there (narrowed from 8 in #265: the corpus's 19 excused triangles at 5 apexes reach at most 2.14, an input vertex). They are counted in every report (`MergeZoneExcused`) and listed in #265 for the owner to accept or turn into findings.
+   Beyond the zone, a piece the mesher may not split gets the three exemptions of an unsplittable piece on the grid: every split point
+   it may choose lies within its tolerance of another input constraint. This is an O11-unsplittable piece (owner decision 2026-11-02;
+   `MESHING2D_SNAP.md` section 3g, oracle). The exemptions are counted as `O11LocalExcused`, `O11GlobalExcused` and `O11AngleExcused`.
+   Found with water-huge at 25 degrees, which is why the corpus now runs at 25 degrees too.
 5. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
    off-centre point in front of the segment, with a minimum distance from it, is the next thing to try), `m3.refine-again` (I8, F-33, O17: refining an
    existing mesh needs an API), F-31/a's ring lock (O8).

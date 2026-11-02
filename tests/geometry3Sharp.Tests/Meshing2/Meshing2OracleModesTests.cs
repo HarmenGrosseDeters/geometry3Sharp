@@ -21,7 +21,8 @@ namespace geometry3Sharp.Tests
         static string Verdict(OracleReport r) =>
             string.Join(",", r.Violations.GroupBy(v => v.Kind).OrderBy(g => g.Key).Select(g => g.Key + "x" + g.Count()))
             + " | area2 " + r.Area2 + " | minsin2 " + r.MinSin2 + " | below " + r.BelowAngle + " | ties " + r.TieEdges + " | unique " + r.Unique
-            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused;
+            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused
+            + " | o11 " + r.O11LocalExcused + "/" + r.O11GlobalExcused + "/" + r.O11AngleExcused;
 
         static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
@@ -43,6 +44,48 @@ namespace geometry3Sharp.Tests
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
             Same(row.Case.Input, output, row.Case.Expect, id);
+        }
+
+        /// <summary>
+        /// The fast path's filters in doubles hold at extreme magnitudes: the catalogue rows with small angles, holes and seeds, scaled by
+        /// 2^k (exact; inputs, seeds and the mesher's output alike), give the same verdict and the same reported details on both paths
+        /// (review of the oracle speed-up: a distance overflowed at 2^512, a product of squared lengths underflowed at 2^-270)
+        /// </summary>
+        [Theory]
+        [InlineData("F-38/a", -270)]
+        [InlineData("F-38/a", 450)]
+        [InlineData("F-38/a", 512)]
+        [InlineData("F-38/d", -270)]
+        [InlineData("F-38/d", 512)]
+        [InlineData("F-44", -270)]
+        [InlineData("F-44", 512)]
+        [InlineData("spike-0.84", -300)]
+        [InlineData("spike-0.84", 512)]
+        public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent)
+        {
+            // spike-0.84: earcut's water-huge reduced to five points (QualityMesh2Tests.SpikeOf084Degrees) at 25 degrees, whose merge zone and
+            // O11-unsplittable piece the oracle excuses; at 2^-300 the leg pieces' directions are below 1e-81
+            Mesh2Case c;
+            if (id == "spike-0.84") {
+                var spike = new Mesh2Input { X = new double[] { 4097, 4097, 4098, 4183, 4050 }, Y = new double[] { 2989, 3013, 2945, 4096, 3675 }, MinAngleDeg = 25 };
+                spike.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+                c = new Mesh2Case { Id = id, Milestone = Milestone.M3, Input = spike, Expect = new OracleExpect { Milestone = Milestone.M3 } };
+            } else c = Catalogue.Rows().First(r => r.Id == id).Case;
+            var row = new { Case = c };
+            var input = TextFormat.ReadInput(TextFormat.WriteInput(row.Case.Input));
+            double f = Math.Pow(2, exponent);
+            for (int i = 0; i < input.Count; ++i) { input.X[i] *= f; input.Y[i] *= f; }
+            foreach (var seed in input.HoleSeeds) { seed[0] *= f; seed[1] *= f; }
+            Assert.Null(input.MaxArea);
+            var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
+            for (int i = 0; i < output.VX.Length; ++i) { output.VX[i] *= f; output.VY[i] *= f; }
+            output.ExactVertices = null; output.Locate = null;   // (the candidate's location belongs to the unscaled mesh)
+            var e = new OracleExpect { Milestone = row.Case.Milestone };
+            Same(input, output, e, id + " at 2^" + exponent);
+            string Details(OracleReport r) => string.Join("; ", r.Violations.Select(v => v.ToString()).OrderBy(x => x, StringComparer.Ordinal));
+            var reference = Oracle.Check(input, output, e.WithReference());
+            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
+            Assert.Equal(Details(reference), Details(fast));
         }
 
         /// <summary>

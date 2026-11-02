@@ -165,7 +165,7 @@ without demanding it; both lie in the gap band of D14 (pixel width tol), where m
 ## Corpus: public test fixtures (2026-11-01)
 
 The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
-licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20 and 30 degrees:
+licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20, 25 and 30 degrees (25 since the O11-unsplittable finding below):
 
 ```
 python3 benchmarks/Meshing2Benchmark/corpus/fetch.py
@@ -186,6 +186,7 @@ Found and fixed by the run (each with a regression test or self-check):
 | delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
 | earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
 | earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
+| earcut water-huge (M3 at 25 degrees; 0, 20 and 30 never ran 25) | oracle: a vertex in a circumcircle across a leg of the 0.84 degree corner | the leg's first piece (2^-22) has its midpoint 1.75e-9 from the other leg, within the mesher's tolerance (1.98e-9): O11 forbids the split point, so conforming Delaunay cannot be reached across it. The oracle mirrors the grid's three unsplittable exemptions for such O11-unsplittable pieces, counted per report (self-checks 7b to 7d, `SpikeOf084Degrees_*`). With it: 84 inputs, 330 M3 runs pass, 6 unjudged; excused once (water-huge at 25, 1 global), none in the catalogue rows |
 | earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
 
 ## The oracle's fast path (2026-11-01)
@@ -217,6 +218,46 @@ exact distances to every ring edge), quality 32 % (an exact sine per triangle), 
 `GlobalDelaunayLimit`). After, with the global pass running: conformity 3.2 s, segments 2.2 s, coverage 1.8 s, the rest below 1 s each. The
 indexed global pass found violations the skipped pass had hidden: conforming Delaunay in the merge zone of a small apex, which the oracle now
 excuses like the angle bound there (self-check 7).
+
+### Oracle speed (2026-11-02)
+
+The reference session's timings (`mesh` including its oracle) were dominated by the oracle, not the mesher (`mesh --no-oracle`, #319).
+Profiled hot spots, all on the fast path only (the reference path keeps every full scan):
+
+- **AngleBound's merge zone** (`InMergeZone`):
+  - source directions in doubles once per source, not per pair and triangle;
+  - pairs whose sine is surely above the bound are skipped before the exact test;
+  - each pair's sine, zone and apex are memoized;
+  - a double filter runs before the exact distance to the apex's source.
+- **Segments:**
+  - grids over the vertices and the ring edges replace the per-source scans;
+  - orientation and distance filters in doubles run before the exact crossing and tube tests (`InTube`, `SurelyOneSide`).
+- **Coverage:** `LocateExact` uses a grid over the triangles. The probes beyond the boundary edges scanned every triangle.
+
+The grid is the oracle's own small uniform grid (`BoxGrid`), not the library's quadtrees. The oracle references nothing of
+geometry3Sharp, so the compiler proves it shares no code with what it judges (owner decision 2026-11-02).
+
+The changes keep the outcome exactly:
+- **The grids:** they return a superset of the full scan's candidates, in ascending order, so the lists, the first match, the BFS path
+  and the reported end moves are the same.
+- **The double filters:** they only skip tests that are surely false, with error bounds of 1e-12 of the coordinates' magnitude.
+  They run only for magnitudes in [1e-140, 1e140], with directions normalised first. The review found an overflow at 1.3e154 and
+  an underflow of a product of squared lengths at 2^-270. `ExtremeScales_SameVerdictAndDetailsOnBothPaths` compares fast and
+  reference, the detail strings included, at 2^-300 to 2^512.
+- **Checked:** the corpus (84 inputs, 420 runs at M1/M2 and M3 at 0/20/25/30) gives the same verdicts and details, merge-zone and
+  O11 counts included. The 55 catalogue M3 rows give the same output. `Meshing2OracleModesTests` (fast against reference) passes, and
+  the self-check passes on both paths.
+
+Oracle time only (`oracle --input --output`, one process each, this 4-core container):
+
+| Output | before | after |
+|---|---|---|
+| Herne 373600 q20, snap 0.01 (94 238 triangles) | 69.2 s | 14.7 s |
+| Herne 373600 q30, snap 0.01 (241 626 triangles) | 100.7 s | 27.2 s |
+| poly2tri debug2, M2 (9 998 triangles) | 66.0 s | 12.3 s |
+| earcut water-huge3, M2 (15 500 triangles) | 9.7 s | 6.4 s |
+| earcut eberly-6, M2 | 3.4 s | 2.1 s |
+| Herne 381000 q20, snap 0.01 (5 656 triangles) | 2.2 s | 2.6 s (noise) |
 
 ## The golden master
 
