@@ -113,14 +113,15 @@ namespace geometry3Sharp.Tests
                 n => TerrainSlopeDesign.shuffled(n, 2),
                 n => TerrainSlopeDesign.shuffled(n, 0xC0FFEE),
             };
-            int cases = 0, withRays = 0;
-            foreach (var make in Cases()) {
+            int cases = 0, withRays = 0, withUndercuts = 0;
+            foreach (var make in Cases().Concat(UndercutCases())) {
                 var a = make();
                 a.CheckCanonical = true;
                 bool ra = a.Compute();
                 Assert.Equal("", a.CanonicalProblem);
                 cases++;
                 if (a.RayCount > 0) withRays++;
+                if (a.UndercutCauses.Count > 0) withUndercuts++;
                 foreach (var order in orders) {
                     var b = make();
                     b.InsertionOrder = order;
@@ -131,6 +132,13 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(a.UsedToeLowering, b.UsedToeLowering);
                     Assert.Equal(a.RayCount, b.RayCount);
                     Assert.Equal(a.ToeProblems, b.ToeProblems);
+                    Assert.Equal(a.StatusKind, b.StatusKind);
+                    Assert.Equal(a.UndercutCauses.Count, b.UndercutCauses.Count);
+                    for (int i = 0; i < a.UndercutCauses.Count; ++i) {
+                        Assert.Equal(a.UndercutCauses[i].Piece, b.UndercutCauses[i].Piece);
+                        Assert.Equal(a.UndercutCauses[i].Cause, b.UndercutCauses[i].Cause);
+                        Assert.Equal(a.UndercutCauses[i].At, b.UndercutCauses[i].At);
+                    }
                     Assert.Equal(a.SlopeSurface == null, b.SlopeSurface == null);
                     if (a.SlopeSurface != null) {
                         Assert.Equal("", Invariance.Difference(a.SlopeSurface, b.SlopeSurface));
@@ -147,6 +155,27 @@ namespace geometry3Sharp.Tests
             }
             // (the rays have to be exercised: components that are not convex)
             Assert.True(withRays >= 3, $"{withRays}");
+            // (and the undercut causes, which decide the StatusKind)
+            Assert.True(withUndercuts >= 2, $"{withUndercuts}");
+        }
+
+        // toes that undercut themselves (TerrainSlopeDesignTests.TwoLevelToe_IsUndercut): a U-shaped open toe, and a closed
+        // ring with the slope inside
+        static IEnumerable<Func<TerrainSlopeDesign>> UndercutCases()
+        {
+            var u = new List<Vector3d> { new Vector3d(0, 20, 8), new Vector3d(40, 20, 8), new Vector3d(60, 10, 4), new Vector3d(40, 0, 0), new Vector3d(0, 0, 0) };
+            yield return () => TerrainSlopeDesignTests.Design(20, 0.01, SlopeToe.Constant(u, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(4)));
+            var ring = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(40, 0, 0) };
+            for (int i = 1; i < 12; ++i) {
+                double a = -Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(40 + 20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8.0 * i / 12));
+            }
+            ring.Add(new Vector3d(40, 20, 8)); ring.Add(new Vector3d(0, 20, 8));
+            for (int i = 1; i < 12; ++i) {
+                double a = Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8 - 8.0 * i / 12));
+            }
+            yield return () => TerrainSlopeDesignTests.Design(20, 0.01, SlopeToe.Constant(ring, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
         }
     }
 }

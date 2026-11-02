@@ -288,7 +288,7 @@ namespace gs
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
-            RayCount = 0; CanonicalProblem = "";
+            RayCount = 0; CanonicalProblem = ""; UndercutCauses = new List<SlopeMap.UndercutCause>();
             CapRounds = 0;
             IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
             double givenTolerance = Tolerance;
@@ -876,6 +876,7 @@ namespace gs
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
             List<SlopeMap.UndercutCause> causes;
             var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance, out causes);
+            UndercutCauses = causes;
             if (undercut.Count > 0) {
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
                 // (UnsupportedByMethod if any of them is caused through the design area)
@@ -924,6 +925,8 @@ namespace gs
         /// <summary> tests: check each build's map after Simplify (SlopeMap.CanonicalProblem; the first problem, "" if none) </summary>
         internal bool CheckCanonical;
         internal string CanonicalProblem = "";
+        /// <summary> tests: the undercut causes of the last build (one per undercut segment, the first in OrderedFaces) </summary>
+        internal List<SlopeMap.UndercutCause> UndercutCauses = new List<SlopeMap.UndercutCause>();
 
         // a permutation of 0 .. n-1 (Fisher-Yates with SplitMix64: the same on every platform)
         internal static int[] shuffled(int n, ulong seed)
