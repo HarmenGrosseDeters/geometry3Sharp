@@ -883,6 +883,12 @@ namespace gs
             O.Heights(k, out zs, out zt);
             Vector2d xy = O.VertexXY(k);
             if (slope) {
+                // a crossing on a boundary edge of the slope surface, rounded, can lie off the edge's line on the
+                // outside; the slope part's edges to it then leave the slope side, where the terrain nodes on that
+                // edge are moved to (nudge), and the parts overlap. It is moved by ulps onto the slope side, the
+                // mirror of the nudge (as the catch points on these edges are)
+                if (kind == 2 && O.BoundaryKind(SlopeTerrainOverlay.vfirst(k)) != 0)
+                    xy = onto_slope_side(SlopeTerrainOverlay.vfirst(k), xy, +1);
                 // (on S̃: exactly rounded from the planes of the slope triangles, as 1a realizes its vertices)
                 zs = kind == 2 ? edge_z(SlopeTerrainOverlay.vfirst(k), xy) : tri_z(O.Container(k), xy);
             }
