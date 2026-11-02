@@ -105,7 +105,7 @@ namespace Meshing2Acceptance
                 if (Has(args, "--fast") && row.Slow) continue;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 Mesh2Output output = null; Exception error = null;
-                var thread = new System.Threading.Thread(() => { try { output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+                var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
                 thread.IsBackground = true;
                 thread.Start();
                 if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }

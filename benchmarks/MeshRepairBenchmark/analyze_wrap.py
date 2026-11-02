@@ -15,6 +15,14 @@ def guarantees(r):
             and get(r, 'after_inconsistent_orient_edges', 1) == 0 and get(r, 'after_inverted_components', 1) == 0
             and get(r, 'after_selfint_exact', 1) == 0)      # -1 (not computed, more than 300k triangles): not verified
 
+def band(r):
+    # the certified Hausdorff upper bound result -> input (relative to the input's diagonal) over offset + alpha (both
+    # relative to the diagonal: 1 / BENCH_WRAP_OFFSET + 1 / BENCH_WRAP_ALPHA); None for runs without a wrap
+    try:
+        return get(r, 'hd_fwd_hi_rel', None) / (1 / float(r['wrap_rel_offset']) + 1 / float(r['wrap_rel_alpha']))
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
 def q(a, p):
     a = sorted(a)
     return a[min(len(a) - 1, int(p * (len(a) - 1)))] if a else float('nan')
@@ -34,6 +42,8 @@ for name, rs in runs:
     amin = [r['after_angle_min'] for r in xs if 'after_angle_min' in r]
     amax = [r['after_angle_max'] for r in xs if 'after_angle_max' in r]
     ang = [r for r in xs if 'after_angle_lt05' in r]      # results with the angle distribution (not in older runs)
+    p01 = [r['after_angle_p01'] for r in xs if 'after_angle_p01' in r]
+    bands = [b for b in (band(r) for r in xs) if b is not None]
     rows.append((name, {
         'meshes': len(xs),
         'guarantees met (closed, manifold, oriented, no self-int.)': sum(guarantees(r) for r in xs),
@@ -53,6 +63,10 @@ for name, rs in runs:
         'angle max: global / median of meshes (deg)': f"{max(amax):.1f} / {q(amax, .5):.1f}" if amax else 'n/a',
         'meshes with a triangle < 0.5 deg / > 170 deg': f"{sum(r['after_angle_lt05'] > 0 for r in ang)} / {sum(r['after_angle_gt170'] > 0 for r in ang)}" if ang else 'n/a',
         'triangles < 0.5 / < 1 / < 10 deg (sum)': f"{sum(r['after_angle_lt05'] for r in ang)} / {sum(r['after_angle_lt1'] for r in ang)} / {sum(r['after_angle_lt10'] for r in ang)}" if ang else 'n/a',
+        'angle p01 (1 % worst min angle): median / min of meshes (deg)': f"{q(p01, .5):.2f} / {min(p01):.2f}" if p01 else 'n/a',
+        'share of triangles < 0.5 / > 170 deg (ppm)': f"{1e6 * sum(r['after_angle_lt05'] for r in ang) / max(1, sum(get(r, 'after_tris', 0) for r in ang)):.1f} / {1e6 * sum(r['after_angle_gt170'] for r in ang) / max(1, sum(get(r, 'after_tris', 0) for r in ang)):.1f}" if ang else 'n/a',
+        'band: Hausdorff result->input / (offset + alpha), median / p90 / max': f"{q(bands, .5):.2f} / {q(bands, .9):.2f} / {max(bands):.2f}" if bands else 'n/a',
+        'meshes with band > 1': sum(b > 1 for b in bands) if bands else 'n/a',
         'triangles > 150 / > 170 deg (sum)': f"{sum(r['after_angle_gt150'] for r in ang)} / {sum(r['after_angle_gt170'] for r in ang)}" if ang else 'n/a',
         'time median / p90 / max (s)': f"{q(ms, .5):.2f} / {q(ms, .9):.2f} / {max(ms) if ms else 0:.1f}",
     }))
@@ -73,9 +87,8 @@ if wrap:
     bad = [k for k in common if not guarantees(rs[k])]
     print(f"guarantees not met: {len(bad)} {[(k, rs[k].get('status'), rs[k].get('wrap_status'), rs[k].get('error', rs[k].get('wrap_error'))) for k in bad[:10]]}")
 
-if len(runs) >= 2:
-    # paired, per mesh: first run against the second (eg wrap against cgalwrap)
-    (na, ra), (nb, rb) = runs[0], runs[1]
+for (na, ra), (nb, rb) in [(runs[0], other) for other in runs[1:]]:
+    # paired, per mesh: the first run against each other run (eg wrap against cgalwrap)
     both = [k for k in common if get(ra[k], 'repair_ms', 0) > 0 and get(rb[k], 'repair_ms', 0) > 0 and 'after_tris' in ra[k] and 'after_tris' in rb[k]]
     if both:
         tr = [ra[k]['repair_ms'] / rb[k]['repair_ms'] for k in both]
@@ -87,3 +100,15 @@ if len(runs) >= 2:
         us = [1000 * ra[k]['repair_ms'] / max(1, ra[k]['after_tris']) for k in both]
         ub = [1000 * rb[k]['repair_ms'] / max(1, rb[k]['after_tris']) for k in both]
         print(f"  microseconds per output triangle: median {q(us, .5):.1f} / {q(ub, .5):.1f}")
+        ang = [k for k in both if 'after_angle_lt05' in ra[k] and 'after_angle_lt05' in rb[k]]
+        if ang:
+            bad = lambda r: r['after_angle_lt05'] + r['after_angle_gt170']
+            fewer = [k for k in ang if bad(ra[k]) < bad(rb[k])]; more = [k for k in ang if bad(ra[k]) > bad(rb[k])]
+            print(f"  triangles < 0.5 or > 170 deg: fewer in {na} on {len(fewer)} meshes, more on {len(more)} {sorted(more)[:12]}")
+            mn = [k for k in ang if 'after_angle_min' in ra[k] and 'after_angle_min' in rb[k]]
+            print(f"  min angle higher in {na} on {sum(ra[k]['after_angle_min'] > rb[k]['after_angle_min'] for k in mn)} of {len(mn)} meshes; "
+                  f"p01 higher on {sum(get(ra[k], 'after_angle_p01', 0) > get(rb[k], 'after_angle_p01', 0) for k in mn)}")
+        bb = [(band(ra[k]), band(rb[k])) for k in both]
+        bb = [(x, y) for x, y in bb if x is not None and y is not None and y > 0]
+        if bb:
+            print(f"  band ratio: median {q([x / y for x, y in bb], .5):.2f}; band higher in {na} on {sum(x > y for x, y in bb)} of {len(bb)} meshes")

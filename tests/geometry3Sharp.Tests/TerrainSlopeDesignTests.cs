@@ -277,6 +277,7 @@ namespace geometry3Sharp.Tests
                 { TerrainSlopeDesign.Statuses.NotImplemented, TerrainSlopeDesign.StatusKinds.UnsupportedByMethod },
                 { TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
                 { TerrainSlopeDesign.Statuses.ToeUndercut, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.ToeOvertopped, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
                 { TerrainSlopeDesign.Statuses.SlopeViolation, TerrainSlopeDesign.StatusKinds.NotCertified },
                 { TerrainSlopeDesign.Statuses.CatchLineAccuracyNotReached, TerrainSlopeDesign.StatusKinds.NotCertified },
                 { TerrainSlopeDesign.Statuses.CompositeFailed, TerrainSlopeDesign.StatusKinds.Internal },
@@ -288,6 +289,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(expected[st], TerrainSlopeDesign.kind_of(st, false));
             }
             Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, TerrainSlopeDesign.kind_of(TerrainSlopeDesign.Statuses.ToeUndercut, true));
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, TerrainSlopeDesign.kind_of(TerrainSlopeDesign.Statuses.ToeOvertopped, true));
         }
 
         // a two-level pit floor: the low part's cone passes below the high part of the toe
@@ -366,11 +368,11 @@ namespace geometry3Sharp.Tests
             var d2 = Design(5, 0.01, ok, SlopeToe.Constant(Square(10, 0, new Vector2d(5, 5)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
             Assert.False(d2.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d2.Status);
-            // not in phase 1a: Auto, a slope changing along a segment
+            // Auto needs a terrain (TerrainSlopeMixedTests); not implemented: a slope changing along a segment
             var auto = Design(5, 0.01, ok); auto.Direction = TerrainSlopeDesign.Directions.Auto;
             Assert.False(auto.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, auto.Status);
-            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, auto.StatusKind);
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, auto.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, auto.StatusKind);
             Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, d2.StatusKind);
             var vary = SlopeToe.Constant(Square(10, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)); vary.CutEnd[1] = SlopeSpec.Ratio(2);
             Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, run(vary, 5, 0.01));

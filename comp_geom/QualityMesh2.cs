@@ -125,6 +125,22 @@ namespace g3
             readonly ConstrainedDelaunayMesh2.Builder b;
             DelaunayKernel2 k;
             readonly double sin2Min;
+            /// <summary> cot(theta / 2) of the angle bound theta: an off-centre lies |pq| cot(theta / 2) / 2 from the midpoint of pq </summary>
+            readonly double halfCot;
+            /// <summary> bad triangles are split at off-centres (Ungor 2004) instead of circumcentres </summary>
+            readonly bool offCentres;
+
+            /// <summary>
+            /// benchmarks only (per thread): when set, refinement adds what it inserts and refuses here, by cause: 0 subsegments split as
+            /// encroached, 1 subsegments split because a triangle's point lies behind them, 2 because the point encroaches them, 3
+            /// circumcentres, 4 off-centres, 5 grid-blocked triangles, 6 subsegments with no split point on the grid (5 and 6 of the last sweep
+            /// only, the others summed over all)
+            /// </summary>
+            [ThreadStatic] internal static long[] CountsForBenchmarks;
+            int splitCause;
+
+            /// <summary> benchmarks only: off-centres on or off (null: the default, on) </summary>
+            [ThreadStatic] internal static bool? OffCentresForBenchmarks;
             readonly Queue<long> segments = new Queue<long>();
             readonly Queue<int> triangles = new Queue<int>();
             readonly HashSet<long> unsplittable = new HashSet<long>();
@@ -147,6 +163,8 @@ namespace g3
                 this.options = options; b = builder; this.snap = snap; grid = snap?.Grid;
                 double s = Math.Sin(options.MinAngle * Math.PI / 180);
                 sin2Min = s * s;
+                halfCot = HalfCot(sin2Min);
+                offCentres = OffCentresForBenchmarks ?? true;
             }
 
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
@@ -209,6 +227,7 @@ namespace g3
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
                         if (e < 0 || k.Seg[e] < 0 || !Encroached(e)) continue;
+                        splitCause = 0;
                         var failure = SplitSegment(e);
                         if (failure != null) return failure;
                         continue;
@@ -230,8 +249,9 @@ namespace g3
                     for (int v = 0; v < firstSteiner; ++v) if (v != k.Infinite && !inDomain.Contains(v) && OnHullChain(v)) ++collapsed;
                     if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
                 }
+                if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
-                    b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because their circumcentre's pixel is taken or crossed by a constraint, "
+                    b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because the pixel of their circumcentre (or off-centre and then circumcentre) is taken or crossed by a constraint, "
                         + GridUnsplittable + " subsegments with no split point on the grid");
                 // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
                 var bad = k.NonDelaunayEdges();
@@ -541,6 +561,12 @@ namespace g3
                     double longest = ExactPoint3.ScaleB(Math.Max(q0.LengthSquared, Math.Max((r0 - q0).LengthSquared, r0.LengthSquared)), 2 * ex);
                     if (longest > Math.Max(h * h, locked2) * (1 - 1.0 / (1L << 40))) return true;
                 }
+                return BadByAngle(t);
+            }
+
+            /// <summary> t is below the angle bound and that is not forced by the input (the angle part of <see cref="Bad"/>) </summary>
+            bool BadByAngle(int t)
+            {
                 if (options.MinAngle <= 0) return false;
                 if (MinSin2(t, out int corner) >= sin2Min) return false;
                 // the small angle lies between two constrained edges: forced by the input (O3)
@@ -566,12 +592,27 @@ namespace g3
                 // lattice edge of two pixels may differ from 2 w by a hair; review of #277)
                 double f = FloorPixelsForBenchmarks ?? 2;
                 for (int j = 0; j < 3; ++j) {
-                    var a = k.Point(k.V[3 * t + j]); var b = k.Point(k.V[3 * t + (j + 1) % 3]);
-                    double dx = grid.Pixel(a.x) - grid.Pixel(b.x), dy = grid.Pixel(a.y) - grid.Pixel(b.y);
+                    var (ax, ay) = PixelOf(k.V[3 * t + j]); var (bx, by) = PixelOf(k.V[3 * t + (j + 1) % 3]);
+                    double dx = ax - bx, dy = ay - by;
                     if (dx * dx + dy * dy <= f * f) return true;
                 }
                 return false;
             }
+
+            /// <summary> the pixel indices of vertex v, computed once per refiner: the kernel never moves a vertex after inserting it and
+            /// never reuses an id, so the indices stay valid; the exact index is costly (most of the mesher's time on the Herne tiles).
+            /// long.MinValue marks an entry not computed yet (an index of -2^63 would only be recomputed each time) </summary>
+            (long x, long y) PixelOf(int v)
+            {
+                while (pixels.Count <= v) pixels.Add((long.MinValue, long.MinValue));
+                if (pixels[v].x == long.MinValue) {
+                    var p = k.Point(v);
+                    long x = grid.Pixel(p.x), y = grid.Pixel(p.y);
+                    pixels[v] = (x, y);
+                }
+                return pixels[v];
+            }
+            readonly List<(long x, long y)> pixels = new List<(long x, long y)>();
 
             /// <summary> a constrained edge crosses the open pixel of grid point c (c lies in triangle at): a vertex there would sit within half a
             /// pixel of a constraint (D14) </summary>
@@ -706,7 +747,7 @@ namespace g3
                         int f = 3 * t + j, v = k.V[f];
                         var pv = k.Point(v);
                         if (seen.Add(v) && pv != pu && pv != pw && pv != q) {
-                            long vx = grid.Pixel(pv.x), vy = grid.Pixel(pv.y);
+                            var (vx, vy) = PixelOf(v);
                             if (grid.CrossesInterior(pu, q, vx, vy) || grid.CrossesInterior(q, pw, vx, vy)) return false;
                         }
                         if (k.Seg[f] < 0 || f == e || f == k.H[e]) continue;
@@ -813,17 +854,67 @@ namespace g3
                     && Math.Abs(c.x) <= DelaunayMesh2.CoordinateLimit && Math.Abs(c.y) <= DelaunayMesh2.CoordinateLimit;
             }
 
-            ConstrainedTriangulation2Result SplitTriangle(int t)
+            /// <summary> the off-centre of t (<see cref="OffCentre(Vector2d, Vector2d, Vector2d, double, out Vector2d)"/>), for a triangle
+            /// bad by its angle only: one bad by size alone, or whose small angle is forced by the input (O3, a small input angle), takes
+            /// its circumcentre, which halves it (review: such a needle under an area bound got off-centres, which only shave it) </summary>
+            bool OffCentre(int t, out Vector2d c)
+            {
+                c = default(Vector2d);
+                if (!offCentres || double.IsInfinity(halfCot) || !BadByAngle(t)) return false;
+                return OffCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), halfCot, out c);
+            }
+
+            /// <summary> cot(theta / 2) of an angle theta given by sin^2 theta, from square roots only (no Tan: its last bit may differ by
+            /// runtime): (1 + cos theta) / sin theta; infinite for 0 </summary>
+            internal static double HalfCot(double sin2) => sin2 > 0 ? (1 + Math.Sqrt(1 - sin2)) / Math.Sqrt(sin2) : double.PositiveInfinity;
+
+            /// <summary>
+            /// The off-centre of triangle abc (Ungor 2004): on the perpendicular bisector of the shortest edge pq, on the side of the
+            /// circumcentre, where the triangle of pq and the point has the angle bound theta at the point: |pq| cot(theta / 2) / 2 from the
+            /// midpoint of pq. False if the circumcentre is not farther than that (it is then the point to insert) or nothing can be
+            /// computed in doubles. Computed in the triangle's frame scaled by a power of two (<see cref="Local"/>): an input scaled by
+            /// 2^k gives the point scaled by 2^k, bit for bit
+            /// </summary>
+            internal static bool OffCentre(Vector2d a, Vector2d b, Vector2d c, double halfCot, out Vector2d point)
+            {
+                point = default(Vector2d);
+                var d1 = b - a; var d2 = c - a;
+                int ex = ScaleOf(d1.x, d1.y, d2.x, d2.y);
+                var p1 = ScaleB(d1, -ex); var p2 = ScaleB(d2, -ex);
+                double d = 2 * (p1.x * p2.y - p1.y * p2.x);
+                if (d == 0) return false;
+                double b2 = p1.LengthSquared, c2 = p2.LengthSquared;
+                var u = new Vector2d((p2.y * b2 - p1.y * c2) / d, (p1.x * c2 - p2.x * b2) / d);
+                // the shortest edge, opposite corner j (ties go to the first)
+                var corners = new[] { Vector2d.Zero, p1, p2 };
+                int j = 0; double best = double.MaxValue;
+                for (int i = 0; i < 3; ++i) {
+                    double l2 = (corners[(i + 2) % 3] - corners[(i + 1) % 3]).LengthSquared;
+                    if (l2 < best) { best = l2; j = i; }
+                }
+                var m = (corners[(j + 1) % 3] + corners[(j + 2) % 3]) * 0.5;
+                double off = Math.Sqrt(best) * 0.5 * halfCot, dist = (u - m).Length;
+                if (!(dist > off) || double.IsInfinity(dist)) return false;
+                var o = m + (u - m) * (off / dist);
+                point = new Vector2d(a.x + ExactPoint3.ScaleB(o.x, ex), a.y + ExactPoint3.ScaleB(o.y, ex));
+                return !double.IsNaN(point.x) && !double.IsNaN(point.y) && !double.IsInfinity(point.x) && !double.IsInfinity(point.y);
+            }
+
+            ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
-                if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
+                Vector2d oc = default(Vector2d);
+                bool off = tryOffCentre && OffCentre(t, out oc);
+                if (off) c = grid != null ? grid.Round(oc) : oc;
+                else if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
+                    splitCause = 1;
                     return SplitSegment(blocked);
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
@@ -834,6 +925,7 @@ namespace g3
                     for (int i = 1; i < encroached.Count; ++i) segments.Enqueue(Key(k.V[encroached[i]], k.V[Next(encroached[i])]));
                     long key = Key(k.V[first], k.V[Next(first)]);
                     triangles.Enqueue(t);
+                    splitCause = 2;
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
                     // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
@@ -841,12 +933,14 @@ namespace g3
                     if (unsplittable.Contains(key) && grid == null) exempt.Add(TriangleKey(t));
                     return null;
                 }
-                if (grid != null && ConstraintInPixel(at, c)) { exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
+                // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)
+                if (grid != null && ConstraintInPixel(at, c)) { if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
                 int before = k.VertexCount;
                 if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
                 k.InsertPoint(c.x, c.y);
-                if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); if (grid != null) ++GridBlocked; return null; }
+                if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
+                if (CountsForBenchmarks != null) ++CountsForBenchmarks[off ? 4 : 3];
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
                 Collect();
                 return null;
@@ -959,6 +1053,7 @@ namespace g3
                 int q = k.InsertPoint(p.x, p.y);
                 if (k.VertexCount > before) {
                     ++inserted;
+                    if (CountsForBenchmarks != null) ++CountsForBenchmarks[splitCause];
                     if (b.heights != null) b.SetHeight(q, u, w);
                 } else if (grid == null || q == u || q == w) unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
                 var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();

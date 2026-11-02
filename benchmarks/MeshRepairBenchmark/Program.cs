@@ -313,6 +313,8 @@ class Program
             swStats.Restart();
             Stats(result, r, "after");
             r["stats_after_ms"] = swStats.ElapsedMilliseconds;
+            // (for before/after comparisons of optimizations: the same hash, the same result bit for bit)
+            r["after_hash"] = Hash(result);
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
@@ -494,6 +496,8 @@ class Program
             var j = JsonDocument.Parse(line.Split('\n').Last()).RootElement;
             r["wrap_status"] = j.GetProperty("ok").GetBoolean() ? "Success" : "Failed";
             if (j.TryGetProperty("ms", out var ms)) r["wrap_ms"] = ms.GetInt64();
+            if (j.TryGetProperty("alpha", out var a)) r["wrap_alpha"] = a.GetDouble();
+            if (j.TryGetProperty("offset", out var o)) r["wrap_offset"] = o.GetDouble();
         }
         r["wrap_rel_alpha"] = relAlpha;
         r["wrap_rel_offset"] = relOffset;
@@ -597,6 +601,11 @@ class Program
                 r[k + "_converged"] = h.Converged;
             }
         }
+        // BENCH_FIDELITY=hd: the certified Hausdorff distances only (quick comparisons of the triangle quality)
+        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") == "hd") {
+            r["fidelity_ms"] = sw.ElapsedMilliseconds;
+            return;
+        }
         double missing, extra;
         // BENCH_FM_SEED: seed of the sampled measures (IoU, fm_*), to measure their sampling noise (noise_floor.py)
         int seed = int.Parse(Environment.GetEnvironmentVariable("BENCH_FM_SEED") ?? "1");
@@ -682,11 +691,13 @@ class Program
         // and with a max angle above 150 / 170 (analyze_wrap.py)
         double minAngle = 180, maxAngle = 0;
         int lt05 = 0, lt1 = 0, lt10 = 0, gt150 = 0, gt170 = 0;
+        var minAngles = new System.Collections.Generic.List<double>(m.TriangleCount);
         foreach (int tid in m.TriangleIndices()) {
             m.GetTriVertices(tid, ref vA, ref vB, ref vC);
             double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
             double lo = Math.Min(a0, Math.Min(a1, a2)), hi = Math.Max(a0, Math.Max(a1, a2));
             minAngle = Math.Min(minAngle, lo); maxAngle = Math.Max(maxAngle, hi);
+            minAngles.Add(lo);
             if (lo < 0.5) lt05++;
             if (lo < 1) lt1++;
             if (lo < 10) lt10++;
@@ -697,6 +708,9 @@ class Program
         if (m.TriangleCount > 0) {
             r[p + "_angle_min"] = Math.Round(minAngle, 4);
             r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+            // the 1 % worst min angle (the min angle of the triangle at the 1st percentile)
+            minAngles.Sort();
+            r[p + "_angle_p01"] = Math.Round(minAngles[(int)(0.01 * (minAngles.Count - 1))], 4);
         }
         r[p + "_angle_lt05"] = lt05;
         r[p + "_angle_lt1"] = lt1;
@@ -789,6 +803,22 @@ class Program
 
     // angle between u and v in degrees (atan2: accurate near 0 and 180)
     static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
+
+    // vertex ids and coordinate bits, triangle ids and corners (as BooleanComparison profile)
+    static string Hash(DMesh3 mesh)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (int vid in mesh.VertexIndices()) {
+            Vector3d v = mesh.GetVertex(vid);
+            sb.Append(vid).Append(':').Append(BitConverter.DoubleToInt64Bits(v.x)).Append(',')
+                .Append(BitConverter.DoubleToInt64Bits(v.y)).Append(',').Append(BitConverter.DoubleToInt64Bits(v.z)).Append(';');
+        }
+        foreach (int tid in mesh.TriangleIndices()) {
+            Index3i t = mesh.GetTriangle(tid);
+            sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
+        }
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+    }
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {

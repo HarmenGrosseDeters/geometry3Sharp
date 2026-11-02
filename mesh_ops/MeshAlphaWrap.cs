@@ -30,7 +30,8 @@ namespace gs
     ///     the floating-point distance tests);
     ///   - the vertices lie on the offset surface (up to rounding), so between them the result can come closer
     ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
-    ///     (locally up to about Offset + 2 Alpha where the manifold step moved cells inside).
+    ///     where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
+    ///     up to 8.8 (Offset + Alpha) without RefineNonManifold, 1.1 with it, on an 800 mesh Thingi10K sample).
     /// Alpha controls the detail: cavities and gaps narrower than about 2 * Alpha are not entered (they are
     /// wrapped over), and the result has triangles with a circumradius of at most about Alpha. Smaller Alpha =
     /// more detail, more triangles, more time (about 1 / Alpha^2). Offset keeps the result away from the input.
@@ -41,11 +42,13 @@ namespace gs
     /// point is the center of an empty ball larger than Alpha, unless a circumcenter on its dual edge is not finite and
     /// the edge is replaced by a long normal segment, see clamp_center; a rule 2 point lies that deep inside an empty
     /// circumsphere, see rule_projection). So a result triangle with a circumradius of at most Alpha has a min angle of
-    /// at least asin(Offset / (2 Alpha)) (0.95 degrees at the defaults, 2.9 degrees at Alpha = 10 Offset) and a max
-    /// angle of at most 180 degrees minus twice that. Larger triangles, without an angle bound (up to 179 degrees on
-    /// the Thingi10K wrap cases), come from the manifold step (outside cells moved inside), from rejected Steiner points
-    /// (Counts["rejected_points"]) and from PointLimitReached. Rule 2 points projected from the clamped dual edge
-    /// (Counts["projection_fallbacks"], none measured) have no separation bound.
+    /// at least asin(min(Offset, Alpha - Offset) / (2 Alpha)) = asin(Offset / (2 Alpha)) (0.95 degrees at the defaults, 2.9 degrees at Alpha = 10 Offset) and a max
+    /// angle of at most 180 degrees minus twice that. Larger triangles, without an angle bound, come from the manifold
+    /// step (outside cells moved inside, up to 179 degrees), from rejected Steiner points (Counts["rejected_points"]) and
+    /// from PointLimitReached. RefineNonManifold refines at the spots where the manifold step would move cells first, which
+    /// removes most of them (an 800 mesh Thingi10K sample at Alpha = 10 Offset: triangles below 0.5 degrees 28 -> 5, above
+    /// 170 degrees 327 -> 40). Rule 2 points projected from the clamped dual edge (Counts["projection_fallbacks"], none
+    /// measured) have no separation bound.
     ///
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
@@ -91,6 +94,22 @@ namespace gs
 
         /// <summary> stop refining after this many Steiner points (status PointLimitReached) </summary>
         public int MaxSteinerPoints = 2000000;
+        /// <summary>
+        /// Refine at the non-manifold spots of the carved surface before the manifold step (default true): the outside
+        /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
+        /// continues (up to 10 rounds). The facets of moved cells were never gates (circumradius above Alpha, caps up to
+        /// 179 degrees, the result up to several Offset + Alpha from the input); with the refinement most spots become
+        /// manifold by carving, which keeps the bounds of the class doc there; the spots that remain are made manifold as
+        /// before, without a bound. Costs about 20 % more time at Alpha = 10 Offset. The extra points count against
+        /// MaxSteinerPoints: a wrap that reaches it here ends with PointLimitReached (the guarantees of that status), where
+        /// it had Success without the refinement. A rule 1 point rejected during the refinement fails the result check as
+        /// any other (Failed, then the retry with the other box).
+        /// false: the manifold step alone, as before (the order of its candidates differs only where the old score rounded
+        /// two volumes to the same value). Default on: owner decision 2026-11-02, with the time cost above.
+        /// </summary>
+        public bool RefineNonManifold = true;
+        const int MaxNonManifoldRounds = 10;
+
         /// <summary> make the result 2-manifold (otherwise it can have non-manifold edges and vertices, which DMesh3 rejects; for tests) </summary>
         internal bool MakeManifold = true;
         /// <summary> if the result misses the guarantees, wrap once more with a different box margin (off: for tests of the result check) </summary>
@@ -183,10 +202,17 @@ namespace gs
                 return false;
             end_phase("setup");
 
+            reset_refinement_counts();
             Status = refine_and_carve();
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
+            if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success) {
+                Status = refine_non_manifold();
+                end_phase("wrap.pinches");
+                if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
+                    return false;
+            }
 
             remove_pockets();
             WrapStatus manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
@@ -322,15 +348,21 @@ namespace gs
 
         // ---- refinement and carving ----
 
+        // (totals over all calls of refine_and_carve in one Compute(): the pinch refinement continues the refinement)
         long ticksIntersection, ticksTouch, ticksInsert, projectionFallbacks;
+        long rule1, rule2, carved, rejected, rejected1, rejected2, popped;
+        int steiner;
+        readonly List<int> removedCells = new List<int>(), addedCells = new List<int>();
+
+        void reset_refinement_counts()
+        {
+            ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
+            rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
+            steiner = 0;
+        }
 
         WrapStatus refine_and_carve()
         {
-            ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
-            var removed = new List<int>();
-            var added = new List<int>();
-            long rule1 = 0, rule2 = 0, carved = 0, rejected = 0, rejected1 = 0, rejected2 = 0, popped = 0;
-            int steiner = 0;
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
                 if ((++popped & 1023) == 0 && cancelled())
@@ -369,27 +401,13 @@ namespace gs
                         status = WrapStatus.PointLimitReached;
                         break;
                     }
-                    removed.Clear(); added.Clear();
-                    // (no separation needed for correctness; tiny separations would only make slivers)
-                    long t2 = Stopwatch.GetTimestamp();
                     // (rejected: too close to a vertex, or outside the box; see the result check)
-                    var res = RejectInsertF != null && RejectInsertF(which) ? Delaunay3.InsertResult.Failed
-                        : dt.Insert(steinerPoint, c, 1e-9 * alpha, out int vid, removed, added);
-                    ticksInsert += Stopwatch.GetTimestamp() - t2;
-                    if (res != Delaunay3.InsertResult.Inserted) {
+                    if (!insert_steiner(steinerPoint, c, which)) {
                         rejected++;
                         if (which == 1) rejected1++; else rejected2++;
                         continue;       // keep the cell: the facet stays on the result
                     }
-                    steiner++;
                     if (which == 1) rule1++; else rule2++;
-                    vertexDistance.Add(offset);
-                    ensure_labels();
-                    foreach (int nc in added)
-                        label[nc] = Inside;
-                    foreach (int nc in added)
-                        for (int j = 0; j < 4; ++j)
-                            if (label_of(dt.Neighbour(nc, j)) == Outside) push_gate(nc, j);
                     continue;
                 }
                 // carve
@@ -420,6 +438,29 @@ namespace gs
             PhaseMilliseconds["wrap.touch"] = ticksTouch * 1000 / Stopwatch.Frequency;
             PhaseMilliseconds["wrap.insert"] = ticksInsert * 1000 / Stopwatch.Frequency;
             return status;
+        }
+
+        // inserts a Steiner point on the offset surface (from cell hint); its new cells are inside, and their facets
+        // towards outside cells are queued as gates. False if the triangulation rejects it (unchanged then)
+        bool insert_steiner(Vector3d p, int hint, int which)
+        {
+            removedCells.Clear(); addedCells.Clear();
+            // (no separation needed for correctness; tiny separations would only make slivers)
+            long t2 = Stopwatch.GetTimestamp();
+            var res = RejectInsertF != null && RejectInsertF(which) ? Delaunay3.InsertResult.Failed
+                : dt.Insert(p, hint, 1e-9 * alpha, out int vid, removedCells, addedCells);
+            ticksInsert += Stopwatch.GetTimestamp() - t2;
+            if (res != Delaunay3.InsertResult.Inserted)
+                return false;
+            steiner++;
+            vertexDistance.Add(offset);
+            ensure_labels();
+            foreach (int nc in addedCells)
+                label[nc] = Inside;
+            foreach (int nc in addedCells)
+                for (int j = 0; j < 4; ++j)
+                    if (label_of(dt.Neighbour(nc, j)) == Outside) push_gate(nc, j);
+            return true;
         }
 
         void push_gate(int c, int i)
@@ -581,6 +622,122 @@ namespace gs
 
 
         // ---- post-processing ----
+
+        // ---- refinement at non-manifold spots ----
+
+        // The paper's carving gives an immersed, not an embedded, surface: it can pinch at edges and vertices (Section 8).
+        // The manifold step (make_manifold) moves outside cells inside until the surface is a 2-manifold, which puts
+        // their facets on the result. These were never gates: circumradius above alpha (they were carved through such
+        // facets), so no angle bound, and the result moves farther out (MeshRepair-400 wrap cases and an 800 mesh
+        // Thingi10K sample: every result triangle below the angle bound came from them). Here, each outside cell the
+        // manifold step would move inside (found by a trial run on a copy of the labels) gets a Steiner point on the offset
+        // surface, and the refinement continues; its new cells are carved through gates as usual. Most pinches disappear
+        // within a few rounds; the manifold step handles the rest. The points keep the separation of the class doc:
+        //   - the projection of the cell's circumcenter onto the offset surface, if it lies at least
+        //     min(offset, alpha - offset) inside the circumsphere (depth in floating point, inside exactly);
+        //   - otherwise the first crossing of the offset surface on the dual edge of a facet towards an inside cell, if that
+        //     facet's circumradius is at least that much: the point is the center of an empty ball through the facet's
+        //     vertices, at least as large as the facet's circumcircle.
+        // Terminates: at most MaxNonManifoldRounds rounds, each inserts at least one point or ends the loop.
+        WrapStatus refine_non_manifold()
+        {
+            long rounds = 0, points = 0, cells = 0, skipped = 0;
+            var pinch = new List<int>();
+            var stamps = new List<int>();
+            WrapStatus status = WrapStatus.Success;
+            for (int round = 0; round < MaxNonManifoldRounds && status == WrapStatus.Success; ++round) {
+                if (cancelled())
+                    return WrapStatus.Cancelled;
+                WrapStatus trial = cells_moved_by_manifold_step(pinch);
+                if (trial == WrapStatus.Cancelled)
+                    return trial;
+                // (a failing manifold step fails again after the refinement and reports it)
+                if (trial != WrapStatus.Success || pinch.Count == 0)
+                    break;
+                cells += pinch.Count;
+                stamps.Clear();
+                foreach (int c in pinch)
+                    stamps.Add(dt.CellStamp(c));
+                int inserted = 0;
+                for (int k = 0; k < pinch.Count; ++k) {
+                    int c = pinch[k];
+                    // (an earlier point of this round can have replaced the cell, or carving relabelled it)
+                    if (!dt.IsCell(c) || dt.CellStamp(c) != stamps[k] || label[c] != Outside)
+                        continue;
+                    if (steiner >= MaxSteinerPoints) {
+                        status = WrapStatus.PointLimitReached;
+                        break;
+                    }
+                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3))
+                        inserted++;
+                    else
+                        skipped++;
+                }
+                points += inserted;
+                if (inserted == 0)
+                    break;
+                rounds++;
+                WrapStatus refined = refine_and_carve();
+                if (refined != WrapStatus.Success)
+                    status = refined;
+                if (status != WrapStatus.Success)
+                    break;
+            }
+            Counts["pinch_rounds"] = rounds;
+            Counts["pinch_points"] = points;
+            Counts["pinch_cells"] = cells;
+            // cells without a qualifying point (or whose point the triangulation rejected): left to the manifold step
+            Counts["pinch_skipped"] = skipped;
+            return status;
+        }
+
+        // the outside cells that remove_pockets and make_manifold would move inside, without the pockets (enclosed outside
+        // regions, whose facets do not reach the result); the labels and counts are restored
+        WrapStatus cells_moved_by_manifold_step(List<int> moved)
+        {
+            moved.Clear();
+            int n = dt.MaxCellID;
+            byte[] saved = new byte[n];
+            Array.Copy(label, saved, n);
+            var savedCounts = new Dictionary<string, long>(Counts);
+            remove_pockets();
+            byte[] afterPockets = new byte[n];
+            Array.Copy(label, afterPockets, n);
+            WrapStatus status = make_manifold();
+            foreach (int c in dt.CellIndices())
+                if (afterPockets[c] == Outside && label[c] == Inside) moved.Add(c);
+            Array.Copy(saved, label, n);
+            Counts.Clear();
+            foreach (var kv in savedCounts)
+                Counts[kv.Key] = kv.Value;
+            return status;
+        }
+
+        // a Steiner point for the outside cell c at a pinch (see refine_non_manifold), false if neither candidate qualifies
+        bool pinch_point(int c, out Vector3d p)
+        {
+            double depth = Math.Min(offset, alpha - offset);
+            Vector3d cc = circumcenter(c);
+            if (MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)) {
+                double r = cc.Distance(dt.GetVertex(dt.CellVertex(c, 0)));
+                if (project_to_offset(c, 0, cc, out p) && cc.Distance(p) <= r - depth && dt.InCircumsphere(c, p) > 0)
+                    return true;
+            }
+            for (int j = 0; j < 4; ++j) {
+                int m = dt.Neighbour(c, j);
+                if (m < 0 || label[m] != Inside)
+                    continue;
+                int f = dt.FacetTo(m, c);
+                if (!(facet_radius(m, f) >= depth))
+                    continue;
+                dual_edge(m, f, out Vector3d from, out Vector3d to);
+                if (rule_intersection(from, to, out p))
+                    return true;
+            }
+            p = Vector3d.Zero;
+            return false;
+        }
+
 
         // outside cells not connected to the box boundary (enclosed by an insertion) become inside
         int remove_pockets(List<int> flipped = null)
@@ -767,7 +924,8 @@ namespace gs
                 // joins inside components, then small cells and cells without a box corner (which would put
                 // the corner on the result)
                 int best = -1;
-                double bestScore = double.MaxValue;
+                bool bestCorner = false, bestJoins = false;
+                double bestVolume = 0;
                 for (int k = 0; k < n; ++k) {
                     int c = local[k];
                     if (label[c] != Outside) continue;
@@ -784,8 +942,10 @@ namespace gs
                     if (touches == 0) continue;
                     bool corner = false;
                     for (int i = 0; i < 4; ++i) if (dt.CellVertex(c, i) < 8) corner = true;
-                    double score = (corner ? 4 : 0) + (joins == 1 ? 0 : 2) + dt.CellVolume(c) / (1 + dt.CellVolume(c));
-                    if (score < bestScore) { bestScore = score; best = k; }
+                    double volume = dt.CellVolume(c);
+                    if (best < 0 || preferred_flip(corner, joins == 1, volume, bestCorner, bestJoins, bestVolume)) {
+                        best = k; bestCorner = corner; bestJoins = joins == 1; bestVolume = volume;
+                    }
                 }
                 if (best < 0)
                     return flipped;
@@ -794,6 +954,18 @@ namespace gs
                 flipped++;
             }
             return flipped;
+        }
+
+        /// <summary>
+        /// The order of the manifold step's candidates for a move inside (a before b): no box corner first, then one that
+        /// joins inside components, then the smaller volume. Compared as a key, not as a sum with volume / (1 + volume),
+        /// which rounded to 1 for volumes above about 2^53 (large coordinates) and then tied, and depended on the unit
+        /// </summary>
+        internal static bool preferred_flip(bool cornerA, bool joinsA, double volumeA, bool cornerB, bool joinsB, double volumeB)
+        {
+            if (cornerA != cornerB) return !cornerA;
+            if (joinsA != joinsB) return joinsA;
+            return volumeA < volumeB;
         }
 
         // connected components of equal labels in the star (local), and whether they touch the box boundary
