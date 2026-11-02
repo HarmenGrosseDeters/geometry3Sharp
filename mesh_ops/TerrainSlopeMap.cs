@@ -677,10 +677,11 @@ namespace gs
         }
 
         /// <summary>
-        /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there (rounded
-        /// to nearest), faces triangulated at their exact corners; group id = piece; z negated for fill
+        /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there minus
+        /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
+        /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -705,7 +706,7 @@ namespace gs
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
-                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y));
+                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y, lower));
                 o = mesh.AppendVertex(new Vector3d(r.x, r.y, fill ? -z : z));
                 outId[r] = o;
                 OutLabels.Add(labelsAt[r]);
@@ -727,16 +728,9 @@ namespace gs
                     at(p, hBar[h]); at(q, hBar[h]);
                 }
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
-            foreach (int f in faces) {
-                int group = owner[fLabel[f]];
-                var verts = cycle(f).Select(h => hOrig[h]).ToList();
-                foreach (Index3i t in triangulate(verts)) {
-                    int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
-                    if (a == b || b == c || c == a) continue;
-                    int tid = mesh.AppendTriangle(a, b, c, group);
-                    if (tid < 0) throw new NonManifoldRealization();
-                }
-            }
+            DroppedTriangles = append_faces(mesh,
+                faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
+                triangulate, outVertex);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -806,8 +800,191 @@ namespace gs
             public NonManifoldRealization() : base("SlopeMap: non-manifold realization") { }
         }
 
+        // The faces (group, corners as kernel vertices) triangulated at their exact corners and appended with their
+        // rounded vertices (outVertex). A face narrower than the rounding, eg between two creases a few ulps apart, has
+        // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
+        // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
+        internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex)
+        {
+            var dropped = new List<Index3i>();
+            foreach (var face in faces) {
+                foreach (Index3i t in triangulate(face.Value)) {
+                    int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
+                    if (a == b || b == c || c == a) continue;
+                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                        dropped.Add(new Index3i(a, b, c));
+                        continue;
+                    }
+                    int tid = mesh.AppendTriangle(a, b, c, face.Key);
+                    if (tid < 0) throw new NonManifoldRealization();
+                }
+            }
+            stitch(mesh, dropped);
+            return dropped.Count;
+        }
+
+        // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of
+        // the triangle on the other side: that triangle is split at m, which lies exactly on the edge, so the mesh stays
+        // conforming (no T-junction, no crack). Repeated until nothing changes (slivers next to each other).
+        internal static void stitch(DMesh3 mesh, List<Index3i> dropped)
+        {
+            for (bool again = dropped.Count > 0; again;) {
+                again = false;
+                foreach (Index3i d in dropped) {
+                    int[] v = { d.a, d.b, d.c };
+                    // the middle corner: between the other two along their line
+                    for (int k = 0; k < 3; ++k) {
+                        int m = v[k], e0 = v[(k + 1) % 3], e1 = v[(k + 2) % 3];
+                        Vector2d pm = mesh.GetVertex(m).xy, p0 = mesh.GetVertex(e0).xy, p1 = mesh.GetVertex(e1).xy;
+                        if ((pm - p0).Dot(p1 - p0) <= 0 || (pm - p1).Dot(p0 - p1) <= 0) continue;
+                        int e = mesh.FindEdge(e0, e1);
+                        if (e < 0) break;
+                        Index2i et = mesh.GetEdgeT(e);
+                        if (et.b >= 0) break;
+                        int t = et.a;
+                        Index3i tv = mesh.GetTriangle(t);
+                        // the triangle runs e0 -> e1 or e1 -> e0; x is its third vertex
+                        int x = tv.a != e0 && tv.a != e1 ? tv.a : (tv.b != e0 && tv.b != e1 ? tv.b : tv.c);
+                        bool forward = (tv.a == e0 && tv.b == e1) || (tv.b == e0 && tv.c == e1) || (tv.c == e0 && tv.a == e1);
+                        int g = mesh.GetTriangleGroup(t);
+                        mesh.RemoveTriangle(t, false, false);
+                        // (an edge m x that exists already would leave a hole: non-manifold, as for any other triangle)
+                        bool ok = forward ? mesh.AppendTriangle(e0, m, x, g) >= 0 && mesh.AppendTriangle(m, e1, x, g) >= 0
+                                          : mesh.AppendTriangle(e1, m, x, g) >= 0 && mesh.AppendTriangle(m, e0, x, g) >= 0;
+                        if (ok == false) throw new NonManifoldRealization();
+                        again = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary> Realize: triangles dropped because their rounded corners are collinear </summary>
+        public int DroppedTriangles;
+
         /// <summary> Realize: the positions merged into another one (0 without a merge radius) </summary>
         public int MergedCount;
+
+        // the triangles of 'remove' that stay (those without 'keep') with 'keep' in its place: counter-clockwise (exact)
+        // and not thinner than half the collapse threshold minLength unless they were before (a collapse next to
+        // collinear vertices can
+        // otherwise leave a needle whose slope no margin covers)
+        static bool collapse_keeps_shapes(DMesh3 mesh, int keep, int remove, double minLength)
+        {
+            Vector2d k = mesh.GetVertex(keep).xy;
+            foreach (int t in mesh.VtxTrianglesItr(remove)) {
+                Index3i tv = mesh.GetTriangle(t);
+                if (tv.a == keep || tv.b == keep || tv.c == keep) continue;
+                Vector2d a = mesh.GetVertex(tv.a).xy, b = mesh.GetVertex(tv.b).xy, c = mesh.GetVertex(tv.c).xy;
+                double before = altitude(a, b, c);
+                if (tv.a == remove) a = k; else if (tv.b == remove) b = k; else c = k;
+                if (ExactPredicates.Orient2d(a, b, c) <= 0) return false;
+                double after = altitude(a, b, c);
+                if (after < 0.5 * minLength && after < before) return false;
+            }
+            return true;
+        }
+
+        static double altitude(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double area2 = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            double l = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
+            return l > 0 ? area2 / l : 0;
+        }
+
+        /// <summary>
+        /// Repair of needles: a triangle thinner than minAltitude has its longest edge flipped if the two new triangles
+        /// are proper (the old diagonal's ends strictly on both sides of the new one, exact; counter-clockwise when the
+        /// old ones are, and the exact check of every triangle afterwards catches any other) and the thinner of them is thicker than the thinner of the two old ones; both
+        /// take the piece (group) of the thicker old triangle. A face of the map narrower than the rounding (two creases
+        /// that meet at an angle of 1e-12, from nearly coplanar tangent planes of neighbouring apexes) can only be
+        /// triangulated into needles; across its sides the flips remove them. Vertices do not move; the exact check of
+        /// every triangle decides afterwards. Each triangle carries a bound of its deviation from the realization (0 for
+        /// the realized ones): a flip changes the surface most at the crossing X of the two diagonals, by
+        /// |z_ab(X) - z_cd(X)|, so the new triangles get the larger bound of the old two plus that (and the rounding of
+        /// its evaluation); a flip whose bound would exceed maxDeviation is not made (the share reserved for it,
+        /// TerrainSlopeDesign.MergeShare and RepairLambda). The new
+        /// triangles are checked against the thicker old triangle's piece; reaching less than w into a neighbouring
+        /// piece, they may be steeper than that piece's spec allows only within the reserved shares. Returns the number
+        /// of flips.
+        /// </summary>
+        public static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation)
+        {
+            int count = 0;
+            var dev = new Dictionary<int, double>();
+            Func<int, double> devOf = (x) => { double v; return dev.TryGetValue(x, out v) ? v : 0; };
+            for (int pass = 0; pass < 64; ++pass) {
+                int flips = 0;
+                var needles = mesh.TriangleIndices().Where(t => tri_altitude(mesh, t) < minAltitude).ToList();
+                needles.Sort();
+                foreach (int t in needles) {
+                    if (mesh.IsTriangle(t) == false || tri_altitude(mesh, t) >= minAltitude) continue;
+                    Index3i tv = mesh.GetTriangle(t);
+                    Index3i te = mesh.GetTriEdges(t);
+                    // the longest edge
+                    int best = -1;
+                    double bl = -1;
+                    for (int j = 0; j < 3; ++j) {
+                        double l = mesh.GetVertex(tv[j]).xy.Distance(mesh.GetVertex(tv[(j + 1) % 3]).xy);
+                        if (l > bl) { bl = l; best = j; }
+                    }
+                    int e = te[best];
+                    if (mesh.IsBoundaryEdge(e)) continue;
+                    Index2i et = mesh.GetEdgeT(e);
+                    int t2 = et.a == t ? et.b : et.a;
+                    Index2i ev = mesh.GetEdgeV(e);
+                    Index2i ov = mesh.GetEdgeOpposingV(e);
+                    Vector2d a = mesh.GetVertex(ev.a).xy, b = mesh.GetVertex(ev.b).xy, c = mesh.GetVertex(ov.a).xy, d = mesh.GetVertex(ov.b).xy;
+                    // the new triangles (c, d, b) and (d, c, a) in some orientation: both must be strictly on one side
+                    int o1 = ExactPredicates.Orient2d(c, d, a), o2 = ExactPredicates.Orient2d(c, d, b);
+                    if (o1 == 0 || o2 == 0 || o1 == o2) continue;
+                    double before = Math.Min(tri_altitude(mesh, t), tri_altitude(mesh, t2));
+                    double after = Math.Min(altitude(c, d, a), altitude(c, d, b));
+                    if (!(after > before)) continue;
+                    double change = diagonal_change(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), mesh.GetVertex(ov.a), mesh.GetVertex(ov.b));
+                    double bound = ExactInterval.Up(Math.Max(devOf(t), devOf(t2)) + change);    // (rounded up: an upper bound)
+                    if (!(bound <= maxDeviation)) continue;
+                    int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
+                    DMesh3.EdgeFlipInfo info;
+                    if (mesh.FlipEdge(e, out info) != MeshResult.Ok) continue;
+                    mesh.SetTriangleGroup(info.t0, group);
+                    mesh.SetTriangleGroup(info.t1, group);
+                    dev[info.t0] = bound; dev[info.t1] = bound;
+                    flips++;
+                }
+                count += flips;
+                if (flips == 0) break;
+            }
+            return count;
+        }
+
+        // |z on ab - z on cd| at the crossing of the diagonals ab and cd of a convex quad (an upper bound of the change
+        // of the surface by the flip), exact and rounded up: in doubles the crossing of nearly parallel diagonals (the
+        // case of two needles on one long edge) is off by eps / sin of their angle, far more than ulps of z.
+        // z1 - z2 = N / den with den = u x w, N = (a.z - c.z) den + (r x w)(b.z - a.z) - (r x u)(d.z - c.z)
+        internal static double diagonal_change(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            Func<double, ExactDyadic> E = ExactDyadic.Of;
+            if (MathUtil.IsFinite(a.x + a.y + a.z + b.x + b.y + b.z + c.x + c.y + c.z + d.x + d.y + d.z) == false)
+                return double.MaxValue;
+            ExactDyadic ux = E(b.x) - E(a.x), uy = E(b.y) - E(a.y), wx = E(d.x) - E(c.x), wy = E(d.y) - E(c.y);
+            ExactDyadic rx = E(c.x) - E(a.x), ry = E(c.y) - E(a.y);
+            ExactDyadic den = ux * wy - uy * wx;
+            if (den.Sign == 0) return double.MaxValue;
+            ExactDyadic n = (E(a.z) - E(c.z)) * den + (rx * wy - ry * wx) * (E(b.z) - E(a.z)) - (rx * uy - ry * ux) * (E(d.z) - E(c.z));
+            if (n.Sign == 0) return 0;
+            double q = Math.Abs(ExactDyadic.Quotient(n, den));
+            // (rounded to nearest: one step up is above the exact value)
+            double ch = ExactInterval.Up(q);
+            return MathUtil.IsFinite(ch) ? ch : double.MaxValue;
+        }
+
+        static double tri_altitude(DMesh3 mesh, int t)
+        {
+            Index3i tv = mesh.GetTriangle(t);
+            return altitude(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy);
+        }
 
         /// <summary>
         /// Repair (TERRAIN.md 5.4): collapse the edges shorter than minLength, shortest first, onto the end whose planes
@@ -829,6 +1006,7 @@ namespace gs
                         int keep = pair.a, remove = pair.b;
                         if (labels[remove].All(l => labels[keep].Contains(l)) == false) continue;
                         if (onBarrier[remove] && onBarrier[keep] == false) continue;
+                        if (collapse_keeps_shapes(mesh, keep, remove, minLength) == false) continue;
                         DMesh3.EdgeCollapseInfo info;
                         Vector3d kp = mesh.GetVertex(keep);
                         if (mesh.CollapseEdge(keep, remove, out info) == MeshResult.Ok) {

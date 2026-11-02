@@ -372,8 +372,13 @@ class Program
         int n = (int)ArgD("n", 24);
         double r = ArgD("r", 200), h = ArgD("h", 60), tol = ArgD("tol", 0.01), ratio = ArgD("ratio", 1);
         Vector3d c = Arg("coords", "utm") == "utm" ? new Vector3d(327000.25, 5642000.5, 80) : new Vector3d(0, 0, 80);
+        // (cx, cy, cz: the toe's centre and height, eg on the Hambach DGM with terrain=dgm)
+        c = new Vector3d(ArgD("cx", c.x), ArgD("cy", c.y), ArgD("cz", c.z));
         var pts = new List<Vector3d>();
-        if (kind == "lshape") {
+        if (kind == "edge") {
+            // one open toe edge of length 2 r along x, the slope on its left (+y)
+            pts.Add(c + new Vector3d(-r, 0, 0)); pts.Add(c + new Vector3d(r, 0, 0));
+        } else if (kind == "lshape") {
             foreach (var p in new[] { (0.0, 0.0), (2.0, 0.0), (2.0, 0.6), (0.6, 0.6), (0.6, 2.0), (0.0, 2.0) }) pts.Add(c + new Vector3d(r * p.Item1, r * p.Item2, 0));
         } else {
             for (int i = 0; i < n; ++i) {
@@ -382,10 +387,39 @@ class Program
                 pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), z));
             }
         }
-        var toe = SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+        var toe = kind == "edge" ? SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(ratio))
+                                 : SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
         var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
         // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
         // the catch lines and (composite=1) the composite terrain
+        if (Arg("terrain", "none") == "dgm") {
+            // terrain=dgm (Hambach, fetch_data.py): the grid 'grid' (default dgm2022) around the toe, out to 'reach'
+            // metres, every 'tstride'-th node
+            var sw0 = Stopwatch.StartNew();
+            Grid g = Grid.Load(System.IO.Path.Combine(dataDir, Arg("grid", "dgm2022")));
+            double reach = ArgD("reach", 400);
+            int st = (int)ArgD("tstride", 2);
+            var box = new AxisAlignedBox2d(pts[0].xy, pts[0].xy);
+            foreach (var p in pts) box.Contain(p.xy);
+            box.Expand(reach);
+            int i0 = Math.Max(0, (int)Math.Ceiling((box.Min.x - g.X0) / g.Dx)), i1 = Math.Min(g.NX - 1, (int)Math.Floor((box.Max.x - g.X0) / g.Dx));
+            int j0 = Math.Max(0, (int)Math.Ceiling((box.Min.y - g.Y0) / g.Dx)), j1 = Math.Min(g.NY - 1, (int)Math.Floor((box.Max.y - g.Y0) / g.Dx));
+            int nx = (i1 - i0) / st, ny = (j1 - j0) / st;
+            var terrain = new DMesh3();
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i)
+                    terrain.AppendVertex(new Vector3d(g.X(i0 + i * st), g.Y(j0 + j * st), g[i0 + i * st, j0 + j * st]));
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    int v = j * (nx + 1) + i;
+                    terrain.AppendTriangle(v, v + 1, v + nx + 2); terrain.AppendTriangle(v, v + nx + 2, v + nx + 1);
+                }
+            d.Terrain = terrain; d.HeightLimit = double.NaN;
+            d.BuildComposite = ArgD("composite", 1) != 0;
+            R["terrain_tris"] = terrain.TriangleCount; R["terrain_load_s"] = Secs(sw0);
+            if (ArgD("time_terrain_check", 0) != 0) { TerrainVolumeDifference.XYOverlaps(terrain); R["terrain_xyoverlaps_s"] = Secs(sw0); }
+            R["terrain_zmin"] = terrain.Vertices().Min(v => v.z); R["terrain_zmax"] = terrain.Vertices().Max(v => v.z);
+        }
         if (Arg("terrain", "none") == "wave") {
             double amp = ArgD("amp", 0.2 * h), spacing = ArgD("tgrid", 5), reach = (h + amp) * ratio * 1.2 + 2 * spacing;
             var box = new AxisAlignedBox2d(pts[0].xy, pts[0].xy);
