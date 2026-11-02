@@ -368,6 +368,7 @@ namespace gs
             }
 
 
+            flip_existing_base_edges();
             regionop.BackPropropagate();
             FillTriangles = regionop.CurrentBaseTriangles;
             FillVertices = regionop.CurrentBaseInteriorVertices().ToArray();
@@ -378,6 +379,43 @@ namespace gs
 
 
 
+
+
+        /// <summary>
+        /// An interior edge of the fill between two loop vertices that are already joined by an edge of the mesh outside
+        /// the fill (eg the hole a-b-c-d of a tetrahedron without two faces, whose diagonal a-c is an edge of the other
+        /// two) cannot be inserted: BackPropropagate splits it at its midpoint, and the fill then touches that existing
+        /// edge there (a self-intersection; pmp-library issue 181). Flip such edges to the other diagonal of their quad
+        /// where that one is new; Apply() then never needs the split for them.
+        /// </summary>
+        void flip_existing_base_edges()
+        {
+            DMesh3 baseMesh = regionop.BaseMesh;
+            bool flipped = true;
+            for (int pass = 0; pass < 10 && flipped; ++pass) {
+                flipped = false;
+                foreach (int eid in fillmesh.EdgeIndices().ToArray()) {
+                    if (fillmesh.IsEdge(eid) == false || fillmesh.IsBoundaryEdge(eid))
+                        continue;
+                    Index2i ev = fillmesh.GetEdgeV(eid);
+                    if (base_edge_exists(baseMesh, ev.a, ev.b) == false)
+                        continue;
+                    Index2i ov = fillmesh.GetEdgeOpposingV(eid);
+                    if (fillmesh.FindEdge(ov.a, ov.b) != DMesh3.InvalidID || base_edge_exists(baseMesh, ov.a, ov.b))
+                        continue;
+                    DMesh3.EdgeFlipInfo info;
+                    if (fillmesh.FlipEdge(eid, out info) == MeshResult.Ok)
+                        flipped = true;
+                }
+            }
+        }
+
+        // true if the fill vertices a, b are both vertices of the base mesh, joined there by an edge
+        bool base_edge_exists(DMesh3 baseMesh, int a, int b)
+        {
+            int base_a = regionop.Region.MapVertexToBaseMesh(a), base_b = regionop.Region.MapVertexToBaseMesh(b);
+            return base_a != DMesh3.InvalidID && base_b != DMesh3.InvalidID && baseMesh.FindEdge(base_a, base_b) != DMesh3.InvalidID;
+        }
 
 
         void remove_remaining_interior_verts()
