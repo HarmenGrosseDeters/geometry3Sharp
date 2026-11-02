@@ -92,7 +92,8 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    After 7b, in the same session (owner 2026-11-02): one bundled Reducer measurement, upper bounds only, from
    [design/RESEARCH_REDUCER_REMESHER.md](design/RESEARCH_REDUCER_REMESHER.md) (#286): `MaxDeviation` by speculative
    parallel certification (bit-identical) and an adaptive permission-grid accept filter; the self-intersection check
-   (73 % in `TriangleHashGrid.Query` on the wrap meshes) by one union-box query per collapse. Building needs the
+   (73 % in `TriangleHashGrid.Query` on the wrap meshes) by one union-box query per collapse. Owner 2026-11-02: the same union-box lever is measured for
+   `Remesher.PreventSelfIntersections` too (6-10x after #298; every other lever closed there). Building needs the
    owner's go. The research session reads the full texts now (hosts allowed by the owner).
    Also started 2026-11-02, above the session limit by owner exception: a medium **Remesher session** for the cost of
    `PreventSelfIntersections` (about 17x; levers: the coplanar 2D shortcut, unblocked since #249/#256, and a clearance
