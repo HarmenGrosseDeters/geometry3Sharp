@@ -27,6 +27,15 @@ namespace gs
         public List<Vector3d> Points = new List<Vector3d>();
         public bool Closed;
         public EndReasons StartReason, EndReason;
+        /// <summary>
+        /// per segment (from Points[i] to the next, the last one back to the start if Closed; TERRAIN.md 5.5): the
+        /// horizontal gradient |∇(S - T)| of the faces it crosses, the horizontal uncertainty of its position
+        /// (TerrainSlopeDesign: (Tolerance + TerrainVerticalUncertainty) / gradient + MinFeatureSize, a local linearized
+        /// estimate, not a proven bound), and whether the slope and the terrain coincide there (a tangential or planar
+        /// contact: the line is a convention of the exact rule, not a measurement)
+        /// </summary>
+        public List<double> Gradient = new List<double>(), Uncertainty = new List<double>();
+        public List<bool> Tangential = new List<bool>();
     }
 
     /// <summary>
@@ -90,6 +99,8 @@ namespace gs
         public readonly List<CatchLine> CatchLines = new List<CatchLine>();
         /// <summary> per catch line, the catch points (overlay edge keys) in order </summary>
         public readonly List<List<long>> CatchKeys = new List<List<long>>();
+        /// <summary> per catch line, the region face of each segment (as CatchLine.Gradient) </summary>
+        public readonly List<List<int>> CatchFaces = new List<List<int>>();
         /// <summary> the region touches the boundary of the terrain or the height limit: the slope does not daylight </summary>
         public bool NoDaylight;
         /// <summary> the region reaches the boundary of the slope surface at its height limit (the cap) </summary>
@@ -165,7 +176,7 @@ namespace gs
         public bool Compute()
         {
             // (a second call starts from scratch)
-            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear();
+            Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear(); CatchFaces.Clear(); facesAtVertex = null;
             containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
             NoDaylight = false; ReachedHeightLimit = false; NotHeightField = false; Problem = ""; PhaseSeconds.Clear();
             NearTerrain.Clear(); NearBox = AxisAlignedBox2d.Empty;
@@ -402,8 +413,11 @@ namespace gs
             // the links of the catch points through the region faces
             var links = new Dictionary<long, List<long>>();
             var order = new List<long>();
-            foreach (Face f in Faces) {
+            var segFace = new Dictionary<(long, long), int>();
+            for (int fi = 0; fi < Faces.Count; ++fi) {
+                Face f = Faces[fi];
                 if (f.Region == false || f.C0 == -1) continue;
+                segFace[(f.C0, f.C1)] = fi; segFace[(f.C1, f.C0)] = fi;
                 foreach (long c in new[] { f.C0, f.C1 }) {
                     List<long> l;
                     if (links.TryGetValue(c, out l) == false) { l = new List<long>(); links[c] = l; order.Add(c); }
@@ -437,11 +451,172 @@ namespace gs
                         if (links[cur].Count != 1) { Problem = "an open catch line ends inside the overlay"; return false; }
                     }
                     foreach (long k in keys) line.Points.Add(CatchPoint(k));
+                    var faces = new List<int>();
+                    int segs = closed ? keys.Count : keys.Count - 1;
+                    for (int i = 0; i < segs; ++i) faces.Add(segFace[(keys[i], keys[(i + 1) % keys.Count])]);
                     CatchLines.Add(line);
                     CatchKeys.Add(keys);
+                    CatchFaces.Add(faces);
                 }
             }
             return true;
+        }
+
+        // ---------------------------------------------------------------- volumes (TERRAIN.md 5.7)
+
+        /// <summary>
+        /// per piece (the group of the slope triangle): the volume between the terrain and the slope over the region (cut:
+        /// the terrain above the slope; fill: the slope above the terrain), its plan area and its area on the slope
+        /// surface. On each region face (a convex polygon, the XY intersection of its two triangles) the difference is
+        /// linear: split at 0 and integrated exactly in doubles (area times the mean of the corners, fans), relative to
+        /// the centre of the slope surface's box. Faces that the catch line crosses count with their part on the region
+        /// side.
+        /// </summary>
+        public void Integrate(int pieces, out double[] volume, out double[] planArea, out double[] slopeArea)
+        {
+            volume = new double[pieces]; planArea = new double[pieces]; slopeArea = new double[pieces];
+            var box = AxisAlignedBox2d.Empty;
+            foreach (Vector3d v in A.Vertices()) box.Contain(v.xy);
+            Vector2d o = box.Center;
+            var ta = new Vector2d[3]; var tb = new Vector2d[3];
+            foreach (Face f in Faces) {
+                if (f.Region == false) continue;
+                int piece = A.GetTriangleGroup(f.TA);
+                if (piece < 0 || piece >= pieces) continue;
+                Index3i av = A.GetTriangle(f.TA), bv = B.GetTriangle(f.TB);
+                Vector3d a0 = A.GetVertex(av.a), a1 = A.GetVertex(av.b), a2 = A.GetVertex(av.c);
+                Vector3d b0 = B.GetVertex(bv.a), b1 = B.GetVertex(bv.b), b2 = B.GetVertex(bv.c);
+                LinearZ s, t;
+                if (LinearZ.Of(a0, a1, a2, o, out s) == false || LinearZ.Of(b0, b1, b2, o, out t) == false) continue;
+                ta[0] = a0.xy - o; ta[1] = a1.xy - o; ta[2] = a2.xy - o;
+                tb[0] = b0.xy - o; tb[1] = b1.xy - o; tb[2] = b2.xy - o;
+                List<Vector2d> poly = clip_convex(ccw(ta), ccw(tb));
+                if (poly.Count < 3) continue;
+                // the region side: dir (T - S) > 0
+                var d = new List<double>(poly.Count);
+                foreach (Vector2d p in poly) d.Add(dir * (t.Z(p) - s.Z(p)));
+                var part = new List<Vector2d>(); var pd = new List<double>();
+                for (int i = 0; i < poly.Count; ++i) {
+                    int j = (i + 1) % poly.Count;
+                    if (d[i] >= 0) { part.Add(poly[i]); pd.Add(d[i]); }
+                    if ((d[i] > 0 && d[j] < 0) || (d[i] < 0 && d[j] > 0)) {
+                        double u = d[i] / (d[i] - d[j]);
+                        part.Add(poly[i] + u * (poly[j] - poly[i])); pd.Add(0);
+                    }
+                }
+                double ar = 0, integral = 0;
+                for (int i = 1; i + 1 < part.Count; ++i) {
+                    double tri = 0.5 * ((part[i].x - part[0].x) * (part[i + 1].y - part[0].y) - (part[i].y - part[0].y) * (part[i + 1].x - part[0].x));
+                    ar += tri;
+                    integral += tri * (pd[0] + pd[i] + pd[i + 1]) / 3;
+                }
+                volume[piece] += integral;
+                planArea[piece] += ar;
+                slopeArea[piece] += ar * Math.Sqrt(1 + s.Cx * s.Cx + s.Cy * s.Cy);
+            }
+        }
+
+        /// <summary>
+        /// a face's horizontal gradient |∇(S - T)| (doubles) and whether the two planes coincide (exact: every terrain
+        /// corner on the plane of the slope triangle)
+        /// </summary>
+        public void FaceGradient(int face, out double gradient, out bool coplanar)
+        {
+            face_gradient(face, out gradient, out coplanar);
+        }
+
+        /// <summary>
+        /// a catch-line segment on this face: its gradient, and whether it touches a planar contact. The segment's own
+        /// face cannot be planar (a region face has D &lt; 0 somewhere); a face where the slope and the terrain coincide
+        /// counts as no work (an exact 0), so the region ends at it, and the catch line runs along its border: a coplanar
+        /// face that shares an overlay vertex with the segment's face marks it (TERRAIN.md 5.5, TangentialContact)
+        /// </summary>
+        public void SegmentContact(int face, out double gradient, out bool tangential)
+        {
+            face_gradient(face, out gradient, out tangential);
+            if (tangential) return;
+            if (facesAtVertex == null) {
+                facesAtVertex = new Dictionary<long, List<int>>();
+                for (int fi = 0; fi < Faces.Count; ++fi)
+                    foreach (var oe in Faces[fi].Edges)
+                        foreach (long k in new[] { oe.P, oe.Q }) {
+                            List<int> l;
+                            if (facesAtVertex.TryGetValue(k, out l) == false) { l = new List<int>(); facesAtVertex[k] = l; }
+                            if (l.Contains(fi) == false) l.Add(fi);
+                        }
+            }
+            // (a neighbour across an edge or at a corner: the catch line may touch the contact at a corner only)
+            foreach (var oe in Faces[face].Edges)
+                foreach (long k in new[] { oe.P, oe.Q }) {
+                    List<int> l;
+                    if (facesAtVertex.TryGetValue(k, out l) == false) continue;
+                    foreach (int g in l) {
+                        if (g == face) continue;
+                        double gg; bool cp;
+                        face_gradient(g, out gg, out cp);
+                        if (cp) { tangential = true; return; }
+                    }
+                }
+        }
+
+        Dictionary<long, List<int>> facesAtVertex;
+
+        void face_gradient(int face, out double gradient, out bool coplanar)
+        {
+            Face f = Faces[face];
+            Index3i av = A.GetTriangle(f.TA), bv = B.GetTriangle(f.TB);
+            Vector3d a0 = A.GetVertex(av.a), a1 = A.GetVertex(av.b), a2 = A.GetVertex(av.c);
+            Vector3d b0 = B.GetVertex(bv.a), b1 = B.GetVertex(bv.b), b2 = B.GetVertex(bv.c);
+            coplanar = ExactPredicates.Orient3d(a0, a1, a2, b0) == 0 && ExactPredicates.Orient3d(a0, a1, a2, b1) == 0
+                    && ExactPredicates.Orient3d(a0, a1, a2, b2) == 0;
+            LinearZ s, t;
+            if (LinearZ.Of(a0, a1, a2, a0.xy, out s) == false || LinearZ.Of(b0, b1, b2, a0.xy, out t) == false) { gradient = 0; return; }
+            double gx = s.Cx - t.Cx, gy = s.Cy - t.Cy;
+            gradient = coplanar ? 0 : Math.Sqrt(gx * gx + gy * gy);
+        }
+
+        /// <summary> z = C0 + Cx x + Cy y of the plane through three points, in coordinates relative to an origin </summary>
+        internal struct LinearZ
+        {
+            public double C0, Cx, Cy;
+            public double Z(Vector2d p) { return C0 + Cx * p.x + Cy * p.y; }
+            public static bool Of(Vector3d a, Vector3d b, Vector3d c, Vector2d origin, out LinearZ z)
+            {
+                z = new LinearZ();
+                Vector2d pa = a.xy - origin, pb = b.xy - origin, pc = c.xy - origin;
+                double ux = pb.x - pa.x, uy = pb.y - pa.y, uz = b.z - a.z, vx = pc.x - pa.x, vy = pc.y - pa.y, vz = c.z - a.z;
+                double nz = ux * vy - uy * vx;
+                if (nz == 0) return false;
+                double nx = uy * vz - uz * vy, ny = uz * vx - ux * vz;
+                z.Cx = -nx / nz; z.Cy = -ny / nz;
+                z.C0 = a.z - z.Cx * pa.x - z.Cy * pa.y;
+                return true;
+            }
+        }
+
+        static Vector2d[] ccw(Vector2d[] t)
+        {
+            double cr = (t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[1].y - t[0].y) * (t[2].x - t[0].x);
+            return cr >= 0 ? new[] { t[0], t[1], t[2] } : new[] { t[0], t[2], t[1] };
+        }
+
+        // the intersection of two counter-clockwise convex polygons (Sutherland-Hodgman, approximate)
+        static List<Vector2d> clip_convex(Vector2d[] subject, Vector2d[] clipper)
+        {
+            var poly = new List<Vector2d>(subject);
+            for (int e = 0; e < clipper.Length && poly.Count > 0; ++e) {
+                Vector2d c0 = clipper[e], c1 = clipper[(e + 1) % clipper.Length];
+                Func<Vector2d, double> side = (p) => (c1.x - c0.x) * (p.y - c0.y) - (c1.y - c0.y) * (p.x - c0.x);
+                var next = new List<Vector2d>(poly.Count + 2);
+                for (int i = 0; i < poly.Count; ++i) {
+                    Vector2d p = poly[i], q = poly[(i + 1) % poly.Count];
+                    double sp = side(p), sq = side(q);
+                    if (sp >= 0) next.Add(p);
+                    if ((sp > 0 && sq < 0) || (sp < 0 && sq > 0)) next.Add(p + (sp / (sp - sq)) * (q - p));
+                }
+                poly = next;
+            }
+            return poly;
         }
 
         // ---------------------------------------------------------------- positions (approximate; 1c reports their accuracy)

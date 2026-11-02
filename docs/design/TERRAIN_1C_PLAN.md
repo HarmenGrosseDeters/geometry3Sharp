@@ -163,3 +163,29 @@ output that does not copy it), and the peak below that 3.1 GB at any toe size on
 Measured in benchmarks/TerrainBenchmark/README.md: one toe edge on the 1 m Hambach grid, warm (repeated on one
 instance), 0.28 s with the replacement output, 0.14 s for the catch line only, 0.94 s with the full composite; the
 first call of a process takes about 0.7 s more (JIT): 1.01 s, 0.63 s and 1.61 s (medians over processes).
+
+## 8. Functional completeness (#314)
+
+- **StatusKind (5.6).** `TerrainSlopeDesign.StatusKind` for every status: `None` (Success; NoDaylight, a partial
+  result, not a failure), `InvalidInput` (InvalidInput, NotHeightField), `UnsupportedByMethod` (NotImplemented;
+  ToeUndercut where the cone that causes it reaches the toe through the design area), `GeometricallyInfeasible`
+  (ToeSteeperThanSlope; ToeUndercut where the path from the causing part of the toe runs on the slope side),
+  `NotCertified` (SlopeViolation, CatchLineAccuracyNotReached), `Internal` (Failed, CompositeFailed), `Cancelled`. The
+  path of an undercut: from the point of the causing segment nearest to the undercut point, straight (the cone's
+  value comes from there); through the design area if it leaves or arrives from the design side of its segment, or
+  crosses a toe segment (`StatusKinds_OfEveryStatus`, `TwoLevelToe_IsUndercut`: a U-shaped toe against a convex closed
+  toe with the slope inside).
+- **Volumes (5.7).** `Volume`, `PlanArea`, `SlopeArea`, and per `SlopePiece`: integrated on the overlay, each region
+  face a convex polygon (the XY intersection of its two triangles) with the difference linear on it, split at 0, in
+  doubles relative to the centre of the slope surface. Checked against the exact cone volume over flat terrain (within
+  `Tolerance` × plan area) and against `TerrainVolumeDifference(Terrain, Composite)` (`TerrainSlopeVolumeTests`).
+- **Catch-line accuracy (5.5).** Per segment `CatchLine.Gradient` (|∇(S − T)| on its face), `Uncertainty`
+  ((`Tolerance` + `TerrainVerticalUncertainty`) / gradient + `MinFeatureSize`, the move of the composite's snapping; a
+  local linearized estimate, not a proven bound) and `Tangential`: the segment touches a planar contact (a face whose
+  two planes coincide, exact, sharing an overlay vertex with the segment's face; such a face counts as no work, so the
+  region, and the catch line, ends at its border). Reports:
+  `IllConditionedCatchLine` above `CatchLineWarningThreshold`, `TangentialContact`. `RequiredCatchLineAccuracy`: a
+  smaller `Tolerance` (`UsedTolerance`, global, at most three rounds; the per-piece refinement of 5.5 is later), else
+  `CatchLineAccuracyNotReached` with the catch lines kept (also when a smaller Tolerance fails, eg below the numerical
+  margins; `TerrainSlopeAccuracyTests`). The undercut path of StatusKind is decided exactly on the doubles (Orient2d;
+  at a toe vertex both adjacent segments; a touch counts as through the design area, the conservative side).

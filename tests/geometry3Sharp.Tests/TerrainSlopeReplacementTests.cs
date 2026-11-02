@@ -206,7 +206,11 @@ namespace geometry3Sharp.Tests
                 var dsg = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, HeightLimit = 50, Tolerance = 0.05, BuildComposite = true, CompositeKind = kind };
                 Assert.True(dsg.Compute(), dsg.Status + " " + dsg.Message);
                 Assert.Single(dsg.CatchLines);
-                if (kind == TerrainSlopeDesign.CompositeKinds.Full) TerrainSlopeCatchLineTests.AssertComposite(dsg);
+                if (kind == TerrainSlopeDesign.CompositeKinds.Full) {
+                    TerrainSlopeCatchLineTests.AssertComposite(dsg);
+                    // the volume is the region's only: the plateau, D < 0 but not connected to the toe, is not excavated
+                    TerrainSlopeVolumeTests.AssertVolumesMatchComposite(dsg, false);
+                }
                 else {
                     // no plateau triangle is replaced
                     foreach (int t in dsg.ReplacedTerrainTriangles) {

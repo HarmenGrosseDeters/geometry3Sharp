@@ -883,7 +883,18 @@ namespace gs
         /// <summary> pieces whose toe segment has a face of another piece on it, lower than the toe by more than tol </summary>
         public List<int> Undercuts(List<Vector3d[]> pieceEnds, double tol)
         {
+            List<UndercutCause> causes;
+            return Undercuts(pieceEnds, tol, out causes);
+        }
+
+        /// <summary> an undercut toe segment (piece), the piece whose face lies on it, and a point of it where it does </summary>
+        public struct UndercutCause { public int Piece, Cause; public Vector2d At; }
+
+        /// <summary> Undercuts, with the first cause of each undercut segment (in half-edge order) </summary>
+        public List<int> Undercuts(List<Vector3d[]> pieceEnds, double tol, out List<UndercutCause> causes)
+        {
             var result = new SortedSet<int>();
+            var first = new Dictionary<int, UndercutCause>();
             for (int h = 0; h < hOrig.Count; ++h) {
                 if (hAlive[h] == false) continue;
                 int b = hBar[h], f = hFace[h];
@@ -895,9 +906,13 @@ namespace gs
                     Vector2d q = K.Rounded(v);
                     double t = (q - A.xy).Dot(B.xy - A.xy) / (B.xy - A.xy).LengthSquared;
                     double z = A.z + t * (B.z - A.z);
-                    if (z - K.ApproxHeight(fLabel[f], q.x, q.y) > tol) result.Add(b);
+                    if (z - K.ApproxHeight(fLabel[f], q.x, q.y) > tol) {
+                        result.Add(b);
+                        if (first.ContainsKey(b) == false) first[b] = new UndercutCause() { Piece = b, Cause = o, At = q };
+                    }
                 }
             }
+            causes = result.Select(b => first[b]).ToList();
             return result.ToList();
         }
 

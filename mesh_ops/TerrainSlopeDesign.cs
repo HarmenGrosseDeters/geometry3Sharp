@@ -50,6 +50,11 @@ namespace gs
         /// <summary> the toe points at the ends of the piece, as specified </summary>
         public Vector3d P0, P1;
         public SlopeSpec Spec;
+        /// <summary>
+        /// with a terrain: the volume between the terrain and this piece's slope over the region (cut: excavated; fill:
+        /// filled), the region's plan area and its area on the slope surface (TERRAIN.md 5.7)
+        /// </summary>
+        public double Volume, PlanArea, SlopeArea;
     }
 
     /// <summary>
@@ -102,7 +107,12 @@ namespace gs
             CompositeFailed,
             Cancelled,
             /// <summary> an internal error (Message); no result </summary>
-            Failed
+            Failed,
+            /// <summary>
+            /// RequiredCatchLineAccuracy is not reached, also with a smaller Tolerance (TerrainVerticalUncertainty or a
+            /// tangential contact alone exceeds it): CatchLines are kept with their uncertainties, the rest is not returned
+            /// </summary>
+            CatchLineAccuracyNotReached
         }
 
         // inputs
@@ -142,10 +152,51 @@ namespace gs
         public double Tolerance = double.NaN;
         /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
         public double SlopeMargin = 1e-6;
+        /// <summary> with a terrain: its vertical uncertainty (data units, default 0), part of the catch line's uncertainty </summary>
+        public double TerrainVerticalUncertainty = 0;
+        /// <summary>
+        /// with a terrain: catch-line segments whose horizontal uncertainty exceeds it are reported (IllConditionedCatchLine);
+        /// default: none (an application might use 0.1 m)
+        /// </summary>
+        public double CatchLineWarningThreshold = double.PositiveInfinity;
+        /// <summary>
+        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none). Reached by a smaller
+        /// Tolerance (UsedTolerance; the whole design again, at most three times: Attempts, PhaseSeconds and the
+        /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
+        /// </summary>
+        public double RequiredCatchLineAccuracy = double.NaN;
         public Func<bool> CancelF = () => false;
 
         // outputs
         public Statuses Status;
+        /// <summary>
+        /// what kind of result Status is (TERRAIN.md 5.6), so that "not supported by the phase 1 method" is never taken
+        /// for "geometrically impossible"
+        /// </summary>
+        public enum StatusKinds
+        {
+            /// <summary> Success, or NoDaylight (a partial result, IsComplete = false; not a failure) </summary>
+            None,
+            /// <summary> InvalidInput, NotHeightField: the input is wrong </summary>
+            InvalidInput,
+            /// <summary>
+            /// the phase 1 method (Euclidean cone envelope) cannot handle this design, which is not a proof that it is
+            /// impossible: NotImplemented; ToeUndercut where the cone that causes it reaches the toe through the design area
+            /// </summary>
+            UnsupportedByMethod,
+            /// <summary>
+            /// no surface meets the specification, in any mode: ToeSteeperThanSlope; ToeUndercut where the path from the
+            /// causing part of the toe runs outside the design area, on the slope side
+            /// </summary>
+            GeometricallyInfeasible,
+            /// <summary> the computation could not certify its own result: SlopeViolation, CatchLineAccuracyNotReached </summary>
+            NotCertified,
+            /// <summary> an internal error: Failed, CompositeFailed </summary>
+            Internal,
+            Cancelled
+        }
+        /// <summary> the kind of Status </summary>
+        public StatusKinds StatusKind;
         public string Message = "";
         /// <summary> the slope triangles; group id = index into Pieces. Null if Compute failed </summary>
         public DMesh3 SlopeSurface;
@@ -182,6 +233,19 @@ namespace gs
         /// Replacement with the terrain triangles not replaced: a vertex of them is this vertex where it is not -1
         /// </summary>
         public int[] TerrainCompositeVertices;
+        /// <summary>
+        /// with a terrain: the volume between the terrain and the slope surface over the region (cut: the terrain above
+        /// the slope, excavated; fill: the slope above the terrain, filled), its plan area and its area on the slope
+        /// surface; the sums of Pieces (TERRAIN.md 5.7). Integrated on the overlay, in doubles; the region inside the toe
+        /// (the caller's design) is not included
+        /// </summary>
+        public double Volume, PlanArea, SlopeArea;
+        /// <summary> the catch-line segments (line, segment) whose uncertainty exceeds CatchLineWarningThreshold </summary>
+        public List<Index2i> IllConditionedCatchLine = new List<Index2i>();
+        /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
+        public List<Index2i> TangentialContact = new List<Index2i>();
+        /// <summary> the Tolerance used: Tolerance, or smaller to reach RequiredCatchLineAccuracy </summary>
+        public double UsedTolerance;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
@@ -218,26 +282,65 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            Volume = PlanArea = SlopeArea = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
+            undercutThroughDesign = false;
             SimplifyTrace = 0; SimplifyRounds = 0;
             CapRounds = 0;
+            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+            double givenTolerance = Tolerance;
+            UsedTolerance = Tolerance;
             try {
-                Status = compute();
+                // (a smaller Tolerance until RequiredCatchLineAccuracy is met, at most 3 times)
+                List<CatchLine> previous = null;
+                for (int round = 0; ; ++round) {
+                    Status = compute();
+                    if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
+                        // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
+                        // the previous round's catch lines show where)
+                        if (round > 0 && Status != Statuses.Cancelled) {
+                            Message = $"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy; a smaller Tolerance ({Tolerance:G3}) failed: {Status}: {Message}";
+                            Status = Statuses.CatchLineAccuracyNotReached;
+                            CatchLines = previous;
+                        }
+                        break;
+                    }
+                    double next;
+                    int verdict = catch_line_accuracy(out next);
+                    if (verdict == 0) break;
+                    if (verdict == 2 || round == 3) {
+                        Status = fail(Statuses.CatchLineAccuracyNotReached, $"the catch line's horizontal uncertainty exceeds RequiredCatchLineAccuracy" +
+                                      (verdict == 2 ? " (the terrain's vertical uncertainty or a tangential contact alone exceeds it)" : ""));
+                        break;
+                    }
+                    previous = CatchLines;
+                    Tolerance = next; UsedTolerance = next;
+                    IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+                }
             } catch (OperationCanceledException) {
                 Status = Statuses.Cancelled;
             } catch (Exception e) when (e is InvalidOperationException || e is ArgumentException || e is OverflowException) {
                 // (an internal inconsistency; never a result)
                 Status = Statuses.Failed;
                 Message = e.Message;
+            } finally {
+                Tolerance = givenTolerance;
             }
-            if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
+            if (Status == Statuses.CatchLineAccuracyNotReached) {
+                // (the catch lines are kept, with their uncertainties: they show where the accuracy is not reached)
+                SlopeSurface = null; SlopeRegion = null; Composite = null; Pieces = new List<SlopePiece>();
+                Volume = PlanArea = SlopeArea = 0;
+                Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
+            } else if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
+                Volume = PlanArea = SlopeArea = 0;
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             }
             IsComplete = Status == Statuses.Success;
+            StatusKind = kind_of(Status, undercutThroughDesign);
             return Status == Statuses.Success;
         }
 
@@ -274,6 +377,12 @@ namespace gs
                 return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
+            if (!(TerrainVerticalUncertainty >= 0) || double.IsInfinity(TerrainVerticalUncertainty))
+                return fail(Statuses.InvalidInput, "TerrainVerticalUncertainty must be >= 0 and finite");
+            if (double.IsNaN(RequiredCatchLineAccuracy) == false && !(RequiredCatchLineAccuracy > 0 && RequiredCatchLineAccuracy < double.PositiveInfinity))
+                return fail(Statuses.InvalidInput, "RequiredCatchLineAccuracy must be positive and finite (or NaN: none)");
+            if (double.IsNaN(CatchLineWarningThreshold) || !(CatchLineWarningThreshold > 0))
+                return fail(Statuses.InvalidInput, "CatchLineWarningThreshold must be positive (+infinity: none)");
             double heightLimit = HeightLimit;
             bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
             if (Terrain != null) {
@@ -411,6 +520,116 @@ namespace gs
             return (r) => r >= maxReach ? top[bins] : top[(int)Math.Min(bins, Math.Ceiling(Math.Max(r, 0) / w))];
         }
 
+        bool undercutThroughDesign;
+
+        // TERRAIN.md 5.5: each catch-line segment's horizontal uncertainty, (Tolerance + TerrainVerticalUncertainty) over the
+        // gradient of S - T on its face plus the move of the composite's snapping (MinFeatureSize); a local linearized
+        // estimate. Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not
+        // reachable (the vertical uncertainty or a tangential contact alone exceeds it)
+        int catch_line_accuracy(out double next)
+        {
+            next = Tolerance;
+            bool required = double.IsNaN(RequiredCatchLineAccuracy) == false;
+            int verdict = 0;
+            double eps = Tolerance + Math.Max(0, TerrainVerticalUncertainty);
+            for (int li = 0; li < CatchLines.Count; ++li) {
+                CatchLine l = CatchLines[li];
+                l.Uncertainty.Clear();
+                for (int i = 0; i < l.Gradient.Count; ++i) {
+                    double g = l.Gradient[i];
+                    double u = g > 0 ? eps / g + UsedMinFeatureSize : double.PositiveInfinity;
+                    l.Uncertainty.Add(u);
+                    if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
+                    if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
+                    if (required && !(u <= RequiredCatchLineAccuracy)) {
+                        // the Tolerance that meets it here (with 10 % to spare), if any
+                        double t = g > 0 ? 0.9 * ((RequiredCatchLineAccuracy - UsedMinFeatureSize) * g - Math.Max(0, TerrainVerticalUncertainty)) : 0;
+                        if (!(t > 0)) verdict = 2;
+                        else { next = Math.Min(next, t); if (verdict == 0) verdict = 1; }
+                    }
+                }
+            }
+            return verdict;
+        }
+
+        internal static StatusKinds kind_of(Statuses st, bool undercutThroughDesign)
+        {
+            switch (st) {
+                case Statuses.Success: case Statuses.NoDaylight: return StatusKinds.None;
+                case Statuses.InvalidInput: case Statuses.NotHeightField: return StatusKinds.InvalidInput;
+                case Statuses.NotImplemented: return StatusKinds.UnsupportedByMethod;
+                case Statuses.ToeSteeperThanSlope: return StatusKinds.GeometricallyInfeasible;
+                case Statuses.ToeUndercut: return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
+                case Statuses.SlopeViolation: case Statuses.CatchLineAccuracyNotReached: return StatusKinds.NotCertified;
+                case Statuses.Cancelled: return StatusKinds.Cancelled;
+                default: return StatusKinds.Internal;
+            }
+        }
+
+        // The cone of piece c.Cause passes below toe segment c.Piece at c.At; its value there comes from the point p of
+        // the cause's segment nearest to At, along the straight path p -> At. Through the design area: the path leaves p
+        // or reaches At from the design side of its segment, or crosses a toe segment on the way (the method's cones pass
+        // through the design area; a surface restricted to the slope side need not undercut). Otherwise the path runs on
+        // the slope side, where every surface within the slope would undercut: infeasible.
+        bool through_design_area(List<InPiece> pieces, SlopeMap.UndercutCause c)
+        {
+            InPiece po = pieces[c.Cause], pk = pieces[c.Piece];
+            Vector2d q = c.At;
+            Vector2d a = po.A.xy, b = po.B.xy, d = b - a;
+            double t = MathUtil.Clamp((q - a).Dot(d) / d.LengthSquared, 0, 1);
+            Vector2d p = a + t * d;
+            if (p.Distance(q) == 0) return false;
+            // the slope side of a piece: left of its direction or right
+            Func<InPiece, bool> slopeLeft = (pc) => {
+                SlopeToe toe = Toes[pc.Toe];
+                if (toe.Closed == false) return toe.Side == SlopeToe.Sides.Left;
+                // (the orientation of the simple polygon, exact: Orient2d at its lowest vertex, lexicographically)
+                var pts = toe.Points;
+                int m = 0;
+                for (int i = 1; i < pts.Count; ++i)
+                    if (pts[i].x < pts[m].x || (pts[i].x == pts[m].x && pts[i].y < pts[m].y)) m = i;
+                int ccw = ExactPredicates.Orient2d(pts[(m + pts.Count - 1) % pts.Count].xy, pts[m].xy, pts[(m + 1) % pts.Count].xy);
+                return (toe.Side == SlopeToe.Sides.Inside) == (ccw > 0);
+            };
+            // (exact: the side of the path's other end against the line of the segment it starts from; p is the rounded
+            // nearest point, the decisions are exact on these doubles)
+            Func<InPiece, Vector2d, bool> intoDesign = (pc, other) => {
+                int side = ExactPredicates.Orient2d(pc.A.xy, pc.B.xy, other);
+                return slopeLeft(pc) ? side < 0 : side > 0;
+            };
+            if (intoDesign(po, q) || intoDesign(pk, p)) return true;
+            // at an end of the cause's segment (a toe vertex) the slope side is a wedge: the path must stay on the slope
+            // side of the other segment there too (conservative: either one says design, it is the method's limit)
+            if (t == 0 || t == 1) {
+                Vector2d corner = t == 0 ? po.A.xy : po.B.xy;
+                foreach (InPiece pc in pieces)
+                    // (not the undercut segment itself: q lies on it, and its side is the test of p above)
+                    if (pc != po && pc != pk && pc.Toe == po.Toe && (pc.A.xy == corner || pc.B.xy == corner) && intoDesign(pc, q)) return true;
+            }
+            // a crossing or a touch of another toe segment on the way (a touch counts as through: conservative)
+            foreach (InPiece pc in pieces) {
+                if (pc == po || pc == pk) continue;
+                Vector2d u = pc.A.xy, w = pc.B.xy;
+                if (u == p || w == p || u == q || w == q) continue;     // (a segment that only meets the path at its ends)
+                int o1 = ExactPredicates.Orient2d(p, q, u), o2 = ExactPredicates.Orient2d(p, q, w);
+                int o3 = ExactPredicates.Orient2d(u, w, p), o4 = ExactPredicates.Orient2d(u, w, q);
+                if (o1 * o2 <= 0 && o3 * o4 <= 0 && (o1 != 0 || o2 != 0 || o3 != 0 || o4 != 0)) return true;
+                if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0 && overlap_collinear(p, q, u, w)) return true;
+            }
+            // (open toes: a straight path on the slope side can leave the strip between the lateral limits, where nothing
+            // is specified; it still counts as infeasible here, as the method treats the slope side as unbounded)
+            return false;
+        }
+
+        // collinear segments pq and uw overlap (exact on the doubles: along the dominant axis)
+        static bool overlap_collinear(Vector2d p, Vector2d q, Vector2d u, Vector2d w)
+        {
+            bool xs = Math.Abs(q.x - p.x) >= Math.Abs(q.y - p.y);
+            double a0 = xs ? Math.Min(p.x, q.x) : Math.Min(p.y, q.y), a1 = xs ? Math.Max(p.x, q.x) : Math.Max(p.y, q.y);
+            double b0 = xs ? Math.Min(u.x, w.x) : Math.Min(u.y, w.y), b1 = xs ? Math.Max(u.x, w.x) : Math.Max(u.y, w.y);
+            return a0 <= b1 && b0 <= a1;
+        }
+
         // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
         double local_terrain_max(AxisAlignedBox2d box, double reach, bool fill)
         {
@@ -449,6 +668,13 @@ namespace gs
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
                         }).ToList();
+                        // (assigned per build: a raised cap or another accuracy round builds again)
+                        Volume = PlanArea = SlopeArea = 0;
+                        if (br.Volumes != null)
+                            for (int i = 0; i < Pieces.Count; ++i) {
+                                Pieces[i].Volume = br.Volumes[i]; Pieces[i].PlanArea = br.PlanAreas[i]; Pieces[i].SlopeArea = br.SlopeAreas[i];
+                                Volume += br.Volumes[i]; PlanArea += br.PlanAreas[i]; SlopeArea += br.SlopeAreas[i];
+                            }
                     }
                     return st;
                 }
@@ -479,6 +705,7 @@ namespace gs
             public DMesh3 Region, Composite;
             public List<int> Replaced;
             public int[] TerrainVertexOf, CompositeVertexOf;
+            public double[] Volumes, PlanAreas, SlopeAreas;
         }
 
         double terrainZMin, terrainZMax;
@@ -645,9 +872,12 @@ namespace gs
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
-            var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance);
+            List<SlopeMap.UndercutCause> causes;
+            var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance, out causes);
             if (undercut.Count > 0) {
                 foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
+                // (UnsupportedByMethod if any of them is caused through the design area)
+                undercutThroughDesign = causes.Any(uc => through_design_area(pieces, uc));
                 return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
             }
 
@@ -785,6 +1015,17 @@ namespace gs
             if (overlayOk == false)
                 return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
+            // the gradient and the contact of each catch-line segment (its uncertainty when Compute ends)
+            for (int li = 0; li < overlay.CatchLines.Count; ++li) {
+                CatchLine l = overlay.CatchLines[li];
+                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear();
+                foreach (int fi in overlay.CatchFaces[li]) {
+                    double g; bool coplanar;
+                    overlay.SegmentContact(fi, out g, out coplanar);
+                    l.Gradient.Add(g); l.Tangential.Add(coplanar);
+                }
+            }
+            overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
             phase("overlay");
             // (a local height limit that the region reaches is raised and everything built again: no composite now)
             if (reachedCap && capMayGrow)
