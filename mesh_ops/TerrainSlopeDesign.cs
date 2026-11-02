@@ -55,8 +55,10 @@ namespace gs
     /// <summary>
     /// Slope surface (Böschung) from toe lines, as the lower envelope of the slope cones with apexes on the toe (cut;
     /// the upper envelope of the falling cones for fill): docs/design/TERRAIN.md, phase 1a
-    /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). In phase 1a there is no terrain: the surface is
-    /// built up to HeightLimit (cut) or down to it (fill).
+    /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). Without a terrain the surface is built up to
+    /// HeightLimit (cut) or down to it (fill); it ends at HeightLimit - UsedToeLowering (+ for fill), never beyond
+    /// HeightLimit (the whole map is lowered by the toe lowering, the cap with it, so its lines stay). With a terrain (phase 1b) the catch lines
+    /// and the composite follow.
     ///
     /// Never steeper than specified: every triangle of SlopeSurface is checked exactly, on its stored doubles, before
     /// Compute returns true: it is not steeper than the spec of the toe piece it is attributed to (its group id), and its
@@ -91,7 +93,7 @@ namespace gs
             /// kept, but partial (IsComplete = false); the catch lines that end there say so
             /// </summary>
             NoDaylight,
-            /// <summary> the terrain is not a height field: triangles degenerate in XY or overlapping in XY </summary>
+            /// <summary> the terrain is not a height field: triangles degenerate in XY, or overlapping in XY under the slope surface </summary>
             NotHeightField,
             /// <summary>
             /// the composite could not be built (Message): SlopeSurface and CatchLines are kept and complete, Composite and
@@ -107,13 +109,20 @@ namespace gs
         public List<SlopeToe> Toes = new List<SlopeToe>();
         /// <summary>
         /// optional: the terrain (a TIN, height field). With it the catch lines are computed (TERRAIN.md 5.5), and
-        /// HeightLimit may be NaN: cut then builds up to the terrain's highest vertex, fill down to its lowest
+        /// HeightLimit may be NaN: cut then builds up to the highest terrain near the toe, raised while the slope
+        /// reaches it, at most to the terrain's highest vertex (fill: down to its lowest). Only the terrain within the
+        /// box of the slope surface must be a height field (else NotHeightField); outside it the composite copies the
+        /// terrain as given (but an overlap of a cut terrain triangle, which can reach beyond that box, with one outside
+        /// it is found by the composite's check: CompositeFailed)
         /// </summary>
         public DMesh3 Terrain;
         /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
         public bool BuildComposite = false;
         public Directions Direction = Directions.Cut;
-        /// <summary> required without Terrain: cut builds the slope up to this height, fill down to it </summary>
+        /// <summary>
+        /// required without Terrain: cut builds the slope up to this height, fill down to it (it ends UsedToeLowering
+        /// below it, for fill above)
+        /// </summary>
         public double HeightLimit = double.NaN;
         /// <summary> required: the largest vertical deviation below the exact cone envelope (data units) </summary>
         public double Tolerance = double.NaN;
@@ -165,6 +174,8 @@ namespace gs
         /// </summary>
         public Dictionary<string, double> PhaseSeconds = new Dictionary<string, double>();
         public int Attempts;
+        /// <summary> diagnostics: the realizations (more than the builds if the measured toe lowering was raised) </summary>
+        public int Realizations;
         public long PredicateCalls, ExactFallbacks, ExactConstructions;
 
         public bool Compute()
@@ -173,8 +184,11 @@ namespace gs
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
-            PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
-            MergedPositions = 0; MergeLambdaRequired = 0;
+            PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
+            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
+            // (a cancelled or failed run can leave them set)
+            reachedCap = capMayGrow = false;
+            CapRounds = 0;
             try {
                 Status = compute();
             } catch (OperationCanceledException) {
@@ -225,14 +239,18 @@ namespace gs
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
             double heightLimit = HeightLimit;
+            bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
             if (Terrain != null) {
+                var swt = System.Diagnostics.Stopwatch.StartNew();
                 Statuses ts = check_terrain();
+                PhaseSeconds["terrain"] = swt.Elapsed.TotalSeconds;
                 if (ts != Statuses.Success)
                     return ts;
             }
             if (Terrain != null && double.IsNaN(heightLimit)) {
-                // above the highest terrain vertex (cut) and the toe, by Tolerance: at the level line of the cap S̃ is then
-                // above the terrain, also after rounding, so the region cannot reach it
+                // above the highest terrain vertex (cut) and the toe, by Tolerance: the level line of the cap, at H - λ, is
+                // then above the terrain by Tolerance - λ > 0 (λ is at most its bound, which the budget keeps below
+                // Tolerance), also after rounding, so the region cannot reach it
                 double ext = fill ? double.MaxValue : double.MinValue, toeExt = ext;
                 foreach (Vector3d v in Terrain.Vertices()) ext = fill ? Math.Min(ext, v.z) : Math.Max(ext, v.z);
                 foreach (var toe in Toes)
@@ -290,10 +308,52 @@ namespace gs
             if (ToeGeometry.Validate(toePts, Toes.Select(x => x.Closed).ToList(), out why, out where) == false)
                 return problem(where.a, where.b, why);
 
+            if (localLimit == false)
+                return attempts(pieces, toePts, H, fill);
+            // A local height limit (TERRAIN_1C_PLAN.md): the slope is built up to the highest terrain near the toe and
+            // raised while the region reaches it, at most to the global limit. A region that does not reach the cap
+            // is the region of any higher cap (it is bounded by the catch line and the toe), so the result is that of
+            // the global limit up to Tolerance (not bit for bit: facets, margins and λ depend on the cap through D_max),
+            // with a smaller slope surface.
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z)), sMin = pieces.Min(p => p.S);
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            double hLocal = local_terrain_max(toeBox, 0, fill) + Tolerance;
+            double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
+            hLocal = Math.Max(hLocal, toeMax);
+            while (true) {
+                if (!(hLocal < H)) hLocal = H;
+                capMayGrow = hLocal < H;
+                CapRounds++;
+                Statuses st;
+                try { st = attempts(pieces, toePts, hLocal, fill); } finally { capMayGrow = false; }
+                if (st != Statuses.NoDaylight || reachedCap == false || hLocal >= H)
+                    return st;
+                // twice the reach of this cap, and at least twice the height range
+                double reach = 2 * (hLocal - zMin) / sMin;
+                double next = local_terrain_max(toeBox, reach, fill) + Tolerance;
+                hLocal = Math.Max(next, hLocal + (hLocal - zMin));
+            }
+        }
+
+        // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
+        double local_terrain_max(AxisAlignedBox2d box, double reach, bool fill)
+        {
+            box.Expand(reach);
+            double m = double.MinValue;
+            foreach (Vector3d v in Terrain.Vertices())
+                if (box.Contains(v.xy)) m = Math.Max(m, fill ? -v.z : v.z);
+            return m;
+        }
+
+        bool reachedCap, capMayGrow;
+
+        Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
+        {
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
             // needs, measured; a slope or orientation failure raises the margin δ
-            double delta = SlopeMargin, lambdaReq = -1, lambdaFloor = 0;
+            double delta = SlopeMargin, lambdaReq = -1;
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
                 BuildResult br;
@@ -314,26 +374,16 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
-                if (br.MergeLambda > 0) {
-                    // the realization merged near positions: their triangles may rise above S̃ by 2 sMax (r + e_xy),
-                    // which the toe lowering must cover (measured: only in a run that merges)
-                    lambdaFloor = Math.Max(lambdaFloor, br.MergeLambda);
-                    lambdaReq = Math.Max(lambdaReq, lambdaFloor);
+                if (br.RebuildLambda > 0) {
+                    lambdaReq = br.RebuildLambda;
                     continue;
                 }
-                if (attempt >= 7)
-                    return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
-                if (br.SlopeFailures == 0 && 4 * br.MaxExcess <= br.LambdaBound && br.MaxExcess > 0 && br.Lambda < br.LambdaBound) {
-                    lambdaReq = Math.Max(Math.Max(2 * br.Lambda, 4 * br.MaxExcess), lambdaFloor);
-                    continue;
-                }
-                if (delta * 8 > 1e-3)
+                // (the build raised λ itself, by realizing again; what is left needs a larger margin δ and a new build)
+                if (attempt >= 7 || delta * 8 > 1e-3)
                     return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
-                // (support failures next to the slope failures keep their measured lowering; the next build caps it at
-                // its own bound)
-                lambdaReq = (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1;
-                if (lambdaFloor > 0) lambdaReq = Math.Max(lambdaReq, lambdaFloor);
+                // (the measured lowering is kept; the next build caps it at its own bound)
+                lambdaReq = Math.Max(br.Lambda, (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1);
             }
         }
 
@@ -344,7 +394,8 @@ namespace gs
             public int SlopeFailures;          // slope (i) or XY orientation
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
-            public double MergeLambda;         // > 0: build again with at least this lowering (the realization merged)
+            public double MergeLambda;
+            public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
         }
@@ -356,14 +407,7 @@ namespace gs
                     return fail(Statuses.InvalidInput, "a terrain vertex is not finite");
             if (Terrain.TriangleCount == 0)
                 return fail(Statuses.InvalidInput, "the terrain has no triangles");
-            foreach (int t in Terrain.TriangleIndices()) {
-                Index3i tri = Terrain.GetTriangle(t);
-                if (ExactPredicates.Orient2d(Terrain.GetVertex(tri.a).xy, Terrain.GetVertex(tri.b).xy, Terrain.GetVertex(tri.c).xy) == 0)
-                    return fail(Statuses.NotHeightField, $"terrain triangle {t} is degenerate in XY");
-            }
-            int overlaps = TerrainVolumeDifference.XYOverlaps(Terrain);
-            if (overlaps > 0)
-                return fail(Statuses.NotHeightField, $"{overlaps} pairs of terrain triangles overlap in XY");
+            // (degenerate and overlapping triangles are found by the overlay, under the slope surface, where they matter)
             return Statuses.Success;
         }
 
@@ -391,8 +435,6 @@ namespace gs
                        out BuildResult br)
         {
             br = new BuildResult();
-            DMesh3 mesh = null;
-            List<int> bad = br.Bad;
             ToeProblems.Clear();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Action<string> phase = (name) => {
@@ -454,19 +496,15 @@ namespace gs
             int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
             theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
-            double dMax = (H - zMin + lambda) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
+            // (the reach does not depend on λ: the map is built once per margin δ)
+            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
 
-            // lowered toe points (exactly at most z - λ)
-            var lowered = new Dictionary<Vector3d, Vector3d>();
-            Func<Vector3d, Vector3d> lower = (p) => {
-                Vector3d r;
-                if (lowered.TryGetValue(p, out r)) return r;
-                double z = p.z - lambda;
-                while (exceeds(z, p.z, lambda)) z = ExactInterval.Down(z);
-                r = new Vector3d(p.x, p.y, z);
-                lowered[p] = r;
-                return r;
-            };
+            // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
+            // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
+            // from the specified toe and realized with z lowered by λ, exactly rounded; a larger λ costs a realization,
+            // not a build. The cap is lowered with the planes (else the map's lines with the cap would move), so the surface
+            // ends at H - λ, never above H. The checks at construction (slope, support of a plane at its piece's ends,
+            // undercut against Tolerance) compare plane and toe heights, so they do not depend on λ either.
 
             // planes of the pieces: the strips first, then the cone tangents, which know the strips at their apex
             double rFan = 1;
@@ -477,7 +515,7 @@ namespace gs
                 checkCancel();
                 // (a new build: no planes of an earlier attempt, whose kernel is gone)
                 pc.Strip.Clear(); pc.FanA.Clear(); pc.FanB.Clear(); pc.AngA.Clear(); pc.AngB.Clear();
-                pc.A1 = lower(pc.A); pc.B1 = lower(pc.B);
+                pc.A1 = pc.A; pc.B1 = pc.B;
                 pc.Sb = pc.S * (1 - delta);
                 Statuses ps = make_strips(kernel, pc, stripsAt);
                 if (ps != Statuses.Success)
@@ -525,29 +563,79 @@ namespace gs
                 return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
             }
 
-            // realization and the exact check
+            // realization and the exact check, raising λ by measurement without a new build
+            Attempts++;
+            // (the kernel's work of the build itself; each realization counts its own below)
+            PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
+            for (int realization = 0; ; ++realization) {
+                br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
+                UsedToeLowering = lambda;
+                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), FlipShare(exy, sMax), minFeature, mergeRadius, br, phase);
+                Realizations++;
+                if (st != Statuses.SlopeViolation)
+                    return st;
+                double next = -1;
+                if (br.MergeLambda > 0 && lambda < br.MergeLambda)
+                    next = br.MergeLambda;
+                // a support failure (ii) only: a larger lowering, measured on the output, while it fits under the bound;
+                // anything else goes back to the caller, which raises the margin δ and builds again
+                else if (realization < 7 && br.SlopeFailures == 0 && br.MaxExcess > 0 && 4 * br.MaxExcess <= lambdaBound && lambda < lambdaBound)
+                    next = Math.Min(lambdaBound, Math.Max(2 * lambda, 4 * br.MaxExcess));
+                if (next < 0)
+                    return st;
+                if (RebuildForEachLowering) {
+                    // (the reference of the tests: a new map built at the new lowering; the map does not depend on λ, so
+                    // the result must be the same bit for bit. Its builds count against the attempts of compute, and
+                    // each build starts its realizations from 0, so on hard inputs the two paths may stop differently)
+                    br.RebuildLambda = next;
+                    return st;
+                }
+                lambda = next;
+            }
+        }
+
+        /// <summary> tests: build the map again for every new toe lowering instead of realizing it again </summary>
+        internal bool RebuildForEachLowering;
+
+        // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
+        Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,
+                                   double lambdaBound, Func<int, double> repairLambda, double flipShare, double minFeature, double mergeRadius, BuildResult br,
+                                   Action<string> phase)
+        {
             checkCancel();
+            DMesh3 mesh;
+            List<int> bad = br.Bad;
+            long p0 = kernel.PredicateCalls, x0 = kernel.ExactPredicates, c0 = kernel.ExactConstructions;
+            Action count = () => {
+                PredicateCalls += kernel.PredicateCalls - p0; ExactFallbacks += kernel.ExactPredicates - x0; ExactConstructions += kernel.ExactConstructions - c0;
+                p0 = kernel.PredicateCalls; x0 = kernel.ExactPredicates; c0 = kernel.ExactConstructions;
+            };
             // (positions within a few ulps are one vertex: clusters of near-degenerate crossings that the collapse
             // below cannot always resolve; larger distances are left to it, which keeps the cells)
-            // (merging needs the lowering below; without room for it under the bound, or if the merge makes the mesh
-            // non-manifold, the realization runs without it and the check decides)
-            double mergeLambda = MergeLambda(ez, exy, sMax);
-            bool mayMerge = mergeLambda <= lambdaBound;
+            // (merging needs the lowering mergeLambda; without room for it under the bound, or if the merge makes the
+            // mesh non-manifold, the realization runs without it and the check decides)
+            // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
+            // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
+            bool mayMerge = repairLambda(2) <= lambdaBound;
             try {
-                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0);
+                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
             } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
-                mesh = map.Realize(cap, fill, 0);
+                mesh = map.Realize(cap, fill, 0, lambda);
                 map.MergedCount = 0;
             }
-            MergedPositions = map.MergedCount; MergeLambdaRequired = map.MergedCount > 0 ? mergeLambda : 0;
-            if (map.MergedCount > 0 && lambda < mergeLambda) {
-                br.MergeLambda = mergeLambda;
+            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare) : 0;
+            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false)
+                return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
+            int repairs = (map.MergedCount > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
+            MergedPositions = map.MergedCount; NeedleFlips = flips;
+            MergeLambdaRequired = repairs > 0 ? repairLambda(repairs) : 0;
+            if (repairs > 0 && lambda < repairLambda(repairs)) {
+                br.MergeLambda = repairLambda(repairs);
                 phase("realize");
-                PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-                Attempts++;
+                count();
                 return Statuses.SlopeViolation;
             }
-            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
             phase("realize");
             double maxRatio = 0;
             foreach (int tid in mesh.TriangleIndices()) {
@@ -576,9 +664,9 @@ namespace gs
                     return fail(Statuses.Failed, $"the realized slope surface folds over at edge {e}");
             }
             br.Mesh = mesh;
+            LastRealized = mesh;
             phase("check");
-            PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-            Attempts++;
+            count();
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
             MaxSlopeRatio = maxRatio;
@@ -598,10 +686,21 @@ namespace gs
                 kinds[e] = kind;
             }
             var overlay = new SlopeTerrainOverlay(mesh, Terrain, fill, kinds, CancelF);
-            if (overlay.Compute() == false)
-                return fail(Statuses.Failed, "overlay: " + overlay.Problem);
+            reachedCap = false;
+            bool overlayOk = overlay.Compute();
+            reachedCap = overlay.ReachedHeightLimit;
+            if (overlayOk == false)
+                return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
             phase("overlay");
+            // (a local height limit that the region reaches is raised and everything built again: no composite now)
+            if (reachedCap && capMayGrow)
+                return fail(Statuses.NoDaylight, "the region reaches the local height limit");
+            foreach (var kv in overlay.PhaseSeconds) {
+                double t0;
+                PhaseSeconds.TryGetValue("overlay-" + kv.Key, out t0);
+                PhaseSeconds["overlay-" + kv.Key] = t0 + kv.Value;
+            }
             if (BuildComposite) {
                 var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF);
                 if (comp.Build() == false)
@@ -627,6 +726,19 @@ namespace gs
                 br.Composite = comp.Composite;
             }
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
+        }
+
+        // every boundary edge of the realized surface lies on a toe or lateral limit (both ends on a barrier) or on the
+        // level line of the cap (both ends on the cap's plane): no crack inside
+        static bool boundary_is_toe_limit_or_cap(DMesh3 mesh, SlopeMap map, int cap)
+        {
+            foreach (int e in mesh.BoundaryEdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e);
+                bool bar = map.OnBarrier[ev.a] && map.OnBarrier[ev.b];
+                bool level = map.OutLabels[ev.a].Contains(cap) && map.OutLabels[ev.b].Contains(cap);
+                if (bar == false && level == false) return false;
+            }
+            return true;
         }
 
         // does triangle t have the directed edge a -> b?
@@ -666,10 +778,24 @@ namespace gs
         // triangles of a moved vertex leave their cells, below S̃ by at most 4 sMax (r + e_xy), which the budget
         // reserves, and above it by at most 2 sMax (r + e_xy), which the toe lowering of a merging build covers
         internal static double MergeRadius(double exy) { return 64 * exy; }
-        internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy); }
-        internal static double MergeLambda(double ez, double exy, double sMax) { return 4 * ez + 2 * sMax * (MergeRadius(exy) + exy); }
+        // the below share: a merge 4 sMax (r + e_xy), the needle flips at most FlipShare (each flip changes the surface
+        // most at the crossing of the quad's diagonals; FlipNeedles adds these changes per triangle and refuses a flip
+        // beyond the share)
+        internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy) + FlipShare(exy, sMax); }
+        // the largest change of the surface by needle flips, which FlipNeedles enforces (above and below)
+        internal static double FlipShare(double exy, double sMax) { return 2 * sMax * (MergeRadius(exy) + exy); }
+        // the lowering a realization with k kinds of repair needs (merge, flips): the rounding of a vertex and
+        // 2 sMax (r + e_xy) above S̃ for each
+        internal static double RepairLambda(double ez, double exy, double sMax, int k) { return 4 * ez + 2 * k * sMax * (MergeRadius(exy) + exy); }
+        internal static double MergeLambda(double ez, double exy, double sMax) { return RepairLambda(ez, exy, sMax, 1); }
+        /// <summary> diagnostics: the caps tried by the local height limit (1: not raised; 0 without it) </summary>
+        internal int CapRounds;
+        /// <summary> diagnostics of the last realization: needles flipped </summary>
+        internal int NeedleFlips;
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>
         internal int MergedPositions;
+        /// <summary> tests and diagnostics: the slope surface of the last realization (also a failing one) </summary>
+        internal DMesh3 LastRealized;
         internal double MergeLambdaRequired;
 
         /// <summary> an upper bound of limit / s: rounded to nearest, one ulp up (s &gt; 0) </summary>
@@ -678,12 +804,6 @@ namespace gs
             return ExactInterval.Up(limit / s);
         }
 
-        // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0
-        static bool exceeds(double z, double pz, double lambda)
-        {
-            ExactDyadic d = ExactDyadic.Of(z) - ExactDyadic.Of(pz) + ExactDyadic.Of(lambda);
-            return d.Sign > 0;
-        }
 
         sealed class StripRef
         {
