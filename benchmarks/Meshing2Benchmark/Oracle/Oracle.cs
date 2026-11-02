@@ -800,6 +800,7 @@ namespace Meshing2Acceptance
                 return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
             }
 
+            const int HullSourceIds = 1 << 30;
             List<(Pt a, Pt b, int marker, int sourceId, bool locked)> hullSources;
             double[] hullBox; // per hull source: x0, x1, y0, y1 in doubles, widened by the tube; NaN when not known
 
@@ -814,15 +815,16 @@ namespace Meshing2Acceptance
             /// The hull edges of a hull domain (D13) at M3, where refinement constrains the hull: the boundary, so an input segment at a small
             /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
             /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
-            /// a small angle must lie on one piece; review of the fix). Not a merge zone: the mesher does not refuse split points near the
-            /// hull (review of the fix). Empty otherwise.
+            /// a small angle must lie on one piece; review of the fix). In the merge zone only paired with a segment and without an explicit
+            /// tolerance (InMergeZone): the mesher refuses a split point of a hull edge near a segment, not one of a segment near the hull.
+            /// Empty otherwise.
             /// </summary>
             List<(Pt a, Pt b, int marker, int sourceId, bool locked)> HullSources()
             {
                 if (hullSources != null) return hullSources;
                 hullSources = new List<(Pt, Pt, int, int, bool)>();
                 if (e.Milestone == Milestone.M3 && domain.IsHull) {
-                    int id = 1 << 30;
+                    int id = HullSourceIds;
                     foreach (var ring in domain.Outers)
                         for (int i = 0; i < ring.Length; ++i) {
                             Pt a = ring[i], b = ring[(i + 1) % ring.Length];
@@ -1539,6 +1541,22 @@ namespace Meshing2Acceptance
             /// </summary>
             const int ZoneFactor = 3;
 
+            /// <summary>
+            /// A branch u of a and a branch w of c leave the apex with a positive dot product, and every vertex of t lies within
+            /// ZoneFactor tube of the apex or has a positive dot product with both u and w
+            /// </summary>
+            bool AcuteSide(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, int[] t)
+            {
+                Q near2 = tube2 * (ZoneFactor * ZoneFactor);
+                Q Dot(Pt o, Pt x, Pt y) => (x.Qx - o.Qx) * (y.Qx - o.Qx) + (x.Qy - o.Qy) * (y.Qy - o.Qy);
+                foreach (var u in new[] { a.a, a.b })
+                    foreach (var w in new[] { c.a, c.b }) {
+                        if (u.Equals(apex) || w.Equals(apex) || Dot(apex, u, w).Sign <= 0) continue;
+                        if (t.All(i => Exact.Len2(apex, v[i]) <= near2 || (Dot(apex, u, v[i]).Sign > 0 && Dot(apex, w, v[i]).Sign > 0))) return true;
+                    }
+                return false;
+            }
+
             /// <summary> InMergeZone, counted in the report when it excuses </summary>
             bool Zone(int[] t, Q sin2Low)
             {
@@ -1558,20 +1576,31 @@ namespace Meshing2Acceptance
             bool InMergeZone(int[] t, Q sin2Low)
             {
                 if (tube2.Sign == 0) return false;
+                // the hull edges of a hull domain count without an explicit snap tolerance: the mesher refuses a split point of a hull
+                // edge within the tube of a segment (NearOtherSource, O11), not the reverse, and two hull edges never (found with the
+                // Herne tiles: a segment at 0.67 degrees to a hull edge, a hull piece at the apex left unsplit; the first review of the
+                // issue-211 fix had removed the hull from the zone, seeing only the reverse). On the grid no split point is refused this
+                // way (ValidGridSplit decides).
+                var hull = input.SnapTolerance > 0 ? new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>() : HullSources();
                 var near = new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>();
                 for (int k = 0; k < sources.Count; ++k)
                     if (t.Any(i => MayBeNear(k, i) && WithinTube(sources[k], v[i]))) near.Add(sources[k]);
+                for (int k = 0; k < hull.Count; ++k)
+                    if (t.Any(i => NearHull(k, i) && WithinTube(hull[k], v[i]))) near.Add(hull[k]);
                 double tube2Hi = double.PositiveInfinity;
                 if (Fast && tube2.Bounds(out _, out double t2h)) tube2Hi = t2h;
                 foreach (var a in near)
-                    for (int kc = 0; kc < sources.Count; ++kc) {
-                        var c = sources[kc];
+                    for (int kc = 0; kc < sources.Count + hull.Count; ++kc) {
+                        bool cHull = kc >= sources.Count;
+                        var c = cHull ? hull[kc - sources.Count] : sources[kc];
                         if (a.sourceId == c.sourceId) continue;
+                        if (cHull && a.sourceId >= HullSourceIds) continue;
                         // (a filter: the zone is at most ZoneFactor tube / sin away from the apex, and the apex lies on c; a source whose box,
                         // widened by that for the smallest sine possible here, misses the vertex cannot qualify. The sine is at least
                         // sin(a, c) and the pairs with a large sine are rejected below anyway, so the widening uses the double sine of the
                         // pair with a factor 2 of slack.)
-                        if (!double.IsInfinity(tube2Hi) && !double.IsNaN(sBox[4 * kc]) && vKnown[t[0]]) {
+                        double[] box = cHull ? hullBox : sBox; int kb = cHull ? kc - sources.Count : kc;
+                        if (!double.IsInfinity(tube2Hi) && !double.IsNaN(box[4 * kb]) && vKnown[t[0]]) {
                             double ux = ToD(a.b.Qx - a.a.Qx), uy = ToD(a.b.Qy - a.a.Qy), wx = ToD(c.b.Qx - c.a.Qx), wy = ToD(c.b.Qy - c.a.Qy);
                             double sinD = Math.Abs(ux * wy - uy * wx) / Math.Sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy));
                             // (a lower bound of the sine: the double sine has an absolute error far below 1e-13; nearly parallel sources
@@ -1579,7 +1608,7 @@ namespace Meshing2Acceptance
                             double sinLow = sinD - 1e-13;
                             if (sinLow > 0 && !double.IsNaN(sinD)) {
                                 double reach = 2 * ZoneFactor * Math.Sqrt(tube2Hi) / sinLow;
-                                if (vxh[t[0]] < sBox[4 * kc] - reach || vxl[t[0]] > sBox[4 * kc + 1] + reach || vyh[t[0]] < sBox[4 * kc + 2] - reach || vyl[t[0]] > sBox[4 * kc + 3] + reach) continue;
+                                if (vxh[t[0]] < box[4 * kb] - reach || vxl[t[0]] > box[4 * kb + 1] + reach || vyh[t[0]] < box[4 * kb + 2] - reach || vyl[t[0]] > box[4 * kb + 3] + reach) continue;
                             }
                         }
                         Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
@@ -1592,7 +1621,13 @@ namespace Meshing2Acceptance
                         Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
                         if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
                         var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
-                        if (t.All(i => Exact.Len2(apex, v[i]) <= zone2)) return true;
+                        if (!t.All(i => Exact.Len2(apex, v[i]) <= zone2)) continue;
+                        // the small angle is that between a branch of a and a branch of c leaving the apex (their directions with a
+                        // positive dot product), and the triangle lies on its side: on the obtuse side (eg past a collinear split point
+                        // of one source, or at a corner of nearly 180 degrees) the sources are not within the tube of each other, and the
+                        // mesher refuses nothing there (review of the hull pairing); a vertex within ZoneFactor tube of the apex counts
+                        // on either side
+                        if (AcuteSide(apex, a, c, t)) return true;
                     }
                 return false;
             }
