@@ -6,16 +6,20 @@ using g3;
 namespace gs
 {
     /// <summary>
-    /// Triangle quality pass for a simplified alpha wrap (MeshRobustRepair.AlphaWrapQualityPass): edge flips and
-    /// tangential vertex moves around triangles with a small minimum angle, each kept only if
+    /// Triangle quality pass for a simplified alpha wrap (MeshRobustRepair.AlphaWrapQualityPass): edge flips,
+    /// tangential vertex moves and, if switched on, cap splits, cap flips and needle collapses around triangles with a
+    /// small minimum angle (or a large maximum angle), each kept only if
     ///   - it raises the smallest angle of the changed triangles by at least MinGainDegrees,
     ///   - no changed triangle turns by more than MaxNormalTurnDegrees or becomes degenerate,
     ///   - every changed triangle lies within Tolerance of the reference (the unsimplified wrap), certified by
     ///     TriangleDeviationBounds.IsWithin (with the patch bound),
     ///   - and, with CheckSelfIntersections, no changed triangle intersects another one (exact test, as the Reducer's
     ///     PreventSelfIntersections).
-    /// So the result stays within Tolerance of the reference wherever it changed, and keeps the topology (flips and
-    /// moves only). Serial and in a fixed order: deterministic. Scale invariant (angles and relative thresholds only).
+    /// So the result stays within Tolerance of the reference wherever it changed, and keeps the genus (splits and
+    /// collapses change the vertices, collapses only under the link condition). The smallest angle of the mesh cannot
+    /// drop (every operation keeps the smallest angle of its triangles), but the largest one is bounded only by splits
+    /// and cap flips: a flip, move or collapse may raise the largest angle of its triangles. Serial and in a fixed
+    /// order: deterministic. Scale invariant (angles and relative thresholds only).
     /// </summary>
     internal sealed class AlphaWrapQualityPass
     {
@@ -60,10 +64,12 @@ namespace gs
         bool protectThisOperation = true;
         Dictionary<Vector3i, List<int>> protectedCells;
         double protectedCell;
+        Vector3d protectedOrigin;
         /// <summary>
         /// split the longest edge of triangles with a larger angle (caps) at the foot of the altitude from the opposite
-        /// vertex: the new vertex lies on the edge, so the surface does not change (180: off). The owner's approval of
-        /// splits (2026-11-02) caps the growth: at most MaxTriangleGrowth more triangles
+        /// vertex: the new vertex lies on the edge up to rounding, so the surface hardly changes; the actual position is
+        /// checked, as every operation (180: off). The owner's approval of splits (2026-11-02) caps the growth: at most
+        /// MaxTriangleGrowth more triangles than at the start of each Compute
         /// </summary>
         internal double SplitCapsAboveDegrees = 180;
         internal double MaxTriangleGrowth = 0.05;
@@ -114,6 +120,8 @@ namespace gs
         /// <summary> resets the counters and builds the queries (Compute does it; for tests of accept) </summary>
         internal void Prepare()
         {
+            skipNormals = false;
+            protectThisOperation = true;
             Flips = Moves = Splits = Collapses = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = 0;
             maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
@@ -129,6 +137,7 @@ namespace gs
             protectedCells = null;
             if (ProtectedEdges.Count == 0 || !(ProtectedDistance > 0)) return;
             protectedCell = Math.Max(ProtectedDistance, Mesh.CachedBounds.MaxDim / 64);
+            protectedOrigin = Mesh.CachedBounds.Min;
             protectedCells = new Dictionary<Vector3i, List<int>>();
             for (int i = 0; i < ProtectedEdges.Count; ++i) {
                 Segment3d sg = ProtectedEdges[i];
@@ -141,14 +150,22 @@ namespace gs
             }
         }
 
+        // the cells of a box, relative to the mesh's box (small indices also far from the origin); clamped to one cell
+        // beyond the mesh's box (a segment far outside lands in the border cells, which only costs distance tests)
         IEnumerable<Vector3i> cells(AxisAlignedBox3d bx)
         {
-            Vector3i lo = new Vector3i((int)Math.Floor(bx.Min.x / protectedCell), (int)Math.Floor(bx.Min.y / protectedCell), (int)Math.Floor(bx.Min.z / protectedCell));
-            Vector3i hi = new Vector3i((int)Math.Floor(bx.Max.x / protectedCell), (int)Math.Floor(bx.Max.y / protectedCell), (int)Math.Floor(bx.Max.z / protectedCell));
+            Vector3i lo = new Vector3i(cell(bx.Min.x - protectedOrigin.x), cell(bx.Min.y - protectedOrigin.y), cell(bx.Min.z - protectedOrigin.z));
+            Vector3i hi = new Vector3i(cell(bx.Max.x - protectedOrigin.x), cell(bx.Max.y - protectedOrigin.y), cell(bx.Max.z - protectedOrigin.z));
             for (int k = lo.z; k <= hi.z; ++k)
                 for (int j = lo.y; j <= hi.y; ++j)
                     for (int i = lo.x; i <= hi.x; ++i)
                         yield return new Vector3i(i, j, k);
+        }
+
+        int cell(double d)
+        {
+            // (at most 64 cells across the mesh's box: -1 .. 65 covers it with a border)
+            return (int)MathUtil.Clamp(Math.Floor(d / protectedCell), -1, 66);
         }
 
         // is triangle tid of Mesh within ProtectedDistance of a protected segment?

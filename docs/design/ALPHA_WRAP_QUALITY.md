@@ -19,7 +19,8 @@ Every operation is local and kept only if all of these hold:
   (`TriangleTriangleFilter.IntersectsBeyondShared`), with a `TriangleHashGrid` kept in step with every operation.
 - **normal deviation** (`KeepNormalDeviation`, on in the default settings): the area-weighted mean angle between
   the new triangles' normals and the wrap's normals is at most that of the removed triangles plus 0.1 degrees. Cap
-  flips on nearly flat pairs (dihedral angle at most 10 degrees) are exempt.
+  flips on nearly flat pairs (dihedral angle at most 10 degrees) are exempt. The slack holds per operation: an
+  area touched again in a later pass may drift further, which the fidelity gate (d) measures.
 
 The operations:
 
@@ -34,6 +35,14 @@ The result is used only if it is clean (`NotCleanReason`) and the one-sided Haus
 whole mesh within the tolerance (`certified_within`, as for the simplification); otherwise the simplified wrap
 stays. The pass is serial in a fixed order, so it is deterministic, and it uses only angles and relative thresholds,
 so it is scale invariant (bit for bit under 2^k scales, `InvariantUnderSimilarities`).
+
+What the pass guarantees, and what it only measures:
+- **Guaranteed:** (a) and (b), by the final gate. The smallest angle of the mesh cannot drop, because every
+  operation keeps the smallest angle of its triangles.
+- **Measured only:** the largest angle and the share above 170 degrees, gates (c1b) and (c1c). Splits and cap flips
+  bound the largest angle of their triangles, but an ordinary flip, move or collapse needs only a gain in the
+  smallest angle and may raise the largest one locally. A guard for this would change every measured variant, so it
+  is a follow-up, not part of this stage.
 
 The default settings (`MeshRobustRepair.DefaultWrapQuality`) are variant G1 of the table below.
 

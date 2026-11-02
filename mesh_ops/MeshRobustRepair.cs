@@ -113,7 +113,9 @@ namespace gs
         /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
         /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
         /// The default settings (DefaultWrapQuality) also split caps above 160 degrees (at most 5 % more triangles),
-        /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack).
+        /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
+        /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
+        /// moves may raise it locally).
         /// On by default; false keeps the simplified wrap as it is.
         /// </summary>
         public bool AlphaWrapQualityPass = true;
@@ -492,12 +494,9 @@ namespace gs
         }
 
         /// <summary>
-        /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
-        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
-        /// </summary>
-        /// <summary>
-        /// the settings of the quality pass in the alpha wrap fallback (variant G1 of the 7b benchmark, README): the
-        /// normal-deviation guard with 0.1 degree slack, cap flips above 150 degrees, cap splits above 160 degrees
+        /// the settings of the quality pass in the alpha wrap fallback (variant G1 of the 7b benchmark,
+        /// docs/design/ALPHA_WRAP_QUALITY.md): the normal-deviation guard with 0.1 degree slack per operation, cap
+        /// flips above 150 degrees, cap splits above 160 degrees
         /// </summary>
         internal static void DefaultWrapQuality(AlphaWrapQualityPass p)
         {
@@ -507,6 +506,10 @@ namespace gs
             p.SplitCapsAboveDegrees = 160;
         }
 
+        /// <summary>
+        /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
+        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             Action<AlphaWrapQualityPass> configure = null)
         {

@@ -622,6 +622,38 @@ namespace geometry3Sharp.Tests
             Invariant((p) => { p.EnableFlips = false; p.WorstFirst = p.FollowReference = true; p.SplitCapsAboveDegrees = 160; p.PinCreaseVerticesDegrees = 20; p.EnableCollapses = true; });
         }
 
+        [Fact]
+        public void InvariantUnderSimilarities_DefaultSettings()
+        {
+            Invariant(MeshRobustRepair.DefaultWrapQuality);
+        }
+
+        [Fact]
+        public void Deterministic_DefaultSettings()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 a = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, MeshRobustRepair.DefaultWrapQuality);
+            DMesh3 b = MeshRobustRepair.ImproveWrapQuality(new DMesh3(simp), new DMesh3(wrap), tol, true, () => false, MeshRobustRepair.DefaultWrapQuality);
+            Assert.NotNull(a);
+            Assert.Equal("", Invariance.Difference(a, b));
+        }
+
+        [Fact]
+        public void ImproveWrapQuality_RejectsAResultBeyondMaxDistance()
+        {
+            // the pass run at 4 times the distance: its result is clean but not within maxDistance, so the final
+            // certification rejects it (null); with maxDistance 4 times as large the same pass is accepted
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 wide = MeshRobustRepair.ImproveWrapQuality(simp, wrap, 4 * tol, true, () => false);
+            Assert.NotNull(wide);
+            var hd = new MeshHausdorffDistance(wide, wrap) { Symmetric = false, Tolerance = 0.01 * tol };
+            Assert.True(hd.Compute() && hd.Converged);
+            Assert.True(hd.LowerBound > tol, $"the wide pass must leave the tolerance for this test: {hd.LowerBound / tol}");
+            Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.Tolerance = 0.95 * 4 * tol));
+        }
+
         static void Invariant(Action<AlphaWrapQualityPass> cfg)
         {
             DMesh3 wrap, simp; double tol;
