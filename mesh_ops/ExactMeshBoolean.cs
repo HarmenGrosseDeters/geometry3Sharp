@@ -179,8 +179,8 @@ namespace g3
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
-        /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): exact triangle pair tests in its evaluations at
-        /// most. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
+        /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): no edit is evaluated once the exact triangle
+        /// pair tests of its evaluations exceed it. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
         /// defects left counted; it bounds the time on inputs it cannot repair. Default 5M
         /// </summary>
         public long RoundingMaxPairTests = 5000000;

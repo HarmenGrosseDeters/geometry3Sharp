@@ -350,9 +350,9 @@ a vertex of valence 3 instead of the weld.
   - Error gives the defects left, where (`RemainingDefectAt`), and the drift that the smallest edit rejected by the
     bound needed (`SmallestRejectedDrift`).
 - **Effort budget** (`MaxPairTests`; `RoundingMaxPairTests` on `ExactMeshBoolean` and `MeshRobustRepair`,
-  `--rounding-max-pair-tests` in g3cli): the exact triangle pair tests of the evaluations at most. Past it the repair
-  applies no more edits (`EvaluationLimitReached`); the result is valid, its defects counted. Owner decision of
-  2026-11-02: 5M instead of 20M. Measured after #327: no clean result lost or gained (generated families 1340 of 1512,
+  `--rounding-max-pair-tests` in g3cli): once the exact triangle pair tests of the evaluations exceed it (the last
+  evaluation may pass it by its own tests), the repair applies no more edits (`EvaluationLimitReached`); the result is
+  valid, its defects counted. Owner decision of 2026-11-02: 5M instead of 20M. Measured after #327: no clean result lost or gained (generated families 1340 of 1512,
   Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of 18 at 5M to 80M), and less time where the
   budget is reached (families 241 to 145 s, self-unions 1925 to 1774 s, rounding of the rotated cases 193 to 96 s). The
   hash gate (`profile --repeat 1 --safe-rounding`, 263 runs) reaches it nowhere and stays identical.

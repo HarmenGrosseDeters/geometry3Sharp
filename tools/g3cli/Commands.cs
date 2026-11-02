@@ -325,9 +325,9 @@ namespace g3cli
                 "(RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
             c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, prefix + "safe_rounding: edits may also move the surface up to this absolute " +
                 "distance (RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
-            c.Params.Add(new Param("rounding_max_pair_tests", ParamType.Integer, prefix + "safe_rounding's effort budget: exact triangle pair tests " +
-                "in its evaluations at most; past it the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted " +
-                "(RoundingMaxPairTests; MeshRoundingRepair.MaxPairTests)") { Default = 5000000 });
+            c.Params.Add(new Param("rounding_max_pair_tests", ParamType.Integer, prefix + "safe_rounding's effort budget: once the exact triangle pair " +
+                "tests of its evaluations exceed this, the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted; " +
+                "0 stops once one pair test was made (there is no 'no limit' value), at most 2147483647 (RoundingMaxPairTests; MeshRoundingRepair.MaxPairTests)") { Default = 5000000 });
             c.Params.Add(new Param("strict_rounding", ParamType.Boolean, repair
                 ? "robust, exact stage: safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them): an " +
                   "exact resolve whose rounding is not clean is rejected (exact_resolve_reason 'rounding not clean (StrictRounding)') and the other stages " +

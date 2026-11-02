@@ -126,7 +126,8 @@ namespace g3
         /// </summary>
         public int MaxEvaluationsPerDefect = 50;
         /// <summary>
-        /// effort budget for hopeless inputs: exact triangle pair tests in the evaluations at most (see
+        /// effort budget for hopeless inputs: no edit is evaluated once the exact triangle pair tests of the evaluations
+        /// exceed it (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
         /// MaxEvaluationsPerDefect). Measured (November 2026, after #327): 5M instead of 20M lost and gained no clean result
         /// (generated families 1340 of 1512 clean, Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of
         /// 18 at 5M to 80M) and cut the time of the cases that reach it (rounding of the rotated cases 193 to 96 s).
