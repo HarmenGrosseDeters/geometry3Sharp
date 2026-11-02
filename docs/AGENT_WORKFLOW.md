@@ -89,6 +89,12 @@ from secret tests, which a public repository cannot keep.
 - The plan lives in the repository ([ROADMAP.md](ROADMAP.md)), not in chat. Results live in PRs and READMEs.
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
+- Waiting time is work time. While a session waits (on CI, a mutation run, a long benchmark, a review, a decision of
+  the owner or a merge), it uses the time for work that does not touch the branch under test and that the next step
+  needs anyway: the literature and building-block search for its next item (section 3), an upper-bound measurement,
+  a profile, a diagnosis of a finding, tests or test data for the next step, or a draft of the docs. It does not
+  start a second PR-sized topic, does not push to the branch whose CI or mutation run is running (a push cancels
+  it), and reports results in the same one-line way. If there is nothing useful left, it says so and waits.
 
 ## 7. Anti-slop rules for the code itself
 
