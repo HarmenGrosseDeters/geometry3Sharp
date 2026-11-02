@@ -1,6 +1,6 @@
 # Meshing2: hull edges on the grid (design note for the owner)
 
-Status: **decided (owner, 2026-11-02; section 7), not built yet.** Written after the reference comparison found OffGrid vertices on the Herne tiles at snap
+Status: **decided (owner, 2026-11-02; section 7), built (section 8).** Written after the reference comparison found OffGrid vertices on the Herne tiles at snap
 0.01 (ALKIS parcels and buildings, three tiles, not committed). Refinement on the grid (`MESHING2D_SNAP.md` section 3g, #277) was
 designed and fuzz-tested with outer rings only. A **hull domain** has no outer ring (D13: the convex hull of the input is the
 boundary). With a hull domain, refinement on the grid has not been specified, and it does not work. This note collects what was found,
@@ -158,3 +158,40 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
   - the nine Herne runs;
   - no golden row changes without a reason.
 - **The implementation** is its own PR, with the label `bugfix` where a test fails on master.
+
+## 8. As built
+
+**Mesher** (`QualityMesh2`, `SnapRounding2`, `ConstrainedDelaunayMesh2.Builder`):
+- With an explicit tolerance, a hull domain, and refinement on, `Compute` appends the exact convex hull edges of the input (collinear
+  points left out) as segments before snap rounding.
+- `SnapRounding2.SegmentChainStart` locates their chains, and the builder makes them hull sources (`HullSegmentsFrom`/`To`).
+- `ConstrainHull` then adds no hull edges of its own; it only floods what lies outside the chains.
+- Splits of hull pieces use the envelopes of the true hull edges, as segment pieces do (`snap.Origins`).
+- `TrianglesNear` starts from a ghost's real neighbour (the OffGrid finding).
+- Vertices of the hull chains left in no triangle are reported in the diagnostics: "snap grid: N vertices of the hull chains in no
+  triangle".
+
+**Oracle**, rule O-H4 (`CollapsedHullTip`):
+- **Rule:** with an explicit tolerance at M3 (D14) on a hull domain (D13), an unused input point is accepted only if, at some corner
+  of the input's hull, both hull edges pass one pixel, and either
+  - the point is that corner, and a used output vertex lies in such a pixel, or
+  - the point's own pixel is such a pixel, so the point lies on the shared chain.
+  Snap rounding routes both chains through that pixel's vertex, so the tip between has no area (Q-H4).
+- **"Passes a pixel"** is decided as for grid splits: the edge crosses the pixel's interior, a hair smaller, or passes its centre
+  (half-open pixels). An edge that only touches a pixel's boundary does not count (review: a 90 degree corner on a pixel boundary must
+  stay judged). A point without its own output vertex (`map < 0`) is never excused.
+- **Self-checks:** accept (a collapsed tip), and reject (the next vertex's pixel passed by one hull edge only; a corner on a pixel
+  boundary; no tolerance).
+- O-H1 (judging the boundary against the snapped hull as well) and a separate hull envelope (Q-H3) were not needed: with the hull edges
+  snap-rounded as segments, the existing segment rules apply.
+
+**Measured** (all runs judged by the oracle):
+
+| | master | built |
+|---|---|---|
+| Fuzz of section 5: 24 seeds × 8 frames (`Fuzz_PointsInsideASlopedHullEdge_PassTheOracle`) | 119 of 192 (Python generator) | 192 of 192; the 2^k frames bit for bit |
+| Herne, nine runs | 2 of 9 | 9 of 9 (with #309) |
+| Meshing2, QualityMesh2 and SnapRounding2 suites | | all pass, no golden row changed |
+
+**Open (Q17):** a domain narrower than a pixel everywhere (a polyline whose hull is about 7 mm wide) loses whole segment chains
+(SegmentMissing). That is a collapse beyond a corner tip, which O-H4 does not cover.
