@@ -524,6 +524,26 @@ class Program
     {
         if (input.TriangleCount == 0 || result.TriangleCount == 0)
             return;
+        // angle extremes of the result (wrap quality acceptance, owner decision 2026-11-02): triangles with a smallest
+        // angle below 0.5 degrees, share with a largest angle above 170 degrees, global min / max angle
+        {
+            int lt05 = 0, lt10 = 0, lt20 = 0, gt150 = 0, gt170 = 0, n = 0; double gmin = 180, gmax = 0;
+            foreach (int t in result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                result.GetTriVertices(t, ref a, ref b, ref c);
+                double A = Vector3d.AngleD((b - a).Normalized, (c - a).Normalized), B = Vector3d.AngleD((a - b).Normalized, (c - b).Normalized), C = 180 - A - B;
+                double mn = Math.Min(A, Math.Min(B, C)), mx = Math.Max(A, Math.Max(B, C));
+                if (mn < 0.5) lt05++;
+                if (mn < 10) lt10++;
+                if (mn < 20) lt20++;
+                if (mx > 150) gt150++;
+                if (mx > 170) gt170++;
+                gmin = Math.Min(gmin, mn); gmax = Math.Max(gmax, mx); n++;
+            }
+            r["q_min_angle"] = gmin; r["q_max_angle"] = gmax; r["q_lt05"] = lt05;
+            r["q_lt10_share"] = (double)lt10 / n; r["q_lt20_share"] = (double)lt20 / n;
+            r["q_gt150_share"] = (double)gt150 / n; r["q_gt170_share"] = (double)gt170 / n;
+        }
         double diag = input.CachedBounds.DiagonalLength;
         var sw = Stopwatch.StartNew();
         foreach (bool fwd in new[] { true, false }) {

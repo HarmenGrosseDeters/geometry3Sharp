@@ -174,5 +174,23 @@ class WrapQualityGate(unittest.TestCase):
         self.assertEqual(per_mesh(paired_fidelity.compare([b], [c], [b], expected=1, subset=True, noise=n)), [])
 
 
+class WrapQualityAcceptance(unittest.TestCase):
+    def test_criteria(self):
+        sys.path.insert(0, HERE)
+        import wrap_quality_acceptance as wqa
+        q = lambda p01: {'minangle': [1, p01, 5, 30]}
+        base = {'file': 'a.stl', 'robust_used_wrap': True, 'q_min_angle': 1.0, 'q_max_angle': 175, 'q_lt05': 0,
+                'q_gt170_share': 0.005, 'q_lt10_share': 0.07, 'q_lt20_share': 0.2, 'q_gt150_share': 0.05, 'fm_q_out': q(3)}
+        good = dict(base, q_min_angle=1.5, q_max_angle=170, q_gt170_share=0.0005, q_lt10_share=0.02, q_lt20_share=0.1,
+                    q_gt150_share=0.01, fm_q_out=q(8))
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': good}), {'a.stl': []})
+        for change, crit in [({'q_lt05': 1}, 'c1a'), ({'q_min_angle': 0.9}, 'c1a'), ({'q_max_angle': 176}, 'c1b'),
+                             ({'q_gt170_share': 0.002}, 'c1c'), ({'fm_q_out': q(3)}, 'c2'), ({'q_lt20_share': 0.2}, 'c2'),
+                             ({'q_gt150_share': 0.06}, 'c2')]:
+            self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, **change)}), {'a.stl': [crit]}, change)
+        # not a wrap case: not judged
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, robust_used_wrap=False)}), {})
+
+
 if __name__ == '__main__':
     unittest.main()
