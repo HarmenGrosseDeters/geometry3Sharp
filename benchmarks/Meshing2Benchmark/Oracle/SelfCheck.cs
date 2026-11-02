@@ -418,6 +418,40 @@ namespace Meshing2Acceptance
             Mesh2Output OutV(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
                 Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            // 0. a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): the corner (0, 0) of a hull triangle of
+            //    7.1 degrees (pixel 1/4) is in no triangle; accepted when an output vertex lies in a pixel both hull edges at the corner
+            //    pass ((3/4, 0): the edge to (10, 5/4) passes it at height 3/32), not when the next vertex is beyond that ((2, 0): the edge
+            //    passes 1/4 above its pixel's centre), nor without a tolerance
+            foreach (var (qx, snapped, ok, what) in new[] { (0.75, true, true, "a hull tip collapsed through a pixel both hull edges pass"),
+                                                          (2.0, true, false, "a hull corner in no triangle, the next vertex in a pixel only one hull edge passes"),
+                                                          (0.75, false, false, "a hull corner in no triangle without a tolerance") }) {
+                var input = Points(0, 0, 10, 0, 10, 1.25, 10, 0.5);
+                input.MinAngleDeg = 20;
+                if (snapped) input.SnapTolerance = 0.25;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 10, 10, 10, qx }, VY = new[] { 0, 0, 1.25, 0.5, 0 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 4, 1, 3 }, new[] { 4, 3, 2 } }, BadTriangles = new[] { 0, 1 }, Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                bool unused = report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 0 "));
+                must((ok ? "accept: " : "reject: ") + what, unused != ok, "report: " + report);
+            }
+
+            // 0b. ... but not a 90 degree corner whose neighbour's pixel a hull edge only touches at its boundary (the square
+            //     (0.5, 0.5) - (10.5, 10.5) with points (10.4, 10.5) and (10.5, 10.4), pixel 1: the corner (11, 11) in no triangle; the
+            //     edge y = 10.5 only touches the pixel of (10, 11); review of the rule)
+            {
+                var input = Points(0.5, 0.5, 10.5, 0.5, 10.5, 10.5, 0.5, 10.5, 10.4, 10.5, 10.5, 10.4);
+                input.MinAngleDeg = 20;
+                input.SnapTolerance = 1;
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 1, 11, 11, 1, 10, 11 }, VY = new double[] { 1, 1, 11, 11, 11, 10 },
+                    InputToVertex = new[] { 0, 1, 2, 3, 4, 5 }, Triangles = new[] { new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 0, 4, 3 } }, BadTriangles = new int[0],
+                    Subsegments = new List<SubsegmentOutput>() };
+                o.Neighbours = NeighboursOf(o.Triangles);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("reject: a 90 degree hull corner in no triangle, a hull edge touching the next pixel at its boundary",
+                    report.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 2 ")), "report: " + report);
+            }
+
             // 1. an input point lands on the centre of its pixel (grid of pixel tol, anchored at the origin, half-open pixels): (dx, dy) is
             //    the input's offset from (5, 5), (ox, oy) the output's, both in units of tol
             foreach (var (dx, dy, ox, oy, snap, ok, what) in new[] {
@@ -1167,10 +1201,14 @@ namespace Meshing2Acceptance
                 return input;
             }
             int[] R(params int[] v) => v;
+            // (both paths: the filtered one, with the shoelace for a single simple ring and the slabs over box-filtered pairs otherwise,
+            // and the reference path, the slabs over all pairs)
             void Area(string name, Q expected, Mesh2Input input)
             {
                 var domain = new Domain(input);
                 must("domain area: " + name, domain.Area == expected, "got " + domain.Area);
+                var reference = new Domain(input, false);
+                must("domain area, reference path: " + name, reference.Area == expected, "got " + reference.Area);
             }
             double[] S(params double[] extra) => new double[] { 0, 0, 10, 0, 10, 10, 0, 10 }.Concat(extra).ToArray();
             Area("square, either orientation, closing point", 100, Rings(S(), (R(3, 2, 1, 0, 3), false)));
@@ -1178,6 +1216,26 @@ namespace Meshing2Acceptance
             Area("a collinear hull has no area", 0, Points(0, 0, 1, 1, 2, 2));
             Area("hole", 96, Rings(S(2, 2, 4, 2, 4, 4, 2, 4), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true)));
             Area("F-7 bowtie", new Q(1, 2), Rings(new double[] { 0, 0, 1, 1, 1, 0, 0, 1 }, (R(0, 1, 2, 3), false)));
+            // a single ring that is not simple must not take the shoelace: a figure eight touching itself at (5, 5) (lobes turning the
+            // same way: shoelace and parity agree, both paths must still get it), a lobe inside the square touching it at a vertex only
+            // (parity: a hole of 3/2, the shoelace would add it: 203/2; review of the speed-up), a lobe inside the other with the same
+            // turning (parity: a hole, the shoelace would add it), a spike back along an edge (zero width: area unchanged)
+            Area("a ring touching itself at a vertex", 50, Rings(new double[] { 0, 0, 5, 5, 10, 0, 10, 10, 5, 5, 0, 10 }, (R(0, 1, 2, 3, 1, 5), false)));
+            Area("a lobe touching the ring at a vertex only is a hole", new Q(197, 2), Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 1, 1, 2 }, (R(0, 1, 2, 3, 0, 4, 5), false)));
+            // a single hole ring (the outer ring has two points, no area): nothing is inside, also on the shoelace path (review)
+            Area("a lone hole ring", 0, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 20, 20, 30, 30 }, (R(0, 1, 2, 3), true), (R(4, 5), false)));
+            Area("a lobe inside the ring, turning the same way, is a hole", 96, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 2, 2, 4, 2, 4, 4, 2, 4 },
+                (R(0, 1, 2, 3, 0, 4, 5, 6, 7, 4), false)));
+            Area("a spike back along an edge", 100, Rings(new double[] { 0, 0, 10, 0, 10, 10, 0, 10, 5, 10, 5, 15 }, (R(0, 1, 2, 4, 5, 4, 3), false)));
+            // a star of 40 spikes, simple: the shoelace and the slabs agree (the area is the shoelace's, by construction)
+            {
+                var xy = new List<double>();
+                for (int i = 0; i < 80; ++i) { double rad = i % 2 == 0 ? 8 : 1 + (i % 7) * 0.25, a = 2 * Math.PI * i / 80; xy.Add(rad * Math.Cos(a)); xy.Add(rad * Math.Sin(a)); }
+                var star = Rings(xy.ToArray(), (Enumerable.Range(0, 80).ToArray(), false));
+                Q twice = Q.Zero;
+                for (int i = 0; i < 80; ++i) { int j = (i + 1) % 80; twice += Q.FromDouble(xy[2 * i]) * Q.FromDouble(xy[2 * j + 1]) - Q.FromDouble(xy[2 * j]) * Q.FromDouble(xy[2 * i + 1]); }
+                Area("a simple star of 40 spikes", Q.Abs(twice) * new Q(1, 2), star);
+            }
             Area("F-43 touching holes", 92, Rings(S(2, 2, 4, 2, 4, 4, 2, 4, 6, 2, 6, 4), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true), (R(5, 8, 9, 6), true)));
             Area("F-43 hole on the boundary", 94, Rings(S(0, 4, 3, 4, 3, 6, 0, 6), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true)));
             Area("F-44 a square in a hole does not fill back", 64, Rings(S(2, 2, 8, 2, 8, 8, 2, 8, 4, 4, 6, 4, 6, 6, 4, 6), (R(0, 1, 2, 3), false), (R(4, 5, 6, 7), true), (R(8, 9, 10, 11), true)));
