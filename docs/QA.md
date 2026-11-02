@@ -425,8 +425,10 @@ that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANG
   inside another for a nested one, also when their surfaces cross. So of two outward boxes crossing at 3 or 10
   degrees, one was flipped as a cavity, and the repair returned their difference as a clean result. The volume check
   accepted it, because the input's reference solid uses the same nesting rule.
-- **The fix.** A component whose surface meets (exactly) that of such a component is not nested in it: crossing
-  components keep their orientation. The
+- **The fix.** A component whose surface meets (exactly) that of a component its samples lie in has no nesting
+  at all: crossing components keep their orientation (they are never flagged).
+
+The
 analysis and fix ideas of the findings are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md) (also R2, a large
 hole fill rejected by `MeshRobustRepair`'s volume check, by design).
 

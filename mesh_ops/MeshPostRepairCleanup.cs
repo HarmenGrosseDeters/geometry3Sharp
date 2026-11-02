@@ -281,7 +281,8 @@ namespace gs
         /// orientation (they are never returned).
         /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
         /// so many components side by side are cheap), with a winding number tree per enclosing component; the
-        /// surfaces only for the pairs found nested by the samples.
+        /// surfaces only for a component that would be returned, against the components its samples lie in (so a
+        /// correctly oriented mesh pays nothing for them).
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {
@@ -323,8 +324,7 @@ namespace gs
                 // surface point lies on the other component too, and there its winding number jumps between
                 // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
                 List<Vector3d> samples = null;
-                int nInside = 0;
-                bool crossing = false;
+                List<int> nestedIn = null;
                 // only a component whose box contains this one's can enclose it
                 foreach (int j in containers[i]) {
                     if (trees[j] == null) {
@@ -336,23 +336,20 @@ namespace gs
                             Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
                     // a few samples vote, so one sample near a thin feature or another component does not decide
                     int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
-                    if (2 * votes > samples.Count) {
-                        // nested only if the surfaces do not meet: crossing components (their interiors overlap,
-                        // neither encloses the other) have no nesting, and keep their orientation
-                        if (surfaces_meet(mesh, closed[i], subs[j], trees[j])) {
-                            crossing = true;
-                            break;
-                        }
-                        nInside++;
-                    }
+                    if (2 * votes > samples.Count)
+                        (nestedIn ?? (nestedIn = new List<int>())).Add(j);
                 }
-                if (crossing)
-                    continue;
-                bool cavity = (nInside % 2) == 1;
+                bool cavity = nestedIn != null && (nestedIn.Count % 2) == 1;
                 // an inside-out shell that the closed components leave flagged may be the cavity of a nearly
                 // closed open body: only that can take the flag back (never set one)
-                if ((vols[i] < 0) != cavity && (vols[i] >= 0 || openBodies.Encloses(closed[i], vols[i], volAreas[i].y) == false))
-                    result.Add(closed[i]);
+                if ((vols[i] < 0) == cavity || (vols[i] < 0 && openBodies.Encloses(closed[i], vols[i], volAreas[i].y)))
+                    continue;
+                // nested only if the surfaces do not meet: crossing components (their interiors overlap, neither
+                // encloses the other) have no nesting and keep their orientation. (Tested only for a component that
+                // would be flagged, so a correctly oriented mesh pays nothing for it.)
+                if (nestedIn != null && nestedIn.Any(j => surfaces_meet(mesh, closed[i], subs[j], trees[j])))
+                    continue;
+                result.Add(closed[i]);
             }
             return result;
         }
@@ -363,26 +360,30 @@ namespace gs
         {
             DMesh3 other = sub.SubMesh;
             bool found = false;
+            Index3i ia = Index3i.Zero;
+            Triangle3d A = new Triangle3d();
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            var traversal = new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (b, depth) => !found && b.Min.x <= box.Max.x && box.Min.x <= b.Max.x && b.Min.y <= box.Max.y
+                    && box.Min.y <= b.Max.y && b.Min.z <= box.Max.z && box.Min.z <= b.Max.z,
+                NextTriangleF = (tb) => {
+                    if (found) return;
+                    Index3i ib = other.GetTriangle(tb);
+                    Triangle3d B = new Triangle3d(other.GetVertex(ib.a), other.GetVertex(ib.b), other.GetVertex(ib.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
+                    // (the base mesh's vertex ids: a vertex shared by the two components, a bowtie, is shared here)
+                    Index3i jb = new Index3i(sub.MapVertexToBaseMesh(ib.a), sub.MapVertexToBaseMesh(ib.b), sub.MapVertexToBaseMesh(ib.c));
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, jb, ref B))
+                        found = true;
+                }
+            };
             foreach (int t in tris) {
-                Index3i ia = mesh.GetTriangle(t);
-                Triangle3d A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+                ia = mesh.GetTriangle(t);
+                A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
                 if (ExactTriangleIntersection.IsDegenerate(ref A))
                     continue;
-                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
-                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => !found && b.Min.x <= box.Max.x && box.Min.x <= b.Max.x && b.Min.y <= box.Max.y
-                        && box.Min.y <= b.Max.y && b.Min.z <= box.Max.z && box.Min.z <= b.Max.z,
-                    NextTriangleF = (tb) => {
-                        if (found) return;
-                        Index3i ib = other.GetTriangle(tb);
-                        Triangle3d B = new Triangle3d(other.GetVertex(ib.a), other.GetVertex(ib.b), other.GetVertex(ib.c));
-                        if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                        // (the base mesh's vertex ids: a vertex shared by the two components, a bowtie, is shared here)
-                        Index3i jb = new Index3i(sub.MapVertexToBaseMesh(ib.a), sub.MapVertexToBaseMesh(ib.b), sub.MapVertexToBaseMesh(ib.c));
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, jb, ref B))
-                            found = true;
-                    }
-                });
+                box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                tree.DoTraversal(traversal);
                 if (found)
                     return true;
             }

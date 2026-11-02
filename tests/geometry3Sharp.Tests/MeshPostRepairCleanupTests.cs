@@ -499,6 +499,37 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CrossingPairInAShell_KeepsItsOrientation()
+        {
+            // an outward shell, a spherical cavity in it (inward) and a cube whose corners poke out of the cavity: the
+            // cube's samples lie in the shell and the sphere (2 enclosing), but it crosses the sphere: it has no nesting
+            // and keeps its orientation, whichever way it faces (on the old code the inward cube was flagged). The
+            // crossing pair is not just dropped from the count (that would make the cube a cavity of the shell, and
+            // flag the outward one): both readings are possible, the input's orientation decides.
+            foreach (bool cubeInwards in new[] { true, false }) {
+                DMesh3 mesh = Cube(-5 * Vector3d.One, 10);
+                DMesh3 sphere = Sphere(1);
+                sphere.ReverseOrientation();
+                MeshEditor.Append(mesh, sphere);
+                DMesh3 cube = Cube(-0.62 * Vector3d.One, 1.24);
+                if (cubeInwards) cube.ReverseOrientation();
+                MeshEditor.Append(mesh, cube);
+                foreach (Similarity sim in Similarity.All()) {
+                    int n = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim)).Count;
+                    Assert.True(n == 0, $"cube inwards {cubeInwards}, {sim.Name}: {n} flagged");
+                }
+            }
+            // the sphere itself is nested in the shell only: facing outwards, it is flagged
+            DMesh3 mesh2 = Cube(-5 * Vector3d.One, 10);
+            MeshEditor.Append(mesh2, Sphere(1));
+            MeshEditor.Append(mesh2, Cube(-0.62 * Vector3d.One, 1.24));
+            foreach (Similarity sim in Similarity.All()) {
+                var found = MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh2, sim));
+                Assert.True(found.Count == 1 && found[0].Length == Sphere(1).TriangleCount, $"{sim.Name}: {found.Count}");
+            }
+        }
+
+        [Fact]
         public void NestedComponentsNotMeeting_AreStillNested()
         {
             // the crossing rule only applies when the surfaces meet: a cavity strictly inside its shell (and a shell in
