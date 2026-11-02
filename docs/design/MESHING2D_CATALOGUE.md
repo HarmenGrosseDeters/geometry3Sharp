@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 87 covered, 31 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -39,32 +39,32 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-7/f | All of F-7 at 20 degrees | covered | f-7/f |  |
 | F-8 | Zero-length segments mixed with crossings | covered | f-8 |  |
 | F-9 | Noding off must fail with a status | covered | f-9 |  |
-| F-10/a | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
-| F-10/b | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
-| F-10/c | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
-| F-11/a | Nearly duplicate vertices, 20 degrees | pending | m2.snap |  |
-| F-11/b | Nearly duplicate vertices, 20 degrees | pending | m2.snap |  |
-| F-11/c | Nearly duplicate vertices, 20 degrees | pending | m2.snap |  |
-| F-11/d | Nearly duplicate vertices, 20 degrees | pending | m2.snap |  |
-| F-12/a | Double-digitised border, 2^-40 | pending | m2.snap | the wavy border is a fixed table, not sin(i) |
-| F-12/b | Double-digitised border, 2^-20: the limit stops it | pending | m2.snap |  |
-| F-13 | Micro-rings with coordinate noise | pending | m2.snap |  |
-| F-14/a | 40 stacked nearly identical squares | pending | m2.snap |  |
-| F-14/b | 40 stacked nearly identical squares | pending | m2.snap |  |
-| F-14/c | 40 stacked nearly identical squares | pending | m2.snap |  |
-| F-14/d | 40 stacked nearly identical squares | pending | m2.snap |  |
-| F-14/e | 40 stacked nearly identical squares | pending | m2.snap |  |
-| F-15 | Snap cycle, tolerance 11/1024 | pending | m2.snap | shifted from the origin into a frame of area 4; dyadic analog; band case (D14, w = tol): the ends are 0.91 tol apart, merged or not both pass |
-| F-16 | Near-collinear pair with a third segment close to the shared end | pending | m2.snap | dyadic analog at UTM scale |
-| F-17 | Snap tolerance larger than a hole | pending | m2.snap | the hole's four corners merge into one point: at most 5 vertices (today 8: no explicit tolerance yet) |
-| F-17/b | A hole marker inside a hole smaller than the tolerance | pending | m2.snap | the contour collapses into one pixel; its marker must not empty the domain (area 100, at most 5 vertices); from the clean-room Q&A, MESHING2D_SNAP_QA.md answer 6 |
-| F-18/a | Building wall 4 mm along a parcel border, tolerance merges it | pending | m2.snap | dyadic analog: 2^-8 instead of 5 mm; band case (D14, w = tol): the wall at exactly tol/2, merged or not both pass |
-| F-18/b | Wall 62 mm away is kept | pending | m2.snap |  |
+| F-10/a | Vertex nearly on a segment, 20 degrees | covered | f-10/a |  |
+| F-10/b | Vertex nearly on a segment, 20 degrees | covered | f-10/b |  |
+| F-10/c | Vertex nearly on a segment, 20 degrees | covered | f-10/c |  |
+| F-11/a | Nearly duplicate vertices, 20 degrees | covered | f-11/a |  |
+| F-11/b | Nearly duplicate vertices, 20 degrees | covered | f-11/b |  |
+| F-11/c | Nearly duplicate vertices, 20 degrees | covered | f-11/c |  |
+| F-11/d | Nearly duplicate vertices, 20 degrees | covered | f-11/d |  |
+| F-12/a | Double-digitised border, 2^-40 | covered | f-12/a | the wavy border is a fixed table, not sin(i) |
+| F-12/b | Double-digitised border, 2^-20: the limit stops it | covered | f-12/b |  |
+| F-13 | Micro-rings with coordinate noise | covered | f-13 |  |
+| F-14/a | 40 stacked nearly identical squares | covered | f-14/a |  |
+| F-14/b | 40 stacked nearly identical squares | covered | f-14/b |  |
+| F-14/c | 40 stacked nearly identical squares | covered | f-14/c |  |
+| F-14/d | 40 stacked nearly identical squares | covered | f-14/d |  |
+| F-14/e | 40 stacked nearly identical squares | covered | f-14/e |  |
+| F-15 | Snap cycle, tolerance 11/1024 | covered | f-15 | shifted from the origin into a frame of area 4; dyadic analog; band case (D14, w = tol): the ends are 0.91 tol apart, merged or not both pass |
+| F-16 | Near-collinear pair with a third segment close to the shared end | covered | f-16 | dyadic analog at UTM scale |
+| F-17 | Snap tolerance larger than a hole | covered | f-17 | the hole's four corners merge into one point: at most 5 vertices (today 8: no explicit tolerance yet) |
+| F-17/b | A hole marker inside a hole smaller than the tolerance | covered | f-17/b | the contour collapses into one pixel; its marker must not empty the domain (area 100, at most 5 vertices); from the clean-room Q&A, MESHING2D_SNAP_QA.md answer 6 |
+| F-18/a | Building wall 4 mm along a parcel border, tolerance merges it | covered | f-18/a | dyadic analog: 2^-8 instead of 5 mm; band case (D14, w = tol): the wall at exactly tol/2, merged or not both pass |
+| F-18/b | Wall 62 mm away is kept | covered | f-18/b |  |
 | F-19 | Thin wedges, wedge tolerance | pending | m4.wedge | O13: beyond this brief; the fixture is the first of the spec's five |
-| F-20 | Long edges cross a dense polyline at tiny angles, procedural analog | pending | m2.snap | the public input CDT issue-211 is not fetched here; this is an analog built from its description |
+| F-20 | Long edges cross a dense polyline at tiny angles, procedural analog | covered | f-20 | the public input CDT issue-211 is not fetched here; this is an analog built from its description |
 | F-21 | Long parallel stripes: scaling check | covered | f-21 | the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check |
 | F-22/a | Back-and-forth border, no snapping: limit stops it | covered | f-22/a |  |
-| F-22/b | The same with tolerance 2^-29: sliver gone | pending | m2.snap | at most 1000 vertices once the sliver is merged (the merged geometry meshes to about 220; today 20 007 at the Steiner limit, as F-22/a) |
+| F-22/b | The same with tolerance 2^-29: sliver gone | covered | f-22/b | at most 1000 vertices once the sliver is merged (the merged geometry meshes to about 220; today 20 007 at the Steiner limit, as F-22/a) |
 | F-23/angle-0 | Max area 1/2, min angle 0 | covered | f-23/angle-0 |  |
 | F-23/angle-20 | Max area 1/2, min angle 20 | covered | f-23/angle-20 |  |
 | F-23/angle-30 | Max area 1/2, min angle 30 | covered | f-23/angle-30 |  |

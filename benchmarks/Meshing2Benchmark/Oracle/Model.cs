@@ -97,7 +97,7 @@ namespace Meshing2Acceptance
         HullBoundary, AreaMismatch, NotDelaunayLocal, NotDelaunayGlobal, SegmentMissing, SubsegmentNotEdge, SubsegmentUnsourced,
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
-        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge
+        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid
     }
 
     public sealed class ViolationRecord

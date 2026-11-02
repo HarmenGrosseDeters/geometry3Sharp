@@ -387,7 +387,7 @@ namespace Meshing2Acceptance
             ReviewFindings(Must, Accept, Reject);
             SecondReviewFindings(Must, Accept, Reject);
             M3ReviewFindings(Must, Accept, Reject);
-            SnapGateFindings(Accept, Reject);
+            SnapGateFindings(Must, Accept, Reject);
             return items;
         }
 
@@ -410,9 +410,12 @@ namespace Meshing2Acceptance
         /// The m2.snap gates (D14, owner 2026-11-01; docs/design/MESHING2D_SNAP.md section 3c): with an explicit tolerance an input point
         /// may move by at most tol/2 per axis, and merged input slots (aliases) do not count against a vertex bound.
         /// </summary>
-        static void SnapGateFindings(Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
+        static void SnapGateFindings(Action<string, bool, string> must, Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
         {
-            Mesh2Output Out(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
+            Mesh2Output Out(Mesh2Input input, int[][] tris) => new Mesh2Output {
+                Status = Mesh2Status.Success, VX = (double[])input.X.Clone(), VY = (double[])input.Y.Clone(), InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0], Subsegments = new List<SubsegmentOutput>() };
+            Mesh2Output OutV(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
                 Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
             // 1. an input point lands on the centre of its pixel (grid of pixel tol, anchored at the origin, half-open pixels): (dx, dy) is
@@ -429,7 +432,7 @@ namespace Meshing2Acceptance
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
                 if (snap) input.SnapTolerance = tol;
                 var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
-                var o = Out(input, new double[] { 0, 10, 10, 0, 5 + ox * tol }, new double[] { 0, 0, 10, 10, 5 + oy * tol }, new[] { 0, 1, 2, 3, 4 }, tris);
+                var o = OutV(input, new double[] { 0, 10, 10, 0, 5 + ox * tol }, new double[] { 0, 0, 10, 10, 5 + oy * tol }, new[] { 0, 1, 2, 3, 4 }, tris);
                 if (ok) accept(what, input, o, new OracleExpect { Milestone = Milestone.M2 });
                 else reject(what, snap ? Violation.SnapTooFar : Violation.InputMoved, input, o, new OracleExpect { Milestone = Milestone.M2, Tube = new Q(1, 4) });
             }
@@ -441,18 +444,135 @@ namespace Meshing2Acceptance
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
                 input.SnapTolerance = Math.Pow(2, -10);
                 var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
-                var o = Out(input, (double[])input.X.Clone(), (double[])input.Y.Clone(), new[] { 0, 1, 2, 3, 4, 4, 4, 4 }, tris);
+                var o = OutV(input, (double[])input.X.Clone(), (double[])input.Y.Clone(), new[] { 0, 1, 2, 3, 4, 4, 4, 4 }, tris);
                 var e = new OracleExpect { Milestone = Milestone.M2, StatedArea = new Q(100, 1), StatedAreaTolerance = new Q(1, 16), MaxVertices = bound };
                 if (bound == 5) accept("a collapsed hole: merged slots are no vertices for the bound", input, o, e);
                 else reject("a collapsed hole: the bound still counts the survivors", Violation.CountOutOfRange, input, o, e);
             }
-            // 3. a hole marker inside a contour that collapsed is dropped, not obeyed (clean-room answer 6). Still obeyed: a marker in a
-            //    contour that stays, also next to a near-duplicate corner merged into it, and a marker just outside the collapsed pixel
+            // 4. M2 with an explicit tolerance: a vertex at a pixel centre on a chain in the envelope of its constraint (a restore pixel of
+            //    D14) is allowed; one off the grid is refused, and one on the grid but outside the envelope is an invented vertex
+            foreach (var (vx, vy, ok) in new[] { (8.0, 3.5, true), (8.0, 3.25, false), (8.0, 4.5, false) }) {
+                double tol = 0.5;
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 2, 3, 14, 4);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = tol;
+                // the chain 4 - 6 - 5 bends through the extra vertex 6, within half a pixel of the segment (y = 3.5 there)
+                var vxs = input.X.Concat(new[] { vx }).ToArray(); var vys = input.Y.Concat(new[] { vy }).ToArray();
+                var all = Enumerable.Range(0, 7).ToArray();
+                var pts = new Mesh2Input { X = vxs, Y = vys };
+                var tris = StrictDelaunay(pts, all);
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vxs, VY = vys, InputToVertex = Enumerable.Range(0, 6).ToArray(), Triangles = tris,
+                    Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                    Subsegments = new[] { (0, 1), (1, 2), (2, 3), (3, 0), (4, 6), (6, 5) }.Select(q => new SubsegmentOutput(q.Item1, q.Item2)).ToList() };
+                var e = new OracleExpect { Milestone = Milestone.M2 };
+                if (ok) accept("M2 with a tolerance: a restore vertex at a pixel centre near its constraint (D14)", input, o, e);
+                else if (vy == 3.25) reject("M2 with a tolerance: a vertex off the grid is refused", Violation.OffGrid, input, o, e);
+                else reject("M2 with a tolerance: a grid vertex outside the envelope is invented", Violation.SteinerNotAllowed, input, o, e);
+            }
+            // 5. refinement on the grid (section 3g): a constructed vertex off the grid is refused; a skinny triangle whose shortest edge is
+            //    two pixels is exempt (the floor), one of sqrt(5) pixels is judged, unless its circumcentre's pixel holds a vertex
+            //    (grid-blocked)
+            foreach (var (vx, vy, ok) in new[] { (5.25, 5.25, true), (5.1, 5.25, false) }) {
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.SnapTolerance = 0.25; input.MinAngleDeg = 0;
+                var vxs = input.X.Concat(new[] { vx }).ToArray(); var vys = input.Y.Concat(new[] { vy }).ToArray();
+                var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vxs, VY = vys, InputToVertex = Enumerable.Range(0, 4).ToArray(), Triangles = tris,
+                    Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                    Subsegments = new[] { (0, 1), (1, 2), (2, 3), (3, 0) }.Select(q => new SubsegmentOutput(q.Item1, q.Item2)).ToList() };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must(ok ? "grid: a constructed vertex on the grid" : "grid: a constructed vertex off the grid is refused", report.Has(Violation.OffGrid) != ok, "report: " + report);
+            }
+            foreach (var (pts, blocker, ok, what) in new[] {
+                (new[] { 5.0, 5, 5.5, 5, 8, 5.25 }, false, true, "grid: a skinny triangle with a shortest edge of two pixels is exempt (floor)"),
+                (new[] { 5.0, 5, 9, 5.5, 5.5, 5.25 }, false, false, "grid: a skinny triangle with a shortest edge of sqrt(5) pixels is judged"),
+                (new[] { 5.0, 5, 9, 5.5, 5.5, 5.25 }, true, true, "grid: the same with a vertex at its circumcentre's pixel is exempt (grid-blocked)") }) {
+                double w = 0.25;
+                var xy = new List<double> { 0, 0, 16, 0, 16, 16, 0, 16 };
+                xy.AddRange(pts);
+                if (blocker) {
+                    // the exact circumcentre of the triangle, rounded to its pixel centre
+                    Pt a = Pt.FromDoubles(pts[0], pts[1]), b = Pt.FromDoubles(pts[2], pts[3]), c = Pt.FromDoubles(pts[4], pts[5]);
+                    Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                    double ux = double.Parse((a.Qx + (cy * b2 - by * c2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                    double uy = double.Parse((a.Qy + (bx * c2 - cx * b2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                    xy.Add(Math.Floor(ux / w + 0.5) * w); xy.Add(Math.Floor(uy / w + 0.5) * w);
+                }
+                var input = Points(xy.ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.SnapTolerance = w; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must(what, report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+            }
+            // 6. the exemptions for a subsegment with no split point on the grid do not reach a piece that has one: the segment (5, 5)-(9, 5)
+            //    at pixel 1/4 has twelve pixel centres between its ends. A skinny triangle on it whose circumcentre lies behind it is judged,
+            //    and so is a vertex behind it inside the circumcircle of the triangle on the other side (conforming at M3)
+            {
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 5, 5, 9, 5, 7, 5.25, 7, 4.5);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = 0.25; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
+                o.Subsegments.Add(new SubsegmentOutput(4, 5));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("grid: a skinny triangle whose circumcentre lies behind a splittable subsegment is judged", report.Has(Violation.AngleBelowBound), "report: " + report);
+                o = Out(input, new[] { new[] { 4, 5, 6 }, new[] { 5, 4, 7 } }); o.BadTriangles = new[] { 0, 1 };
+                o.Subsegments.Add(new SubsegmentOutput(4, 5));
+                report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("grid: a vertex behind a splittable subsegment inside a circumcircle is not Delaunay", report.Has(Violation.NotDelaunayGlobal), "report: " + report);
+            }
+            // 5b. grid-blocked by a constraint: the same skinny triangle with a constraint through its circumcentre's pixel (a vertex there
+            //     would sit within half a pixel of it, D14) is exempt; with the constraint a pixel away it is judged (review of #277)
+            foreach (var (offset, ok, what) in new[] { (0.0, true, "grid: a skinny triangle whose circumcentre's pixel a constraint crosses is exempt (grid-blocked)"),
+                                                       (0.25, false, "grid: the same with the constraint a pixel away is judged") }) {
+                double w = 0.25;
+                double[] pts = { 5.0, 5, 9, 5.5, 5.5, 5.25 };
+                Pt a = Pt.FromDoubles(pts[0], pts[1]), b = Pt.FromDoubles(pts[2], pts[3]), c = Pt.FromDoubles(pts[4], pts[5]);
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                double ux = double.Parse((a.Qx + (cy * b2 - by * c2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                double uy = double.Parse((a.Qy + (bx * c2 - cx * b2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                double px = Math.Floor(ux / w + 0.5) * w + offset, py = Math.Floor(uy / w + 0.5) * w;
+                // a diagonal of three pixels through the pixel centre (px, py), its ends on the grid
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, pts[0], pts[1], pts[2], pts[3], pts[4], pts[5], px - 3 * w, py - 3 * w, px + 3 * w, py + 3 * w);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(7, 8));
+                input.SnapTolerance = w; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
+                o.Subsegments.Add(new SubsegmentOutput(7, 8));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must(what, report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+            }
+            // 7. a subsegment with no split point on the grid excuses only itself and what it hides, never an unconstrained edge of a
+            //    triangle next to it (review of #277: the exemption had covered every edge of such a triangle). Here (5, 5)-(6, 6) at pixel
+            //    1 has no pixel centre between its ends; the triangle on it shares the free edge (6, 6)-(4, 5) with a triangle whose apex
+            //    (5, 6) lies in its circumcircle, in plain sight. (The excused side needs an unsplittable piece longer than a pixel, which
+            //    on the grid only a constraint at a small angle makes, inside its merge zone: the grid fuzz regressions cover it.)
+            foreach (var (kind, what) in new[] {
+                (Violation.NotDelaunayLocal, "grid: an unconstrained edge next to an unsplittable subsegment is judged"),
+                (Violation.NotDelaunayGlobal, "grid: a visible vertex in the circumcircle of a triangle on an unsplittable subsegment is judged") }) {
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 5, 5, 6, 6, 4, 5, 5, 6);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = 1; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 }, new[] { 6, 5, 7 } }); o.BadTriangles = new[] { 0, 1 };
+                o.Subsegments.Add(new SubsegmentOutput(4, 5));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                // the triangle on the unsplittable subsegment itself, not only its neighbour (whose circumcircle holds (5, 5) too)
+                must(what, kind == Violation.NotDelaunayLocal ? report.Has(kind) : report.ToString().Contains("vertex 7 inside the circumcircle of 4 5 6"), "report: " + report);
+            }
+            // 3. a hole marker that snapping swept, here inside a contour that collapsed, is dropped, not obeyed (clean-room answer 6).
+            //    Still obeyed: a marker in a contour that did not move, also next to a near-duplicate point merged into its corner, and a
+            //    marker outside the collapsed contour, within a pixel of it or farther (second review of #277: only a swept marker)
             foreach (var (seedX, seedY, ok, what) in new[] {
-                (5 + 1.0 / 256, 5 + 1.0 / 256, true, "a hole marker inside a collapsed contour is dropped (D14, clean-room answer 6)"),
+                (5 + 1.0 / 256, 5 + 1.0 / 512, true, "a hole marker inside a collapsed contour is dropped (D14, clean-room answer 6)"),
                 (3.0, 3.0, false, "a hole marker inside a contour that stays still removes its cell"),
                 (2 + 1.0 / 64, 2 + 1.0 / 64, false, "a hole marker next to a merged near-duplicate corner of a contour that stays still removes its cell"),
-                (5 + 0.75 / 16, 5.0, false, "a hole marker just outside the collapsed contour's pixel is still obeyed") }) {
+                (5 + 0.75 / 16, 5.0, false, "a hole marker within a pixel of the collapsed contour, outside it, is still obeyed"),
+                (5 + 1.0 / 128, 5 + 1.0 / 256, true, "a hole marker on the collapsed contour is dropped"),
+                (5 + 1.25 / 16, 5.0, false, "a hole marker more than a pixel from the collapsed contour is still obeyed") }) {
                 double h = 1.0 / 128, tol = 1.0 / 16;
                 var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 5, 5 + h, 5, 5 + h, 5 + h, 5, 5 + h, 2, 2, 4, 2.25, 4, 4, 1.75, 4, 2 + tol / 4, 2);
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
