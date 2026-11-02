@@ -407,3 +407,141 @@ case is an inside-out tiny component. So a larger k alone does not finish the jo
     grid precision may merge.
   - GEOS has the same design.
   - That is the same contract as items 1 and 2: below the tolerance, features collapse, and the output is valid.
+
+## 6. Handoff for the snap-rounding experiment (2026-11-02)
+
+Stage R ends here: D′ (#251), 1b (#279), the ulp tolerance (#287), the pass-through API (#294). The next item is the
+research experiment of section 3: option A (the Milenkovic–Sacks expansion and its certificate), then B (a
+Valque–Lazard iteration bounded by the drift). It is a measurement and prototypes only; the owner decides on an
+implementation from the numbers. This section is the handoff to a fresh session.
+
+### 6.1 What is left, and how to reproduce it
+
+All cases are generated in code, so no mesh files are needed.
+- **Strips that branch or fold** (1b, section 2, "What is left"):
+  - `SafeRoundingDegenerateInputTests.DenseClusters_WithinTheBound_MostlyClean`: dense clusters 85 of 108 clean,
+    folded clusters 80 of 90. The pinned minimums are 85 and 80. The 23 + 10 left are within the bound and the same solid.
+  - `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_CleanWithinTheBound`: 197 of 198; the one left is
+    ShortEdge 2^-44, union, seed 0.
+  - Make a case with `SafeRoundingDegenerateInputTests.Make(Family, k, seed, count)` (public), resolve it with
+    `new ExactMeshBoolean(mesh, new DMesh3(), Ops.Union)`, and read `Rounding` (RemainingDegenerate,
+    RemainingIntersections, MaxDrift, MaxLength, SmallestRejectedDrift).
+  - The cases left are not listed one by one: loop over the grid of the test and print those with
+    `RoundingClean == false`.
+  - Diagnosis so far: the strip's boundary passes a vertex twice (a Y of strips), or the strip is no disk. Folded strips
+    lie in layers on one line, where a zipped result would need two sheets on one edge.
+- **Six UTM cases** (section 5): `SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance_WithinIt` (108 of 114). The
+  names are those of `SafeRoundingBoundTests.UtmCases()`, ExactMeshBoolean defaults:
+  - `Cluster k30 count 4 seed 1` and `FoldedCluster k36 count 4 seed 0`: 2 to 3 intersecting pairs left. The edits
+    rejected by the bound would need 360 to 370 ulps (`SmallestRejectedDrift`).
+  - `Cluster k30 count 4 seed 0` and `FoldedCluster k30 count 4 seed 0`: rounding clean (`IsClean`), but a contact of
+    two vertices of higher valence at one position remains, which `MeshRobustRepair.NotCleanReasons` counts as
+    "self-intersections".
+  - `FoldedCluster k36 count 4 seed 2`: a contact with a tiny separate component.
+  - `Cluster k30 count 4 seed 2`: an inside-out tiny component.
+- **The cylinder, step 2** (R22): `ExactBooleanIssueCasesTests.CylinderToolSteppedDown_RepeatedDifference` pins
+  exactly 1 degenerate triangle in step 2.
+  - The triangle is a cap on the tool's vertical seam (x = 1.47), with a long edge of 1.
+  - Its neighbour across the long edge is a sliver with an edge of 2.03e-9 (area 1.01e-9, above the degenerate
+    threshold of about 1.7e-10).
+  - The strip zip of the two is rejected by `improves`, because it leaves a needle with that edge (newB = oldB). A
+    contraction would remove the needle next, but each edit must improve on its own.
+  - This is a case for a two-step edit, or for the separation of option A.
+- **R23** (`ROBUSTNESS_SWEEP.md`): the UTM row above. Its cause: rounding the exact result's new vertices to the world
+  grid. The same input moved exactly to the origin is clean.
+
+### 6.2 The experiment, tightened
+
+**Inputs:**
+1. The generated families above: dense and folded clusters, the 114 UTM cases, the cylinder. They are small and fast,
+   good for prototypes.
+2. Thingi10K self-unions: `benchmarks/MeshRepairBenchmark/fetch_data.py` gives the 400 set in `data/meshes`. Resolve
+   each with `ExactMeshBoolean.Resolve` / `new ExactMeshBoolean(m, new DMesh3(), Union)`. The models with
+   self-intersections are the input set of Valque–Lazard and CGAL.
+3. BooleanComparison: `python3 data/fetch.py cgal data_cgal` and `cherchi`, `dotnet $BOOLCMP_TOOL synth synth`, then
+   `compare.py <manifest> <out> --methods ours -j 1`.
+
+**Metrics per model and method:**
+- `RoundingClean` and `NotCleanReasons`;
+- `MaxDrift` against `MaxLength`, also in ulps of the largest coordinate;
+- for A: the certificate passed or not;
+- the removed components, the time, and `SameSolid` against the unrounded resolve.
+- The baseline is the current SafeRounding; also report plain rounding (`SafeRounding = false`).
+
+**Baseline numbers that already exist:**
+- section 3 "Baseline", the 400 set, robust: 273 of 400 repaired, 4 rounding failures;
+- section 4 and #251's body: D′ against master (BooleanComparison clean counts, MeshRepair 400, the cost);
+- #279's body: 1b against #251, BooleanComparison identical, MeshRepair 87 meshes with SafeRounding edits:
+  87 → 87, 18 with other edit counts;
+- #287's body: the ulp tolerance, 263 of 263 profile hashes identical, the 114 UTM cases 92 → 108.
+
+**Order:**
+1. **A prototype** on the generated families: only the remaining close pairs, small LPs, and an exact check of the
+   certificate (2e-separation).
+2. **B as the fallback** on what A leaves: snap to a scaled grid and resolve again, with each snap rejected beyond the
+   drift bound.
+3. Then the Thingi10K set, with the go and no-go criteria of section 3.
+
+### 6.3 Pitfalls met in stage R
+
+- **Bounds:**
+  - Compute every distance as |p − q| of a nearest point, relative to a nearby point (the difference of two nearby doubles is exact, or nearly, by Sterbenz).
+  - Never use `DistPoint3Triangle3.Get()` for a bound: its closed form subtracts terms of the triangle's squared size,
+    so distances below about 1e-8 of that size come out as 0 (#287's bounds review).
+  - Never use `Normalized` in a filter that must scale exactly: it has an absolute threshold.
+  - Errors are absolute, a few ulps of the largest coordinate per edit, not relative (REVIEW_CHECKLIST §5).
+  - A bound that is NaN or infinite must reject the edit (`improves`, `maxLength`).
+- **Drift bookkeeping:**
+  - `improves()` takes the drift from the vertices of the removed ∪ added triangles; `commit_drift()` follows only
+    after the edit is applied.
+  - The drift is checked before the evaluation budget is charged.
+  - A new edit must be in `begin_edit`'s removed / added / addedFrom lists, or its vertices miss the drift.
+  - Every new δ needs the proof in the class comment and in the table of section 1, and a bounds review with exact
+    rational fuzzing: the double distance has false ratios.
+- **"Each edit must improve on its own"** (`newI + newB < oldI + oldB`, or `<=` for a contact removal): this blocks
+  two-step repairs (the cylinder). Relaxing it needs a termination argument.
+- **Mutation:**
+  - `stryker-mesh-boolean-1/2.json` split `ExactMeshBoolean.cs` at a character offset, at the start of
+    `front_winding` (50611 after #294). Any edit before it moves the split. `MutationConfigTests` fails, and the
+    config edit makes both shards run in full.
+  - Any edit of `.github/workflows/mutation.yml` runs every shard in full (`select_shards.py`, `ALWAYS`).
+  - Name new tests so that they fall under the existing filters and globs. `SafeRoundingBoundTests` and
+    `MeshRoundingRepair*Tests` are in the `rounding` filter; `SafeRoundingDegenerateInputTests` is not, on purpose:
+    it is slow.
+- **Do not touch:**
+  - `MeshRobustRepair`'s wrap path (stage 7b);
+  - `mesh_ops/ExactMeshArrangement.cs` (the performance work);
+  - the defaults of SafeRounding, without an owner decision: the results of ordinary meshes must stay bit-identical,
+    and the hashes are checked with `BooleanComparison profile --repeat 1 --safe-rounding ...` and
+    `perf/hashes.py`.
+- **`FixedVertexF`** is a public preference. `FixedWhereCoarse` (default true) keeps it where the coordinates are
+  coarse; only ExactMeshBoolean turns it off.
+- **The cloud container stops when the session idles.** Background jobs die with it. The full MeshRepair 400 needs
+  hours of an active session, so prefer subsets: eg the meshes with SafeRounding edits,
+  `robust_exact_rounding_edits` in a previous result file. Make runs resumable, appending one line per result.
+
+### 6.4 Open question: an exact or verified small LP solver
+
+Option A separates the remaining close pairs with small linear programs over the displacements of their vertices.
+Dependencies stay out of the core.
+
+**Key point:** correctness does not need an exact LP. The certificate (2e-separation of every disjoint pair) is
+checked exactly on the doubles afterwards. So the LP may be solved in floating point, and a wrong or infeasible answer
+only means that the certificate fails, after which B takes over. What an exact or verified LP would add is a proof of
+infeasibility (no displacement within the bound separates the pairs), which a report could use.
+
+Candidates:
+- **Dense simplex in floating point, with Bland's rule.** The LPs are small, with the vertices of the close pairs only.
+  It is written from the textbook, plus a final exact feasibility check of the rounded solution with rational
+  arithmetic (`BigInteger` / `Dyadic`, as in the tests' oracles).
+- **Exact rational simplex:** Applegate, Cook, Dash, Espinoza, *Exact solutions to linear programming problems*,
+  Operations Research Letters 35, 2007 (QSopt_ex). Implement from the paper: QSopt_ex itself is GPL / LGPL, not to be
+  ported.
+- **Iterative refinement:** Gleixner, Steffy, Wolter, *Iterative refinement for linear programming*, INFORMS Journal on
+  Computing 28, 2016 (SoPlex). Its code is not under an allowed license; the paper only.
+- **Safe bounds:** Neumaier, Shcherbina, *Safe bounds in linear and mixed-integer linear programming*, Mathematical
+  Programming 99, 2004. A rigorous bound on the optimum from an approximate dual, cheap. It is enough to certify
+  infeasibility.
+
+These references are from memory and were not checked in this session; verify them and their licenses
+(docs/SOURCES.md) before use.
