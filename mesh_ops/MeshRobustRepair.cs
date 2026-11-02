@@ -187,6 +187,12 @@ namespace gs
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
         public bool AlphaWrapQualityImproved;
+        /// <summary>
+        /// alpha wrap fallback (UsedAlphaWrap): the triangle quality of the result, measured, not enforced: its
+        /// smallest and largest triangle angle (degrees) and the share of its triangles with an angle above 170 degrees
+        /// (0..1). NaN if the result is not the alpha wrap
+        /// </summary>
+        public double AlphaWrapMinAngleDegrees = double.NaN, AlphaWrapMaxAngleDegrees = double.NaN, AlphaWrapShareAbove170 = double.NaN;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -245,6 +251,7 @@ namespace gs
             AlphaWrapTriangles = 0;
             AlphaWrapSimplified = false;
             AlphaWrapQualityImproved = false;
+            AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -397,6 +404,7 @@ namespace gs
                     AlphaWrapSimplified = wrapped != AlphaWrap.Result;
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
+                    angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
                     ResultReason = "";
                     return true;
                 }
@@ -491,6 +499,32 @@ namespace gs
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+        }
+
+        // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
+        internal static void angle_stats(DMesh3 m, out double minAngle, out double maxAngle, out double shareAbove170)
+        {
+            minAngle = double.MaxValue; maxAngle = 0;
+            int above = 0, n = 0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in m.TriangleIndices()) {
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                double A = corner(a, b, c), B = corner(b, c, a), C = corner(c, a, b);
+                minAngle = Math.Min(minAngle, Math.Min(A, Math.Min(B, C)));
+                double mx = Math.Max(A, Math.Max(B, C));
+                maxAngle = Math.Max(maxAngle, mx);
+                if (mx > 170) above++;
+                n++;
+            }
+            if (n == 0) { minAngle = maxAngle = shareAbove170 = double.NaN; return; }
+            shareAbove170 = (double)above / n;
+        }
+
+        // the angle at p between the edges to q and r (degrees; atan2, accurate also near 0 and 180)
+        static double corner(Vector3d p, Vector3d q, Vector3d r)
+        {
+            Vector3d u = q - p, v = r - p;
+            return Math.Atan2(u.Cross(v).Length, u.Dot(v)) * MathUtil.Rad2Deg;
         }
 
         /// <summary>

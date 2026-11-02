@@ -789,6 +789,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.AlphaWrapTriangles, on.AlphaWrapTriangles);
             Assert.True(on.Mesh.TriangleCount >= off.Mesh.TriangleCount && on.Mesh.TriangleCount <= Math.Floor(off.Mesh.TriangleCount * 1.05),
                 $"{off.Mesh.TriangleCount} -> {on.Mesh.TriangleCount}");
+            // the angle diagnostics match an independent computation (law of cosines), with and without the pass
+            foreach (var r in new[] { off, on }) {
+                double mn = double.MaxValue, mx = 0; int above = 0, aboveLo = 0;
+                foreach (int t in r.Mesh.TriangleIndices()) {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                    r.Mesh.GetTriVertices(t, ref a, ref b, ref c);
+                    double la = b.Distance(c), lb = a.Distance(c), lc = a.Distance(b);
+                    Func<double, double, double, double> ang = (x, y, z) => Math.Acos(MathUtil.Clamp((y * y + z * z - x * x) / (2 * y * z), -1, 1)) * MathUtil.Rad2Deg;
+                    double A = ang(la, lb, lc), B = ang(lb, la, lc), C = ang(lc, la, lb);
+                    mn = Math.Min(mn, Math.Min(A, Math.Min(B, C)));
+                    double m3 = Math.Max(A, Math.Max(B, C));
+                    mx = Math.Max(mx, m3);
+                    if (m3 > 170 + 1e-6) above++;
+                    if (m3 > 170 - 1e-6) aboveLo++;
+                }
+                int n = r.Mesh.TriangleCount;
+                Assert.True(Math.Abs(r.AlphaWrapMinAngleDegrees - mn) < 1e-6, $"{r.AlphaWrapMinAngleDegrees} vs {mn}");
+                Assert.True(Math.Abs(r.AlphaWrapMaxAngleDegrees - mx) < 1e-6, $"{r.AlphaWrapMaxAngleDegrees} vs {mx}");
+                Assert.InRange(r.AlphaWrapShareAbove170 * n, above - 1e-9, aboveLo + 1e-9);
+            }
+            Assert.True(on.AlphaWrapMinAngleDegrees >= off.AlphaWrapMinAngleDegrees);
+            // the same values, bit for bit, under the exact similarities (2^k scales)
+            foreach (Similarity sim in Similarity.All().Where(x => x.IsExact)) {
+                DMesh3 t = new DMesh3(on.Mesh);
+                MeshTransforms.PerVertexTransform(t, sim.Apply);
+                double a0, a1, a2;
+                MeshRobustRepair.angle_stats(t, out a0, out a1, out a2);
+                Assert.True(a0 == on.AlphaWrapMinAngleDegrees && a1 == on.AlphaWrapMaxAngleDegrees && a2 == on.AlphaWrapShareAbove170, sim.Name);
+            }
+            // no wrap: no diagnostics
+            var plain = new MeshRobustRepair(new Sphere3Generator_NormalizedCube() { EdgeVertices = 8 }.Generate().MakeDMesh());
+            Assert.True(plain.Apply());
+            Assert.False(plain.UsedAlphaWrap);
+            Assert.True(double.IsNaN(plain.AlphaWrapMinAngleDegrees) && double.IsNaN(plain.AlphaWrapMaxAngleDegrees) && double.IsNaN(plain.AlphaWrapShareAbove170));
             // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap
             DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false, MeshRobustRepair.DefaultWrapQuality);
             Assert.Equal("", Invariance.Difference(direct, on.Mesh));
