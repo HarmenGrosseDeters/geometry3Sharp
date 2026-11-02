@@ -73,8 +73,8 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    comparison's set D starts now.
    Reference comparison analysed in [design/MESHING2D_REFERENCE_COMPARISON.md](design/MESHING2D_REFERENCE_COMPARISON.md) (#293): one real
    defect (CDT issue-211 at M3 20°, bugfix next). Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989,
-   Shewchuk 2002, Üngör 2004), its own PR after the bugfix, measured before/after. Stage 6b (#295): no copied expression against
-   Triangle.NET; the direct `triangle.c` pass follows once the owner allows its hosts.
+   Shewchuk 2002, Üngör 2004), its own PR after the bugfix, measured before/after. Stage 6b done: no copied expression against
+   Triangle.NET (#295) nor against `triangle.c` 1.6 directly (#296); dirty evidence in `g3-meshing-references`, branch `claude/provenance-6b`.
    The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing
    provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is
    merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session,
