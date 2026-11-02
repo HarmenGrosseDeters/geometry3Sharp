@@ -430,7 +430,11 @@ namespace gs
             // (and the vertices merged within 64 ulps by the realization: z, the lowest plane of all of them, is at most
             // sMax times the distance below the surface at the kept position)
             // (the triangles of a merged vertex leave their cells: below S̃ by at most 4 sMax (r + e_xy), above by at
-            // most 2 sMax (r + e_xy), which the toe lowering covers, see MergeLambda; r = 64 e_xy)
+            // most 2 sMax (r + e_xy) plus the rounding of a vertex, which the toe lowering covers, see MergeLambda;
+            // r = 64 e_xy. Derivation, for a triangle whose vertex p moved to q with barycentric weight w at x: with
+            // y = x - w (q - p), a point of the unmoved triangle, z_tri(x) - S̃(x) = [l_f(y) - S̃(y)] + w (z_q - l_f(p))
+            // - (S̃(x) - S̃(y)), and |S̃(x) - S̃(y)| <= sMax w r; below, z_q - l_f(p) >= -3 sMax r - O(e_xy), above,
+            // z_q <= S̃(q) + O(e_xy) (TERRAIN_1B_PLAN.md, reviews))
             double mergeRadius = MergeRadius(exy);
             double mergeShare = MergeShare(exy, sMax);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare;
@@ -531,13 +535,15 @@ namespace gs
             bool mayMerge = mergeLambda <= lambdaBound;
             try {
                 mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0);
-            } catch (InvalidOperationException) when (mayMerge) {
+            } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
                 mesh = map.Realize(cap, fill, 0);
                 map.MergedCount = 0;
             }
             MergedPositions = map.MergedCount; MergeLambdaRequired = map.MergedCount > 0 ? mergeLambda : 0;
             if (map.MergedCount > 0 && lambda < mergeLambda) {
                 br.MergeLambda = mergeLambda;
+                phase("realize");
+                PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
                 Attempts++;
                 return Statuses.SlopeViolation;
             }

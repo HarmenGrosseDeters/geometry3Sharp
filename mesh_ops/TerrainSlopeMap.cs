@@ -734,7 +734,7 @@ namespace gs
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
                     int tid = mesh.AppendTriangle(a, b, c, group);
-                    if (tid < 0) throw new InvalidOperationException("SlopeMap: non-manifold realization");
+                    if (tid < 0) throw new NonManifoldRealization();
                 }
             }
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
@@ -800,6 +800,12 @@ namespace gs
         /// <summary> Realize: the barriers (toe segments first, then the lateral limits) through each rounded position on one </summary>
         public readonly Dictionary<Vector2d, List<int>> BarriersAt = new Dictionary<Vector2d, List<int>>();
         public int ToeBarrierCount { get { return toeBarriers; } }
+        /// <summary> Realize: a triangle would make the mesh non-manifold (a merge can; caught to realize without it) </summary>
+        public sealed class NonManifoldRealization : InvalidOperationException
+        {
+            public NonManifoldRealization() : base("SlopeMap: non-manifold realization") { }
+        }
+
         /// <summary> Realize: the positions merged into another one (0 without a merge radius) </summary>
         public int MergedCount;
 

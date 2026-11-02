@@ -140,5 +140,15 @@ overlay of the efficiency bullet of 5.5; km-scale benchmarks. These are 1c (or l
     with a toe lowering of at least 4 e_z + 2 sMax (r + e_xy) (the merge only runs if that fits under λ's bound);
     a merge that makes the mesh non-manifold falls back to the realization without it;
   - the λ loop could repeat a build at λ's bound without trying a larger margin: λ is raised only while below it.
-  Test: the lowering of the regular 10-gon run (which merges) is at least 2 sMax · 65 ulps. In that run the measured
-  λ is larger anyway, so removing the merge lowering does not make it fail; the bound rests on the derivation.
+- **Second re-review** (a fresh agent, 86a7ea32 alone, with the derivation of the two extents). Both extents are valid
+  bounds; the middle step of the derivation was wrong (the plane of the member's cell is not S̃ outside the cell) and is
+  replaced by the identity with the unmoved point y = x − w (q − p) (comment in `build`). λ covers the upward extent for
+  all planes (each lies at or below its piece's cone lowered by λ) and the cap (every vertex is at most H); the loop
+  terminates and keeps the floor; the fallback is correct. Fixed from it: the fallback catches only the non-manifold
+  exception of `Realize` (`SlopeMap.NonManifoldRealization`), and a merge-only rebuild keeps its kernel statistics and
+  time. Open, not from this PR: at λ = λ_bound the rounding of a vertex below S̃ has no reserve of its own in the
+  budget (a 1a item, for 1c's bounds check). Noted: where the merge lowering does not fit under λ's bound (very flat
+  slopes) the merge is off and the collapse alone handles near-coincident vertices, as before 1b.
+- **Tests for the merge bound** (`Merge_RaisesTheToeLowering`: two regular polygons from a sweep over 60 random ones
+  whose merging run's measured lowering alone stays below the requirement; `Merge_Shares`): removing the merge
+  lowering fails the first (2 of 2), shrinking the budget share back to 2 · 64 ulps · sMax fails the second.
