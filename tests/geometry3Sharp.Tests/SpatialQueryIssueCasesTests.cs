@@ -225,6 +225,8 @@ namespace geometry3Sharp.Tests
             // rays that run in those planes (vertical, oblique) or along the lines x = i, y = j, at unit size, at 2^20
             // (where the box padding of the tree is negligible) and at UTM coordinates. Correct: the tree equals brute
             // force for every ray.
+            // New against LargeCoordinateTests.RayCasts_NoMisses_AtUtmCoordinates (vertical rays inside the triangles):
+            // rays in box planes and along box edges, oblique and horizontal, and the nearest t and all-hit set, not only a hit.
             var fails = new List<string>();
             foreach (var (name, f) in new (string, Func<Vector3d, Vector3d>)[] {
                 ("unit", p => p), ("2^20", p => p * 1048576.0), ("utm", p => p + new Vector3d(632117.25, 5712043.5, 113.75)) }) {
@@ -361,23 +363,25 @@ namespace geometry3Sharp.Tests
                     DMesh3 mesh = Mesh(v.Select(f).ToArray(), t);
                     AxisAlignedBox3d square = mesh.CachedBounds;
                     var tree = new DMeshAABBTree3(mesh, true);
-                    var targets = new List<Vector3d>(v);
+                    var targets = v.Select((c, i) => ($"corner {i}", c)).ToList();
                     for (int k = 1; k < 98; ++k) {
                         double u = k / 98.0;
-                        targets.Add(other ? new Vector3d(u, 1 - u, 0) : new Vector3d(u, u, 0));
+                        targets.Add(($"{k}/98", other ? new Vector3d(u, 1 - u, 0) : new Vector3d(u, u, 0)));
                     }
-                    foreach (Vector3d q in targets) {
+                    foreach (var (label, q) in targets) {
                         Vector3d p = f(q), top = f(q + new Vector3d(0, 0, 1));
                         Assert.True(p.x >= square.Min.x && p.x <= square.Max.x && p.y >= square.Min.y && p.y <= square.Max.y);
                         var ray = new Ray3d(new Vector3d(p.x, p.y, top.z), -Vector3d.AxisZ);
                         Assert.Equal("", TreeVsBrute(mesh, tree, ray));
                         if (BruteHits(mesh, ray).Count == 0) {
                             Assert.False(exact, $"{name}: a miss at an exact scale, target {q}");
-                            fails.Add($"{name} {(other ? "anti" : "main")} diagonal, target {q}");
+                            fails.Add($"{name} {(other ? "anti" : "main")} {label}");
                         }
                     }
                 }
-            Expect(nameof(RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits), string.Join("; ", fails.Take(6)) + (fails.Count > 6 ? $" ({fails.Count} in all)" : ""));
+            if (KnownFailures.ContainsKey(nameof(RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits)))   // the exact miss set
+                Assert.Equal(new[] { "1e-3 anti 97/98", "1e-7 anti 89/98", "1e-7 anti 92/98", "1e-7 anti 95/98", "1e-7 anti 97/98" }, fails);
+            Expect(nameof(RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits), string.Join("; ", fails));
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -451,7 +455,9 @@ namespace geometry3Sharp.Tests
                 }
             }
             if (KnownFailures.ContainsKey(nameof(ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight)))
-                Assert.Equal(9, fails.Count(f => !f.StartsWith("ridge entry")));
+                Assert.Equal(new[] { 1.0, Math.Pow(2, -20), Math.Pow(2, 20) }.SelectMany(s => new[] {
+                    $"apex entry, outside at {s}: IsInside True, 1 hits", $"apex exit, inside at {s}: IsInside False, 0 hits",
+                    $"ridge exit, inside at {s}: IsInside False, 2 hits" }), fails);
             Expect(nameof(ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight), string.Join("; ", fails));
         }
 
@@ -613,6 +619,9 @@ namespace geometry3Sharp.Tests
             // overlap and 1 in the rest of the union, 2 inside a doubled shell, 0 everywhere for a shell plus its reversed
             // copy; the same value from repeated queries and from a fresh tree (WindingNumber exact to 1e-9,
             // FastWindingNumber within 0.1). The parity-mode signed distance grid is negative in the overlap too.
+            // New against WindingNumberTests (flipHalf: one inconsistently oriented shell) and
+            // WindingEdgeCaseTests.Boolean_IdenticalInputs (the boolean, not the raw winding number): values above 1 and
+            // cancelling shells in one mesh, FastWindingNumber and the parity grid on them.
             DMesh3 a = Box(new Vector3d(-0.5, -0.5, -0.5), new Vector3d(0.5, 0.5, 0.5)), b = Box(Vector3d.Zero, Vector3d.One);
             var cases = new (string, DMesh3, (Vector3d p, double w)[])[] {
                 ("overlapping cubes", Append(a, b), new[] { (new Vector3d(0.25, 0.25, 0.25), 2.0), (new Vector3d(-0.25, -0.25, -0.25), 1.0),
@@ -710,21 +719,16 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/libigl/libigl/issues/2089: signed distance and queries on an empty mesh crashed. The empty
             // mesh itself is covered (AABBTreeDifferentialTests, BoundsAndMirrorFixesTests); here the variant with
-            // vertices but no triangles (eg after removing every triangle), whose bounds are not empty. Correct: the tree's
-            // queries return their no-hit sentinels and the grids either throw an ArgumentException or give a finite,
-            // unsigned-positive grid (nothing is inside).
+            // vertices but no triangles (eg after removing every triangle), whose bounds are not empty (the tree's other
+            // sentinels are pinned by AABBTreeDifferentialTests.AssertNoHits). Correct: no nearest triangle, and the grids
+            // either throw an ArgumentException or give a finite, positive grid (nothing is inside).
             var m = new DMesh3();
             m.AppendVertex(Vector3d.Zero); m.AppendVertex(Vector3d.One); m.AppendVertex(new Vector3d(1, 0, 0));
             var tree = new DMeshAABBTree3(m, true);
             var q = new Vector3d(0.5, 0.5, 0.5);
             Assert.Equal(DMesh3.InvalidID, tree.FindNearestTriangle(q));
-            Assert.Equal(DMesh3.InvalidID, tree.FindNearestHitTriangle(new Ray3d(q, Vector3d.AxisX)));
-            Assert.Equal(0, tree.FindAllHitTriangles(new Ray3d(q, Vector3d.AxisX)));
             Assert.Equal(double.MaxValue, MeshQueries.NearestPointDistance(m, tree, q));
             Assert.Equal(0, tree.WindingNumber(q));
-            Assert.Equal(0, tree.FastWindingNumber(q));
-            Assert.False(tree.IsInside(q));
-            Assert.Equal(DMesh3.InvalidID, MeshQueries.FindHitTriangle_LinearSearch(m, new Ray3d(q, Vector3d.AxisX)));
 
             var fails = new List<string>();
             void Grid(string name, Action compute, Func<Vector3i> dims, Func<int, int, int, float> value)

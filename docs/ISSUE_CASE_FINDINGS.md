@@ -12,14 +12,17 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
 - Input -> wrong result: a 5 x 5 height field (and a cube sphere of radius 2), vertical rays on a 1/4 grid, scaled by
   2^k. The hit sets and the nearest t were the same bit for bit at every 2^k (we never lost hits as libigl did), but
   at 2^-25 and below `FindNearestHitTriangle` returned another triangle of the same t for rays onto shared edges and
-  vertices (eg at 0.01 the ray onto (4, 0.5) gave triangle 9 instead of 7).
+  vertices (at 2^-25, 16 of the 441 field rays, eg the ray onto (1, 3) gave triangle 33 instead of 31).
 - Cause: `spatial/DMeshAABBTree.cs` `find_hit_triangle` kept the first triangle found with the smallest t
   (`rayt < fNearestT`), and the traversal visits the nearer child box first; the boxes are padded by the absolute
   `box_eps = 50 * MathUtil.Epsilonf` (about 6e-6, line 2345), which dominates the box entry parameters once the
   model is smaller than that, so the order and the winner of the tie changed.
 - Fix: ties go to the lowest triangle id (`rayt == fNearestT && ti < tID`), the same rule as
   `MeshQueries.FindHitTriangle_LinearSearch`. Equal-t triangles are always visited (a box's entry t is at most that of
-  the triangles in it), so the result no longer depends on the traversal order. Row in UPSTREAM_CHANGES.md.
+  the triangles in it), so the result no longer depends on the traversal order. That holds in exact arithmetic:
+  the prune `boxT <= fNearestT + MathUtil.ZeroTolerancef` and `box_eps` are absolute, so at ray parameters above
+  about 1e10 with non-dyadic geometry a rounded box entry can exceed an equal triangle t and the tie can still depend
+  on the order (as in the old code, not a regression). Row in UPSTREAM_CHANGES.md.
 
 ### Q2: the ray-triangle test is not watertight
 
@@ -32,7 +35,8 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   ray exactly through a vertex can miss every triangle of its fan: the apex of the pyramid in Q3 (4 triangles) gives
   0 hits.
 - Cause: `intersection/IntrRay3Triangle3.cs` `Intersects` (line 119) computes the edge functions as
-  `D . ((O - V0) x E2)`, `D . (E1 x (O - V0))` and the third as `DdN - (b1 + b2)`. The two triangles of an edge
+  `DdQxE2 = D . ((O - V0) x E2) >= 0`, `DdE1xQ = D . (E1 x (O - V0)) >= 0` and the third edge as
+  `DdQxE2 + DdE1xQ <= DdN`. The two triangles of an edge
   evaluate that edge from different corners and operands, so their rounding is independent and a ray on (or within
   rounding of) the edge can be rejected by both. The tree is not the cause: in every case it equals brute force
   (asserted).

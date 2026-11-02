@@ -340,7 +340,7 @@ namespace g3
                         // ties (a ray through a shared edge or vertex) go to the lowest id, as in
                         // MeshQueries.FindHitTriangle_LinearSearch: otherwise the traversal order, which the absolute box
                         // padding changes with the scale, picked the triangle
-                        if (rayt < fNearestT || (rayt == fNearestT && tID != DMesh3.InvalidID && ti < tID)) {
+                        if (rayt < fNearestT || (rayt == fNearestT && ti < tID)) {
                             fNearestT = rayt;
                             tID = ti;
                         }
