@@ -165,7 +165,8 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
-                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
+                // BENCH_WRAP_QUALITY=0: without the quality pass (on by default in the library)
+                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") != "0";
                 // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
                 string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
                 // (the input as given: the repair may change mesh in place)
@@ -177,6 +178,14 @@ class Program
                             string[] p = kv.Split('=');
                             double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
                             switch (p[0]) {
+                                // (the switches apply on top of the library's default settings, MeshRobustRepair.DefaultWrapQuality;
+                                // "default=0" first resets them to the pass's own, as for the variants measured before the default)
+                                case "default":
+                                    if (v == 0) {
+                                        pass.KeepNormalDeviation = false; pass.NormalDeviationSlackDegrees = 0;
+                                        pass.CapAngleDegrees = 180; pass.SplitCapsAboveDegrees = 180;
+                                    }
+                                    break;
                                 case "turn": pass.MaxNormalTurnDegrees = v; break;
                                 case "follow": pass.FollowReference = v != 0; break;
                                 case "crease": pass.MaxFlipDihedralDegrees = v; break;

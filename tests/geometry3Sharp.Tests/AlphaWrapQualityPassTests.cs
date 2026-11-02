@@ -670,7 +670,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void RobustRepair_QualityPass_OffByDefault_OnImprovesTheWrap()
+        public void RobustRepair_QualityPass_OnByDefault_ImprovesTheWrap_OffSwitch()
         {
             Func<bool, MeshRobustRepair> run = (on) => {
                 var r = new MeshRobustRepair(MeshRobustRepairTests.ThinPlates(6)) {
@@ -680,7 +680,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.UsedAlphaWrap && r.AlphaWrapSimplified);
                 return r;
             };
-            Assert.False(new MeshRobustRepair(new DMesh3()).AlphaWrapQualityPass);
+            Assert.True(new MeshRobustRepair(new DMesh3()).AlphaWrapQualityPass);
             var off = run(false);
             Assert.False(off.AlphaWrapQualityImproved);
             Assert.False(off.PhaseMilliseconds.ContainsKey("wrap.quality"));
@@ -691,9 +691,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", on.ResultReason);
             Assert.True(P01(on.Mesh) > P01(off.Mesh), $"{P01(off.Mesh)} -> {P01(on.Mesh)}");
             Assert.True(HausdorffUpper(on.Mesh, on.AlphaWrap.Result, on.AlphaWrap.UsedOffset) <= 0.5 * on.AlphaWrap.UsedOffset);
-            // the simplification is the same with and without the pass
+            // the simplification is the same with and without the pass; the default settings split caps (at most 5 % more triangles)
             Assert.Equal(off.AlphaWrapTriangles, on.AlphaWrapTriangles);
-            Assert.Equal(off.Mesh.TriangleCount, on.Mesh.TriangleCount);
+            Assert.True(on.Mesh.TriangleCount >= off.Mesh.TriangleCount && on.Mesh.TriangleCount <= Math.Floor(off.Mesh.TriangleCount * 1.05),
+                $"{off.Mesh.TriangleCount} -> {on.Mesh.TriangleCount}");
+            // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap
+            DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false, MeshRobustRepair.DefaultWrapQuality);
+            Assert.Equal("", Invariance.Difference(direct, on.Mesh));
         }
     }
 }
