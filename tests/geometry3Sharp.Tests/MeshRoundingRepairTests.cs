@@ -805,5 +805,66 @@ namespace geometry3Sharp.Tests
             Assert.True(MeshRepairMetrics.SelfIntersections(m) <= intersections && Degenerate(m) <= degenerate);
             Assert.Equal(MeshRepairMetrics.SelfIntersections(m), repair.RemainingIntersections);
         }
+
+        // ---- the settings of SafeRounding, passed through ExactMeshBoolean and MeshRobustRepair ----
+
+        [Fact]
+        public void RoundingSettings_ReachTheExactStageAndTheRepairAfterSeparation()
+        {
+            // each setting arrives at the MeshRoundingRepair of the exact resolve and at the one after
+            // SeparateTouchingVertices (the pyramid in a dent: both run)
+            DMesh3 m = PyramidInADent(0.49);
+            var robust = new MeshRobustRepair(new DMesh3(m)) {
+                AlphaWrapFallback = false, RoundingMaxDisplacement = 2e-5, RoundingUlpFactor = 128, RoundingAbsoluteTolerance = 1e-9
+            };
+            Assert.True(robust.Apply());
+            Assert.True(robust.UsedExactResolve, robust.ExactResolveReason);
+            foreach (MeshRoundingRepair r in new[] { robust.ExactResolveRounding, robust.SeparatedRounding }) {
+                Assert.NotNull(r);
+                Assert.Equal(2e-5, r.MaxDisplacement);
+                Assert.Equal(128, r.UlpFactor);
+                Assert.Equal(1e-9, r.AbsoluteTolerance);
+            }
+            // and through ExactMeshBoolean alone
+            var op = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxDisplacement = 3e-5 };
+            Assert.True(op.Compute());
+            Assert.Equal(3e-5, op.Rounding.MaxDisplacement);
+            double diag = MeshRepairMetrics.TriangleBounds(op.Result).DiagonalLength;
+            Assert.True(op.Rounding.MaxLength >= 3e-5 * diag * (1 - 1e-12));
+        }
+
+        [Fact]
+        public void RoundingSettings_Defaults_SameResultAsBefore()
+        {
+            // the defaults are the values MeshRoundingRepair had: the same result, bit for bit
+            var ab = NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            DMesh3 both = new DMesh3(ab[0]);
+            new MeshEditor(both).AppendMesh(ab[1]);
+            var a = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false };
+            var b = new MeshRobustRepair(new DMesh3(both)) {
+                AlphaWrapFallback = false, RoundingMaxDisplacement = new MeshRoundingRepair(new DMesh3()).MaxDisplacement,
+                RoundingUlpFactor = new MeshRoundingRepair(new DMesh3()).UlpFactor, RoundingAbsoluteTolerance = 0
+            };
+            Assert.True(a.Apply() && b.Apply());
+            Assert.Equal("", Invariance.Difference(a.Mesh, b.Mesh));
+            Assert.Equal(1e-5, a.RoundingMaxDisplacement);
+            Assert.Equal(new MeshRoundingRepair(new DMesh3()).MaxDisplacement, new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union).RoundingMaxDisplacement);
+        }
+
+        [Fact]
+        public void RoundingSettings_Strict_ExactStageFailsWithItsReason()
+        {
+            // two nearly coincident spheres: with a bound too small for the slivers, strict, the exact resolve fails
+            // with the reason, and the repair goes on with its other stages
+            var ab = NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            DMesh3 both = new DMesh3(ab[0]);
+            new MeshEditor(both).AppendMesh(ab[1]);
+            var robust = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false, StrictRounding = true, RoundingMaxDisplacement = 1e-16 };
+            robust.Apply();
+            Assert.False(robust.UsedExactResolve);
+            Assert.Equal("rounding not clean (StrictRounding)", robust.ExactResolveReason);
+            Assert.NotNull(robust.ExactResolveRounding);
+            Assert.Equal(0, robust.ExactResolveRounding.UlpFactor);
+        }
     }
 }

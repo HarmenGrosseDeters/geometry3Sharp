@@ -173,6 +173,11 @@ namespace g3
         /// </summary>
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
+        /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
+        /// farthest the surface moves, relative to the bounding box diagonal
+        /// </summary>
+        public double RoundingMaxDisplacement = 1e-5;
+        /// <summary>
         /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
         /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
         /// ResultExactVertices stay set, for the diagnosis). Off by default. Not strict, where the coordinates are coarse
@@ -378,7 +383,8 @@ namespace g3
                 bool[] fixedV = resultFixed;
                 Rounding = new MeshRoundingRepair(Result) {
                     SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
-                    UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance
+                    UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
+                    MaxDisplacement = RoundingMaxDisplacement
                 };
                 Rounding.Apply();
                 clock.Lap("rounding");
