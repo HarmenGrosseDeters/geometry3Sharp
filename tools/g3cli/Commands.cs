@@ -166,6 +166,7 @@ namespace g3cli
                 "false: the cleanup collapses slivers and the resolve is repeated") { Default = true });
             c.Params.Add(new Param("alpha_wrap", ParamType.Boolean, "robust: last resort, alpha wrap the mesh if the solidify fails or is not clean (MeshRobustRepair.AlphaWrapFallback)") { Default = true });
             c.Params.Add(new Param("simplify_alpha_wrap", ParamType.Boolean, "robust: simplify the alpha wrap, kept only if clean and certified within half the wrap offset of the unsimplified wrap") { Default = true });
+            AddRoundingTolerances(c, "robust: ");
             c.Params.Add(new Param("check_lost_components", ParamType.Boolean, "robust: a result that lost a connected component of the input (eg a small part of an assembly) falls back like one that lost volume; " +
                 "needs min_volume_iou > 0") { Default = false });
             c.Params.Add(new Param("reject_topology_change", ParamType.Boolean, "robust: reject an exact resolve whose genus differs from the mesh it resolved (the fallbacks run instead)") { Default = false });
@@ -196,6 +197,7 @@ namespace g3cli
                 } else {
                     if (args.Integer("solidify_resolution") < 8 || args.Integer("solidify_resolution") > 2048)
                         throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be in 8..2048");
+                    var rounding = RoundingTolerances(args);
                     if (args.Integer("exact_resolve_max_pairs") < 0)
                         throw new CommandException(ResultCodes.InvalidArguments, "'exact_resolve_max_pairs' must be >= 0");
                     if (args.Bool("check_lost_components") && args.Number("min_volume_iou") <= 0)
@@ -211,6 +213,8 @@ namespace g3cli
                         SimplifyAlphaWrap = args.Bool("simplify_alpha_wrap"),
                         CheckLostComponents = args.Bool("check_lost_components"),
                         RejectTopologyChange = args.Bool("reject_topology_change"),
+                        RoundingMaxDisplacement = rounding.MaxDisplacement, RoundingUlpFactor = rounding.UlpFactor,
+                        RoundingAbsoluteTolerance = rounding.AbsoluteTolerance, StrictRounding = rounding.Strict,
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
@@ -236,6 +240,10 @@ namespace g3cli
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
                     o["wrap_reason"] = repair.WrapReason == "" ? null : repair.WrapReason;
                     o["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason;
+                    // the SafeRounding repairs of the exact stage's last round (null if not run)
+                    o["strict_rounding"] = repair.StrictRounding;
+                    o["exact_resolve_rounding"] = RoundingInfo(repair.ExactResolveRounding);
+                    o["separated_rounding"] = RoundingInfo(repair.SeparatedRounding);
                 }
                 if (result.TriangleCount == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "repair removed all triangles");
@@ -263,6 +271,7 @@ namespace g3cli
                 ["rounding_clean"] = op.RoundingClean,
                 ["simplify_flat_regions"] = op.SimplifyFlatRegions,
                 ["strict_rounding"] = op.StrictRounding,
+                ["rounding_max_displacement"] = op.RoundingMaxDisplacement,
                 // (the effective values: strict rounding uses neither term)
                 ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
                 ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
@@ -291,6 +300,9 @@ namespace g3cli
                 ["removed_triangles"] = r.RemovedTriangles,
                 ["max_drift"] = MeshReport.Num(r.MaxDrift),
                 ["max_length"] = MeshReport.Num(r.MaxLength),
+                ["max_displacement"] = r.MaxDisplacement,
+                ["ulp_factor"] = r.UlpFactor,
+                ["absolute_tolerance"] = r.AbsoluteTolerance,
                 ["evaluation_limit_reached"] = r.EvaluationLimitReached,
             };
         }
@@ -299,34 +311,48 @@ namespace g3cli
             new Param("safe_rounding", ParamType.Boolean, "repair the self-intersections and slivers that rounding the new vertices to double leaves " +
                 "(ExactMeshBoolean.SafeRounding, MeshRoundingRepair: local edits checked exactly, each surface point moves at most 1e-5 of the " +
                 "bounding box diagonal, or the larger bound of rounding_ulp_factor / rounding_absolute_tolerance); false: plain rounding, faster") { Default = true };
-        static void AddRoundingTolerances(Command c)
+        static void AddRoundingTolerances(Command c, string prefix = "")
         {
-            c.Params.Add(new Param("rounding_ulp_factor", ParamType.Number, "safe_rounding far from the origin (eg UTM coordinates): beyond 1e-5 of the " +
-                "bounding box diagonal, edits may move the surface up to this many units in the last place of the largest coordinate " +
-                "(ExactMeshBoolean.RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
-            c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, "safe_rounding: edits may also move the surface up to this absolute " +
-                "distance (ExactMeshBoolean.RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
-            c.Params.Add(new Param("strict_rounding", ParamType.Boolean, "safe_rounding within 1e-5 of the diagonal only (no ulp or absolute term); " +
-                "a result that is not clean fails with operation_failed (status RoundingNotClean) instead of being written with defects " +
-                "(ExactMeshBoolean.StrictRounding; the ulp and absolute terms are 0 then, so it cannot be combined with them)") { Default = false });
+            c.Params.Add(new Param("rounding_max_displacement", ParamType.Number, prefix + "safe_rounding's relative bound: the longest edge it contracts and " +
+                "the farthest it moves the surface, as a fraction of the bounding box diagonal (RoundingMaxDisplacement; MeshRoundingRepair.MaxDisplacement)") { Default = 1e-5 });
+            c.Params.Add(new Param("rounding_ulp_factor", ParamType.Number, prefix + "safe_rounding far from the origin (eg UTM coordinates): beyond the relative " +
+                "bound, edits may move the surface up to this many units in the last place of the largest coordinate " +
+                "(RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
+            c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, prefix + "safe_rounding: edits may also move the surface up to this absolute " +
+                "distance (RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
+            c.Params.Add(new Param("strict_rounding", ParamType.Boolean, prefix + "safe_rounding within the relative bound only (no ulp or absolute term, so it " +
+                "cannot be combined with them); a result that is not clean fails (StrictRounding)") { Default = false });
+        }
+
+        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; }
+
+        static RoundingSettings RoundingTolerances(Args args)
+        {
+            var r = new RoundingSettings {
+                MaxDisplacement = args.Number("rounding_max_displacement"), UlpFactor = args.Number("rounding_ulp_factor"),
+                AbsoluteTolerance = args.Number("rounding_absolute_tolerance"), Strict = args.Bool("strict_rounding"),
+            };
+            if (!(r.MaxDisplacement >= 0 && r.MaxDisplacement < 1))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_displacement' must be in [0, 1)");
+            if (!(r.UlpFactor >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_ulp_factor' must be >= 0");
+            if (!(r.AbsoluteTolerance >= 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
+            if (r.Strict && args.Bool("safe_rounding") == false)
+                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
+            // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
+            if (r.Strict && (r.UlpFactor != 256 || r.AbsoluteTolerance != 0))
+                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' uses the relative bound only: it cannot be combined with 'rounding_ulp_factor' or 'rounding_absolute_tolerance'");
+            return r;
         }
 
         static void ApplyRoundingTolerances(ExactMeshBoolean op, Args args)
         {
-            double ulp = args.Number("rounding_ulp_factor"), abs = args.Number("rounding_absolute_tolerance");
-            if (!(ulp >= 0))
-                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_ulp_factor' must be >= 0");
-            if (!(abs >= 0))
-                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
-            bool strict = args.Bool("strict_rounding");
-            if (strict && args.Bool("safe_rounding") == false)
-                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
-            // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
-            if (strict && (ulp != 256 || abs != 0))
-                throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' uses the relative bound only: it cannot be combined with 'rounding_ulp_factor' or 'rounding_absolute_tolerance'");
-            op.RoundingUlpFactor = ulp;
-            op.RoundingAbsoluteTolerance = abs;
-            op.StrictRounding = strict;
+            var r = RoundingTolerances(args);
+            op.RoundingMaxDisplacement = r.MaxDisplacement;
+            op.RoundingUlpFactor = r.UlpFactor;
+            op.RoundingAbsoluteTolerance = r.AbsoluteTolerance;
+            op.StrictRounding = r.Strict;
         }
 
         static Param SimplifyFlatRegions() =>
