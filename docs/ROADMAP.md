@@ -71,6 +71,10 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
 3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 and #274 merged.
    `m2.snap` (snap rounding with restore, refinement on the grid, §3g) merged in #277 on 2026-11-02; the reference
    comparison's set D starts now.
+   Reference comparison analysed in [design/MESHING2D_REFERENCE_COMPARISON.md](design/MESHING2D_REFERENCE_COMPARISON.md) (#293): one real
+   defect (CDT issue-211 at M3 20°, bugfix next). Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989,
+   Shewchuk 2002, Üngör 2004), its own PR after the bugfix, measured before/after. Stage 6b (#295): no copied expression against
+   Triangle.NET; the direct `triangle.c` pass follows once the owner allows its hosts.
    The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing
    provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is
    merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session,
