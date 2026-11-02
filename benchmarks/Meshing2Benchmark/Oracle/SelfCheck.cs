@@ -698,6 +698,25 @@ namespace Meshing2Acceptance
                 }
             }
 
+            // 6b. the merge zone where a segment meets a hull edge (hull domain, D13): the mesher refuses a split point of the hull edge
+            //     within the tolerance of the segment (O11), so the zone counts the pair; the same radii as in 6 (tube 1200 / 2^40, the
+            //     apex a hull corner, the segment at 1 degree to the hull edge). The needle's two small corners are no boundary corners:
+            //     its edges are shared with three neighbours (6 on the hull, 7 and 10 across the segment), which lie in the zone too
+            //     (Herne tiles)
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
+                foreach (var (r, ok) in new[] { (1.2e-7, true), (1.4e-7, false) }) {
+                    var input = Points(1000, 0, 1200, 0, 1000 + 100 * c, 100 * sn, 1000 + r, 0.0005 * r, 1000 + 1.5 * r, 0.008 * r, 1000 + 1.25 * r, 0.0095 * r,
+                        1000 + 1.3 * r, 0, 1000 + 0.9 * r, 0.3 * r, 1200, 100, 1000, 100, 1000 + 1.4 * r, 0.2 * r);
+                    input.Segments.Add(new SegmentInput(0, 2));
+                    input.MinAngleDeg = 20;
+                    var o = Out(input, new[] { new[] { 3, 4, 5 }, new[] { 3, 6, 4 }, new[] { 3, 5, 7 }, new[] { 5, 4, 10 } }); o.BadTriangles = new[] { 0, 1, 2, 3 };
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    must(ok ? "hull merge zone: a needle 1.8e-7 from a 1 degree apex of a segment and a hull edge is exempt" : "hull merge zone: the needle 2.1e-7 from the apex is still judged",
+                        !report.Has(Violation.NotPositive) && report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+                }
+            }
+
             // 7. conforming in the merge zone: a vertex inside the circumcircle of a triangle 1.8e-7 from a 1 degree apex is excused,
             //    2.1e-7 from it not (2.88 resp. 3.36 of tube / sin, as in 6; indexed global pass on water-huge)
             {
