@@ -584,6 +584,29 @@ class Program
         r[p + "_degenerate_tris"] = nDegen;
         r[p + "_sliver_tris"] = nSliver;
 
+        // triangle angle distribution (degrees): global min / max, triangles with a min angle below 0.5 / 1 / 10
+        // and with a max angle above 150 / 170 (analyze_wrap.py)
+        double minAngle = 180, maxAngle = 0;
+        int lt05 = 0, lt1 = 0, lt10 = 0, gt150 = 0, gt170 = 0;
+        foreach (int tid in m.TriangleIndices()) {
+            m.GetTriVertices(tid, ref vA, ref vB, ref vC);
+            double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
+            double lo = Math.Min(a0, Math.Min(a1, a2)), hi = Math.Max(a0, Math.Max(a1, a2));
+            minAngle = Math.Min(minAngle, lo); maxAngle = Math.Max(maxAngle, hi);
+            if (lo < 0.5) lt05++;
+            if (lo < 1) lt1++;
+            if (lo < 10) lt10++;
+            if (hi > 150) gt150++;
+            if (hi > 170) gt170++;
+        }
+        r[p + "_angle_min"] = Math.Round(minAngle, 4);
+        r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+        r[p + "_angle_lt05"] = lt05;
+        r[p + "_angle_lt1"] = lt1;
+        r[p + "_angle_lt10"] = lt10;
+        r[p + "_angle_gt150"] = gt150;
+        r[p + "_angle_gt170"] = gt170;
+
         // orientation consistency and fold-overs on interior edges
         int nFlippedEdges = 0, nFolds = 0;
         double foldCos = Math.Cos(175.0 * MathUtil.Deg2Rad);
@@ -666,6 +689,9 @@ class Program
         r[p + "_edges_below_1e-4"] = m.EdgeIndices().Count(e => {
             Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) < 0.0001; });
     }
+
+    // angle between u and v in degrees (atan2: accurate near 0 and 180)
+    static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
