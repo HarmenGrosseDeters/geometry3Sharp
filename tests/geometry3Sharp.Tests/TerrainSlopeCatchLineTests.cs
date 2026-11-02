@@ -359,8 +359,17 @@ namespace geometry3Sharp.Tests
             // region; each catch point within 2 Tolerance / |grad D| (|grad D| >= 0.5 here) of the other line in XY
             var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
             var local = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            local.CapEstimateRounds = 0;     // (the raise; the start estimate avoids it, below)
             Assert.True(local.Compute(), local.Message);
             Assert.True(local.CapRounds >= 2, $"cap rounds {local.CapRounds}: the local cap was not raised");
+            // (the start estimate: one build; a vertex-only maximum missed the terrain triangles that reach into the toe
+            // box from outside, 5 m grid, and needed the raise)
+            var estimated = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            Assert.True(estimated.Compute(), estimated.Message);
+            Assert.Equal(1, estimated.CapRounds);
+            Assert.Equal(1, estimated.Attempts);
+            AssertCatchLines(estimated);
+            AssertComposite(estimated);
             var global = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
             global.HeightLimit = 29 + global.Tolerance;
             Assert.True(global.Compute(), global.Message);
@@ -370,7 +379,7 @@ namespace geometry3Sharp.Tests
             AssertCatchLines(local);
             AssertComposite(local);
             double bound = 2 * local.Tolerance / 0.5;
-            foreach (var pair in new[] { new[] { local, global }, new[] { global, local } }) {
+            foreach (var pair in new[] { new[] { local, global }, new[] { global, local }, new[] { estimated, global }, new[] { global, estimated } }) {
                 var line = pair[1].CatchLines[0].Points;
                 foreach (Vector3d p in pair[0].CatchLines[0].Points) {
                     double best = double.MaxValue;
@@ -512,16 +521,17 @@ namespace geometry3Sharp.Tests
         {
             // the composite's check: a made triangle over a copied terrain triangle is found; two copied ones that
             // overlap far away are the terrain as given and not looked for
-            var m = new DMesh3(false, false, false, true);
-            Func<double, double, int> v = (x, y) => m.AppendVertex(new Vector3d(x, y, 0));
-            m.AppendTriangle(v(0, 0), v(10, 0), v(0, 10));
-            int made = m.AppendTriangle(v(2, 2), v(8, 2), v(2, 8));
-            m.AppendTriangle(v(100, 100), v(110, 100), v(100, 110));
-            m.AppendTriangle(v(101, 101), v(109, 101), v(101, 109));
+            Func<double, double, Vector3d> v = (x, y) => new Vector3d(x, y, 0);
+            var made = new List<Vector3d[]> { new[] { v(2, 2), v(8, 2), v(2, 8) } };
+            var others = new List<Vector3d[]> {
+                new[] { v(0, 0), v(10, 0), v(0, 10) },
+                new[] { v(100, 100), v(110, 100), v(100, 110) }, new[] { v(101, 101), v(109, 101), v(101, 109) } };
             DMesh3 near;
-            var pairs = SlopeComposite.OverlapsOfConstructed(m, new List<int> { made }, out near);
+            var pairs = SlopeComposite.OverlapsOfMade(made, box => SlopeComposite.Within(others, box), out near);
             Assert.Equal(2, near.TriangleCount);
             Assert.Single(pairs);
+            var m = new DMesh3(false, false, false, false);
+            foreach (var t in made.Concat(others)) m.AppendTriangle(m.AppendVertex(t[0]), m.AppendVertex(t[1]), m.AppendVertex(t[2]));
             Assert.Equal(2, TerrainVolumeDifference.XYOverlapPairs(m).Count);
         }
 
