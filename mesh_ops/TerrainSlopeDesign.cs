@@ -65,8 +65,13 @@ namespace gs
                 Index2i ev = m.GetEdgeV(e);
                 Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
                 if (ev.a > ev.b) { Vector3d t = a; a = b; b = t; }     // (the same for both triangles: from the lower id)
-                double s = (h - a.z) / (b.z - a.z);
-                p = new Vector3d(a.x + s * (b.x - a.x), a.y + s * (b.y - a.y), h);
+                // (an end exactly at h is the point itself: one of the two ends is below, the other at h or above)
+                if (a.z == h) p = new Vector3d(a.x, a.y, h);
+                else if (b.z == h) p = new Vector3d(b.x, b.y, h);
+                else {
+                    double s = (h - a.z) / (b.z - a.z);
+                    p = new Vector3d(a.x + s * (b.x - a.x), a.y + s * (b.y - a.y), h);
+                }
                 pointOf[e] = p;
                 return p;
             };
@@ -100,8 +105,11 @@ namespace gs
                 while (next.ContainsKey(e) && used.Add(e)) {
                     e = next[e];
                     if (closed && e == e0) break;
-                    line.Points.Add(crossing(e));
+                    Vector3d q = crossing(e);
+                    // (two crossings at one vertex at h: one point)
+                    if (q != line.Points[line.Points.Count - 1]) line.Points.Add(q);
                 }
+                if (closed && line.Points.Count > 1 && line.Points[0] == line.Points[line.Points.Count - 1]) line.Points.RemoveAt(line.Points.Count - 1);
                 result.Add(line);
             };
             foreach (int s0 in starts) walk(s0, false);
@@ -158,7 +166,7 @@ namespace gs
             Success,
             /// <summary> a toe, a slope or a parameter is invalid: Message, ToeProblems </summary>
             InvalidInput,
-            /// <summary> not in phase 1a: Direction Auto, a slope that changes along a segment </summary>
+            /// <summary> not implemented: a slope that changes continuously along a segment </summary>
             NotImplemented,
             /// <summary> a toe segment rises (or falls) at least as steeply as its slope: ToeProblems </summary>
             ToeSteeperThanSlope,
@@ -377,7 +385,7 @@ namespace gs
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
-            lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>();
+            lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
@@ -515,9 +523,10 @@ namespace gs
                 Attempts += r.Attempts; Realizations += r.Realizations; CapRounds += r.CapRounds;
                 PredicateCalls += r.PredicateCalls; ExactFallbacks += r.ExactFallbacks; ExactConstructions += r.ExactConstructions;
                 if (r.Status == Statuses.Cancelled) throw new OperationCanceledException();
-                if (r.Status != Statuses.Success && r.Status != Statuses.NoDaylight) {
+                // (a run's own composite that fails does not stop the mixed one, which is built from both overlays)
+                if (r.Status != Statuses.Success && r.Status != Statuses.NoDaylight && !(r.Status == Statuses.CompositeFailed && r.lastOverlay != null)) {
                     ToeProblems = r.ToeProblems; ProblemTriangles = r.ProblemTriangles;
-                    undercutThroughDesign = r.undercutThroughDesign;
+                    undercutThroughDesign = r.undercutThroughDesign; UndercutCauses = r.UndercutCauses;
                     if (r == f && r.Status == Statuses.ToeUndercut)
                         return fail(Statuses.ToeOvertopped, $"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe");
                     return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
@@ -581,6 +590,7 @@ namespace gs
                 bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
                 if (slopeOk == false || supportOk == false) bad.Add(tid);
             }
+            // (final: each run raised its margin and lowering for its own region; the mixed one does not build again)
             if (bad.Count > 0) {
                 ProblemTriangles = bad;
                 return fail(Statuses.SlopeViolation, $"{bad.Count} triangles of the mixed composite's slope region failed the exact check");

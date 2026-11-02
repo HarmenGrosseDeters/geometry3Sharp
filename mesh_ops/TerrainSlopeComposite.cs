@@ -12,7 +12,9 @@ namespace gs
     /// parity from outside its triangle. The nodes on the boundary are overlay identities, so neighbouring triangles
     /// split their shared edges at the same nodes: along the catch line both parts share their vertices (z on S̃), along
     /// the toe and the lateral limits the terrain has its own vertices (a step), moved off the slope side by ulps where
-    /// rounding put them on it.
+    /// rounding put them on it. In a mixed run (Partner) the cut part and the fill part meet at a toe crossing at one XY
+    /// with different heights (λ_cut below the toe, λ_fill above): a step there too, along the first catch segment of
+    /// one of them, which the terrain part beside it does not share.
     /// </summary>
     internal sealed class SlopeComposite
     {
@@ -349,19 +351,27 @@ namespace gs
                 foreach (long k2 in keys) {
                     if (k2 == k || SlopeTerrainOverlay.ekind(k2) != 0 || Partner.A.IsBoundaryEdge(SlopeTerrainOverlay.eedge(k2)) == false) continue;
                     if (segment(Partner, k2) != seg) continue;
+                    // (a key merged with this one, at its position or already moved with it, is no other crossing)
+                    if (Partner.catchAt[k2] == p || Partner.catchAt[k2].xy == best.xy) continue;
                     if (Partner.catchAt[k2].xy.Distance(best.xy) < bestD) { mutual = false; break; }
                 }
                 if (mutual == false) continue;
                 // (the XY only: the cut point is realized λ below the toe, the fill point λ above, each on its own slope's
                 // planes; the exact check of each region needs its own height there, so the two parts meet at one XY
                 // with a step, as the terrain and the slope do along the toe)
-                best = new Vector3d(best.x, best.y, Partner.edge_z(SlopeTerrainOverlay.eedge(k), best.xy));
-                List<long> l;
-                if (Partner.catchOfVertex.TryGetValue(p, out l)) { l.Remove(k); if (l.Count == 0) Partner.catchOfVertex.Remove(p); }
-                Partner.catchAt[k] = best;
-                Partner.partnerSnapped.Add(k);
-                if (Partner.catchOfVertex.TryGetValue(best, out l) == false) { l = new List<long>(); Partner.catchOfVertex[best] = l; }
-                l.Add(k);
+                // (with the catch points merged with it, MergeNear's group at its position: each on its own planes)
+                List<long> group;
+                if (Partner.catchOfVertex.TryGetValue(p, out group) == false) group = new List<long>() { k };
+                Partner.catchOfVertex.Remove(p);
+                foreach (long g in group) {
+                    double z = SlopeTerrainOverlay.ekind(g) == 0 ? Partner.edge_z(SlopeTerrainOverlay.eedge(g), best.xy) : Partner.tri_z(SlopeTerrainOverlay.etri(g), best.xy);
+                    var q = new Vector3d(best.x, best.y, z);
+                    Partner.catchAt[g] = q;
+                    Partner.partnerSnapped.Add(g);
+                    List<long> l;
+                    if (Partner.catchOfVertex.TryGetValue(q, out l) == false) { l = new List<long>(); Partner.catchOfVertex[q] = l; }
+                    l.Add(g);
+                }
             }
         }
 

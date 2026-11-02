@@ -45,6 +45,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(d.AutoFill.PlanArea, d.FillArea);
             Assert.Equal(d.CutVolume + d.FillVolume, d.Volume);
             Assert.Equal(d.AutoCut.SlopeSurface.TriangleCount + d.AutoFill.SlopeSurface.TriangleCount, d.SlopeSurface.TriangleCount);
+            // no crack inside: every boundary edge of the composite lies on the terrain's border, or on the toe (the slope
+            // steps off the terrain there), or ends at a toe crossing, where the cut part (λ below the toe) and the fill
+            // part (λ above) meet at one XY with a step along the catch segment that the terrain part does not share
+            var toe = d.Toes[0];
+            int n = toe.Points.Count;
+            Func<Vector2d, bool> onToe = (q) => Enumerable.Range(0, n).Any(i =>
+                new Segment2d(toe.Points[i].xy, toe.Points[(i + 1) % n].xy).DistanceSquared(q) <= 1e-18 * (1 + q.LengthSquared));
+            var crossings = d.CatchLines.Where(l => l.Closed == false).SelectMany(l => new[] { l.Points.First().xy, l.Points.Last().xy }).ToList();
+            Func<Vector2d, bool> atCrossing = (q) => crossings.Any(x => x.Distance(q) <= d.UsedMinFeatureSize);
+            var border = d.Terrain.BoundaryEdgeIndices().Select(e => { Index2i v = d.Terrain.GetEdgeV(e); return new Segment2d(d.Terrain.GetVertex(v.a).xy, d.Terrain.GetVertex(v.b).xy); }).ToList();
+            Func<Vector2d, bool> onBorder = (q) => border.Any(sg => sg.DistanceSquared(q) <= 1e-18 * (1 + q.LengthSquared));
+            foreach (int e in d.Composite.BoundaryEdgeIndices()) {
+                Index2i ev = d.Composite.GetEdgeV(e);
+                Vector2d a = d.Composite.GetVertex(ev.a).xy, b = d.Composite.GetVertex(ev.b).xy;
+                bool ok = (onBorder(a) && onBorder(b)) || (onToe(a) && onToe(b)) || atCrossing(a) || atCrossing(b);
+                Assert.True(ok, $"composite boundary edge {a} {b} inside");
+            }
         }
 
         [Theory]
@@ -132,6 +149,30 @@ namespace geometry3Sharp.Tests
             Assert.NotEmpty(d.ToeProblems);
             Assert.Null(d.Composite);
             Assert.Empty(d.CatchLines);
+        }
+
+        // the replacement output and no composite: the same runs, the replacement is the full composite's changed part
+        [Fact]
+        public void Auto_Replacement_AndNoComposite()
+        {
+            var full = Make(0.23, -1.1, 1.3, TerrainSlopeDesign.Directions.Auto, Similarity.Identity);
+            Assert.True(full.Compute(), full.Message);
+            var rep = Make(0.23, -1.1, 1.3, TerrainSlopeDesign.Directions.Auto, Similarity.Identity);
+            rep.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
+            Assert.True(rep.Compute(), rep.Message);
+            Assert.Null(rep.Composite);
+            Assert.NotNull(rep.Replacement);
+            Assert.Equal(full.ReplacedTerrainTriangles, rep.ReplacedTerrainTriangles);
+            Assert.Equal("", Invariance.Difference(full.SlopeRegion, rep.SlopeRegion));
+            // the replacement plus the terrain triangles not replaced: the full composite's triangle count
+            Assert.Equal(full.Composite.TriangleCount, rep.Replacement.TriangleCount + full.Terrain.TriangleCount - rep.ReplacedTerrainTriangles.Count);
+            var none = Make(0.23, -1.1, 1.3, TerrainSlopeDesign.Directions.Auto, Similarity.Identity);
+            none.BuildComposite = false;
+            Assert.True(none.Compute(), none.Message);
+            Assert.Null(none.Composite); Assert.Null(none.SlopeRegion);
+            Assert.Equal(full.CutVolume, none.CutVolume);
+            Assert.Equal(full.FillVolume, none.FillVolume);
+            Assert.Equal(full.CatchLines.Count, none.CatchLines.Count);
         }
 
         [Fact]
