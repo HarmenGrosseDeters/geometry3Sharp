@@ -39,6 +39,7 @@ namespace geometry3Sharp.Tests
         {
             string failure = string.Join("; ", problems);
             if (KnownFailures.TryGetValue(name, out var known)) {
+                if (!IssueCases.Strict) return;
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({known.Finding}) from KnownFailures and docs/QA.md 2.11");
                 Assert.True(failure == known.Pinned, $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
             } else

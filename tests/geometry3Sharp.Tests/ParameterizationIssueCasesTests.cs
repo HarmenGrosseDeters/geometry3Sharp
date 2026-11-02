@@ -34,8 +34,10 @@ namespace geometry3Sharp.Tests
         {
             string failure = "";
             try { check(); } catch (Exception e) when (e is Xunit.Sdk.XunitException) { failure = e.Message; }
-            if (KnownFailures.TryGetValue(name, out string finding))
+            if (KnownFailures.TryGetValue(name, out string finding)) {
+                if (!IssueCases.Strict) return;
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({finding}) from KnownFailures and docs/QA.md 2.11");
+            }
             else
                 Assert.True(failure == "", name + ": " + failure);
         }
@@ -473,7 +475,7 @@ namespace geometry3Sharp.Tests
             string lscmCase = nameof(LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion) + "_LscmAndArap";
             ParameterizationResult rl = new LSCMParameterization(m).Compute(), ra = new ARAPParameterization(m).Compute();
             Expect(lscmCase, () => { check("lscm", rl); check("arap", ra); });
-            if (KnownFailures.ContainsKey(lscmCase)) {
+            if (IssueCases.Strict && KnownFailures.ContainsKey(lscmCase)) {
                 // finding P1: Success, but the boundary ring without the pins collapses onto a segment (all its v = 0);
                 // ARAP, started from that map, keeps flipped triangles
                 Assert.True(rl.Succeeded && Flipped(m, rl) > 0 && rl.Distortion.MaxConformal > 1e6, $"P1: {rl.Status}, {(rl.Succeeded ? Flipped(m, rl) : -1)} flipped");
@@ -545,7 +547,7 @@ namespace geometry3Sharp.Tests
                 asymAuto = asymmetry("lscm", new LSCMParameterization(m).Compute());
                 Assert.True(asymAuto <= 1e-6, $"lscm: mirrored distances differ by {asymAuto} of the size");
             });
-            if (KnownFailures.ContainsKey(lscmCase))
+            if (IssueCases.Strict && KnownFailures.ContainsKey(lscmCase))
                 // finding P3: the automatic pins are not a mirrored pair, and the LSCM minimizer depends on the pins
                 Assert.True(asymAuto > 1e-6 && asymAuto < 1e-3, $"P3: asymmetry {asymAuto}");
         }
@@ -663,7 +665,7 @@ namespace geometry3Sharp.Tests
                 string vs = Valid(shortDiagonal, rs, true);
                 Assert.True(vs == "", $"bff disk, short diagonal: {vs}");
             }
-            if (KnownFailures.ContainsKey(diskCase)) {
+            if (IssueCases.Strict && KnownFailures.ContainsKey(diskCase)) {
                 // finding P2: Success, one triangle flipped, and the four UVs a sliver about 1.5e6 from the origin
                 // instead of a quadrilateral inscribed in a circle
                 Assert.True(rd.Succeeded && Flipped(two, rd) == 1, $"P2: {rd.Status}");

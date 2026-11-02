@@ -406,6 +406,10 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
+The `KnownFailures` lists of the `*IssueCasesTests` classes, and the wrong outcomes they pin, are taken on net10; on
+.NET Framework they are not strict (`Harness/IssueCases.cs`), as in 2.10. The findings, with their causes and fix
+ideas, are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md).
+
 **Geodesics and intrinsic triangulations (November 2026):** `GeodesicsIssueCasesTests` rebuilds 11 failure modes from
 the trackers of libigl, geometry-central and potpourri3d that the existing tests did not cover (cases that duplicated
 them, such as loops around a cone apex, paths that double back and flat grids with a corner source, were left out or

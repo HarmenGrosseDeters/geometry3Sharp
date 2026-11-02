@@ -34,8 +34,10 @@ namespace geometry3Sharp.Tests
         {
             string failure = "";
             try { check(); } catch (Exception e) when (e is Xunit.Sdk.XunitException) { failure = e.Message; }
-            if (KnownFailures.TryGetValue(name, out string finding))
+            if (KnownFailures.TryGetValue(name, out string finding)) {
+                if (!IssueCases.Strict) return;
                 Assert.True(failure != "", $"{name} passes now: remove its entry ({finding}) from KnownFailures and docs/QA.md 2.11");
+            }
             else
                 Assert.True(failure == "", name + ": " + failure);
         }
@@ -595,7 +597,7 @@ namespace geometry3Sharp.Tests
                         Assert.True(Math.Abs(g0.Length - g.Length / sim.Scale) < 1e-9 * g0.Length + 64 * sim.Resolution(1.5), $"{g0.Length} vs {g.Length / sim.Scale}");
                 }
             });
-            if (KnownFailures.ContainsKey(caseName))
+            if (IssueCases.Strict && KnownFailures.ContainsKey(caseName))
                 // finding G3: the trace tolerance is relative to the edge length only; at UTM coordinates and a scale
                 // of 1e-3 the edges (1.25e-4) are traced to the coordinate resolution (about 1e-9), beyond it
                 Assert.Equal(GeodesicPathStatus.TraceFailed, status[status.Count - 1]);
@@ -721,7 +723,7 @@ namespace geometry3Sharp.Tests
                         }
                     Assert.True(off.Count == 0, $"eps {eps}: transported vectors off by 2 degrees or more at {string.Join(", ", off)}");
                 });
-                if (KnownFailures.ContainsKey(name)) {
+                if (IssueCases.Strict && KnownFailures.ContainsKey(name)) {
                     // finding G2: finite everywhere, wrong (45 degrees) only at the coincident vertices of columns 4 and 5
                     Assert.True(tr != null && m.VertexIndices().All(v => tr[v].IsFinite && log[v].IsFinite), "G2: non-finite output");
                     Assert.True(offColumns.Count > 0 && offColumns.All(c => c == 4 || c == 5), $"G2: off at {string.Join(", ", off)}");
