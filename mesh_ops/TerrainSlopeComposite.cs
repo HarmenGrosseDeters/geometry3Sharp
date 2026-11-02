@@ -85,15 +85,34 @@ namespace gs
                     if (dd < best) { best = dd; catchAt[k] = q; snapped.Add(k); }
                 }
             }
-            // catch points nearer than minFeature: one position, a snapped one first, else the smallest key (sweep in x)
+            // catch points nearer than minFeature: one position, a snapped one first, else the smallest key
             var order = new List<long>(keys);
             order.Sort((x, y) => catchAt[x].x != catchAt[y].x ? catchAt[x].x.CompareTo(catchAt[y].x) : x.CompareTo(y));
             var parent = new Dictionary<long, long>();
             foreach (long k in keys) parent[k] = k;
             Func<long, long> find = null;
             find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
-            for (int i = 0; i < order.Count; ++i)
-                for (int j = i + 1; j < order.Count && catchAt[order[j]].x - catchAt[order[i]].x < minFeature; ++j)
+            // (pairs from a grid of cells of size minFeature, in the sorted order, so a line along y is not quadratic)
+            var grid = new Dictionary<long, List<int>>();
+            Func<double, long> cell = (x) => (long)Math.Floor(x / minFeature);
+            for (int i = 0; i < order.Count; ++i) {
+                long ck = cell(catchAt[order[i]].x) * 0x100000007L + cell(catchAt[order[i]].y);
+                List<int> l;
+                if (grid.TryGetValue(ck, out l) == false) { l = new List<int>(); grid[ck] = l; }
+                l.Add(i);
+            }
+            var near = new List<int>();
+            for (int i = 0; i < order.Count; ++i) {
+                near.Clear();
+                long cx = cell(catchAt[order[i]].x), cy = cell(catchAt[order[i]].y);
+                for (long gx = cx - 1; gx <= cx + 1; ++gx)
+                    for (long gy = cy - 1; gy <= cy + 1; ++gy) {
+                        List<int> l;
+                        if (grid.TryGetValue(gx * 0x100000007L + gy, out l))
+                            foreach (int j in l) if (j > i) near.Add(j);
+                    }
+                near.Sort();
+                foreach (int j in near)
                     if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature && mergeable(order[i], order[j])
                         && noSnap.Contains(order[i]) == false && noSnap.Contains(order[j]) == false) {
                         long r0 = find(order[i]), r1 = find(order[j]);
@@ -105,6 +124,7 @@ namespace gs
                         bool keep0 = p0 != p1 ? p0 < p1 : r0 < r1;
                         if (keep0) parent[r1] = r0; else parent[r0] = r1;
                     }
+            }
             foreach (long k in keys) {
                 catchAt[k] = catchAt[find(k)];
                 List<long> l;
