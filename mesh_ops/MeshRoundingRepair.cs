@@ -125,8 +125,14 @@ namespace g3
         /// (EvaluationLimitReached tells; the result is valid, the defects left are counted)
         /// </summary>
         public int MaxEvaluationsPerDefect = 50;
-        /// <summary> see MaxEvaluationsPerDefect </summary>
-        public long MaxPairTests = 20000000;
+        /// <summary>
+        /// effort budget for hopeless inputs: exact triangle pair tests in the evaluations at most (see
+        /// MaxEvaluationsPerDefect). Measured (November 2026, after #327): 5M instead of 20M lost and gained no clean result
+        /// (generated families 1340 of 1512 clean, Thingi10K self-unions 336 of 799, six rotated Thingi10K booleans 0 of
+        /// 18 at 5M to 80M) and cut the time of the cases that reach it (rounding of the rotated cases 193 to 96 s).
+        /// ExactMeshBoolean.RoundingMaxPairTests and MeshRobustRepair.RoundingMaxPairTests pass it through
+        /// </summary>
+        public long MaxPairTests = 5000000;
         /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests </summary>
         public bool EvaluationLimitReached;
         /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
