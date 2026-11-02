@@ -616,6 +616,139 @@ namespace g3cli.Tests
             Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
             (exit, r) = Run("resolve", m.Overlapping, m.Path_("r_bad.obj"), "--rounding-absolute-tolerance", "-1");
             Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            // the relative bound is limited: larger ones let the repair contract whole components away
+            (exit, r) = Run("resolve", m.Overlapping, m.Path_("r_bad.obj"), "--rounding-max-displacement", "0.5");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            Assert.Contains("1e-2", S(r["message"]));
+        }
+
+
+        // ---- the SafeRounding settings of the robust repair (#294) ----
+
+        // a box [-1, 1]^2 x [-2, 0] whose top is a dent down to (0, 0, -0.5), and a pyramid pointing down into it with its tip on
+        // the bottom of the dent, in one mesh: the exact resolve and the repair after the separation of the touching tips both run
+        // (MeshRoundingRepairTests.PyramidInADent)
+        string PyramidInADent()
+        {
+            string path = m.Path_("pyramid_dent.g3mesh");
+            if (File.Exists(path)) return path;
+            var mesh = new DMesh3();
+            int[] top = { mesh.AppendVertex(new Vector3d(-1, -1, 0)), mesh.AppendVertex(new Vector3d(1, -1, 0)), mesh.AppendVertex(new Vector3d(1, 1, 0)), mesh.AppendVertex(new Vector3d(-1, 1, 0)) };
+            int[] bottom = { mesh.AppendVertex(new Vector3d(-1, -1, -2)), mesh.AppendVertex(new Vector3d(1, -1, -2)), mesh.AppendVertex(new Vector3d(1, 1, -2)), mesh.AppendVertex(new Vector3d(-1, 1, -2)) };
+            var dent = new Vector3d(0, 0, -0.5);
+            int p = mesh.AppendVertex(dent);
+            for (int i = 0; i < 4; ++i) {
+                int j = (i + 1) % 4;
+                mesh.AppendTriangle(p, top[i], top[j]);
+                mesh.AppendTriangle(top[i], bottom[i], bottom[j]);
+                mesh.AppendTriangle(top[i], bottom[j], top[j]);
+            }
+            mesh.AppendTriangle(bottom[0], bottom[2], bottom[1]);
+            mesh.AppendTriangle(bottom[0], bottom[3], bottom[2]);
+            int tip = mesh.AppendVertex(dent);
+            int[] b = new int[4];
+            for (int i = 0; i < 4; ++i)
+                b[i] = mesh.AppendVertex(dent + new Vector3d((i == 0 || i == 3) ? -0.3 : 0.3, (i < 2) ? -0.3 : 0.3, 0.49));
+            for (int i = 0; i < 4; ++i)
+                mesh.AppendTriangle(tip, b[(i + 1) % 4], b[i]);
+            mesh.AppendTriangle(b[0], b[1], b[2]);
+            mesh.AppendTriangle(b[0], b[2], b[3]);
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults).code);
+            return path;
+        }
+
+        // two unit spheres, one turned by 1e-10 and shifted by about 1e-10, in one mesh: rounding leaves slivers
+        string NearlyCoincidentSpheres()
+        {
+            string path = m.Path_("spheres_turned.g3mesh");
+            if (File.Exists(path)) return path;
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(new Vector3d(0.6, 0.3, 0.1).Normalized, 1e-10 * MathUtil.Rad2Deg));
+            MeshTransforms.Translate(b, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            new MeshEditor(a).AppendMesh(b);
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, a, WriteOptions.Defaults).code);
+            return path;
+        }
+
+        [Fact]
+        public void Repair_RoundingSettings_ReachBothRepairsOfTheExactStage()
+        {
+            string input = PyramidInADent();
+            var (exit, r) = Run("repair", input, m.Path_("dent_out.g3mesh"), "--no-alpha-wrap",
+                "--rounding-max-displacement", "2e-5", "--rounding-ulp-factor", "128", "--rounding-absolute-tolerance", "1e-9");
+            AssertOk(exit, r);
+            Assert.True(B(r["used_exact_resolve"]), r.ToJsonString());
+            Assert.True(B(r["mesh"]["clean"]), r["mesh"].ToJsonString());
+            foreach (string key in new[] { "exact_resolve_rounding", "separated_rounding" }) {
+                JsonNode rr = r[key];
+                Assert.NotNull(rr);
+                Assert.Equal(2e-5, D(rr["max_displacement"]));
+                Assert.Equal(128, D(rr["ulp_factor"]));
+                Assert.Equal(1e-9, D(rr["absolute_tolerance"]));
+            }
+            // the defaults: the library's
+            (exit, r) = Run("repair", input, m.Path_("dent_default.g3mesh"), "--no-alpha-wrap");
+            AssertOk(exit, r);
+            Assert.Equal(1e-5, D(r["exact_resolve_rounding"]["max_displacement"]));
+            Assert.Equal(256, D(r["separated_rounding"]["ulp_factor"]));
+            Assert.False(B(r["strict_rounding"]));
+
+            // strict: both repairs without the ulp and the absolute term
+            (exit, r) = Run("repair", input, m.Path_("dent_strict.g3mesh"), "--no-alpha-wrap", "--strict-rounding");
+            AssertOk(exit, r);
+            Assert.True(B(r["strict_rounding"]));
+            Assert.Equal(0, D(r["exact_resolve_rounding"]["ulp_factor"]));
+            Assert.Equal(0, D(r["separated_rounding"]["ulp_factor"]));
+            Assert.Equal(0, D(r["separated_rounding"]["absolute_tolerance"]));
+
+            // method auto has no exact stage: the settings do not apply, and there is no rounding report
+            (exit, r) = Run("repair", input, m.Path_("dent_auto.g3mesh"), "--method", "auto", "--strict-rounding");
+            AssertOk(exit, r);
+            Assert.Null(r["exact_resolve_rounding"]);
+
+            // a mesh that is clean already: no exact stage, no rounding reports
+            (exit, r) = Run("repair", m.Cube, m.Path_("cube_rep.obj"));
+            AssertOk(exit, r);
+            Assert.Null(r["exact_resolve_rounding"]);
+            Assert.Null(r["separated_rounding"]);
+        }
+
+        [Fact]
+        public void Repair_StrictRounding_ExactStageFailsWithItsReason()
+        {
+            // with a bound too small for the slivers, strict: the exact resolve fails with its reason and the other stages run
+            var (exit, r) = Run("repair", NearlyCoincidentSpheres(), m.Path_("spheres_strict.g3mesh"), "--no-alpha-wrap",
+                "--strict-rounding", "--rounding-max-displacement", "1e-16", "--solidify-resolution", "32");
+            Assert.Equal("ok", S(r["code"]));
+            Assert.False(B(r["used_exact_resolve"]));
+            Assert.Equal("rounding not clean (StrictRounding)", S(r["exact_resolve_reason"]));
+            Assert.Equal(0, D(r["exact_resolve_rounding"]["ulp_factor"]));
+            Assert.Equal(1e-16, D(r["exact_resolve_rounding"]["max_displacement"]));
+            Assert.True(B(r["used_solidify"]));
+
+            // invalid settings
+            foreach (var bad in new[] { new[] { "--rounding-max-displacement", "-1" }, new[] { "--rounding-max-displacement", "1" },
+                    new[] { "--rounding-max-displacement", "0.5" }, new[] { "--rounding-max-displacement", "0" }, new[] { "--rounding-max-displacement", "1e-300" },
+                    new[] { "--rounding-ulp-factor", "-1" }, new[] { "--strict-rounding", "--no-safe-rounding" },
+                    new[] { "--strict-rounding", "--rounding-ulp-factor", "100" } }) {
+                (exit, r) = Run(new[] { "repair", m.Cube, m.Path_("bad.obj") }.Concat(bad).ToArray());
+                Assert.True(S(r["code"]) == ResultCodes.InvalidArguments, string.Join(" ", bad) + " -> " + r.ToJsonString());
+            }
+        }
+
+        [Fact]
+        public void Resolve_RoundingMaxDisplacement_SetsTheRelativeBound()
+        {
+            // at UTM coordinates the relative bound is the smaller term: raised a hundredfold, the bound follows it
+            string input = UtmCluster();
+            var (exit, r) = Run("resolve", input, m.Path_("utm_md.g3mesh"), "--rounding-max-displacement", "1e-3", "--rounding-ulp-factor", "0");
+            AssertOk(exit, r);
+            Assert.Equal(1e-3, D(r["boolean"]["rounding_max_displacement"]));
+            Assert.Equal(1e-3, D(r["boolean"]["rounding"]["max_displacement"]));
+            double diag = D(r["input_mesh"]["bounds"]["diagonal"]);
+            Assert.InRange(D(r["boolean"]["rounding"]["max_length"]), 1e-3 * diag * 0.5, 1e-3 * diag * 2);
+            Assert.True(B(r["boolean"]["rounding_clean"]));
         }
 
 
