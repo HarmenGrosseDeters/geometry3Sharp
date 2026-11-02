@@ -104,3 +104,30 @@ overlay of the efficiency bullet of 5.5; km-scale benchmarks. These are 1c (or l
 - region: the hill behind a valley is not excavated; no daylight (terrain rising faster than s) gives `NoDaylight`
   with the results kept;
 - invariance over `Similarity.All()` (z rotations), reuse, determinism, cancel, as in 1a.
+
+## Reviews and mutation testing
+
+- **Independent code review** (an agent with the diff only): no correctness bug in the face construction, the SoS
+  entry and exit, the chaining or the region. Fixed from it: the overlay and the composite now start from scratch on a
+  second run (test `Overlay_IsReusable`); a composite that cannot be built gives `CompositeFailed` and keeps
+  `SlopeSurface` and `CatchLines`, instead of `Failed` with no result; a test for a given `HeightLimit` that the region
+  reaches (`GivenHeightLimit_TheRegionEndsThere`, which kills the mutants of the `HeightLimit` end reason); catch lines
+  and end reasons compared in the reuse and invariance tests; catch-point pairs from a grid (a line along y was
+  quadratic). Left for 1c: the per-triangle constraint checks are O(segments × points) in one slope triangle (a straight
+  open toe over a 100k terrain: 12.3k catch points, 5.4 s in the composite), and `HeightLimit` from the global terrain
+  maximum.
+- **Exact-arithmetic review** (SoS, the D signs, the snapped crossings, the exact plane heights, the merge of 1a), with
+  brute force over rationals with an explicit ε: `OrientAAB` / `OrientBBA`, `SignAV` / `SignBV` / `SignX` (also for
+  crossings that exist only by the perturbation), the snapped crossing and `ExactDyadic` heights all confirmed; on
+  36.7k overlay faces every face had 0 or 2 sign changes. Fixed from it: a position merged into another keeps its
+  barriers (else a toe edge could be classified as the height limit); the lowering by merged vertices (at most
+  2 · 64 ulps · sMax) is reserved in the tolerance budget; a realized slope surface that folds over (an interior edge run
+  in the same direction by both triangles) fails instead of being used.
+- **No new error bound.** The decisions are exact predicates; the positions of catch points are approximations whose
+  accuracy is 1c's report; the merge share above is the only addition to the budget.
+- **Stryker** (`tests/mutation/terrain-overlay-stryker.json`, `TerrainSlopeOverlay.cs`, the catch-line tests without the
+  stress test, local, 36 min): **97.06 %** (385 killed, 110 timeout, 2 survived, 13 no coverage). Survivors: the two
+  `>`→`>=` of the SoS tie break on x (lines 120 and 130), equivalent, as they differ only for a zero-length edge, which
+  no surface has. No coverage: the messages and returns of internal-error paths (a face with 1 or 3 sign changes, an
+  edge with three faces, a chain that does not close: none occur, the review's brute force confirms) and the sign
+  forcing of a computed D whose double sign is wrong. Proposed break: 90.
