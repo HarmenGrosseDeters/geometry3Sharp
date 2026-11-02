@@ -211,6 +211,17 @@ namespace g3
         TriangleBoxTree tree, dirtyTree;
         List<int> treeTids, dirtyTids;
         HashSet<int> dirty = new HashSet<int>();
+        // the intersecting pairs of the last intersecting_pairs, and the triangles changed or removed since (null:
+        // not computed for the current mesh)
+        List<Index2i> lastPairs;
+        HashSet<int> pairsStale = new HashSet<int>();
+
+        // for tests: Apply on this thread checks the incremental intersecting pairs against a full search, and the
+        // canonical ids against the dictionary (InvalidOperationException if they differ)
+        [ThreadStatic] internal static bool CheckOnThisThread;
+        bool check;
+        // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
+        internal int FullPairSearches, IncrementalPairSearches, UnchangedPairSearches;
         // applied edits so far (a version of the mesh)
         long version;
         // vertices of applied edits
@@ -272,6 +283,9 @@ namespace g3
                     position_add(vid, Mesh.GetVertex(vid));
             }
             rebuild_tree();
+            lastPairs = null;
+            check = CheckOnThisThread;
+            FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
 
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
@@ -399,12 +413,9 @@ namespace g3
             if (atPosition.TryGetValue(key(p), out list) == false)
                 atPosition[key(p)] = list = new List<int>();
             list.Add(v);
-            int least = list.Count > 1 ? canonId[list[0]] : v;
-            if (v < least)
-                foreach (int u in list)
-                    canonId[u] = v;
-            else
-                canonId[v] = least;
+            int least = list.Count > 1 ? Math.Min(canonId[list[0]], v) : v;
+            foreach (int u in list)
+                canonId[u] = least;
         }
 
         void position_remove(int v, Vector3d p)
@@ -429,10 +440,22 @@ namespace g3
         {
             if (atPosition == null)
                 return v;
+            if (check) {
+                int fast = canonical_of(v, true), slow = canonical_of(v, false);
+                if (fast != slow)
+                    throw new InvalidOperationException("MeshRoundingRepair: canonical id differs from the dictionary");
+                return fast;
+            }
+            return canonical_of(v, true);
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        int canonical_of(int v, bool cached)
+        {
             // (v is at its position in the mesh, with the smallest id there in canonId: that one, or the moved vertex
             // if it is proposed there with a smaller id; the dictionary only if the moved vertex is the smallest one
             // at v's position, which it leaves, or v is the moved vertex)
-            if (v != movedV) {
+            if (cached && v != movedV) {
                 int least = canonId[v];
                 if (least != movedV) {
                     if (movedV >= 0 && movedV < least && key(movedPos) == key(Mesh.GetVertex(v)))
@@ -494,6 +517,7 @@ namespace g3
         void mark_dirty(int tid)
         {
             dirty.Add(tid);
+            pairsStale.Add(tid);
             dirtyTree = null;
             version++;
             if (Mesh.IsTriangle(tid)) {
@@ -534,14 +558,52 @@ namespace g3
             dirtyTree.Query(query, (i) => result.Add(dirtyTids[i]));
         }
 
+        void remove_triangle(int tid, bool removeIsolatedVertices = false)
+        {
+            pairsStale.Add(tid);
+            Mesh.RemoveTriangle(tid, removeIsolatedVertices, false);
+        }
+
+        // the intersecting pairs of the current mesh (ta < tb, sorted). Incremental: the pairs of the last call whose
+        // triangles are unchanged, and the pairs of the changed triangles (the same set as a full search: the
+        // intersection test of two unchanged triangles sees the same positions, and their shared vertices are the
+        // same, as canonical ids are equal exactly at equal positions)
+        [MethodImpl(JitHints.Optimize)]
         List<Index2i> intersecting_pairs()
         {
             if (dirty.Count > 0)
                 rebuild_tree();
+            List<Index2i> pairs;
+            if (lastPairs != null && pairsStale.Count == 0) {
+                pairs = new List<Index2i>(lastPairs);
+                UnchangedPairSearches++;
+            } else if (lastPairs != null && pairsStale.Count <= treeTids.Count / 4) {
+                pairs = intersecting_pairs_of_changed();
+                IncrementalPairSearches++;
+            } else {
+                pairs = intersecting_pairs_all();
+                FullPairSearches++;
+            }
+            if (check) {
+                List<Index2i> full = intersecting_pairs_all();
+                bool same = full.Count == pairs.Count;
+                for (int i = 0; same && i < full.Count; ++i)
+                    same = full[i] == pairs[i];
+                if (same == false)
+                    throw new InvalidOperationException("MeshRoundingRepair: incremental intersecting pairs differ from a full search");
+            }
+            pairsStale.Clear();
+            lastPairs = new List<Index2i>(pairs);
+            return pairs;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        List<Index2i> intersecting_pairs_all()
+        {
             int[] tris = treeTids.ToArray();
-            var pairs = new List<Index2i>();
-            object lockObj = new object();
-            gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
+            // (per triangle, in triangle order: deterministic without a lock)
+            var found = new List<Index2i>[tris.Length];
+            gParallel.ForRange(tris.Length, (k) => {
                 int ta = tris[k];
                 Index3i ia = Mesh.GetTriangle(ta);
                 Triangle3d A = triangle(ia);
@@ -559,9 +621,56 @@ namespace g3
                         local.Add(new Index2i(ta, tb));
                     }
                 });
-                if (local != null)
-                    lock (lockObj) pairs.AddRange(local);
+                found[k] = local;
             });
+            var pairs = new List<Index2i>();
+            foreach (List<Index2i> local in found)
+                if (local != null)
+                    pairs.AddRange(local);
+            pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
+            return pairs;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        List<Index2i> intersecting_pairs_of_changed()
+        {
+            var pairs = new List<Index2i>();
+            foreach (Index2i p in lastPairs)
+                if (pairsStale.Contains(p.a) == false && pairsStale.Contains(p.b) == false)
+                    pairs.Add(p);
+            var changedTris = new List<int>();
+            foreach (int t in pairsStale)
+                if (Mesh.IsTriangle(t))
+                    changedTris.Add(t);
+            changedTris.Sort();
+            int[] tris = treeTids.ToArray();
+            var found = new List<Index2i>[changedTris.Count];
+            gParallel.ForRange(changedTris.Count, (k) => {
+                int ta = changedTris[k];
+                Index3i ia = Mesh.GetTriangle(ta);
+                Triangle3d A = triangle(ia);
+                if (ExactTriangleIntersection.IsDegenerate(ref A))
+                    return;
+                List<Index2i> local = null;
+                tree.Query(box(ia), (i) => {
+                    int tb = tris[i];
+                    // (a pair of two changed triangles once, from the smaller one)
+                    if (tb == ta || (tb < ta && pairsStale.Contains(tb))) return;
+                    Index3i ib = Mesh.GetTriangle(tb);
+                    Triangle3d B = triangle(ib);
+                    if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
+                    // (the smaller id first, as in intersecting_pairs_all)
+                    bool hit = ta < tb ? intersects(ia, ref A, ib, ref B) : intersects(ib, ref B, ia, ref A);
+                    if (hit) {
+                        if (local == null) local = new List<Index2i>();
+                        local.Add(new Index2i(Math.Min(ta, tb), Math.Max(ta, tb)));
+                    }
+                });
+                found[k] = local;
+            });
+            foreach (List<Index2i> local in found)
+                if (local != null)
+                    pairs.AddRange(local);
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
         }
@@ -857,6 +966,9 @@ namespace g3
                 return false;
             Vector3d pa = Mesh.GetVertex(a);
             DMesh3.EdgeCollapseInfo info;
+            // (the triangles of a: removed or moved to b)
+            foreach (int t in Mesh.VtxTrianglesItr(a))
+                pairsStale.Add(t);
             if (Mesh.CollapseEdge(b, a, out info) != MeshResult.Ok)
                 return false;
             if (atPosition != null)
@@ -978,7 +1090,7 @@ namespace g3
             var old = new List<Index3i>();
             foreach (int t in removed) {
                 old.Add(Mesh.GetTriangle(t));
-                Mesh.RemoveTriangle(t, false, false);
+                remove_triangle(t);
             }
             var tids = new List<int>();
             foreach (Index3i t in added) {
@@ -986,7 +1098,7 @@ namespace g3
                 if (tid < 0) {
                     // (not expected: the checks above keep the mesh manifold) undone
                     foreach (int u in tids)
-                        Mesh.RemoveTriangle(u, false, false);
+                        remove_triangle(u);
                     foreach (Index3i u in old)
                         mark_dirty(Mesh.AppendTriangle(u.a, u.b, u.c));
                     return false;
@@ -1225,7 +1337,7 @@ namespace g3
             foreach (int t in removed) {
                 old.Add(Mesh.GetTriangle(t));
                 groups.Add(Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(t) : -1);
-                Mesh.RemoveTriangle(t, false, false);
+                remove_triangle(t);
             }
             var tids = new List<int>();
             for (int i = 0; i < added.Count; ++i) {
@@ -1234,7 +1346,7 @@ namespace g3
                 if (tid < 0) {
                     // (not expected: the checks above keep the mesh manifold) undone
                     foreach (int u in tids)
-                        Mesh.RemoveTriangle(u, false, false);
+                        remove_triangle(u);
                     for (int j = 0; j < old.Count; ++j) {
                         int back = Mesh.AppendTriangle(old[j].a, old[j].b, old[j].c, groups[j]);
                         if (back >= 0)
@@ -1376,7 +1488,7 @@ namespace g3
             for (int i = 0; i < 3; ++i) {
                 old[i] = Mesh.GetTriangle(fan[i]);
                 oldGid[i] = Mesh.HasTriangleGroups ? Mesh.GetTriangleGroup(fan[i]) : -1;
-                Mesh.RemoveTriangle(fan[i], false, false);
+                remove_triangle(fan[i]);
             }
             int tid = Mesh.AppendTriangle(a, b, c, gid);
             if (tid < 0) {
@@ -1649,7 +1761,7 @@ namespace g3
                 if (closed == false || (sum >= 1e4 * areaEps && 2 * Math.Abs(volume) >= maxLength * sum))
                     continue;
                 foreach (int t in comp.Indices)
-                    Mesh.RemoveTriangle(t, true, false);
+                    remove_triangle(t, true);
                 count += comp.Indices.Length;
                 RemovedComponents++;
             }
