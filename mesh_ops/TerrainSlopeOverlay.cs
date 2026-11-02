@@ -92,6 +92,8 @@ namespace gs
         public readonly List<List<long>> CatchKeys = new List<List<long>>();
         /// <summary> the region touches the boundary of the terrain or the height limit: the slope does not daylight </summary>
         public bool NoDaylight;
+        /// <summary> the region reaches the boundary of the slope surface at its height limit (the cap) </summary>
+        public bool ReachedHeightLimit;
         public string Problem = "";
 
         // ---------------------------------------------------------------- keys
@@ -161,22 +163,45 @@ namespace gs
             // (a second call starts from scratch)
             Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear();
             containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
-            NoDaylight = false; Problem = "";
-            // B triangles counter-clockwise, and an index over them
+            NoDaylight = false; ReachedHeightLimit = false; NotHeightField = false; Problem = ""; PhaseSeconds.Clear();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            // the B triangles under A (their boxes meet A's box), counter-clockwise, and an index over them: the
+            // terrain elsewhere does not take part (a large terrain costs one pass over its triangles)
+            var aAll = AxisAlignedBox2d.Empty;
+            foreach (Vector3d v in A.Vertices()) aAll.Contain(v.xy);
+            double am = Math.Max(Math.Max(Math.Abs(aAll.Min.x), Math.Abs(aAll.Max.x)), Math.Max(Math.Abs(aAll.Min.y), Math.Abs(aAll.Max.y)));
+            aAll.Expand(1e-9 * aAll.MaxDim + 4 * ulp(am));
             var bTris = new List<int>();
             var boxes = new List<AxisAlignedBox2d>();
             foreach (int tb in B.TriangleIndices()) {
                 Index3i t = B.GetTriangle(tb);
+                Vector2d p0 = B.GetVertex(t.a).xy, p1 = B.GetVertex(t.b).xy, p2 = B.GetVertex(t.c).xy;
+                var box = new AxisAlignedBox2d(p0);
+                box.Contain(p1); box.Contain(p2);
+                if (box.Max.x < aAll.Min.x || box.Min.x > aAll.Max.x || box.Max.y < aAll.Min.y || box.Min.y > aAll.Max.y) continue;
+                int o = ExactPredicates.Orient2d(p0, p1, p2);
+                if (o == 0) { Problem = $"terrain triangle {tb} is degenerate in XY"; NotHeightField = true; return false; }
                 Index3i e = B.GetTriEdges(tb);
-                int o = ExactPredicates.Orient2d(B.GetVertex(t.a).xy, B.GetVertex(t.b).xy, B.GetVertex(t.c).xy);
-                if (o == 0) { Problem = $"terrain triangle {tb} is degenerate in XY"; return false; }
                 bTriV[tb] = o > 0 ? new[] { t.a, t.b, t.c } : new[] { t.a, t.c, t.b };
                 bTriE[tb] = o > 0 ? new[] { e.a, e.b, e.c } : new[] { e.c, e.b, e.a };
-                var box = new AxisAlignedBox2d(B.GetVertex(t.a).xy);
-                box.Contain(B.GetVertex(t.b).xy); box.Contain(B.GetVertex(t.c).xy);
                 bTris.Add(tb); boxes.Add(box);
             }
             var qt = new LooseQuadtree2d(boxes, false);
+            // the terrain must be a height field where the overlay works: no two of these triangles overlap (exact)
+            {
+                var near = new List<int>();
+                int overlaps = 0;
+                for (int i = 0; i < bTris.Count; ++i) {
+                    near.Clear();
+                    qt.QueryRectangle(boxes[i], near);
+                    foreach (int j in near) {
+                        if (j <= i) continue;
+                        if (separated(bTriV[bTris[i]], bTriV[bTris[j]]) == false && separated(bTriV[bTris[j]], bTriV[bTris[i]]) == false) overlaps++;
+                    }
+                }
+                if (overlaps > 0) { Problem = $"{overlaps} pairs of terrain triangles overlap in XY"; NotHeightField = true; return false; }
+            }
+            PhaseSeconds["index"] = sw.Elapsed.TotalSeconds; sw.Restart();
             var hits = new List<int>();
             var uf = new List<int>();
             Func<int, int> find = null;
@@ -316,10 +341,33 @@ namespace gs
                     int reason = end_reason(oe.Key);
                     if (reason == (int)CatchLine.EndReasons.FootprintBoundary || reason == (int)CatchLine.EndReasons.HeightLimit)
                         NoDaylight = true;
+                    if (reason == (int)CatchLine.EndReasons.HeightLimit)
+                        ReachedHeightLimit = true;
                 }
             }
-            return chain();
+            PhaseSeconds["faces"] = sw.Elapsed.TotalSeconds; sw.Restart();
+            bool ok = chain();
+            PhaseSeconds["lines"] = sw.Elapsed.TotalSeconds;
+            return ok;
         }
+
+        // does an edge line of the counter-clockwise triangle T (vertices of B) have all of U on its closed outer side?
+        bool separated(int[] T, int[] U)
+        {
+            for (int e = 0; e < 3; ++e) {
+                Vector2d p = B.GetVertex(T[e]).xy, q = B.GetVertex(T[(e + 1) % 3]).xy;
+                if (ExactPredicates.Orient2d(p, q, B.GetVertex(U[0]).xy) <= 0 && ExactPredicates.Orient2d(p, q, B.GetVertex(U[1]).xy) <= 0
+                    && ExactPredicates.Orient2d(p, q, B.GetVertex(U[2]).xy) <= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary> the terrain is not a height field under the slope surface (degenerate or overlapping triangles) </summary>
+        public bool NotHeightField;
+
+        /// <summary> diagnostics: seconds per step (index of the terrain, overlay faces and region, catch lines) </summary>
+        public readonly Dictionary<string, double> PhaseSeconds = new Dictionary<string, double>();
 
         int end_reason(long ek)
         {

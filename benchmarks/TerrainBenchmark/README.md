@@ -235,3 +235,53 @@ terrain's highest point. The number of builds is 1a's at that height and does no
 `composite=0` the last case also takes 4 builds (27.5 s), and 1a alone takes 2 to 3 builds for heights between 71.9 and
 72.2 m (12.6 to 18.6 s). Where clipped slope triangles fail the support check, the composite raises the measured toe
 lowering in the same loop (a build each). Avoiding repeated builds stays a 1c item.
+
+### Terrain 1c, idea A: one build per margin, the toe lowering by re-realization
+
+`TERRAIN_1C_PLAN.md`, idea A: the map is built once per margin δ from the specified toe, and a larger toe lowering λ
+only realizes it again (z lowered by λ, exactly rounded), since lowering every plane by λ does not change any line of
+two planes. Same machine, 2026-11-02, before = #285 (1b) head d38b030e, after = idea A; same commands as above
+(`Tolerance` 0.01, 1:1):
+
+| case | before | after | speedup | builds before / after | triangles |
+|---|---|---|---|---|---|
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 44.6 s | 30.9 s | 1.44× | 3 / 2 | 14577 / 14577 |
+| 24-gon r 200 m, h 60 m, UTM | 9.7 s | 5.2 s | 1.89× | 2 / 1 | 1222 / 1222 |
+| 24-gon r 20 m, h 6 m, local | 1.39 s | 1.00 s | 1.39× | 2 / 1 | 461 / 461 |
+| L shape 200 m, h 30 m, UTM | 0.93 s | 0.71 s | 1.31× | 3 / 2 | 567 / 567 |
+| 24-gon r 200 m, h 60 m, UTM, `terrain=wave tgrid=5` | 36.4 s | 17.0 s | 2.14× | 5 / 2 | 2281 / 2281 |
+
+The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44× is reached because its second build is
+a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
+the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
+of the cap now lies at H − λ (the planes are lowered, the cap is not).
+
+### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
+
+The DGM1 2022 of `fetch_data.py` (only the 12 DGM tiles are needed: `dgm2022`, 3 x 4 km, no gaps, z −325 to +103 m) as
+the terrain: `slope ... cx=<E> cy=<N> cz=<toe z> terrain=dgm [grid=dgm2022] [tstride=1] [reach=400]`, the grid nodes
+within `reach` of the toe, every `tstride`-th. A hypothetical new pit floor below the deepest part of today's pit
+(E 328375, N 5642875, floor around −300 m), cut slope up to today's terrain, `Tolerance` 0.05 unless noted, 4 cores,
+2026-11-02, with idea A of 1c:
+
+| toe | grid | terrain tris | time | 1a / overlay / composite | builds | catch lines (points) | composite tris | overlaps | O1 | λ | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| octagon r 100 m at −330 m, 1:1.5 | 4 m | 124500 | 4.3 s | 2.2 / 0.58 / 0.85 s | 1 | 1 closed (967) | 122830 | 0 | 1511 / 1511 | 8.6e-8 m | Success |
+| the same | 1 m | 2417800 | 43.6 s | 2.7 / 21.9 / 14.7 s | 1 | 1 closed (2651) | 2352484 | 0 | 3200 / 3200 | 3.7e-7 m | Success |
+| L shape 120 m at −335 m, 1:2 | 2 m | 612180 | 12.5 s | 2.1 / 5.5 / 3.4 s | 1 | 2 closed (3049) | 542894 | 0 | 3319 / 3319 | 5.0e-6 m | Success |
+| wavy 48-gon r 150 m (toe z ±4 m) at −340 m, 1:1.5 | 2 m | 749070 | 135 s | 132 s in 1a | 1 | – | – | – | – | 5.0e-9 m | **Failed** (non-manifold realization) |
+| the same, after the fix of d744efb8 | 2 m | 749070 | 966 s | 926 / 20 / 9.3 s | 3 (δ 6.4e-5) | 1 closed (7523) | 960980 | 0 | 253093 / 253093 | 4.0e-5 m | Success, peak 5.1 GB |
+| the same, with the needle flips | 2 m | 749070 | 157 s | 137 / 10.4 / 5.7 s | 1 | 1 closed (5105) | 794379 | 0 | 89355 / 89355 | 3.8e-6 m | Success, peak 2.9 GB |
+| the same, `Tolerance` 0.2 | 2 m | 749070 | 92 s | 90 s in 1a | 3 | – | – | – | – | 1.1e-2 m | **SlopeViolation** (13 triangles at δ 5e-4) |
+
+Without the terrain, the wavy toe succeeded up to h 60 m (12 s) and failed with `SlopeViolation` (1 triangle) at
+h 100 m. After d744efb8 (two realization defects: needles from edge collapses next to collinear vertices, and faces
+narrower than the rounding) h 100 m takes one build (24 s, a unit test now) and the full case succeeds, but its margin
+was still raised twice, and the smaller facet share left a smaller facet angle, so 16 min and 253k slope triangles. The
+cause: faces of the map between two creases that meet at an angle of 1e-12 (nearly coplanar tangent planes of
+neighbouring apexes), which can only be triangulated into needles 90 m long and 1e-10 m wide; flipping needles thinner
+than 64 ulps across their sides removes them (h 130 m: one build, 44 s instead of 3 builds and 157 s, a unit test).
+The full case then takes one build, 157 s; what is left is the slope surface itself (insert 50 s, simplify 87 s),
+ideas B to D of the 1c plan. Open, for 1c: the uneven toe at large heights (230 m here, reach about 350 m) fails in 1a, once with a
+non-manifold realization that is reported as `Failed`, not caught by the check; and on the 1 m grid the overlay
+(22 s) and the composite (15 s) dominate, which the band-only overlay of 5.5 addresses. Peak memory 3.1 GB on the 1 m grid.
