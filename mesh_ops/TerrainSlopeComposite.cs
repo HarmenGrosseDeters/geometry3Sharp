@@ -232,8 +232,8 @@ namespace gs
                 if (cancel != null && cancel()) throw new OperationCanceledException();
                 List<int> fl;
                 if (facesOfB.TryGetValue(tb, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) {
-                    int[] v = O.bTriV[tb];
-                    emit(false, terrainGroup, B.GetVertex(v[0]), B.GetVertex(v[1]), B.GetVertex(v[2]));
+                    Index3i v = B.GetTriangle(tb);
+                    emit(false, terrainGroup, B.GetVertex(v.a), B.GetVertex(v.b), B.GetVertex(v.c));
                     continue;
                 }
                 if (partial(false, tb, fl) == false) return false;

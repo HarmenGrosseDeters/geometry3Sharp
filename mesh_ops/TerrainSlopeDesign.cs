@@ -93,7 +93,7 @@ namespace gs
             /// kept, but partial (IsComplete = false); the catch lines that end there say so
             /// </summary>
             NoDaylight,
-            /// <summary> the terrain is not a height field: triangles degenerate in XY or overlapping in XY </summary>
+            /// <summary> the terrain is not a height field: triangles degenerate in XY, or overlapping in XY under the slope surface </summary>
             NotHeightField,
             /// <summary>
             /// the composite could not be built (Message): SlopeSurface and CatchLines are kept and complete, Composite and
@@ -232,8 +232,11 @@ namespace gs
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
             double heightLimit = HeightLimit;
+            bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
             if (Terrain != null) {
+                var swt = System.Diagnostics.Stopwatch.StartNew();
                 Statuses ts = check_terrain();
+                PhaseSeconds["terrain"] = swt.Elapsed.TotalSeconds;
                 if (ts != Statuses.Success)
                     return ts;
             }
@@ -298,6 +301,46 @@ namespace gs
             if (ToeGeometry.Validate(toePts, Toes.Select(x => x.Closed).ToList(), out why, out where) == false)
                 return problem(where.a, where.b, why);
 
+            if (localLimit == false)
+                return attempts(pieces, toePts, H, fill);
+            // A local height limit (TERRAIN_1C_PLAN.md): the slope is built up to the highest terrain near the toe and
+            // raised while the region reaches it, at most to the global limit. A region that does not reach the cap
+            // is the region of any higher cap (it is bounded by the catch line and the toe), so the result is that of
+            // the global limit, with a smaller slope surface (and, as D_max is smaller, coarser facets within Tolerance).
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z)), sMin = pieces.Min(p => p.S);
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            double hLocal = local_terrain_max(toeBox, 0, fill) + Tolerance;
+            double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
+            hLocal = Math.Max(hLocal, toeMax);
+            while (true) {
+                if (!(hLocal < H)) hLocal = H;
+                capMayGrow = hLocal < H;
+                Statuses st = attempts(pieces, toePts, hLocal, fill);
+                capMayGrow = false;
+                if (st != Statuses.NoDaylight || reachedCap == false || hLocal >= H)
+                    return st;
+                // twice the reach of this cap, and at least twice the height range
+                double reach = 2 * (hLocal - zMin) / sMin;
+                double next = local_terrain_max(toeBox, reach, fill) + Tolerance;
+                hLocal = Math.Max(next, hLocal + (hLocal - zMin));
+            }
+        }
+
+        // the highest terrain vertex (fill: the lowest, mirrored) within 'reach' of the box
+        double local_terrain_max(AxisAlignedBox2d box, double reach, bool fill)
+        {
+            box.Expand(reach);
+            double m = double.MinValue;
+            foreach (Vector3d v in Terrain.Vertices())
+                if (box.Contains(v.xy)) m = Math.Max(m, fill ? -v.z : v.z);
+            return m;
+        }
+
+        bool reachedCap, capMayGrow;
+
+        Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
+        {
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
             // needs, measured; a slope or orientation failure raises the margin δ
@@ -355,14 +398,7 @@ namespace gs
                     return fail(Statuses.InvalidInput, "a terrain vertex is not finite");
             if (Terrain.TriangleCount == 0)
                 return fail(Statuses.InvalidInput, "the terrain has no triangles");
-            foreach (int t in Terrain.TriangleIndices()) {
-                Index3i tri = Terrain.GetTriangle(t);
-                if (ExactPredicates.Orient2d(Terrain.GetVertex(tri.a).xy, Terrain.GetVertex(tri.b).xy, Terrain.GetVertex(tri.c).xy) == 0)
-                    return fail(Statuses.NotHeightField, $"terrain triangle {t} is degenerate in XY");
-            }
-            int overlaps = TerrainVolumeDifference.XYOverlaps(Terrain);
-            if (overlaps > 0)
-                return fail(Statuses.NotHeightField, $"{overlaps} pairs of terrain triangles overlap in XY");
+            // (degenerate and overlapping triangles are found by the overlay, under the slope surface, where they matter)
             return Statuses.Success;
         }
 
@@ -636,10 +672,21 @@ namespace gs
                 kinds[e] = kind;
             }
             var overlay = new SlopeTerrainOverlay(mesh, Terrain, fill, kinds, CancelF);
-            if (overlay.Compute() == false)
-                return fail(Statuses.Failed, "overlay: " + overlay.Problem);
+            reachedCap = false;
+            bool overlayOk = overlay.Compute();
+            reachedCap = overlay.ReachedHeightLimit;
+            if (overlayOk == false)
+                return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
             phase("overlay");
+            // (a local height limit that the region reaches is raised and everything built again: no composite now)
+            if (reachedCap && capMayGrow)
+                return fail(Statuses.NoDaylight, "the region reaches the local height limit");
+            foreach (var kv in overlay.PhaseSeconds) {
+                double t0;
+                PhaseSeconds.TryGetValue("overlay-" + kv.Key, out t0);
+                PhaseSeconds["overlay-" + kv.Key] = t0 + kv.Value;
+            }
             if (BuildComposite) {
                 var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF);
                 if (comp.Build() == false)
