@@ -36,6 +36,17 @@ namespace gs
     /// more detail, more triangles, more time (about 1 / Alpha^2). Offset keeps the result away from the input.
     /// Typical values: Alpha 1/100 to 1/20 of the bounding box diagonal, Offset 1/30 of Alpha.
     ///
+    /// Triangle shape (derived here, not a claim of the paper; up to rounding and the contact margin, with Offset
+    /// below Alpha / 2): every Steiner point is at least min(Offset, Alpha - Offset) from every other vertex (a rule 1
+    /// point is the center of an empty ball larger than Alpha, unless a circumcenter on its dual edge is not finite and
+    /// the edge is replaced by a long normal segment, see clamp_center; a rule 2 point lies that deep inside an empty
+    /// circumsphere, see rule_projection). So a result triangle with a circumradius of at most Alpha has a min angle of
+    /// at least asin(Offset / (2 Alpha)) (0.95 degrees at the defaults, 2.9 degrees at Alpha = 10 Offset) and a max
+    /// angle of at most 180 degrees minus twice that. Larger triangles, without an angle bound (up to 179 degrees on
+    /// the Thingi10K wrap cases), come from the manifold step (outside cells moved inside), from rejected Steiner points
+    /// (Counts["rejected_points"]) and from PointLimitReached. Rule 2 points projected from the clamped dual edge
+    /// (Counts["projection_fallbacks"], none measured) have no separation bound.
+    ///
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
     ///
@@ -88,6 +99,8 @@ namespace gs
         internal bool StartWithOtherBox = false;
         /// <summary> for tests: rejects the insertion of a Steiner point of the given rule (1 or 2) when it returns true </summary>
         internal Func<int, bool> RejectInsertF;
+        /// <summary> for tests: rule 2 always projects the clamped end of the dual edge (the fallback path) </summary>
+        internal bool ForceProjectionFallback = false;
         bool asymmetricBox;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
@@ -309,11 +322,11 @@ namespace gs
 
         // ---- refinement and carving ----
 
-        long ticksIntersection, ticksTouch, ticksInsert;
+        long ticksIntersection, ticksTouch, ticksInsert, projectionFallbacks;
 
         WrapStatus refine_and_carve()
         {
-            ticksIntersection = ticksTouch = ticksInsert = 0;
+            ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
             var removed = new List<int>();
             var added = new List<int>();
             long rule1 = 0, rule2 = 0, carved = 0, rejected = 0, rejected1 = 0, rejected2 = 0, popped = 0;
@@ -391,6 +404,9 @@ namespace gs
             Counts["steiner_points"] = steiner;
             Counts["steiner_intersection"] = rule1;
             Counts["steiner_projection"] = rule2;
+            // rule 2 points projected from the clamped end of the dual edge (the cell's circumcenter gave no point strictly
+            // inside its circumsphere): no separation bound for these
+            Counts["projection_fallbacks"] = projectionFallbacks;
             // rejected: their cells stay inside with the gate facet on the result, which can then come closer to the
             // input than the offset (a rule 1 rejection; never crossing it, the outside cell was checked) or reach the
             // box (then caught by the result check)
@@ -519,11 +535,37 @@ namespace gs
             return oracle.TetrahedronTouches(a, b, d, e, contact);
         }
 
-        // Rule 2: projection of the circumcenter of c onto the offset surface
-        bool rule_projection(int c, int i, Vector3d cc, out Vector3d p)
+        // Rule 2: projection of the circumcenter of c onto the offset surface. The projected center is the cell's own,
+        // not the end of the dual edge (clamped for flat cells: dual_edge): with the true center, the point lies deep
+        // inside the empty circumsphere (c touches the input, so the center is closer than the radius R to it, and
+        // |center - p| = |distance - offset| <= R - min(offset, R - offset) + contact), so it removes the cell and is at
+        // least min(offset, alpha - offset) - contact from every vertex (R > alpha: the gate facet is larger). The projection of the
+        // clamped center of a flat cell with a box corner (circumradius above 4 box diagonals, at small alpha) missed
+        // the circumsphere: the cell stayed, and the points of neighbouring flat cells landed next to each other,
+        // down to 1e-6 alpha apart, which made needles on the result. If the point does not lie strictly inside the
+        // circumsphere after all (center not finite, rounding), the clamped end of the dual edge is projected as before
+        // (counted, see Counts["projection_fallbacks"]). The guard proves that the cell is removed, not the depth: with
+        // a rounded circumcenter the separation holds up to that rounding.
+        bool rule_projection(int c, int i, Vector3d to, out Vector3d p)
+        {
+            Vector3d cc = circumcenter(c);
+            if (ForceProjectionFallback == false && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
+                && project_to_offset(c, i, cc, out p) && dt.InCircumsphere(c, p) > 0)
+                return true;
+            projectionFallbacks++;
+            return project_to_offset(c, i, to, out p);
+        }
+
+        // the point of the offset surface closest to cc (the closest input point moved by offset towards cc)
+        bool project_to_offset(int c, int i, Vector3d cc, out Vector3d p)
         {
             Vector3d q;
             double d2 = oracle.DistanceSquared(cc, out q);
+            // (a distance that overflows (a circumcenter beyond 1e154) gives no direction: p would be q, on the input)
+            if (!MathUtil.IsFinite(d2)) {
+                p = Vector3d.Zero;
+                return false;
+            }
             double dist = Math.Sqrt(d2);
             Vector3d dir;
             if (dist > 1e-12 * diag) {
