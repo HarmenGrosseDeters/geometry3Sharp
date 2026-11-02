@@ -119,7 +119,8 @@ Only the terrain within the box of the slope surface must be a height field (the
 `NotHeightField`); outside it the composite copies the terrain as given (`TerrainOverlap_FarFromTheSlope_IsTheTerrainAsGiven`).
 The composite's own overlap check covers the triangles it makes (slope and cut terrain triangles) against each other
 and the copied terrain triangles within their box (`SlopeComposite.OverlapsOfConstructed`), not the copied ones among
-themselves; copied triangles take their vertices by terrain vertex id, except where a cut triangle meets them (by
+themselves (a cut terrain triangle can reach beyond the slope's box: its overlap with a copied one outside the box is
+found there, CompositeFailed); copied triangles take their vertices by terrain vertex id, except where a cut triangle meets them (by
 position, so they share its vertices: `AssertComposite` checks one vertex per position).
 
 ### Baseline for the band-only overlay and composite (Hambach, 1 m grid)

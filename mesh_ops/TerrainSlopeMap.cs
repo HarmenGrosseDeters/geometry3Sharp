@@ -943,7 +943,7 @@ namespace gs
                     double after = Math.Min(altitude(c, d, a), altitude(c, d, b));
                     if (!(after > before)) continue;
                     double change = diagonal_change(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), mesh.GetVertex(ov.a), mesh.GetVertex(ov.b));
-                    double bound = Math.Max(devOf(t), devOf(t2)) + change;
+                    double bound = ExactInterval.Up(Math.Max(devOf(t), devOf(t2)) + change);    // (rounded up: an upper bound)
                     if (!(bound <= maxDeviation)) continue;
                     int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
                     DMesh3.EdgeFlipInfo info;

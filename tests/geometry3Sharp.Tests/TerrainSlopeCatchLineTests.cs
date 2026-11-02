@@ -360,7 +360,7 @@ namespace geometry3Sharp.Tests
             var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
             var local = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
             Assert.True(local.Compute(), local.Message);
-            Assert.True(local.Attempts >= 2, $"attempts {local.Attempts}: the local cap was not raised");
+            Assert.True(local.CapRounds >= 2, $"cap rounds {local.CapRounds}: the local cap was not raised");
             var global = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
             global.HeightLimit = 29 + global.Tolerance;
             Assert.True(global.Compute(), global.Message);
@@ -514,7 +514,7 @@ namespace geometry3Sharp.Tests
             // overlap far away are the terrain as given and not looked for
             var m = new DMesh3(false, false, false, true);
             Func<double, double, int> v = (x, y) => m.AppendVertex(new Vector3d(x, y, 0));
-            int copied = m.AppendTriangle(v(0, 0), v(10, 0), v(0, 10));
+            m.AppendTriangle(v(0, 0), v(10, 0), v(0, 10));
             int made = m.AppendTriangle(v(2, 2), v(8, 2), v(2, 8));
             m.AppendTriangle(v(100, 100), v(110, 100), v(100, 110));
             m.AppendTriangle(v(101, 101), v(109, 101), v(101, 109));
@@ -523,7 +523,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, near.TriangleCount);
             Assert.Single(pairs);
             Assert.Equal(2, TerrainVolumeDifference.XYOverlapPairs(m).Count);
-            Assert.True(copied >= 0);
         }
 
         [Fact]

@@ -112,7 +112,8 @@ namespace gs
         /// HeightLimit may be NaN: cut then builds up to the highest terrain near the toe, raised while the slope
         /// reaches it, at most to the terrain's highest vertex (fill: down to its lowest). Only the terrain within the
         /// box of the slope surface must be a height field (else NotHeightField); outside it the composite copies the
-        /// terrain as given
+        /// terrain as given (but an overlap of a cut terrain triangle, which can reach beyond that box, with one outside
+        /// it is found by the composite's check: CompositeFailed)
         /// </summary>
         public DMesh3 Terrain;
         /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
@@ -187,6 +188,7 @@ namespace gs
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
+            CapRounds = 0;
             try {
                 Status = compute();
             } catch (OperationCanceledException) {
@@ -322,6 +324,7 @@ namespace gs
             while (true) {
                 if (!(hLocal < H)) hLocal = H;
                 capMayGrow = hLocal < H;
+                CapRounds++;
                 Statuses st;
                 try { st = attempts(pieces, toePts, hLocal, fill); } finally { capMayGrow = false; }
                 if (st != Statuses.NoDaylight || reachedCap == false || hLocal >= H)
@@ -785,6 +788,8 @@ namespace gs
         // 2 sMax (r + e_xy) above S̃ for each
         internal static double RepairLambda(double ez, double exy, double sMax, int k) { return 4 * ez + 2 * k * sMax * (MergeRadius(exy) + exy); }
         internal static double MergeLambda(double ez, double exy, double sMax) { return RepairLambda(ez, exy, sMax, 1); }
+        /// <summary> diagnostics: the caps tried by the local height limit (1: not raised; 0 without it) </summary>
+        internal int CapRounds;
         /// <summary> diagnostics of the last realization: needles flipped </summary>
         internal int NeedleFlips;
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>

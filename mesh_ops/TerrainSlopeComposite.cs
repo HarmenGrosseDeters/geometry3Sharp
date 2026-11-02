@@ -221,8 +221,9 @@ namespace gs
                 Index3i tv = mesh.GetTriangle(t);
                 box.Contain(mesh.GetVertex(tv.a).xy); box.Contain(mesh.GetVertex(tv.b).xy); box.Contain(mesh.GetVertex(tv.c).xy);
             }
+            // (not welded: the overlap test is geometric, and a triangle that welding would make non-manifold, eg at
+            // terrain vertices with the same position, must not drop out of the check)
             near = new DMesh3(false, false, false, false);
-            var nearVerts = new Dictionary<Vector3d, int>();
             var isConstructed = new HashSet<int>(constructed);
             foreach (int t in mesh.TriangleIndices()) {
                 Index3i tv = mesh.GetTriangle(t);
@@ -231,7 +232,8 @@ namespace gs
                     var tb = new AxisAlignedBox2d(a.xy); tb.Contain(b.xy); tb.Contain(c.xy);
                     if (tb.Intersects(box) == false) continue;
                 }
-                near.AppendTriangle(vertex(near, nearVerts, a), vertex(near, nearVerts, b), vertex(near, nearVerts, c));
+                if (near.AppendTriangle(near.AppendVertex(a), near.AppendVertex(b), near.AppendVertex(c)) < 0)
+                    throw new InvalidOperationException("SlopeComposite: overlap check");
             }
             return TerrainVolumeDifference.XYOverlapPairs(near);
         }
@@ -273,7 +275,12 @@ namespace gs
             var outOf = new int[B.MaxVertexID];
             for (int i = 0; i < outOf.Length; ++i) outOf[i] = -1;
             Func<int, int> copied = (bv) => {
-                if (cut[bv]) return vertex(Composite, compVerts, B.GetVertex(bv));
+                if (cut[bv]) {
+                    // (as the cut triangles take it: -0 as +0)
+                    Vector3d p = B.GetVertex(bv);
+                    p.x += 0.0; p.y += 0.0; p.z += 0.0;
+                    return vertex(Composite, compVerts, p);
+                }
                 if (outOf[bv] < 0) outOf[bv] = Composite.AppendVertex(B.GetVertex(bv));
                 return outOf[bv];
             };
