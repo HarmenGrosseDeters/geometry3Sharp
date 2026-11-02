@@ -202,6 +202,15 @@ namespace geometry3Sharp.Tests
             Assert.True(decided > 3000 && shared > 5000, $"{decided} decided, {shared} shared");
         }
 
+        // the next double up / down, for finite x (Math.BitIncrement / BitDecrement are missing on net48)
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+
         // the projection along axis k that TriangleTriangleFilter uses: the other two coordinates in cyclic order
         static Vector2d DropCyclic(Vector3d v, int k) => k == 0 ? new Vector2d(v.y, v.z) : k == 1 ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
 
@@ -234,7 +243,7 @@ namespace geometry3Sharp.Tests
                         if (t % 5 == 0) p2 = p0 + rand.Next(-2, 3) * (p1 - p0);       // collinear or coincident
                         p2[k] = h;
                         double xk = (t % 4) switch {
-                            0 => h, 1 => Math.BitIncrement(h), 2 => Math.BitDecrement(h), _ => h + sc * rand.Next(-3, 4)
+                            0 => h, 1 => BitIncrement(h), 2 => BitDecrement(h), _ => h + sc * rand.Next(-3, 4)
                         };
                         Vector3d x = scale(at(xk)); x[k] = xk;
                         int o2 = ExactPredicates.Orient2d(DropCyclic(p0, k), DropCyclic(p1, k), DropCyclic(p2, k));
