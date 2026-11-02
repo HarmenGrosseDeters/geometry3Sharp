@@ -214,10 +214,12 @@ the result is verified, not certified in advance, and the 4 residual cases are l
   - Code: none published.
   - Verdict: we have its first stage. The missing piece is the expansion plus the certificate.
 - **Valque, Lazard**, *Resolving self-intersections in 3D meshes while preserving floating-point coordinates*, CGF 44(5),
-  2025; Valque's thesis, 2024 [S].
+  2025 [S, the paper's host was blocked]; Valque's thesis, 2024 [V]. Full-text notes: section 7.
   - Method: iterative snap rounding of the vertices of the triangles that still intersect, to a scaled grid (in CGAL
     6.1 by default 2^23 cells per axis), then autorefinement, repeated.
-  - Result: all 4524 self-intersecting Thingi10K models resolved; certified on 94 % in the thesis.
+  - Result: all 4524 self-intersecting Thingi10K models resolved (one with a coarser grid). The thesis' *certified*
+    algorithm solves 94 % of the 527 hard models only with a relaxed test that drops the topological guarantee, 64 %
+    with full certification (section 7.2).
   - CGAL's documentation [V]: of 3870 Thingi10K inputs with intersections, naive rounding leaves 529 broken, the
     iterative snap rounding 0. The function still returns false when intersections remain, and the documentation says
     "no guarantee of its validity".
@@ -407,3 +409,288 @@ case is an inside-out tiny component. So a larger k alone does not finish the jo
     grid precision may merge.
   - GEOS has the same design.
   - That is the same contract as items 1 and 2: below the tolerance, features collapse, and the output is valid.
+
+## 6. Handoff for the snap-rounding experiment (2026-11-02)
+
+Stage R ends here: D′ (#251), 1b (#279), the ulp tolerance (#287), the pass-through API (#294). The next item is the
+research experiment of section 3: option A (the Milenkovic–Sacks expansion and its certificate), then B (a
+Valque–Lazard iteration bounded by the drift). It is a measurement and prototypes only; the owner decides on an
+implementation from the numbers. This section is the handoff to a fresh session.
+
+### 6.1 What is left, and how to reproduce it
+
+All cases are generated in code, so no mesh files are needed.
+- **Strips that branch or fold** (1b, section 2, "What is left"):
+  - `SafeRoundingDegenerateInputTests.DenseClusters_WithinTheBound_MostlyClean`: dense clusters 85 of 108 clean,
+    folded clusters 80 of 90. The pinned minimums are 85 and 80. The 23 + 10 left are within the bound and the same solid.
+  - `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_CleanWithinTheBound`: 197 of 198; the one left is
+    ShortEdge 2^-44, union, seed 0.
+  - Make a case with `SafeRoundingDegenerateInputTests.Make(Family, k, seed, count)` (public), resolve it with
+    `new ExactMeshBoolean(mesh, new DMesh3(), Ops.Union)`, and read `Rounding` (RemainingDegenerate,
+    RemainingIntersections, MaxDrift, MaxLength, SmallestRejectedDrift).
+  - The cases left are not listed one by one: loop over the grid of the test and print those with
+    `RoundingClean == false`.
+  - Diagnosis so far: the strip's boundary passes a vertex twice (a Y of strips), or the strip is no disk. Folded strips
+    lie in layers on one line, where a zipped result would need two sheets on one edge.
+- **Six UTM cases** (section 5): `SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance_WithinIt` (108 of 114). The
+  names are those of `SafeRoundingBoundTests.UtmCases()`, ExactMeshBoolean defaults:
+  - `Cluster k30 count 4 seed 1` and `FoldedCluster k36 count 4 seed 0`: 2 to 3 intersecting pairs left. The edits
+    rejected by the bound would need 360 to 370 ulps (`SmallestRejectedDrift`).
+  - `Cluster k30 count 4 seed 0` and `FoldedCluster k30 count 4 seed 0`: rounding clean (`IsClean`), but a contact of
+    two vertices of higher valence at one position remains, which `MeshRobustRepair.NotCleanReasons` counts as
+    "self-intersections".
+  - `FoldedCluster k36 count 4 seed 2`: a contact with a tiny separate component.
+  - `Cluster k30 count 4 seed 2`: an inside-out tiny component.
+- **The cylinder, step 2** (R22): `ExactBooleanIssueCasesTests.CylinderToolSteppedDown_RepeatedDifference` pins
+  exactly 1 degenerate triangle in step 2.
+  - The triangle is a cap on the tool's vertical seam (x = 1.47), with a long edge of 1.
+  - Its neighbour across the long edge is a sliver with an edge of 2.03e-9 (area 1.01e-9, above the degenerate
+    threshold of about 1.7e-10).
+  - The strip zip of the two is rejected by `improves`, because it leaves a needle with that edge (newB = oldB). A
+    contraction would remove the needle next, but each edit must improve on its own.
+  - This is a case for a two-step edit, or for the separation of option A.
+- **R23** (`ROBUSTNESS_SWEEP.md`): the UTM row above. Its cause: rounding the exact result's new vertices to the world
+  grid. The same input moved exactly to the origin is clean.
+
+### 6.2 The experiment, tightened
+
+**Inputs:**
+1. The generated families above: dense and folded clusters, the 114 UTM cases, the cylinder. They are small and fast,
+   good for prototypes.
+2. Thingi10K self-unions: `benchmarks/MeshRepairBenchmark/fetch_data.py` gives the 400 set in `data/meshes`. Resolve
+   each with `ExactMeshBoolean.Resolve` / `new ExactMeshBoolean(m, new DMesh3(), Union)`. The models with
+   self-intersections are the input set of Valque–Lazard and CGAL.
+3. BooleanComparison: `python3 data/fetch.py cgal data_cgal` and `cherchi`, `dotnet $BOOLCMP_TOOL synth synth`, then
+   `compare.py <manifest> <out> --methods ours -j 1`.
+
+**Metrics per model and method:**
+- `RoundingClean` and `NotCleanReasons`;
+- `MaxDrift` against `MaxLength`, also in ulps of the largest coordinate;
+- for A: the certificate passed or not;
+- the removed components, the time, and `SameSolid` against the unrounded resolve.
+- The baseline is the current SafeRounding; also report plain rounding (`SafeRounding = false`).
+
+**Baseline numbers that already exist:**
+- section 3 "Baseline", the 400 set, robust: 273 of 400 repaired, 4 rounding failures;
+- section 4 and #251's body: D′ against master (BooleanComparison clean counts, MeshRepair 400, the cost);
+- #279's body: 1b against #251, BooleanComparison identical, MeshRepair 87 meshes with SafeRounding edits:
+  87 → 87, 18 with other edit counts;
+- #287's body: the ulp tolerance, 263 of 263 profile hashes identical, the 114 UTM cases 92 → 108.
+
+**Order:**
+1. **A prototype** on the generated families: only the remaining close pairs, small LPs, and an exact check of the
+   certificate (2e-separation).
+2. **B as the fallback** on what A leaves: snap to a scaled grid and resolve again, with each snap rejected beyond the
+   drift bound.
+3. Then the Thingi10K set, with the go and no-go criteria of section 3.
+
+### 6.3 Pitfalls met in stage R
+
+- **Bounds:**
+  - Compute every distance as |p − q| of a nearest point, relative to a nearby point (the difference of two nearby doubles is exact, or nearly, by Sterbenz).
+  - Never use `DistPoint3Triangle3.Get()` for a bound: its closed form subtracts terms of the triangle's squared size,
+    so distances below about 1e-8 of that size come out as 0 (#287's bounds review).
+  - Never use `Normalized` in a filter that must scale exactly: it has an absolute threshold.
+  - Errors are absolute, a few ulps of the largest coordinate per edit, not relative (REVIEW_CHECKLIST §5).
+  - A bound that is NaN or infinite must reject the edit (`improves`, `maxLength`).
+- **Drift bookkeeping:**
+  - `improves()` takes the drift from the vertices of the removed ∪ added triangles; `commit_drift()` follows only
+    after the edit is applied.
+  - The drift is checked before the evaluation budget is charged.
+  - A new edit must be in `begin_edit`'s removed / added / addedFrom lists, or its vertices miss the drift.
+  - Every new δ needs the proof in the class comment and in the table of section 1, and a bounds review with exact
+    rational fuzzing: the double distance has false ratios.
+- **"Each edit must improve on its own"** (`newI + newB < oldI + oldB`, or `<=` for a contact removal): this blocks
+  two-step repairs (the cylinder). Relaxing it needs a termination argument.
+- **Mutation:**
+  - `stryker-mesh-boolean-1/2.json` split `ExactMeshBoolean.cs` at a character offset, at the start of
+    `front_winding` (50611 after #294). Any edit before it moves the split. `MutationConfigTests` fails, and the
+    config edit makes both shards run in full.
+  - Any edit of `.github/workflows/mutation.yml` runs every shard in full (`select_shards.py`, `ALWAYS`).
+  - Name new tests so that they fall under the existing filters and globs. `SafeRoundingBoundTests` and
+    `MeshRoundingRepair*Tests` are in the `rounding` filter; `SafeRoundingDegenerateInputTests` is not, on purpose:
+    it is slow.
+- **Do not touch:**
+  - `MeshRobustRepair`'s wrap path (stage 7b);
+  - `mesh_ops/ExactMeshArrangement.cs` (the performance work);
+  - the defaults of SafeRounding, without an owner decision: the results of ordinary meshes must stay bit-identical,
+    and the hashes are checked with `BooleanComparison profile --repeat 1 --safe-rounding ...` and
+    `perf/hashes.py`.
+- **`FixedVertexF`** is a public preference. `FixedWhereCoarse` (default true) keeps it where the coordinates are
+  coarse; only ExactMeshBoolean turns it off.
+- **The cloud container stops when the session idles.** Background jobs die with it. The full MeshRepair 400 needs
+  hours of an active session, so prefer subsets: eg the meshes with SafeRounding edits,
+  `robust_exact_rounding_edits` in a previous result file. Make runs resumable, appending one line per result.
+
+### 6.4 Open question: an exact or verified small LP solver
+
+Option A separates the remaining close pairs with small linear programs over the displacements of their vertices.
+Dependencies stay out of the core.
+
+**Key point:** correctness does not need an exact LP. The certificate (2e-separation of every disjoint pair) is
+checked exactly on the doubles afterwards. So the LP may be solved in floating point, and a wrong or infeasible answer
+only means that the certificate fails, after which B takes over. What an exact or verified LP would add is a proof of
+infeasibility (no displacement within the bound separates the pairs), which a report could use.
+
+Candidates:
+- **Dense simplex in floating point, with Bland's rule.** The LPs are small, with the vertices of the close pairs only.
+  It is written from the textbook, plus a final exact feasibility check of the rounded solution with rational
+  arithmetic (`BigInteger` / `Dyadic`, as in the tests' oracles).
+- **Exact rational simplex:** Applegate, Cook, Dash, Espinoza, *Exact solutions to linear programming problems*,
+  Operations Research Letters 35, 2007 (QSopt_ex). Implement from the paper: QSopt_ex itself is GPL / LGPL, not to be
+  ported.
+- **Iterative refinement:** Gleixner, Steffy, Wolter, *Iterative refinement for linear programming*, INFORMS Journal on
+  Computing 28, 2016 (SoPlex). Its code is not under an allowed license; the paper only.
+- **Safe bounds:** Neumaier, Shcherbina, *Safe bounds in linear and mixed-integer linear programming*, Mathematical
+  Programming 99, 2004. A rigorous bound on the optimum from an approximate dual, cheap. It is enough to certify
+  infeasibility.
+
+These references are from memory and were not checked in this session; verify them and their licenses
+(docs/SOURCES.md) before use.
+
+## 7. Valque–Lazard: full-text notes (2026-11-02)
+
+Read for option B (sections 3 and 6). Notes in our own words; no code was read, CGAL's (GPL) neither.
+
+### 7.1 What was read
+
+- **Read in full text [V]:** L. Valque, *3D Snap rounding*, PhD thesis, Université de Lorraine, 2024, NNT 2024LORR0337,
+  HAL `tel-05016163`, version 1, <https://hal.science/tel-05016163> (PDF: `/document`, 183 pages, PDF modified
+  2025-03-04). Supervisor S. Lazard (GAMBLE, Inria / LORIA). Read: chapters 4.3, 5.2, 12, 13, 14.2, 14.5, 16.1–16.3,
+  16.8, 17 (all sections).
+- **Not read, host blocked:** S. Lazard, L. Valque, *Resolving self-intersections in 3D meshes while preserving
+  floating-point coordinates*, Computer Graphics Forum 44(5), 2025, DOI 10.1111/cgf.70197.
+  - Eurographics digital library: <https://diglib.eg.org/items/df2f3916-37f1-47a1-aebb-6e798372c42f/full>. The
+    session proxy refuses `diglib.eg.org` and `diglib7.eg.org` (connect_rejected).
+  - HAL preprint: `hal-04907149`, version 1, title *Removing self-intersections in 3D meshes while preserving
+    floating-point coordinates*, 2025, <https://hal.science/hal-04907149>. The record page loads on `hal.science`
+    (abstract read [V]); the PDF is served from `inria.hal.science`, which the proxy refuses.
+  - HAL's search pages answer with a bot check, and `api.archives-ouvertes.fr` is refused: no other companion report
+    could be searched for. Not circumvented.
+- **Also not reachable:** the CGAL 6.1 blog post (`www.cgal.org` does not resolve in this session).
+
+**Important: the paper is not the thesis' heuristic, or not only.** The paper's abstract [V] compares itself with
+"Valque [2024]" (the thesis' certified algorithm, 94 % of the 527 hard models) and Zhou et al. (91 %), handles all
+4524 self-intersecting Thingi10K models, at about 17k vertices per second (serial), 1.7 times faster than Zhou et
+al. on the hard models. The thesis' heuristic (section 7.3) gives the same headline. Whether the paper adds anything
+(an automatic coarsening, other vertex sets, a bound) could not be checked; a session that can reach
+`inria.hal.science` or `diglib.eg.org` should read it before B is implemented.
+
+### 7.2 Corrections to section 3 (which was written from abstracts)
+
+- **"Certified on 94 %" is not quite what the thesis reports.** The certified 3D snap rounding (thesis part II, a
+  local version of Devillers et al.) was run on the 520 Thingi10K models whose rounding to the integer grid scaled to
+  [2^51, 2^52) gives proper intersections during the motion:
+  - with full certification: 187 of 520 did not finish in 1 h (1 crash in the arrangement, 26 crashes in the code,
+    46 infinite loops, 37 growing intersections, 77 unclear). So 333 of 520 (64 %).
+  - with a relaxed intersection test (only features of triangles that properly intersect *at the end* of the motion
+    are tested; a triangle that passes through another during the motion is missed, so the topological guarantee is
+    lost): 52 of 520 fail in 1 h, 33 (6 %) in 10 h. The 94 % is this figure.
+  - the author calls the implementation unstable (16.8).
+- **The grid is not coarsened per iteration** in the thesis' heuristic. It is fixed; a coarser grid was chosen by hand
+  for one model (section 7.3).
+- **"Thingi10K 100 %":** the heuristic resolves 4523 of 4524 self-intersecting models with the default grid; the last
+  one (Thingi10K 996816) with a coarser grid. Of the 527 hard models, 1 is left with the default grid, 0 with the
+  coarse grid, 6 with the fine grid.
+
+### 7.3 The heuristic (thesis chapter 13), precise enough to implement
+
+Terms: two triangles **properly intersect** if their intersection is non-empty and is not a common vertex, edge or
+face of both. Input: a triangle soup with double coordinates (no closedness or winding assumption). The arrangement
+step is a **subdivision along the self-intersections** (every triangle kept, interior ones too), not a self-union; the
+thesis notes that a self-union, as in Zhou et al., is probably more efficient where it is defined.
+
+0. Resolve the self-intersections of the input exactly; round the new vertices to double (the "naive rounding").
+   If no proper intersection remains, stop. (Fails on 527 of the 4524 self-intersecting Thingi10K models, 12 %.)
+1. **Grid.** Scale so that the largest absolute coordinate lies in [2^22, 2^23); the grid is the integer lattice of
+   the scaled coordinates. Voxels are unit cubes centred on the lattice points, so rounding a coordinate to the
+   nearest integer moves the point to its voxel's centre. The thesis says "the largest absolute value of each
+   coordinate", and the scaling is applied per coordinate just before rounding and undone right after (footnote 48):
+   we read this as a scale per axis, each chosen from that axis' largest absolute value. That the factor is a power of
+   two is not stated; it is the natural choice (scaling then is exact in double). 2^22..2^23 is the largest scale at
+   which the integer part is representable as a `float`, chosen to compare with Zhou et al.'s rounding to `float`.
+   Grid unit: 2^-23 to 2^-22 of the axis' largest absolute coordinate, "about 100 nm for an object one metre wide".
+2. **Vertex set V:** all vertices of all pairs of triangles that properly intersect in the current (double) mesh.
+3. **Hot voxels:** add to V every vertex of the mesh that lies in a voxel containing a vertex of V.
+4. **Snap:** round every coordinate of every vertex in V to the nearest integer (in the scaled coordinates). Other
+   vertices are not moved.
+5. **Arrangement again:** subdivide the pairs of triangles that properly intersect after the snap, exactly.
+6. **Round the new vertices** of step 5 to double (not to the grid).
+7. **Repeat** steps 2–6 while proper intersections remain, at most a fixed number of times (20 in the experiments,
+   with a time limit).
+8. Undo the scaling.
+
+Implementation choices reported: exact predicates (so a result reached within the limit is checked intersection-free
+exactly) and exact constructions (to control the distance; exact predicates with inexact constructions would also
+certify the output but lose control of the distance). Serial, no parallel code.
+
+Why it works, per the author: snapping to a coarse grid collapses needles and other tiny features (most
+self-intersections involve triangles with tiny edges), and the new points are built from coordinates of less than
+half the input precision, so they lie farther apart. Rounding to `float` (Zhou et al.) fails mostly when coordinates
+are near zero, where floats are fine: the uniform grid fixes exactly that.
+
+### 7.4 What is certified and what is heuristic
+
+- **Certified (checked, a posteriori):** when the loop ends before its limit, the output has no proper intersection,
+  checked with exact predicates on the double coordinates.
+- **Bounded:** the displacement. Each iteration moves a snapped coordinate by at most 1/2 grid unit, and only snapped
+  vertices move; new vertices are additionally rounded to double. The thesis states "at most 1/2 times the number of
+  iterations" (in grid units, before scaling back) and, in table 17.2, a maximum distance of k · 2^-23 (default grid),
+  k · 2^-16 (coarse), k · 2^-30 (fine), relative to the largest coordinate, for k iterations (k · 2^-52 for the
+  iterative naive rounding). This is per coordinate (L∞); the Euclidean bound is √3 times that. Our reading: the
+  sum over iterations is a triangle inequality, so the bound holds for the original input vertices; a vertex created
+  in iteration j moves at most k − j more times. No Hausdorff bound beyond this is stated.
+- **Not guaranteed:** an intersection-free output when the iteration limit is reached; the topology (vertices collapse
+  into one point, a triangle can pass through another while snapping); no statement about closedness, manifoldness or
+  winding numbers is made.
+
+### 7.5 Results (thesis chapter 17, Thingi10K, serial)
+
+| Method on the 527 hard models | unsolved | solved with > 1 iteration | max iterations | output size vs ours | time vs ours | max distance |
+|---|---|---|---|---|---|---|
+| iterative naive rounding (20 iterations, 1 h) | 287 | 527 | 18 | 1.08 | 2.16 | k 2^-52 |
+| Zhou et al. variant (subdivision instead of self-union) | 48 | 368 | 17 | 1.06 | 1.63 | k 2^-23 |
+| heuristic, grid [2^22, 2^23) | 1 | 29 | 3 | 1 | 1 | k 2^-23 |
+| heuristic, coarse grid [2^15, 2^16) | 0 | 22 | 3 | 0.99 | 0.95 | k 2^-16 |
+| heuristic, fine grid [2^30, 2^31) | 6 | 106 | 8 | 1.02 | 1.08 | k 2^-30 |
+
+- Default grid on all 4524: all but one finish in under 30 minutes; 26 need two iterations, 3 need three (plus 16
+  trivial models with two). The text of 17.1 gives 284 unsolved for the iterative naive rounding, the table 287.
+- Running time is dominated by the arrangement, about 1 s per 10^4 of "input size" n + 2k (n vertices, k
+  intersecting pairs); power fit 21 x^1.09 µs. Output size about 0.79 (mean) times n + 2k.
+- **Thingi10K 996816** (76k vertices, 171k triangles, 5.0 million intersecting pairs): the arrangement crashes with
+  the default grid. Grid [2^15, 2^16): solved, about 5 million vertices, 30 million faces, about 40 min. Grid
+  [2^14, 2^15): one iteration, 272k vertices, 3 min, distance at most about 30 µm for a 1 m object.
+- **Hot voxels matter:** without step 3, 58 models need two iterations, 10 need three, and 2 fail (996816 and a small
+  one, Thingi10K 105867, whose intersections grow with the iterations); one trivial model (225354) fails as well.
+- **Rounding everything** to `float` or to the grid before resolving is much worse: about 42 % fail once, 24–25 %
+  after 20 iterations. Only the vertices of intersecting pairs (and their hot voxels) must be snapped.
+- **Stress test, rotated cubes** (a randomly rotated unit cube added per step, all triangles kept): the heuristic
+  needs 1 to 3 iterations up to step 30 (about 10^6 vertices, 1.3·10^5 intersecting pairs), and fails (> 5 h) at
+  step 31; there the iterative naive rounding is as good as the coarse grid, because dense meshes make the snapped
+  vertices cross many faces.
+
+### 7.6 Failure modes and parameters
+
+- Failure modes: the arrangement blows up (millions of pairs, triplets of triangles); intersections growing from
+  iteration to iteration (seen mainly without hot voxels, and with the fine grid); the iteration limit reached (then
+  no guarantee); very dense configurations (rotated cubes). Any input can be solved by a coarse enough grid (in the
+  limit one voxel collapses everything), at the cost of distance.
+- Parameters: the grid exponent (default 2^22..2^23 of the largest coordinate; the author recommends a scale matching
+  the model's significant digits); the iteration limit (20; useful runs need at most 3); a time limit; exact
+  predicates and constructions.
+
+### 7.7 Consequences for option B (inference, for the experiment session)
+
+- **B is cheap to prototype** with what we have: our exact resolve is the arrangement; `MeshRoundingRepair` /
+  SafeRounding's intersection test (exact predicates) gives the pairs; the snap is one rounding per coordinate.
+- **Displacement against D′:** the default grid moves up to 2^-23 of the largest coordinate per iteration, which is
+  2^29 ulps of M, far beyond `maxLength` of ordinary cases. To bound B by the drift, choose the grid unit from the
+  drift budget (u ≤ 2 · maxLength / (√3 k_max)) or reject a snap beyond it, as section 3 proposes; the thesis' data
+  says coarser grids succeed more often, finer ones fail more (fine: 6 of 527), so a drift-bounded grid will
+  succeed less than the published 100 %. That is the number the experiment must measure.
+- **Invariance:** a grid anchored at the largest coordinate with a power-of-two scale is invariant under 2^k scales
+  bit for bit (`Similarity.All()`); it is not invariant under translation (the grid is anchored at the origin), the
+  same issue as R23 / the UTM cases.
+- **Topology:** the heuristic collapses vertices and keeps interior triangles. In our pipeline the results must still
+  pass `MeshRobustRepair.NotCleanReasons` and `SameSolid`, which the thesis does not test.
