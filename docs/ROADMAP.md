@@ -84,7 +84,10 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    After 7b, in the same session (owner 2026-11-02, low priority): a measurement only of the Reducer's
    self-intersection check on the wrap meshes (up to ~70 s on the 17; 73 % in `TriangleHashGrid.Query`, the candidate
    search, which the stopped patch certificate of `design/SELF_INTERSECTION_PATCH_CERTIFICATE.md` would not remove):
-   cells per query, triangles per cell, candidate reuse between collapses; upper bound per lever before any build. A review-only session only when the stacks and the meshing PRs wait for review at the
+   cells per query, triangles per cell, candidate reuse between collapses; upper bound per lever before any build.
+   Also started 2026-11-02, above the session limit by owner exception: a medium **Remesher session** for the cost of
+   `PreventSelfIntersections` (about 17x; levers: the coplanar 2D shortcut, unblocked since #249/#256, and a clearance
+   filter), profile and upper bounds first. A review-only session only when the stacks and the meshing PRs wait for review at the
    same time.
 5. Decided 2026-11-01: stage 7b follows the wrap-resolution session (see 7b). The question whether a large performance
    session pauses for Terrain is moot: the boolean-performance session finished (#256) and Terrain runs.
