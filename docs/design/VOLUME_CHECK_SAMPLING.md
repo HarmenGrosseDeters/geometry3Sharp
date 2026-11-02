@@ -103,7 +103,9 @@ classified by the exact winding numbers of both meshes at the centre (`ExactWind
 to a point outside R, each decided by `ExactPredicates.Orient3d`; a segment through an edge, a vertex or in a triangle's
 plane is degenerate and another direction is tried, as the exact classification of `ExactMeshBoolean` does). All
 untouched children of a cell are classified by one evaluation: every closed child contains the parent's centre, so
-together they form a connected set that no triangle meets. Touched cells are refined level by level while their 8 children per cell fit in a budget of
+together they form a connected set that no triangle meets. This needs the cell test on closed boxes: a surface through
+the parent's centre touches all eight children, so then none of them is classified (test
+`Cells_SurfaceThroughAParentCentre_TouchesAllChildren`, and the cover case "through centres"). Touched cells are refined level by level while their 8 children per cell fit in a budget of
 4096 child tests, to at most 12 levels; the touched cells of the last level are sampled.
 
 **Fallback when the cells are worse.** The cells are kept only if their sampled volume S is at most the volume of the

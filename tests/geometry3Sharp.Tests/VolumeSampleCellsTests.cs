@@ -209,7 +209,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> CoverCases()
         {
-            foreach (string name in new[] { "nested", "touching", "thin shell", "coplanar", "on grid faces", "disjoint" })
+            foreach (string name in new[] { "nested", "touching", "thin shell", "coplanar", "on grid faces", "through centres", "disjoint" })
                 yield return new object[] { name };
         }
 
@@ -239,6 +239,11 @@ namespace geometry3Sharp.Tests
                     b = Box(new Vector3d(2, 1, 1), new Vector3d(3, 3, 3));
                     root = new AxisAlignedBox3d(Vector3d.Zero, 4 * one);
                     return;
+                case "through centres":  // a corner, an edge and a face exactly at the centres of the root and its children
+                    a = Box(2 * one, 3 * one);
+                    b = Union(Box(new Vector3d(1, 1, 2), new Vector3d(2.5, 2.5, 3)), Box(new Vector3d(3, 0.5, 0.5), new Vector3d(3.5, 1, 1)));
+                    root = new AxisAlignedBox3d(Vector3d.Zero, 4 * one);
+                    return;
                 default:             // disjoint components far apart
                     a = Union(Sphere(Vector3d.Zero, 1), Sphere(new Vector3d(40, 0, 0), 1));
                     b = Sphere(new Vector3d(40.1, 0, 0), 1);
@@ -261,8 +266,8 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"{name}: known {cells.Known.Count}, sampled {cells.Sampled.Count}, depth {cells.Depth}, " +
                 $"known union {cells.KnownUnion:G4}, sampled {cells.SampledVolume:G4}");
             Assert.True(cells.Sampled.Count > 0);
-            // (thin and far apart solids have no cell inside both at the cell size the budget allows)
-            if (name != "thin shell" && name != "disjoint")
+            // (thin, far apart and barely overlapping solids have no cell inside both at the cell size the budget allows)
+            if (name != "thin shell" && name != "disjoint" && name != "through centres")
                 Assert.Contains(cells.Known, k => k.Value == 3);
             Assert.Equal(0, cells.Unclassified);
             // known and sampled cells tile the root box
@@ -289,6 +294,33 @@ namespace geometry3Sharp.Tests
                 if (c == 0) continue;
                 bool covered = cells.Sampled.Any(s => s.Contains(p)) || cells.Known.Any(k => k.Value == c && k.Key.Contains(p));
                 Assert.True(covered, $"{name}: {p} of class {c} not covered");
+            }
+        }
+
+        [Fact]
+        public void Cells_SurfaceThroughAParentCentre_TouchesAllChildren()
+        {
+            // a single triangle through the root's centre (2, 2, 2): every closed child of the root contains that point,
+            // so all eight are touched and none is classified by the one evaluation of the untouched siblings
+            DMesh3 a = Box(2 * Vector3d.One, 3 * Vector3d.One);       // its corner at the centre
+            var root = new AxisAlignedBox3d(Vector3d.Zero, 4 * Vector3d.One);
+            var cells = Cells(a, a, root, keepKnown: true);
+            Assert.DoesNotContain(cells.Known, k => k.Key.Width >= 2);
+            foreach (var k in cells.Known) {
+                // nothing classified touches the box, and the inside cells lie in the open box
+                bool meets = k.Key.Max.x >= 2 && k.Key.Min.x <= 3 && k.Key.Max.y >= 2 && k.Key.Min.y <= 3 && k.Key.Max.z >= 2 && k.Key.Min.z <= 3;
+                bool inside = k.Key.Min.x > 2 && k.Key.Min.y > 2 && k.Key.Min.z > 2 && k.Key.Max.x < 3 && k.Key.Max.y < 3 && k.Key.Max.z < 3;
+                Assert.Equal(inside ? 3 : 0, k.Value);
+                Assert.True(inside || meets == false, $"{k.Key}");
+            }
+            // lone triangles (the cell test alone): one in the plane z = 2 over the centre, one with a vertex at it, touch
+            // all eight children
+            for (int c = 0; c < 8; ++c) {
+                var min = new Vector3d((c & 1) * 2, ((c >> 1) & 1) * 2, ((c >> 2) & 1) * 2);
+                Assert.True(VolumeSampleCells.TriangleTouchesBox(new Vector3d(0.5, 0.5, 2), new Vector3d(3.5, 0.5, 2), new Vector3d(2, 4, 2),
+                    new AxisAlignedBox3d(min, min + 2 * Vector3d.One)));
+                Assert.True(VolumeSampleCells.TriangleTouchesBox(new Vector3d(2, 2, 2), new Vector3d(2.5, 2.1, 2.2), new Vector3d(2.1, 2.5, 2.3),
+                    new AxisAlignedBox3d(min, min + 2 * Vector3d.One)));
             }
         }
 
