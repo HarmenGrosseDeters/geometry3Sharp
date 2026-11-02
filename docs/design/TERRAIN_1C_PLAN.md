@@ -251,7 +251,11 @@ is not the apex. The numbers are in benchmarks/TerrainBenchmark/README.md; the o
 second realization, see there).
 
 
-## 10. Mixed cut and fill, target heights (next package, draft)
+## 10. Mixed cut and fill, target heights (next package)
+
+**Owner decision 2026-11-02:** accepted as below: two independent runs on T, one partial triangulation of the
+terrain triangles both replace, the fill run's mirrored undercut as `ToeOvertopped`, `CutVolume` / `FillVolume` /
+`CutArea` / `FillArea`, target heights as the contour of `SlopeRegion` at z = h. Implemented after #318.
 
 ### Mixed cut and fill (`Direction.Auto`, TERRAIN.md 5.5)
 
