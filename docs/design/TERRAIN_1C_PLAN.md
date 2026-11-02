@@ -333,3 +333,29 @@ lateral limits), heights outside the slope's range (no line), invariance, and th
 
 Docs: OPERATIONS.md entries for Auto, target heights, the volumes and the 1c outputs; SOURCES.md (no new sources
 for the clamp: TERRAIN.md appendix A; the contour by marching triangles, eg de Berg et al. for the chaining).
+
+### Implemented (#320)
+
+- **The composite fix at a toe crossing** (first two commits). Root cause: the catch point where a catch line ends on a
+  toe edge, rounded off the edge's line to the outside, so the slope part's boundary from the toe vertex to it left the
+  slope side, where the terrain nodes on the edge are moved to. The catch point is now moved by ulps onto the slope
+  side of the edge's line, the mirror of the terrain nodes' nudge (`TerrainSlopeToeCrossingTests`: 5 cases, cut and
+  fill, 2 failing before; 12 tests fail without the move). A first fix kept every node on the slope part's boundary
+  edges; it broke a fill run in a UTM frame (non-manifold), so it was replaced.
+- **Auto** as planned. Two points the plan did not have:
+  - At a toe crossing the fill point takes the cut point's XY only. It keeps its own z: a shared vertex would be λ below
+    the toe for the cut slope's exact check and λ above it for the fill slope's, which no single height is. The two
+    parts meet at one XY with a step, as the slope and the terrain do along the toe.
+  - The pair is found on the same toe segment, each the other's nearest, within 1e-4 of the toes' size. The distance
+    is (λ_cut + λ_fill) / (the terrain's slope along the toe): 3e-13 m in the spike, 5e-8 at UTM and scale 1e-3, so
+    MinFeatureSize is not the radius. A pair whose move fails keeps its own positions in the next build (its own
+    set, not the partner's own snapping, which is not blocked by it).
+- **Target heights:** `TargetHeights`, `TargetHeightLines` (`TargetHeightLine`: height, points, closed), the level lines
+  of `SlopeRegion` (else `SlopeSurface`), oriented with the higher side on the left.
+- **Not changed, noted:**
+  - MinFeatureSize, 2 (8 ulp(max |xy|) + 4 ulp(2 max |z|) / s_min) / δ, is absolute: about 1.5 cm at UTM with the
+    default δ = 1e-6. A toe of a few cm (the test geometries at scale 1e-3 in UTM) is below it, and the composite or
+    the region fail there, on master too. The frame tests of this package use δ = 1e-4.
+  - A toe corner on a terrain vertex, made a near-coincidence by a rotated UTM frame, gives overlapping composite
+    triangles on master too (a square pit with its corners on the grid nodes); its own item.
+

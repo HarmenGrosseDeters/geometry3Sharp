@@ -40,6 +40,77 @@ namespace gs
         }
     }
 
+    /// <summary> a level line of the slope at a target height (TerrainSlopeDesign.TargetHeightLines) </summary>
+    public class TargetHeightLine
+    {
+        public double Height;
+        public List<Vector3d> Points = new List<Vector3d>();
+        public bool Closed;
+
+        /// <summary>
+        /// the level lines of a TIN at height h: per triangle the segment between the crossings of its edges with z = h
+        /// (a vertex at h counts as above, so each crossing is on an edge with one end below, and every triangle has none
+        /// or two), the point on an edge interpolated once for both of its triangles; chained across shared edges, open
+        /// lines (from boundary to boundary) first, then the closed ones; each line runs with the higher side on its left
+        /// </summary>
+        public static List<TargetHeightLine> LevelLines(DMesh3 m, double h)
+        {
+            var result = new List<TargetHeightLine>();
+            if (!MathUtil.IsFinite(h)) return result;
+            Func<int, bool> above = (v) => m.GetVertex(v).z >= h;
+            var pointOf = new Dictionary<int, Vector3d>();
+            Func<int, Vector3d> crossing = (e) => {
+                Vector3d p;
+                if (pointOf.TryGetValue(e, out p)) return p;
+                Index2i ev = m.GetEdgeV(e);
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+                if (ev.a > ev.b) { Vector3d t = a; a = b; b = t; }     // (the same for both triangles: from the lower id)
+                double s = (h - a.z) / (b.z - a.z);
+                p = new Vector3d(a.x + s * (b.x - a.x), a.y + s * (b.y - a.y), h);
+                pointOf[e] = p;
+                return p;
+            };
+            // per triangle: the directed segment (from edge, to edge), the higher side on the left
+            var next = new Dictionary<int, int>();     // from edge -> to edge
+            var hasIn = new HashSet<int>();
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t), te = m.GetTriEdges(t);
+                int[] v = { tv.a, tv.b, tv.c }, e = { te.a, te.b, te.c };
+                // (counter-clockwise in XY: the edges e[i] = (v[i], v[i+1]))
+                if (ExactPredicates.Orient2d(m.GetVertex(v[0]).xy, m.GetVertex(v[1]).xy, m.GetVertex(v[2]).xy) < 0) {
+                    v = new[] { tv.a, tv.c, tv.b }; e = new[] { te.c, te.b, te.a };
+                }
+                int from = -1, to = -1;
+                for (int i = 0; i < 3; ++i) {
+                    bool a0 = above(v[i]), a1 = above(v[(i + 1) % 3]);
+                    // (walking counter-clockwise: entering the higher side's region on the left when the edge goes up)
+                    if (a0 == false && a1) to = e[i];
+                    else if (a0 && a1 == false) from = e[i];
+                }
+                if (from < 0 || to < 0) continue;
+                next[from] = to;
+                hasIn.Add(to);
+            }
+            var starts = next.Keys.Where(k => hasIn.Contains(k) == false).OrderBy(k => k).ToList();
+            var used = new HashSet<int>();
+            Action<int, bool> walk = (e0, closed) => {
+                var line = new TargetHeightLine() { Height = h, Closed = closed };
+                int e = e0;
+                line.Points.Add(crossing(e));
+                while (next.ContainsKey(e) && used.Add(e)) {
+                    e = next[e];
+                    if (closed && e == e0) break;
+                    line.Points.Add(crossing(e));
+                }
+                result.Add(line);
+            };
+            foreach (int s0 in starts) walk(s0, false);
+            foreach (int k in next.Keys.OrderBy(k => k).ToList())
+                if (used.Contains(k) == false) walk(k, true);
+            return result;
+        }
+    }
+
     /// <summary>
     /// A toe piece: the stable reference of the slope triangles that it supports (the group id of a triangle in
     /// TerrainSlopeDesign.SlopeSurface is the index of its piece).
@@ -172,6 +243,11 @@ namespace gs
         /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
         public double RequiredCatchLineAccuracy = double.NaN;
+        /// <summary>
+        /// optional: heights at which the level lines of the slope are returned (TargetHeightLines; the hook for berms,
+        /// TERRAIN.md 10)
+        /// </summary>
+        public List<double> TargetHeights;
         public Func<bool> CancelF = () => false;
 
         // outputs
@@ -256,6 +332,12 @@ namespace gs
         public List<Index2i> IllConditionedCatchLine = new List<Index2i>();
         /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
         public List<Index2i> TangentialContact = new List<Index2i>();
+        /// <summary>
+        /// the level lines of the slope at TargetHeights: of SlopeRegion where it is built (the slope as it is in the
+        /// composite), else of SlopeSurface. Per height in the order given, polylines in the plane z = height, closed where
+        /// they close, open where the slope ends (at a catch line, a lateral limit or the toe)
+        /// </summary>
+        public List<TargetHeightLine> TargetHeightLines = new List<TargetHeightLine>();
         /// <summary> the Tolerance used: Tolerance, or smaller to reach RequiredCatchLineAccuracy </summary>
         public double UsedTolerance;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
@@ -295,7 +377,7 @@ namespace gs
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
-            lastOverlay = null; lastPieces = null;
+            lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>();
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
@@ -356,6 +438,12 @@ namespace gs
                 bool fillRun = Direction == Directions.Fill;
                 CutVolume = fillRun ? 0 : Volume; CutArea = fillRun ? 0 : PlanArea;
                 FillVolume = fillRun ? Volume : 0; FillArea = fillRun ? PlanArea : 0;
+            }
+            if (TargetHeights != null && (Status == Statuses.Success || Status == Statuses.NoDaylight || Status == Statuses.CompositeFailed)) {
+                DMesh3 m = SlopeRegion ?? SlopeSurface;
+                if (m != null)
+                    foreach (double h in TargetHeights)
+                        TargetHeightLines.AddRange(TargetHeightLine.LevelLines(m, h));
             }
             IsComplete = Status == Statuses.Success;
             StatusKind = kind_of(Status, undercutThroughDesign);
