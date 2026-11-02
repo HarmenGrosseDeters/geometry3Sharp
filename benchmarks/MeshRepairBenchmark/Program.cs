@@ -178,6 +178,7 @@ class Program
                                 case "turn": pass.MaxNormalTurnDegrees = v; break;
                                 case "follow": pass.FollowReference = v != 0; break;
                                 case "crease": pass.MaxFlipDihedralDegrees = v; break;
+                                case "worst": pass.WorstFirst = v != 0; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
                             }
                         }

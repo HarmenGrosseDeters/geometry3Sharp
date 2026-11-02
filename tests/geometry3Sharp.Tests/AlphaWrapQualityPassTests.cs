@@ -286,6 +286,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WorstFirst_OtherOrder_StillWithinAndClean_Deterministic()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            Func<bool, DMesh3> run = (worst) => MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.WorstFirst = worst);
+            DMesh3 byId = run(false), a = run(true), b = run(true);
+            Assert.NotNull(a);
+            Assert.Equal("", Invariance.Difference(a, b));          // deterministic
+            Assert.NotEqual("", Invariance.Difference(byId, a));    // another order, another result
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(a, true));
+            Assert.True(HausdorffUpper(a, wrap, tol) <= tol);
+            Assert.True(P01(a) > P01(simp) + 2);
+        }
+
+        [Fact]
         public void InvariantUnderSimilarities()
         {
             DMesh3 wrap, simp; double tol;

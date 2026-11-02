@@ -36,6 +36,8 @@ namespace gs
         internal bool FollowReference = false;
         /// <summary> no flip of an edge whose two triangles meet at a larger angle (a crease) </summary>
         internal double MaxFlipDihedralDegrees = 180;
+        /// <summary> visit the edges and vertices in each pass by increasing smallest angle (worst first), not by id </summary>
+        internal bool WorstFirst = false;
 
         // outputs
         internal int Flips, Moves, RejectedByDeviation, RejectedByIntersection, Passes;
@@ -178,8 +180,7 @@ namespace gs
             var ids = new List<Index3i>(2);
             var tris = new List<Triangle3d>(2);
             var removed = new HashSet<int>();
-            int maxEdge = Mesh.MaxEdgeID;
-            for (int eid = 0; eid < maxEdge; ++eid) {
+            foreach (int eid in visit_order(Mesh.MaxEdgeID, true)) {
                 if (CancelF()) return false;
                 if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid)) continue;
                 Index2i et = Mesh.GetEdgeT(eid);
@@ -222,6 +223,32 @@ namespace gs
             return MeshQueries.TriangleDistance(Reference, t, p).TriangleClosest;
         }
 
+        // the edges (or vertices) of this pass: by id, or with WorstFirst by the smallest angle of their triangles
+        // (ties by id; deterministic)
+        IEnumerable<int> visit_order(int maxId, bool edges)
+        {
+            if (WorstFirst == false) {
+                for (int id = 0; id < maxId; ++id) yield return id;
+                yield break;
+            }
+            var keyed = new List<KeyValuePair<double, int>>();
+            for (int id = 0; id < maxId; ++id) {
+                double a = double.MaxValue;
+                if (edges) {
+                    if (Mesh.IsEdge(id) == false) continue;
+                    Index2i et = Mesh.GetEdgeT(id);
+                    a = min_angle(et.a);
+                    if (et.b >= 0) a = Math.Min(a, min_angle(et.b));
+                } else {
+                    if (Mesh.IsVertex(id) == false) continue;
+                    foreach (int t in Mesh.VtxTrianglesItr(id)) a = Math.Min(a, min_angle(t));
+                }
+                if (a < TargetAngleDegrees) keyed.Add(new KeyValuePair<double, int>(a, id));
+            }
+            keyed.Sort((x, y) => x.Key != y.Key ? x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
+            foreach (var kv in keyed) yield return kv.Value;
+        }
+
         int opposite(int tid, int a, int b)
         {
             Index3i t = Mesh.GetTriangle(tid);
@@ -234,8 +261,7 @@ namespace gs
             var ids = new List<Index3i>();
             var tris = new List<Triangle3d>();
             var removed = new HashSet<int>();
-            int maxVertex = Mesh.MaxVertexID;
-            for (int v = 0; v < maxVertex; ++v) {
+            foreach (int v in visit_order(Mesh.MaxVertexID, false)) {
                 if (CancelF()) return false;
                 if (Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v)) continue;
                 ring.Clear();
