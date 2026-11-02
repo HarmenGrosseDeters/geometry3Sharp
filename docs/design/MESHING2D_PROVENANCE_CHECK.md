@@ -12,8 +12,8 @@ constants, names, comments, messages) is not. Classes: **(A)** copied or closely
 
 ## Result
 
-**No (A) finding.** Every routine in scope is (B) or (C). No rewrite is needed. Four optional precision edits to the provenance
-log are listed at the end; none blocks the release.
+**No (A) finding.** Every routine in scope is (B) or (C). No rewrite is needed. Four precision edits to the provenance log
+(end of this file) are applied with this report; none was needed for the release.
 
 ## Scope, versions, method
 
@@ -114,22 +114,21 @@ Lines are those of master `a988a21`.
 | # | Our file : lines | What | Class | Category | Note |
 |---|---|---|---|---|---|
 | O1 | all files | token comparison | C | – | 2 to 19 % in shared 12-grams, at the noise floor; the long runs are constructors and declarations. One shared comment phrase, "inside the circumcircle of the triangle", plain English. |
-| O2 | `Oracle.cs` 556-598 | static error bounds of the fast filters | B | constant, name | (3 + 16u)u and (10 + 96u)u are the bounds of [Sh97]. The comment names them by the identifiers of Shewchuk's public-domain predicates code; both are from [Sh97], not from the mesher. Optional edit E4. |
+| O2 | `Oracle.cs` 556-598 | static error bounds of the fast filters | B | constant, name | (3 + 16u)u and (10 + 96u)u are the bounds of [Sh97]. The comment names them by the identifiers of Shewchuk's public-domain predicates code; both are from [Sh97], not from the mesher. See E4. |
 
-## Optional edits to the provenance log (no rewrite needed)
+## Edits to the provenance log (no rewrite needed)
 
 The claims of [MESHING2D_PROVENANCE.md](MESHING2D_PROVENANCE.md) match the code; checked row by row against the routines above.
-Four places could be stated more precisely:
+Four places were stated more precisely, applied in the same PR as this report:
 
-- **E1** (M3, `SplitSegment` row): say "exactly one end existed before refinement" (code line 838) instead of "next to a vertex
-  that existed before refinement", and name the acceptance window (L/3, 2L/3) with its source, [S02] §4.1 (pieces in ratio at
-  most 2:1).
-- **E2** (M3, `SpansSmallAngle` row): name the tolerance as the code has it, a factor 2.24 on squared distances (about 1.5 on
+- **E1** (M3, `SplitSegment` row): "exactly one end existed before refinement" (code line 838) instead of "next to a vertex that
+  existed before refinement", and the acceptance window (L/3, 2L/3) with its source, [S02] §4.1 (pieces in ratio at most 2:1).
+- **E2** (M3, `SpansSmallAngle` row): the tolerance as the code has it, a factor 2.24 on squared distances (about 1.5 on
   distances), and that the test also requires the input angle below the bound and the lines to meet on both segments.
-- **E3** (M2, `Builder.Output` row): cite the domain definition of the spec (I4, I6) next to the decisions, since the flood fill
+- **E3** (M2, `Builder.Output` row): the domain definition of the spec (I4, I6) cited next to the decisions, since the flood fill
   from outside and from seeds is what the definition forces.
-- **E4** (oracle section): cite the two bounds as [Sh97]'s and drop the identifiers `ccwerrboundA`, `iccerrboundA` from the log and
-  from the comment at `Oracle.cs` 556-558, or add that they are the names in Shewchuk's public-domain predicates code. Cosmetic.
+- **E4** (oracle section): the two bounds cited as [Sh97]'s, without the identifiers of Shewchuk's public-domain predicates code.
+  The same identifiers in the comment at `Oracle.cs` 556-558 are public domain, not mesher expression, and stay as they are.
 
 ## Open
 
