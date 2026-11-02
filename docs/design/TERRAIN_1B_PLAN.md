@@ -51,7 +51,7 @@ Status: plan of the 1b PR, with what was built (below). It follows [TERRAIN.md](
    1a takes the lowest incident plane). Interpolated heights were 1e-9 m off the plane at UTM, which the support check
    of thin clipped triangles amplified to excesses of mm.
 2. **Snapping (5.5).** A catch point nearer than `MinFeatureSize` to a vertex of its slope edge or triangle snaps to it;
-   catch points nearer than that to each other share one position if both stay on their slope planes (same slope edge,
+   catch points nearer than that to each other share one position if both stay on their slope planes (greedy, nearest representative first, so each point moves by less than `MinFeatureSize`; a union-find closure, the first version, could chain moves beyond it) (same slope edge,
    or one inside a slope triangle and the other inside it or on one of its edges). Where `MinFeatureSize` is larger than
    the features (the frame "rotated, scale 1e-3, utm": 1.5 cm in a 10 cm scene) a move can cross other parts of the
    boundary; the composite is checked exactly (each partial triangle's boundary is simple, the parity is consistent, and

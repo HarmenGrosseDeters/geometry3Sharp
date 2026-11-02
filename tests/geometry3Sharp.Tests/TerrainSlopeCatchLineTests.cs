@@ -144,10 +144,11 @@ namespace geometry3Sharp.Tests
             var rv = new HashSet<Vector3d>(r.Vertices());
             foreach (var line in d.CatchLines)
                 foreach (var q in line.Points) {
-                    // (the composite moves catch points nearer than MinFeatureSize together, or onto a slope vertex)
+                    // (the composite moves catch points nearer than MinFeatureSize together, or onto a slope vertex, by
+                    // less than MinFeatureSize each)
                     double dc = cv.Min(x => x.xy.Distance(q.xy)), dr = rv.Min(x => x.xy.Distance(q.xy));
-                    Assert.True(dc < d.UsedMinFeatureSize, $"catch point {q:R} not in the composite ({dc})");
-                    Assert.True(dr < d.UsedMinFeatureSize, $"catch point {q:R} not in the slope region ({dr})");
+                    Assert.True(dc < d.UsedMinFeatureSize, $"catch point {q:R} not in the composite ({dc}, MinFeatureSize {d.UsedMinFeatureSize})");
+                    Assert.True(dr < d.UsedMinFeatureSize, $"catch point {q:R} not in the slope region ({dr}, MinFeatureSize {d.UsedMinFeatureSize})");
                 }
         }
 

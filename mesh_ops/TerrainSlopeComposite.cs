@@ -85,48 +85,42 @@ namespace gs
                     if (dd < best) { best = dd; catchAt[k] = q; snapped.Add(k); }
                 }
             }
-            // catch points nearer than minFeature: one position, a snapped one first, else the smallest key
+            // catch points nearer than minFeature: one position. Greedy, so a point moves by less than minFeature from
+            // its own (snapped) position: in the order snapped, then on a slope edge, then inside a slope triangle (the
+            // position must lie on the planes of all slope triangles that use it: a vertex, else a point on an edge, else
+            // a point inside the one triangle), then by key, each point joins the nearest representative it may share a
+            // position with, else it becomes one. (Pairs from a grid of cells of size minFeature, so a line along y is
+            // not quadratic.)
+            Func<long, int> priority = (x) => snapped.Contains(x) ? 0 : SlopeTerrainOverlay.ekind(x) == 0 ? 1 : 2;
             var order = new List<long>(keys);
-            order.Sort((x, y) => catchAt[x].x != catchAt[y].x ? catchAt[x].x.CompareTo(catchAt[y].x) : x.CompareTo(y));
-            var parent = new Dictionary<long, long>();
-            foreach (long k in keys) parent[k] = k;
-            Func<long, long> find = null;
-            find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
-            // (pairs from a grid of cells of size minFeature, in the sorted order, so a line along y is not quadratic)
-            var grid = new Dictionary<long, List<int>>();
+            order.Sort((x, y) => priority(x) != priority(y) ? priority(x).CompareTo(priority(y)) : x.CompareTo(y));
+            var grid = new Dictionary<long, List<long>>();
             Func<double, long> cell = (x) => (long)Math.Floor(x / minFeature);
-            for (int i = 0; i < order.Count; ++i) {
-                long ck = cell(catchAt[order[i]].x) * 0x100000007L + cell(catchAt[order[i]].y);
-                List<int> l;
-                if (grid.TryGetValue(ck, out l) == false) { l = new List<int>(); grid[ck] = l; }
-                l.Add(i);
-            }
-            var near = new List<int>();
-            for (int i = 0; i < order.Count; ++i) {
-                near.Clear();
-                long cx = cell(catchAt[order[i]].x), cy = cell(catchAt[order[i]].y);
+            var repOf = new Dictionary<long, long>();
+            foreach (long k in order) {
+                repOf[k] = k;
+                if (noSnap.Contains(k)) continue;
+                Vector2d p = catchAt[k].xy;
+                long cx = cell(p.x), cy = cell(p.y), best = -1;
+                double bestD = minFeature;
                 for (long gx = cx - 1; gx <= cx + 1; ++gx)
                     for (long gy = cy - 1; gy <= cy + 1; ++gy) {
-                        List<int> l;
-                        if (grid.TryGetValue(gx * 0x100000007L + gy, out l))
-                            foreach (int j in l) if (j > i) near.Add(j);
+                        List<long> l;
+                        if (grid.TryGetValue(gx * 0x100000007L + gy, out l) == false) continue;
+                        foreach (long r in l) {
+                            double dd = catchAt[r].xy.Distance(p);
+                            if (dd < bestD && mergeable(k, r)) { bestD = dd; best = r; }
+                            else if (dd == bestD && best >= 0 && r < best && mergeable(k, r)) best = r;
+                        }
                     }
-                near.Sort();
-                foreach (int j in near)
-                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature && mergeable(order[i], order[j])
-                        && noSnap.Contains(order[i]) == false && noSnap.Contains(order[j]) == false) {
-                        long r0 = find(order[i]), r1 = find(order[j]);
-                        if (r0 == r1 || mergeable(r0, r1) == false) continue;
-                        // (the position must lie on the planes of all slope triangles that use it: a vertex, else a
-                        // point on an edge, else a point inside the one triangle)
-                        int p0 = snapped.Contains(r0) ? 0 : SlopeTerrainOverlay.ekind(r0) == 0 ? 1 : 2;
-                        int p1 = snapped.Contains(r1) ? 0 : SlopeTerrainOverlay.ekind(r1) == 0 ? 1 : 2;
-                        bool keep0 = p0 != p1 ? p0 < p1 : r0 < r1;
-                        if (keep0) parent[r1] = r0; else parent[r0] = r1;
-                    }
+                if (best >= 0) { repOf[k] = best; continue; }
+                long ck = cx * 0x100000007L + cy;
+                List<long> cl;
+                if (grid.TryGetValue(ck, out cl) == false) { cl = new List<long>(); grid[ck] = cl; }
+                cl.Add(k);
             }
             foreach (long k in keys) {
-                catchAt[k] = catchAt[find(k)];
+                catchAt[k] = catchAt[repOf[k]];
                 List<long> l;
                 if (catchOfVertex.TryGetValue(catchAt[k], out l) == false) { l = new List<long>(); catchOfVertex[catchAt[k]] = l; }
                 l.Add(k);
