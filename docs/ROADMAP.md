@@ -71,7 +71,8 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
 3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 and #274 merged.
    `m2.snap` (snap rounding with restore, refinement on the grid, §3g) merged in #277 on 2026-11-02; the reference
    comparison's set D starts now.
-   The **stage 6b provenance check** (medium, report only) runs once after `m2.snap` (with refinement on the grid) is
+   The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing
+   provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is
    merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session,
    which must stay independent of our code.
    Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits
