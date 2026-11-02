@@ -66,5 +66,68 @@ namespace geometry3Sharp.Tests
                 Assert.True(ExactPredicates.Orient2d(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy) > 0);
             }
         }
+
+        [Fact]
+        public void Realize_DropsAFaceNarrowerThanTheRounding_NoGapNoOverlap()
+        {
+            // At UTM magnitude (ulp(y) = 2^-30) two creases through a, ab and a line rising one ulp per 1000 m, bound a
+            // sliver face S = (a, b, c) whose apex c (on the vertical x = x0 + 5) is 0.005 ulps above ab: exactly
+            // counter-clockwise, collinear once rounded. Below it G = (a, d, b), above it K = (c, b, e, a).
+            double x0 = 328375.25, y0 = 5642875.5, ulp = Math.Pow(2, -30);
+            Assert.Equal(y0 + ulp, BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(y0) + 1));
+            var K = new ExactSlopeKernel();
+            int a = K.PointVertex(new Vector2d(x0, y0)), b = K.PointVertex(new Vector2d(x0 + 10, y0));
+            int d = K.PointVertex(new Vector2d(x0 + 5, y0 - 5)), e = K.PointVertex(new Vector2d(x0 + 5, y0 + 5));
+            int rising = K.PointLine(new Vector2d(x0, y0), new Vector2d(x0 + 1000, y0 + ulp));
+            int vertical = K.PointLine(new Vector2d(x0 + 5, y0 - 1), new Vector2d(x0 + 5, y0 + 1));
+            int c = K.Crossing(rising, vertical);
+            Assert.True(K.Orient(a, b, c) > 0);
+            Assert.Equal(new Vector2d(x0 + 5, y0), K.Rounded(c));
+
+            var mesh = new DMesh3(false, false, false, true);
+            var ids = new Dictionary<Vector2d, int>();
+            Func<int, int> outVertex = (v) => {
+                Vector2d r = K.Rounded(v);
+                int o;
+                if (ids.TryGetValue(r, out o) == false) { o = mesh.AppendVertex(new Vector3d(r.x, r.y, 0)); ids[r] = o; }
+                return o;
+            };
+            // a fan from the first corner, at the exact corners (as the map triangulates: no triangle across collinear ones)
+            Func<List<int>, List<Index3i>> fan = (v) => {
+                var tris = new List<Index3i>();
+                for (int i = 1; i + 1 < v.Count; ++i)
+                    if (K.Orient(v[0], v[i], v[i + 1]) != 0) tris.Add(new Index3i(v[0], v[i], v[i + 1]));
+                return tris;
+            };
+            var faces = new List<KeyValuePair<int, List<int>>> {
+                new KeyValuePair<int, List<int>>(1, new List<int> { a, d, b }),
+                new KeyValuePair<int, List<int>>(2, new List<int> { a, b, c }),
+                new KeyValuePair<int, List<int>>(3, new List<int> { c, b, e, a }),
+            };
+            Assert.Equal(1, SlopeMap.append_faces(mesh, faces, fan, outVertex));
+
+            // no overlap: every triangle strictly counter-clockwise (a kept sliver is a zero-area fold over G and K);
+            // no gap: the areas sum to the outer quadrilateral's 50 m^2 (exact here: offsets from a are multiples of
+            // 2^-30 below 16), and the only boundary is its four edges (a crack would leave ab or ac, cb open)
+            double area2 = 0;
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                Vector2d p = mesh.GetVertex(tv.a).xy, q = mesh.GetVertex(tv.b).xy, r = mesh.GetVertex(tv.c).xy;
+                Assert.True(ExactPredicates.Orient2d(p, q, r) > 0);
+                area2 += (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+            }
+            Assert.Equal(100.0, area2);
+            var outer = new HashSet<Index2i> {
+                ordered(outVertex(a), outVertex(d)), ordered(outVertex(d), outVertex(b)),
+                ordered(outVertex(b), outVertex(e)), ordered(outVertex(e), outVertex(a)) };
+            var boundary = mesh.EdgeIndices().Where(mesh.IsBoundaryEdge).Select(x => ordered(mesh.GetEdgeV(x).a, mesh.GetEdgeV(x).b)).ToList();
+            Assert.Equal(4, boundary.Count);
+            Assert.True(outer.SetEquals(boundary));
+            // G was split at c (two triangles of group 1), K kept its two
+            Assert.Equal(2, mesh.TriangleIndices().Count(x => mesh.GetTriangleGroup(x) == 1));
+            Assert.Equal(4, mesh.TriangleCount);
+        }
+
+        static Index2i ordered(int u, int v) { return u < v ? new Index2i(u, v) : new Index2i(v, u); }
     }
 }

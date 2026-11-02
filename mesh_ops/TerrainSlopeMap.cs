@@ -713,8 +713,6 @@ namespace gs
                 return o;
             };
             OutLabels.Clear();
-            DroppedTriangles = 0;
-            var dropped = new List<Index3i>();
             OnBarrier.Clear();
             var barrierPos = new HashSet<Vector2d>();
             BarriersAt.Clear();
@@ -730,24 +728,9 @@ namespace gs
                     at(p, hBar[h]); at(q, hBar[h]);
                 }
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
-            foreach (int f in faces) {
-                int group = owner[fLabel[f]];
-                var verts = cycle(f).Select(h => hOrig[h]).ToList();
-                foreach (Index3i t in triangulate(verts)) {
-                    int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
-                    if (a == b || b == c || c == a) continue;
-                    // (a face narrower than the rounding, eg between two creases a few ulps apart, has no area once
-                    // rounded: its triangles are dropped, which leaves no gap; kept, they would overlap their neighbours)
-                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
-                        DroppedTriangles++;
-                        dropped.Add(new Index3i(a, b, c));
-                        continue;
-                    }
-                    int tid = mesh.AppendTriangle(a, b, c, group);
-                    if (tid < 0) throw new NonManifoldRealization();
-                }
-            }
-            stitch(mesh, dropped);
+            DroppedTriangles = append_faces(mesh,
+                faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
+                triangulate, outVertex);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -815,6 +798,30 @@ namespace gs
         public sealed class NonManifoldRealization : InvalidOperationException
         {
             public NonManifoldRealization() : base("SlopeMap: non-manifold realization") { }
+        }
+
+        // The faces (group, corners as kernel vertices) triangulated at their exact corners and appended with their
+        // rounded vertices (outVertex). A face narrower than the rounding, eg between two creases a few ulps apart, has
+        // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
+        // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
+        internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex)
+        {
+            var dropped = new List<Index3i>();
+            foreach (var face in faces) {
+                foreach (Index3i t in triangulate(face.Value)) {
+                    int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
+                    if (a == b || b == c || c == a) continue;
+                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                        dropped.Add(new Index3i(a, b, c));
+                        continue;
+                    }
+                    int tid = mesh.AppendTriangle(a, b, c, face.Key);
+                    if (tid < 0) throw new NonManifoldRealization();
+                }
+            }
+            stitch(mesh, dropped);
+            return dropped.Count;
         }
 
         // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of

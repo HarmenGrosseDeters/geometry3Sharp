@@ -71,3 +71,44 @@ deterministic and independent of the input order.
 - km-scale benchmarks (section 8): procedural first; the Hambach data via `fetch_data.py` (nothing committed).
 - From 1b: the band-only overlay, a local height limit instead of the terrain's global maximum, the per-triangle
   constraint checks of the composite (O(segments × points)).
+
+## 6. Realization repairs and their bounds (done in 1c)
+
+The map is exact; its realization rounds every vertex to the nearest doubles (e_xy, e_z: the rounding in XY and z).
+Three repairs keep the rounded TIN a valid slope surface. Each changes the surface by a bounded amount, and the toe
+lowering λ covers it (the exact check of every triangle decides in the end; the bounds decide what is allowed).
+
+- **Merge** of positions closer than r = 64 e_xy (`SlopeMap.merge_close_positions`, greedy: each position moves by
+  less than r, no chains). A vertex then sits up to r + e_xy from where its planes meet, so the surface moves by up to
+  sMax (r + e_xy) per plane both ways. Share below S̃ (the slope margin budget): `MergeShare` = 4 sMax (r + e_xy) +
+  `FlipShare`; above S̃ (toe lowering): `RepairLambda(k)` = 4 e_z + 2 k sMax (r + e_xy), k the number of repair kinds
+  used (merge, flips). A realization merges or flips only if `RepairLambda(2)` ≤ the λ bound (`mayMerge`), else it
+  realizes without them.
+- **Dropped faces**: a face narrower than the rounding (between two creases a few ulps apart) has exactly collinear
+  rounded corners. Its triangles are dropped (kept, they would be vertical walls over their neighbours) and the
+  triangle on the other side of the long edge is split at the middle corner, which lies exactly on that edge
+  (`SlopeMap.stitch`): no gap, no T-junction. No change of the surface beyond the rounding. Unit test at the
+  realization level: `TerrainSlopeRepairTests.Realize_DropsAFaceNarrowerThanTheRounding_NoGapNoOverlap` (both the
+  missing drop and the missing stitch fail it); the crack check `boundary_is_toe_limit_or_cap` runs on every realization.
+- **Needle flips** (`SlopeMap.FlipNeedles(mesh, minAltitude = r, maxDeviation = FlipShare)`): a triangle thinner than r
+  across its longest edge is flipped with its neighbour. A flip changes the surface most at the crossing of the quad's
+  diagonals (`diagonal_change`, plus 16 ulps for its own rounding); the changes add up per triangle, and a flip that
+  would take a triangle beyond `FlipShare` = 2 sMax (r + e_xy) is refused. Tests: `NeedleFlip_WithinItsShare` (the
+  bound), `WavyToe_130mHigh_AtUtm` (flips needed for success, λ at least the requirement).
+
+### Local height limit
+
+With a terrain and `HeightLimit` NaN, the cap starts at the highest terrain vertex near the toe (within the toe's box)
+plus `Tolerance`, at least the highest toe point plus `Tolerance`. If the region reaches the cap
+(`SlopeTerrainOverlay.ReachedHeightLimit`), the cap is raised (the highest terrain within twice the reach of this cap,
+at least the height range again) up to the global limit. A region that does not reach the cap is bounded by the catch
+line and the toe, so it is the region of any higher cap: the result equals that of the global limit with a smaller
+slope surface. While the cap may still grow, no composite is built (a region at the cap is not final).
+
+### Baseline for the band-only overlay and composite (Hambach, 1 m grid)
+
+Measured in benchmarks/TerrainBenchmark/README.md (slope design on the Hambach DGM): one toe edge of 200 m gives its
+catch line in 0.82 s (terrain check 0.06, 1a 0.02, overlay 0.42 s); the composite adds 4.6 s, nearly all copying the
+untouched terrain. The octagon: overlay 9.9 s, composite 12.2 s, peak 1.74 GB (3.1 GB before the candidate
+restriction). Targets of the band-only work: the composite for one edge below 1 s, and the peak below that 3.1 GB at
+any toe size on the 1 m grid.
