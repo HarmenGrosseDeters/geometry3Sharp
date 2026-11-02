@@ -213,6 +213,7 @@ namespace gs
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
+            SimplifyTrace = 0; SimplifyRounds = 0;
             CapRounds = 0;
             try {
                 Status = compute();
@@ -607,7 +608,7 @@ namespace gs
             // the domain, a planar map of convex faces
             var box2 = toeBox;
             box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim);
-            var map = new SlopeMap(kernel);
+            var map = new SlopeMap(kernel) { ReferenceSimplify = ReferenceSimplify };
             string why;
             Index2i where;
             if (map.BuildDomain(toePts, Toes.Select(t => t.Closed).ToList(), Toes.Select(t => t.Side).ToList(), box2, out why, out where) == false) {
@@ -627,6 +628,8 @@ namespace gs
 
             phase("insert");
             map.Simplify();
+            SimplifyTrace ^= map.SimplifyTrace;
+            SimplifyRounds = Math.Max(SimplifyRounds, map.SimplifyRounds);
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
@@ -669,6 +672,11 @@ namespace gs
 
         /// <summary> tests: build the map again for every new toe lowering instead of realizing it again </summary>
         internal bool RebuildForEachLowering;
+        /// <summary> tests: SlopeMap.Simplify by its reference (every face in every round) </summary>
+        internal bool ReferenceSimplify;
+        /// <summary> tests: the Simplify traces of the builds of the last Compute, combined </summary>
+        internal ulong SimplifyTrace;
+        internal int SimplifyRounds;
 
         // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
         Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,

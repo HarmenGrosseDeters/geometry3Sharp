@@ -557,6 +557,87 @@ namespace gs
         /// </summary>
         public void Simplify()
         {
+            if (ReferenceSimplify) { simplify_reference(); return; }
+            // the steps of simplify_reference in the same order, but a face is only visited when it or a neighbour
+            // changed since its last visit: a pair that failed fails again until one of its faces changes, and a
+            // vertex removal depends on the face and its neighbours only. So the result is the same, bit for bit
+            // (the reference visited every face in each of its rounds: 168 rounds over 198k faces in the 1a speed case)
+            int n = fEdge.Count;
+            var version = new int[n];
+            var failed = new HashSet<(int, int, int, int)>();
+            var mergeDirty = new bool[n];
+            var removeDirty = new bool[n];
+            for (int f = 0; f < n; ++f) { mergeDirty[f] = fAlive[f] && fDomain[f]; removeDirty[f] = fAlive[f]; }
+            // (a changed face marks its neighbours too: the pairs with it have a new version. For the merges this is a
+            // safeguard only: f tries all its neighbours right after its own merge, and the convexity test is symmetric)
+            Action<int> touched = (x) => {
+                mergeDirty[x] = removeDirty[x] = true;
+                int e0 = fEdge[x], e = e0;
+                do {
+                    int y = hFace[hTwin[e]];
+                    if (y >= 0) mergeDirty[y] = removeDirty[y] = true;
+                    e = hNext[e];
+                } while (e != e0);
+            };
+            bool changed = true;
+            SimplifyRounds = 0;
+            while (changed) {
+                changed = false;
+                SimplifyRounds++;
+                for (int f = 0; f < n; ++f) {
+                    if (mergeDirty[f] == false) continue;
+                    mergeDirty[f] = false;
+                    if (fAlive[f] == false || fDomain[f] == false) continue;
+                    for (bool again = true; again;) {
+                        again = false;
+                        // (the cycle walked in place: the walk stops at the first change)
+                        int h0 = fEdge[f], h = h0;
+                        do {
+                            int g = hFace[hTwin[h]];
+                            if (!(g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0)) {
+                                var key = (f, g, version[f], version[g]);
+                                if (failed.Contains(key) == false) {
+                                    if (try_merge(f, g)) { trace(1, f, g); version[f]++; touched(f); again = true; changed = true; break; }
+                                    failed.Add(key);
+                                }
+                            }
+                            h = hNext[h];
+                        } while (h != h0);
+                    }
+                    // (the faces after f in this round see f's changes in this round, as in the reference; f itself
+                    // is visited again in the next round, as the reference visits every face)
+                }
+                for (int f = 0; f < n; ++f) {
+                    if (removeDirty[f] == false) continue;
+                    removeDirty[f] = false;
+                    if (fAlive[f] == false) continue;
+                    int h0 = fEdge[f], h = h0;
+                    do {
+                        int g = hFace[hTwin[h]];
+                        if (try_remove_vertex(h)) {
+                            trace(2, f, h);
+                            version[f]++;
+                            if (g >= 0) version[g]++;
+                            touched(f);
+                            if (g >= 0) touched(g);
+                            changed = true;
+                            break;
+                        }
+                        h = hNext[h];
+                    } while (h != h0);
+                }
+            }
+        }
+
+        /// <summary> tests: Simplify by the reference (every face in every round) </summary>
+        internal bool ReferenceSimplify;
+        /// <summary> tests: a hash of the steps of Simplify in order (merges f, g and vertex removals in f at h) </summary>
+        internal ulong SimplifyTrace;
+        internal int SimplifyRounds;
+        void trace(int kind, int a, int b) { SimplifyTrace = (SimplifyTrace ^ (ulong)(kind * 0x9E3779B1L + a * 0x85EBCA77L + b * 0xC2B2AE3DL)) * 0x100000001B3UL; }
+
+        void simplify_reference()
+        {
             // greedy in face order, rounds until nothing changes; a pair that failed is tried again only after one of
             // its faces changed (the convexity of the union depends on the two faces only)
             var version = new int[fEdge.Count];
@@ -573,7 +654,7 @@ namespace gs
                             if (g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0) continue;
                             var key = (f, g, version[f], version[g]);
                             if (failed.Contains(key)) continue;
-                            if (try_merge(f, g)) { version[f]++; again = true; changed = true; break; }
+                            if (try_merge(f, g)) { trace(1, f, g); version[f]++; again = true; changed = true; break; }
                             failed.Add(key);
                         }
                     }
@@ -583,6 +664,7 @@ namespace gs
                     foreach (int h in cycle(f)) {
                         int g = hFace[hTwin[h]];
                         if (try_remove_vertex(h)) {
+                            trace(2, f, h);
                             version[f]++;
                             if (g >= 0) version[g]++;
                             changed = true;
@@ -595,32 +677,37 @@ namespace gs
 
         bool try_merge(int f, int g)
         {
-            List<int> cf = cycle(f);
-            int n = cf.Count;
-            // the run of f's edges shared with g (contiguous: two convex faces meet in one segment)
-            int start = -1;
-            for (int i = 0; i < n; ++i) {
-                bool shared = hFace[hTwin[cf[i]]] == g, prevShared = hFace[hTwin[cf[(i + n - 1) % n]]] == g;
-                if (shared && prevShared == false) { start = i; break; }
-            }
+            // the run of f's edges shared with g (contiguous: two convex faces meet in one segment): its first edge is
+            // the first shared edge, from fEdge[f] on, whose previous edge is not shared
+            int h0 = fEdge[f], x = h0, start = -1, guard = 0;
+            do {
+                if (hFace[hTwin[x]] == g && hFace[hTwin[hPrev[x]]] != g) { start = x; break; }
+                x = hNext[x];
+                if (++guard > 100000) throw new InvalidOperationException("SlopeMap: broken cycle");
+            } while (x != h0);
             if (start < 0) return false;    // all edges shared: not possible for faces with area
-            int r = 0;
-            while (hFace[hTwin[cf[(start + r) % n]]] == g) r++;
-            for (int i = r; i < n; ++i) if (hFace[hTwin[cf[(start + i) % n]]] == g) return false;    // not contiguous
-            int h1 = cf[start], hr = cf[(start + r - 1) % n];
+            int r = 0, hr = start;
+            for (x = start; hFace[hTwin[x]] == g; x = hNext[x]) { hr = x; r++; }
+            for (int y = x; y != start; y = hNext[y]) if (hFace[hTwin[y]] == g) return false;    // not contiguous
+            int h1 = start;
             int fPrev = hPrev[h1], fNext = hNext[hr];               // f's edges ending at a, starting at b
             int t1 = hTwin[h1], tr = hTwin[hr];
             int gNext = hNext[t1], gPrev = hPrev[tr];               // g's edges starting at a, ending at b
             if (hBar[h1] >= 0) return false;
-            for (int i = 0; i < r; ++i) if (hBar[cf[(start + i) % n]] >= 0) return false;
+            x = h1;
+            for (int i = 0; i < r; ++i, x = hNext[x]) if (hBar[x] >= 0) return false;
             int a = hOrig[h1], b = hOrig[fNext];
-            // convex at a: (origin of fPrev, a, dest of gNext); at b: (origin of gPrev, b, dest of fNext)
-            if (K.Orient(hOrig[fPrev], a, hOrig[hTwin[gNext]]) < 0) return false;
-            if (K.Orient(hOrig[gPrev], b, hOrig[hTwin[fNext]]) < 0) return false;
+            // convex at a: (origin of fPrev, a, dest of gNext); at b: (origin of gPrev, b, dest of fNext). Two edges on
+            // the same line are collinear without a predicate (the usual case: faces split by a line that goes on; the
+            // filter cannot decide an exact zero, so the exact stage would run every time)
+            if (on_one_line(fPrev, gNext) == false && orient_cached(hOrig[fPrev], a, hOrig[hTwin[gNext]]) < 0) return false;
+            if (on_one_line(gPrev, fNext) == false && orient_cached(hOrig[gPrev], b, hOrig[hTwin[fNext]]) < 0) return false;
             // the union must not be degenerate (both faces have area, so it has)
             hNext[fPrev] = gNext; hPrev[gNext] = fPrev;
             hNext[gPrev] = fNext; hPrev[fNext] = gPrev;
-            for (int i = 0; i < r; ++i) { int h = cf[(start + i) % n]; hAlive[h] = false; hAlive[hTwin[h]] = false; }
+            // (the run's own links are unchanged by the relinking above)
+            x = h1;
+            for (int i = 0; i < r; ++i, x = hNext[x]) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
             int e = gNext;
             do { hFace[e] = f; e = hNext[e]; } while (e != gNext);
             fEdge[f] = fPrev;
@@ -628,6 +715,24 @@ namespace gs
             if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
             qt_update(f);
             return true;
+        }
+
+        // the half-edges x and y lie on the same line of the kernel (both ends of every half-edge lie exactly on its line:
+        // the crossings of a split are on both lines, a chord is on the splitting line, and a merge or a vertex removal
+        // keeps the lines of the edges it keeps), so their ends are exactly collinear
+        bool on_one_line(int x, int y) { return hLine[x] >= 0 && hLine[x] == hLine[y]; }
+
+        // the kernel's orientation of three of its vertices, remembered (vertices never move: the same corner of a
+        // merge is tested again whenever one of its faces changed, about 4 times on average in the 1a speed case)
+        readonly Dictionary<(int, int, int), int> orientMemo = new Dictionary<(int, int, int), int>();
+        int orient_cached(int u, int v, int w)
+        {
+            int o;
+            var key = (u, v, w);
+            if (orientMemo.TryGetValue(key, out o)) return o;
+            o = K.Orient(u, v, w);
+            orientMemo[key] = o;
+            return o;
         }
 
         // h: v -> w in a face; v of degree 2 (its two edges are h and the twin of hPrev[h]) and straight: remove it
@@ -640,7 +745,7 @@ namespace gs
             if (hNext[t] != tp) return false;       // another edge at v
             if (hBar[h] != hBar[p]) return false;
             int u = hOrig[p], w = hOrig[t];
-            if (K.Orient(u, v, w) != 0) return false;
+            if (on_one_line(p, h) == false && K.Orient(u, v, w) != 0) return false;
             int f = hFace[h], g = hFace[t];
             // keep p (u -> v becomes u -> w) and its twin tp (v -> u becomes w -> u)
             int hn = hNext[h], tn = hPrev[t];
