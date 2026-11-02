@@ -439,6 +439,8 @@ class Program
             var j = JsonDocument.Parse(line.Split('\n').Last()).RootElement;
             r["wrap_status"] = j.GetProperty("ok").GetBoolean() ? "Success" : "Failed";
             if (j.TryGetProperty("ms", out var ms)) r["wrap_ms"] = ms.GetInt64();
+            if (j.TryGetProperty("alpha", out var a)) r["wrap_alpha"] = a.GetDouble();
+            if (j.TryGetProperty("offset", out var o)) r["wrap_offset"] = o.GetDouble();
         }
         r["wrap_rel_alpha"] = relAlpha;
         r["wrap_rel_offset"] = relOffset;
@@ -588,11 +590,13 @@ class Program
         // and with a max angle above 150 / 170 (analyze_wrap.py)
         double minAngle = 180, maxAngle = 0;
         int lt05 = 0, lt1 = 0, lt10 = 0, gt150 = 0, gt170 = 0;
+        var minAngles = new System.Collections.Generic.List<double>(m.TriangleCount);
         foreach (int tid in m.TriangleIndices()) {
             m.GetTriVertices(tid, ref vA, ref vB, ref vC);
             double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
             double lo = Math.Min(a0, Math.Min(a1, a2)), hi = Math.Max(a0, Math.Max(a1, a2));
             minAngle = Math.Min(minAngle, lo); maxAngle = Math.Max(maxAngle, hi);
+            minAngles.Add(lo);
             if (lo < 0.5) lt05++;
             if (lo < 1) lt1++;
             if (lo < 10) lt10++;
@@ -603,6 +607,9 @@ class Program
         if (m.TriangleCount > 0) {
             r[p + "_angle_min"] = Math.Round(minAngle, 4);
             r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+            // the 1 % worst min angle (the min angle of the triangle at the 1st percentile)
+            minAngles.Sort();
+            r[p + "_angle_p01"] = Math.Round(minAngles[(int)(0.01 * (minAngles.Count - 1))], 4);
         }
         r[p + "_angle_lt05"] = lt05;
         r[p + "_angle_lt1"] = lt1;
