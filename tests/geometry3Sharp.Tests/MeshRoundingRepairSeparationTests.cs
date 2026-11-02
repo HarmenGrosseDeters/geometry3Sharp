@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// The separation prototype of option A of the snap-rounding experiment (MeshRoundingRepair.Separate,
-    /// docs/design/SAFE_ROUNDING.md section 7): after SafeRounding, linear programs move the vertices around what is
+    /// docs/design/SAFE_ROUNDING.md section 8): after SafeRounding, linear programs move the vertices around what is
     /// left; each proposal is applied only if the exact check accepts it, within the drift bound.
     /// </summary>
     public class MeshRoundingRepairSeparationTests

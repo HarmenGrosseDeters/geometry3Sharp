@@ -25,8 +25,14 @@ namespace geometry3Sharp.Tests
 
         static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
-            var fast = Oracle.Check(input, output, e);
             var reference = Oracle.Check(input, output, e.WithReference());
+            // The reference path runs the global empty-circumcircle pass only up to GlobalDelaunayLimit triangle-vertex pairs, by design
+            // (all pairs, exactly); above it the fast path is compared without that pass too, and the pass itself is compared on the rows
+            // below the limit. (Found when F-4/a, F-4/b and F-5 left the slow rows: the fast path found the global violations of a
+            // corrupted F-5 and counted the merge-zone excusals of its global pass, the limited reference path neither; with no limit the
+            // reference path agrees with the fast one, in 200 s instead of 0.9 s.)
+            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
+            Assert.Equal(reference.GlobalDelaunayChecked, fast.GlobalDelaunayChecked);
             Assert.True(Verdict(fast) == Verdict(reference), what + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
         }
 
@@ -37,6 +43,30 @@ namespace geometry3Sharp.Tests
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
             Same(row.Case.Input, output, row.Case.Expect, id);
+        }
+
+        /// <summary>
+        /// The evidence for the comparison above the limit: on F-4/b and F-5 (tens of millions of triangle-vertex pairs) the reference path
+        /// without its limit gives the fast path's verdict on the mesh and on every corrupted copy, the merge-zone excusals and the
+        /// global violations included. Takes about half an hour, so it runs with G3_MESH2_SLOW set, like the slow catalogue rows.
+        /// </summary>
+        [Theory]
+        [InlineData("F-4/b")]
+        [InlineData("F-5")]
+        public void AboveTheLimit_ReferenceWithoutLimit_SameVerdictAsFast(string id)
+        {
+            if (Environment.GetEnvironmentVariable("G3_MESH2_SLOW") == null) return;
+            var row = Catalogue.Rows().First(r => r.Id == id);
+            var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
+            Assert.True((long)output.Triangles.Length * output.VX.Length > row.Case.Expect.GlobalDelaunayLimit, id + " is no longer above the limit");
+            foreach (var (name, mesh) in new[] { ("valid", output) }.Concat(Corrupted(output))) {
+                var fast = Oracle.Check(row.Case.Input, mesh, row.Case.Expect);
+                var reference = Oracle.Check(row.Case.Input, mesh, row.Case.Expect.WithReference().WithGlobalDelaunayLimit(long.MaxValue));
+                // a corrupted copy may stop both paths before the global pass; the valid mesh must reach it
+                Assert.True(fast.GlobalDelaunayChecked == reference.GlobalDelaunayChecked && (fast.GlobalDelaunayChecked || name != "valid"),
+                    id + " " + name + ": global pass fast " + fast.GlobalDelaunayChecked + " / reference " + reference.GlobalDelaunayChecked);
+                Assert.True(Verdict(fast) == Verdict(reference), id + " " + name + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
+            }
         }
 
         /// <summary> corruptions a mesher could produce: a vertex moved, a triangle missing, a triangle turned over, two vertices swapped </summary>

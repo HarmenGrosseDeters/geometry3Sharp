@@ -463,7 +463,7 @@ namespace g3
                 c[j] = -1e-3 / nd;
             }
             // (a program that does not converge within a few times its size is given up: the dense tableau stalls on large
-            // programs with rows of very different scales, see docs/design/SAFE_ROUNDING.md section 7)
+            // programs with rows of very different scales, see docs/design/SAFE_ROUNDING.md section 8)
             var lp = new DenseSimplex() { MaxPivots = 2 * (m + nvar) };
             SeparationPrograms++;
             DenseSimplex.Status status = lp.Solve(A, b, c);

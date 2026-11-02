@@ -125,7 +125,8 @@ namespace geometry3Sharp.Tests
             // the toe lies just below its specified height, the level line at the limit
             var b = d.SlopeSurface.Vertices().ToList();
             Assert.Contains(b, v => v.y == 0 && v.z <= 5 - d.UsedToeLowering && v.z >= 5 - 2 * d.UsedToeLowering);
-            Assert.Contains(b, v => v.z == 15);
+            // (the level line of the cap: the map is lowered by λ, the cap with it, so it ends at H - λ)
+            Assert.Contains(b, v => v.z <= 15 && v.z >= 15 - 2 * d.UsedToeLowering);
         }
 
         [Fact]
@@ -353,8 +354,9 @@ namespace geometry3Sharp.Tests
             foreach (int eid in m.BoundaryEdgeIndices()) {
                 Index2i ev = m.GetEdgeV(eid);
                 Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
-                double eps = 1e-9 * (1 + Math.Abs(d.HeightLimit));
-                bool level = Math.Abs(a.z - d.HeightLimit) <= eps && Math.Abs(b.z - d.HeightLimit) <= eps;
+                // (the level line ends at HeightLimit - λ: the map is lowered by λ, the cap with it)
+                double eps = 1e-9 * (1 + Math.Abs(d.HeightLimit)), level0 = d.HeightLimit + (d.Direction == TerrainSlopeDesign.Directions.Fill ? 1 : -1) * d.UsedToeLowering;
+                bool level = Math.Abs(a.z - level0) <= eps && Math.Abs(b.z - level0) <= eps;
                 bool toe = d.Pieces.Any(p => on_segment(p.P0.xy, p.P1.xy, a.xy) && on_segment(p.P0.xy, p.P1.xy, b.xy));
                 Assert.True(level || toe, $"boundary edge {a} - {b}");
             }
@@ -372,6 +374,99 @@ namespace geometry3Sharp.Tests
 
         // A: open, uneven, mixed specs (failed with SlopeViolation: the sector window wrapped at +-pi, and the
         // planes of a failed attempt were kept for the next one)
+        [Fact]
+        public void RegularPolygon_StripCreaseThroughTheOppositeVertex()
+        {
+            // found by the 1b stress test: on a regular 10-gon the line where the strips of two pieces are equal passes
+            // within a few ulps of the opposite toe vertex, which left a cluster of map vertices 1e-14 apart there; their
+            // edges could not all be collapsed (link condition) and a degenerate triangle failed the check at every margin
+            var toe = SlopeToe.Constant(Ngon(10, 9.642226746139222, 0, 0.29190628476995334), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.9346294006959672));
+            var d = Run(13.65915220256275, 0.05, toe);
+            AssertAll(d);
+            // the merged vertices' triangles may rise above S̃ by 2 sMax (r + e_xy), r = 64 ulps: the toe lowering of a
+            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy)
+            double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
+            Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
+            output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
+        }
+
+        // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
+        // polygons) and whose measured lowering alone stays below what the merge needs
+        [Theory]
+        [InlineData(16, 21.30606409921593, 0.07628677649250569, 1.4751108086086395)]
+        [InlineData(4, 23.804800668174774, 0.6008761141453293, 2.775734977692242)]
+        public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
+        {
+            var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+            var d = Run(r * 0.6, 0.05, toe);
+            AssertAll(d);
+            // the triangles of a merged vertex may rise above S̃ by 2 sMax (r + e_xy): the lowering covers it
+            Assert.True(d.MergedPositions > 0);
+            Assert.True(d.MergeLambdaRequired > 0);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+        }
+
+        [Fact]
+        public void Merge_Shares()
+        {
+            // below S̃ by at most 4 sMax (r + e_xy), above by at most 2 sMax (r + e_xy) plus the vertex rounding 4 e_z,
+            // r = 64 e_xy (TERRAIN_1B_PLAN.md, reviews)
+            double exy = Math.Pow(2, -30), ez = 3 * Math.Pow(2, -31), s = 1.5;
+            Assert.Equal(64 * exy, TerrainSlopeDesign.MergeRadius(exy));
+            // (merge 4 sMax (r + e_xy) and a needle flip 2 sMax (r + e_xy) below; each 2 sMax (r + e_xy) above)
+            Assert.Equal(2 * s * 65 * exy, TerrainSlopeDesign.FlipShare(exy, s));
+            Assert.Equal(4 * s * 65 * exy + 2 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
+            Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
+            Assert.Equal(4 * ez + 4 * s * 65 * exy, TerrainSlopeDesign.RepairLambda(ez, exy, s, 2));
+        }
+
+        // the uneven wavy toe of the Hambach test (TerrainBenchmark README), without the terrain, at UTM: needles of the
+        // realization failed the check at every margin (SlopeViolation at δ 5e-4): an edge collapse next to vertices on
+        // one crease line joined them into a triangle with an altitude of 1e-13 m. Collapses now keep the shapes (fails
+        // without it: 3 builds and a margin raise)
+        internal static TerrainSlopeDesign WavyHambach(double h)
+        {
+            var c = new Vector3d(328375.25, 5642875.5, -340);
+            var pts = new List<Vector3d>();
+            for (int i = 0; i < 48; ++i) {
+                double a = 2 * Math.PI * i / 48, rr = 150 * (1 + 0.15 * Math.Sin(5 * a));
+                pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), 4 * Math.Sin(3 * a)));
+            }
+            return Design(c.z + h, 0.05, SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)));
+        }
+
+        [Fact]
+        public void WavyToe_130mHigh_AtUtm()
+        {
+            // 130 m: fans of needles 90 m long and 1e-10 m wide from a face of the map between two creases that meet at
+            // an angle of 1e-12 (nearly coplanar tangent planes of neighbouring apexes); flips across its sides remove
+            // them (fails without: 3 builds and two margin raises)
+            var d = WavyHambach(130);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+            // the flips need the lowering of a repair (2 sMax (r + e_xy) above S̃)
+            Assert.True(d.NeedleFlips > 0);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+        }
+
+        [Fact]
+        public void WavyToe_100mHigh_AtUtm()
+        {
+            var d = WavyHambach(100);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            // (without the needles no margin raise is needed: one build)
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired);
+            output.WriteLine($"builds {d.Attempts}, realizations {d.Realizations}, δ {d.UsedSlopeMargin:G3}, λ {d.UsedToeLowering:G3}, {d.SlopeSurface.TriangleCount} triangles");
+        }
+
         [Fact]
         public void Review_OpenUneven_MixedSlopes()
         {

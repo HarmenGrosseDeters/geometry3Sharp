@@ -96,6 +96,8 @@ design area); continuous change of the slope along a segment and the three inter
      reduce it.
    - Without any lowering (λ = 0, the design as written), 23 of the 27 slope surface tests failed the exact check, also
      at local coordinates (`SlopeViolation`, 150 to 350 triangles each).
+   - Fixed in 1b ([TERRAIN_1B_PLAN.md](TERRAIN_1B_PLAN.md), as built 5): near-coincident map vertices on regular
+     polygons, and the support excess, which is now exact.
    - **For 1b** (coordinator, 2026-11-01, within the owner's decision "λ only for the remainder"): 1b joins the design
      at the lowered toe and reports λ (`UsedToeLowering`); a new owner decision is needed only if 1b finds a reason it
      cannot.

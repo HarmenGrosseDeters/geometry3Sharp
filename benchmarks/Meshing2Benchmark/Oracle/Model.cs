@@ -142,6 +142,14 @@ namespace Meshing2Acceptance
             copy.Reference = true;
             return copy;
         }
+
+        /// <summary> a copy whose global empty-circumcircle pass runs only up to this many triangle-vertex pairs (0: never) </summary>
+        public OracleExpect WithGlobalDelaunayLimit(long limit)
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.GlobalDelaunayLimit = limit;
+            return copy;
+        }
     }
 
     public enum Milestone { M1, M2, M3 }

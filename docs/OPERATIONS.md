@@ -550,7 +550,11 @@ g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute
 Far from the origin (UTM coordinates) the repair may move the surface by up to `--rounding-ulp-factor` (256) units in the
 last place of the largest coordinate beyond the relative bound, or `--rounding-absolute-tolerance`; `--strict-rounding` allows
 the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
-`RoundingAbsoluteTolerance`, `StrictRounding`).
+`RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
+the diagonal, `RoundingMaxDisplacement`). `repair` takes the same four options for its exact stage (`MeshRobustRepair`), where a
+strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
+after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
+repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
 largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):

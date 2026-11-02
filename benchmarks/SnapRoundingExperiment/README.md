@@ -1,6 +1,6 @@
 # Snap-rounding experiment
 
-The measurement of [docs/design/SAFE_ROUNDING.md](../../docs/design/SAFE_ROUNDING.md) section 7: SafeRounding
+The measurement of [docs/design/SAFE_ROUNDING.md](../../docs/design/SAFE_ROUNDING.md) section 8: SafeRounding
 (`MeshRoundingRepair`, the default of `ExactMeshBoolean`) against two prototypes for what it leaves.
 
 - **A, separation** (`MeshRoundingRepair.Separate`, internal, `mesh_ops/MeshRoundingRepair.Separation.cs`): the
@@ -44,4 +44,4 @@ run; the output is appended one line per result, and a run resumes where it stop
 `dotnet bin/Release/net10.0/SnapRoundingExperiment.dll run cluster:Cluster:0:4:5 safe A B` (`SEP_DEBUG=1` prints the
 linear programs of A and the pairs the certificate rejects).
 
-The results are in SAFE_ROUNDING.md section 7.
+The results are in SAFE_ROUNDING.md section 8.

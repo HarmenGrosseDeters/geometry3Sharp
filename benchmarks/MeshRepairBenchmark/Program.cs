@@ -172,6 +172,10 @@ class Program
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
+                // BENCH_IOU_CELLS=0: the volume check samples in the region of sample_region always (A/B of the cells)
+                robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
+                string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
+                if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -191,6 +195,13 @@ class Program
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_phases"] = robust.PhaseMilliseconds;
+                // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
+                // sampled and the known volume (relative to the estimated union), the cells, and the times
+                r["robust_volume_checks"] = robust.VolumeCheckStats.ConvertAll(v => new System.Collections.Generic.Dictionary<string, object>() {
+                    ["cells"] = v.Cells, ["samples"] = v.Samples, ["union"] = v.UnionSamples, ["iou_lo"] = v.IoULow, ["iou_hi"] = v.IoUHigh,
+                    ["sampled_cells"] = v.SampledCells, ["child_tests"] = v.ChildTests, ["depth"] = v.Depth, ["unclassified"] = v.Unclassified, ["windings"] = v.WindingEvaluations,
+                    ["sampled_volume"] = v.SampledVolume, ["known_union"] = v.KnownUnion, ["known_both"] = v.KnownBoth,
+                    ["build_ms"] = v.BuildTicks * 1000.0 / Stopwatch.Frequency, ["sample_ms"] = v.SampleTicks * 1000.0 / Stopwatch.Frequency });
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;

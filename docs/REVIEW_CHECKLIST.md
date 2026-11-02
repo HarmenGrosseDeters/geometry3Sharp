@@ -161,6 +161,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   clause: the empty-overlap guard, the orientation clause, the positivity filter, the margin. Each clause is a separate
   way to accept wrongly (wrap-resolution review).
 
+- A statistical rule (a confidence interval, a stop rule, a Bonferroni split) is barely visible to tests that sample:
+  its mutants change only rare failure probabilities. Extract the interval as a function and test it deterministically
+  against a brute-force scan (volume check cells review: the corners of the ratio interval, the split z).
+- A sample region built over the bounds of all parts (a grid, an octree with a depth or cell budget) is compared with the
+  per-part region it replaces: one small part far away makes its cells huge (volume check cells review).
+
 ## 11. Compatibility and documentation (#92, #94)
 
 - Public API unchanged against 1.0.324 (pack runs the package validation; an accepted break goes into
