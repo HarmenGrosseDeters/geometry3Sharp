@@ -407,6 +407,7 @@ maintainer with users to support; that pays off only then.
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
 - Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
+- Batch ray / point queries against a mesh or BVH (owner idea 2026-11-02): a separate batch API (eg `IntersectBatch(ReadOnlySpan<Ray3d>, ...)`, `IsInsideBatch(points)`), existing API unchanged. Only the floating-point filter of the exact ray-triangle test (Q2/Q3) runs SIMD (`Vector256` / `Vector512`) over the triangles of a BVH leaf or a ray packet; the rare cases inside the bound stay scalar on `Orient3d` + SoS, so results stay exact. No FMA and no cross-lane reduction, so SIMD equals the scalar path bit for bit (tested); netstandard2.0 keeps the scalar path. Prior art: Embree (Apache 2.0; Woop et al. 2013 watertight test over SIMD packets). When: after the Q2/Q3 prefilter, once a real caller needs throughput; upper bound first (the filter's share of the query time). Note the `Orient3d` SIMD spike above gave about 2 %; the difference here is a batch of independent tests per call
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
 
 ## Phase 5: candidates from recent research
