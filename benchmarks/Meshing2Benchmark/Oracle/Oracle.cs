@@ -800,6 +800,67 @@ namespace Meshing2Acceptance
                 return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
             }
 
+            List<(Pt a, Pt b, int marker, int sourceId, bool locked)> hullSources;
+            double[] hullBox; // per hull source: x0, x1, y0, y1 in doubles, widened by the tube; NaN when not known
+
+            /// <summary> vertex i may lie within the tube of hull source k: their boxes in doubles meet (the exact test decides) </summary>
+            bool NearHull(int k, int i)
+            {
+                if (e.Reference || !vKnown[i] || double.IsNaN(hullBox[4 * k])) return true;
+                return !(vxh[i] < hullBox[4 * k] || vxl[i] > hullBox[4 * k + 1] || vyh[i] < hullBox[4 * k + 2] || vyl[i] > hullBox[4 * k + 3]);
+            }
+
+            /// <summary>
+            /// The hull edges of a hull domain (D13) at M3, where refinement constrains the hull: the boundary, so an input segment at a small
+            /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
+            /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
+            /// a small angle must lie on one piece; review of the fix). Not a merge zone: the mesher does not refuse split points near the
+            /// hull (review of the fix). Empty otherwise.
+            /// </summary>
+            List<(Pt a, Pt b, int marker, int sourceId, bool locked)> HullSources()
+            {
+                if (hullSources != null) return hullSources;
+                hullSources = new List<(Pt, Pt, int, int, bool)>();
+                if (e.Milestone == Milestone.M3 && domain.IsHull) {
+                    int id = 1 << 30;
+                    foreach (var ring in domain.Outers)
+                        for (int i = 0; i < ring.Length; ++i) {
+                            Pt a = ring[i], b = ring[(i + 1) % ring.Length];
+                            if (a.Equals(b)) continue;
+                            var on = new List<(Q t, Pt p)>();
+                            bool box = BoxOf(a, b, 0, out double x0, out double x1, out double y0, out double y1);
+                            for (int j = 0; j < inPts.Length; ++j) {
+                                if (box && (input.X[j] < x0 || input.X[j] > x1 || input.Y[j] < y0 || input.Y[j] > y1)) continue;
+                                Pt p = inPts[j];
+                                if (p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
+                                on.Add((Exact.Len2(a, p), p));
+                            }
+                            on.Sort((s, t) => s.t.CompareTo(t.t));
+                            Pt from = a;
+                            foreach (var (_, p) in on) { if (p.Equals(from)) continue; hullSources.Add((from, p, 0, id++, false)); from = p; }
+                            hullSources.Add((from, b, 0, id++, false));
+                        }
+                }
+                hullBox = new double[4 * hullSources.Count];
+                double reach = tube2.Bounds(out _, out double t2) && !double.IsInfinity(t2) ? Math.Sqrt(t2) * (1 + 1e-9) + 1e-300 : double.NaN;
+                for (int k = 0; k < hullSources.Count; ++k) {
+                    if (double.IsNaN(reach) || !BoxOf(hullSources[k].a, hullSources[k].b, reach, out double x0, out double x1, out double y0, out double y1))
+                        x0 = x1 = y0 = y1 = double.NaN;
+                    hullBox[4 * k] = x0; hullBox[4 * k + 1] = x1; hullBox[4 * k + 2] = y0; hullBox[4 * k + 3] = y1;
+                }
+                return hullSources;
+            }
+
+            /// <summary> the box of segment a-b in doubles (rounded outwards), widened by reach; false if a coordinate has no double bounds </summary>
+            static bool BoxOf(Pt a, Pt b, double reach, out double x0, out double x1, out double y0, out double y1)
+            {
+                x0 = x1 = y0 = y1 = 0;
+                if (!a.Bounds(false, out double ax0, out double ax1) || !b.Bounds(false, out double bx0, out double bx1)
+                    || !a.Bounds(true, out double ay0, out double ay1) || !b.Bounds(true, out double by0, out double by1)) return false;
+                x0 = Math.Min(ax0, bx0) - reach; x1 = Math.Max(ax1, bx1) + reach; y0 = Math.Min(ay0, by0) - reach; y1 = Math.Max(ay1, by1) + reach;
+                return true;
+            }
+
             /// <summary>The input constraints: segments and the edges of all rings.</summary>
             void Sources()
             {
@@ -1576,6 +1637,12 @@ namespace Meshing2Acceptance
                 Pt p = v[ip], q = v[iq];
                 var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
                 var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();
+                var hull = HullSources();
+                for (int k = 0; k < hull.Count; ++k) {
+                    // (a box filter in doubles first: a large hull is scanned per bad triangle; the exact test decides)
+                    if (NearHull(k, ip) && WithinTube(hull[k], p)) sp.Add(hull[k]);
+                    if (NearHull(k, iq) && WithinTube(hull[k], q)) sq.Add(hull[k]);
+                }
                 foreach (var a in sp)
                     foreach (var c in sq) {
                         if (a.sourceId == c.sourceId) continue;

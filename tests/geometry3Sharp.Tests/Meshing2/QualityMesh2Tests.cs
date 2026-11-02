@@ -238,6 +238,58 @@ namespace geometry3Sharp.Tests
             } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
         }
 
+        /// <summary>
+        /// D13: on a hull domain the hull is the boundary, so a segment from a hull vertex at a small angle to a hull edge is a small input
+        /// angle like two segments. Refinement must stop at it (Shewchuk 2002) instead of cascading into the apex until the merge tolerance
+        /// stops it, leaving triangles below the bound that nothing excuses (found with CDT's issue-211 in the reference comparison: a
+        /// segment at 0.096 degrees to a hull edge; 7 triangles below 20 degrees, and the Steiner limit at 30 degrees).
+        /// </summary>
+        [Theory]
+        [InlineData(20.0, 0.0134)]   // 0.096 degrees, as in issue-211
+        [InlineData(30.0, 0.0134)]
+        [InlineData(20.0, 0.25)]     // 1.8 degrees
+        [InlineData(20.0, -2.0)]     // 0.096 degrees, with an input point at (2, 0) on the hull edge (its hull sources are split there)
+        public void SmallAngle_BetweenASegmentAndTheHull_IsAnInputAngle(double angle, double rise)
+        {
+            // a point set (hull domain): the segment from the hull vertex (0, 0) to (8, rise), just above the hull edge to (10, 0)
+            bool collinear = rise < 0;
+            if (collinear) rise = 0.0134;
+            var input = new Mesh2Input { X = new[] { 0.0, 10, 10, 0, 8, 3, collinear ? 2 : 3 }, Y = new[] { 0, 0, 10, 10, rise, 6, collinear ? 0 : 6 }, MinAngleDeg = angle, SteinerLimit = 20000 };
+            input.Segments.Add(new SegmentInput(0, 4));
+            var report = Judge(input, out var output);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.False(output.SteinerLimitReached, "refinement cascaded into the apex");
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        public static IEnumerable<object[]> HullAngleSimilarities() => Similarity.All().Select(s => new object[] { s.Name });
+
+        /// <summary> the same under every similarity: 2^k scales bit for bit, the others pass the oracle </summary>
+        [Theory]
+        [MemberData(nameof(HullAngleSimilarities))]
+        public void SmallAngle_BetweenASegmentAndTheHull_Invariance(string name)
+        {
+            var s = Similarity.ByName(name);
+            double[] x = { 0.0, 10, 10, 0, 8, 3 }, y = { 0, 0, 10, 10, 0.0134, 6 };
+            Mesh2Input Make(Func<double, double, Vector3d> f)
+            {
+                var input = new Mesh2Input { X = new double[6], Y = new double[6], MinAngleDeg = 20, SteinerLimit = 20000 };
+                for (int i = 0; i < 6; ++i) { var q = f(x[i], y[i]); input.X[i] = q.x; input.Y[i] = q.y; }
+                input.Segments.Add(new SegmentInput(0, 4));
+                return input;
+            }
+            var moved = Make((a, b) => s.Apply(new Vector3d(a, b, 0)));
+            var report = Judge(moved, out var output);
+            Assert.False(output.SteinerLimitReached);
+            Assert.True(report.Ok, report.ToString());
+            if (s.IsExact) {
+                Judge(Make((a, b) => new Vector3d(a, b, 0)), out var plain);
+                Assert.Equal(plain.VX.Select(v => v * s.Scale), output.VX);
+                Assert.Equal(plain.VY.Select(v => v * s.Scale), output.VY);
+                Assert.Equal(plain.Triangles.SelectMany(t => t), output.Triangles.SelectMany(t => t));
+            }
+        }
+
         [Fact]
         public void Fuzz_NarrowWedges_KeepTagsAndPassTheOracle()
         {
