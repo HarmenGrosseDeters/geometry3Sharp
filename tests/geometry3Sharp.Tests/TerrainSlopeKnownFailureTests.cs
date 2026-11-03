@@ -45,17 +45,32 @@ namespace geometry3Sharp.Tests
             };
         }
 
-        // Known failure: near the origin cap needles along the crease x ≈ 0 (altitudes 1e-12 to 3e-10 m, edges up to
-        // 88 m) fall between the needle flips' threshold (64 e_xy, 7e-12 m) and MinFeatureSize (3e-6 m), which no repair
-        // covers; a larger δ makes new ones. At UTM the same needles are below 64 e_xy (6e-8 m) and are flipped or merged.
-        // When the repair of TERRAIN.md 5.4 lands, the first assertion fails: assert Success there, the same as at UTM.
+        // Known failure: near the origin the first attempt has cap needles along the crease x ≈ 0 (altitudes 4e-12 m,
+        // edges of 37 m), just above the needle flips' threshold (64 e_xy, 3.6e-12 m) and far below MinFeatureSize
+        // (2.3e-6 m), which no repair covers; one fails the slope, one the support (by 2.84 m: its plane at the toe ends).
+        // λ cannot take that, δ is raised, and every further attempt fails again, until the margins exceed Tolerance. At
+        // UTM the crease points round to one position on the coarser grid: no needles, success in 1 attempt. When the
+        // repair of TERRAIN.md 5.4 lands, the first assertion fails: assert Success there, the same as at UTM.
         [Fact]
         public void WavyToeNearTheOrigin_FailsWhereUtmSucceeds()
         {
             var origin = WavyOnWaves(new Vector3d(0, 0, -340));
             Assert.False(origin.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, origin.Status);
+            // (the cause, not only the status: the margin raised to its end, and needles among the failing triangles of
+            // the last attempt, thinner than its MinFeatureSize with edges a million times longer)
+            Assert.Equal(3, origin.Attempts);
             Assert.NotEmpty(origin.ProblemTriangles);
+            DMesh3 last = origin.LastRealized;
+            int needles = 0;
+            foreach (int t in origin.ProblemTriangles) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                last.GetTriVertices(t, ref a, ref b, ref c);
+                double l = Math.Max(a.xy.Distance(b.xy), Math.Max(b.xy.Distance(c.xy), c.xy.Distance(a.xy)));
+                double h = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / l;
+                if (h < origin.UsedMinFeatureSize && l > 1e6 * h) needles++;
+            }
+            Assert.True(needles > 0, "no needle among the failing triangles: the failure has another cause now");
 
             var utm = WavyOnWaves(new Vector3d(327000.25, 5642000.5, -340));
             Assert.True(utm.Compute(), utm.Status + " " + utm.Message);
