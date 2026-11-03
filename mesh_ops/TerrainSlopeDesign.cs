@@ -158,7 +158,7 @@ namespace gs
     /// support needs, measured on the output (1e-6 m at UTM in the tests, 3e-10 m near the origin), at most about
     /// 1.1 x SlopeMargin x slope x reach.
     /// </summary>
-    public class TerrainSlopeDesign
+    public partial class TerrainSlopeDesign
     {
         public enum Directions { Auto, Cut, Fill }
         public enum Statuses
@@ -377,7 +377,8 @@ namespace gs
         public int Realizations;
         public long PredicateCalls, ExactFallbacks, ExactConstructions;
 
-        public bool Compute()
+        // the design in the frame of its inputs (Compute; LocalFrame runs it on the translated inputs)
+        bool compute_here()
         {
             Status = Statuses.InvalidInput; Message = "";
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
@@ -920,8 +921,9 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
-                if (LastRealized != null)
-                    AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(LastRealized, t)).ToList());
+                // (the altitudes on the mesh the ids are of: the realization, or the clipped region of the composite)
+                if (br.BadMesh != null)
+                    AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(br.BadMesh, t)).ToList());
                 if (br.RebuildLambda > 0) {
                     lambdaReq = br.RebuildLambda;
                     continue;
@@ -945,6 +947,8 @@ namespace gs
         {
             public DMesh3 Mesh;
             public List<int> Bad = new List<int>();
+            // the mesh Bad's triangle ids are of (the realization, or the composite's clipped region)
+            public DMesh3 BadMesh;
             public int SlopeFailures;          // slope (i) or XY orientation
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
@@ -1158,7 +1162,9 @@ namespace gs
                 if (st != Statuses.SlopeViolation)
                     return st;
                 double next = -1;
-                if (br.MergeLambda > 0 && lambda < br.MergeLambda)
+                // (a band merge's need stays under λ's bound by the band radius's caps; checked, so λ never passes it: a
+                // need above it goes back to the caller, which raises δ)
+                if (br.MergeLambda > 0 && lambda < br.MergeLambda && (BandMerges == 0 || br.MergeLambda <= lambdaBound))
                     next = br.MergeLambda;
                 // a support failure (ii) only: a larger lowering, measured on the output, while it fits under the bound;
                 // anything else goes back to the caller, which raises the margin δ and builds again
@@ -1248,8 +1254,9 @@ namespace gs
             } else {
                 SlopeMap.ReplayCollapses(mesh, collapsesMade.Made);
             }
-            // (the targeted merge of the band, TERRAIN.md 5.4: the short edges of needles at near-quadruple points, up
-            // to the band radius; in XY, so each realization of a build makes the same)
+            // (the targeted merge of the band, TERRAIN.md 5.4: the short edges of failing needles with different plane
+            // sets, chains included, every position moved by at most the band radius; decided anew on each realization,
+            // as which triangles fail depends on λ and δ, and the lowering need below is this realization's)
             // (only with the merge within r made, a band beyond r, and where an edge's triangle fails the exact checks)
             double bandLength = 0;
             BandMerges = 0;
@@ -1271,9 +1278,10 @@ namespace gs
                 return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
             int repairs = (map.MergedCount > 0 || BandMerges > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
             MergedPositions = map.MergedCount; NeedleFlips = flips; MaxMergeDistance = bandLength;
-            // (the lowering the repairs need: a merge within r as today; a band merge by the length it merged, plus r if
-            // the merge within r moved positions too, as a band merge can take labels the merge brought from up to r
-            // away (the moves add up; one band pass, so no chains among band merges); today's value without band merges)
+            // (the lowering the repairs need: a merge within r as today; band merges by the largest move of an original
+            // position (chains included, capped by the band radius), plus r if the merge within r moved positions too,
+            // as a band merge can take labels the merge brought from up to r away (the moves add up); today's value
+            // without band merges. Per realization: the band merges are decided on this one)
             double need;
             if (BandMerges == 0)
                 need = repairs > 0 ? repairLambda(repairs) : 0;     // (today's, bit for bit)
@@ -1315,6 +1323,7 @@ namespace gs
             }
             br.Mesh = mesh;
             LastRealized = mesh;
+            br.BadMesh = mesh;
             phase("check");
             count();
             if (bad.Count > 0)
@@ -1382,8 +1391,10 @@ namespace gs
                         bad.Add(tid);
                 }
                 phase("composite");
-                if (bad.Count > 0)
+                if (bad.Count > 0) {
+                    br.BadMesh = comp.Region;
                     return Statuses.SlopeViolation;
+                }
                 br.Region = comp.Region;
                 br.Composite = comp.Composite;
                 br.Replaced = comp.Replaced.ToList();
@@ -1483,7 +1494,7 @@ namespace gs
         internal int CapEstimateRounds = 16;
         /// <summary> diagnostics of the last realization: needles flipped </summary>
         internal int NeedleFlips;
-        /// <summary> diagnostics of the last realization: the largest length a band merge collapsed </summary>
+        /// <summary> diagnostics of the last realization: the largest move of an original position by band merges (an upper bound) </summary>
         internal double MaxMergeDistance;
         /// <summary> diagnostics of the last build: today's merge radius r = 64 e_xy, and the band's </summary>
         internal double UsedMergeRadius, UsedBandMergeRadius;

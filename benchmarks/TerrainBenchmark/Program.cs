@@ -446,9 +446,16 @@ class Program
         }
         // repeat=N: N runs on the same instance (the first includes the JIT); slope_s is the last, slope_first_s the first
         int repeat = Math.Max(1, (int)ArgD("repeat", 1));
+        // localframe=1: TerrainSlopeDesign.LocalFrame (docs/design/TERRAIN.md 5.8.1)
+        d.LocalFrame = ArgD("localframe", 0) != 0;
+        // (allocations and collections of the design: the cost probe of LocalFrame, TERRAIN.md 5.8.1)
+        int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
+        long alloc = GC.GetTotalAllocatedBytes(false);
         var sw = Stopwatch.StartNew();
         bool ok = d.Compute();
         R["slope_s"] = Secs(sw);
+        R["alloc_mb"] = (GC.GetTotalAllocatedBytes(false) - alloc) / 1048576.0;
+        R["gc0"] = GC.CollectionCount(0) - gc0; R["gc1"] = GC.CollectionCount(1) - gc1; R["gc2"] = GC.CollectionCount(2) - gc2;
         if (repeat > 1) {
             R["slope_first_s"] = R["slope_s"];
             var times = new List<double>();
@@ -457,7 +464,7 @@ class Program
             R["slope_s"] = times[times.Count / 2]; R["slope_warm_min_s"] = times[0];
         }
         R["ok"] = ok; R["slope_status"] = d.Status.ToString(); R["message"] = d.Message;
-        R["toe_points"] = pts.Count; R["attempts"] = d.Attempts;
+        R["toe_points"] = pts.Count; R["attempts"] = d.Attempts; R["realizations"] = d.Realizations;
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
         R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
         // (diagnostics of the band repair, TERRAIN.md 5.4: internal fields, read by reflection)
@@ -475,6 +482,10 @@ class Program
             return h.ToString("x16");
         };
         R["hash_surface"] = hash(d.SlopeSurface); R["hash_region"] = hash(d.SlopeRegion); R["hash_composite"] = hash(d.Composite ?? d.Replacement);
+        R["min_feature"] = d.UsedMinFeatureSize;
+        if (d.LocalFrame) {
+            R["local_origin_x"] = d.UsedOrigin.x; R["local_origin_y"] = d.UsedOrigin.y; R["local_fallback"] = d.LocalFrameFallback;
+        }
         R["toe_lowering"] = d.UsedToeLowering; R["slope_margin"] = d.UsedSlopeMargin; R["facet_angle"] = d.FacetAngle; R["max_slope_ratio"] = d.MaxSlopeRatio;
         if (d.Terrain != null) {
             R["catch_lines"] = d.CatchLines.Count; R["catch_points"] = d.CatchLines.Sum(l => l.Points.Count);

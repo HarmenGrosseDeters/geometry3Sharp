@@ -75,6 +75,62 @@ namespace geometry3Sharp.Tests
             Assert.Equal(utm.CatchLines.Count, origin.CatchLines.Count);
         }
 
+        // A wavy 48-gon (r 150 m) on waves of amplitude 30 m near the origin: clusters of three triple points pairwise
+        // within the band radius (near-quintuple points) and nested plane sets in the band, along the crease x ≈ 0.
+        // With one band pass and no chains (and the nested pairs that the collapse left not merged at all) the
+        // first attempt failed (SlopeViolation), δ was raised and the second attempt passed; at UTM one attempt. The band
+        // merge now takes chains (the move of every position capped by the band radius) and nested pairs: one attempt,
+        // as at UTM (TERRAIN.md 5.4; found on the Hambach DGM in a local frame, 5.8.1)
+        [Fact]
+        public void WavyToeOnHighWavesNearTheOrigin_OneAttemptAsAtUtm()
+        {
+            var origin = WavyOnWaves(new Vector3d(0, 0, -340), amp: 30);
+            Assert.True(origin.Compute(), origin.Status + " " + origin.Message);
+            Assert.True(origin.BandMerges > 0);
+            TerrainSlopeCatchLineTests.AssertCatchLines(origin, false);
+            TerrainSlopeCatchLineTests.AssertComposite(origin);
+
+            var utm = WavyOnWaves(new Vector3d(327000.25, 5642000.5, -340), amp: 30);
+            Assert.True(utm.Compute(), utm.Status + " " + utm.Message);
+            Assert.Equal(1, utm.Attempts);
+            Assert.Equal(utm.Attempts, origin.Attempts);
+            Assert.Equal(utm.UsedSlopeMargin, origin.UsedSlopeMargin);
+            Assert.Equal(utm.CatchLines.Count, origin.CatchLines.Count);
+        }
+
+        static readonly Lazy<TerrainSlopeDesign> highReference = new Lazy<TerrainSlopeDesign>(() => {
+            var d = WavyOnWaves(new Vector3d(0, 0, -340), amp: 30);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            return d;
+        });
+
+        // the chains in every frame: success; the 2^k frames in one attempt and bit for bit (band merges, their move, the
+        // slope surface, region and composite). The other frames may take a second attempt, for reasons outside the
+        // band merge, on master too: at scale 1e3 a large facet at the toe (133 m by 5 m) fails the first attempt (on
+        // master three attempts); at 1e-3 and UTM the toe (15 cm) is below the frame's MinFeatureSize (1.5 cm), so the
+        // band radius is r and there is no band (TERRAIN.md 5.8.1: the local frame)
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void WavyToeOnHighWaves_Similarities(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
+            var d = WavyOnWaves(s, new Vector3d(0, 0, -340), amp: 30);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeCatchLineTests.AssertCatchLines(d, false);
+            TerrainSlopeCatchLineTests.AssertComposite(d);
+            var r = highReference.Value;
+            Assert.Equal(r.CatchLines.Count, d.CatchLines.Count);
+            if (s.IsExact) {
+                Assert.Equal(1, d.Attempts);
+                Assert.Equal(r.BandMerges, d.BandMerges);
+                Assert.Equal(r.MaxMergeDistance * s.Scale, d.MaxMergeDistance);
+                Assert.Equal("", Invariance.Difference(r.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+                Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
+                Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
+            }
+        }
+
         internal static readonly Lazy<TerrainSlopeDesign> reference = new Lazy<TerrainSlopeDesign>(() => {
             var d = WavyOnWaves(new Vector3d(0, 0, -340));
             Assert.True(d.Compute(), d.Status + " " + d.Message);
