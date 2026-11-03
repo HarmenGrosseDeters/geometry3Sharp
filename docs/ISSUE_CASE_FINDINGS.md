@@ -230,8 +230,8 @@ test, and while listed the test checks the specific wrong outcome).
 
 - **Status: fixed (fix ideas a and b).** `Reducer.PreventFoldOver` (default on): a new triangle must also have a
   positive dot with the area-weighted input normals its corners have absorbed (summed on collapse, taken at the start of
-  each reduction), and at least `BoundaryTriangleMinNormalDot` (0.7) if all three corners lie on the boundary (the
-  walls). Where those normals nearly cancel (`ReferenceNormalMinLength`, 0.25 of their summed lengths: creases, thin
+  each reduction), and more than `BoundaryTriangleMinNormalDot` (0.7) if it has two boundary edges (the walls on three
+  consecutive border vertices; a band one cell wide, whose triangles have one boundary edge each, keeps its reach). Where those normals nearly cancel (`ReferenceNormalMinLength`, 0.25 of their summed lengths: creases, thin
   plates, boxes touching at a face) only the old check applies, so thin parts keep their reach. The tests are no longer
   pinned; direct tests in `ReducerFoldOverTests`.
 - Measured on 72 noisy terrains (12 seeds, noise +-0.2, +-0.4, +-0.8, reduced to 20 % and 5 %): 20 folds and 110 walls

@@ -103,11 +103,12 @@ namespace g3
         /// </summary>
         public bool PreventFoldOver = true;
         /// <summary>
-        /// (PreventFoldOver) a new triangle whose three corners all lie on the boundary, eg one that stands up on three
-        /// consecutive vertices of a straight border after an interior vertex was collapsed onto the border, must
-        /// have a dot of at least this with its reference normal (default 0.7, about 45 degrees), not just a positive
-        /// one: such a triangle can stand at right angles to the surface (a wall along the border) and still pass the
-        /// sign test, as the reference of border vertices tilts towards the border.
+        /// (PreventFoldOver) a new triangle with two boundary edges, eg one on three consecutive vertices of a straight
+        /// border after an interior vertex was collapsed onto the border, must have a dot of more than this with its
+        /// reference normal (default 0.7, about 45 degrees), not just a positive one: such a triangle can stand at right
+        /// angles to the surface (a wall along the border) and still pass the sign test, as the reference of border
+        /// vertices tilts towards the border. (Triangles with one boundary edge, eg all of a band one cell wide, need only
+        /// the positive dot.)
         /// </summary>
         public double BoundaryTriangleMinNormalDot = 0.7;
         /// <summary>
@@ -340,7 +341,6 @@ namespace g3
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();
             ensure_triangle_grid();
-            ensure_reference_normals();
 
             // we don't collapse on the boundary
             HaveBoundary = false;
@@ -349,6 +349,7 @@ namespace g3
 
             begin_setup();
             Precompute(MeshIsClosedHint);
+            ensure_reference_normals();
             if (Cancelled())
                 return;
             end_setup();
@@ -621,6 +622,13 @@ namespace g3
             return m * v.Length;
         }
 
+        // v / (its largest |coordinate|) (exact for power-of-2 scalings of v); v if that is 0 or not finite
+        static Vector3d scaled(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            return (m > 0 && !double.IsInfinity(m)) ? v / m : v;
+        }
+
         // v / |v| without overflow or underflow; 0 for v = 0 or not finite
         static Vector3d unit(Vector3d v)
         {
@@ -630,6 +638,29 @@ namespace g3
             return v / v.Length;
         }
 
+        // the boundary edges of triangle t (around vid) after vid is merged with vother: an edge vid-w becomes the
+        // merge of vid-w and vother-w (if that exists, w is a corner of a removed triangle), a boundary edge if either is
+        int boundary_edges_after(Index3i t, int vid, int vother)
+        {
+            int n = 0;
+            for (int k = 0; k < 3; ++k) {
+                int p = t[k], q = t[(k + 1) % 3];
+                if (p != vid && q != vid) {
+                    if (is_boundary_edge(p, q)) ++n;
+                } else {
+                    int w = (p == vid) ? q : p;
+                    if (is_boundary_edge(vid, w) || is_boundary_edge(vother, w)) ++n;
+                }
+            }
+            return n;
+        }
+
+        bool is_boundary_edge(int p, int q)
+        {
+            int eid = mesh.FindEdge(p, q);
+            return eid != DMesh3.InvalidID && mesh.IsBoundaryEdge(eid);
+        }
+
         // PreventFoldOver: would a triangle around vid (other than tc, td), with vid moved to newv and merged with
         // vother, turn away from its reference normal?
         bool collapse_turns_from_reference(int vid, int vother, ref Vector3d newv, int tc, int td)
@@ -637,7 +668,6 @@ namespace g3
             Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
             Vector3d merged = refNormals[vid] + refNormals[vother];
             double mergedLength = refLengths[vid] + refLengths[vother];
-            bool mergedBoundary = HaveBoundary && (IsBoundaryV(vid) || IsBoundaryV(vother));
             foreach (int tid in mesh.VtxTrianglesItr(vid)) {
                 if (tid == tc || tid == td)
                     continue;
@@ -646,22 +676,32 @@ namespace g3
                 if (t.a == vid) va = newv; else if (t.b == vid) vb = newv; else vc = newv;
                 Vector3d r = Vector3d.Zero;
                 double rl = 0;
-                bool allBoundary = HaveBoundary;
                 for (int k = 0; k < 3; ++k) {
                     int v = t[k];
                     if (v == vid) {
                         r += merged; rl += mergedLength;
-                        allBoundary = allBoundary && mergedBoundary;
                     } else {
                         r += refNormals[v]; rl += refLengths[v];
-                        allBoundary = allBoundary && IsBoundaryV(v);
                     }
                 }
-                // the absorbed normals nearly cancel: no reference here (the usual flip check still applies)
-                if (!(length(r) >= ReferenceNormalMinLength * rl))
+                // no reference here (the usual flip check still applies): the absorbed normals nearly cancel, or they
+                // have no length (zero-area input) or overflowed
+                double lr = length(r);
+                if (!(rl > 0) || double.IsInfinity(rl) || double.IsInfinity(lr) || !(lr >= ReferenceNormalMinLength * rl))
                     continue;
-                double dot = unit((vb - va).Cross(vc - va)).Dot(unit(r));
-                if (!(dot > (allBoundary ? Math.Max(0, BoundaryTriangleMinNormalDot) : 0)))
+                // (a new normal that overflowed, at coordinates beyond about 1e154, is left to the usual check too)
+                Vector3d n = (vb - va).Cross(vc - va);
+                if (!n.IsFinite)
+                    continue;
+                // the sign needs no unit vectors (r scaled by its largest coordinate: no overflow, exact under 2^k
+                // scalings); the boundary rule, rarely reached, does
+                double sign = n.Dot(scaled(r));
+                if (double.IsNaN(sign))
+                    continue;
+                if (!(sign > 0))
+                    return true;
+                if (HaveBoundary && BoundaryTriangleMinNormalDot > 0 && !(unit(n).Dot(unit(r)) > BoundaryTriangleMinNormalDot)
+                    && boundary_edges_after(t, vid, vother) >= 2)
                     return true;
             }
             return false;

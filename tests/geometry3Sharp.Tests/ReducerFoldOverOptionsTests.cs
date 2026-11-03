@@ -100,5 +100,60 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.TriangleCount, guarded.TriangleCount);
             Assert.True(unguarded.TriangleCount > guarded.TriangleCount, $"{unguarded.TriangleCount} vs {guarded.TriangleCount}");
         }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void NoisyTerrain_BoundaryNotPreserved_NoTriangleTurnsDown(int seed)
+        {
+            // without PreserveBoundaryShape boundary vertices move and an interior vertex can be kept where a boundary
+            // vertex was removed: the boundary rule reads the boundary edges of the current mesh, not those of the start.
+            // Without PreventFoldOver: seed 1 an interior fold, seed 2 a wall with two boundary edges. (Seed 3 leaves an
+            // interior sliver standing nearly vertical, n.z = -0.02, within 90 degrees of its reference: the documented
+            // limit of the check.)
+            DMesh3 input = NoisyTerrain(seed);
+            DMesh3 m = new DMesh3(input);
+            new Reducer(m) { PreserveBoundaryShape = false }.ReduceToTriangleCount(input.TriangleCount / 5);
+            AssertValid(m);
+            Assert.Equal(0, NotUp(m));
+        }
+
+        [Fact]
+        public void OpenBandsAndStrips_ReachAsWithoutTheCheck()
+        {
+            // every triangle of a band one cell wide has all three corners on the boundary, so the boundary rule applies
+            // to all of them, not only to walls on a straight border: a curved band and a twisted strip must still reach
+            // what they reach without PreventFoldOver
+            DMesh3 band = new OpenCylinderGenerator() { BaseRadius = 1, TopRadius = 1, Height = 0.3f, Slices = 64 }.Generate().MakeDMesh();
+            DMesh3 tall = new OpenCylinderGenerator() { BaseRadius = 1, TopRadius = 1, Height = 3, Slices = 64 }.Generate().MakeDMesh();
+            DMesh3 strip = Grid(60, 1, (i, j) => 0);
+            foreach (int v in strip.VertexIndices().ToList()) {
+                // a quarter turn about the x axis along the strip, and a bend in the xy plane
+                Vector3d p = strip.GetVertex(v);
+                double t = p.x / 60 * Math.PI / 2, y = p.y - 0.5;
+                strip.SetVertex(v, new Vector3d(p.x, 5 * Math.Sin(p.x / 20) + y * Math.Cos(t), y * Math.Sin(t)));
+            }
+            foreach (var (name, mesh, target) in new[] { ("band", band, 8), ("tall band", tall, 16), ("strip", strip, 8) }) {
+                DMesh3 on = new DMesh3(mesh), off = new DMesh3(mesh);
+                new Reducer(on).ReduceToTriangleCount(target);
+                new Reducer(off) { PreventFoldOver = false }.ReduceToTriangleCount(target);
+                AssertValid(on);
+                Assert.True(on.TriangleCount <= off.TriangleCount, $"{name}: {on.TriangleCount} triangles, {off.TriangleCount} without the check");
+            }
+        }
+
+        [Fact]
+        public void HugeCoordinates_NoReference_SameReductionAsWithoutTheCheck()
+        {
+            // at coordinates of 2^540 the cross products overflow: the references and the new normals are infinite, which
+            // says nothing, so only the usual check applies (taken as a reference, every collapse would be refused)
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { EdgeVertices = 12, Radius = 1 }.Generate().MakeDMesh();
+            MeshTransforms.Scale(sphere, Math.Pow(2, 540));
+            DMesh3 on = new DMesh3(sphere), off = new DMesh3(sphere);
+            new Reducer(on).ReduceToTriangleCount(100);
+            new Reducer(off) { PreventFoldOver = false }.ReduceToTriangleCount(100);
+            Assert.True(off.TriangleCount < sphere.TriangleCount, "the usual check reduces at this scale");
+            Assert.Equal("", Invariance.Difference(off, on));
+        }
     }
 }
