@@ -1537,7 +1537,8 @@ namespace Meshing2Acceptance
                 bool quality = e.Milestone == Milestone.M3 && (input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null);
                 // At the Steiner limit refinement stops with a valid mesh whose quality is not guaranteed (O7); conforming is part of
                 // that quality (O2), so the mesh is judged as a constrained Delaunay triangulation then (found with M3, F-22/a, F-27, F-42).
-                bool conforming = (input.Conforming || quality) && !(e.Milestone == Milestone.M3 && o.SteinerLimitReached);
+                // the constrained quality mode asks for constrained Delaunay only (owner decision 2026-11-02)
+                bool conforming = (input.Conforming || quality) && !input.ConstrainedQuality && !(e.Milestone == Milestone.M3 && o.SteinerLimitReached);
                 foreach (var pair in edges) {
                     var uses = pair.Value;
                     if (uses.Count != 2) continue;
