@@ -338,6 +338,31 @@ namespace Meshing2Acceptance
                     Must("reject: the same segment without its chain in one square (" + way + ")",
                         noChain.Violations.Any(v => v.Kind == Violation.SegmentMissing && v.Detail.StartsWith("input constraint")), "report: " + noChain);
                 }
+                // the corridor's segment the other way, from its collapsed tip (no vertex there: the search starts at the tip's pixel)
+                {
+                    var back = CorridorIn(0.25, 1, false);
+                    back.Segments.Clear(); back.Segments.Add(new SegmentInput(9, 8));
+                    var backReport = Oracle.Check(back, CorridorOut(back, false), m3);
+                    Must("accept: the corridor's segment from its collapsed tip into the square", backReport.Ok && backReport.CollapsedSegments > 0, "report: " + backReport + " / " + backReport.ExcusedSummary());
+                }
+                // the corridor's mouth (20, 10) in no triangle: one link there collapsed (into the corridor), the others with area (the
+                // square's right side): its input points stay unused
+                {
+                    var mouthless = CorridorOut(thin, false);
+                    var tm = new[] { new[] { 0, 1, 6 }, new[] { 0, 6, 7 } };
+                    mouthless.Triangles = tm; mouthless.Neighbours = NeighboursOf(tm); mouthless.TriangleLabels = new int[tm.Length];
+                    mouthless.Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 6), new SubsegmentOutput(6, 7), new SubsegmentOutput(7, 0) };
+                    var mouthReport = Oracle.Check(thin, mouthless, m3);
+                    Must("reject: the corridor's mouth unused (a link there with area)", mouthReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 2 ")), "report: " + mouthReport);
+                }
+                // a free point inside the square, unused: no link at its pixel, and its centre inside the snapped domain
+                {
+                    var freeIn = CorridorIn(0.25, 1, false);
+                    freeIn.X = freeIn.X.Concat(new[] { 5.0 }).ToArray(); freeIn.Y = freeIn.Y.Concat(new[] { 5.0 }).ToArray();
+                    var freeOut = CorridorOut(freeIn, false);
+                    var freeReport = Oracle.Check(freeIn, freeOut, m3);
+                    Must("reject: a free point inside the square, unused", freeReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 10 ")), "report: " + freeReport);
+                }
                 var corner = Oracle.Check(thin, CorridorOut(thin, true), m3);
                 Must("reject: a corner whose edges have area, unused, as VertexUnused", corner.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 1 ")), "report: " + corner);
                 // the images (iterated snap rounding, pixel 1): a link is rerouted through every hot pixel it passes, again on the new
@@ -451,6 +476,38 @@ namespace Meshing2Acceptance
                         var tObl = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 5 }, new[] { 0, 5, 6 } };
                         var rObl = Oracle.Check(obl, Snapped(obl, tObl, new[] { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 5 }, new[] { 5, 6 }, new[] { 6, 0 } }), m3);
                         Must("reject: an oblique corridor 0.85 wide, dropped (review 3, B2)", rObl.Has(Violation.SegmentMissing) && rObl.Has(Violation.VertexUnused) && NothingExcused(rObl), "report: " + rObl);
+                    }
+                    // snap rounding's invariant (ChainPassesHotPixel): a Steiner point (10, 11) in the pixel of a chain (2, 10) - (17, 12)
+                    // that passes it 0.07 above its centre without running through it is reported, so an extra vertex cannot buy an O-H5
+                    // excuse (the mesher's vertex 309 of the zigzag, turned around); routed through it, the chain is accepted
+                    {
+                        var hp = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20, 0, 2, 17 }, Y = new double[] { 0, 0, 20, 20, 10, 12 } };
+                        hp.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                        hp.Segments.Add(new SegmentInput(4, 5));
+                        var tHp = new[] { new[] { 4, 0, 6 }, new[] { 0, 1, 6 }, new[] { 1, 5, 6 }, new[] { 5, 4, 6 }, new[] { 5, 1, 2 }, new[] { 4, 5, 2 }, new[] { 4, 2, 3 }, new[] { 4, 3, 0 } };
+                        Mesh2Output Hp(params (int a, int b)[] chain) => new Mesh2Output { Status = Mesh2Status.Success,
+                            VX = new double[] { 0, 20, 20, 0, 2, 17, 10 }, VY = new double[] { 0, 0, 20, 20, 10, 12, 11 }, InputToVertex = Enumerable.Range(0, 6).ToArray(),
+                            Triangles = tHp, Neighbours = NeighboursOf(tHp), TriangleLabels = new int[tHp.Length], BadTriangles = new int[0],
+                            Subsegments = new[] { (0, 1), (1, 2), (2, 3), (3, 0) }.Concat(chain).Select(x => new SubsegmentOutput(x.Item1, x.Item2)).ToList() };
+                        var past = Oracle.Check(hp, Hp((4, 5)), m3);
+                        Must("reject: a chain past a Steiner point's pixel without running through it (ChainPassesHotPixel)",
+                            past.Violations.Any(x => x.Kind == Violation.ChainPassesHotPixel && x.Detail.Contains("(10, 11)")), "report: " + past);
+                        var through = Oracle.Check(hp, Hp((4, 6), (6, 5)), m3);
+                        Must("accept: the chain routed through the Steiner point's pixel (no ChainPassesHotPixel)", !through.Has(Violation.ChainPassesHotPixel), "report: " + through);
+                        var hpPlain = new Mesh2Input { X = hp.X, Y = hp.Y, Rings = hp.Rings, Segments = hp.Segments };
+                        var free = Oracle.Check(hpPlain, Hp((4, 5)), m3);
+                        Must("accept: without a tolerance there are no hot pixels (no ChainPassesHotPixel)", !free.Has(Violation.ChainPassesHotPixel), "report: " + free);
+                    }
+                    // the crossing of two segments makes its pixel hot: two chains straight through the crossing's pixel (10, 10) without a
+                    // vertex there pass it (ChainPassesHotPixel; also EdgesCross)
+                    {
+                        var crossIn = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20, 0, 2, 18, 10.3, 10.3 }, Y = new double[] { 0, 0, 20, 20, 10, 10, 2, 18 } };
+                        crossIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                        crossIn.Segments.Add(new SegmentInput(4, 5)); crossIn.Segments.Add(new SegmentInput(6, 7));
+                        var tc = new[] { new[] { 0, 1, 6 }, new[] { 0, 6, 4 }, new[] { 4, 6, 5 }, new[] { 6, 1, 5 }, new[] { 1, 2, 5 }, new[] { 5, 2, 7 }, new[] { 4, 5, 7 }, new[] { 7, 2, 3 }, new[] { 4, 7, 3 }, new[] { 0, 4, 3 } };
+                        var oc = Snapped(crossIn, tc, new[] { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 }, new[] { 4, 5 }, new[] { 6, 7 } });
+                        var rc = Oracle.Check(crossIn, oc, m3);
+                        Must("reject: two chains straight through their crossing's pixel without a vertex (ChainPassesHotPixel)", rc.Violations.Any(x => x.Kind == Violation.ChainPassesHotPixel && x.Detail.Contains("(10, 10)")), "report: " + rc);
                     }
                     // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
                     // filled, its tips dropped

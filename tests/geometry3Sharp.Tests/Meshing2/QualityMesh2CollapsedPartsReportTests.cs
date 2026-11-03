@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using Meshing2Acceptance;
@@ -12,17 +13,6 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2CollapsedPartsReportTests
     {
-        [Fact]
-        public void Oracle_CountsWhatItAcceptsOnCollapsedParts()
-        {
-            var input = QualityMesh2CollapsedPartsTests.Zigzag(0, 20);
-            var o = new QualityMesh2Candidate().Run(input);
-            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
-            Assert.True(report.CollapsedSegments > 0, report.ExcusedSummary());
-            Assert.True(report.CollapsedPoints > 0, report.ExcusedSummary());
-        }
-
         /// <summary>
         /// the mesher reports what snapping collapsed (the zigzag's teeth); what refinement pinches is reported on a line of its own,
         /// which depends on where refinement puts its points and is not asked for here
@@ -34,6 +24,60 @@ namespace geometry3Sharp.Tests
             var r = new QualityMesh2 { MinAngle = 20, SnapTolerance = 0.01, SteinerLimit = 50000, Conforming = true }.Compute(c);
             var lines = r.Diagnostics ?? new string[0];
             Assert.Contains(lines, l => l.StartsWith("snap grid: ") && l.Contains(" input segments with pieces on parts that snapping collapsed"));
+        }
+
+        /// <summary>
+        /// a 20 square with a corridor 0.25 wide from x 20 to 20 + length, with a ring vertex every pixel along both walls; points and
+        /// segments optional (a free point in the corridor, a segment along its middle)
+        /// </summary>
+        internal static Mesh2Input Corridor(int length, bool freePoint, bool middle)
+        {
+            var x = new List<double> { 0, 20 }; var y = new List<double> { 0, 0 };
+            for (int i = 0; i <= length; ++i) { x.Add(20 + i); y.Add(9.875); }
+            for (int i = length; i >= 0; --i) { x.Add(20 + i); y.Add(10.125); }
+            x.Add(20); y.Add(20); x.Add(0); y.Add(20);
+            var input = new Mesh2Input { SnapTolerance = 1 };
+            input.Rings.Add(new RingInput(Enumerable.Range(0, x.Count).ToArray(), false));
+            if (freePoint) { x.Add(20 + length / 2 + 0.3); y.Add(10.05); }
+            if (middle) { x.Add(10); y.Add(10); x.Add(20 + length); y.Add(10); input.Segments.Add(new SegmentInput(x.Count - 2, x.Count - 1)); }
+            input.X = x.ToArray(); input.Y = y.ToArray();
+            return input;
+        }
+
+        /// <summary>
+        /// review 3, S1: what snapping collapses is accepted from the mesher's own output: a free point in a collapsed corridor, a
+        /// segment from the square through it (its chain in the square, none in the corridor)
+        /// </summary>
+        [Theory]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(true, true)]
+        public void Oracle_AcceptsWhatSnappingCollapsed(bool freePoint, bool middle)
+        {
+            var input = Corridor(30, freePoint, middle);
+            var o = new ConstrainedDelaunayMesh2Candidate().Run(input);
+            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(report.CollapsedPoints > 0, report.ExcusedSummary());
+            if (middle) Assert.True(report.CollapsedSegments > 0, report.ExcusedSummary());
+        }
+
+        /// <summary>
+        /// cost (review 3, S2: 82 s with the distance rule): 4006 ring vertices on a collapsed corridor, all unused and excused; the images
+        /// are built once and each pixel's links are looked up, not scanned. Bound: a generous multiple of the measured time
+        /// </summary>
+        [Fact]
+        public void Oracle_ManyCollapsedPointsAreCheap()
+        {
+            var input = Corridor(2000, false, false);
+            Assert.Equal(4006, input.Count);
+            var o = new ConstrainedDelaunayMesh2Candidate().Run(input);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2 });
+            watch.Stop();
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(report.CollapsedPoints >= 3999, report.ExcusedSummary());
+            Assert.True(watch.Elapsed.TotalSeconds < 30, "oracle took " + watch.Elapsed.TotalSeconds + " s");
         }
 
         /// <summary>

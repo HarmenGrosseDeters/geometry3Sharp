@@ -769,18 +769,51 @@ namespace Meshing2Acceptance
             Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool> linkCollapsed;
             Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>> linksAt;
 
-            /// <summary> builds the hot pixels, the images of all edges, the snapped domain and the links at each pixel, once </summary>
-            void Snap()
+            List<(Pt a, Pt b)> inputEdges;
+
+            /// <summary> the hot pixels: those of the input points, of the proper crossings of the input's edges and of the output vertices; once </summary>
+            void SnapHot()
             {
                 if (hot != null) return;
-                long work = 0;
                 snapPixel = Q.FromDouble(input.SnapTolerance);
                 hot = new HashSet<(BigInteger x, BigInteger y)>(); hotList = new List<(BigInteger x, BigInteger y)>();
                 void Hot(Pt p) { var n = PixelOf(p, snapPixel); if (hot.Add(n)) hotList.Add(n); }
                 foreach (var p in inPts) Hot(p);
                 foreach (var p in v) Hot(p);
-                var edges = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Distinct().ToList();
-                foreach (var p in Crossings(edges)) Hot(p);
+                inputEdges = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Distinct().ToList();
+                foreach (var p in Crossings(inputEdges)) Hot(p);
+            }
+
+            /// <summary>
+            /// Snap rounding's invariant on the output's chains (Hobby 1999): no subsegment passes a hot pixel other than its ends' (O-H4's
+            /// rule: its interior shrunk by a hair, or its centre); a chain is routed through every hot pixel it meets. Because every output
+            /// vertex makes its pixel hot, a Steiner point placed in the pixel of a chain that does not run through it is reported here, and
+            /// cannot buy an excuse from O-H5. Only with a snap tolerance and reported subsegments. Work per subsegment: the smaller of its
+            /// pixel count and the hot pixel count.
+            /// </summary>
+            void ChainsThroughHotPixels()
+            {
+                if (!(input.SnapTolerance > 0) || subsegmentSet == null) return;
+                SnapHot();
+                long work = 0;
+                foreach (long key in subsegmentSet) {
+                    if (!edges.ContainsKey(key)) continue;
+                    var pa = PixelOf(v[KeyA(key)], snapPixel); var pb = PixelOf(v[KeyB(key)], snapPixel);
+                    if (pa.Equals(pb)) continue;
+                    var passed = HotPassed(pa, pb, hot, hotList, snapPixel, ref work);
+                    if (passed.Count > 0)
+                        r.Add(Violation.ChainPassesHotPixel, "subsegment " + v[KeyA(key)] + " - " + v[KeyB(key)] + " passes the hot pixel of " + Centre(passed[0], snapPixel) + " without running through it");
+                }
+                ImageWorkForTests += work;
+            }
+
+            /// <summary> builds the images of all edges, the snapped domain and the links at each pixel, once </summary>
+            void Snap()
+            {
+                if (images != null) return;
+                SnapHot();
+                long work = 0;
+                var edges = inputEdges;
                 images = new Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>>();
                 List<(BigInteger x, BigInteger y)> Of(Pt a, Pt b)
                 {
@@ -867,8 +900,11 @@ namespace Meshing2Acceptance
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
                 var n = PixelOf(p, snapPixel);
-                if (snappedDomain.Classify(Centre(n, snapPixel)) == Where.Inside) return false;
-                return !linksAt.TryGetValue(n, out var at) || at.All(q => LinkCollapsed(n, q));
+                // with links there, all collapsed implies the centre is not inside (images meet only at pixel centres, so an interior
+                // around the centre would lie beside a link's middle): the centre is classified only where no link is (a corridor with a
+                // ring vertex every pixel: 4000 exact classifications against the 4000 coinciding edges took 35 s)
+                if (linksAt.TryGetValue(n, out var at)) return at.All(q => LinkCollapsed(n, q));
+                return snappedDomain.Classify(Centre(n, snapPixel)) != Where.Inside;
             }
 
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
@@ -1631,15 +1667,47 @@ namespace Meshing2Acceptance
             bool SourceCovers(int a, int b) => sources.Any(s => WithinTube(s, v[a]) && WithinTube(s, v[b]));
 
             /// <summary>In the closure of the domain's interior: a boundary point of two touching holes is not, although it is on rings.</summary>
+            List<(Pt a, Pt b)> closureEdges;
+            double[] closureBox;
+            BoxGrid closureGrid;
+            Dictionary<int, List<(Pt from, Pt to)>> closurePieces;
+
             bool InClosure(Pt p)
             {
                 var where = domain.Classify(p);
                 if (where != Where.Boundary) return where == Where.Inside;
-                var rings = domain.Edges().ToList();
-                foreach (var edge in rings)
-                    if (Exact.OnClosedSegment(edge.a, edge.b, p))
-                        foreach (var piece in RetainedPieces(edge.a, edge.b, rings))
-                            if (Exact.OnClosedSegment(piece.from, piece.to, p)) return true;
+                // the ring edges through p, and their retained pieces, through a grid of the edges' boxes (each unused point on the
+                // boundary scanned all ring edges and cut every edge through it at all of them: 36 s for a corridor with a ring vertex
+                // every pixel, 4006 of them; review of Q17); the reference path scans
+                if (closureEdges == null) {
+                    closureEdges = domain.Edges().ToList();
+                    closureBox = new double[4 * closureEdges.Count];
+                    for (int g = 0; g < closureEdges.Count; ++g) SegmentBox(closureEdges[g].a, closureEdges[g].b, 0, closureBox, 4 * g);
+                    closureGrid = e.Reference ? null : new BoxGrid(closureBox, closureEdges.Count);
+                    closurePieces = new Dictionary<int, List<(Pt from, Pt to)>>();
+                }
+                var own = new double[4];
+                SegmentBox(p, p, 0, own, 0);
+                IEnumerable<int> through = closureGrid == null || double.IsNaN(own[0]) ? Enumerable.Range(0, closureEdges.Count)
+                    : closureGrid.Query(own[0], own[1], own[2], own[3]);
+                foreach (int g in through) {
+                    var edge = closureEdges[g];
+                    if (!Exact.OnClosedSegment(edge.a, edge.b, p)) continue;
+                    if (!closurePieces.TryGetValue(g, out var pieces)) {
+                        if (closureGrid == null || double.IsNaN(closureBox[4 * g])) pieces = RetainedPieces(edge.a, edge.b, closureEdges);
+                        else {
+                            // the ring edges whose boxes meet the edge's widened by its own extent; the others are farther than that
+                            double reach = Math.Max(closureBox[4 * g + 1] - closureBox[4 * g], closureBox[4 * g + 3] - closureBox[4 * g + 2]);
+                            var near = closureGrid.Query(closureBox[4 * g] - reach, closureBox[4 * g + 1] + reach, closureBox[4 * g + 2] - reach, closureBox[4 * g + 3] + reach);
+                            pieces = near.Count == closureEdges.Count || !(reach > 0)
+                                ? RetainedPieces(edge.a, edge.b, closureEdges)
+                                : RetainedPieces(edge.a, edge.b, near.Select(k => closureEdges[k]).ToList(), null, reach);
+                        }
+                        closurePieces[g] = pieces;
+                    }
+                    foreach (var piece in pieces)
+                        if (Exact.OnClosedSegment(piece.from, piece.to, p)) return true;
+                }
                 return false;
             }
 
@@ -1725,6 +1793,7 @@ namespace Meshing2Acceptance
             /// </summary>
             void Segments()
             {
+                ChainsThroughHotPixels();
                 var adjacency = new Dictionary<int, List<int>>();
                 IEnumerable<long> graphEdges = subsegmentSet ?? (IEnumerable<long>)edges.Keys;
                 foreach (long key in graphEdges) {
@@ -1811,7 +1880,7 @@ namespace Meshing2Acceptance
                                 if (candidates.Contains(n) && !previous.ContainsKey(n)) { previous[n] = at; queue.Enqueue(n); }
                         }
                         if (reached < 0) {
-                            if (ChainAcrossCollapsed(piece.from, piece.to, (s.a, s.b), candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
+                            if (ChainAcrossCollapsed((s.a, s.b), candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
                             r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to);
                             continue;
                         }
@@ -1837,12 +1906,12 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// O-H5 in the chain search: the piece from-to of source has a chain if one exists when the collapsed links of the source's
+            /// O-H5 in the chain search: a piece of source has a chain if one exists when the collapsed links of the source's
             /// image may be crossed without one. Each pixel of the image is a node, joined to the next one where the link between them is
-            /// collapsed and to every candidate vertex in it; the pixels of the piece's ends start and end the search too. Everywhere else
-            /// the chain must be there.
+            /// collapsed and to every candidate vertex in it; the search starts and ends at the piece's own start and goal vertices (an
+            /// end without an output vertex is a violation of its own). Everywhere else the chain must be there.
             /// </summary>
-            bool ChainAcrossCollapsed(Pt from, Pt to, (Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
+            bool ChainAcrossCollapsed((Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
@@ -1860,11 +1929,9 @@ namespace Meshing2Acceptance
                 if (!any) return false;
                 foreach (int i in candidates) if (node.TryGetValue(PixelOf(v[i], snapPixel), out int id)) Join(id, i);
                 var goalNodes = new HashSet<int>(goals);
-                if (node.TryGetValue(PixelOf(to, snapPixel), out int goal)) goalNodes.Add(goal);
                 var queue = new Queue<int>();
                 var seen = new HashSet<int>();
                 foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
-                if (node.TryGetValue(PixelOf(from, snapPixel), out int start) && seen.Add(start)) queue.Enqueue(start);
                 while (queue.Count > 0) {
                     int at = queue.Dequeue();
                     if (goalNodes.Contains(at)) return true;
