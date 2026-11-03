@@ -220,7 +220,7 @@ namespace gs
             /// <summary> Composite: the whole terrain with the region replaced </summary>
             Full,
             /// <summary>
-            /// Replacement: only the replaced part (SlopeRegion and the pieces of the cut terrain triangles), with
+            /// Replacement: only the replaced part (SlopeRegion and the pieces of the cut and split terrain triangles), with
             /// ReplacedTerrainTriangles and CompositeTerrainVertices to join it to the rest of the terrain; much less
             /// output than Full on a large terrain
             /// </summary>
@@ -311,7 +311,10 @@ namespace gs
         /// vertices that CompositeTerrainVertices names, it is the Full composite (the same triangles and vertex positions)
         /// </summary>
         public DMesh3 Replacement;
-        /// <summary> with BuildComposite: the terrain triangles that the composite replaces (cut by the region), sorted </summary>
+        /// <summary>
+        /// with BuildComposite: the terrain triangles that the composite replaces (cut by the region, or split at the nodes
+        /// that a cut neighbour has on their shared edge), sorted
+        /// </summary>
         public List<int> ReplacedTerrainTriangles = new List<int>();
         /// <summary>
         /// with BuildComposite: per vertex of Composite or Replacement, the terrain vertex at its position, or -1 (one per

@@ -377,14 +377,124 @@ namespace gs
             }
         }
 
+        // per terrain triangle without a region face next to a replaced one: the points of the replaced one's part
+        // exactly inside their shared edge, at which it is split (TERRAIN.md §11, T-junctions next to a replaced triangle)
+        readonly Dictionary<int, List<PNode>> splits = new Dictionary<int, List<PNode>>();
+        // the part inputs of replaced terrain triangles made by find_splits, for their part (made once)
+        readonly Dictionary<int, PartInput> terrainInputs = new Dictionary<int, PartInput>();
+
+        struct PNode
+        {
+            public Vector3d Pos;
+            public bool Catch;
+            public long Key;
+            public SlopeComposite Owner;
+        }
+
+        // the replaced triangles' part inputs (of each run that replaces one) have points exactly inside an edge whose
+        // neighbour has no region face: the start of a lateral limit or the end of a toe along that edge, a catch point
+        // rounded onto it. The part's triangulation splits the edge there, the copied neighbour would not: a T-junction.
+        // (A node of the edge's own sequence inside it means a region at that edge, so its neighbour has a region face
+        // too; none occurs in the tests with a neighbour that is not replaced. Only the points exactly on the edge make
+        // a T-junction: one off it by rounding is the same ulp gap as between two replaced triangles)
+        void find_splits(HashSet<int> mine, HashSet<int> theirs, bool[] cut, List<int> cutVerts)
+        {
+            splits.Clear();
+            var runs = Partner != null ? new[] { this, Partner } : new[] { this };
+            foreach (SlopeComposite c in runs) c.terrainInputs.Clear();
+            var replaced = new List<int>(replacedSet);
+            replaced.Sort();
+            // the part inputs of the replaced triangles with a terrain part (of each run that replaces one; with the
+            // edge constraints where the part is made by partial, without them by joint), made once and kept for the
+            // parts (collect depends on the build only)
+            var inputsOf = new Dictionary<int, List<KeyValuePair<SlopeComposite, PartInput>>>();
+            foreach (int tb in replaced) {
+                SlopeComposite own = mine.Contains(tb) ? this : Partner;
+                bool joint = mine.Contains(tb) && theirs.Contains(tb);
+                // (wholly in the region: no terrain part, the main loop makes none either)
+                if (joint == false && own.terrain_whole(tb, own.facesOfB[tb])) continue;
+                var inputs = new List<KeyValuePair<SlopeComposite, PartInput>>();
+                foreach (SlopeComposite c in runs) {
+                    if ((c == this ? mine : theirs).Contains(tb) == false) continue;
+                    PartInput x = c.collect(false, tb, c.facesOfB[tb], joint == false);
+                    if (x == null) continue;
+                    c.terrainInputs[tb] = x;
+                    inputs.Add(new KeyValuePair<SlopeComposite, PartInput>(c, x));
+                }
+                // (none: its part fails below, as before)
+                if (inputs.Count > 0) inputsOf[tb] = inputs;
+            }
+            // the points of each part exactly inside an edge, for the triangle across it: split if it is not replaced,
+            // else added to its part's input (another run's part, or one whose own nodes on the edge do not include them)
+            var added = new Dictionary<int, List<PNode>>();
+            foreach (int tb in replaced) {
+                List<KeyValuePair<SlopeComposite, PartInput>> inputs;
+                if (inputsOf.TryGetValue(tb, out inputs) == false) continue;
+                SlopeComposite own = mine.Contains(tb) ? this : Partner;
+                int[] tv = own.O.bTriV[tb], te = own.O.bTriE[tb];
+                for (int j = 0; j < 3; ++j) {
+                    Index2i et = B.GetEdgeT(te[j]);
+                    int nb = et.a == tb ? et.b : et.a;
+                    if (nb < 0) continue;
+                    bool isReplaced = replacedSet.Contains(nb);
+                    if (isReplaced && inputsOf.ContainsKey(nb) == false) continue;
+                    Vector2d p0 = B.GetVertex(tv[j]).xy, p1 = B.GetVertex(tv[(j + 1) % 3]).xy;
+                    var target = isReplaced ? added : splits;
+                    List<PNode> at = null;
+                    foreach (var kv in inputs) {
+                        PartInput x = kv.Value;
+                        for (int i = 0; i < x.Pos.Count; ++i) {
+                            Vector2d q = x.Pos[i].xy;
+                            // (strictly inside, as triangulate splits a constraint; on its line exactly)
+                            if (q == p0 || q == p1 || (q - p0).Dot(p1 - p0) <= 0 || (q - p1).Dot(p0 - p1) <= 0 || ExactPredicates.Orient2d(p0, p1, q) != 0) continue;
+                            if (at == null && target.TryGetValue(nb, out at) == false) { at = new List<PNode>(); target[nb] = at; }
+                            at.Add(new PNode() { Pos = x.Pos[i], Catch = x.IsCatch[i], Key = x.Key[i], Owner = kv.Key });
+                        }
+                    }
+                }
+            }
+            // (into the first input of the part, which joint merges first. Only points at an XY where the part has no node:
+            // at one where it has, its own node keeps its z, as before; where the two parts' z differ there, by λ at
+            // least, it is a step by design, eg the cut and the fill part at a toe crossing of a mixed run)
+            foreach (var kv in added) {
+                PartInput x = inputsOf[kv.Key][0].Value;
+                var have = new HashSet<Vector2d>();
+                foreach (var inp in inputsOf[kv.Key]) foreach (Vector3d p in inp.Value.Pos) have.Add(p.xy);
+                foreach (PNode n in kv.Value) {
+                    if (have.Add(n.Pos.xy) == false) continue;
+                    x.Pos.Add(n.Pos); x.IsCatch.Add(n.Catch); x.Owner.Add(n.Owner); x.Key.Add(n.Key);
+                }
+            }
+            foreach (int nb in splits.Keys) {
+                replacedSet.Add(nb);
+                Index3i v = B.GetTriangle(nb);
+                foreach (int x in new[] { v.a, v.b, v.c })
+                    if (cut[x] == false) { cut[x] = true; cutVerts.Add(x); }
+            }
+        }
+
+        // a split terrain triangle: its corners (as the cut triangles take them), its edges as constraints and the
+        // points inside them; the exact triangulation splits the edges at those points (the whole triangle is the part)
+        bool split(int tb, Func<int, Vector3d> cutPos)
+        {
+            Index3i t = B.GetTriangle(tb);
+            int[] tv = { t.a, t.b, t.c };
+            var inp = new PartInput();
+            foreach (int v in tv) { inp.Pos.Add(cutPos(v)); inp.IsCatch.Add(false); inp.Owner.Add(this); inp.Key.Add(SlopeTerrainOverlay.vkeyB(v)); }
+            for (int j = 0; j < 3; ++j) inp.Constraints.Add(new Index2i(j, (j + 1) % 3));
+            foreach (PNode n in splits[tb]) { inp.Pos.Add(n.Pos); inp.IsCatch.Add(n.Catch); inp.Owner.Add(n.Owner); inp.Key.Add(n.Key); }
+            return triangulate(false, tb, terrainGroup, inp);
+        }
+
         // a terrain triangle that both overlays of a mixed run cut: one part, the triangle minus both regions. Their
         // boundaries inside (catch segments, slope boundaries) are constraints, and the pieces of its edges in both
         // regions or in neither (the two overlays' nodes along an edge merged, each overlay's in its own order)
         bool joint(int tb)
         {
-            PartInput a = collect(false, tb, facesOfB[tb], false);
+            PartInput a, b;
+            if (terrainInputs.TryGetValue(tb, out a) == false) a = collect(false, tb, facesOfB[tb], false);
             if (a == null) return false;
-            PartInput b = Partner.collect(false, tb, Partner.facesOfB[tb], false);
+            if (Partner.terrainInputs.TryGetValue(tb, out b) == false) b = Partner.collect(false, tb, Partner.facesOfB[tb], false);
             if (b == null) { Problem = Partner.Problem; return false; }
             var inp = new PartInput();
             foreach (PartInput x in new[] { a, b }) {
@@ -475,6 +585,10 @@ namespace gs
                         replacedSet.Add(kv.Key);
                         (c == this ? mine : theirs).Add(kv.Key);
                     }
+            // a terrain triangle without a region face that shares an edge with a replaced one, where the replaced one
+            // has nodes inside that edge (the toe or a lateral limit along the edge, a catch point on it): it is split
+            // at those nodes, so that both share the pieces of the edge (no T-junction); it is replaced too
+            find_splits(mine, theirs, cut, cutVerts);
             Replaced.AddRange(replacedSet);
             Replaced.Sort();
             var outOf = new int[CopyTerrain ? B.MaxVertexID : 0];
@@ -498,6 +612,10 @@ namespace gs
                     if (ExactPredicates.Orient2d(Composite.GetVertex(ca).xy, Composite.GetVertex(cb).xy, Composite.GetVertex(cc).xy) < 0) { int x = cb; cb = cc; cc = x; }
                     if (Composite.AppendTriangle(ca, cb, cc, terrainGroup) < 0)
                         throw new InvalidOperationException("SlopeComposite: non-manifold composite");
+                    continue;
+                }
+                if (splits.ContainsKey(tb)) {
+                    if (split(tb, cutPos) == false) return false;
                     continue;
                 }
                 if (mine.Contains(tb) && theirs.Contains(tb)) {
@@ -543,7 +661,7 @@ namespace gs
         internal int RegionFailures;
         /// <summary> diagnostics: the final build copied the whole rest of the terrain (else only the triangles at cut edges) </summary>
         internal bool CopiedTerrain;
-        /// <summary> the terrain triangles replaced (cut by the region), sorted </summary>
+        /// <summary> the terrain triangles replaced (cut by the region, or split at a cut neighbour's nodes), sorted </summary>
         public readonly List<int> Replaced = new List<int>();
         readonly HashSet<int> replacedSet = new HashSet<int>();
         /// <summary> per composite vertex: the terrain vertex at its position, or -1 </summary>
@@ -625,7 +743,8 @@ namespace gs
 
         bool partial(bool slope, int tri, List<int> fl)
         {
-            PartInput inp = collect(slope, tri, fl, true);
+            PartInput inp;
+            if (slope || terrainInputs.TryGetValue(tri, out inp) == false) inp = collect(slope, tri, fl, true);
             if (inp == null) return false;
             return triangulate(slope, tri, slope ? A.GetTriangleGroup(tri) + GroupOffset : terrainGroup, inp);
         }

@@ -135,6 +135,18 @@ namespace geometry3Sharp.Tests
             double toeLength = d.Toes.Sum(t => Enumerable.Range(0, t.SegmentCount).Sum(i => t.Points[i].xy.Distance(t.Points[(i + 1) % t.Points.Count].xy)));
             double slack = 1e-12 * at + 8 * ulp * (toeLength + 2 * (bb.Width + bb.Height));
             Assert.True(Math.Abs(at - ac) <= slack, $"composite area {ac} vs terrain {at} (slack {slack})");
+            // (exactly on a toe segment, in the outputs' frame)
+            Func<Vector2d, bool> onToe = (q) => d.Toes.Any(toe => Enumerable.Range(0, toe.SegmentCount).Any(i => {
+                Vector2d p0 = toe.Points[i].xy - d.UsedOrigin, p1 = toe.Points[(i + 1) % toe.Points.Count].xy - d.UsedOrigin;
+                return ExactPredicates.Orient2d(p0, p1, q) == 0 && (q - p0).Dot(p1 - p0) >= 0 && (q - p1).Dot(p0 - p1) >= 0;
+            }));
+            string tj = TJunction(c, onToe, d.Pieces.Count); Assert.True(tj == "", tj);
+            // (and no vertical crack: two vertices at one XY are a step, at heights at least λ apart)
+            foreach (var atXY in c.Vertices().GroupBy(p => p.xy).Where(x => x.Count() > 1)) {
+                var zs = atXY.Select(p => p.z).OrderBy(z => z).ToList();
+                for (int i = 0; i + 1 < zs.Count; ++i)
+                    Assert.True(zs[i + 1] - zs[i] >= d.UsedToeLowering, $"two vertices at {atXY.Key} {zs[i]:R} {zs[i + 1]:R}, less than λ {d.UsedToeLowering:R} apart");
+            }
             foreach (int tid in r.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, e = Vector3d.Zero;
                 r.GetTriVertices(tid, ref a, ref b, ref e);
@@ -154,6 +166,42 @@ namespace geometry3Sharp.Tests
                     Assert.True(dc < d.UsedMinFeatureSize, $"catch point {q:R} not in the composite ({dc}, MinFeatureSize {d.UsedMinFeatureSize})");
                     Assert.True(dr < d.UsedMinFeatureSize, $"catch point {q:R} not in the slope region ({dr}, MinFeatureSize {d.UsedMinFeatureSize})");
                 }
+        }
+
+        // a crack in a height field (a T-junction): a vertex exactly (Orient2d) strictly inside a boundary edge in XY, so
+        // the triangles on its two sides do not share that edge; the area and the overlaps do not see it. Where the slope
+        // steps off the terrain (the toe, the cap, a lateral limit, a toe crossing in a mixed run) the boundary is open by
+        // design, between a slope and a terrain triangle at heights that differ by λ at least. So it is a crack where the
+        // vertex has a triangle of the edge's group (terrain next to terrain, or one slope piece), or where its height is
+        // within 2 ulps of the edge's there (eg slope next to terrain along a catch line, where both share their vertices),
+        // unless it lies on a step between slope and terrain (onStep: exactly on the toe, where the step's height goes to
+        // 0 where the toe meets the terrain; terrainGroup the composite's terrain group)
+        internal static string TJunction(DMesh3 c, Func<Vector2d, bool> onStep = null, int terrainGroup = int.MinValue)
+        {
+            var bb = c.GetBounds();
+            Func<double, double> ulpOf = (x) => Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x);
+            double ulpZ = ulpOf(Math.Max(Math.Abs(bb.Min.z), Math.Abs(bb.Max.z)));
+            var verts = c.VertexIndices().ToList();
+            foreach (int e in c.BoundaryEdgeIndices()) {
+                Index2i ev = c.GetEdgeV(e);
+                Vector3d a = c.GetVertex(ev.a), b = c.GetVertex(ev.b);
+                double x0 = Math.Min(a.x, b.x), x1 = Math.Max(a.x, b.x), y0 = Math.Min(a.y, b.y), y1 = Math.Max(a.y, b.y);
+                int g = c.GetTriangleGroup(c.GetEdgeT(e).a);
+                foreach (int v in verts) {
+                    if (v == ev.a || v == ev.b) continue;
+                    Vector3d q = c.GetVertex(v);
+                    if (q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1 || q.xy == a.xy || q.xy == b.xy) continue;
+                    if ((q.xy - a.xy).Dot(b.xy - a.xy) <= 0 || (q.xy - b.xy).Dot(a.xy - b.xy) <= 0) continue;
+                    if (ExactPredicates.Orient2d(a.xy, b.xy, q.xy) != 0) continue;
+                    double t = (q.xy - a.xy).Length / (b.xy - a.xy).Length;
+                    bool sameGroup = c.VtxTrianglesItr(v).Any(x => c.GetTriangleGroup(x) == g);
+                    // (a step: one side terrain, the other slope)
+                    bool step = onStep != null && onStep(q.xy) && (g == terrainGroup) != c.VtxTrianglesItr(v).Any(x => c.GetTriangleGroup(x) == terrainGroup);
+                    if (sameGroup || (Math.Abs(q.z - (a.z + (b.z - a.z) * t)) <= 2 * ulpZ && step == false))
+                        return $"vertex {v} ({q.x:R}, {q.y:R}, {q.z:R}) in boundary edge {e} ({a.x:R}, {a.y:R}, {a.z:R}) ({b.x:R}, {b.y:R}, {b.z:R}), groups {string.Join(",", c.VtxTrianglesItr(v).Select(x => c.GetTriangleGroup(x)))} / {g}";
+                }
+            }
+            return "";
         }
 
         static bool cross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)

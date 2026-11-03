@@ -452,7 +452,8 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != Ter
   share that terrain with work running concurrently. `LocalFrameFallback`: an input coordinate could not be translated
   exactly, and the design ran in the input's frame.
 - **Composite.** `CompositeKinds.Full` (default) is the whole terrain with the slope region; `Replacement` only the part that
-  replaces terrain triangles, with `ReplacedTerrainTriangles` and `CompositeTerrainVertices` to join it, far less output on
+  replaces terrain triangles (those the region cuts, and their neighbours split where a cut one has a point inside
+  their shared edge), with `ReplacedTerrainTriangles` and `CompositeTerrainVertices` to join it, far less output on
   a large terrain.
 - **Mixed cut and fill** (`Directions.Auto`): a cut run and a fill run on the terrain, the clamp max(S_fill, min(T, S_cut)),
   one composite. **Target heights** (`TargetHeights`): the level lines of the slope region at those heights
