@@ -571,6 +571,8 @@ namespace g3cli.Tests
             AssertOk(exit, r);
             Assert.True(B(r["boolean"]["rounding_clean"]), r["boolean"].ToJsonString());
             Assert.Equal(256, D(r["boolean"]["rounding_ulp_factor"]));
+            Assert.Equal(5000000, D(r["boolean"]["rounding_max_pair_tests"]));
+            Assert.False(B(r["boolean"]["rounding"]["evaluation_limit_reached"]));
             Assert.False(B(r["boolean"]["strict_rounding"]));
             Assert.True(B(r["mesh"]["clean"]), r["mesh"].ToJsonString());
             double bound = D(r["boolean"]["rounding"]["max_length"]);
@@ -604,6 +606,16 @@ namespace g3cli.Tests
             AssertOk(exit, r);
             Assert.Equal(1e-3, D(r["boolean"]["rounding"]["max_length"]));
             Assert.True(B(r["boolean"]["rounding_clean"]));
+
+            // the effort budget: at a tiny one the repair stops at the limit and writes the result with its defects
+            (exit, r) = Run("resolve", input, m.Path_("utm_budget.g3mesh"), "--rounding-max-pair-tests", "10");
+            AssertOk(exit, r);
+            Assert.Equal(10, D(r["boolean"]["rounding_max_pair_tests"]));
+            Assert.Equal(10, D(r["boolean"]["rounding"]["max_pair_tests"]));
+            Assert.True(B(r["boolean"]["rounding"]["evaluation_limit_reached"]));
+            Assert.False(B(r["boolean"]["rounding_clean"]));
+            (exit, r) = Run("resolve", input, m.Path_("utm_budget.g3mesh"), "--rounding-max-pair-tests", "-1");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
 
             // the same options on boolean; strict needs safe rounding, tolerances are >= 0
             // (with itself: a cube at the origin would make the diagonal, and so the relative bound, huge)
@@ -676,7 +688,8 @@ namespace g3cli.Tests
         {
             string input = PyramidInADent();
             var (exit, r) = Run("repair", input, m.Path_("dent_out.g3mesh"), "--no-alpha-wrap",
-                "--rounding-max-displacement", "2e-5", "--rounding-ulp-factor", "128", "--rounding-absolute-tolerance", "1e-9");
+                "--rounding-max-displacement", "2e-5", "--rounding-ulp-factor", "128", "--rounding-absolute-tolerance", "1e-9",
+                "--rounding-max-pair-tests", "12345678");
             AssertOk(exit, r);
             Assert.True(B(r["used_exact_resolve"]), r.ToJsonString());
             Assert.True(B(r["mesh"]["clean"]), r["mesh"].ToJsonString());
@@ -686,12 +699,14 @@ namespace g3cli.Tests
                 Assert.Equal(2e-5, D(rr["max_displacement"]));
                 Assert.Equal(128, D(rr["ulp_factor"]));
                 Assert.Equal(1e-9, D(rr["absolute_tolerance"]));
+                Assert.Equal(12345678, D(rr["max_pair_tests"]));
             }
             // the defaults: the library's
             (exit, r) = Run("repair", input, m.Path_("dent_default.g3mesh"), "--no-alpha-wrap");
             AssertOk(exit, r);
             Assert.Equal(1e-5, D(r["exact_resolve_rounding"]["max_displacement"]));
             Assert.Equal(256, D(r["separated_rounding"]["ulp_factor"]));
+            Assert.Equal(5000000, D(r["separated_rounding"]["max_pair_tests"]));
             Assert.False(B(r["strict_rounding"]));
 
             // strict: both repairs without the ulp and the absolute term

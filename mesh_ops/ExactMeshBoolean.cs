@@ -179,6 +179,12 @@ namespace g3
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;
         /// <summary>
+        /// SafeRounding's effort budget (MeshRoundingRepair.MaxPairTests): no edit is evaluated once the exact triangle
+        /// pair tests of its evaluations exceed it. Past it, the repair stops editing (Rounding.EvaluationLimitReached) and the result is valid with the
+        /// defects left counted; it bounds the time on inputs it cannot repair. Default 5M
+        /// </summary>
+        public long RoundingMaxPairTests = 5000000;
+        /// <summary>
         /// SafeRounding within the relative bound only (no ulp or absolute term); if its result is not clean, Compute()
         /// fails with Status RoundingNotClean instead of returning a result with defects (Result null; Rounding and
         /// ResultExactVertices stay set, for the diagnosis). Off by default. Not strict, where the coordinates are coarse
@@ -385,7 +391,7 @@ namespace g3
                 Rounding = new MeshRoundingRepair(Result) {
                     SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
-                    MaxDisplacement = RoundingMaxDisplacement
+                    MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
                 };
                 Rounding.Apply();
                 clock.Lap("rounding");
