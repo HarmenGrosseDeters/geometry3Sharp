@@ -138,7 +138,7 @@ output that does not copy it), and the peak below that 3.1 GB at any toe size on
 
 - `Replacement`: `Replacement` holds only the part of the composite that replaces terrain triangles: the slope region
   and the pieces of the cut terrain triangles. `ReplacedTerrainTriangles` (sorted) are the terrain triangles it
-  replaces; `CompositeTerrainVertices` gives, per vertex of `Composite` or `Replacement`, the terrain vertex at its
+  replaces (those the region cuts, and their neighbours split at the cut ones' points inside a shared edge); `CompositeTerrainVertices` gives, per vertex of `Composite` or `Replacement`, the terrain vertex at its
   position (or -1; one per position, if the terrain has several vertices at one position), and
   `TerrainCompositeVertices` the other way round, per terrain vertex (all of several at one position). Replacement plus
   the other terrain triangles, joined through `TerrainCompositeVertices`, is the full composite: the same triangles, the

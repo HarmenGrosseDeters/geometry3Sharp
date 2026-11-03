@@ -1408,10 +1408,12 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      construction, no epsilon (`TerrainSlopeAutoToeOnTerrainTests`; prior art: coincident edges in polygon overlay,
      Martínez, Rueda and Feito 2009).
    - **Next, before RoundToGrid, in this order** (each a Success that is not right, worse than a failure):
-     - (a) **T-junctions next to a replaced terrain triangle.** A replaced triangle with nodes inside an edge whose
-       neighbour has no region face: an open toe along a terrain edge that ends inside it, a lateral limit along a
-       terrain edge, a catch point rounded onto a terrain edge. The neighbour is copied whole, a crack that the area and
-       overlap checks of the tests do not see. Close that test gap too (a T-junction check in `AssertComposite`).
+     - (a) Done: **T-junctions next to a replaced terrain triangle.** A replaced triangle's part with a point exactly
+       inside an edge whose neighbour has no region face (an open toe along a terrain edge that ends inside it, a
+       lateral limit along a terrain edge, a catch point rounded onto a terrain edge) left the neighbour copied whole,
+       a crack. The neighbour is now split at those points by the exact CDT and replaced too; `AssertComposite` checks
+       every composite for T-junctions (`TerrainSlopeOpenToeAlongEdgeTests`; prior art: hanging nodes in conforming
+       refinement, Bank, Sherman and Weiser 1983).
      - (b) **A design below `MinFeatureSize`.** In the frame "rotated, scale 1e-3, utm" the 7-gon of the mixed tests
        (r 1.1 cm, `MinFeatureSize` 1.5 cm) gives Success with catch points moved by more than `MinFeatureSize` or an
        empty region, in cut and fill alone too. It should get a status, not Success: an existing `StatusKind` first,
