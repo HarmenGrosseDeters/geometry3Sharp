@@ -509,6 +509,27 @@ namespace Meshing2Acceptance
                         var rc = Oracle.Check(crossIn, oc, m3);
                         Must("reject: two chains straight through their crossing's pixel without a vertex (ChainPassesHotPixel)", rc.Violations.Any(x => x.Kind == Violation.ChainPassesHotPixel && x.Detail.Contains("(10, 10)")), "report: " + rc);
                     }
+                    // review 4, B1: images round the input segment itself first, not the line between its end pixels' centres. A
+                    // diagonal strip 1.27 wide: its wall y = x + 0.9 passes pixel (3, 4), which a free point makes hot, so snap rounding
+                    // keeps a triangle of area there; dropped with the point, rejected
+                    {
+                        var stripIn = new Mesh2Input { SnapTolerance = 1,
+                            X = new double[] { -0.45, 0.45, 10.45, 9.55, 20, 30, 30, 20, 3 }, Y = new double[] { 0.45, -0.45, 9.55, 10.45, 0, 0, 10, 10, 3.85 } };
+                        stripIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                        stripIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, false));
+                        var ts = new[] { new[] { 4, 5, 6 }, new[] { 4, 6, 7 } };
+                        var rs = Oracle.Check(stripIn, Snapped(stripIn, ts, new[] { new[] { 4, 5 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 4 } }), m3);
+                        Must("reject: a strip whose wall snap rounding routes through a hot pixel off the end pixels' line, dropped (review 4, B1)",
+                            rs.Has(Violation.SegmentMissing) && rs.Violations.Any(x => x.Kind == Violation.VertexUnused && x.Detail.StartsWith("input 8 ")) && NothingExcused(rs), "report: " + rs);
+                        // ... and the converse: the hypotenuse (0, -0.45) - (20, 0.55) passes the pixel of the point (12, 0.1), so snap rounding
+                        // collapses (0, 0) - (12, 0) onto the bottom; the mesh of the triangle (12, 0), (20, 0), (20, 1) is accepted
+                        var hyp = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20, 12 }, Y = new double[] { -0.45, -0.45, 0.55, 0.1 } };
+                        hyp.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                        var th = new[] { new[] { 3, 1, 2 } };
+                        var rh = Oracle.Check(hyp, Snapped(hyp, th, new[] { new[] { 3, 1 }, new[] { 1, 2 }, new[] { 2, 3 } }), m3);
+                        Must("accept: a hypotenuse that snap rounding routes through a point's pixel off the end pixels' line (review 4, B1)",
+                            rh.Ok && rh.CollapsedSegments > 0 && rh.CollapsedPoints > 0, "report: " + rh + " / " + rh.ExcusedSummary());
+                    }
                     // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
                     // filled, its tips dropped
                     var e8 = new Mesh2Input { X = new double[] { 0, 10, 10, 10.5, 10.5, 20, 20, 0 }, Y = new double[] { 0, 0, 10, 10, 0, 0, 20, 20 }, SnapTolerance = 1 };

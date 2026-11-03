@@ -208,11 +208,11 @@ corner tip, which O-H4 does not cover.
 collapsed where snap rounding leaves it without area, decided on the snap-rounded arrangement itself:
 - **Hot pixels:** the pixels of the input points, of the proper crossings of the input's edges, and of every output vertex
   (refinement's grid points are vertices too, and every vertex makes its pixel hot).
-- **Images:** the image of an edge runs from pixel centre to pixel centre through every hot pixel one of its links passes (O-H4's
-  rule: the interior, a hair smaller, or the centre; a corner touch does not count), rerouted again on the new links until none is
-  left: iterated snap rounding (Halperin and Packer 2002). Terminates: the image only gains hot pixels, of which there are finitely
-  many. Order along a link by the exact entry parameter. Work per pass and link: the smaller of its pixel count (walked, with a hash
-  of the hot pixels) and the hot pixel count (tested), so no length limit.
+- **Images:** the image of an edge is snap rounding's, iterated: the first pass reroutes the input segment itself through every hot
+  pixel it passes (Hobby 1999; O-H4's rule: the interior, a hair smaller, or the centre; a corner touch does not count), in order of
+  the exact entry parameter; each further pass reroutes the new links between pixel centres through the hot pixels they pass, until
+  none is left (Halperin and Packer 2002). Terminates: the image only gains hot pixels, of which there are finitely many. Work per pass
+  and link: the smaller of its pixel count (an integer walk between lattice centres) and the hot pixel count (tested in its box).
 - **Snapped domain:** rule D5 on the images of the input's rings (a hull domain: the hull's image). A link is collapsed where the
   snapped domain has no interior just beside its middle on either side (2^-40 of its length off it; no other link between pixel
   centres comes that close below 2^30 pixels of length).
@@ -227,24 +227,24 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   1999; Guibas and Marimont 1998; Halperin and Packer 2002; de Berg, Halperin and Overmars 2007).
 - **Snap rounding's invariant on the output (`ChainPassesHotPixel`):** no subsegment passes a hot pixel other than its ends' (Hobby
   1999: a chain runs through every hot pixel it meets). Because every output vertex is hot, a Steiner point placed in the pixel of a
-  chain that does not run through it is reported, so an extra vertex cannot buy an excuse. All subsegments, only with a tolerance.
-- **Known gap, refinement (M3):** iterated snap rounding depends on the order in which pixels become hot. The mesher rounds the input
-  first and refinement's points later; the oracle rounds once over the final hot pixels. Where refinement split a collapsed double
-  chain (both sides on one link) at a point that the input edge of one side passes first, the oracle's rounding keeps a sliver of
-  area there that the mesher's does not (z0 at (100778, 50241) on the 1 cm grid: a triangle of 1 px²). In collapsed parts the output
-  carries no chains (subsegments are triangle edges), so no oracle can reconstruct the mesher's rounding from it. The zigzag with
-  refinement is pinned as known INVALID with exact counts: z0 one SegmentMissing, z1 six (`QualityMesh2CollapsedPartsTests`). Tried
-  and dropped: replaying the output vertices in index order (z1 still four), and checking the output's chains with closed gaps
-  ((A'), rounding the gaps with bounded drift, Packer 2008): in a band 0.7 pixel wide both sides lie in one tube, the pieces cannot be
-  ordered strictly, and the closures cross real chains.
+  chain that does not run through it is reported, so an extra vertex cannot buy an excuse. All subsegments of an identity output
+  (held to the grid), only with a tolerance; a foreign producer (Triangle's files) is no snap rounder and is not held to it.
+- **Joins:** in the chain search the candidate vertices join only the ends of collapsed links, not every pixel of the image (two
+  vertices sharing a pixel elsewhere are not connected without an edge; review 4).
+- **Review 4 (blocking, fixed):** a first form rounded only the line between the end pixels' centres, never the input segment. It
+  excused a diagonal strip 1.27 pixel wide whose wall passes a free point's pixel (snap rounding keeps a triangle of 5 px² there), and
+  rejected a correct mesh whose hypotenuse snap rounding routes through a point's pixel. It also made the zigzag with refinement look
+  like an order dependence of iterated rounding (z0 one SegmentMissing, z1 six): with the first pass on the input segment the zigzag is
+  accepted at M3 as at M2. Iterated rounding can still depend on the order of rounding (Hershberger 2013); no case is known here.
 - **Self-checks:**
   - Images: a segment past no hot pixel; rerouted through one; rerouted again (iteration: (6, 1) is missed by the segment but passed
     by its rerouted link); a corner touch does not reroute; hot pixels in order along a link; each by walking the pixels and by
-    testing the hot pixels.
-  - Accept: a corridor 0.25 pixel wide with its segment and its far points; a point on it with a segment into the square (the point;
+    testing the hot pixels; review 4's strip (rejected) and hypotenuse (accepted).
+  - Accept: a corridor 0.25 pixel wide with its segment and its far points, and its segment from the collapsed tip; a point on it with a segment into the square (the point;
     its chain in the square is still required); the dumbbell (two squares joined by a collapsed corridor, a segment from one to the
     other, either way); E2 complete; a chain routed through a Steiner point's pixel.
-  - Reject: a corridor three pixels wide whose content is missing; the collapsed corridor without a tolerance; an unused corner whose
+  - Reject: a corridor three pixels wide whose content is missing; the corridor's mouth unused (one link there with area); a free
+    point inside the square unused; two chains straight through their crossing's pixel without a vertex; the collapsed corridor without a tolerance; an unused corner whose
     edges have area; the review's cases E1, E1b, E2, E6, E8, B1 (a segment on the edge of a wide square), the stub across a pixel
     line, the corridor 0.9 wide across a row boundary and the oblique corridor 0.85 wide, each with nothing excused; the dumbbell
     without its chain in one square; a chain past a Steiner point's pixel (`ChainPassesHotPixel`).
@@ -261,12 +261,10 @@ that also carries a ring or hull edge count (the part collapsed onto its boundar
 hole is not reported (review 3). The mesher does not decide
 "narrower than a pixel"; the oracle does.
 
-**Follow-up (not done): the refinement pinch at M3.** Two ways, in this order:
-1. **A certificate from the mesher:** the mesher reports its collapsed double chains as a side report of the result, as vertex
-   sequences per input edge (no change to the mesh format; Q17 already asks the mesher to report collapse). The oracle checks the
-   certificate against snap rounding's invariant and the tube, and decides the collapse on it (the certifying-algorithms pattern,
-   McConnell, Mehlhorn, Näher and Schweitzer 2011). It covers M3 without making the outputs worse.
-2. **(C):** refinement places no grid point in a pixel that a collapsed double chain passes. It changes outputs and leaves narrow
-   parts with fewer points.
-Reproductions: the zigzag cases pinned above. A rounding of a gap in the oracle would need bounded drift (ISRbd, Packer 2008): plain
-iteration drifts across a band 0.7 pixel wide onto the far side's vertices.
+**Follow-up (only if a case appears): an order dependence at M3.** Should a case appear where the mesher's incremental rounding
+collapses what the oracle's rounding of the final hot pixels keeps, two ways, in this order: (1) a certificate from the mesher, its
+collapsed double chains as a side report of the result (vertex sequences per input edge, no change to the mesh format), checked
+by the oracle against snap rounding's invariant and the tube (certifying algorithms, McConnell, Mehlhorn, Näher and Schweitzer 2011);
+(2) refinement placing no grid point in a pixel that a collapsed double chain passes (changes outputs). A rounding of gaps from the
+output alone was tried and dropped: it needs bounded drift (ISRbd, Packer 2008), and in a band 0.7 pixel wide the pieces cannot be
+ordered strictly.

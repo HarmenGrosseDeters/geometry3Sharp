@@ -628,7 +628,7 @@ namespace Meshing2Acceptance
             }
 
             // ------------------------------------------------------------ O-H5: parts of the domain collapsed by snapping (Q17)
-            // Owner decision 2026-11-02 (spec Q17): a part of the domain narrower than a pixel may collapse; the oracle accepts what is
+            // Owner decision 2026-11-02 (spec Q17): a part of the domain that snap rounding collapses may collapse; the oracle accepts what is
             // missing there only on a collapsed part. Decided on the snapped arrangement as snap rounding defines it (Hobby 1999,
             // Guibas and Marimont 1998; iterated, Halperin and Packer 2002). Hot pixels: the pixels of the input points, of the proper
             // crossings of the input's edges, and of every output vertex (refinement's grid points are vertices too, and every vertex
@@ -699,52 +699,87 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// The hot pixels other than u and w that link u-w passes, in order along it: by walking the pixels the link crosses where they
-            /// are fewer than the hot pixels, else by testing each hot pixel in the link's box. Work: the smaller of the two counts.
+            /// The hot pixels other than u and w that segment p-q passes (O-H4's rule), in order along it by their entry parameter: by
+            /// walking the pixels it crosses where they are fewer than the hot pixels, else by testing each hot pixel in its box. Work: the
+            /// smaller of the two counts. For a segment of the input itself (the first pass of an image) and for links too long for
+            /// <see cref="HotPassed"/>'s integer walk.
             /// </summary>
-            static List<(BigInteger x, BigInteger y)> HotPassed((BigInteger x, BigInteger y) u, (BigInteger x, BigInteger y) w,
+            static List<(BigInteger x, BigInteger y)> SegmentPassed(Pt p, Pt q, (BigInteger x, BigInteger y) u, (BigInteger x, BigInteger y) w,
                 HashSet<(BigInteger x, BigInteger y)> hot, List<(BigInteger x, BigInteger y)> hotList, Q pixel, ref long work)
             {
-                Pt cu = Centre(u, pixel), cw = Centre(w, pixel);
                 var result = new List<(BigInteger x, BigInteger y)>();
-                BigInteger span = BigInteger.Abs(w.x - u.x) + BigInteger.Abs(w.y - u.y);
+                var pp = PixelOf(p, pixel); var pq = PixelOf(q, pixel);
+                BigInteger span = BigInteger.Abs(pq.x - pp.x) + BigInteger.Abs(pq.y - pp.y);
                 if (span <= hotList.Count) {
-                    var ts = PixelBreaks(cu, cw, pixel);
+                    var ts = PixelBreaks(p, q, pixel);
                     work += ts.Count;
                     for (int j = 0; j + 1 < ts.Count; ++j) {
                         Q t = (ts[j] + ts[j + 1]) / 2;
-                        var n = PixelOf(new Pt(cu.Qx + (cw.Qx - cu.Qx) * t, cu.Qy + (cw.Qy - cu.Qy) * t), pixel);
-                        if (n.Equals(u) || n.Equals(w) || !hot.Contains(n) || result.Count > 0 && result[result.Count - 1].Equals(n)) continue;
-                        if (PassesPixel(cu, cw, Centre(n, pixel), pixel)) result.Add(n);
+                        var n = PixelOf(new Pt(p.Qx + (q.Qx - p.Qx) * t, p.Qy + (q.Qy - p.Qy) * t), pixel);
+                        if (n.Equals(u) || n.Equals(w) || !hot.Contains(n) || result.Contains(n)) continue;
+                        if (PassesPixel(p, q, Centre(n, pixel), pixel)) result.Add(n);
                     }
                     return result;
                 }
                 work += hotList.Count;
-                BigInteger x0 = BigInteger.Min(u.x, w.x), x1 = BigInteger.Max(u.x, w.x), y0 = BigInteger.Min(u.y, w.y), y1 = BigInteger.Max(u.y, w.y);
+                BigInteger x0 = BigInteger.Min(pp.x, pq.x), x1 = BigInteger.Max(pp.x, pq.x), y0 = BigInteger.Min(pp.y, pq.y), y1 = BigInteger.Max(pp.y, pq.y);
                 var found = new List<(Q t, (BigInteger x, BigInteger y) n)>();
                 foreach (var n in hotList) {
                     if (n.x < x0 || n.x > x1 || n.y < y0 || n.y > y1 || n.Equals(u) || n.Equals(w)) continue;
                     var c = Centre(n, pixel);
-                    if (!PassesPixel(cu, cw, c, pixel)) continue;
-                    var t = Entry(cu, cw, c, pixel / 2);
+                    if (!PassesPixel(p, q, c, pixel)) continue;
+                    var t = Entry(p, q, c, pixel / 2);
                     if (t != null) found.Add((t.Value, n));
                 }
                 return found.OrderBy(f => f.t).Select(f => f.n).ToList();
             }
 
             /// <summary>
-            /// The iterated snap-rounded image of segment a-b, as pixels from a's to b's (Halperin and Packer 2002). Each pass reroutes every
-            /// link through the hot pixels it passes that the image does not hold yet, in order along the link, until a pass adds none.
+            /// The hot pixels other than u and w that the link between their centres passes, in order along it. Walks the pixels whose
+            /// interior the link crosses with integers (the next pixel boundary in x or in y by comparing (2i + 1) |dy| with (2j + 1) |dx|;
+            /// both at once through a corner, whose two side pixels are only touched), each hot one confirmed by O-H4's rule; work: the
+            /// link's pixel count, or the hot pixel count where that is smaller (<see cref="SegmentPassed"/>).
+            /// </summary>
+            static List<(BigInteger x, BigInteger y)> HotPassed((BigInteger x, BigInteger y) u, (BigInteger x, BigInteger y) w,
+                HashSet<(BigInteger x, BigInteger y)> hot, List<(BigInteger x, BigInteger y)> hotList, Q pixel, ref long work)
+            {
+                BigInteger dxB = w.x - u.x, dyB = w.y - u.y, limit = new BigInteger(int.MaxValue);
+                BigInteger span = BigInteger.Abs(dxB) + BigInteger.Abs(dyB);
+                if (span > hotList.Count || BigInteger.Abs(dxB) > limit || BigInteger.Abs(dyB) > limit)
+                    return SegmentPassed(Centre(u, pixel), Centre(w, pixel), u, w, hot, hotList, pixel, ref work);
+                long ax = (long)BigInteger.Abs(dxB), ay = (long)BigInteger.Abs(dyB);
+                int sx = dxB.Sign, sy = dyB.Sign;
+                var result = new List<(BigInteger x, BigInteger y)>();
+                Pt cu = Centre(u, pixel), cw = Centre(w, pixel);
+                long i = 0, j = 0;
+                BigInteger x = u.x, y = u.y;
+                while (i < ax || j < ay) {
+                    long cx = i < ax ? (2 * i + 1) * ay : long.MaxValue, cy = j < ay ? (2 * j + 1) * ax : long.MaxValue;
+                    if (cx <= cy) { x += sx; ++i; }
+                    if (cy <= cx) { y += sy; ++j; }
+                    ++work;
+                    var n = (x, y);
+                    if (n.Equals(w) || !hot.Contains(n)) continue;
+                    if (PassesPixel(cu, cw, Centre(n, pixel), pixel)) result.Add(n);
+                }
+                return result;
+            }
+
+            /// <summary>
+            /// The iterated snap-rounded image of segment a-b, as pixels from a's to b's (Hobby 1999; iterated, Halperin and Packer 2002).
+            /// The first pass reroutes the segment a-b itself through every hot pixel it passes, in order along it; each further pass
+            /// reroutes every link through the hot pixels it passes that the image does not hold yet, until a pass adds none. (A link
+            /// passing a pixel the image already holds elsewhere is not rerouted to it again: the image stays a simple pixel path.)
             /// Terminates: the hot pixels are finite and every pass but the last adds at least one to the image, which only grows. Cost per
-            /// pass: per link the smaller of its pixel count and the hot pixel count (<see cref="HotPassed"/>); at most one pass per hot
-            /// pixel the image gains, plus one.
+            /// pass: per link the smaller of its pixel count and the hot pixel count; at most one pass per hot pixel the image gains, plus one.
             /// </summary>
             internal static List<(BigInteger x, BigInteger y)> Image(Pt a, Pt b, HashSet<(BigInteger x, BigInteger y)> hot, List<(BigInteger x, BigInteger y)> hotList, Q pixel, ref long work)
             {
-                var image = new List<(BigInteger x, BigInteger y)> { PixelOf(a, pixel) };
-                var last = PixelOf(b, pixel);
-                if (!last.Equals(image[0])) image.Add(last);
-                var held = new HashSet<(BigInteger x, BigInteger y)>(image);
+                var first = PixelOf(a, pixel); var last = PixelOf(b, pixel);
+                var image = new List<(BigInteger x, BigInteger y)> { first };
+                var held = new HashSet<(BigInteger x, BigInteger y)> { first, last };
+                foreach (var n in SegmentPassed(a, b, first, last, hot, hotList, pixel, ref work)) if (held.Add(n)) image.Add(n);
+                if (!last.Equals(first)) image.Add(last);
                 for (bool changed = true; changed; ) {
                     changed = false;
                     var next = new List<(BigInteger x, BigInteger y)> { image[0] };
@@ -793,7 +828,8 @@ namespace Meshing2Acceptance
             /// </summary>
             void ChainsThroughHotPixels()
             {
-                if (!(input.SnapTolerance > 0) || subsegmentSet == null) return;
+                // (identity outputs only, which are held to the grid; a foreign producer, eg Triangle's files, is no snap rounder)
+                if (!(input.SnapTolerance > 0) || subsegmentSet == null || !o.IdentityRules) return;
                 SnapHot();
                 long work = 0;
                 foreach (long key in subsegmentSet) {
@@ -1908,7 +1944,7 @@ namespace Meshing2Acceptance
             /// <summary>
             /// O-H5 in the chain search: a piece of source has a chain if one exists when the collapsed links of the source's
             /// image may be crossed without one. Each pixel of the image is a node, joined to the next one where the link between them is
-            /// collapsed and to every candidate vertex in it; the search starts and ends at the piece's own start and goal vertices (an
+            /// collapsed; the ends of such links join the candidate vertices in their pixels; the search starts and ends at the piece's own start and goal vertices (an
             /// end without an output vertex is a violation of its own). Everywhere else the chain must be there.
             /// </summary>
             bool ChainAcrossCollapsed((Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
@@ -1924,10 +1960,12 @@ namespace Meshing2Acceptance
                     if (!bridge.TryGetValue(x, out var lx)) bridge.Add(x, lx = new List<int>()); lx.Add(y);
                     if (!bridge.TryGetValue(y, out var ly)) bridge.Add(y, ly = new List<int>()); ly.Add(x);
                 }
-                bool any = false;
-                for (int k = 0; k + 1 < image.Count; ++k) if (LinkCollapsed(image[k], image[k + 1])) { Join(-1 - k, -2 - k); any = true; }
-                if (!any) return false;
-                foreach (int i in candidates) if (node.TryGetValue(PixelOf(v[i], snapPixel), out int id)) Join(id, i);
+                // (candidate vertices join only the ends of collapsed links: elsewhere two vertices in one pixel of the image are not
+                // connected without an edge; review)
+                var ends = new HashSet<int>();
+                for (int k = 0; k + 1 < image.Count; ++k) if (LinkCollapsed(image[k], image[k + 1])) { Join(-1 - k, -2 - k); ends.Add(-1 - k); ends.Add(-2 - k); }
+                if (ends.Count == 0) return false;
+                foreach (int i in candidates) if (node.TryGetValue(PixelOf(v[i], snapPixel), out int id) && ends.Contains(id)) Join(id, i);
                 var goalNodes = new HashSet<int>(goals);
                 var queue = new Queue<int>();
                 var seen = new HashSet<int>();

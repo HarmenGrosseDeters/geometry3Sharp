@@ -7,7 +7,7 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Q17: a domain narrower than a pixel. A zigzag polyline 7 mm wide and 10 m long on a grid of 1 cm, its convex hull the domain.
+    /// Q17: a domain narrower than a pixel, which snap rounding collapses. A zigzag polyline 7 mm wide and 10 m long on a grid of 1 cm, its convex hull the domain.
     /// Snapping and refinement put every vertex at a pixel centre, the hull chains and the polyline's chains share them, and parts of
     /// the domain collapse: corners in no triangle, segments with no chain there. Owner decision 2026-11-02 (spec Q17): such a part may
     /// collapse; the oracle accepts what is missing only on a collapsed part (O-H5: where the snap-rounded images of the boundary on both
@@ -44,34 +44,26 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
-        /// <summary>
-        /// Known gap, pinned (not skipped): with refinement (M3) the oracle reports what refinement pinched. Iterated snap rounding depends
-        /// on the order of rounding, refinement rounds incrementally, and in collapsed parts the output carries no chains, so the oracle
-        /// cannot reconstruct the mesher's rounding there; it judges the rounding of the final hot pixels, in which these parts keep slivers
-        /// of area. Follow-up: a certificate of the collapsed double chains from the mesher (docs/design/MESHING2D_HULL_GRID.md section 7).
-        /// The counts are exact, so a change either way shows.
-        /// </summary>
+        /// <summary> snapped and refined (M3): what snapping collapsed and refinement pinched is accepted </summary>
         [Theory]
-        [InlineData(0, 0.0, 1, 0)]
-        [InlineData(0, 20.0, 1, 0)]
-        [InlineData(1, 0.0, 6, 0)]
-        [InlineData(1, 20.0, 6, 0)]
-        public void DomainNarrowerThanAPixel_RefinementPinch_KnownInvalid(int which, double angle, int segmentsMissing, int verticesUnused)
+        [InlineData(0, 0.0)]
+        [InlineData(0, 20.0)]
+        [InlineData(1, 0.0)]
+        [InlineData(1, 20.0)]
+        public void DomainNarrowerThanAPixel_RefinedCollapseIsAccepted(int which, double angle)
         {
             var input = Zigzag(which, angle);
             var o = new QualityMesh2Candidate().Run(input);
             Assert.Equal(Mesh2Status.Success, o.Status);
             var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.Equal(segmentsMissing, report.Violations.Count(v => v.Kind == Violation.SegmentMissing));
-            Assert.Equal(verticesUnused, report.Violations.Count(v => v.Kind == Violation.VertexUnused));
-            Assert.Equal(segmentsMissing + verticesUnused, report.Violations.Count);
+            Assert.True(report.Ok, report.ToString());
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
 
         /// <summary>
-        /// the same under every similarity: snapped alone, the oracle accepts the mesh in every frame; snapped and refined, the 2^k
-        /// scales give the same mesh bit for bit
+        /// the same under every similarity: snapped alone and snapped and refined, the oracle accepts the mesh in every frame; refined,
+        /// the 2^k scales give the same mesh bit for bit
         /// </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
@@ -90,10 +82,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Mesh2Status.Success, m2.Status);
             var report = Oracle.Check(snapped, m2, new OracleExpect { Milestone = Milestone.M2 });
             Assert.True(report.Ok, name + ": " + report);
+            var refined = Moved(Zigzag(0, 20));
+            var m3 = new QualityMesh2Candidate().Run(refined);
+            Assert.Equal(Mesh2Status.Success, m3.Status);
+            var refinedReport = Oracle.Check(refined, m3, new OracleExpect { Milestone = Milestone.M3 });
+            Assert.True(refinedReport.Ok, name + " (M3): " + refinedReport);
             if (s.IsExact) {
                 var plain = Zigzag(0, 20);
                 var a = new QualityMesh2Candidate().Run(plain);
-                var b = new QualityMesh2Candidate().Run(Moved(plain));
+                var b = m3;
                 Assert.Equal(a.VX.Select(v => v * s.Scale), b.VX);
                 Assert.Equal(a.VY.Select(v => v * s.Scale), b.VY);
                 Assert.Equal(a.Triangles.SelectMany(t => t), b.Triangles.SelectMany(t => t));
@@ -106,9 +103,12 @@ namespace geometry3Sharp.Tests
         {
             var c = ConstrainedDelaunayMesh2Candidate.Convert(Zigzag(0, 20));
             var mesher = new QualityMesh2 { MinAngle = 20, SnapTolerance = 0.01, SteinerLimit = 50000, Conforming = true };
-            var first = mesher.Compute(c).Mesh; var second = mesher.Compute(c).Mesh;
-            Assert.Equal(first.Vertices, second.Vertices);
-            Assert.Equal(first.Triangles, second.Triangles);
+            var a = mesher.Compute(c); var b = mesher.Compute(c);
+            Assert.Equal(a.Mesh.Vertices, b.Mesh.Vertices);
+            Assert.Equal(a.Mesh.Triangles, b.Mesh.Triangles);
+            // the collapse diagnostics too (a snapshot left over from the first compute would change the counts)
+            Assert.Equal(a.Diagnostics ?? new string[0], b.Diagnostics ?? new string[0]);
+            Assert.Contains(a.Diagnostics ?? new string[0], l => l.Contains("parts that snapping collapsed"));
         }
     }
 }

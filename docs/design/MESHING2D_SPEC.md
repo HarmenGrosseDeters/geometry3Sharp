@@ -760,14 +760,15 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
   accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
   diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
-  **Collapsed part (2026-11-03, rule O-H5):** where the snap-rounded images of the input's edges leave the
-  domain without area: hot pixels are those of the input points, of the input's crossings and of the output
-  vertices; each edge's image is rerouted through every hot pixel it passes until none is left (iterated
-  snap rounding); a link of an image is collapsed where the domain of the ring images has no interior on
-  either side (`MESHING2D_HULL_GRID.md` section 7). A chain may be missing only on collapsed links of its
-  own image; an unused input point is accepted where every link at its pixel is collapsed. No subsegment
-  may pass a hot pixel other than its ends' (snap rounding's invariant). Known gap: after refinement the
-  mesher's incremental rounding can differ from the oracle's (order dependence of iterated rounding).
+  **Collapsed part (2026-11-03, rule O-H5):** where snap rounding leaves the domain without area (it
+  collapses parts up to about 1.4 pixel wide, not only those narrower than a pixel): hot pixels are those of
+  the input points, of the input's crossings and of the output vertices; each edge's image is the input
+  segment rerouted through every hot pixel it passes, its links again until none is left (iterated snap
+  rounding); a link of an image is collapsed where the domain of the ring images has no interior on either
+  side (`MESHING2D_HULL_GRID.md` section 7). A chain may be missing only on collapsed links of its own
+  image; an unused input point is accepted where every link at its pixel is collapsed, or, with no link
+  there, where its pixel's centre is not inside that domain. No subsegment of an identity output may pass a
+  hot pixel other than its ends' (snap rounding's invariant).
 
 ---
 
