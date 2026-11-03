@@ -378,8 +378,8 @@ namespace gs
         }
 
         // a terrain triangle that both overlays of a mixed run cut: one part, the triangle minus both regions. Their
-        // boundaries inside (catch segments, slope boundaries) are constraints, and the pieces of its edges outside both
-        // regions (the two overlays' nodes along an edge merged in the order along it)
+        // boundaries inside (catch segments, slope boundaries) are constraints, and the pieces of its edges in both
+        // regions or in neither (the two overlays' nodes along an edge merged, each overlay's in its own order)
         bool joint(int tb)
         {
             PartInput a = collect(false, tb, facesOfB[tb], false);
@@ -393,26 +393,32 @@ namespace gs
                 foreach (Index2i c in x.Constraints) inp.Constraints.Add(new Index2i(c.a + off, c.b + off));
             }
             int offB = a.Pos.Count;
+            // the edges: the terrain part's boundary is the triangle's boundary plus both regions' boundaries, mod 2,
+            // where the regions do not overlap (an assumption here: regions that overlap are found by no_overlaps, the
+            // exact check of the composite). Along an edge, a piece is a constraint where it is in both regions or in
+            // neither; in both happens where one region is a sliver of zero width along the edge (the toe meets the
+            // terrain on its crossing: the catch point of the cut part is the toe point, rounded), and its other side, a
+            // constraint inside with the same ends, cancels it (with other ends, a sliver is left, which no_overlaps finds). The two node sequences are merged keeping each one's own order, with the
+            // corners at the ends, so a piece's flags are those of the gaps that hold it in each sequence: the parity is
+            // consistent at every node by construction, whatever the order between the two (t, by rounded positions,
+            // only orders them; a node snapped off the edge can have the parameter of a corner, or of another node. A tie
+            // between the two at the same XY does not matter; at different XY a wrong order is a piece there and back,
+            // which check_graph or no_overlaps finds)
             for (int j = 0; j < 3; ++j) {
                 List<int> na = a.EdgeNodes[j], nb = b.EdgeNodes[j].ConvertAll(i => i + offB);
+                List<bool> fa = a.EdgeFlags[j], fb = b.EdgeFlags[j];
                 Vector2d p0 = inp.Pos[na[0]].xy, p1 = inp.Pos[na[na.Count - 1]].xy;
                 Func<int, double> t = (i) => (inp.Pos[i].xy - p0).Dot(p1 - p0);
-                // the flag of the gap of a sequence that holds parameter tm
-                Func<List<int>, List<bool>, double, bool> inRegion = (ns, fs, tm) => {
-                    for (int k = 0; k + 1 < ns.Count; ++k)
-                        if (t(ns[k]) <= tm && tm <= t(ns[k + 1])) return fs[k];
-                    return false;
-                };
-                var merged = new List<int>(na);
-                merged.AddRange(nb);
-                merged.Sort((x, y) => { int c = t(x).CompareTo(t(y)); return c != 0 ? c : x.CompareTo(y); });
-                for (int k = 0; k + 1 < merged.Count; ++k) {
-                    double t0 = t(merged[k]), t1 = t(merged[k + 1]);
-                    if (!(t0 < t1)) continue;
-                    double tm = 0.5 * (t0 + t1);
-                    if (inRegion(na, a.EdgeFlags[j], tm) || inRegion(nb, b.EdgeFlags[j], tm)) continue;
-                    inp.Constraints.Add(new Index2i(merged[k], merged[k + 1]));
+                // (both start and end at the triangle's corners; between them the inner nodes of both, merged)
+                int ia = 1, ib = 1, la = na.Count - 1, lb = nb.Count - 1, prev = na[0];
+                while (ia < la || ib < lb) {
+                    // (the piece from prev to the next node is in A's gap before na[ia] and B's gap before nb[ib])
+                    bool inA = fa[ia - 1], inB = fb[ib - 1];
+                    int next = ib >= lb || (ia < la && t(na[ia]) <= t(nb[ib])) ? na[ia++] : nb[ib++];
+                    if (inA == inB) inp.Constraints.Add(new Index2i(prev, next));
+                    prev = next;
                 }
+                if (fa[la - 1] == fb[lb - 1]) inp.Constraints.Add(new Index2i(prev, na[la]));
             }
             return triangulate(false, tb, terrainGroup, inp);
         }

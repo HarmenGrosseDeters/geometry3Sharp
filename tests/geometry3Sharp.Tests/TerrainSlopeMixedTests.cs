@@ -29,7 +29,7 @@ namespace geometry3Sharp.Tests
             return new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = s.ApplyLength(0.05), BuildComposite = true, Direction = dir };
         }
 
-        static void AssertMixed(TerrainSlopeDesign d)
+        internal static void AssertMixed(TerrainSlopeDesign d)
         {
             TerrainSlopeCatchLineTests.AssertComposite(d);
             TerrainSlopeCatchLineTests.AssertCatchLines(d.AutoCut);
