@@ -158,7 +158,7 @@ namespace gs
     /// support needs, measured on the output (1e-6 m at UTM in the tests, 3e-10 m near the origin), at most about
     /// 1.1 x SlopeMargin x slope x reach.
     /// </summary>
-    public class TerrainSlopeDesign
+    public partial class TerrainSlopeDesign
     {
         public enum Directions { Auto, Cut, Fill }
         public enum Statuses
@@ -377,7 +377,8 @@ namespace gs
         public int Realizations;
         public long PredicateCalls, ExactFallbacks, ExactConstructions;
 
-        public bool Compute()
+        // the design in the frame of its inputs (Compute; LocalFrame runs it on the translated inputs)
+        bool compute_here()
         {
             Status = Statuses.InvalidInput; Message = "";
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();

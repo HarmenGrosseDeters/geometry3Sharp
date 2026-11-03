@@ -852,6 +852,86 @@ volumes, areas, and per-toe-piece volumes (each slope triangle knows its piece) 
 
   Constructed coordinates themselves stay doubles.
 
+### 5.8.1 Opt-in local frame (item 1(a), owner decisions 2026-11-02 and 2026-11-03)
+
+The shift of 5.8 is inside the constructions; the stored points (S̃ vertices, catch points, the composite) are rounded
+to the input's coordinates. Their resolution is what `MinFeatureSize` is derived from (5.4):
+2·(8·ulp(max |xy|) + 4·ulp(2·max |z|)/s_min)/δ, about 1.5 cm at UTM with δ = 1e-6. That is not a threshold that a
+better formula removes: as long as the results are stored at UTM, a feature below ulp/δ cannot be guaranteed. Two
+parts:
+
+- **(A) Relative to the input, documented.** `MinFeatureSize` follows from the coordinates' magnitude, so it scales
+  bitwise under 2^k: a toe of a few cm at scale 2^-k gives the metre result, scaled (`TerrainSlopeFeatureSizeTests`).
+  The default is unchanged. OPERATIONS.md says how it follows from the coordinates.
+- **(B) `LocalFrame` (default false): translate, compute, return local outputs.**
+  - **Origin.** o = the centre of the toes' XY box; it scales bitwise with 2^k. z is not translated: its term is
+    small and z ranges cross 0 (pit floors).
+  - **Pre-step.** Every input XY coordinate is x − o, checked exact with TwoSum. If any one is inexact, the run
+    falls back to the input frame: `UsedOrigin` = (0, 0) and `LocalFrameFallback` = true, said in the doc and the
+    result, never silent. A coordinate within a factor 2 of the origin has an exact difference (Sterbenz), as all
+    do at UTM. A much smaller one with fine bits does not: near the origin that is common (the rotated and the 1e-3
+    frames of the tests), and the fallback is the input frame, which is local there already; at UTM it takes a stray
+    vertex of small magnitude (tested). Every terrain vertex is checked, also those far from the toes. With an exact
+    pre-step the local run is bitwise a default run on the translated input,
+    and every derived size (δ bound, `MinFeatureSize`, λ) follows from the local coordinates.
+  - **Inputs are restored.** The toes are copied. The terrain's positions are translated in place, in its vertex
+    buffer, and translated back when `Compute` returns, also if it throws. That is exact, as every x − o was
+    checked exact, so (x − o) + o = x, for every finite x but −0.0 (−0 − o + o is +0), which is a fallback. So the
+    terrain is the caller's bit for bit afterwards, and its timestamps did not change: a spatial index the caller
+    holds on it stays valid. The ids stay, so `ReplacedTerrainTriangles` and the vertex maps refer to the caller's
+    terrain. While `Compute` runs the caller's terrain is in the local frame: it must not be read by a `CancelF`
+    callback expecting the input's frame, or shared with other work running concurrently, which would read wrong
+    positions and whose changes would be translated back too (said in the API doc).
+    - A translated copy instead (the first version, a `DMesh3` copy without normals, colours and UVs) cost on one
+      toe edge on the Hambach DGM, 1 m (2 million triangles), 0.2–0.6 s more (3.2–3.5 s against 2.8–3.0 s), 167 MB
+      more allocations (915 against 748 MB), two more gen 0/1 collections, and 300 MB more peak memory (1227
+      against 880–930 MB). Nearly all of it is the topology: the positions are 24 MB.
+    - **Follow-up (§11): positions only.** A copy of the positions alone would keep the caller's terrain untouched at
+      about the cost of the translation in place. The terrain is read at about 40 places in the overlay and the
+      composite, through `DMesh3` and its spatial index, so either an offset at every read or a `DMesh3` that
+      shares the caller's topology is needed; both are larger than this item, and the second aliases mutable
+      topology.
+  - **Outputs are local** (owner decision 2026-11-03, option 1). `SlopeSurface`, `Pieces`, `CatchLines`,
+    `SlopeRegion`, `Composite`, `Replacement` and `TargetHeightLines` are in the local frame; XY + `UsedOrigin` is the
+    input's. There is no translation back, and no `KeepLocal` input.
+    - The spike of the translation back (fl(local + o), at most ½ ulp of the input's magnitude per coordinate, then
+      the exact checks re-run on the triangles it rounds) failed the support check in every benchmark case: the
+      local λ is below ½ ulp at UTM.
+    - So the exact guarantees hold for the local outputs. Translating them back is the caller's choice, without that
+      guarantee; the API doc says so. With `CompositeKind.Replacement` the kept triangles are the caller's terrain,
+      in the input's frame.
+  - **API, additive.** Input `LocalFrame`; outputs `UsedOrigin` and `LocalFrameFallback`.
+  - **Invariance.** The origin scales with 2^k, so the 2^k frames are bitwise (origin and local outputs). A
+    translated or rotated frame picks another origin, so another local input, and is compared by status and the
+    checks of the outputs (`TerrainSlopeLocalFrameTests`).
+  - **Cost** (TerrainBenchmark, 2026-11-03, 4 cores, median of 2; default → `LocalFrame`):
+
+    | case | time | realizations | λ |
+    |---|---|---|---|
+    | one toe edge, Hambach 1 m | 1.9 → 2.8 s | 1 → 2 | 5.0e-9 → 8.2e-9 |
+    | octagon r 100 m, 1 m | 11.5 → 10.9 s | 2 → 2 | 3.4e-8 → 7.2e-7 |
+    | L shape 120 m, 2 m | 2.9 → 4.3 s | 2 → 3 | 7.1e-6 → 1.2e-8 |
+    | wavy 48-gon r 150 m, 2 m | 8.7 → 16.2 s | 1 attempt → 2 | |
+    | wavy 64-gon, wave terrain (UTM) | 4.1 → 4.3 s | | |
+
+    - The pre- and post-step (translation in place, the TwoSum checks) is 0.004–0.16 s.
+    - Nearly all of the rest is one more realization. The first λ follows from the local resolution (6e-13 to
+      8e-13 here, 5e-9 at UTM), but the support error of the composite's clipped slope region does not scale with
+      XY: 2e-9 (the edge), 3e-9 (the L shape), 1.8e-7 (the octagon). So the region's support check fails at the
+      first λ, λ is raised by measurement, and the composite is built again (on the 2-million-triangle terrain about
+      0.7–1 s). Where the error exceeds what λ may cover, δ is raised instead (the wavy toe). Both belong to the
+      clipped-region item of §11: a bound of the clipping's error in the first λ would save the realization.
+    - The exact-stage fallback rate does not change.
+  - **How others solve it.** Formats and engines for large coordinates keep the data local and store the origin
+    beside it, without rounding the data back:
+    - LAS point clouds store integers with a header scale and offset;
+    - Cesium's 3D Tiles (`CESIUM_RTC`) and xeokit store vertices relative to a centre, xeokit rounding that centre to
+      a cell size;
+    - IFC keeps local engineering coordinates with an `IfcMapConversion` to the map's coordinate system, since large
+      coordinates get "distorted / rounded" by downstream tools.
+
+    Option 1 is that pattern.
+
 ### 5.9 Rejected alternatives
 
 | alternative | why not as the core |
@@ -1254,16 +1334,18 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      within r_band were left (one pass, no chains), and nested pairs in the band were taken by neither repair. The
      band merge now takes chains with a cumulative cap on every position's move, and nested pairs (5.4;
      `TerrainSlopeBandRepairTests`, `TerrainSlopeBandMergeTests`). The DGM case then succeeds locally in 2 attempts.
-   - Next, found there: the first attempt still fails on one triangle of the composite's clipped slope region (an
-     altitude of 2.3e-9 m at the catch line), under its support by 0.43 mm, more than λ's bound covers, so δ is
-     raised. The band merge acts on the realization, not on the clipping. Diagnosis and a procedural repro first.
-   - Parked until the owner decides: `MinFeatureSize` relative to the input's scale (1(a)), an opt-in local frame
-     (5.8.1). Its spike showed two things:
-     - outputs translated back to UTM lose the local margins: the support check failed in every benchmark case;
-     - the exact-stage rate does not change.
+   - Done: item 1(a), the opt-in local frame (5.8.1, owner decision 2026-11-03: local outputs with `UsedOrigin`).
+     `MinFeatureSize` stays relative to the input's coordinates and is documented. The terrain is translated in
+     place and restored; a positions-only copy, which would leave it untouched, is a follow-up (5.8.1).
+   - Next, found there: the support error of the composite's clipped slope region, which does not scale with XY.
+     Two faces:
+     - the first λ follows from the coordinates' resolution and can be below it, so λ is raised by measurement and
+       the composite built again (in a local frame on every benchmark case but one, 5.8.1's cost table);
+     - where it exceeds what λ may cover, δ is raised: the wavy toe on the DGM in its local frame fails its first
+       attempt on one clipped triangle (an altitude of 2.3e-9 m at the catch line), under its support by 0.43 mm.
 
-     The recommendation is local outputs with `UsedOrigin`. Item 4 comes first: a run near the origin must not fail
-     where UTM succeeds.
+     A bound of the clipping's error in the first λ would remove the extra realization by construction. Diagnosis
+     and a procedural repro first.
 2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
 3. Volume per cell, 2D columns first (section 9.3).
 4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
