@@ -449,6 +449,18 @@ an implementation brief.
 | Curvature-adaptive sizing | M. Dunyach, D. Vanderhaeghe, L. Barthe, M. Botsch, *Adaptive Remeshing for Real-Time Mesh Deformation*, Eurographics 2013 Short Papers, pp. 29-32 | paper only |
 | Parallel decimation by independent sets (background for speculative certification) | P. Franc, V. Skala, *Parallel Triangular Mesh Reduction*, ALGORITMY 2000; S. Oh et al., *PaMO: Parallel Mesh Optimization for Intersection-Free Low-Poly Modeling on the GPU*, CGF 44(7), 2025 | PaMO code license not checked; not a port candidate |
 
+## Cross-field research and synthetic feasibility probes
+
+The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks.
+The [bounded probes](../benchmarks/CrossFieldSpikes/README.md) are original synthetic rational-arithmetic models,
+not ports or production algorithms. No external implementation code was used.
+
+| Probe | Paper / documentation basis | Scope |
+|---|---|---|
+| Clearance minus both displacement budgets | V. Milenkovic, E. Sacks, *Geometric Rounding and Feature Separation in Meshes*, Computer-Aided Design 108, 2019, [preprint](https://arxiv.org/abs/1805.03252); LAMMPS developers, [Neighbor lists](https://docs.lammps.org/Developer_par_neigh.html) | Separation reasoning and conceptual skin reuse; no LAMMPS code read or ported |
+| Vertex-only pinch witnesses | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | Incidence warning; fixture is not a snap-rounding implementation |
+| Fixed-collar candidate enumeration | Milenkovic–Sacks above; R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014 / AFR XI 2015, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | Conceptual feasibility/separation connection; no IRIS solver or general 3D guarantee |
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |
