@@ -57,20 +57,26 @@ namespace geometry3Sharp.Tests
             var origin = WavyOnWaves(new Vector3d(0, 0, -340));
             Assert.False(origin.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, origin.Status);
-            // (the cause, not only the status: the margin raised to its end, and needles among the failing triangles of
-            // the last attempt, thinner than its MinFeatureSize with edges a million times longer)
+            // (the cause, not only the status: the margin raised to its end, and needles of the band among the failing
+            // triangles of the last attempt: at least r = MergeRadius(e_xy) = 64 e_xy thick, so not one that today's
+            // flips would take, and thinner than its MinFeatureSize, with edges a million times longer. e_xy is not
+            // exposed; MinFeatureSize δ / 2 = 8 e_xy + 4 e_eval / s_min >= 8 e_xy gives r <= 4 MinFeatureSize δ, used as
+            // the lower end, conservative. The first attempt's needles, 4e-12 m, are documented above; a diagnostic
+            // of attempt 0 comes with the implementation)
             Assert.Equal(3, origin.Attempts);
             Assert.NotEmpty(origin.ProblemTriangles);
             DMesh3 last = origin.LastRealized;
+            double r = 4 * origin.UsedMinFeatureSize * origin.UsedSlopeMargin;
             int needles = 0;
             foreach (int t in origin.ProblemTriangles) {
+                Assert.True(last.IsTriangle(t), $"problem triangle {t} is not a triangle of LastRealized");
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 last.GetTriVertices(t, ref a, ref b, ref c);
                 double l = Math.Max(a.xy.Distance(b.xy), Math.Max(b.xy.Distance(c.xy), c.xy.Distance(a.xy)));
                 double h = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / l;
-                if (h < origin.UsedMinFeatureSize && l > 1e6 * h) needles++;
+                if (h >= r && h < origin.UsedMinFeatureSize && l > 1e6 * h) needles++;
             }
-            Assert.True(needles > 0, "no needle among the failing triangles: the failure has another cause now");
+            Assert.True(needles > 0, "no needle of the band [64 e_xy, MinFeatureSize) among the failing triangles: the failure has another cause now");
 
             var utm = WavyOnWaves(new Vector3d(327000.25, 5642000.5, -340));
             Assert.True(utm.Compute(), utm.Status + " " + utm.Message);

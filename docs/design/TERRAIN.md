@@ -525,8 +525,11 @@ two old triangles.
 
 1. **Collapse first,** by the plane-set rule (`CollapseShortEdges`, as now). Toe, design-boundary and catch-line
    vertices are never moved.
-2. **Then flip.** A needle with altitude below `MinFeatureSize` has its longest edge flipped only if all of these
-   hold:
+2. **Then flip, in one pass with today's flips.** One `FlipNeedles` pass with one deviation map and one bound
+   handles every needle below `MinFeatureSize`.
+   - Below r it keeps today's rule: proper, the smaller altitude grows, and the bound ≤ maxDeviation. Today's
+     successes stay.
+   - A needle with r ≤ h < `MinFeatureSize` has its longest edge flipped only if all of these hold:
    - the old diagonal's ends lie strictly on both sides of the new one (exact Orient2d);
    - the smaller altitude of the pair strictly grows;
    - **both new triangles have altitude ≥ `MinFeatureSize`.** The rounding part of their gradient error is then
@@ -534,10 +537,21 @@ two old triangles.
    - **both new triangles pass the exact checks (i) and (ii)** against their piece, at the current λ. The exact
      predicates decide; no estimate of the crease part is relied on;
    - the exact deviation bound (rounded up, and for the second flip of a triangle the larger bound of the old
-     pair plus the change) is ≤ maxDeviation = min(R, λ bound − `RepairLambda`(merge)). This keeps the lowering
-     that the flips require under λ's bound (`TerrainSlopeDesign.cs`, λ capped at its bound).
+     pair plus the change) is ≤ maxDeviation = min(R, λ bound − `RepairLambda`(1)). `RepairLambda`(1) is the
+     merge's part: 4·e_z + 2·sMax·(r + e_xy). Merge and flips together then need at most `RepairLambda`(1) +
+     maxDeviation ≤ the λ bound (λ is capped at its bound). Today's `mayMerge` counts two kinds of repair
+     (`RepairLambda`(2)); with one flip pass the flips are counted once, through maxDeviation.
 3. **The lowering λ is measured.** The realization adds the largest deviation bound of the flips it made to the
-   lowering it needs, as it does for the merge (`RepairLambda`). A needle 4e-12 m wide costs about that, not R.
+   lowering it needs, as it does for the merge: λ ≥ `RepairLambda`(k) + d_max, with k the kinds of repair made. A
+   needle 4e-12 m wide costs that, not R.
+   - **The λ round is bounded.** A larger λ means another realization. It lowers z only: `Realize` rounds XY
+     independently of λ (`K.Rounded`), and the merge and `CollapseShortEdges` do not depend on λ. So the second
+     realization has the same vertices in XY and the same needles.
+   - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
+     decide again or measure again; its λ is the measured one.
+   - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
+     `SlopeViolation`).
+   - So one attempt has at most two realizations for its flips, and no loop between λ and the flips.
 4. **The check of all triangles decides.** A needle that no flip may repair stays, fails the check, and the result
    is `SlopeViolation` with its id. Nothing fails silently.
 
@@ -545,11 +559,14 @@ two old triangles.
 taking the rest. Let F0 = Tolerance − λ bound − δ share − merge be the share left for flips and facets.
 
 - **Before:** the flips have 2·sMax·(r + e_xy), today inside `MergeShare`.
-- **After:** the flips get a term of their own, R = min(2·sMax·`MinFeatureSize`, F0/32), and the facets take
-  F0 − R ≥ (31/32)·F0.
-- So the facets lose at most 1/32 of their share: the facet angle shrinks by at most a factor sqrt(31/32) =
-  0.984, about 1.6 % more cone directions. A design that fits today still fits (R > 0 whenever F0 > 0); none
-  becomes `InvalidInput`.
+- **After:** the flips get a term of their own, R = max(FlipShare, min(2·sMax·`MinFeatureSize`, F0/32)), with
+  FlipShare = 2·sMax·(r + e_xy) today's flips' share (now out of `MergeShare`). The facets take F0 − R.
+- **A design that fits today still fits.** Today it fits if F0 − FlipShare > 0.
+  - If R = FlipShare, the facets keep today's share.
+  - Otherwise R = min(2·sMax·`MinFeatureSize`, F0/32) ≤ F0/32 < F0, so F0 − R ≥ (31/32)·F0 > 0.
+  - Either way none becomes `InvalidInput`.
+- The facets lose at most max(0, F0/32 − FlipShare): less than 1/32 of their share. The facet angle shrinks by at
+  most a factor sqrt(31/32) = 0.984, about 1.6 % more cone directions.
 - R scales bitwise under 2^k. It is not translation invariant (4.2e-6 near the origin, 1.55e-3 at UTM), and neither
   is e_xy.
 
