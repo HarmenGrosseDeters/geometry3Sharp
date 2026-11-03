@@ -407,10 +407,15 @@ namespace Meshing2Acceptance
                     Must("image: a segment only touching a hot pixel's corner is not rerouted", touched.SequenceEqual(new[] { N(0, 0), N(1, 1) }), Show(touched));
                     // the first pass on the input segment contacts as the mesher's snap rounding does (Hobby's half-open pixels): through
                     // a pixel's bottom-left corner it is rerouted, through any other corner not (review 5)
-                    var bottomLeft = Oracle.SnapImage(Pt.FromDoubles(0, 1.5), Pt.FromDoubles(2, -0.5), new[] { Pt.FromDoubles(1, 1) }, Q.One);
+                    // ((0, 1) - (1, 0) runs through (0.5, 0.5): the bottom-left corner of pixel (1, 1), the top-right one of (0, 0))
+                    var bottomLeft = Oracle.SnapImage(Pt.FromDoubles(0, 1), Pt.FromDoubles(1, 0), new[] { Pt.FromDoubles(1, 1) }, Q.One);
                     Must("image: a segment through a hot pixel's bottom-left corner is rerouted", bottomLeft.Contains(N(1, 1)), Show(bottomLeft));
-                    var topRight = Oracle.SnapImage(Pt.FromDoubles(0, 1.5), Pt.FromDoubles(2, -0.5), new[] { Pt.FromDoubles(0, 0) }, Q.One);
+                    var topRight = Oracle.SnapImage(Pt.FromDoubles(0, 1), Pt.FromDoubles(1, 0), new[] { Pt.FromDoubles(0, 0) }, Q.One);
                     Must("image: a segment through a hot pixel's top-right corner is not", !topRight.Contains(N(0, 0)), Show(topRight));
+                    // ... but a pixel made hot by refinement (an output vertex) is met by its interior only, as the mesher's grid splits
+                    // avoid only pixels a constraint crosses inside: through its bottom-left corner the segment is not rerouted
+                    var refinedCorner = Oracle.SnapImage(Pt.FromDoubles(0, 1), Pt.FromDoubles(1, 0), new Pt[0], Q.One, new[] { Pt.FromDoubles(1, 1) });
+                    Must("image: a segment through the bottom-left corner of a refined vertex's pixel is not rerouted", !refinedCorner.Contains(N(1, 1)), Show(refinedCorner));
                     // several hot pixels on one link in order along it
                     var order = Oracle.SnapImage(O, Pt.FromDoubles(40, 0), new[] { Pt.FromDoubles(30, 0), Pt.FromDoubles(10, 0) }, Q.One);
                     Must("image: hot pixels in order along a link", order.SequenceEqual(new[] { N(0, 0), N(10, 0), N(30, 0), N(40, 0) }), Show(order));

@@ -47,13 +47,16 @@ namespace Meshing2Acceptance
 
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
-        /// <summary> self-checks: the iterated snap-rounded image of a-b among the pixels of the given hot points (O-H5) </summary>
-        internal static List<(BigInteger x, BigInteger y)> SnapImage(Pt a, Pt b, IEnumerable<Pt> hotPoints, Q pixel)
+        /// <summary> self-checks: the iterated snap-rounded image of a-b among the pixels of the given hot points (of snapping, met by
+        /// contact) and refined points (output vertices, met by the interior) (O-H5) </summary>
+        internal static List<(BigInteger x, BigInteger y)> SnapImage(Pt a, Pt b, IEnumerable<Pt> hotPoints, Q pixel, IEnumerable<Pt> refinedPoints = null)
         {
             var hot = new HashSet<(BigInteger x, BigInteger y)>(); var list = new List<(BigInteger x, BigInteger y)>();
             foreach (var p in hotPoints.Concat(new[] { a, b })) { var n = (Run.PixelIndexOf(p.Qx, pixel), Run.PixelIndexOf(p.Qy, pixel)); if (hot.Add(n)) list.Add(n); }
+            var snapped = new HashSet<(BigInteger x, BigInteger y)>(hot);
+            foreach (var p in refinedPoints ?? new Pt[0]) { var n = (Run.PixelIndexOf(p.Qx, pixel), Run.PixelIndexOf(p.Qy, pixel)); if (hot.Add(n)) list.Add(n); }
             long work = 0;
-            return Run.Image(a, b, hot, list, pixel, ref work);
+            return Run.Image(a, b, hot, list, pixel, ref work, snapped);
         }
         /// <summary> test hook: <see cref="Run.ImageWorkForTests"/> </summary>
         internal static long ImageWorkForTests { get => Run.ImageWorkForTests; set => Run.ImageWorkForTests = value; }
