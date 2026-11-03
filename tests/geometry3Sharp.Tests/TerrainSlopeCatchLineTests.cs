@@ -97,7 +97,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        static double XYArea(DMesh3 m)
+        internal static double XYArea(DMesh3 m)
         {
             double area = 0;
             // (relative to a corner of the bounds: at UTM the products of raw coordinates would round away the area)
