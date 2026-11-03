@@ -1219,11 +1219,10 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      from near-quadruple points. The targeted band merge of 5.4, "Repair of the band", fixes it
      (`TerrainSlopeBandRepairTests`). Designs without band merges are bitwise unchanged (the benchmark's output
      hashes). The band flips stay documented until a case needs them.
-   - Then a bugfix of the composite's 2^k invariance (found in item 4). `SlopeComposite` moves a node by ulps off
-     the slope side (`nudge`, `onto_slope_side`: `ExactInterval.Up/Down`). From a coordinate of exactly 0 the first
-     step is the subnormal 4.9e-324 in every frame, which 2^k does not scale. A composite node on a terrain grid
-     line x = 0 then has x = 5e-324 at scale 1 and 5e-324 at 2^10, not 2^10·5e-324. The step must be frame-relative,
-     eg the ulp of the edge's coordinate scale.
+   - Done: a bugfix of the composite's 2^k invariance (found in item 4). `SlopeComposite` moves a node by ulps off
+     the slope side (`nudge`, `onto_slope_side`). From a coordinate of exactly 0 the first step was the subnormal
+     4.9e-324 in every frame, which 2^k does not scale. The step from 0 is now the ulp of the edge's coordinate
+     scale (`TerrainSlopeCompositeZeroTests`; the band repair's test compares its composite bit for bit again).
    - Parked until the owner decides: `MinFeatureSize` relative to the input's scale (1(a)), an opt-in local frame
      (5.8.1). Its spike showed two things:
      - outputs translated back to UTM lose the local margins: the support check failed in every benchmark case;

@@ -97,9 +97,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(r.CatchLines.Count, d.CatchLines.Count);
             if (s.IsExact) {
                 Assert.Equal("", Invariance.Difference(r.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
-                // (the composite is checked in every frame above, not bit for bit: a composite node on the terrain's grid
-                // line x = 0 is moved by one ulp off the slope side (SlopeComposite's nudge), and from exactly 0 that is the
-                // subnormal 4.9e-324 in every frame, which 2^k does not scale; an open item of the composite, TERRAIN.md §11)
+                // (a composite node on the terrain's grid line x = 0 is moved off the slope side by SlopeComposite's nudge:
+                // from exactly 0 the step is the ulp of the edge's coordinate scale, so it scales with 2^k)
+                Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
                 Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
             }
         }
