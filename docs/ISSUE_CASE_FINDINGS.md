@@ -313,8 +313,22 @@ Tests: `tests/geometry3Sharp.Tests/ReducerIssueCasesTests.cs`, `tests/geometry3S
 Open findings are pinned in the strict `KnownFailures` lists of those classes (a listed case that passes fails the
 test, and while listed the test checks the specific wrong outcome).
 
-### S1 (open): collapse chains fold the surface in the Reducer
+### S1: collapse chains fold the surface in the Reducer (fixed)
 
+- **Status: fixed (fix ideas a and b).** `Reducer.PreventFoldOver` (default on): a new triangle must also have a
+  positive dot with the area-weighted input normals its corners have absorbed (summed on collapse, taken at the start of
+  each reduction), and more than `BoundaryTriangleMinNormalDot` (0.7) if it has two boundary edges (the walls on three
+  consecutive border vertices; a band one cell wide, whose triangles have one boundary edge each, keeps its reach). Where those normals nearly cancel (`ReferenceNormalMinLength`, 0.25 of their summed lengths: creases, thin
+  plates, boxes touching at a face) only the old check applies, so thin parts keep their reach. The tests are no longer
+  pinned; direct tests in `ReducerFoldOverTests`.
+- Measured on 72 noisy terrains (12 seeds, noise +-0.2, +-0.4, +-0.8, reduced to 20 % and 5 %): 20 folds and 110 walls
+  before, 7 and 0 after.
+  - With a positive minimum dot for all triangles instead of the boundary rule, thin plates stop far above their
+    target (12 triangles: 134 at 0.1, 346 at 0.25).
+  - A stricter flip test against the current normal, as in meshoptimizer's fix (PR 710, dot > 0.25), leaves 21 folds
+    and 103 walls.
+- Limit: the 7 that remain are interior slivers that stand nearly vertical (normal z -0.05 to -0.3), mostly at noise
+  +-0.8. They lie within 90 degrees of the input normals they absorbed, so the check passes them.
 - Tests: `ReducerIssueCasesTests.NoisyTerrain_ReducedTo20Percent_NoFoldOver_{1,2,3}`,
   `ReducerIssueCasesTests.SmallPatch_ReducedTo10_NoDuplicateTriangles_2`.
 - Issue: https://github.com/zeux/meshoptimizer/issues/346 (also seen in the setting of

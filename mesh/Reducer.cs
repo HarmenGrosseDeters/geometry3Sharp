@@ -90,6 +90,34 @@ namespace g3
         /// Folds are prevented by the usual flip check. Costs about 2-3x the reduction time.
         /// </summary>
         public bool PreventSelfIntersections = false;
+        /// <summary>
+        /// If true (default), a collapse is also rejected if one of its new triangles turns away from the input surface
+        /// it stands for: its unit normal must have a positive dot with the reference normal of its corners, the sum of
+        /// the area-weighted input normals each corner has absorbed (summed on every collapse). The usual flip check
+        /// compares with the current triangle only, so a chain of collapses, each turning a normal by less than 90
+        /// degrees, can fold the surface over (meshoptimizer issue 346). Where the absorbed normals nearly cancel (a
+        /// sharp crease, the rim of a thin plate: the reference shorter than ReferenceNormalMinLength of their summed
+        /// lengths) the reference says nothing, and only the usual flip check applies.
+        /// The references are taken from the mesh at the start of each reduction, like the quadrics. False gives the
+        /// reductions of upstream geometry3Sharp.
+        /// </summary>
+        public bool PreventFoldOver = true;
+        /// <summary>
+        /// (PreventFoldOver) a new triangle with two boundary edges, eg one on three consecutive vertices of a straight
+        /// border after an interior vertex was collapsed onto the border, must have a dot of more than this with its
+        /// reference normal (default 0.7, about 45 degrees), not just a positive one: such a triangle can stand at right
+        /// angles to the surface (a wall along the border) and still pass the sign test, as the reference of border
+        /// vertices tilts towards the border. (Triangles with one boundary edge, eg all of a band one cell wide, need only
+        /// the positive dot.)
+        /// </summary>
+        public double BoundaryTriangleMinNormalDot = 0.7;
+        /// <summary>
+        /// (PreventFoldOver) the reference normal of a triangle is used only if its length is at least this fraction of
+        /// the summed lengths of the normals it was summed from (default 0.25: they spread by less than about 150
+        /// degrees); otherwise they nearly cancel and the sign of a dot with it is noise
+        /// </summary>
+        public double ReferenceNormalMinLength = 0.25;
+
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
 
@@ -172,6 +200,7 @@ namespace g3
             ensure_deviation_reference();
             ensure_triangle_grid();
             Precompute();
+            ensure_reference_normals();
             if (Cancelled())
                 return;
             InitializeVertexQuadrics();
@@ -320,6 +349,7 @@ namespace g3
 
             begin_setup();
             Precompute(MeshIsClosedHint);
+            ensure_reference_normals();
             if (Cancelled())
                 return;
             end_setup();
@@ -556,6 +586,171 @@ namespace g3
                 triangleGrid.Remove(tid);
             foreach (int tid in mesh.VtxTrianglesItr(vKeep))
                 triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        // PreventFoldOver: per vertex, the sum of the area-weighted input normals (cross products) it has absorbed, and
+        // the sum of their lengths; taken at the start of each reduction, summed on every collapse (serial, so
+        // deterministic)
+        Vector3d[] refNormals;
+        double[] refLengths;
+
+        void ensure_reference_normals()
+        {
+            if (PreventFoldOver == false) {
+                refNormals = null; refLengths = null;
+                return;
+            }
+            refNormals = new Vector3d[mesh.MaxVertexID];
+            refLengths = new double[mesh.MaxVertexID];
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d n = (b - a).Cross(c - a);
+                double l = length(n);
+                Index3i tv = mesh.GetTriangle(t);
+                refNormals[tv.a] += n; refNormals[tv.b] += n; refNormals[tv.c] += n;
+                refLengths[tv.a] += l; refLengths[tv.b] += l; refLengths[tv.c] += l;
+            }
+        }
+
+        // |v| without overflow or underflow (scaled by its largest coordinate first: exact for power-of-2 scalings)
+        static double length(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return m > 0 ? double.PositiveInfinity : 0;
+            v /= m;
+            return m * v.Length;
+        }
+
+        // v / (its largest |coordinate|) (exact for power-of-2 scalings of v); v if that is 0 or not finite
+        static Vector3d scaled(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            return (m > 0 && !double.IsInfinity(m)) ? v / m : v;
+        }
+
+        // v / |v| without overflow or underflow; 0 for v = 0 or not finite
+        static Vector3d unit(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return Vector3d.Zero;
+            v /= m;
+            return v / v.Length;
+        }
+
+        // the boundary edges of triangle t (around vid) after vid is merged with vother: an edge vid-w becomes the
+        // merge of vid-w and vother-w (if that exists, w is a corner of a removed triangle), a boundary edge if either is
+        int boundary_edges_after(Index3i t, int vid, int vother)
+        {
+            int n = 0;
+            for (int k = 0; k < 3; ++k) {
+                int p = t[k], q = t[(k + 1) % 3];
+                if (p != vid && q != vid) {
+                    if (is_boundary_edge(p, q)) ++n;
+                } else {
+                    int w = (p == vid) ? q : p;
+                    if (is_boundary_edge(vid, w) || is_boundary_edge(vother, w)) ++n;
+                }
+            }
+            return n;
+        }
+
+        bool is_boundary_edge(int p, int q)
+        {
+            int eid = mesh.FindEdge(p, q);
+            return eid != DMesh3.InvalidID && mesh.IsBoundaryEdge(eid);
+        }
+
+        // PreventFoldOver: would a triangle around vid (other than tc, td), with vid moved to newv and merged with
+        // vother, turn away from its reference normal?
+        bool collapse_turns_from_reference(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i t = mesh.GetTriangle(tid);
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                if (t.a == vid) va = newv; else if (t.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(t, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
+        }
+
+        // PreventFoldOver for one new triangle t (vid at its new position, so va, vb, vc are the new corners)
+        bool turns_from_reference(Index3i t, ref Vector3d va, ref Vector3d vb, ref Vector3d vc, int vid, int vother,
+            ref Vector3d merged, double mergedLength)
+        {
+            Vector3d r = Vector3d.Zero;
+            double rl = 0;
+            for (int k = 0; k < 3; ++k) {
+                int v = t[k];
+                if (v == vid) {
+                    r += merged; rl += mergedLength;
+                } else {
+                    r += refNormals[v]; rl += refLengths[v];
+                }
+            }
+            // no reference here (the usual flip check still applies): the absorbed normals nearly cancel, or they
+            // have no length (zero-area input) or overflowed
+            double lr = length(r);
+            if (!(rl > 0) || double.IsInfinity(rl) || double.IsInfinity(lr) || !(lr >= ReferenceNormalMinLength * rl))
+                return false;
+            // (a new normal that overflowed, at coordinates beyond about 1e154, is left to the usual check too)
+            Vector3d n = (vb - va).Cross(vc - va);
+            if (!n.IsFinite)
+                return false;
+            // the sign needs no unit vectors (r scaled by its largest coordinate: no overflow, exact under 2^k
+            // scalings); the boundary rule, rarely reached, does
+            double sign = n.Dot(scaled(r));
+            if (double.IsNaN(sign))
+                return false;
+            if (!(sign > 0))
+                return true;
+            return HaveBoundary && BoundaryTriangleMinNormalDot > 0 && !(unit(n).Dot(unit(r)) > BoundaryTriangleMinNormalDot)
+                && boundary_edges_after(t, vid, vother) >= 2;
+        }
+
+        /// <summary> (tests) one pass over each one-ring for the flip and the PreventFoldOver checks; false: two </summary>
+        internal bool FusedFoldCheck = true;
+
+        // collapse_creates_flip_or_invalid and collapse_turns_from_reference in one pass over the one-ring of vid (the
+        // same decision: the collapse is refused if either refuses it, and both visit the same triangles)
+        bool collapse_creates_flip_invalid_or_fold(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i curt = mesh.GetTriangle(tid);
+                if (curt.a == vother || curt.b == vother || curt.c == vother)
+                    return true;        // invalid nbrhood for collapse
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                // (as collapse_creates_flip_or_invalid)
+                Vector3d ncur = (vb - va).Cross(vc - va);
+                Vector3d nnew;
+                if (curt.a == vid) nnew = (vb - newv).Cross(vc - newv);
+                else if (curt.b == vid) nnew = (newv - va).Cross(vc - va);
+                else if (curt.c == vid) nnew = (vb - va).Cross(newv - va);
+                else throw new Exception("should never be here!");
+                if (edge_flip_metric(ref ncur, ref nnew) <= edge_flip_tol)
+                    return true;
+                if (MinCollapseTriangleQuality > 0) {
+                    Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
+                    double qNew = TriangleQuality(ref na, ref nb, ref nc);
+                    if (qNew < MinCollapseTriangleQuality && qNew < TriangleQuality(ref va, ref vb, ref vc))
+                        return true;
+                }
+                if (curt.a == vid) va = newv; else if (curt.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(curt, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
         }
 
         protected void ensure_deviation_reference()
@@ -1045,10 +1240,22 @@ namespace g3
             // check if this collapse will create a normal flip. Also checks
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
             // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
-			if ( collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) ||  collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0,t1) ) {
-				retVal = ProcessResult.Ignored_CreatesFlip;
-				goto skip_to_end;
-			}
+            // (with PreventFoldOver in one pass with its check; without it, as before)
+            if (refNormals != null && FusedFoldCheck) {
+                if (collapse_creates_flip_invalid_or_fold(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_invalid_or_fold(b, a, ref vNewPos, t0, t1)) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+            } else {
+                if (collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0, t1)) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+                if (refNormals != null && (collapse_turns_from_reference(a, b, ref vNewPos, t0, t1) || collapse_turns_from_reference(b, a, ref vNewPos, t0, t1))) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+            }
             if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
                 retVal = ProcessResult.Ignored_ExceedsDeviation;
                 goto skip_to_end;
@@ -1066,6 +1273,10 @@ namespace g3
 			if ( result == MeshResult.Ok ) {
 				collapseToV = iKeep;
 				mesh.SetVertex(iKeep, vNewPos);
+                if (refNormals != null) {
+                    refNormals[iKeep] += refNormals[iCollapse];
+                    refLengths[iKeep] += refLengths[iCollapse];
+                }
                 if (triangleGrid != null)
                     update_triangle_grid(iKeep);
                 if (constraints != null) {

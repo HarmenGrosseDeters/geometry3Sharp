@@ -480,9 +480,10 @@ body reduced to 1 triangle, a 100 x 20 torus reduced coarsely (genus), a pyramid
 union rotated by -89.999999999999 degrees, a sphere with 50 tiny cylinders (unreachable target), an unwelded quad,
 two cones tip to tip, self-intersecting input, and a target already met. The results are checked for validity,
 closedness, folds, bounds, volume, Euler characteristic and components. Fixed: the Reducer joined the fans of a bowtie
-vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Known failure S1
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses fold a noisy terrain and stand triangles up
-at an open border (the flip test compares with the current, not the input normals).
+vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Fixed too, S1
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses folded a noisy terrain and stood triangles up
+at an open border, because the flip test compared with the current, not the input normals. `Reducer.PreventFoldOver`
+(default on) now also checks against the absorbed input normals (`ReducerFoldOverTests`).
 
 **Remeshing (November 2026):** `RemesherIssueCasesTests` rebuilds 10 failure modes from the trackers of PMP,
 geogram, CGAL and MeshLib (Remesher, RemesherPro, RegionRemesher): a flat non-convex fan with fixed boundary, open

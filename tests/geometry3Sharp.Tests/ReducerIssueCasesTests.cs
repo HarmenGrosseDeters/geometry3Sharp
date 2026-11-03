@@ -23,17 +23,7 @@ namespace geometry3Sharp.Tests
         /// reports them)
         /// </summary>
         public static readonly Dictionary<string, (string Finding, string Pinned)> KnownFailures = new Dictionary<string, (string, string)> {
-            // The flip test of a collapse compares each new triangle normal with the triangle's current normal (dot > 0,
-            // EdgeFlipTolerance), not with the input surface: a chain of collapses turns a normal by up to 90 degrees per
-            // step. On a noisy terrain, interior triangles end up facing down, and at the open border an interior vertex
-            // collapsed onto a boundary vertex leaves a triangle on three consecutive boundary vertices standing vertical
-            // (it passes: its new normal is tilted towards the old one). EdgeFlipTolerance 0.7 still leaves 0, 1, 2 (seeds 1-3).
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_1"] = (FindingFold, "1 folded triangles"),
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_2"] = (FindingFold, "4 folded triangles"),
-            [nameof(NoisyTerrain_ReducedTo20Percent_NoFoldOver) + "_3"] = (FindingFold, "2 folded triangles"),
-            [nameof(SmallPatch_ReducedTo10_NoDuplicateTriangles) + "_2"] = (FindingFold, "1 folded triangles"),
         };
-        const string FindingFold = "finding S1: collapse chains fold the surface (flip test against the current, not the input normals)";
 
         static void Expect(string name, List<string> problems)
         {
