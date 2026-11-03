@@ -259,6 +259,40 @@ Oracle time only (`oracle --input --output`, one process each, this 4-core conta
 | earcut eberly-6, M2 | 3.4 s | 2.1 s |
 | Herne 381000 q20, snap 0.01 (5 656 triangles) | 2.2 s | 2.6 s (noise) |
 
+### Oracle speed: the tube of the sources (2026-11-03)
+
+GEOS's TestOverlay-shapely-829/1 (M2, 935 points, 1 112 segments with many crossings: 37 342 vertices, 74 273 triangles) took the
+mesher 2.2 s and the oracle more than 600 s in the reference run. The time went into two checks, each testing a vertex exactly against
+the tube of every source: `InventedVertices` (every vertex that is no input point, against all sources) and `Marks` (both ends of every
+subsegment). Every rational operation reduces by a GCD. On the fast path only:
+
+- **A grid over the source boxes** (widened by the tube) in `InventedVertices`, the same `BoxGrid` as above. It returns a superset in
+  ascending order, so the list of near sources is the same.
+- **A double filter before the exact test** (`TubeFilter`), for both checks. It decides "certainly farther" when the distance to the
+  source's line, bounded from below, exceeds the tube. It decides "certainly within" when the foot certainly lies on the source and the
+  distance to the line, bounded from above, is below the tube. The error bounds are those of the orientation filter (ccwerrboundA, used
+  as 1e-15 of the sum of the products). Products that underflow, and subnormal squares, leave it undecided.
+
+The self-checks hold the filter's boundaries:
+- the tube's two sides on a diagonal source;
+- a vertex on a source's extension just beyond its end, inside its box (the foot condition);
+- the error band, where the filter must not decide;
+- exact zeros on axis-parallel sources.
+
+They run on both paths. Each unsound mutation of the filter's conditions makes one of them fail. The review's mutants are covered
+too: the foot's lower end, the exact-zero shortcut and the cross product's error in the upper bound. A fuzz test,
+`Meshing2OracleTubeFilterTests`, compares the filter with the exact distance at the tube's boundary in the frames 2^-300 to 2^512.
+
+Oracle time only (`oracle --input --output`, one process each, this 4-core container):
+
+| Output | before | after |
+|---|---|---|
+| GEOS shapely-829/1, M2 (74 273 triangles), total | 714 s | 20 s |
+| of it InventedVertices | 540 s | 0.7 s |
+| of it Marks | 158 s | 0.6 s |
+
+`Segments` (13.6 s here) keeps its own filters (`InTube`, with a far side only).
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in
