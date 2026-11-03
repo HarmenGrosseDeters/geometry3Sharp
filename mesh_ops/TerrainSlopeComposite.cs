@@ -169,6 +169,7 @@ namespace gs
         {
             // (a second call starts from scratch)
             facesOfA.Clear(); facesOfB.Clear(); noSnap.Clear(); catchOwn.Clear(); nudged.Clear();
+            RegionFailed = false; Builds = 0; RegionFailures = 0;
             if (Partner != null) {
                 Partner.partnerNoSnap.Clear();
                 if (Partner.B != B) throw new ArgumentException("SlopeComposite: the partner overlays another terrain");
@@ -190,6 +191,7 @@ namespace gs
                     add(c.facesOfB, c.O.Faces[i].TB, i);
                 }
             while (true) {
+                ++Builds;
                 if (build_once() && no_overlaps()) return true;
                 // a snapped or merged catch point can cross another part of the boundary where the features are below
                 // MinFeatureSize: those points keep their own positions, and the composite is built again
@@ -439,6 +441,16 @@ namespace gs
             // the slope part (of both surfaces of a mixed run)
             if (slope_part() == false) return false;
             if (Partner != null && Partner.slope_part() == false) { Problem = Partner.Problem; return false; }
+            // (the region is complete here. If it fails the caller's check, this build cannot be the result: the rest
+            // of the terrain is copied only where it could change the outcome. The made triangles still are, so the
+            // overlap check and a rebuild decide as they would. A copied triangle can only meet a made one, or make
+            // the composite non-manifold, at an edge whose ends are both cut terrain vertices (the copied vertices
+            // that are not cut are its own, and the terrain is manifold): those triangles are still copied, in the
+            // same order, so the same exceptions are thrown. The outcome is the same, with most of the copy saved)
+            RegionFailed = RegionCheck != null && RegionCheck(Region) == false;
+            bool copy = CopyTerrain && RegionFailed == false;
+            CopiedTerrain = copy;
+            if (RegionFailed) ++RegionFailures;
             // the terrain part. The vertices of the copied triangles are found by position (compVerts) only where a cut
             // triangle meets them; elsewhere by terrain vertex id (no slope vertex can be there: a position in the region
             // lies in a cut terrain triangle, and at a terrain vertex in one of its triangles)
@@ -475,6 +487,7 @@ namespace gs
                 if (replacedSet.Contains(tb) == false) {
                     if (CopyTerrain == false) continue;
                     Index3i v = B.GetTriangle(tb);
+                    if (copy == false && (cut[v.a] ? 1 : 0) + (cut[v.b] ? 1 : 0) + (cut[v.c] ? 1 : 0) < 2) continue;
                     int ca = copied(v.a), cb = copied(v.b), cc = copied(v.c);
                     if (ExactPredicates.Orient2d(Composite.GetVertex(ca).xy, Composite.GetVertex(cb).xy, Composite.GetVertex(cc).xy) < 0) { int x = cb; cb = cc; cc = x; }
                     if (Composite.AppendTriangle(ca, cb, cc, terrainGroup) < 0)
@@ -510,6 +523,20 @@ namespace gs
         public int GroupOffset;
         /// <summary> build the whole terrain with the region replaced (else only the replacement: Replaced are not in it) </summary>
         public bool CopyTerrain = true;
+        /// <summary>
+        /// a check of each build's region, made as soon as the region is complete (null: none). If it fails, the build
+        /// does not copy the rest of the terrain (the composite is then not the whole terrain) and RegionFailed is set;
+        /// the overlap check and the rebuilds go on as without it, so the final build is the same
+        /// </summary>
+        internal Func<DMesh3, bool> RegionCheck;
+        /// <summary> the final build's region failed RegionCheck (its Composite lacks the copied terrain) </summary>
+        internal bool RegionFailed;
+        /// <summary> diagnostics: the builds made by the last Build (more than one: rebuilds with catch points held) </summary>
+        internal int Builds;
+        /// <summary> diagnostics: the builds of the last Build whose region failed RegionCheck </summary>
+        internal int RegionFailures;
+        /// <summary> diagnostics: the final build copied the whole rest of the terrain (else only the triangles at cut edges) </summary>
+        internal bool CopiedTerrain;
         /// <summary> the terrain triangles replaced (cut by the region), sorted </summary>
         public readonly List<int> Replaced = new List<int>();
         readonly HashSet<int> replacedSet = new HashSet<int>();

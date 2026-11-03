@@ -389,7 +389,7 @@ namespace gs
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
-            MaxMergeDistance = 0; BandMerges = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
+            MaxMergeDistance = 0; BandMerges = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
@@ -483,7 +483,7 @@ namespace gs
         }
 
         // the last successful build's overlay and pieces (a mixed run builds its composite from those of its two runs)
-        SlopeTerrainOverlay lastOverlay;
+        internal SlopeTerrainOverlay lastOverlay;
         List<InPiece> lastPieces;
 
         // a run of one direction with this one's inputs (Direction Auto)
@@ -1373,25 +1373,54 @@ namespace gs
                 PhaseSeconds["overlay-" + kv.Key] = t0 + kv.Value;
             }
             if (BuildComposite) {
-                var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF) { CopyTerrain = CompositeKind == CompositeKinds.Full };
+                // the clipped slope triangles get the same exact check (O1). It runs on each build's region as soon as the
+                // region is made (RegionCheck), so a build whose region fails does not copy the rest of the terrain; the
+                // last call is on the final region, the one that counts, as before
+                // (an exception of the check is kept and thrown where the check after the whole composite threw it:
+                // after a successful build, not inside it, where Build would catch it)
+                int regionSlopeFailures = 0;
+                double regionExcess = 0;
+                var regionBad = new List<int>();
+                Exception regionError = null;
+                Func<DMesh3, bool> check_region = (region) => {
+                    foreach (int tid in region.TriangleIndices()) {
+                        Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
+                        region.GetTriVertices(tid, ref a, ref b, ref cc);
+                        InPiece pc = pieces[region.GetTriangleGroup(tid)];
+                        if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
+                        bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
+                        bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                        if (slopeOk == false) regionSlopeFailures++;
+                        if (supportOk == false)
+                            regionExcess = Math.Max(regionExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
+                        if (slopeOk == false || supportOk == false)
+                            regionBad.Add(tid);
+                    }
+                    return regionBad.Count == 0;
+                };
+                Func<DMesh3, bool> regionCheck = (region) => {
+                    regionSlopeFailures = 0; regionExcess = 0; regionBad = new List<int>(); regionError = null;
+                    try {
+                        return check_region(region);
+                    } catch (Exception e) when ((e is OperationCanceledException) == false) {
+                        regionError = e;
+                        return true;
+                    }
+                };
+                var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF) {
+                    CopyTerrain = CompositeKind == CompositeKinds.Full, RegionCheck = EarlyRegionCheck ? regionCheck : null
+                };
                 if (comp.Build() == false)
                     return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
-                // the clipped slope triangles get the same exact check (O1)
-                foreach (int tid in comp.Region.TriangleIndices()) {
-                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
-                    comp.Region.GetTriVertices(tid, ref a, ref b, ref cc);
-                    InPiece pc = pieces[comp.Region.GetTriangleGroup(tid)];
-                    if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
-                    bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
-                    bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
-                    if (slopeOk == false) br.SlopeFailures++;
-                    if (supportOk == false)
-                        br.MaxExcess = Math.Max(br.MaxExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
-                    if (slopeOk == false || supportOk == false)
-                        bad.Add(tid);
-                }
                 phase("composite");
-                if (bad.Count > 0) {
+                bool regionFailed = EarlyRegionCheck ? comp.RegionFailed : regionCheck(comp.Region) == false;
+                if (regionError != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(regionError).Throw();
+                if (comp.RegionFailed && comp.CopyTerrain) SkippedTerrainCopies++;
+                CompositeBuilds += comp.Builds;
+                if (regionFailed) {
+                    br.SlopeFailures += regionSlopeFailures;
+                    br.MaxExcess = Math.Max(br.MaxExcess, regionExcess);
+                    bad.AddRange(regionBad);
                     br.BadMesh = comp.Region;
                     return Statuses.SlopeViolation;
                 }
@@ -1498,6 +1527,15 @@ namespace gs
         internal double MaxMergeDistance;
         /// <summary> diagnostics of the last build: today's merge radius r = 64 e_xy, and the band's </summary>
         internal double UsedMergeRadius, UsedBandMergeRadius;
+        /// <summary>
+        /// tests: check the composite's region as soon as it is made (default), so a build whose region fails skips the
+        /// copy of the rest of the terrain; false: after the whole composite (the reference: the same results)
+        /// </summary>
+        internal bool EarlyRegionCheck = true;
+        /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
+        internal int SkippedTerrainCopies;
+        /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>
+        internal int CompositeBuilds;
         /// <summary> diagnostics of the last realization: the targeted merges of the band (TERRAIN.md 5.4) </summary>
         internal int BandMerges;
         /// <summary> diagnostics: per failed build (attempt), the XY altitudes of its failing triangles </summary>

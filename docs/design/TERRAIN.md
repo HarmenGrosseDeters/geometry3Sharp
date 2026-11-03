@@ -665,7 +665,23 @@ two old triangles.
      | wavy 48-gon r 150 m, 2 m | none | a clipped sliver: δ raised, a second attempt (face 2, §11) |
      | wavy 64-gon, wave terrain | none | none (cheap realization failures only) |
 
-     The extra realization is accepted as cost for now (§11: a better first λ is a follow-up).
+     - **No cheap first λ.** Starting at the need would save the whole failed realization (5.5 of 15.1 s on the
+       octagon at UTM, 37 %). But the error is a property of the clipped triangles at the catch line, which exist
+       only after the overlay, and the overlay alone is 2.3 s of it (42 % of what it would save); S̃'s own
+       triangles pass and do not predict it. So no estimate cheaper than the overlay sees the cause.
+     - **The region is checked as soon as it is made** (the filter, verify, fall back pattern of adaptive
+       predicates, Shewchuk 1997, with the exact check itself as the only certificate). `SlopeComposite` runs the
+       check of each build's region right after the slope part. If it fails, that build does not copy the rest of
+       the terrain, which is most of the composite on a large terrain. It still makes the cut terrain triangles, and
+       copies those terrain triangles with two or more cut vertices: only they can meet a made triangle at an edge
+       or make the composite non-manifold, since the other copied vertices are its own and the terrain is
+       manifold. So the overlap check, the rebuilds with held catch points and every exception decide as they
+       would, and the final build's check decides as before: every status, output, λ and count is bit for bit
+       the one of the check after the whole composite (`TerrainSlopeEarlyRegionCheckTests`). Measured
+       (TerrainBenchmark, median of 2, every output hash equal): the octagon at UTM 11.5 → 10.3 s (−10 %); in a
+       local frame the toe edge 3.1 → 2.7 s (−14 %), the octagon, the L shape and the wavy toe −4 to −5 %.
+     - **What is left** of a failed realization: the realization, the overlay, the slope part and the overlap
+       check, about 4 s of the octagon's 5.5 s (§11).
 5. **The check of all triangles decides.** A needle that no repair may fix stays, fails the check, and the result
    is `SlopeViolation` with its id. Nothing fails silently.
 
@@ -1365,10 +1381,13 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      - **Face 1, the first λ** (step 4 of 5.4, "The first λ and the composite's clipped region"): the clipped
        triangles' support error comes from the z rounding, amplified by distance over altitude, and does not follow
        e_xy. At UTM the first λ hides it in 4 of 5 benchmark cases, in a local frame in 2 of 5; the extra
-       realization costs 32–45 % of the design's time where it happens. Accepted as cost for now. **Follow-up:** a
-       first λ from a cheap pre-pass (the realization's check plus an estimate of the clipped triangles' aspect at
-       the catch line from S̃'s triangles there). An estimate, so a raise can remain, but rarely. An a-priori bound
-       is out: it would need the clipped triangles' smallest altitude.
+       realization costs 32–45 % of the design's time where it happens. A first λ from a cheap estimate is not
+       buildable: the cause appears only after the overlay, which costs 42 % of what it would save; an a-priori
+       bound would need the clipped triangles' smallest altitude. Done instead: the region is checked as soon as it
+       is made, and a failed build skips the copy of the rest of the terrain, with every result bit for bit as
+       before (−10 % on the octagon at UTM, −4 to −14 % in a local frame). **Left:** the overlay and the overlap
+       check of a failed realization, about 4 s of the octagon's 5.5 s, or 25–30 % of its run; only a cheaper
+       certificate of the clipped triangles' error than the overlay itself would save it.
      - **Face 2, clipped slivers:** a clipped triangle far below `MinFeatureSize` at the catch line (an altitude of
        2.3e-9 m on the DGM wavy toe in its local frame, 2.8e-9 m in the procedural pin), under its support by more
        than λ's bound covers, so δ is raised and a second attempt succeeds. The band merge acts on the
