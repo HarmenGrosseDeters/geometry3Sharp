@@ -57,8 +57,8 @@ using Floating-point Arithmetic*, ACM TOG 2020 (the method from the papers; no c
 
 The polyhedral envelope (`docs/design/ENVELOPE.md`; `mesh_ops/PolyhedralEnvelope.cs`, internal, own code) follows B. Wang, T. Schneider, Y. Hu,
 M. Attene, D. Panozzo, *Exact and Efficient Polyhedral Envelope Containment Check*, ACM TOG 39(4), 2020; its reference
-code `fast-envelope` (MIT) serves as a reference only; Geogram and the predicate libraries bundled with it are not
-read.
+code `fast-envelope` (MIT) serves as a reference only; Geogram and the predicate libraries bundled with it were not
+read for it. Since 2026-11-03 geogram's own BSD-3 code may be read and ported under the rules in ROADMAP.md ("Geogram as a source").
 
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 

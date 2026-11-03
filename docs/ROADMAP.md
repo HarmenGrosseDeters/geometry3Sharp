@@ -160,6 +160,39 @@ Open tasks further up, and work further down, in the code or in the research lis
 | Golden masters across runtimes ([strategy](design/ACCEPTANCE_STRATEGY.md), section 4) | Open research questions: bit-for-bit determinism | The same problem, seen first in the prism fixtures. What the golden subset finds is material for the question |
 | Boolean property tests (below) | Open research questions: metamorphic testing | Same method. Write them so that the generators can serve both |
 
+## Geogram as a source (owner 2026-11-03)
+
+[Geogram](https://github.com/BrunoLevy/geogram) (Bruno Lévy, Inria) is BSD-3-Clause (`LICENSE` checked 2026-11-03,
+"Copyright (c) 2000-2022 Inria"). Its own code may be read, analysed and ported; this replaces the earlier
+"Geogram not read" notes (SOURCES.md, envelope). Rules:
+
+- Only files under `src/lib/geogram` whose header carries the Inria BSD-3 notice; check each file's header before
+  reading it.
+- Never read `third_party/triangle` or the wrapper `delaunay/delaunay_triangle.*` (Triangle's non-free license and
+  the mesher's clean room); `third_party/tetgen`, `delaunay/delaunay_tetgen.*` and whatever calls TetGen
+  (AGPL) stay unread as well. Every other `third_party` library only after checking its own license (PoissonRecon,
+  xatlas, HLBFGS, amgcl, OpenNL and so on).
+- Ported code keeps the BSD-3 notice: the file header names the geogram source file and version, `docs/SOURCES.md`
+  gets a row, and the package ships the notice (a `THIRD_PARTY_NOTICES` file; BSD-3 permits redistribution
+  under BSL-1.0 with the notice). A port is a decision with an A/B, like any other change; reading for ideas
+  needs no decision.
+- Port into the exact code only under the exact-code rules (no FMA, no `float`, review of every bound).
+- The mesher logs every geogram file it reads in MESHING2D_PROVENANCE.md, and the provenance check (6b) covers it.
+
+Open items where geogram has an implementation to compare with or port from (to check first, not yet read):
+
+| Open item | Geogram (to check) |
+|---|---|
+| Boolean performance (B) and the exact `Orient3d` hotspot ("kernel B", 1-limb fast path) | `numerics/PCK`, `expansion_nt`, `multi_precision`, `exact_geometry`, `interval_nt`: expansion arithmetic with an interval filter and homogeneous exact points |
+| Mesh arrangements and booleans; SafeRounding and the research item "Practical 3D snap rounding" | `mesh/mesh_surface_intersection*`, `mesh_CSG*`, `triangle_intersection` (Lévy 2024/25, exact predicates and constructions for mesh CSG; SAFE_ROUNDING.md notes that it does not solve the rounding) |
+| 2D mesher: snap speed, the exact kernel, constraint intersections | `delaunay/CDT_2d` (Lévy's own constrained Delaunay with exact predicates and constraint crossings; not the Triangle wrapper) |
+| 2D mesher grading (2-2.5x triangle count on f-11 / f-40) | `delaunay/LFS` (local feature size) |
+| Phase 5 #4: tetrahedral meshing | `delaunay/delaunay_3d`, `parallel_delaunay_3d` (own code; not the TetGen path) |
+| Remesher quality and speed, Reducer | `mesh/mesh_remesh` (CVT / restricted Voronoi diagrams, `voronoi/`), `mesh_decimate`, `mesh_smoothing` |
+| Mesh repair and hole filling (Phase 2) | `mesh/mesh_repair`, `mesh_fill_holes`, `mesh_preprocessing` |
+| Parameterization (Phase 3) | `parameterization/` (LSCM, ABF++ and others) |
+| Point clouds ("Later") | `points/` (Co3Ne and others) |
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
