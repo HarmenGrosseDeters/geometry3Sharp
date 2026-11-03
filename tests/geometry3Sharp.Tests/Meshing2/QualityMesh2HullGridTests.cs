@@ -109,7 +109,8 @@ namespace geometry3Sharp.Tests
             var input = Moved(Fuzz(11), Similarity.ByName("rotated"));
             var report = Judge(input, out var output);
             Assert.True(report.Ok, report.ToString());
-            var result = new QualityMesh2 { MinAngle = input.MinAngleDeg.Value, SnapTolerance = input.SnapTolerance, SteinerLimit = input.SteinerLimit }
+            // the same run as the judged one: the M3 candidate is conforming (O2); without it, lenses (Conforming = false) give another mesh
+            var result = new QualityMesh2 { MinAngle = input.MinAngleDeg.Value, SnapTolerance = input.SnapTolerance, SteinerLimit = input.SteinerLimit, Conforming = true }
                 .Compute(ConstrainedDelaunayMesh2Candidate.Convert(input));
             Assert.Contains(result.Diagnostics, d => d.Contains("vertices of the hull chains in no triangle"));
         }

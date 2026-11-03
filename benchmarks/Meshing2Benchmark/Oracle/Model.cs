@@ -39,6 +39,12 @@ namespace Meshing2Acceptance
         public double SnapTolerance;     // 0 = automatic
         public bool ResolveCrossings = true;
         public bool Conforming;          // O2: empty circumcircles against all vertices, also across segments
+        /// <summary>
+        /// The "constrained quality" mode (owner decision 2026-11-02): quality without O2, the result judged as constrained Delaunay
+        /// (no empty circumcircle demanded across segments). The mesher then uses diametral lenses up to 25.65 degrees. Written to
+        /// the text only when set, as the line "mode constrained", so the input_sha256 of every other input is unchanged.
+        /// </summary>
+        public bool ConstrainedQuality;
         /// <summary>Longest edge bound at the centroid; the meaning of the size function is decision D9 of MESHING2D_DECISIONS.md.</summary>
         public Func<Q, Q, Q> SizeFunction;
         /// <summary>The size function in the text format, which has only constants so far; a function without it cannot be written.</summary>

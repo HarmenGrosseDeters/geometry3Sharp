@@ -307,6 +307,14 @@ namespace Meshing2Acceptance
             var cdtConforming = Points(cdt.X.SelectMany((x, i) => new[] { x, cdt.Y[i] }).ToArray());
             cdtConforming.Segments = cdt.Segments; cdtConforming.Conforming = true;
             Reject("M3: conforming asked, illegal constrained edge", Violation.NotDelaunayLocal, cdtConforming, cdtOut, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+            // the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as constrained Delaunay. The same mesh
+            // with an illegal but constrained edge passes there and fails with quality in the default mode, which demands O2
+            var cdtQuality = Points(cdt.X.SelectMany((x, i) => new[] { x, cdt.Y[i] }).ToArray());
+            cdtQuality.Segments = cdt.Segments; cdtQuality.MinAngleDeg = 0;
+            var cdtQualityOut = Clone(cdtOut); cdtQualityOut.BadTriangles = new int[0];
+            Reject("M3: quality, default mode (O2), illegal constrained edge", Violation.NotDelaunayLocal, cdtQuality, cdtQualityOut, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+            cdtQuality.ConstrainedQuality = true;
+            Accept("M3: quality, constrained mode, an edge that is illegal but constrained", cdtQuality, cdtQualityOut, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
 
             // a segment crossing another one: rational crossing vertex; judged on exact vertices, and with doubles only inside a tube
             var cross = Points(0, 0, 6, 0, 6, 6, 0, 6, 1, 1, 4, 5, 1, 4, 5, 1);

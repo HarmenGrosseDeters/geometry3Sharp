@@ -34,7 +34,8 @@ namespace Meshing2Acceptance
 
         /// <summary>
         /// for before/after measurements on the calling thread: G3_M2_OFFCENTRES (0 or 1) switches off-centres, G3_M2_CONFORMING (0 or 1)
-        /// conforming Delaunay in the M3 candidate (what O2 costs); unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
+        /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule;
+        /// unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
         public static void ApplyRefinementVariant()
@@ -42,6 +43,7 @@ namespace Meshing2Acceptance
             bool? Flag(string name) { var v = Environment.GetEnvironmentVariable(name); return v == null ? (bool?)null : v != "0"; }
             g3.QualityMesh2.Refiner.OffCentresForBenchmarks = Flag("G3_M2_OFFCENTRES");
             QualityMesh2Candidate.ConformingForBenchmarks = Flag("G3_M2_CONFORMING");
+            g3.QualityMesh2.Refiner.LensesForBenchmarks = Flag("G3_M2_LENSES");
         }
 
         public const string Usage =

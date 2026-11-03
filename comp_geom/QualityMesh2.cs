@@ -20,6 +20,12 @@ namespace g3
     /// make refinement run away. Triangles whose small angle lies between two constrained edges are not refined for their angle.
     /// Split points are computed on the original input segment, so they stay within rounding of it however often a piece is
     /// split (spec O12).</para>
+    /// <para>Without <see cref="Conforming"/> (the default), a subsegment counts as encroached only by a vertex in its diametral lens
+    /// (Shewchuk 2002, section 6.4: the points that see it under at least 120 degrees, a narrower region than the diametral circle)
+    /// when the angle bound is at most arcsin(sqrt 3 / 4) = 25.65 degrees, the bound the paper proves for lenses; above it the
+    /// diametral circle is used. The paper's proof also deletes free vertices near a subsegment before splitting it, which this
+    /// mesher does not do: lenses here are measured to terminate on the catalogue, the corpus and the Herne tiles, not proven to
+    /// (provenance: unproven). With Conforming the circle is always used (O2).</para>
     /// <para>Terminates: angles up to about 33 degrees converge on ordinary input; any input stops at the Steiner limit
     /// (default 10 x (points + segments) + 100 000, spec Q13). Pieces that are too short to split in doubles stay as they are.</para>
     /// <para>Locked segments (spec O9) keep their vertices and the mesh stays valid, but the bounds are not guaranteed near them
@@ -40,7 +46,11 @@ namespace g3
         public Func<double, double, double> SizeFunction;
         /// <summary> Most Steiner points to insert, or null for 10 x (points + segments) + 100 000. </summary>
         public int? SteinerLimit;
-        /// <summary> Conforming Delaunay even without bounds: split subsegments until none is encroached (spec O2). </summary>
+        /// <summary>
+        /// Conforming Delaunay even without bounds: split subsegments until none is encroached (spec O2), encroachment by the
+        /// diametral circle. Off (the default): the result is constrained Delaunay, and up to 25.65 degrees encroachment is by the
+        /// diametral lens, which inserts fewer points.
+        /// </summary>
         public bool Conforming;
         /// <summary> Split crossing constraints (default); off: a crossing is a failure. </summary>
         public bool ResolveCrossings = true;
@@ -125,6 +135,8 @@ namespace g3
             readonly ConstrainedDelaunayMesh2.Builder b;
             DelaunayKernel2 k;
             readonly double sin2Min;
+            /// <summary> encroachment by the diametral lens instead of the circle (Shewchuk 2002, section 6.4) </summary>
+            readonly bool lenses;
             /// <summary> cot(theta / 2) of the angle bound theta: an off-centre lies |pq| cot(theta / 2) / 2 from the midpoint of pq </summary>
             readonly double halfCot;
             /// <summary> bad triangles are split at off-centres (Ungor 2004) instead of circumcentres </summary>
@@ -165,6 +177,9 @@ namespace g3
                 sin2Min = s * s;
                 halfCot = HalfCot(sin2Min);
                 offCentres = OffCentresForBenchmarks ?? true;
+                // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
+                // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
+                lenses = LensesForBenchmarks ?? (!options.Conforming && options.MinAngle > 0 && sin2Min <= 3.0 / 16);
             }
 
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
@@ -440,7 +455,7 @@ namespace g3
                     // encroaches too
                     if (options.Conforming ? k.IsGhost(t) : !InDomain(t)) continue;
                     int apex = k.V[Next(Next(h))];
-                    if (DotSign(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex)) < 0) return true;
+                    if (EncroachesOn(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex))) return true;
                 }
                 return false;
             }
@@ -462,6 +477,44 @@ namespace g3
                 var q = new BigInteger[6];
                 for (int i = 0; i < 6; ++i) q[i] = m[i].IsZero ? BigInteger.Zero : m[i] << (ex[i] - emin);
                 return ((q[0] - q[4]) * (q[2] - q[4]) + (q[1] - q[5]) * (q[3] - q[5])).Sign;
+            }
+
+            /// <summary> benchmarks and tests only (per thread): lenses on or off regardless of the rule; null: the rule </summary>
+            [ThreadStatic] internal static bool? LensesForBenchmarks;
+
+            /// <summary> p encroaches on the subsegment ac: p lies in its open diametral circle, or with lenses in its closed diametral
+            /// lens </summary>
+            bool EncroachesOn(Vector2d a, Vector2d c, Vector2d p) => lenses ? InLens(a, c, p) : DotSign(a, c, p) < 0;
+
+            /// <summary>
+            /// p lies in the closed diametral lens of ac (Shewchuk 2002, section 6.4: the intersection of two disks of radius |ac| / sqrt 3
+            /// centred on the bisector, |ac| / (2 sqrt 3) from ac on either side; its boundary sees ac under 120 degrees): the angle apc is
+            /// at least 120 degrees, ie (pa . pc) &lt; 0 and 4 (pa . pc)^2 &gt;= |pa|^2 |pc|^2. Exact: a floating-point filter, then integers.
+            /// The boundary counts as inside, as in the paper; points exactly on it have irrational coordinates, so in doubles it decides
+            /// nothing.
+            /// </summary>
+            internal static bool InLens(Vector2d a, Vector2d c, Vector2d p)
+            {
+                if (DotSign(a, c, p) >= 0) return false;
+                double ax = a.x - p.x, ay = a.y - p.y, cx = c.x - p.x, cy = c.y - p.y;
+                double d = ax * cx + ay * cy, la = ax * ax + ay * ay, lc = cx * cx + cy * cy;
+                double lhs = 4 * d * d, rhs = la * lc, scale = lhs + rhs;
+                // with |pa|^2 and |pc|^2 each in the normal range, their errors are a few ulps, and the error of d is at most some 4 ulps of
+                // |pa| |pc| (Cauchy-Schwarz; d itself may cancel), so lhs and rhs are within some 40 ulps of rhs <= scale: a relative margin
+                // of 2^-40 decides safely. A factor near underflow loses its relative accuracy (review: |pa|^2 subnormal next to a large
+                // |pc|^2), so each factor is checked, not only the sum; outside the range, or closer, integers decide
+                if (la > 1e-280 && lc > 1e-280 && la < 1e140 && lc < 1e140 && Math.Abs(lhs - rhs) > scale * (1.0 / (1L << 40))) return lhs > rhs;
+                double[] v = { a.x, a.y, c.x, c.y, p.x, p.y };
+                var m = new BigInteger[6];
+                var ex = new int[6];
+                int emin = int.MaxValue;
+                for (int i = 0; i < 6; ++i) { ExactPoint3.Decompose(v[i], out m[i], out ex[i]); if (!m[i].IsZero) emin = Math.Min(emin, ex[i]); }
+                if (emin == int.MaxValue) return false;
+                var q = new BigInteger[6];
+                for (int i = 0; i < 6; ++i) q[i] = m[i].IsZero ? BigInteger.Zero : m[i] << (ex[i] - emin);
+                BigInteger ux = q[0] - q[4], uy = q[1] - q[5], wx = q[2] - q[4], wy = q[3] - q[5];
+                BigInteger dot = ux * wx + uy * wy;
+                return 4 * dot * dot >= (ux * ux + uy * uy) * (wx * wx + wy * wy);
             }
 
             // ------------------------------------------------------------ bad triangles
@@ -917,6 +970,9 @@ namespace g3
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
                     splitCause = 1;
+                    // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
+                    // encroachment split (found by lenses on the earcut water corpus input)
+                    triangles.Enqueue(t);
                     return SplitSegment(blocked);
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
@@ -983,7 +1039,7 @@ namespace g3
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j;
                         if (k.Seg[e] >= 0) {
-                            if (!Locked(e) && !unsplittable.Contains(Key(k.V[e], k.V[Next(e)])) && DotSign(k.Point(k.V[e]), k.Point(k.V[Next(e)]), c) < 0) result.Add(e);
+                            if (!Locked(e) && !unsplittable.Contains(Key(k.V[e], k.V[Next(e)])) && EncroachesOn(k.Point(k.V[e]), k.Point(k.V[Next(e)]), c)) result.Add(e);
                             continue;
                         }
                         int t2 = k.H[e] / 3;

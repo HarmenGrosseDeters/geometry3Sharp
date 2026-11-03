@@ -50,6 +50,11 @@ namespace Meshing2Acceptance
             sb.Append("size_constant ").Append(input.SizeConstant == null ? "-" : Token(input.SizeConstant.Value)).Append('\n');
             sb.Append("resolve_crossings ").Append(input.ResolveCrossings ? 1 : 0).Append('\n');
             sb.Append("conforming ").Append(input.Conforming ? 1 : 0).Append('\n');
+            if (input.ConstrainedQuality) {
+                // the reader rejects the pair, so the writer does too (review)
+                if (input.Conforming) throw new InvalidOperationException("the constrained quality mode contradicts conforming");
+                sb.Append("mode constrained\n");
+            }
             sb.Append("end\n");
             return sb.ToString();
         }
@@ -148,6 +153,11 @@ namespace Meshing2Acceptance
             }
             input.ResolveCrossings = r.Named("resolve_crossings", 2)[1] == "1";
             input.Conforming = r.Named("conforming", 2)[1] == "1";
+            if (r.TryOptional("mode", out var mode)) {
+                if (mode.Length != 2 || mode[1] != "constrained") throw new FormatException("mode: expected \"mode constrained\", got: " + string.Join(" ", mode));
+                if (input.Conforming) throw new FormatException("mode constrained contradicts conforming 1");
+                input.ConstrainedQuality = true;
+            }
             r.Named("end", 1);
             return input;
         }

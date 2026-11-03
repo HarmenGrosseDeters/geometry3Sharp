@@ -7,9 +7,32 @@ removes the entry.
 
 ## Mesh repair
 
-### R1: crossing components taken for nested ones
+### R1: crossing components taken for nested ones (fixed)
 
-- Test: `MeshRepairIssueCasesTests.ThinFold_NearlyParallelOverlap_Resolved` (3 and 10 degrees), pinned.
+- **Status: fixed (fix idea 1).** In `FindInvertedComponents`, a component that would be flagged is tested for
+  meeting surfaces with the components most of its samples lie in. The test is exact
+  (`ExactTriangleIntersection.IntersectsBeyondShared`, behind the filter `TriangleTriangleFilter`). If the surfaces
+  meet, the component has no nesting and keeps its orientation. The volume check's reference uses the same rule, so it
+  moves along: there is no second inside / outside rule. The test is no longer pinned.
+  Direct tests: `MeshPostRepairCleanupTests.CubeCrossingASphere_IsNotACavity` (fails on the old code),
+  `CrossingPairInAShell_KeepsItsOrientation` (fails on the old code), `CrossingComponents_KeepTheirOrientation`,
+  `NestedComponentsNotMeeting_AreStillNested`,
+  `CavitySharingAVertexWithItsShell_IsNested`, `CavityTouchingItsShell_KeepsItsOrientation`.
+- The surfaces are tested only for a component that would be flagged, against the components most of its samples
+  lie in, so a correctly oriented mesh pays nothing for it.
+- Limits of the fix:
+  - A crossing is seen only with a component that contains most of the samples (and whose box contains the
+    component's). Otherwise the component is judged without it, as before. Example: an inside-out crossing box
+    whose box does not lie in the other's is a top-level shell and is flagged; flipping it gives the union.
+  - Crossing components have no nesting at all, also inside a third component that encloses both (a cube poking out
+    of a spherical cavity keeps its orientation, either way). Dropping only the crossing pair from the count instead
+    would flag every cavity that touches its shell's wall (`InvertedComponents_TouchingBoxesAndCavity_...`,
+    `InvertedComponents_ThinCavityTouchingWall_IsNotInverted`).
+  - A touch counts as a meeting: a cavity on its shell's wall (a zero wall), or touching it at a point through an
+    unwelded vertex. Only a vertex shared by id (a bowtie) does not count. Such a cavity keeps its orientation. The
+    correct, inward one is right either way. A wrongly oriented one is flagged only where rounding (a rotation)
+    turns the contact into a gap; on base it was flagged.
+- Test: `MeshRepairIssueCasesTests.ThinFold_NearlyParallelOverlap_Resolved` (3 and 10 degrees).
 - Issue: https://github.com/MeshInspector/MeshLib/issues/5567 (thin folds between faces that point almost the same way).
 - Input: two outward boxes [-2,2] x [-2,2] x [-0.2,0.2], one of them rotated about y by 3 (or 10) degrees, in one mesh.
 - Wrong result: `MeshRobustRepair` returns a clean mesh of volume 0.839 (10 degrees: 2.77) instead of the union's
