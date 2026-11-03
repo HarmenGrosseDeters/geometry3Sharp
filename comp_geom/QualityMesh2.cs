@@ -196,8 +196,7 @@ namespace g3
                 if (hullFailure != null) return hullFailure;
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
-                for (int t = 0; t < k.TriangleSlots; ++t)
-                    if (InDomain(t)) { triangles.Enqueue(t); QueueEdges(t); }
+                QueueAll();
                 long steps = 0;
                 int sweepStart = k.VertexCount;
                 while (true) {
@@ -211,8 +210,7 @@ namespace g3
                         sweepStart = k.VertexCount;
                         unsplittable.Clear(); exempt.Clear();
                         GridBlocked = 0; GridUnsplittable = 0;
-                        for (int t = 0; t < k.TriangleSlots; ++t)
-                            if (InDomain(t)) { triangles.Enqueue(t); QueueEdges(t); }
+                        QueueAll();
                     }
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
                     // every vertex made since the input counts, crossings included (O7: the limit counts every Steiner point of the run)
@@ -310,6 +308,20 @@ namespace g3
                     }
                 }
                 return null;
+            }
+
+            /// <summary>
+            /// the triangles of the domain, and the constrained edges that may be encroached: of the domain, and with Conforming of every
+            /// triangle, since there a vertex anywhere encroaches (Encroached), and a constraint inside a hole that is encroached and left
+            /// as it is hides a vertex across the hole from the domain's edges (found with the grid fuzz with holes: a segment inside a
+            /// hole, between a hole edge and a vertex on the opposite hole edge, left the domain not Delaunay across the hole)
+            /// </summary>
+            void QueueAll()
+            {
+                for (int t = 0; t < k.TriangleSlots; ++t) {
+                    if (InDomain(t)) triangles.Enqueue(t);
+                    if (options.Conforming ? !k.IsGhost(t) : InDomain(t)) QueueEdges(t);
+                }
             }
 
             void QueueEdges(int t)
