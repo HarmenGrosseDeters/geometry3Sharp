@@ -483,6 +483,81 @@ accepted only if it keeps the geometry within the cell and passes the check.
 Every collapse removes a vertex. Flips are only accepted if they raise the smallest altitude. So the loop
 terminates.
 
+**Repair of the band [64·e_xy, `MinFeatureSize`) (item 4 of 1c, design 2026-11-03, not implemented yet).**
+The realization repairs by thresholds that scale with e_xy. The merge of positions and the needle flips
+(`SlopeMap.FlipNeedles`) act below r = 64·e_xy. `CollapseShortEdges` acts on edges shorter than `MinFeatureSize`.
+δ covers only triangles with h_min ≥ `MinFeatureSize` ≈ 16·e_xy/δ. A cap needle (long edges, small altitude) in
+the band [64·e_xy, `MinFeatureSize`) is covered by none of them. Its slope and support can fail by rounding, and a
+larger δ makes new needles of the same kind in the next build. Such needles are genuine features of the exact
+envelope: creases of nearly coplanar tangent planes, about 1e-10 m wide in the repro below, whatever the frame.
+
+- **Frame dependence.** At UTM (e_xy = 9.3e-10) they fall below r = 6e-8 and are merged or flipped. Near the origin
+  (e_xy = 1.1e-13, r = 7e-12, `MinFeatureSize` 3e-6) they fall into the band, and the run fails with
+  `SlopeViolation` after 3 attempts.
+- **Repro** (`TerrainSlopeKnownFailureTests`, procedural): a wavy 48-gon of r 150 m, toe z −340 ± 4 m, ratio 1.5, h
+  60 m above it, on a wave terrain (amplitude 20 m, 8 m grid, 13k triangles), `Tolerance` 0.05. At (0, 0) it
+  fails. At UTM it succeeds in 1 attempt. The failing triangles have altitudes 1e-12 to 3e-10 m and longest
+  edges 8 to 88 m, along the crease x ≈ 0 where pieces 33, 37 and 38 meet. A UTM case whose needles are between
+  6e-8 m and 1.5 cm wide would fail the same way: the gap is in the realization, not at the origin.
+
+The repair promised above for h_min < `MinFeatureSize` is completed for this band:
+
+1. **Collapse first, by the plane-set rule.** A needle with a short side, its edges in the cell rule, is
+   collapsed as now (`CollapseShortEdges`). Toe, design-boundary and catch-line vertices are never moved.
+2. **Then the flip, with an exact bound per flip.** A cap needle (altitude below `MinFeatureSize`) has its longest
+   edge flipped as in `FlipNeedles`, if all of the following hold:
+   - the old diagonal's ends lie strictly on both sides of the new one (exact Orient2d);
+   - the smaller altitude of the two new triangles is larger than the smaller of the two old ones;
+   - the flip's deviation bound fits the reserve R.
+
+   The deviation bound is that of `FlipNeedles` today: |z_ab(X) − z_cd(X)| at the crossing X of the two
+   diagonals, rounded up and summed along a chain of flips (the larger bound of the two old triangles plus the
+   change). Only this exact bound is enforced. As an estimate (for the budget, to be proven in the bound review):
+   for a needle of altitude h across a crease the change is of the order |G_a − G_b|·h ≤ 2·sMax·h. So a needle
+   below `MinFeatureSize` should need at most about 2·sMax·`MinFeatureSize` per flip chain, and one 1e-10 m wide
+   about 1.3e-10.
+3. **The check decides.** After the repair, every touched triangle runs (i) and (ii) again. A flip whose bound
+   does not fit R is not made, and the triangle is left to the check. Nothing fails silently.
+4. **The lowering λ is measured, not reserved.** The flips raise the surface above S̃ by at most their bounds. The
+   realization adds the largest accumulated bound of the flips it made to the lowering it needs (as
+   `RepairLambda` does for the merge today). A 1e-10 m needle then costs λ about 1e-10, not R.
+
+**The budget, before and after.** Tolerance = λ bound + δ·sMax·1.1·D0 + merge + flips + facets, the facets
+taking the rest:
+
+- **Before:** flips 2·sMax·(r + e_xy).
+- **After:** flips R = min(2·sMax·`MinFeatureSize`, `Tolerance`/32), taken from the facet share.
+
+The cap Tolerance/32 keeps the cost small at UTM, where 2·sMax·`MinFeatureSize` (2 to 3 cm) would exceed the
+budget at `Tolerance` 1 cm. It is relative, not an absolute constant, and scales bitwise under 2^k. The facet angle
+grows with the square root of the facet share, so the facets lose at most 3.1 % of their share (angle factor ≥
+0.984, about 1.6 % more cone directions). Values for δ = 1e-6 (m):
+
+| case | λ bound | δ share | merge | flips before → after (R) | facets before → after | facet angle |
+|---|---|---|---|---|---|---|
+| UTM, octagon on the 1 m DGM, 1:1.5, T 0.05 | 1.5e-4 | 1.5e-4 | 1.6e-7 | 8.1e-8 → 1.6e-3 | 0.04969 → 0.04813 | ×0.984 |
+| UTM, 1a speed case, 1:1, T 0.01 | 3.3e-5 | 3.3e-5 | 2.4e-7 | 1.2e-7 → 3.1e-4 | 0.009934 → 0.009621 | ×0.984 |
+| origin repro, 1:1.5, T 0.05 | 8.8e-5 | 8.8e-5 | 2e-11 | 9.9e-12 → 4.2e-6 | 0.04982 → 0.04982 | ×1.000 |
+
+The `Tolerance` of the tests and benchmarks (5 cm) and the 1 cm of the speed case fit at UTM. With a larger
+δ (an attempt after a slope failure), `MinFeatureSize` shrinks and R with it (R ≤ 2·sMax·16·e_xy/δ). The repro's
+third attempt (δ 5.12e-4) does not fit today either: its λ bound and δ share are 0.045 each. With the repair it
+should not get there.
+
+**Termination.**
+- A collapse removes a vertex.
+- A flip is made only if it strictly raises the smaller altitude of the pair. Each flip strictly increases the
+  sorted vector of the mesh's altitudes in lexicographic order on a fixed vertex set, which has finitely many
+  triangulations.
+- So the loop ends; it is also capped at 64 passes, as `FlipNeedles` is today.
+
+**Tests of the implementation (its own PR):**
+- the repro succeeds near the origin;
+- the same status at (0, 0) and at UTM for the repro and the frame tests (a translation check);
+- invariance over `Similarity.All()`;
+- a test whose needle needs a flip bound above R, which fails with `SlopeViolation` and the triangle ids;
+- the A/B of the TerrainBenchmark cases (time, triangles, λ, facet angle), before and after.
+
 **Never silent.** If any triangle still fails, `Compute()` returns false with `SlopeViolation` and the triangle
 ids. It never returns a violating result. `MaxSlopeRatio` is an upper bound (rounded up) of ‖∇‖ / s_k over the
 slope triangles, < 1 on success; the exact pass/fail per triangle is what counts.
