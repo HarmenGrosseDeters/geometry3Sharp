@@ -465,9 +465,10 @@ orientation (facing -z, in the plane x = 0, with pins), a three-peak terrain, a 
 identical holes (symmetry), saddles, a long thin triangle in the plane x = 0 (and a needle quad with both diagonals),
 packing with rotated charts, and a thin tall box. Success is checked by finite UVs, the surface's orientation, flips where a method
 promises none, overlaps, disc charts with uniform texel density. Fixed: BFF Disk threw an `ArithmeticException` on a
-needle quad whose boundary scale factors overflow, now `SolverFailed` (P4). Known failures
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): LSCM (and ARAP from it) collapses the unpinned ring of a low-poly
-cylinder and reports success (P1); BFF Disk with the conformal extension does not keep the boundary on the circle on
+needle quad whose boundary scale factors overflow, now `SolverFailed` (P4); LSCM (and ARAP from it) collapsed the
+unpinned ring of a low-poly cylinder and reported success, now LSCM and ARAP report `FlippedTriangles` (with the map)
+for a map with flipped or degenerate UV triangles (P1; the collapse itself stays). Known failures
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): BFF Disk with the conformal extension does not keep the boundary on the circle on
 meshes without interior vertices, and on two needles gives a flipped sliver (P2); LSCM with automatic pins is
 asymmetric by 1e-4 on a symmetric patch (P3).
 
