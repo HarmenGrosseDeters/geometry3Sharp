@@ -635,13 +635,53 @@ two old triangles.
    2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
    - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
      - `Realize` rounds XY independently of λ (`K.Rounded`);
-     - the merge and the band merge do not depend on λ, and `CollapseShortEdges` is replayed;
-     - so the second realization has the same vertices in XY, the same merges and the same needles.
+     - the merge within r does not depend on λ, and `CollapseShortEdges` is replayed; the band merge is decided
+       anew (step 2, "Per realization"), through the exact checks, and its need is that realization's;
+     - so the second realization has the same vertices in XY and the same merges within r.
    - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
      decide again or measure again; its λ is the measured one.
    - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
      `SlopeViolation`).
    - So one attempt has at most two realizations for its repairs, and no loop between λ and the repairs.
+   - **The first λ and the composite's clipped region.** The first realization takes λ = 4·e_z, with
+     e_z = 2·sMax·e_xy + e_eval. The composite's clipped slope triangles have their vertices on S̃, rounded in z
+     (½ ulp of |z|), and the support check of such a triangle extends its plane to the toe line, tens of metres
+     away: the rounding is amplified by distance over altitude (up to about 1e4 on the DGM cases). Their support
+     error (4e-13 to 1.8e-7 measured) depends on z and the geometry, not on e_xy. At UTM the first λ is dominated by
+     the XY part of e_z (e_xy 9.3e-10, λ about 5e-9), which hides the error in most cases. In a local frame
+     (5.8.1) or near the origin the XY part shrinks while z stays, so the first λ is about 6e-13, below the error:
+     the region's check fails, λ is raised by measurement, and the composite is built again. That is the
+     mechanism doing its job, not an effect of the local frame. An a-priori bound would need the clipped
+     triangles' smallest altitude, which is known only after the composite and unbounded for slivers.
+
+     Upper bound (TerrainBenchmark, 2026-11-03, 4 cores; the extra realization because of the region alone, and
+     its share of the design's time):
+
+     | case | at UTM | `LocalFrame` |
+     |---|---|---|
+     | one toe edge, Hambach 1 m | none | 1 extra, 1.9 of 4.2 s (45 %) |
+     | octagon r 100 m, 1 m | 1 extra, 6.1 of 15.1 s (40 %) | 1 extra, 5.5 of 14.1 s (39 %) |
+     | L shape 120 m, 2 m | none (one cheap realization failure, before the composite) | 1 extra, 1.6 of 4.9 s (32 %) |
+     | wavy 48-gon r 150 m, 2 m | none | a clipped sliver: δ raised, a second attempt (face 2, §11) |
+     | wavy 64-gon, wave terrain | none | none (cheap realization failures only) |
+
+     - **No cheap first λ.** Starting at the need would save the whole failed realization (5.5 of 15.1 s on the
+       octagon at UTM, 37 %). But the error is a property of the clipped triangles at the catch line, which exist
+       only after the overlay, and the overlay alone is 2.3 s of it (42 % of what it would save); S̃'s own
+       triangles pass and do not predict it. So no estimate cheaper than the overlay sees the cause.
+     - **The region is checked as soon as it is made** (the filter, verify, fall back pattern of adaptive
+       predicates, Shewchuk 1997, with the exact check itself as the only certificate). `SlopeComposite` runs the
+       check of each build's region right after the slope part. If it fails, that build does not copy the rest of
+       the terrain, which is most of the composite on a large terrain. It still makes the cut terrain triangles, and
+       copies those terrain triangles with two or more cut vertices: only they can meet a made triangle at an edge
+       or make the composite non-manifold, since the other copied vertices are its own and the terrain is
+       manifold. So the overlap check, the rebuilds with held catch points and every exception decide as they
+       would, and the final build's check decides as before: every status, output, λ and count is bit for bit
+       the one of the check after the whole composite (`TerrainSlopeEarlyRegionCheckTests`). Measured
+       (TerrainBenchmark, median of 2, every output hash equal): the octagon at UTM 11.5 → 10.3 s (−10 %); in a
+       local frame the toe edge 3.1 → 2.7 s (−14 %), the octagon, the L shape and the wavy toe −4 to −5 %.
+     - **What is left** of a failed realization: the realization, the overlay, the slope part and the overlap
+       check, about 4 s of the octagon's 5.5 s (§11).
 5. **The check of all triangles decides.** A needle that no repair may fix stays, fails the check, and the result
    is `SlopeViolation` with its id. Nothing fails silently.
 
@@ -1337,15 +1377,24 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
    - Done: item 1(a), the opt-in local frame (5.8.1, owner decision 2026-11-03: local outputs with `UsedOrigin`).
      `MinFeatureSize` stays relative to the input's coordinates and is documented. The terrain is translated in
      place and restored; a positions-only copy, which would leave it untouched, is a follow-up (5.8.1).
-   - Next, found there: the support error of the composite's clipped slope region, which does not scale with XY.
-     Two faces:
-     - the first λ follows from the coordinates' resolution and can be below it, so λ is raised by measurement and
-       the composite built again (in a local frame on every benchmark case but one, 5.8.1's cost table);
-     - where it exceeds what λ may cover, δ is raised: the wavy toe on the DGM in its local frame fails its first
-       attempt on one clipped triangle (an altitude of 2.3e-9 m at the catch line), under its support by 0.43 mm.
-
-     A bound of the clipping's error in the first λ would remove the extra realization by construction. Diagnosis
-     and a procedural repro first.
+   - The composite's clipped slope region (found there; diagnosed, docs and a pin only). Two faces:
+     - **Face 1, the first λ** (step 4 of 5.4, "The first λ and the composite's clipped region"): the clipped
+       triangles' support error comes from the z rounding, amplified by distance over altitude, and does not follow
+       e_xy. At UTM the first λ hides it in 4 of 5 benchmark cases, in a local frame in 2 of 5; the extra
+       realization costs 32–45 % of the design's time where it happens. A first λ from a cheap estimate is not
+       buildable: the cause appears only after the overlay, which costs 42 % of what it would save; an a-priori
+       bound would need the clipped triangles' smallest altitude. Done instead: the region is checked as soon as it
+       is made, and a failed build skips the copy of the rest of the terrain, with every result bit for bit as
+       before (−10 % on the octagon at UTM, −4 to −14 % in a local frame). **Left:** the overlay and the overlap
+       check of a failed realization, about 4 s of the octagon's 5.5 s, or 25–30 % of its run; only a cheaper
+       certificate of the clipped triangles' error than the overlay itself would save it.
+     - **Face 2, clipped slivers:** a clipped triangle far below `MinFeatureSize` at the catch line (an altitude of
+       2.3e-9 m on the DGM wavy toe in its local frame, 2.8e-9 m in the procedural pin), under its support by more
+       than λ's bound covers, so δ is raised and a second attempt succeeds. The band merge acts on the
+       realization, not on the clipping. Pinned as today's behaviour (`TerrainSlopeClippedRegionTests`: a wavy 32-gon on waves near the
+       origin, two attempts in the 2^k frames, one at UTM). **To be repaired with RoundToGrid**, by the same
+       vertex-edge separation step (iterated snap rounding, Halperin and Packer 2002: every vertex at least half a
+       pixel from every non-incident edge), not a second mechanism.
 2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
 3. Volume per cell, 2D columns first (section 9.3).
 4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
