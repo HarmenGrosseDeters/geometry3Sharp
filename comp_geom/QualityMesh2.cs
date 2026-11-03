@@ -197,6 +197,18 @@ namespace g3
 
             bool InDomain(int t) => k.Tag[t] >= 0 && !k.IsGhost(t);
 
+            /// <summary> the input segments (no ring, no hull source) with a constrained edge that has no domain triangle on either side </summary>
+            HashSet<int> SegmentsWithoutArea()
+            {
+                var result = new HashSet<int>();
+                for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
+                    int f = k.H[e];
+                    if (f < e || k.Seg[e] < 0 || InDomain(e / 3) || InDomain(f / 3)) continue;
+                    foreach (int src in k.Sources[k.Seg[e]]) if (b.sources[src].Ring < 0 && !b.sources[src].Hull) result.Add(src);
+                }
+                return result;
+            }
+
             internal ConstrainedTriangulation2Result Run(ConstrainedDelaunayMesh2.Builder builder)
             {
                 k = b.k;
@@ -209,6 +221,8 @@ namespace g3
                 if (!any) return null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
+                // (Q17: what snapping already collapsed, to tell it apart from what refinement pinches)
+                var collapsedBySnapping = grid != null ? SegmentsWithoutArea() : null;
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 QueueAll();
@@ -261,6 +275,15 @@ namespace g3
                     int collapsed = 0;
                     for (int v = 0; v < firstSteiner; ++v) if (v != k.Infinite && !inDomain.Contains(v) && OnHullChain(v)) ++collapsed;
                     if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
+                }
+                // parts narrower than a pixel may collapse (owner decision 2026-11-02, spec Q17): input segments with a piece that has no
+                // triangle on either side, those that snapping collapsed and those that refinement pinched (a split point on one side's
+                // chain landing on the other side's) reported apart
+                if (collapsedBySnapping != null) {
+                    var collapsedAfter = SegmentsWithoutArea();
+                    int pinched = collapsedAfter.Count(s => !collapsedBySnapping.Contains(s));
+                    if (collapsedBySnapping.Count > 0) b.diagnostics.Add("snap grid: " + collapsedBySnapping.Count + " input segments with pieces on parts that snapping collapsed (narrower than a pixel, no area)");
+                    if (pinched > 0) b.diagnostics.Add("snap grid: " + pinched + " input segments with pieces on parts that refinement pinched (narrower than a pixel: a split point of one chain landed on another)");
                 }
                 if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
