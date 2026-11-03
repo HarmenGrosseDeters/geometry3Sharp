@@ -454,9 +454,10 @@ refinements, a reversed edge path, a 1.69 degree wedge and needle in the Delauna
 width in the vector transport, and a reversed triangle. Distances are checked against |p - s| or exact (FlipOut) paths,
 the heat method within its documented accuracy. Fixed: `MeshGeodesicPath.Path` repeated the end point of an edge
 traced exactly through a vertex (G1); `MeshGeodesicPath` reported `TraceFailed` for edges of 1.25e-4 at UTM
-coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3). Known failure
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): tangent frames at coincident vertices are arbitrary, so `ToWorld`
-of transported vectors is off by up to 135 degrees there (G2).
+coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3); tangent frames at
+coincident vertices were arbitrary, so `ToWorld` of transported vectors was off by up to 135 degrees there, and a
+zero-length edge now gets the world angle interpolated between its neighbours (G2,
+[ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)).
 
 **Parameterization (November 2026):** `ParameterizationIssueCasesTests` rebuilds 12 failure modes from the trackers of
 libigl, boundary-first-flattening and xatlas, each over LSCM, ARAP, SLIM, Tutte, BFF (default and Disk) and the atlas
@@ -465,11 +466,13 @@ orientation (facing -z, in the plane x = 0, with pins), a three-peak terrain, a 
 identical holes (symmetry), saddles, a long thin triangle in the plane x = 0 (and a needle quad with both diagonals),
 packing with rotated charts, and a thin tall box. Success is checked by finite UVs, the surface's orientation, flips where a method
 promises none, overlaps, disc charts with uniform texel density. Fixed: BFF Disk threw an `ArithmeticException` on a
-needle quad whose boundary scale factors overflow, now `SolverFailed` (P4). Known failures
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): LSCM (and ARAP from it) collapses the unpinned ring of a low-poly
-cylinder and reports success (P1); BFF Disk with the conformal extension does not keep the boundary on the circle on
-meshes without interior vertices, and on two needles gives a flipped sliver (P2); LSCM with automatic pins is
-asymmetric by 1e-4 on a symmetric patch (P3).
+needle quad whose boundary scale factors overflow, now `SolverFailed` (P4); LSCM (and ARAP from it) collapsed the
+unpinned ring of a low-poly cylinder and reported success, now LSCM and ARAP report `FlippedTriangles` (with the map)
+for a map with flipped or degenerate UV triangles (P1; the collapse itself stays). Known failures
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): BFF Disk with the conformal extension does not keep the boundary on the circle on
+meshes without interior vertices, and on two needles gives a flipped sliver (P2). By design: LSCM with automatic pins is
+asymmetric by 1e-4 on a symmetric patch (P3: the minimizer depends on the pins, and the farthest pairs are two mirrored
+diagonals at the same distance, so no rule on the geometry alone picks a mirrored pair; bounded at 1e-3 in the test).
 
 **Simplification (November 2026):** `ReducerIssueCasesTests` rebuilds 13 failure modes from the trackers of
 meshoptimizer, libigl, Manifold and CGAL: a noisy terrain reduced to 20%, a 24-triangle patch reduced to 10, almost
@@ -478,9 +481,10 @@ body reduced to 1 triangle, a 100 x 20 torus reduced coarsely (genus), a pyramid
 union rotated by -89.999999999999 degrees, a sphere with 50 tiny cylinders (unreachable target), an unwelded quad,
 two cones tip to tip, self-intersecting input, and a target already met. The results are checked for validity,
 closedness, folds, bounds, volume, Euler characteristic and components. Fixed: the Reducer joined the fans of a bowtie
-vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Known failure S1
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses fold a noisy terrain and stand triangles up
-at an open border (the flip test compares with the current, not the input normals).
+vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Fixed too, S1
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses folded a noisy terrain and stood triangles up
+at an open border, because the flip test compared with the current, not the input normals. `Reducer.PreventFoldOver`
+(default on) now also checks against the absorbed input normals (`ReducerFoldOverTests`).
 
 **Remeshing (November 2026):** `RemesherIssueCasesTests` rebuilds 10 failure modes from the trackers of PMP,
 geogram, CGAL and MeshLib (Remesher, RemesherPro, RegionRemesher): a flat non-convex fan with fixed boundary, open

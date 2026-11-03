@@ -129,11 +129,48 @@ static class Program
             }
     }
 
+    // Reducer.PreventFoldOver off and on, alternating rounds: time (median), triangles reached, triangles turned
+    // (terrain: normal not up; bumpy sphere: normal not away from the center) and hashes; without MaxDeviation to
+    // 20, 5 and 1 % of the triangles, and with MaxDeviation (3e-3 of the diagonal) as far as it goes
+    static void Folds(int rounds)
+    {
+        Console.WriteLine("| mesh | reduction | off: triangles, turned, time | on: triangles, turned, time | time on/off | hashes off / on |");
+        Console.WriteLine("|---|---|---|---|---|---|");
+        foreach (var (name, input) in new (string, DMesh3)[] { ("bumpy sphere", BumpySphere(130)), ("terrain", Terrain(300)) }) {
+            Vector3d c = input.CachedBounds.Center;
+            bool terrain = name == "terrain";
+            Func<DMesh3, int> turned = (m) => m.TriangleIndices().Count(t => terrain ? !(m.GetTriNormal(t).z > 0)
+                : !(m.GetTriNormal(t).Dot(m.GetTriCentroid(t) - c) > 0));
+            var cases = new (string, Action<Reducer>)[] {
+                ("to 20 %", r => r.ReduceToTriangleCount(input.TriangleCount / 5)),
+                ("to 5 %", r => r.ReduceToTriangleCount(input.TriangleCount / 20)),
+                ("to 1 %", r => r.ReduceToTriangleCount(input.TriangleCount / 100)),
+                ("MaxDeviation 3e-3", r => { r.MaxDeviation = 3e-3 * input.CachedBounds.DiagonalLength; r.ReduceToTriangleCount(4); }) };
+            foreach (var (label, run) in cases) {
+                run(new Reducer(new DMesh3(input)) { PreventFoldOver = true });     // warm-up
+                var times = new[] { new System.Collections.Generic.List<double>(), new System.Collections.Generic.List<double>() };
+                var results = new DMesh3[2];
+                for (int r = 0; r < rounds; ++r)
+                    for (int k = 0; k < 2; ++k) {
+                        var m = new DMesh3(input);
+                        var sw = Stopwatch.StartNew();
+                        run(new Reducer(m) { PreventFoldOver = k == 1 });
+                        times[k].Add(sw.Elapsed.TotalMilliseconds);
+                        results[k] = m;
+                    }
+                times[0].Sort(); times[1].Sort();
+                double t0 = times[0][rounds / 2], t1 = times[1][rounds / 2];
+                Console.WriteLine($"| {name} | {label} | {results[0].TriangleCount}, {turned(results[0])}, {t0:F0} ms | {results[1].TriangleCount}, {turned(results[1])}, {t1:F0} ms | {t1 / t0:F2} | {ReducerHashes.Hash(results[0])} / {ReducerHashes.Hash(results[1])} |");
+            }
+        }
+    }
+
     static void Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "hashes") { ReducerHashes.Run(BumpySphere, Terrain); return; }
         if (args.Length > 0 && args[0] == "share") { Share(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         if (args.Length > 0 && args[0] == "queries") { Queries(); return; }
+        if (args.Length > 0 && args[0] == "folds") { Folds(args.Length > 1 ? int.Parse(args[1]) : 3); return; }
         var meshes = new (string, DMesh3)[] { ("bumpy sphere", BumpySphere(130)), ("terrain", Terrain(300)) };
         Console.WriteLine("| mesh | triangles | tolerance (of bbox diagonal) | with check: triangles | time with check | time without, same count | check share | deviation without check |");
         Console.WriteLine("|---|---|---|---|---|---|---|---|");

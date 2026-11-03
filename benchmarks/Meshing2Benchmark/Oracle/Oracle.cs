@@ -47,6 +47,8 @@ namespace Meshing2Acceptance
 
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
+        /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
+        internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b) => Run.AtLeastShewchukBound(q, r, s, apex, a, b);
 
         sealed class Run
         {
@@ -1971,10 +1973,31 @@ namespace Meshing2Acceptance
                             Pt a = v[list[i]], b = v[list[j]];
                             // a to b counter-clockwise, below the bound, with x and y inside the wedge from a to b
                             if (Exact.Orient(p, a, b) <= 0 || Dot(p, a, b).Sign <= 0 || CornerSin2(p, a, b) >= sin2Low) continue;
-                            if (Exact.Orient(p, a, x) >= 0 && Exact.Orient(p, x, b) >= 0 && Exact.Orient(p, a, y) >= 0 && Exact.Orient(p, y, b) >= 0) return true;
+                            if (Exact.Orient(p, a, x) >= 0 && Exact.Orient(p, x, b) >= 0 && Exact.Orient(p, a, y) >= 0 && Exact.Orient(p, y, b) >= 0
+                                && AtLeastShewchukBound(p, x, y, p, a, b) && AtLeastShewchukBound(x, p, y, p, a, b) && AtLeastShewchukBound(y, x, p, p, a, b)) return true;
                         }
                 }
                 return false;
+            }
+
+            /// <summary>
+            /// the angle of a triangle at corner q (between q-r and q-s) is at least arctan(sin phi / (2 - cos phi)), phi the input angle
+            /// at apex between apex-a and apex-b: the bound Shewchuk 2002 (section 6.3, the Terminator) proves for every angle of a
+            /// triangle near a small input angle phi. A triangle excused for its small angle at the apex must meet it at all three corners
+            /// (at the apex too: a triangle of the apex with its two neighbours on the segments has the input angle there, and a needle
+            /// inside the wedge is no forced angle). Exact: with u = a - apex, w = b - apex, tan bound = |u x w| / (2 |u| |w| - u.w), and for an acute angle at q,
+            /// tan angle = cross / dot, so the angle is at least the bound iff 2 cross |u| |w| >= |u x w| dot + (u.w) cross, squared
+            /// when the right side is positive
+            /// </summary>
+            internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b)
+            {
+                Q dot = Dot(q, r, s);
+                if (dot.Sign <= 0) return true;   // a right or obtuse angle is above any bound below 60 degrees
+                Q cross = Q.Abs(Exact.Area2(q, r, s));
+                Q wedgeCross = Q.Abs(Exact.Area2(apex, a, b)), wedgeDot = Dot(apex, a, b);
+                Q right = wedgeCross * dot + wedgeDot * cross;
+                if (right.Sign <= 0) return true;
+                return 4 * cross * cross * Exact.Len2(apex, a) * Exact.Len2(apex, b) >= right * right;
             }
 
             /// <summary>

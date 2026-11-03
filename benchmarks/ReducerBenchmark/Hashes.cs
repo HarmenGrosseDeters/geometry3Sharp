@@ -14,19 +14,25 @@ static class ReducerHashes
             foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
                 var m = new DMesh3(input);
                 new Reducer(m) { MaxDeviation = rel * input.CachedBounds.DiagonalLength }.ReduceToTriangleCount(4);
-                var bytes = new System.Collections.Generic.List<byte>();
-                foreach (int v in m.VertexIndices()) {
-                    Vector3d p = m.GetVertex(v);
-                    bytes.AddRange(BitConverter.GetBytes(v));
-                    bytes.AddRange(BitConverter.GetBytes(p.x)); bytes.AddRange(BitConverter.GetBytes(p.y)); bytes.AddRange(BitConverter.GetBytes(p.z));
-                }
-                foreach (int t in m.TriangleIndices()) {
-                    Index3i tv = m.GetTriangle(t);
-                    bytes.AddRange(BitConverter.GetBytes(t));
-                    bytes.AddRange(BitConverter.GetBytes(tv.a)); bytes.AddRange(BitConverter.GetBytes(tv.b)); bytes.AddRange(BitConverter.GetBytes(tv.c));
-                }
-                using (var sha = SHA256.Create())
-                    Console.WriteLine($"{name} {rel}: {m.TriangleCount} triangles, {BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").Substring(0, 16)}");
+                Console.WriteLine($"{name} {rel}: {m.TriangleCount} triangles, {Hash(m)}");
             }
+    }
+
+    /// <summary> SHA-256 (first 16 hex digits) over the vertex ids and coordinates bit for bit and the triangles </summary>
+    public static string Hash(DMesh3 m)
+    {
+        var bytes = new System.Collections.Generic.List<byte>();
+        foreach (int v in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(v);
+            bytes.AddRange(BitConverter.GetBytes(v));
+            bytes.AddRange(BitConverter.GetBytes(p.x)); bytes.AddRange(BitConverter.GetBytes(p.y)); bytes.AddRange(BitConverter.GetBytes(p.z));
+        }
+        foreach (int t in m.TriangleIndices()) {
+            Index3i tv = m.GetTriangle(t);
+            bytes.AddRange(BitConverter.GetBytes(t));
+            bytes.AddRange(BitConverter.GetBytes(tv.a)); bytes.AddRange(BitConverter.GetBytes(tv.b)); bytes.AddRange(BitConverter.GetBytes(tv.c));
+        }
+        using (var sha = SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").Substring(0, 16);
     }
 }

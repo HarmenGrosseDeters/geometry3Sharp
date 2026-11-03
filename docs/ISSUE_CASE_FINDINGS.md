@@ -105,9 +105,10 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   the length, so it checks the reversal only). A path that passes the diagonal vertices of a grid at 1e-7 has real
   segments of 1e-10 at a scale of 2^-10: an absolute 1e-9 threshold (mutant) drops them and fails that case.
 
-### G2 (open): tangent frames at coincident vertices
+### G2 (fixed): tangent frames at coincident vertices
 
-- Test: `TinyAreaTriangles_VectorTransportFinite` (case `_CoincidentVertices`).
+- Tests: `TinyAreaTriangles_VectorTransportFinite` (case `_CoincidentVertices`),
+  `CoincidentVertices_VectorTransport_UnderSimilarities`, `IntrinsicGeodesicsTests.ToWorld_WithoutZeroLengthEdges_BitIdenticalToReference`.
 - Issues: https://github.com/nmwsharp/potpourri3d/issues/29 and https://github.com/nmwsharp/geometry-central/issues/167.
 - Input -> wrong result: a flat 10 x 10 grid whose column 5 is moved onto column 4 (coincident vertices, zero-area
   triangles), the source at a corner. `VectorHeatMethod.TransportVector` and `ComputeLogMap` are finite everywhere,
@@ -126,6 +127,28 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   vertex with a coincident neighbour and needs tests of the closing corner at boundary vertices; low risk otherwise.
   (b) Document that frames at coincident vertices are undefined and return NaN there (cheap, but a silent value is
   worse than the current finite but wrong one only if callers check).
+- Fix (idea (a), mesh_ops/IntrinsicTriangulation.cs, `tangent_frame` and `wedge_angles`): an input edge without a
+  direction in the tangent plane (projected length below 1e-300) has no world angle of its own; it gets the world
+  angle interpolated linearly in the signpost angle between the neighbouring edges that have one, cyclically over the
+  closing corner (also at boundary vertices, whose closing corner is the gap). Its two corners then map as one, as if
+  the edge were not there. If the first edge is such an edge, `GetTangentBasis` takes a provisional basis from the
+  first edge with a direction and turns e1 to the first edge's interpolated direction, so its signpost angle 0 stays
+  e1. A vertex whose neighbours all coincide keeps the arbitrary axis. Vertices without zero-length edges keep their
+  angles bit for bit (`ToWorld_WithoutZeroLengthEdges_BitIdenticalToReference`: a reference copy of the old mapping
+  on a bumpy grid, a sphere, a folded fan and a squeezed grid). The un-pinned case and the new theory over
+  `Similarity.All()` (within 2 degrees everywhere, the transport bit for bit at 2^k) fail on the base; mutants
+  without the turn of e1 or without the interpolation fail 9 of the 11 G2 and ToWorld tests. Intrinsic, VectorHeat,
+  Geodesic and issue-case filters 328/328. `IntrinsicTriangulation` is fork-only (no UPSTREAM_CHANGES row). Owner
+  concept: none needed (a local degenerate-input rule); the general degenerate-input handling of the intrinsic code is
+  the mollification it already uses.
+- Review: the first edge's world angle is 0 by definition but its own Atan2 only about 0, so a neighbour that
+  coincides with the first one (a direction, but the same one) came out just below 0 under a rotation and was taken a
+  full turn later: its corner spanned the whole circle and `FromWorld` gave one angle for every direction (older than
+  the fix, at the same vertices). It now gets 0, a corner of no width, as for the identity
+  (`CoincidentVertices_FromWorld_SameAnglesUnderSimilarities`, also with runs of several zero-length edges from a
+  squeezed row and column). Limitation: only zero-length edges are interpolated; neighbours that have a direction but
+  coincide with each other (a collapsed block of the grid) leave corners of no world width, where `ToWorld` stays
+  arbitrary, as at a vertex whose neighbours all coincide.
 
 ### G3 (fixed): `TraceFailed` for short edges far from the origin
 
@@ -161,11 +184,14 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
 
 Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 
-### P1 (open): LSCM on a low-poly cylinder collapses a boundary and reports Success
+### P1 (fixed): LSCM on a low-poly cylinder collapses a boundary and reported Success
 
-- Test: `LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion` (case `_LscmAndArap`).
+- Tests: `LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion` (case `_LscmAndArap`),
+  `ParameterizationFlippedMapTests.LowPolyCylinder_LscmAndArapWithFlippedMap_NotSuccess` (public API),
+  `ParameterizationTests.LSCM_ARAP_FlippedMap_IsNotSuccess_InvariantUnderSimilarities`,
+  `ParameterizationTests.ARAP_FlippedInitialMap_IsNotSuccess`.
 - Issue: https://github.com/GeometryCollective/boundary-first-flattening/issues/97.
-- Input -> wrong result: an open cylinder of 8 sides and 3 rings (radius 1, height 1.8; an annulus). LSCM returns
+- Input -> wrong result: an open cylinder of 8 sides and 3 rings (radius 1, height 1.8; an annulus). LSCM returned
   `Success`, but the 8 vertices of the far ring all get v = 0 (the ring collapses onto a segment): 2 flipped UV
   triangles, mean conformal distortion 2e13, maximum 7e14. ARAP, started from that map, also ends with 2 flipped
   triangles. SLIM, Tutte and BFF return `InvalidTopology`; the atlas cuts the cylinder and is fine.
@@ -174,12 +200,31 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   E_D - A(uv) (line 104: A is the signed area over all boundary loops, the inner loop counted negatively) is lowered by
   shrinking the hole; on a coarse cylinder the minimizer with free inner boundary is the collapsed ring. On the flat
   annulus (`LSCM_Annulus_TwoBoundaries`) the exact conformal embedding has E_C = 0 and wins.
-- Fix ideas: (a) report failure (or a non-success status such as `SolverFailed`) when a success has flipped or
-  zero-area UV triangles on non-degenerate surface triangles, as SLIM's guarantees are checked; cheap, but changes
-  the status of results that are only locally flipped today (the docs promise nothing), so it needs a decision. (b)
-  For several boundary loops, close the inner loops with virtual fan vertices for the area term (the hole's area then
-  enters positively), or use the spectral conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has
-  no pins. Medium cost, changes LSCM results on annuli.
+- Fix (owner: a status check only, the algorithms unchanged): LSCM and ARAP (the methods without a flip-free
+  promise) return the new status `ParameterizationStatus.FlippedTriangles` instead of `Success` when their map has a
+  flipped, zero-area or not finite UV triangle, or one degenerate by the rule for surface triangles (twice the area at
+  most 1e-12 of the longest edge squared, `TriangleFrame.DegenerateShape`, new count
+  `ParameterizationDistortion.DegenerateUVTriangles`) and also much flatter than its surface triangle (shape ratio
+  below 1e-4 of the surface's, so a surface sliver mapped with mild anisotropy stays valid), on a non-degenerate surface
+  triangle
+  (`ParameterizationResult.RejectFlipped`, parameterization/MeshParameterization.cs). The degenerate count is needed:
+  the collapsed triangles have areas of rounding noise (about 1e-16), whose sign is positive at UTM coordinates, so a
+  sign test alone said `Success` there. The result keeps its map and distortion (UV is not null for this status), so
+  a caller can still inspect or use it. The enum and the classes are fork-only (not in 1.0.324), so the new value is
+  no API break. SLIM's LSCM start (`LSCMParameterization.Solve`) is unchanged. The atlas (LSCM after a failed BFF)
+  falls back to SLIM / Tutte as before for a flipped map, which it treated as not injective already; a chart whose
+  LSCM map is only degenerate with a positive rounding-noise area, which its exact overlap test accepted, now falls
+  back too. Before the fix the theory's 8 cases, the issue case and
+  `ARAP_FlippedInitialMap_IsNotSuccess` fail; with the degenerate count removed the UTM case and the zero-area ARAP
+  start fail. `ThreePeakTerrain_SlimAndTutteFlipFree` and `StrongSaddles_LocallyInjective` accept the new status for
+  LSCM and ARAP (LSCM flips 23 of 1800 and 4 of 828 triangles there). Cost: one more relative area test per triangle
+  in the distortion pass; `ParameterizationBenchmark` (LSCM, ARAP; 3k-58k vertices) gives the same distortion and
+  flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
+  first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
+  seams, overlaps, distortion), total time 1116 s against 1114 s.
+- Open (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
+  loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
+  conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
 
 ### P2 (open, decided: kept): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
@@ -249,7 +294,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   fail (the test above and the 8 cases of the invariance theory, whose quad must give `SolverFailed` under every
   similarity; on a curved cap the Disk UVs are the same bit for bit under 2^k scales).
 
-### P3 (open): LSCM with automatic pins is not symmetric
+### P3 (by design): LSCM with automatic pins is not symmetric
 
 - Test: `TwoIdenticalRectangularHoles_SymmetricResult` (case `_LscmAutomaticPins`).
 - Issue: https://github.com/GeometryCollective/boundary-first-flattening/issues/89.
@@ -263,6 +308,15 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 - Fix ideas: pin-free spectral conformal parameterization (Mullen et al. 2008; an eigenvector solve, medium cost), or
   natural boundary conditions with a symmetric choice of pins (cheap but only helps symmetric inputs). Expected
   effect small (1e-4); low priority.
+- Reclassified as by design (November 2026, `claude/fix-p3`): no small deterministic pin rule is symmetric on this
+  input. A rule that rates pairs by the geometry alone (eg the two boundary vertices farthest apart) gives a mirror
+  image of a pair the same rating; a unique best pair is mapped onto itself and would be symmetric, but here the
+  farthest pairs are the two diagonals of the plate, which are each other's mirror images at the same distance, so
+  any such rule ties and its tie-break (by id or order) is not symmetric. A symmetric choice needs the symmetry
+  itself or a pin-free method (spectral conformal, above), and changing the pins changes every automatic-pin LSCM
+  result (and ARAP, SLIM and the atlas that start from it). The test no longer lists the case as a known failure: it
+  bounds the asymmetry at 1e-3 of the UV size and checks that both diagonals are farthest pairs; with mirrored pins
+  LSCM is symmetric to 1e-9. The class documentation states the pin dependence.
 
 ### Notes (no finding)
 
@@ -282,8 +336,22 @@ Tests: `tests/geometry3Sharp.Tests/ReducerIssueCasesTests.cs`, `tests/geometry3S
 Open findings are pinned in the strict `KnownFailures` lists of those classes (a listed case that passes fails the
 test, and while listed the test checks the specific wrong outcome).
 
-### S1 (open): collapse chains fold the surface in the Reducer
+### S1: collapse chains fold the surface in the Reducer (fixed)
 
+- **Status: fixed (fix ideas a and b).** `Reducer.PreventFoldOver` (default on): a new triangle must also have a
+  positive dot with the area-weighted input normals its corners have absorbed (summed on collapse, taken at the start of
+  each reduction), and more than `BoundaryTriangleMinNormalDot` (0.7) if it has two boundary edges (the walls on three
+  consecutive border vertices; a band one cell wide, whose triangles have one boundary edge each, keeps its reach). Where those normals nearly cancel (`ReferenceNormalMinLength`, 0.25 of their summed lengths: creases, thin
+  plates, boxes touching at a face) only the old check applies, so thin parts keep their reach. The tests are no longer
+  pinned; direct tests in `ReducerFoldOverTests`.
+- Measured on 72 noisy terrains (12 seeds, noise +-0.2, +-0.4, +-0.8, reduced to 20 % and 5 %): 20 folds and 110 walls
+  before, 7 and 0 after.
+  - With a positive minimum dot for all triangles instead of the boundary rule, thin plates stop far above their
+    target (12 triangles: 134 at 0.1, 346 at 0.25).
+  - A stricter flip test against the current normal, as in meshoptimizer's fix (PR 710, dot > 0.25), leaves 21 folds
+    and 103 walls.
+- Limit: the 7 that remain are interior slivers that stand nearly vertical (normal z -0.05 to -0.3), mostly at noise
+  +-0.8. They lie within 90 degrees of the input normals they absorbed, so the check passes them.
 - Tests: `ReducerIssueCasesTests.NoisyTerrain_ReducedTo20Percent_NoFoldOver_{1,2,3}`,
   `ReducerIssueCasesTests.SmallPatch_ReducedTo10_NoDuplicateTriangles_2`.
 - Issue: https://github.com/zeux/meshoptimizer/issues/346 (also seen in the setting of

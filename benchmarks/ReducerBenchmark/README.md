@@ -116,6 +116,14 @@ bit and its triangles. They are the same before (base 9d0a11e) and after:
 | bumpy sphere | 316E9F66F671A50C | 12C9463B79A42156 | FE60CC69142232FC |
 | terrain | 9049F4270ED99B4B | BBF23739034D0171 | B68A5666CD663A57 |
 
+With `Reducer.PreventFoldOver` (default on since finding S1, section "Fold check" below) `hashes` gives (triangles in
+brackets where the count changed: bumpy sphere 0.01 was 152, terrain 0.001 / 0.003 / 0.01 were 3123 / 923 / 121):
+
+| mesh | 0.001 | 0.003 | 0.01 |
+|---|---|---|---|
+| bumpy sphere | 316E9F66F671A50C | 01444CB77C6BFFD8 | 2458A2BEBD4A4DD4 (150) |
+| terrain | 33D1CAD15BB93B35 (3121) | A923C4FC33897780 (924) | 4541EF545EB850C5 (117) |
+
 Caching every query point, interior ones included, gave 0.96-1.12×: the cache's cost ate the gain at tight
 tolerances.
 
@@ -149,3 +157,33 @@ Two reasons:
 
 Design, numbers and the reasons: [docs/design/REDUCER_SPECULATIVE_CERTIFICATION.md](../../docs/design/REDUCER_SPECULATIVE_CERTIFICATION.md).
 Code: branch `claude/reducer-speculative-archive`.
+
+## Fold check (`folds`, `Reducer.PreventFoldOver`, finding S1, 2026-11-03)
+
+```
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- folds 5
+```
+
+`PreventFoldOver` off and on, alternating rounds (median of 5). "Turned" counts the triangles whose normal does not
+point up (terrain) or away from the center (bumpy sphere). The hashes are those of `hashes` (`ReducerHashes.Hash`).
+
+| mesh | reduction | off: triangles, turned, time | on: triangles, turned, time | time on/off | hashes off / on |
+|---|---|---|---|---|---|
+| bumpy sphere | to 20 % | 39938, 0, 542 ms | 39938, 0, 586 ms | 1.08 | 5E8B2650C77E17A9 / 5E8B2650C77E17A9 |
+| bumpy sphere | to 5 % | 9984, 0, 609 ms | 9984, 0, 676 ms | 1.11 | 21200A74A1A113DA / 21200A74A1A113DA |
+| bumpy sphere | to 1 % | 1996, 0, 669 ms | 1996, 0, 672 ms | 1.00 | 7FFA6B886EDB9806 / 7FFA6B886EDB9806 |
+| bumpy sphere | MaxDeviation 3e-3 | 512, 0, 12371 ms | 512, 0, 12537 ms | 1.01 | 12C9463B79A42156 / 01444CB77C6BFFD8 |
+| terrain | to 20 % | 36000, 7, 511 ms | 36000, 0, 524 ms | 1.02 | 8DCC7212BB6D48E7 / 396F318E3BDFFBC6 |
+| terrain | to 5 % | 9000, 1, 592 ms | 9000, 0, 678 ms | 1.14 | E6F87EB4DEC929F9 / 67BC991627AB2BC2 |
+| terrain | to 1 % | 1800, 0, 567 ms | 1799, 0, 632 ms | 1.11 | 0C26CB45B9EF68C1 / 7CE726A6E528729C |
+| terrain | MaxDeviation 3e-3 | 923, 0, 8215 ms | 924, 0, 8416 ms | 1.02 | BBF23739034D0171 / A923C4FC33897780 |
+
+Findings:
+- On the terrain the check removes the folds the reduction left (7 at 20 %, 1 at 5 %).
+- On the bumpy sphere it rejects nothing without MaxDeviation (the same meshes bit for bit).
+- With MaxDeviation the hashes change: the off hashes are those of `hashes` before the change (table above), the on
+  hashes those of `hashes` now.
+- The cost: +0 to +14 % without MaxDeviation, +1 to +2 % with it (where the deviation check dominates). The check
+  runs in the same pass over each one-ring as the flip test (`FusedFoldCheck`; the same decisions as two passes, bit
+  for bit, `ReducerFoldOverOptionsTests.FusedPass_SameReductionsAsTwoPasses`). As a second pass it cost +16 to +26 %;
+  an order of the tests that counted the boundary edges of every new triangle +34 to +51 %.

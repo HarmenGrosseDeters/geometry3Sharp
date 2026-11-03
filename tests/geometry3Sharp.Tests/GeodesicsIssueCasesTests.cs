@@ -24,8 +24,6 @@ namespace geometry3Sharp.Tests
     {
         /// <summary> case name -> finding; a listed case must still fail </summary>
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            [nameof(TinyAreaTriangles_VectorTransportFinite) + "_CoincidentVertices"] =
-                "finding G2: tangent frames of vertices with a coincident neighbour (zero-length input edge) are arbitrary",
         };
 
         static void Expect(string name, Action check)
@@ -729,6 +727,78 @@ namespace geometry3Sharp.Tests
                     Assert.True(offColumns.Count > 0 && offColumns.All(c => c == 4 || c == 5), $"G2: off at {string.Join(", ", off)}");
                 }
             }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void CoincidentVertices_VectorTransport_UnderSimilarities(string name)
+        {
+            // finding G2 on its own (https://github.com/nmwsharp/potpourri3d/issues/29): the flat grid with column 5
+            // moved onto column 4 (zero-length input edges, also at the boundary vertices of the columns), transformed.
+            // The transported vector is the source direction everywhere (within 2 degrees), also at the coincident
+            // vertices, whose tangent frames were arbitrary; at 2^k scales the transport is the same, bit for bit.
+            Similarity sim = Similarity.ByName(name);
+            Func<Similarity, (DMesh3, int[,], Vector2d[], VectorHeatMethod)> run = (sm) => {
+                int n = 10;
+                DMesh3 m0 = Grid(n, n, 1, 1, Flat, true, out int[,] ids);
+                for (int j = 0; j <= n; ++j)
+                    m0.SetVertex(ids[5, j], new Vector3d(0.4, m0.GetVertex(ids[5, j]).y, 0));
+                DMesh3 m = Invariance.Transformed(m0, sm);
+                var vh = new VectorHeatMethod(m);
+                Vector2d v0 = vh.Triangulation.FromWorld(ids[0, 0], sm.ApplyDirection(new Vector3d(1, 1, 0).Normalized));
+                return (m, ids, vh.TransportVector(ids[0, 0], v0), vh);
+            };
+            var (mesh, vids, tr, h) = run(sim);
+            Vector3d dir = sim.ApplyDirection(new Vector3d(1, 1, 0).Normalized);
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d w = h.Triangulation.ToWorld(v, tr[v]);
+                Assert.True(w.IsFinite && Vector3d.AngleD(w.Normalized, dir) < 2, $"{name}, vertex {v}: {Vector3d.AngleD(w.Normalized, dir):F1} degrees");
+            }
+            if (sim.IsExact && sim.Scale != 1) {
+                var (_, _, tr0, _) = run(Similarity.Identity);
+                foreach (int v in mesh.VertexIndices())
+                    Assert.Equal(tr0[v], tr[v]);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void CoincidentVertices_FromWorld_SameAnglesUnderSimilarities(string name)
+        {
+            // finding G2, review: FromWorld at every vertex of the squeezed grids (both diagonal patterns; column 5 on
+            // column 4, and also row 5 on row 4: runs of several zero-length edges), transformed, gives the same
+            // signpost angle as untransformed. A neighbour that coincides with the first edge's neighbour has an
+            // Atan2 of about 0, just below it under a rotation, which took it a full turn later.
+            Similarity sim = Similarity.ByName(name);
+            foreach (bool alternate in new[] { true, false })
+                foreach (bool rows in new[] { false, true }) {
+                    int n = 10;
+                    DMesh3 m0 = Grid(n, n, 1, 1, Flat, alternate, out int[,] ids);
+                    for (int j = 0; j <= n; ++j)
+                        for (int i = 0; i <= n; ++i) {
+                            Vector3d p = m0.GetVertex(ids[i, j]);
+                            m0.SetVertex(ids[i, j], new Vector3d(i == 5 ? 0.4 : p.x, rows && j == 5 ? 0.4 : p.y, 0));
+                        }
+                    var t0 = new IntrinsicTriangulation(m0);
+                    var t = new IntrinsicTriangulation(Invariance.Transformed(m0, sim));
+                    foreach (int v in m0.VertexIndices())
+                        for (int k = 0; k < 8; ++k) {
+                            var d = new Vector3d(Math.Cos(0.8 * k + 0.05), Math.Sin(0.8 * k + 0.05), 0);
+                            Vector2d a = t0.FromWorld(v, d), b = t.FromWorld(v, sim.ApplyDirection(d));
+                            double diff = Math.Abs(Math.IEEERemainder(Math.Atan2(a.y, a.x) - Math.Atan2(b.y, b.x), 2 * Math.PI));
+                            // (within the coordinate rounding of the transform, over edges of at least 0.6)
+                            Assert.True(diff < 1e-9 + 64 * sim.Resolution(n), $"{name}, alternate {alternate}, rows {rows}, vertex {v}, direction {k}: {a} vs {b}");
+                            if (sim.IsExact) Assert.Equal(a, b);
+                        }
+                    // the transport on the grid with runs of zero-length edges is the source direction (2.5 degrees)
+                    if (rows) {
+                        var vh = new VectorHeatMethod(m0);
+                        Vector3d dir = new Vector3d(1, 1, 0).Normalized;
+                        Vector2d[] tr = vh.TransportVector(ids[0, 0], vh.Triangulation.FromWorld(ids[0, 0], dir));
+                        foreach (int v in m0.VertexIndices())
+                            Assert.True(Vector3d.AngleD(vh.Triangulation.ToWorld(v, tr[v]).Normalized, dir) < 2.5, $"rows, alternate {alternate}, vertex {v}");
+                    }
+                }
         }
 
         // ---------------------------------------------------------------------------------------------------------------
