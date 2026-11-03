@@ -255,6 +255,70 @@ namespace Meshing2Acceptance
                         Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 0 } }, new OracleExpect { Milestone = Milestone.M3 });
                 Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
             }
+
+            // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
+            // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
+            // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed
+            // part. A corridor of three pixels has area: the same mesh misses its content
+            {
+                Mesh2Input CorridorIn(double w, double tolerance, bool extra)
+                {
+                    var x = new List<double> { 0, 20, 20, 50, 50, 20, 20, 0, 20, 50 };
+                    var y = new List<double> { 0, 0, 10 - w / 2, 10 - w / 2, 10 + w / 2, 10 + w / 2, 20, 20, 10, 10 };
+                    var input = new Mesh2Input { SnapTolerance = tolerance };
+                    input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4, 5, 6, 7 }, false));
+                    input.Segments.Add(new SegmentInput(8, 9));
+                    // a point in the corridor with a segment into the square, where the domain has area
+                    // and a segment along the corridor from it, collapsed: one of its constraints has area, the other none
+                    if (extra) { x.Add(35); y.Add(10); x.Add(10); y.Add(10); input.Segments.Add(new SegmentInput(10, 11)); input.Segments.Add(new SegmentInput(10, 9)); }
+                    input.X = x.ToArray(); input.Y = y.ToArray();
+                    return input;
+                }
+                // the mesh of the snapped square: input points at their pixel centres, the representative of coinciding points the first
+                Mesh2Output CorridorOut(Mesh2Input input, bool dropCorner, bool snapped = true)
+                {
+                    int n = input.Count;
+                    var vx = input.X.Select(v => snapped ? Math.Floor(v + 0.5) : v).ToArray(); var vy = input.Y.Select(v => snapped ? Math.Floor(v + 0.5) : v).ToArray();
+                    var map = new int[n];
+                    for (int i = 0; i < n; ++i) { map[i] = i; for (int j = 0; j < i; ++j) if (vx[j] == vx[i] && vy[j] == vy[i]) { map[i] = j; break; } }
+                    int lo = map[2], hi = map[5];
+                    var t = new List<int[]>();
+                    if (!dropCorner) t.Add(new[] { 0, 1, lo });
+                    t.Add(new[] { 0, lo, 7 });
+                    if (lo != hi) t.Add(new[] { lo, hi, 7 });
+                    t.Add(new[] { hi, 6, 7 });
+                    var subs = new List<SubsegmentOutput> { new SubsegmentOutput(1, lo), new SubsegmentOutput(hi, 6), new SubsegmentOutput(6, 7), new SubsegmentOutput(7, 0) };
+                    if (!dropCorner) subs.Add(new SubsegmentOutput(0, 1));
+                    var tri = t.ToArray();
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tri, Neighbours = NeighboursOf(tri),
+                        TriangleLabels = new int[tri.Length], Subsegments = subs, BadTriangles = new int[0] };
+                }
+                var m3 = new OracleExpect { Milestone = Milestone.M3 };
+                var thin = CorridorIn(0.25, 1, false);
+                var collapsed = Oracle.Check(thin, CorridorOut(thin, false), m3);
+                Must("accept: a corridor narrower than a pixel collapsed with its segment and its far points (O-H5)", collapsed.Ok && collapsed.CollapsedSegments > 0 && collapsed.CollapsedPoints > 0, "report: " + collapsed + " / " + collapsed.ExcusedSummary());
+                var wide = CorridorIn(3, 1, false);
+                var area = Oracle.Check(wide, CorridorOut(wide, false), m3);
+                // the segment and the corridor's three edges (an edge never covers itself: the rule asks for another edge)
+                Must("reject: a corridor of three pixels whose content is missing as SegmentMissing", area.Violations.Count(v => v.Kind == Violation.SegmentMissing) >= 4, "report: " + area);
+                // the segment along the middle, 1.5 pixels from the corridor's edges, in particular
+                Must("reject: the segment along a corridor of three pixels as SegmentMissing", area.Violations.Any(v => v.Kind == Violation.SegmentMissing && v.Detail.StartsWith("input constraint (20, 10) - (50, 10)")), "report: " + area);
+                var unsnapped = CorridorIn(0.25, 0, false);
+                var untoleranced = Oracle.Check(unsnapped, CorridorOut(unsnapped, false, snapped: false), m3);
+                Must("reject: the collapsed corridor without a tolerance as SegmentMissing", untoleranced.Has(Violation.SegmentMissing), "report: " + untoleranced);
+                var mixed = CorridorIn(0.25, 1, true);
+                var mixedReport = Oracle.Check(mixed, CorridorOut(mixed, false), m3);
+                Must("reject: a point on the collapsed corridor with a segment into the square as VertexUnused", mixedReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 10 ")), "report: " + mixedReport);
+                var corner = Oracle.Check(thin, CorridorOut(thin, true), m3);
+                Must("reject: a corner whose edges have area, unused, as VertexUnused", corner.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 1 ")), "report: " + corner);
+                // "passes": crossing the interior or the centre; touching the boundary does not count
+                Pt P(double a, double b) => Pt.FromDoubles(a, b);
+                Q one = Q.One;
+                Must("pixel: an edge through the interior passes", Oracle.PassesPixel(P(0, 0.4), P(3, 0.4), P(1, 0), one), null);
+                Must("pixel: an edge along the boundary does not pass", !Oracle.PassesPixel(P(0, 0.5), P(3, 0.5), P(1, 0), one), null);
+                Must("pixel: an edge through the centre passes", Oracle.PassesPixel(P(1, -3), P(1, 0), P(1, 0), one), null);
+                Must("pixel: an edge ending at the boundary does not pass", !Oracle.PassesPixel(P(1.5, 0), P(3, 0), P(1, 0), one), null);
+            }
             DomainAreas(Must);
 
             // ---- M1: a set in general position, solved by the definition itself

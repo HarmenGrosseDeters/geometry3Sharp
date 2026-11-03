@@ -45,6 +45,9 @@ namespace Meshing2Acceptance
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
         [ThreadStatic] public static bool ForceReference;
 
+        /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4, O-H5) </summary>
+        internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
+
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
         /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
@@ -614,6 +617,110 @@ namespace Meshing2Acceptance
                 return false;
             }
 
+            // ------------------------------------------------------------ O-H5: parts of the domain collapsed by snapping (Q17)
+            // Owner decision 2026-11-02 (spec Q17): a part of the domain narrower than a pixel may collapse; the oracle accepts what is
+            // missing there only on a collapsed part. A part is collapsed where every pixel it lies in is passed by another edge of the
+            // domain's boundary: snap rounding routes that edge's chain through those pixels, and a domain narrower than a pixel has no
+            // pixel of its own between its boundary chains (Guibas and Marimont 1998: topology is kept up to collapsing features).
+            // "Passes" as in O-H4: the edge crosses the pixel's interior shrunk by a hair, or passes its centre; pixels half-open.
+
+            /// <summary> the pixel index of x: floor(x / pixel + 1/2), pixels half-open [(i - 1/2) pixel, (i + 1/2) pixel) </summary>
+            static BigInteger PixelIndex(Q x, Q pixel)
+            {
+                Q q = x / pixel + new Q(1, 2);
+                var f = BigInteger.Divide(q.N, q.D);
+                if (q.N.Sign < 0 && f * q.D != q.N) f -= 1;
+                return f;
+            }
+
+            /// <summary> edge a-b passes the pixel with centre c (O-H4's rule) </summary>
+            internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel)
+            {
+                Q half = pixel / 2;
+                Q magnitude = Q.Max(Q.Abs(c.Qx), Q.Abs(c.Qy));
+                Q narrow = half - Q.Max(half * new Q(BigInteger.One, BigInteger.One << 40), magnitude * new Q(BigInteger.One, BigInteger.One << 48));
+                if (Exact.Orient(a, b, c) == 0 && c.Qx >= Q.Min(a.Qx, b.Qx) && c.Qx <= Q.Max(a.Qx, b.Qx) && c.Qy >= Q.Min(a.Qy, b.Qy) && c.Qy <= Q.Max(a.Qy, b.Qy)) return true;
+                Q x0 = c.Qx - narrow, x1 = c.Qx + narrow, y0 = c.Qy - narrow, y1 = c.Qy + narrow;
+                if (Q.Max(a.Qx, b.Qx) <= x0 || Q.Min(a.Qx, b.Qx) >= x1 || Q.Max(a.Qy, b.Qy) <= y0 || Q.Min(a.Qy, b.Qy) >= y1) return false;
+                int pos = 0, neg = 0;
+                foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                    int or = Exact.Orient(a, b, corner);
+                    if (or > 0) ++pos; else if (or < 0) ++neg;
+                }
+                return pos > 0 && neg > 0;
+            }
+
+            /// <summary> the parameters in [0, 1] where segment p-q crosses a pixel boundary line, with 0 and 1; null above limit </summary>
+            static List<Q> PixelBreaks(Pt p, Pt q, Q pixel, int limit)
+            {
+                var ts = new List<Q> { Q.Zero, Q.One };
+                foreach (bool y in new[] { false, true }) {
+                    Q from = y ? p.Qy : p.Qx, to = y ? q.Qy : q.Qx;
+                    if (from == to) continue;
+                    BigInteger i0 = PixelIndex(Q.Min(from, to), pixel), i1 = PixelIndex(Q.Max(from, to), pixel);
+                    if (i1 - i0 > limit) return null;
+                    for (var i = i0; i < i1; ++i) ts.Add(((new Q(i, 1) + new Q(1, 2)) * pixel - from) / (to - from));
+                }
+                return ts;
+            }
+
+            static Pt PixelCentre(Pt p, Q pixel) => new Pt(new Q(PixelIndex(p.Qx, pixel), 1) * pixel, new Q(PixelIndex(p.Qy, pixel), 1) * pixel);
+
+            static bool BoxesMeet(Pt a, Pt b, Pt c, Pt d, Q margin) =>
+                !(Q.Max(a.Qx, b.Qx) + margin < Q.Min(c.Qx, d.Qx) || Q.Max(c.Qx, d.Qx) + margin < Q.Min(a.Qx, b.Qx)
+                  || Q.Max(a.Qy, b.Qy) + margin < Q.Min(c.Qy, d.Qy) || Q.Max(c.Qy, d.Qy) + margin < Q.Min(a.Qy, b.Qy));
+
+            /// <summary>
+            /// O-H5: the collapsed stretches of the input piece a-b, closed parameter intervals of [0, 1] in order: the stretches that lie
+            /// closer than a pixel to an edge of the domain's boundary other than a-b. The part between them is narrower than a pixel
+            /// (spec Q17); snapping and refinement put every vertex at a pixel centre, so the two chains can share them and pinch the
+            /// part to nothing. Decided per stretch between the piece's pixel crossings: the distance to a segment is convex along a
+            /// line, so it stays below a pixel on a stretch when it is below at both ends, for one and the same edge. From the input and
+            /// the grid alone, never from the output. Cost: the piece's pixel crossings (at most 2^16 per axis, else nothing counts as
+            /// collapsed) times the boundary edges whose box, widened by a pixel, meets the piece's; it runs only for a piece without a
+            /// chain or an unused input point.
+            /// </summary>
+            List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b)
+            {
+                var result = new List<(Q t0, Q t1)>();
+                if (!(input.SnapTolerance > 0) || a.Equals(b)) return result;
+                Q pixel = Q.FromDouble(input.SnapTolerance), pixel2 = pixel * pixel;
+                var near = domain.Edges().Where(g => !(g.a.Equals(a) && g.b.Equals(b) || g.a.Equals(b) && g.b.Equals(a)) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
+                var ts = PixelBreaks(a, b, pixel, 1 << 16);
+                if (ts == null || near.Count == 0) return result;
+                ts = ts.Where(t => t.Sign >= 0 && t <= Q.One).Distinct().OrderBy(t => t).ToList();
+                Pt At(Q t) => new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t);
+                var close = ts.Select(t => { var p = At(t); return near.Select(g => Exact.Dist2ToSegment(g.a, g.b, p) < pixel2).ToArray(); }).ToList();
+                for (int j = 0; j + 1 < ts.Count; ++j) {
+                    bool collapsed = false;
+                    for (int g = 0; g < near.Count && !collapsed; ++g) collapsed = close[j][g] && close[j + 1][g];
+                    if (!collapsed) continue;
+                    if (result.Count > 0 && result[result.Count - 1].t1 == ts[j]) result[result.Count - 1] = (result[result.Count - 1].t0, ts[j + 1]);
+                    else result.Add((ts[j], ts[j + 1]));
+                }
+                return result;
+            }
+
+            /// <summary> the whole piece a-b is collapsed </summary>
+            bool WhollyCollapsed(Pt a, Pt b)
+            {
+                var st = CollapsedStretches(a, b);
+                return st.Count == 1 && st[0].t0.Sign == 0 && st[0].t1 == Q.One;
+            }
+
+            /// <summary>
+            /// O-H5 for an unused input point p: every input constraint and boundary edge that ends at p (at least one) is collapsed along
+            /// its whole length. A point with one constraint on a part that has area keeps its violation; a corner whose edges have area
+            /// too. (This implies that p itself lies closer than a pixel to the boundary: an interior point to an edge that does not end
+            /// at it, a corner to its own edges, which then collapse onto each other along their whole length, as at a collapsed tip.)
+            /// </summary>
+            bool OnCollapsedPoint(Pt p)
+            {
+                if (!(input.SnapTolerance > 0)) return false;
+                var ends = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Where(g => g.a.Equals(p) || g.b.Equals(p)).ToList();
+                return ends.Count > 0 && ends.All(g => WhollyCollapsed(g.a, g.b));
+            }
+
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
             {
                 Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
@@ -931,7 +1038,9 @@ namespace Meshing2Acceptance
                     int m = map[i];
                     bool isUsed = m >= 0 && usedSet.Contains(m);
                     if (isUsed) continue;
-                    if (InClosure(inPts[i]) && !CollapsedHullTip(i, usedSet)) r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
+                    if (!InClosure(inPts[i]) || CollapsedHullTip(i, usedSet)) continue;
+                    if (OnCollapsedPoint(inPts[i])) { ++r.CollapsedPoints; continue; }
+                    r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
                 }
                 if (o.IdentityRules)
                     for (int i = input.Count; i < v.Length; ++i)
@@ -1551,7 +1660,11 @@ namespace Meshing2Acceptance
                             foreach (int n in next)
                                 if (candidates.Contains(n) && !previous.ContainsKey(n)) { previous[n] = at; queue.Enqueue(n); }
                         }
-                        if (reached < 0) { r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to); continue; }
+                        if (reached < 0) {
+                            if (ChainAcrossCollapsed(piece.from, piece.to, candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
+                            r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to);
+                            continue;
+                        }
                         // how far the end moved: to the exact end, or, if it ended on the cutting ring edge instead, off the two lines only
                         Q EndMove(int i, Pt end, List<(Pt a, Pt b)> cut)
                         {
@@ -1571,6 +1684,45 @@ namespace Meshing2Acceptance
                         if (s.locked) CheckLocked(s, reached, previous);
                     }
                 }
+            }
+
+            /// <summary>
+            /// O-H5 in the chain search: the piece from-to has a chain if one exists when the collapsed stretches of the piece may be
+            /// crossed without one. Each stretch is a node joined to every candidate vertex whose projection onto the piece lies in it;
+            /// a stretch that holds the piece's start (end) is a start (goal). Only the stretches bridge: everywhere else the chain must
+            /// be there.
+            /// </summary>
+            bool ChainAcrossCollapsed(Pt from, Pt to, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
+            {
+                var stretches = CollapsedStretches(from, to);
+                if (stretches.Count == 0) return false;
+                if (stretches.Count == 1 && stretches[0].t0.Sign == 0 && stretches[0].t1 == Q.One) return true;
+                Q dx = to.Qx - from.Qx, dy = to.Qy - from.Qy, len2 = dx * dx + dy * dy;
+                Q Along(Pt p) { Q t = ((p.Qx - from.Qx) * dx + (p.Qy - from.Qy) * dy) / len2; return t.Sign < 0 ? Q.Zero : t > Q.One ? Q.One : t; }
+                var bridge = new Dictionary<int, List<int>>();   // stretch node -1 - k <-> candidate vertices
+                for (int k = 0; k < stretches.Count; ++k) bridge[-1 - k] = new List<int>();
+                foreach (int i in candidates) {
+                    Q t = Along(v[i]);
+                    for (int k = 0; k < stretches.Count; ++k)
+                        if (stretches[k].t0 <= t && t <= stretches[k].t1) { bridge[-1 - k].Add(i); if (!bridge.ContainsKey(i)) bridge[i] = new List<int>(); bridge[i].Add(-1 - k); }
+                }
+                var goalNodes = new HashSet<int>(goals);
+                var queue = new Queue<int>();
+                var seen = new HashSet<int>();
+                foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
+                for (int k = 0; k < stretches.Count; ++k) {
+                    if (stretches[k].t0.Sign == 0 && seen.Add(-1 - k)) queue.Enqueue(-1 - k);
+                    if (stretches[k].t1 == Q.One) goalNodes.Add(-1 - k);
+                }
+                while (queue.Count > 0) {
+                    int at = queue.Dequeue();
+                    if (goalNodes.Contains(at)) return true;
+                    if (at >= 0 && adjacency.TryGetValue(at, out var next))
+                        foreach (int n in next) if (candidates.Contains(n) && seen.Add(n)) queue.Enqueue(n);
+                    if (bridge.TryGetValue(at, out var across))
+                        foreach (int n in across) if (seen.Add(n)) queue.Enqueue(n);
+                }
+                return false;
             }
 
             static void AddAdjacent(Dictionary<int, List<int>> adjacency, int a, int b)
