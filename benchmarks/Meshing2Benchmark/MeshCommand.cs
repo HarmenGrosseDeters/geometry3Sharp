@@ -34,8 +34,8 @@ namespace Meshing2Acceptance
 
         /// <summary>
         /// for before/after measurements on the calling thread: G3_M2_OFFCENTRES (0 or 1) switches off-centres, G3_M2_CONFORMING (0 or 1)
-        /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule;
-        /// unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
+        /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule,
+        /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
         public static void ApplyRefinementVariant()
@@ -44,6 +44,7 @@ namespace Meshing2Acceptance
             g3.QualityMesh2.Refiner.OffCentresForBenchmarks = Flag("G3_M2_OFFCENTRES");
             QualityMesh2Candidate.ConformingForBenchmarks = Flag("G3_M2_CONFORMING");
             g3.QualityMesh2.Refiner.LensesForBenchmarks = Flag("G3_M2_LENSES");
+            g3.QualityMesh2.Refiner.DeleteInCircleForBenchmarks = Flag("G3_M2_LENS_DELETION");
         }
 
         public const string Usage =
@@ -119,8 +120,9 @@ namespace Meshing2Acceptance
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
             long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[7] : null;
+            long deleted = 0;
             var thread = new System.Threading.Thread(() => {
-                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); }
+                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }
                 catch (Exception e) { error = e; }
                 finally { g3.QualityMesh2.Refiner.CountsForBenchmarks = null; }
             }, 256 << 20);
@@ -132,7 +134,7 @@ namespace Meshing2Acceptance
             if (counts != null)
                 Console.Error.WriteLine("refinement counts: " + counts[0] + " subsegments split as encroached, " + counts[1] + " for a point behind them, " + counts[2]
                     + " encroached by a point, " + counts[3] + " circumcentres, " + counts[4] + " off-centres, " + counts[5] + " grid-blocked triangles, " + counts[6]
-                    + " subsegments unsplittable on the grid");
+                    + " subsegments unsplittable on the grid, " + deleted + " free vertices deleted before bisections (lenses)");
             clock.Restart();
             var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
             double oracleMs = clock.Elapsed.TotalMilliseconds;

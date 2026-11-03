@@ -23,9 +23,11 @@ namespace g3
     /// <para>Without <see cref="Conforming"/> (the default), a subsegment counts as encroached only by a vertex in its diametral lens
     /// (Shewchuk 2002, section 6.4: the points that see it under at least 120 degrees, a narrower region than the diametral circle)
     /// when the angle bound is at most arcsin(sqrt 3 / 4) = 25.65 degrees, the bound the paper proves for lenses; above it the
-    /// diametral circle is used. The paper's proof also deletes free vertices near a subsegment before splitting it, which this
-    /// mesher does not do: lenses here are measured to terminate on the catalogue, the corpus and the Herne tiles, not proven to
-    /// (provenance: unproven). With Conforming the circle is always used (O2).</para>
+    /// diametral circle is used. As in the paper (and Chew 1993), before a subsegment is bisected the free vertices (made by refinement,
+    /// on no constraint) in its open diametral circle that see its midpoint are deleted. With that, the paper's termination argument
+    /// covers inputs without input angles below 60 degrees off the snap grid; on the grid, where split points and circumcentres are
+    /// rounded to pixel centres, and at small input angles, termination is measured (catalogue, corpus, Herne tiles) and the Steiner
+    /// limit bounds every run. With Conforming the circle is always used (O2).</para>
     /// <para>Terminates: angles up to about 33 degrees converge on ordinary input; any input stops at the Steiner limit
     /// (default 10 x (points + segments) + 100 000, spec Q13). Pieces that are too short to split in doubles stay as they are.</para>
     /// <para>Locked segments (spec O9) keep their vertices and the mesh stays valid, but the bounds are not guaranteed near them
@@ -182,6 +184,7 @@ namespace g3
                 halfCot = HalfCot(sin2Min);
                 offCentres = OffCentresForBenchmarks ?? true;
                 keepChainsApart = KeepChainsApartForTests ?? true;
+                deleteInCircle = DeleteInCircleForBenchmarks ?? true;
                 // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
                 // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
                 lenses = LensesForBenchmarks ?? (!options.Conforming && options.MinAngle > 0 && sin2Min <= 3.0 / 16);
@@ -321,7 +324,9 @@ namespace g3
                         continue;
                     }
                     int t0 = triangles.Dequeue();
-                    if (!InDomain(t0) || !Bad(t0)) continue;
+                    // (a deletion frees triangle slots: an entry past the end is stale; one whose slot was refilled is judged as it is now,
+                    // and the triangle that moved out of the last slot was queued under its new slot)
+                    if (t0 >= k.TriangleSlots || !InDomain(t0) || !Bad(t0)) continue;
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
@@ -496,7 +501,8 @@ namespace g3
                 // pieces of the lifted piece, which keep the tags its sides had (a small hole or region enclosed by constraints has no
                 // unchanged neighbour through an unconstrained edge; found by the review of M3). Any other rewritten triangle keeps its tag.
                 var previous = new Dictionary<int, int>();
-                foreach (int t in k.Dirty) if (!k.IsGhost(t) && !previous.ContainsKey(t)) { previous.Add(t, k.Tag[t]); k.Tag[t] = int.MinValue; }
+                // (a slot a deletion freed after it was written is past the end now)
+                foreach (int t in k.Dirty) if (t < k.TriangleSlots && !k.IsGhost(t) && !previous.ContainsKey(t)) { previous.Add(t, k.Tag[t]); k.Tag[t] = int.MinValue; }
                 var queue = new Queue<int>();
                 foreach (int t in previous.Keys)
                     for (int j = 0; j < 3; ++j) {
@@ -528,7 +534,7 @@ namespace g3
                 foreach (var pair in previous) if (k.Tag[pair.Key] == int.MinValue) k.Tag[pair.Key] = pair.Value;
                 CheckTags();
                 foreach (int t in k.Dirty) {
-                    if (k.IsGhost(t)) continue;
+                    if (t >= k.TriangleSlots || k.IsGhost(t)) continue;
                     triangles.Enqueue(t);
                     QueueEdges(t);
                 }
@@ -1083,14 +1089,14 @@ namespace g3
                     // split one now (the others go to the queue, to be split if still encroached), then try t again
                     int first = encroached[0];
                     for (int i = 1; i < encroached.Count; ++i) segments.Enqueue(Key(k.V[encroached[i]], k.V[Next(encroached[i])]));
-                    long key = Key(k.V[first], k.V[Next(first)]);
+                    long key = Key(k.V[first], k.V[Next(first)]), tKey = TriangleKey(t);
                     triangles.Enqueue(t);
                     splitCause = 2;
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
                     // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
                     // encroachment of an unsplittable subsegment no longer stops its circumcentre, which may still fit on the grid
-                    if (unsplittable.Contains(key) && grid == null) exempt.Add(TriangleKey(t));
+                    if (unsplittable.Contains(key) && grid == null) exempt.Add(tKey);
                     return null;
                 }
                 // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)
@@ -1203,6 +1209,12 @@ namespace g3
                 // vertex already at q, possibly the end of another constraint, is a vertex the chains may share, as hot pixels are)
                 if (grid == null && b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); return null; }
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
+                // with lenses, Chew's deletion before the bisection (Shewchuk 2002, section 6.4): the free vertices in the diametral circle
+                // that see its midpoint go; the piece itself is unchanged, its half-edge is found again (deletion renumbers triangles)
+                if (lenses && deleteInCircle && DeleteFreeInCircle(e, pu, pw, p) > 0) {
+                    e = k.FindEdge(u, w);
+                    if (e < 0 || k.Seg[e] < 0) return b.Fail(Triangulation2FailureKind.RefinementLimit, p, "a subsegment was lost by the deletion before its split");
+                }
                 ++splits;
                 if (CheckTagsForTests) lastOperation = "split of " + u + "=(" + pu.x.ToString("R") + ", " + pu.y.ToString("R") + ")-" + w + "=(" + pw.x.ToString("R") + ", " + pw.y.ToString("R") + ") (sources " + string.Join(",", src.Select(z => z + ":(" + b.sources[z].AX + "," + b.sources[z].AY + ")-(" + b.sources[z].BX + "," + b.sources[z].BY + ") ring " + b.sources[z].Ring)) + ") at (" + p.x.ToString("R") + ", " + p.y.ToString("R") + ") left " + TagOf(e / 3) + " right " + TagOf(k.H[e] / 3);
                 var lifted = new LiftedPiece { Sources = new List<int>(src), U = pu, W = pw, Left = TagOf(e / 3), Right = TagOf(k.H[e] / 3) };
@@ -1233,6 +1245,83 @@ namespace g3
                 if (reroute) { ++ReroutesForTests; if (!MarkSwept(k, u, w, sources)) for (int t = 0; t < k.TriangleSlots; ++t) k.Dirty.Add(t); }
                 Collect(lifted);
                 return null;
+            }
+
+            /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread </summary>
+            [ThreadStatic] internal static long DeletedForTests;
+            /// <summary> tests and benchmarks only (per thread): Chew's deletion with lenses on or off (null: the default, on) </summary>
+            [ThreadStatic] internal static bool? DeleteInCircleForBenchmarks;
+            readonly bool deleteInCircle;
+
+            /// <summary>
+            /// Chew's deletion with lenses (Chew 1993; Shewchuk 2002, section 6.4, "Terminator Chew": "all free vertices that are inside the
+            /// diametral circle of s and visible from the midpoint of s are deleted before s is bisected"): deletes every vertex made by
+            /// refinement (not one of the input, its crossings or snap rounding's hot pixels: those come before firstSteiner) that lies in
+            /// the open diametral circle of the subsegment e = pu pw, sees its midpoint (no other constrained edge meets the segment
+            /// between them, closed: a touch blocks too), and is not on a constraint (DeleteVertex refuses those, so a vertex a chain is
+            /// routed through stays). The split point p itself, if a vertex is there already (a reroute on the grid), stays. Only called
+            /// before a bisection that happens: a split refused (no split point, the Steiner limit) deletes nothing. The circle is local:
+            /// the triangles are searched from e across unconstrained edges that meet the circle (a margin in doubles; what is deleted is
+            /// decided exactly). Returns the number deleted.
+            /// </summary>
+            int DeleteFreeInCircle(int e, Vector2d pu, Vector2d pw, Vector2d p)
+            {
+                var m = (pu + pw) * 0.5;
+                double r2 = (pw - pu).LengthSquared / 4 * (1 + 1e-6);
+                bool MeetsCircle(Vector2d a, Vector2d c)
+                {
+                    var d = c - a; double l2 = d.LengthSquared;
+                    double t = l2 > 0 ? Math.Max(0, Math.Min(1, (m - a).Dot(d) / l2)) : 0;
+                    return (a + d * t - m).LengthSquared <= r2;
+                }
+                var seen = new HashSet<int>();
+                var stack = new Stack<int>();
+                foreach (int h in new[] { e, k.H[e] }) if (!k.IsGhost(h / 3) && seen.Add(h / 3)) stack.Push(h / 3);
+                var blockers = new List<(Vector2d a, Vector2d c)>();
+                var candidates = new SortedSet<int>();
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    for (int j = 0; j < 3; ++j) {
+                        int f = 3 * t + j, v = k.V[f];
+                        if (v >= firstSteiner && v != k.Infinite) candidates.Add(v);
+                        var a = k.Point(v); var c = k.Point(k.V[Next(f)]);
+                        if (k.Seg[f] >= 0) {
+                            if (f != e && f != k.H[e]) blockers.Add((a, c));
+                            continue;
+                        }
+                        int t2 = k.H[f] / 3;
+                        if (k.IsGhost(t2) || seen.Contains(t2) || !MeetsCircle(a, c)) continue;
+                        seen.Add(t2); stack.Push(t2);
+                    }
+                }
+                var doomed = new List<int>();
+                foreach (int v in candidates) if (k.Point(v) != p && InCircleAndVisible(pu, pw, k.Point(v), blockers)) doomed.Add(v);
+                int deleted = 0;
+                foreach (int v in doomed) if (k.DeleteVertex(v)) ++deleted;
+                DeletedForTests += deleted;
+                return deleted;
+            }
+
+            /// <summary> v lies in the open diametral circle of pu pw (exact) and sees its midpoint: the segment between them meets none of
+            /// the blocking constrained edges, closed (exact orientations; the midpoint is that of the doubles, as the search's) </summary>
+            internal static bool InCircleAndVisible(Vector2d pu, Vector2d pw, Vector2d v, List<(Vector2d a, Vector2d c)> blockers)
+            {
+                if (DotSign(pu, pw, v) >= 0) return false;
+                var m = (pu + pw) * 0.5;
+                foreach (var (a, c) in blockers) if (SegmentsMeet(m, v, a, c)) return false;
+                return true;
+            }
+
+            /// <summary> the closed segments ab and cd share a point (exact orientations) </summary>
+            internal static bool SegmentsMeet(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+            {
+                int o1 = Math.Sign(ExactPredicates.Orient2d(a, b, c)), o2 = Math.Sign(ExactPredicates.Orient2d(a, b, d));
+                int o3 = Math.Sign(ExactPredicates.Orient2d(c, d, a)), o4 = Math.Sign(ExactPredicates.Orient2d(c, d, b));
+                if (o1 * o2 > 0 || o3 * o4 > 0) return false;
+                if (o1 != 0 || o2 != 0 || o3 != 0 || o4 != 0) return true;
+                // collinear: the boxes overlap
+                return Math.Max(Math.Min(a.x, b.x), Math.Min(c.x, d.x)) <= Math.Min(Math.Max(a.x, b.x), Math.Max(c.x, d.x))
+                    && Math.Max(Math.Min(a.y, b.y), Math.Min(c.y, d.y)) <= Math.Min(Math.Max(a.y, b.y), Math.Max(c.y, d.y));
             }
 
             /// <summary>
