@@ -331,6 +331,22 @@ namespace Meshing2Acceptance
                         VX = bell.X.Select(x => Math.Floor(x + 0.5)).ToArray(), VY = bell.Y.Select(y => Math.Floor(y + 0.5)).ToArray(), InputToVertex = map,
                         Triangles = fans, Neighbours = NeighboursOf(fans), TriangleLabels = new int[fans.Length], BadTriangles = new int[0],
                         Subsegments = ring.Concat(chainInA ? new[] { new SubsegmentOutput(12, 2), new SubsegmentOutput(3, 13) } : new[] { new SubsegmentOutput(3, 13) }).ToList() };
+                    if (forward) {
+                        // review 4, S2: a foreign output whose chain in square A has a gap (14.8, 10) - (15.2, 10) (a mesh edge, no subsegment):
+                        // both ends lie in pixel (15, 10) of the image, but only the ends of collapsed links are joined, so it stays missing
+                        var gapIn = new Mesh2Input { SnapTolerance = 1, X = bell.X.Concat(new[] { 14.8, 15.2 }).ToArray(), Y = bell.Y.Concat(new[] { 10.0, 10.0 }).ToArray() };
+                        gapIn.Rings.AddRange(bell.Rings); gapIn.Segments.AddRange(bell.Segments);
+                        var gx = new double[] { 0, 20, 20, 50, 50, 70, 70, 50, 50, 20, 20, 0, 10, 60, 14.8, 15.2 };
+                        var gy = new double[] { 0, 0, 10, 10, 0, 0, 20, 20, 10, 10, 20, 20, 10, 10, 10, 10 };
+                        var gt = new[] { new[] { 0, 1, 14 }, new[] { 14, 1, 15 }, new[] { 15, 1, 2 }, new[] { 0, 14, 12 }, new[] { 11, 0, 12 }, new[] { 12, 14, 10 }, new[] { 14, 15, 10 }, new[] { 15, 2, 10 }, new[] { 10, 11, 12 },
+                            new[] { 3, 4, 13 }, new[] { 4, 5, 13 }, new[] { 5, 6, 13 }, new[] { 6, 7, 13 }, new[] { 7, 3, 13 } };
+                        var gapOut = new Mesh2Output { Status = Mesh2Status.Success, VX = gx, VY = gy, InputToVertex = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 3, 2, 10, 11, 12, 13, 14, 15 },
+                            Triangles = gt, Neighbours = NeighboursOf(gt), TriangleLabels = new int[gt.Length], BadTriangles = new int[0], IdentityRules = false,
+                            Subsegments = ring.Concat(new[] { new SubsegmentOutput(12, 14), new SubsegmentOutput(15, 2), new SubsegmentOutput(3, 13) }).ToList() };
+                        var gapReport = Oracle.Check(gapIn, gapOut, m3);
+                        Must("reject: a gap in a chain where the domain has area, bridged by a shared pixel of the image (review 4, S2)",
+                            gapReport.Violations.Any(x => x.Kind == Violation.SegmentMissing && x.Detail.StartsWith("input constraint (10, 10)")), "report: " + gapReport);
+                    }
                     string way = forward ? "forward" : "backward";
                     var withChain = Oracle.Check(bell, Bell(true), m3);
                     Must("accept: a segment through a collapsed corridor with its chain in both squares (" + way + ")", withChain.Ok && withChain.CollapsedSegments > 0, "report: " + withChain);
@@ -378,6 +394,11 @@ namespace Meshing2Acceptance
                     // (6, 1) is missed by the segment (y 0.33 to 0.39 there) but passed by its rerouted link to (10, 1) (y 0.55 to 0.65)
                     var iterated = Oracle.SnapImage(O, Pt.FromDoubles(20, 1.2), new[] { Pt.FromDoubles(10, 1), Pt.FromDoubles(6, 1) }, Q.One);
                     Must("image: a rerouted link is rerouted again (iterated snap rounding)", iterated.SequenceEqual(new[] { N(0, 0), N(6, 1), N(10, 1), N(20, 1) }), Show(iterated));
+                    // two passes over the links after the first: (0, 0) - (24, -1.4) is rerouted through (11, 0) only by a link, and
+                    // (14, 0) only by a link of that
+                    var twice = new[] { Pt.FromDoubles(11, 0), Pt.FromDoubles(14, 0), Pt.FromDoubles(19, 1) };
+                    var deep = Oracle.SnapImage(O, Pt.FromDoubles(24, -1.4), twice, Q.One);
+                    Must("image: iterated until no link passes a hot pixel (two passes over the links)", deep.SequenceEqual(new[] { N(0, 0), N(11, 0), N(14, 0), N(24, -1) }), Show(deep));
                     // a hot pixel only touched at its corner does not reroute (O-H4's rule): the link (0, 0) - (1, 1) touches pixel (1, 0)
                     // at (0.5, 0.5)
                     var touched = Oracle.SnapImage(O, Pt.FromDoubles(1, 1), new[] { Pt.FromDoubles(1, 0) }, Q.One);
@@ -494,6 +515,9 @@ namespace Meshing2Acceptance
                             past.Violations.Any(x => x.Kind == Violation.ChainPassesHotPixel && x.Detail.Contains("(10, 11)")), "report: " + past);
                         var through = Oracle.Check(hp, Hp((4, 6), (6, 5)), m3);
                         Must("accept: the chain routed through the Steiner point's pixel (no ChainPassesHotPixel)", !through.Has(Violation.ChainPassesHotPixel), "report: " + through);
+                        var foreign = Hp((4, 5)); foreign.IdentityRules = false;
+                        var foreignReport = Oracle.Check(hp, foreign, m3);
+                        Must("accept: a foreign output (no snap rounder) is not held to snap rounding's invariant (review 4)", !foreignReport.Has(Violation.ChainPassesHotPixel), "report: " + foreignReport);
                         var hpPlain = new Mesh2Input { X = hp.X, Y = hp.Y, Rings = hp.Rings, Segments = hp.Segments };
                         var free = Oracle.Check(hpPlain, Hp((4, 5)), m3);
                         Must("accept: without a tolerance there are no hot pixels (no ChainPassesHotPixel)", !free.Has(Violation.ChainPassesHotPixel), "report: " + free);
