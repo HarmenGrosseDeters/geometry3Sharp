@@ -10,6 +10,19 @@ namespace geometry3Sharp.Tests
 {
     public class RobustnessSweepRemainingTests
     {
+        [Fact]
+        public void OracleCostCheck_DoesNotCompeteWithOtherTestCollections()
+        {
+            var collection = Assert.Single(typeof(QualityMesh2CollapsedPartsReportTests).GetCustomAttributesData()
+                .Where(a => a.AttributeType == typeof(CollectionAttribute)));
+            var definition = Assert.Single(typeof(QualityMesh2CollapsedPartsReportTests).Assembly.GetTypes()
+                .SelectMany(t => t.GetCustomAttributesData())
+                .Where(a => a.AttributeType == typeof(CollectionDefinitionAttribute)
+                    && Equals(a.ConstructorArguments[0].Value, collection.ConstructorArguments[0].Value)));
+            Assert.Contains(definition.NamedArguments,
+                a => a.MemberName == nameof(CollectionDefinitionAttribute.DisableParallelization) && Equals(a.TypedValue.Value, true));
+        }
+
         [Theory]
         [InlineData(1e308, true, false)]
         [InlineData(1.7e308, true, false)]
