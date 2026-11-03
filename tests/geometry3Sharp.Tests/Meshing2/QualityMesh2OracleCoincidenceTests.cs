@@ -205,7 +205,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// every clause of the oracle's refinement test (Refining, review of #36): the hull of (0, 0), (10, 1.4), (10, -3), (0, -3) with
+        /// each clause of the oracle's refinement test that can change the result (Refining, review of #36): the hull of (0, 0), (10, 1.4), (10, -3), (0, -3) with
         /// (5, 0.4) inside has the restore pixel (4, 1) on its top hull edge, which the oracle computes only where the mesher rounds the hull
         /// (M3 and refining). Each option set is judged on the candidate's mesh, which must be accepted at M3 (M2 judges the unrefined mesh with the angle set for the oracle only)
         /// </summary>

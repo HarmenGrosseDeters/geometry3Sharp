@@ -2379,9 +2379,10 @@ namespace Meshing2Acceptance
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
             /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
             /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
-            /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only, so other
-            /// chains cannot stand in for the piece's (review of #36, S2). Pixels of refinement are not demanded (#360 does not reroute
-            /// through them)
+            /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only (review of
+            /// #36, S2). Known gap (third review of #36): another edge's link between two pixels of the image can still stand in for the
+            /// piece's, where two further chains give the skipped pixel's vertex both sides (about four edges). Pixels of refinement are
+            /// not demanded (#360 does not reroute through them)
             /// </summary>
             void ChainThroughContactedPixels(Pt a, Pt b)
             {
@@ -2402,13 +2403,15 @@ namespace Meshing2Acceptance
                 Q Along(Pt p) => (p.Qx - a.Qx) * (b.Qx - a.Qx) + (p.Qy - a.Qy) * (b.Qy - a.Qy);
                 long work = 0;
                 var image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
+                var index = new Dictionary<(BigInteger x, BigInteger y), int>(image.Count);
+                for (int t = 0; t < image.Count; ++t) index[image[t]] = t;
                 bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
                     // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
                     Q along = Along(Centre(h, snapPixel));
-                    int k = image.IndexOf(h);
+                    if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
                     bool onChain = false;
                     if (verticesInPixel.TryGetValue(h, out var at))
@@ -2435,14 +2438,13 @@ namespace Meshing2Acceptance
                 }
                 // a subsegment between two pixels of the piece's image that skips image pixels between them is no link of this edge; it
                 // must be another edge's link (or a hull link) of the input's rounding, or the edge's links it spans collapse in both
-                // images. Otherwise two other chains could stand in for the skipped pixel's vertex above (review of #36, S2)
-                Dictionary<(BigInteger x, BigInteger y), int> index = null;
+                // images. Otherwise two other chains could stand in for the skipped pixel's vertex above (review of #36, S2; the known
+                // gap in the summary remains)
                 for (int k = 0; k + 2 < image.Count; ++k) {
                     if (!verticesInPixel.TryGetValue(image[k], out var at)) continue;
                     foreach (int i in at) {
                         if (!subsegmentsAt.TryGetValue(i, out var next)) continue;
                         foreach (int j in next) {
-                            if (index == null) { index = new Dictionary<(BigInteger x, BigInteger y), int>(); for (int t = 0; t < image.Count; ++t) index[image[t]] = t; }
                             var pj = PixelOf(v[j], snapPixel);
                             if (!index.TryGetValue(pj, out int m) || m <= k + 1) continue;
                             Snap();

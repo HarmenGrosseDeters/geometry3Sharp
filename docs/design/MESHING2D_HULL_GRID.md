@@ -422,7 +422,9 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
   in both images lies on such links; fuzz seed 818: the thin second lobe of a self-crossing star ring; seeds 493 and 1762: points on
   collapsed parts). Two other chains could still stand in, one on each side (second review, S2), so a subsegment between two pixels
   of the piece's image that skips image pixels must be a link of the input's rounding (another edge's, or the hull's) or span
-  collapsed links only. Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects SRR's Listing 2 chain of
+  collapsed links only. Known gap (third review): another edge's link between two pixels of the image still passes this check, so
+  with two further chains giving the skipped pixel's vertex both sides (about four edges) a chain past a contacted hot pixel is
+  accepted. Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects SRR's Listing 2 chain of
   the discrepancy above (self-check).
 - **The snapped area (a report, opt-in):** `--snapped-area` (`OracleExpect.ReportSnappedArea`) reports the mesh area minus the area
   of the snapped domain with all hot pixels, exact, in px². No rule: the full image routes a boundary edge through every hot pixel
