@@ -545,7 +545,11 @@ two old triangles.
        exactly is harmless);
      - the plane sets of its two ends are not nested (otherwise the collapse of step 1 may take it);
      - neither end lies on a barrier (toe, lateral limit). Toe and lateral vertices are never moved, and they stay
-       shared with the TIN and the composite.
+       shared with the TIN and the composite;
+     - neither end lies on the mesh's boundary (the cap's level line, which a collapse would move);
+     - at least one of its two triangles fails the exact checks (i) or (ii). A needle that passes is left as it is,
+       so the band merge never makes a passing design worse; its z changes would move the gradients of the kept
+       vertex's other triangles.
    - **What it does:** in one pass, shortest edges first, then by edge id (the build's order, which does not depend
      on λ), each edge is collapsed onto one end. The end is chosen by a total order that is 2^k-invariant: more
      labels first, then x, then y, as `merge_close_positions` orders. The kept vertex takes the union of both
@@ -555,10 +559,11 @@ two old triangles.
      counter-clockwise (exact Orient2d, as `CollapseShortEdges`) and the mesh's link condition holds
      (`DMesh3.CollapseEdge`). A refused edge stays, and the check decides. There is no global radius, so no merge
      of non-adjacent vertices across a narrow face, and no crack or fold to fall back from.
-   - Everything else keeps today's r. Without needles (the UTM designs of the tests and benchmarks), nothing
-     changes.
+   - Everything else keeps today's r. The band merge runs only if the merge within r ran (not in its non-manifold
+     fallback to none) and r_band > r. Without failing needles, nothing changes; the lowering is then today's
+     `RepairLambda`, bit for bit.
    - **Radius.** r_band = max(r, min(`MinFeatureSize`, slack/(4·sMax) − r − e_xy, (λ bound − `RepairLambda`(1))/(2·sMax)
-     − e_xy − r)), with the facets' slack below. Both caps count r + r_band, as the moves add up. With today's
+     − e_xy − r)), rounded down, with the facets' slack below; the lowering of band merges is rounded up. Both caps count r + r_band, as the moves add up. With today's
      flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda` gate keeps today's merges
      and flips. Where the slack leaves no room, r_band = r and no band merge is made: that design fails as today.
    - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the edge's
