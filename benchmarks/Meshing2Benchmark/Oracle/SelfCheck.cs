@@ -276,6 +276,31 @@ namespace Meshing2Acceptance
             Reject("subsegment on no constraint", Violation.SubsegmentUnsourced, gridIn, G(o => o.Subsegments.Add(FreeEdge(o, 14))), M2());
             Reject("wrong marker", Violation.SubsegmentMarker, gridIn, G(o => o.Subsegments[0].Marker = 9), M2());
             Reject("hole boundary unconstrained", Violation.BoundaryNotConstrained, gridIn, G(o => o.Subsegments.RemoveAll(s => s.Marker == 2)), M2());
+            // ---- a hull corner merged within the tube (O11, D13): a point set whose hull corner c lies just below the bottom edge and is
+            // merged into its twin just above it; the boundary runs straight past c, cutting the corner by the tube at most (found with
+            // the corpus run, delaunator's robustness1). With c farther than the tube it is a real corner, and the boundary may not skip it.
+            {
+                double d = 1.0 / (1 << 24);
+                Q mergeTube = new Q(1, 1 << 20);
+                (Mesh2Input, Mesh2Output) CutCorner(double below)
+                {
+                    var input = new Mesh2Input { X = new double[] { 0, 10, 10, 0, 5, 5, 5 }, Y = new double[] { 0, 0, 10, 10, -below, d, 5 } };
+                    int[][] tris = { new[] { 0, 1, 5 }, new[] { 1, 6, 5 }, new[] { 1, 2, 6 }, new[] { 2, 3, 6 }, new[] { 3, 0, 6 }, new[] { 0, 5, 6 } };
+                    var output = new Mesh2Output {
+                        Status = Mesh2Status.Success, VX = input.X.ToArray(), VY = input.Y.ToArray(),
+                        InputToVertex = new[] { 0, 1, 2, 3, below <= d ? 5 : 4, 5, 6 },   // (the corner merged into its twin only in the accept case)
+                        Triangles = tris, TriangleLabels = tris.Select(_ => 0).ToArray(), Neighbours = NeighboursOf(tris),
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0]
+                    };
+                    return (input, output);
+                }
+                var (mergedIn, mergedOut) = CutCorner(d);
+                Accept("a hull corner merged within the tube, the boundary past it", mergedIn, mergedOut, M2(mergeTube));
+                // (just outside the window: the corner twice the tube from the edge)
+                var (cornerIn, cornerOut) = CutCorner(1.0 / (1 << 19));
+                Reject("a real hull corner skipped by the boundary", Violation.BoundaryNotConstrained, cornerIn, cornerOut, M2(mergeTube));
+            }
+
             Reject("hole boundary lost as a chain", Violation.SegmentMissing, gridIn, G(o => o.Subsegments.RemoveAll(s => s.Marker == 2)), M2());
             Reject("wrong region label", Violation.RegionLabelWrong, gridIn, G(o => o.TriangleLabels[0] = 7), M2());
             Reject("seed region not flooded", Violation.RegionLabelWrong, gridIn, G(o => { for (int i = 0; i < o.TriangleLabels.Length; ++i) if (o.TriangleLabels[i] == 4) o.TriangleLabels[i] = 0; }), M2());

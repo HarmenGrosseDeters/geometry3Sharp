@@ -214,6 +214,9 @@ on the reference triangulation (Q9). Decisions and findings:
 - Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
   free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
   vertices within the tube of a hull edge count as moved (O2, D13: a split of a hull edge in doubles cannot stay exactly on it).
+- Oracle, hull domain (D13) with merged points (O11): a boundary edge may run past hull corners that lie within the tube of it, as
+  when a hull corner is merged into a point within the tolerance inside the hull (delaunator's robustness1, 2026-11-03); a corner
+  farther than the tube is a real corner (self-checks accept and reject).
 - Bugs found and fixed on the way: splitting a segment lifted its constraint before inserting (non-Delaunay edges and mixed tags, as in M2's crossings);
   the source lists of an edge grew without bound when a piece was re-inserted (now a union; out of memory before); split points on hull edges moved inwards
   left slivers at unconstrained hull edges (now they may round outwards; Lawson's flips remove the old hull edge).
