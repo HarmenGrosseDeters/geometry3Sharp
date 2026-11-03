@@ -248,13 +248,13 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   - At M2 any output vertex beyond the input's points and crossings (a faulty restore pixel, a vertex at a chain end near a
     constraint) can create a collapse that is not reported; the wedge below, judged at M2, is accepted (a pinned self-check).
   - At M3 the restore pixels count as refinement. Of the 3000 seeds of `StarPolygonFuzz` (the test harness's generator, for reuse)
-    at 20°, 9 are false rejections (0.3 %, `Oracle_RestoreStepAtM3_KnownFalseRejection`), and 3 are false acceptances (0.1 %,
-    `Oracle_RestoreStepAtM3_KnownFalseAcceptance`): the input's rounding without the restore pixels collapses a spike tip that its
-    real rounding keeps. Both measured by adding the library's snap pixels to the input-only state outside the oracle.
-  - Also at M3: 188 real refinement pinches (6.3 %; the input's own
-  rounding keeps area there, eg the spike tip of (15.9, 8), (3.1, 9.9), (2.9, 9), (6.5, 6.2), whose edges both pass pixel (15, 8),
-  hot only by a grid point), the mesher's bugfix below; 5 of them, each reduced to a single thin triangle, are pinned
-  (`RefinementPinchesASpike_KnownInvalid`). The gaps close with the oracle's own restore step (a), its own PR. Basing the
+    at 20°, 10 are false rejections (0.3 %, `Oracle_RestoreStepAtM3_KnownFalseRejection`; 9 before the mesher's bugfix, which made
+    seed 2459's pinch a restore case). Before the bugfix 3 were false acceptances as well (the input's rounding without the restore
+    pixels collapsed a spike tip that refinement then dropped); with it none remain. Measured by adding the library's snap pixels to
+    the input-only state outside the oracle.
+  - Also at M3, before the mesher's bugfix: 188 real refinement pinches (6.3 %; the input's own rounding keeps area there, eg the
+  spike tip of (15.9, 8), (3.1, 9.9), (2.9, 9), (6.5, 6.2), whose edges both pass pixel (13, 8), where refinement put a vertex);
+  fixed below (`QualityMesh2KeepsChainsApartTests`). The gaps of (c) close with the oracle's own restore step (a), its own PR. Basing the
   input-only state on the library's `SnapRounding2` (b) is out: the oracle must not trust the code it checks.
 - **Why images, not distances (review 3):** "narrower than a pixel" is neither necessary nor sufficient for a collapse (snap
   rounding also collapses some parts wider than a pixel, eg the strip of review 4 without its point). A corridor 0.9
@@ -274,8 +274,8 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   excused a diagonal strip 1.27 pixel wide whose wall passes a free point's pixel (snap rounding keeps a triangle of 5 px² there), and
   rejected a correct mesh whose hypotenuse snap rounding routes through a point's pixel. It also made the zigzag with refinement look
   like an order dependence of iterated rounding (z0 one SegmentMissing, z1 six).
-- **The zigzag with refinement (M3), known INVALID, pinned:** under rule (ii') z0 has 3 SegmentMissing and 1 VertexUnused, z1 5
-  SegmentMissing (`QualityMesh2CollapsedPartsTests.DomainNarrowerThanAPixel_RefinementPinch_KnownInvalid`). The input-only snapped domain
+- **The zigzag with refinement (M3), INVALID before the mesher's bugfix (below):** under rule (ii') z0 had 3 SegmentMissing and 1
+  VertexUnused, z1 5 SegmentMissing; now VALID (`QualityMesh2CollapsedPartsTests.DomainNarrowerThanAPixel_RefinementKeepsWhatRoundingKeeps`). The input-only snapped domain
   keeps a band 0.7 pixel wide where refinement's grid points bring the two sides together: 382 against 358.5 px² (z0, 23.5 px²
   collapsed by refinement), 804 against 635 px² (z1, 169 px²). Snapped alone (M2) both are accepted. The corpus, the catalogue rows and
   the Herne runs keep their verdicts against master.
@@ -309,11 +309,35 @@ that also carries a ring or hull edge count (the part collapsed onto its boundar
 hole is not reported (review 3). The mesher does not decide
 "narrower than a pixel"; the oracle does.
 
-**Next, the mesher's bugfix (owner 2026-11-03):** a grid point of refinement must not bring together two chains of the input's image
-that are apart there: rejected where its pixel is contacted by two links of the input-only image that share no node, as an
-invariant of the split predicate on every pass. Upper bound measured on the outputs without changing the mesher: 0 such points on
-the Herne runs (1 715 to 120 432 Steiner pixels each) and the catalogue rows, 22 (z0) and 13 (z1) on the zigzags; so all other
-outputs stay bit for bit. The zigzag M3 cases become acceptance tests there.
+**The mesher's bugfix (owner 2026-11-03): no reroute onto another chain.** Refinement collapsed parts that the rounding of the input
+keeps in its split step: a grid split point that is a vertex of refinement already reroutes the piece through it, and when a new piece
+then runs along a constraint edge of another chain, the two chains coincide and the part between them collapses. A spike's tip: the
+point (13, 8) sits on one edge's chain, the other edge's input segment passes its pixel, and its piece rerouted through it shares
+(13, 8) - (16, 8) with the first, dropping the tip (16, 8). `ValidGridSplit` refuses such a split point (`QualityMesh2.Refiner`, an
+invariant of every split). Through a vertex of the snapped input (input point, crossing, restore pixel) the reroute stays: there the
+chains coincide in the rounding of the input itself (Hobby 1999; iterated snap rounding, Halperin and Packer 2002), found with a fuzz
+seed whose sliver ring rerouted through an input point.
+- **Oracle:** `GridUnsplittable` refuses the same split point (a vertex at the candidate's pixel with a subsegment to either end), and
+  counts a hull domain's hull edges as owners of their pieces: on the grid the mesher snap-rounds them (option C) and splits their
+  pieces as a segment's, while the oracle had taken every hull piece as splittable. With that the existing excuses of unsplittable
+  pieces apply, and the zigzag z0 needs no other: a wedge exemption at a vertex of two unsplittable pieces (the grid analogue of the
+  small input angle, Shewchuk 2002 section 6.3, Pav and Walkington 2005) was built and fires nowhere (fuzz, zigzags), so it was
+  dropped. A self-check holds the hull owners: a triangle below the angle whose circumcentre lies behind a hull piece on a pixel
+  boundary.
+- **Results:** the zigzags z0 and z1 at 0 and 20 degrees VALID, bit for bit at 2^k scales; of the 3000 seeds of `StarPolygonFuzz`, all
+  188 refinement pinches VALID but one, 2459, which proved a restore case (VALID with the restore pixels; pinned with the other 9 until
+  the oracle's own restore step); 13 others rejected as before the fix, by class
+  (`QualityMesh2KeepsChainsApartTests.StarPolygonFuzz_VerdictsByClass`).
+- **Herne:** not bit for bit. The rule refuses 13 to 227 reroutes per run, and the meshes grow by up to 6 % triangles. Classified
+  against the oracle's input-only snapped domain, 1011 of 1035 refusals keep area beside the coinciding edge (real collapses, which
+  the oracle could not see: the chains exist, and coverage is judged within the perimeter times the movement), 24 do not; refusing
+  only the real ones would save at most 0.8 % triangles in two runs (coordinator 2026-11-03: the rule as worded). An intended
+  behaviour change: Herne keeps strips that the rounding of the input keeps, +0.4 to 6.2 % triangles, the new baseline of the
+  grading item's 1.25x target. The corpus and the catalogue rows stay bit for bit.
+- **Tried and dropped:** judging the grid point by the links of the input's image (before refinement) its pixel lies on. "Two links
+  that share no node" misses the spike tips (both links end at the tip); "two links with no link in common" catches them but fires at
+  almost every acute ring corner of Herne (232 to 9979 refusals per run, 2 to 7 % fewer vertices, and triangles the oracle cannot
+  excuse): the input's image is a coarse picture of the pieces the split actually creates.
 
 **Tried and dropped:** checking the output's chains with closed gaps instead of the images ((A')): in collapsed parts the output
 carries no chains, the gaps would need rounding with bounded drift (ISRbd, Packer 2008), and in a band 0.7 pixel wide the pieces

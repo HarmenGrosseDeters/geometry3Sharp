@@ -27,6 +27,10 @@ namespace geometry3Sharp.Tests
             // the reroute fix as well (oracle INVALID before #337)
             var segments = which == 30 ? new[] { (3.328125, 3.90625, 8.96875, 7.515625) }
                 : which == 292 ? new[] { (5.65625, 12.875, 11.765625, 1.15625) }
+                // 60 and 2384: a split onto a vertex already there that no other chain's edge leads to (found when the grid split stopped
+                // rerouting a piece onto another chain, Q17: 31 and 292 rerouted onto one)
+                : which == 60 ? new[] { (6.765625, 11.3125, 5.828125, 4.71875) }
+                : which == 2384 ? new[] { (5.234375, 2.484375, 6.5, 8.765625) }
                 : new[] { (7.234375, 13.734375, 6.078125, 4.453125), (2.78125, 4.375, 8.75, 11.5) };
             foreach (var (ax, ay, bx, by) in segments) {
                 x.Add(ax); y.Add(ay); x.Add(bx); y.Add(by);

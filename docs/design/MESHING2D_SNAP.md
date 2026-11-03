@@ -273,7 +273,11 @@ in "As built" at the end of this section. The SR + SRR routine of #277 snaps the
 3. **Subsegment splits (O12).** The target is the midpoint of the subsegment, taken on the original input segment, or the concentric
    shell point. Its pixel is used if:
    - the pixel is in the envelope of the input segment;
-   - it is not hot;
+   - it is not hot, or (as built) holds a vertex the piece is rerouted through; not a vertex of refinement where a new piece would run
+     along a constraint of another chain: the two chains would coincide there, and the part between them, which the rounding of the
+     input keeps, would collapse (owner decision 2026-11-03 on Q17, `MESHING2D_HULL_GRID.md` section 7). Through a vertex of the
+     snapped input (an input point, a crossing, a restore pixel) they coincide in the rounding of the input itself, so that reroute
+     stays;
    - the bent chain a → p → b crosses no hot pixel's interior, the restore condition, checked with SnapRounding2's machinery.
    Otherwise the neighbours of that pixel along the segment are tried. If no pixel on the subsegment's span qualifies, the subsegment is
    **unsplittable** (clean-room answer 7d): it stays, and the triangles that encroach it stay as well, judged and reported, never dropped.
