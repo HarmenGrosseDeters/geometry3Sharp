@@ -530,6 +530,13 @@ Problems where the library already has a head start and that could be researched
 - **Practical 3D snap rounding with guarantees.** `SafeRounding` (after Milenkovic & Sacks 2019) verifies and repairs;
   open is a rounding that *guarantees* no new self-intersections with bounded displacement and practical running time
   (Devillers et al. 2018 is impractical). Thingi10K as the benchmark.
+  Status: option B (Valque-Lazard) measured and closed in #313; a patch-wise B is parked (first measure whether a
+  re-resolved patch fits back). Lead (owner 2026-11-03, from the walk-on-stars discussion): the transferable part of
+  walk on spheres / stars is not the Monte Carlo estimate (a noisy estimate cannot certify combinatorial decisions)
+  but its certified empty ball from a closest-point query. Used as a filter it is the "fast and correct" pattern:
+  a conservative distance bound shows that a rounding move hits nothing nearby, so the exact check only runs where
+  the ball is too small (the same pattern culls hot-pixel tests in 2D snap rounding and candidate pairs in the
+  booleans). Monte Carlo stays a verification tool (as in the volume check), not a construction.
 - **An envelope-guaranteed exact pipeline.** Boolean → rounding → simplification / remeshing with every stage
   provably inside an ε-envelope and free of self-intersections (needs Phase 5 #2).
 - **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,
