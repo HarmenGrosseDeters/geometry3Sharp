@@ -534,8 +534,10 @@ two old triangles.
 
 1. **Normal merge and collapse first, as today.** The realization merges positions within r
    (`merge_close_positions`, once per realization, before the collapses). Then `CollapseShortEdges` collapses
-   edges shorter than `MinFeatureSize` by the plane-set rule. Change: it measures edges in XY, not in 3D, so that
-   it does not depend on λ (z does).
+   edges shorter than `MinFeatureSize` by the plane-set rule. It measures in 3D, and z depends on λ, so its
+   decisions are made on a build's first realization and replayed on the later ones (the same edges by their
+   ends in XY). Measuring in XY instead would have changed today's results on steep short edges (the L shape of
+   the A/B).
 2. **Then the band merge, targeted.**
    - **What it takes:** only the short edges of needles. An edge qualifies if all of these hold:
      - its XY length ℓ is at most r_band (≤ `MinFeatureSize`). Both its triangles are then needles, since a
@@ -600,7 +602,7 @@ two old triangles.
    2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
    - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
      - `Realize` rounds XY independently of λ (`K.Rounded`);
-     - the merge, `CollapseShortEdges` (in XY) and the band merge do not depend on λ;
+     - the merge and the band merge do not depend on λ, and `CollapseShortEdges` is replayed;
      - so the second realization has the same vertices in XY, the same merges and the same needles.
    - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
      decide again or measure again; its λ is the measured one.
