@@ -207,12 +207,17 @@ corner tip, which O-H4 does not cover.
 **Oracle**, rule O-H5 (`CollapsedStretches`, `ChainAcrossCollapsed`, `OnCollapsedPoint`), only with an explicit tolerance:
 - **Collapsed stretch:** a stretch of an input piece is collapsed where the domain across it is narrower than a pixel:
   - a piece of an input segment: boundary on its left and on its right whose distances add up to less than a pixel (the side of an
-    edge is that of its nearest point; an edge whose nearest point lies on the piece's line serves both sides). Exactly:
+    edge is that of its nearest point. An edge whose nearest point lies on the piece's line serves both sides where that point is an
+    end of the edge, a tip or corner, or the piece's point itself; neither where the edge passes across the line ahead of the piece,
+    a T-junction (review 3: a stub 0.4 long across a pixel line was excused)). Exactly:
     d1 + d2 < p² and 4·d1·d2 < (p² − d1 − d2)² for the squared distances d1, d2;
   - a piece of a boundary edge: another boundary edge closer than a pixel whose nearest point lies on the domain's side of the piece
     (the side of a point 2^-40 of the piece's length beside its middle that lies inside), or on its line. An edge on the outside side
     (a slit of the outside between two walls) does not count;
-  - the source edge (the whole input segment or boundary edge, not only the piece) never counts against itself.
+  - the source edge (the whole input segment or boundary edge, not only the piece) never counts against itself, nor does an edge on
+    the piece's line (review 3: a segment on the bottom edge of a wide square was excused, that edge serving both sides). A segment
+    with the domain on one side only (on a boundary edge) is judged as a boundary piece; the sides come from points 2^-40 of the
+    piece's length beside its middle, and where the side changes along the piece the middle decides (stricter, never looser).
   - It is decided exactly per stretch between the piece's pixel crossings, for one and the same edge (or pair of edges) at both ends: a
     distance to a segment, and a sum of two, is convex along a line.
 - **Why two-sided (review 2):** a first form excused a stretch closer than a pixel to any one other edge. That excused gaps snap rounding
@@ -251,7 +256,8 @@ corner tip, which O-H4 does not cover.
     - a point with one constraint on the corridor and one into the square;
     - an unused corner whose edges have area;
     - a pixel only touched by an edge;
-    - the review's cases E1, E1b, E2, E6 and E8 (above), with nothing excused; E2 complete is accepted;
+    - the review's cases E1, E1b, E2, E6 and E8 (above), with nothing excused; E2 complete is accepted; review 3's segment on the
+      edge of a wide square and stub across a pixel line;
     - a segment through the dumbbell's corridor without its chain in one square (either way; accepted with both chains).
   - Direct checks of the stretches: a 90°, 60° and 35° corner not collapsed, a 25° corner and a 1° tip collapsed, a corner exactly
     a pixel wide where the piece leaves the guard's square not; a segment in a corridor 0.25 wide collapsed, 1.5 wide not, exactly a
@@ -265,7 +271,9 @@ corner tip, which O-H4 does not cover.
 - **Reports:** the counts appear as "on collapsed parts: N segment pieces, M input points".
 
 **Mesher:** the diagnostics report, apart, the input segments with a piece that has no triangle on either side already after
-snapping (taken before the carve of the outside), and those whose piece lost its triangles in refinement. The mesher does not decide
+snapping (taken before the carve of the outside), and those whose piece lost its triangles in refinement; only pieces on an edge
+that also carries a ring or hull edge count (the part collapsed onto its boundary), so a free segment outside the domain or in a
+hole is not reported (review 3). The mesher does not decide
 "narrower than a pixel"; the oracle does.
 
 **Follow-up (not done):** whether refinement should avoid Steiner points in pixels that two chains pass, since those make the pinch.

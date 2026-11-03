@@ -680,7 +680,8 @@ namespace Meshing2Acceptance
             /// nothing. Narrower than a pixel:
             /// <list type="bullet">
             /// <item>a piece of an input segment: boundary on its left and on its right whose distances add up to less than a pixel
-            /// (the side of an edge is that of its nearest point; on the piece's line, both);</item>
+            /// (the side of an edge is that of its nearest point; on the piece's line, both where that point is an end of the edge
+            /// or the piece's point itself, neither where the edge passes across the line ahead of the piece);</item>
             /// <item>a piece of the boundary itself (distance 0 on the outside): another boundary edge closer than a pixel whose nearest
             /// point lies on the domain's side of the piece, or on its line (a slit of the outside between two walls does not
             /// count).</item>
@@ -697,14 +698,15 @@ namespace Meshing2Acceptance
             List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source)
             {
                 if (!(input.SnapTolerance > 0) || a.Equals(b)) return new List<(Q t0, Q t1)>();
-                int domainSide = 0;
-                if (domain.Edges().Any(g => SameEdge(g, source))) {
-                    // the domain's side of a boundary piece: a point beside its middle, 2^-40 of its length off it
-                    Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, e = new Q(BigInteger.One, BigInteger.One << 40);
-                    Q nx = -(b.Qy - a.Qy) * e, ny = (b.Qx - a.Qx) * e;
-                    domainSide = domain.Classify(new Pt(mx + nx, my + ny)) == Where.Inside ? 1 : domain.Classify(new Pt(mx - nx, my - ny)) == Where.Inside ? -1 : 2;
-                    if (domainSide == 2) return new List<(Q t0, Q t1)>();
-                }
+                // the domain's sides of the piece: points beside its middle, 2^-40 of its length off it. Inside on both: a piece
+                // inside the domain (0); on one: a piece of the boundary, or a segment on a boundary edge (1 left, -1 right); on
+                // neither: nothing to collapse. (Where the side changes along the piece, or another ring passes within that
+                // distance, the middle decides; a wrong side only makes the rule stricter.)
+                Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, e = new Q(BigInteger.One, BigInteger.One << 40);
+                Q nx = -(b.Qy - a.Qy) * e, ny = (b.Qx - a.Qx) * e;
+                bool left = domain.Classify(new Pt(mx + nx, my + ny)) == Where.Inside, right = domain.Classify(new Pt(mx - nx, my - ny)) == Where.Inside;
+                if (!left && !right) return new List<(Q t0, Q t1)>();
+                int domainSide = left && right ? 0 : left ? 1 : -1;
                 return CollapsedStretches(a, b, source, domain.Edges(), Q.FromDouble(input.SnapTolerance), domainSide);
             }
 
@@ -737,7 +739,10 @@ namespace Meshing2Acceptance
                 var result = new List<(Q t0, Q t1)>();
                 if (a.Equals(b)) return result;
                 Q pixel2 = pixel * pixel;
-                var near = boundary.Where(g => !SameEdge(g, source) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
+                // the source never counts against itself, nor does an edge on the piece's line (it is on both sides at once, or
+                // continues the piece beyond an end: no width across the piece)
+                var near = boundary.Where(g => !SameEdge(g, source) && BoxesMeet(g.a, g.b, a, b, pixel)
+                    && !(Exact.Orient(a, b, g.a) == 0 && Exact.Orient(a, b, g.b) == 0)).ToList();
                 var ts = PixelBreaks(a, b, pixel, 1 << 16);
                 if (ts == null || near.Count == 0) return result;
                 // the corner guard: the piece leaves a's square of half-width two pixels at ta, b's at tb
@@ -755,7 +760,7 @@ namespace Meshing2Acceptance
                 var wedgeA = near.Select((g, i) => atA[i] && Exact.Dist2ToSegment(g.a, g.b, exitA) < pixel2).ToArray();
                 var wedgeB = near.Select((g, i) => atB[i] && Exact.Dist2ToSegment(g.a, g.b, exitB) < pixel2).ToArray();
                 // per point and edge: the squared distance (null where the edge does not count there) and the side of its nearest point
-                var d2 = new Q?[ts.Count, near.Count]; var side = new int[ts.Count, near.Count];
+                var d2 = new Q?[ts.Count, near.Count]; var side = new int[ts.Count, near.Count]; var passes = new bool[ts.Count, near.Count];
                 for (int j = 0; j < ts.Count; ++j) {
                     var p = At(ts[j]);
                     for (int i = 0; i < near.Count; ++i) {
@@ -765,6 +770,7 @@ namespace Meshing2Acceptance
                         Q dd = Exact.Len2(p, q);
                         if (!(dd < pixel2)) continue;
                         d2[j, i] = dd; side[j, i] = Exact.Orient(a, b, q);
+                        passes[j, i] = side[j, i] == 0 && dd.Sign > 0 && !q.Equals(near[i].a) && !q.Equals(near[i].b);
                     }
                 }
                 for (int j = 0; j + 1 < ts.Count; ++j) {
@@ -776,10 +782,14 @@ namespace Meshing2Acceptance
                             collapsed = d2[j, i] != null && d2[j + 1, i] != null && side[j, i] * domainSide >= 0 && side[j + 1, i] * domainSide >= 0;
                     } else {
                         // a piece of a segment: an edge on the left and one on the right at both ends, their distances summing below a
-                        // pixel (one edge may serve both sides where its nearest point is on the piece's line)
+                        // pixel. An edge whose nearest point is on the piece's line serves both sides where that point is an end of the
+                        // edge (a tip or corner, under the corner guard at the piece's own ends) or the piece's point itself (on the
+                        // edge), neither where it is inside the edge away from the piece (the edge passes across the piece's line ahead of
+                        // it, a T-junction: it lies ahead of the piece, not beside it)
                         var left = new List<int>(); var right = new List<int>();
                         for (int i = 0; i < near.Count; ++i) {
                             if (d2[j, i] == null || d2[j + 1, i] == null) continue;
+                            if (passes[j, i] || passes[j + 1, i]) continue;
                             if (side[j, i] >= 0 && side[j + 1, i] >= 0) left.Add(i);
                             if (side[j, i] <= 0 && side[j + 1, i] <= 0) right.Add(i);
                         }

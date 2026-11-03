@@ -197,14 +197,21 @@ namespace g3
 
             bool InDomain(int t) => k.Tag[t] >= 0 && !k.IsGhost(t);
 
-            /// <summary> the input segments (no ring, no hull source) with a constrained edge that has no domain triangle on either side </summary>
+            /// <summary>
+            /// the input segments (no ring, no hull source) with a constrained edge that has no domain triangle on either side and lies on
+            /// the domain's boundary (the edge also carries a ring or hull source): a part that collapsed onto its boundary. A free
+            /// segment outside the domain shares no edge with the boundary along that piece and does not count.
+            /// </summary>
             HashSet<int> SegmentsWithoutArea()
             {
                 var result = new HashSet<int>();
+                int domainRings = b.outerRings + b.holeRings;
                 for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
                     int f = k.H[e];
                     if (f < e || k.Seg[e] < 0 || InDomain(e / 3) || InDomain(f / 3)) continue;
-                    foreach (int src in k.Sources[k.Seg[e]]) if (b.sources[src].Ring < 0 && !b.sources[src].Hull) result.Add(src);
+                    var srcs = k.Sources[k.Seg[e]];
+                    if (!srcs.Any(src => b.sources[src].Hull || b.sources[src].Ring >= 0 && b.sources[src].Ring < domainRings)) continue;
+                    foreach (int src in srcs) if (b.sources[src].Ring < 0 && !b.sources[src].Hull) result.Add(src);
                 }
                 return result;
             }

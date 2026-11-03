@@ -423,6 +423,21 @@ namespace Meshing2Acceptance
                     var e6r = Oracle.Check(e6, Snapped(e6, new[] { new[] { 0, 4, 3 }, new[] { 4, 1, 2 }, new[] { 4, 2, 3 } },
                         new[] { new[] { 0, 4 }, new[] { 4, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } }), m3);
                     Must("reject: a short constraint into a wide square, inner end dropped (review E6)", e6r.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 5 ")) && NothingExcused(e6r), "report: " + e6r);
+                    // review 3, B1: a segment on the bottom edge of a wide square, dropped with its ends (the bottom edge is on its line:
+                    // it serves neither side)
+                    var b1 = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 5, 15 }, Y = new double[] { 0, 0, 20, 20, 0, 0 }, SnapTolerance = 1 };
+                    b1.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    b1.Segments.Add(new SegmentInput(4, 5));
+                    var b1r = Oracle.Check(b1, Snapped(b1, new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } }, Square), m3);
+                    Must("reject: a segment on the edge of a wide square, dropped (review 3, B1)", b1r.Has(Violation.SegmentMissing) && b1r.Has(Violation.VertexUnused) && NothingExcused(b1r), "report: " + b1r);
+                    // review 3, B2: a stub 0.4 long into a wide square from its bottom at y 0.3, across the pixel line 0.5: it snaps to a
+                    // whole pixel's edge; its inner end dropped (the bottom edge passes the stub's base: it lies ahead, not beside)
+                    var stub = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 10, 10 }, Y = new double[] { 0.3, 0.3, 20, 20, 0.3, 0.7 }, SnapTolerance = 1 };
+                    stub.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    stub.Segments.Add(new SegmentInput(4, 5));
+                    var stubr = Oracle.Check(stub, Snapped(stub, new[] { new[] { 0, 4, 3 }, new[] { 4, 1, 2 }, new[] { 4, 2, 3 } },
+                        new[] { new[] { 0, 4 }, new[] { 4, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } }), m3);
+                    Must("reject: a stub across a pixel line into a wide square, inner end dropped (review 3, B2)", stubr.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 5 ")) && NothingExcused(stubr), "report: " + stubr);
                     // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
                     // filled, its tips dropped
                     var e8 = new Mesh2Input { X = new double[] { 0, 10, 10, 10.5, 10.5, 20, 20, 0 }, Y = new double[] { 0, 0, 10, 10, 0, 0, 20, 20 }, SnapTolerance = 1 };

@@ -10,8 +10,9 @@ namespace geometry3Sharp.Tests
     /// Q17: a domain narrower than a pixel. A zigzag polyline 7 mm wide and 10 m long on a grid of 1 cm, its convex hull the domain.
     /// Snapping and refinement put every vertex at a pixel centre, the hull chains and the polyline's chains share them, and parts of
     /// the domain collapse: corners in no triangle, segments with no chain there. Owner decision 2026-11-02 (spec Q17): such a part may
-    /// collapse; the oracle accepts what is missing only on a collapsed part (O-H5: closer than a pixel to another edge of the
-    /// boundary), and the mesher reports it.
+    /// collapse; the oracle accepts what is missing only on a collapsed part (O-H5: the domain across it narrower than a pixel), and
+    /// the mesher reports it. These cases fail against master's oracle (no O-H5), not against master's library: the library change is
+    /// diagnostics only (QualityMesh2CollapsedPartsReportTests).
     /// </summary>
     public class QualityMesh2CollapsedPartsTests
     {
