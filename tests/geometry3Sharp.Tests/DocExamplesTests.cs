@@ -37,6 +37,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TerrainSlopeExample_PitWithCatchLineAndComposite()
+        {
+            var d = TerrainSlopeExample.Run();
+            Assert.Equal(gs.TerrainSlopeDesign.Statuses.Success, d.Status);
+            Assert.True(d.IsComplete);
+            Assert.Single(d.CatchLines);
+            Assert.True(d.CatchLines[0].Closed);
+            Assert.True(d.CutVolume > 0 && d.FillVolume == 0);
+            Assert.True(d.Composite.IsClosed() == false && d.Composite.TriangleCount > 800);
+            Assert.True(d.MaxSlopeRatio <= 1);
+            // the same at UTM in a local frame: local outputs, the origin near the pit, the same catch line count
+            var u = TerrainSlopeExample.Run(atUtm: true);
+            Assert.Equal(gs.TerrainSlopeDesign.Statuses.Success, u.Status);
+            Assert.False(u.LocalFrameFallback);
+            Assert.True(u.UsedOrigin.Distance(new Vector2d(632117.25, 5712043.5)) < 1, u.UsedOrigin.ToString());
+            Assert.True(u.Composite.GetBounds().Max.xy.Length < 100);
+            Assert.True(u.UsedMinFeatureSize < 1e-3 * 1.5e-2);
+            Assert.Single(u.CatchLines);
+        }
+
+        [Fact]
         public void QuadtreeQueriesExample_ReturnsInterpolatedHeight()
         {
             Assert.Equal(3.0, QuadtreeQueriesExample.Run(), 12);
