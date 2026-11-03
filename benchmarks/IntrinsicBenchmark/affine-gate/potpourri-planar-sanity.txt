@@ -1,0 +1,5 @@
+intrinsic=False, strategy=AffineLocal, radial_max=0.9039526818971868, worst=0, distance=2.8284271247461903, output_length=1.9244744428490035, fresh_vs_reused=0
+intrinsic=False, strategy=AffineAdaptive, radial_max=0.17790813613259004, worst=0, distance=2.8284271247461903, output_length=2.6505189886136002, fresh_vs_reused=0
+intrinsic=True, strategy=AffineLocal, radial_max=0.90395268189718636, worst=440, distance=2.8284271247461903, output_length=1.9244744428490039, fresh_vs_reused=0
+intrinsic=True, strategy=AffineAdaptive, radial_max=0.17790813613259093, worst=440, distance=2.8284271247461903, output_length=2.6505189886135994, fresh_vs_reused=0
+Gauge-independent planar distance check; source 220 source position [2. 2. 0.]

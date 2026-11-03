@@ -1,0 +1,45 @@
+Baseline verification at untouched 8364ac74499bb1fadca580c68ec38b0d99bb0803.
+Working directory: D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf
+Temporary detached worktree; no source edits. Removed after validation.
+dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~RemesherIssueCasesTests.FlatOpenFan_BoundaryFixed_NoFlippedTriangle|FullyQualifiedName~RemesherIssueCasesTests.CreasedPart_BoundsKept|FullyQualifiedName~GeneratedPredicatesIndirectTests.GeneratedFile_IsUpToDate|FullyQualifiedName~QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap'
+dotnet test tests\g3cli.Tests -c Release --filter FullyQualifiedName~TrianglePolyCliTests.Poly_Domain_IsWhatTriangleMinusPLeaves
+
+=== baseline-library ===
+  Fehlermeldung:
+   math/Generated/IndirectPredicates.cs is out of date: regenerate it (tools/PredicateCompiler/README.md)
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.GeneratedPredicatesIndirectTests.GeneratedFile_IsUpToDate() in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf\tests\geometry3Sharp.Tests\GeneratedPredicatesIndirectTests.cs:line 33
+  Fehlermeldung:
+   FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_basic fails differently than pinned ('10 triangles not facing +z; area 1.7581, input 1.7338'): 10 triangles not facing +z; area 1,7581, input 1,7338
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.RemesherIssueCasesTests.Expect(String name, List`1 problems) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf\tests\geometry3Sharp.Tests\RemesherIssueCasesTests.cs:line 45
+  Fehlermeldung:
+   FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_pro fails differently than pinned ('10 triangles not facing +z; area 1.8199, input 1.7338'): 10 triangles not facing +z; area 1,8199, input 1,7338
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.RemesherIssueCasesTests.Expect(String name, List`1 problems) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf\tests\geometry3Sharp.Tests\RemesherIssueCasesTests.cs:line 45
+  Fehlermeldung:
+   CreasedPart_BoundsKept_none fails differently than pinned ('bounding box shifted by 1.000; distance to the input 1.226'): bounding box shifted by 1,000; distance to the input 1,226
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.RemesherIssueCasesTests.Expect(String name, List`1 problems) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf\tests\geometry3Sharp.Tests\RemesherIssueCasesTests.cs:line 45
+Fehler!      : Fehler:     4, erfolgreich:     3, übersprungen:     0, gesamt:     7, Dauer: 8 s - geometry3Sharp.Tests.dll (net10.0)
+
+Bestanden!   : Fehler:     0, erfolgreich:     6, übersprungen:     0, gesamt:     6, Dauer: 18 s - geometry3Sharp.Tests.dll (net48)
+=== baseline-cli ===
+  Fehlermeldung:
+   {"command":"mesh2d","status":"error","code":"read_error","message":"cannot read \u0027C:\\Users\\Harmen\\AppData\\Local\\Temp\\g3cli-tests-c95cf41426fc4ea6b324f5eda1b3bb55\\dom_island.poly\u0027: .poly line 28: x is not a finite number: 0,75","elapsed_ms":1}
+  Stapelverfolgung:
+     at g3cli.Tests.TrianglePolyCliTests.AssertOk(Int32 exit, JsonObject r) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief2-base-20fc9bdf\tests\g3cli.Tests\TrianglePolyCliTests.cs:line 25
+Fehler!      : Fehler:     1, erfolgreich:     7, übersprungen:     0, gesamt:     8, Dauer: 1 s - g3cli.Tests.dll (net10.0)
+
+The timing-only oracle failure did not reproduce on isolated baseline or prototype runs.
+It is not claimed fixed; full-suite timing remains a limitation of this local run.
+Prototype working directory: D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2
+dotnet test tests\geometry3Sharp.Tests -c Release --no-build --filter FullyQualifiedName~QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\bin\Release\net48\geometry3Sharp.Tests.dll" (.NETFramework,Version=v4.8)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:     1, übersprungen:     0, gesamt:     1, Dauer: 6 s - geometry3Sharp.Tests.dll (net10.0)
+
+Bestanden!   : Fehler:     0, erfolgreich:     1, übersprungen:     0, gesamt:     1, Dauer: 10 s - geometry3Sharp.Tests.dll (net48)

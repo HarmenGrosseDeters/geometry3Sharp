@@ -1,0 +1,261 @@
+Full local CI on the prototype before push. All mandated steps ran; not all tests passed.
+No restricted/unrelated code was changed to hide failures. Baseline reproduction is recorded separately.
+Smoke tests use a session-local RestorePackagesPath to avoid stale global package cache entries.
+
+=== library-build: exit 0 ===
+dotnet build geometry3Sharp_netstandard.csproj -c Release
+Der Buildvorgang wurde erfolgreich ausgeführt.
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]
+    1 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:08.17
+
+=== library-tests: exit 1 ===
+dotnet test tests\geometry3Sharp.Tests -c Release
+  Fehler geometry3Sharp.Tests.RemesherIssueCasesTests.FlatOpenFan_BoundaryFixed_NoFlippedTriangle(minQuality: 0, pro: False) [124 ms]
+  Fehlermeldung:
+   FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_basic fails differently than pinned ('10 triangles not facing +z; area 1.7581, input 1.7338'): 10 triangles not facing +z; area 1,7581, input 1,7338
+  Stapelverfolgung:
+  Fehler geometry3Sharp.Tests.RemesherIssueCasesTests.FlatOpenFan_BoundaryFixed_NoFlippedTriangle(minQuality: 0, pro: True) [574 ms]
+   FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_pro fails differently than pinned ('10 triangles not facing +z; area 1.8199, input 1.7338'): 10 triangles not facing +z; area 1,8199, input 1,7338
+  Fehler geometry3Sharp.Tests.RemesherIssueCasesTests.CreasedPart_BoundsKept(features: False) [556 ms]
+   CreasedPart_BoundsKept_none fails differently than pinned ('bounding box shifted by 1.000; distance to the input 1.226'): bounding box shifted by 1,000; distance to the input 1,226
+  Fehler geometry3Sharp.Tests.GeneratedPredicatesIndirectTests.GeneratedFile_IsUpToDate [186 ms]
+   math/Generated/IndirectPredicates.cs is out of date: regenerate it (tools/PredicateCompiler/README.md)
+  Fehler geometry3Sharp.Tests.QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap [1 m 3 s]
+   oracle took 63,7859134 s
+  Fehler geometry3Sharp.Tests.QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap [1 m 34 s]
+   oracle took 94,0992954 s
+Fehler!      : Fehler:     5, erfolgreich:  6808, übersprungen:     0, gesamt:  6813, Dauer: 49 m 9 s - geometry3Sharp.Tests.dll (net10.0)
+Fehler!      : Fehler:     1, erfolgreich:  6734, übersprungen:     0, gesamt:  6735, Dauer: 1 h 24 m - geometry3Sharp.Tests.dll (net48)
+
+=== cli-tests: exit 1 ===
+dotnet test tests\g3cli.Tests -c Release
+  Fehler g3cli.Tests.TrianglePolyCliTests.Poly_Domain_IsWhatTriangleMinusPLeaves(name: "island", poly: "12 2 0 0\n1 0 0\n2 4 0\n3 4 4\n4 0 4\n5 0.5 0.5\n6"···, area: 11, rings: 3) [3 ms]
+  Fehlermeldung:
+   {"command":"mesh2d","status":"error","code":"read_error","message":"cannot read \u0027C:\\Users\\Harmen\\AppData\\Local\\Temp\\g3cli-tests-d605e8e370c7423e92ca72b4ad947cef\\dom_island.poly\u0027: .poly line 28: x is not a finite number: 0,75","elapsed_ms":1}
+  Stapelverfolgung:
+Fehler!      : Fehler:     1, erfolgreich:   116, übersprungen:     0, gesamt:   117, Dauer: 45 s - g3cli.Tests.dll (net10.0)
+
+=== library-pack: exit 0 ===
+dotnet pack geometry3Sharp_netstandard.csproj -c Release -o C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages -p:Version=1.0.0-ci.1
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\netstandard2.0\geometry3Sharp.dll
+  Das Paket "C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages\geometry3Sharp.1.0.0-ci.1.nupkg" wurde erfolgreich erstellt.
+  Das Paket "C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages\geometry3Sharp.1.0.0-ci.1.snupkg" wurde erfolgreich erstellt.
+
+=== library-smoke: exit 0 ===
+dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages -p:RestorePackagesPath=C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\smoke-packages -- C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages\geometry3Sharp.1.0.0-ci.1.nupkg
+ok    write + read .obj
+ok    write + read .stl
+ok    write + read .off
+ok    write + read .g3mesh
+ok    write + read .ply
+ok    write + read .3mf
+ok    write + read .glb
+ok    write + read .gltf
+
+=== library-net48: exit 0 ===
+dotnet build tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+    8 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:32.84
+
+=== clipper-tests: exit 0 ===
+dotnet test tests\geometry3Sharp.Clipper2.Tests -c Release
+Bestanden!   : Fehler:     0, erfolgreich:    55, übersprungen:     0, gesamt:    55, Dauer: 4 s - geometry3Sharp.Clipper2.Tests.dll (net10.0)
+Bestanden!   : Fehler:     0, erfolgreich:    55, übersprungen:     0, gesamt:    55, Dauer: 4 s - geometry3Sharp.Clipper2.Tests.dll (net48)
+
+=== clipper-pack: exit 0 ===
+dotnet pack addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj -c Release -o C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages -p:Version=1.0.0-ci.1
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\ClipperFrame.cs(221,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "ClipperFrame.ToString()" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+  geometry3Sharp.Clipper2 -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\bin\Release\netstandard2.0\geometry3Sharp.Clipper2.dll
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(82,31): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Status" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(95,21): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Ok" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(100,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.ToString()" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\ClipperFrame.cs(221,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "ClipperFrame.ToString()" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+  geometry3Sharp.Clipper2 -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\bin\Release\net10.0\geometry3Sharp.Clipper2.dll
+  Das Paket "C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages\geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg" wurde erfolgreich erstellt.
+
+=== clipper-smoke: exit 0 ===
+dotnet run --project tests\Clipper2PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages -p:RestorePackagesPath=C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\smoke-packages -- C:\Users\Harmen\.copilot\session-state\20fc9bdf-7df0-4f72-84e1-972051f09ee0\files\local-ci\packages\geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg
+ok    package contains README.md
+ok    package contains LICENSE
+ok    depends on Clipper2
+ok    depends on geometry3Sharp
+geometry3Sharp.Clipper2 from D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\Clipper2PackageSmokeTest\bin\Release\net10.0\geometry3Sharp.Clipper2.dll
+ok    XML documentation next to the assembly
+ok    union of two squares: Success: 1 polygons (0 holes), 0 polylines, area 7
+ok    offset: Success: 1 polygons (0 holes), 0 polylines, area 4,276953234236283
+
+=== clipper-net48: exit 0 ===
+dotnet build tests\geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(82,31): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Status" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(95,21): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Ok" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(100,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.ToString()" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\ClipperFrame.cs(221,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "ClipperFrame.ToString()" fehlt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+    5 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:12.76
+
+=== benchmark-BooleanComparison: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\BooleanComparison\BooleanComparison.csproj -c Release
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+    4 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:15.16
+
+=== benchmark-IntrinsicBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\IntrinsicBenchmark\IntrinsicBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  IntrinsicBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\IntrinsicBenchmark\bin\Release\net10.0\IntrinsicBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:06.00
+
+=== benchmark-Meshing2Benchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\Meshing2Benchmark.csproj -c Release
+  Meshing2Benchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\bin\Release\net48\Meshing2Benchmark.exe
+  Meshing2Benchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\bin\Release\net10.0\Meshing2Benchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:19.82
+
+=== benchmark-Meshing2Oracle: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj -c Release
+  Alle Projekte sind für die Wiederherstellung auf dem neuesten Stand.
+  Meshing2Oracle -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\Oracle\bin\Release\netstandard2.0\Meshing2Oracle.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:03.96
+
+=== benchmark-MeshRepairBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  MeshRepairBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\MeshRepairBenchmark\bin\Release\net10.0\MeshRepairBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:06.43
+
+=== benchmark-ParameterizationBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\ParameterizationBenchmark\ParameterizationBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  ParameterizationBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\ParameterizationBenchmark\bin\Release\net10.0\ParameterizationBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:05.32
+
+=== benchmark-PredicateComparison: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\PredicateComparison\PredicateComparison.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  PredicateComparison -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\PredicateComparison\bin\Release\net10.0\PredicateComparison.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:06.19
+
+=== benchmark-QuadtreeBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\QuadtreeBenchmark\QuadtreeBenchmark.csproj -c Release
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\QuadtreeBenchmark\bin\Release\net48\QuadtreeBenchmark.exe
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\QuadtreeBenchmark\bin\Release\net10.0\QuadtreeBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:04.56
+
+=== benchmark-RayQueryBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RayQueryBenchmark\RayQueryBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  RayQueryBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RayQueryBenchmark\bin\Release\net10.0\RayQueryBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:06.15
+
+=== benchmark-ReducerBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\ReducerBenchmark\ReducerBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  ReducerBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\ReducerBenchmark\bin\Release\net10.0\ReducerBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:03.98
+
+=== benchmark-RemeshBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RemeshBenchmark\RemeshBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  RemeshBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RemeshBenchmark\bin\Release\net10.0\RemeshBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:08.59
+
+=== benchmark-RemeshQualityBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RemeshQualityBenchmark\RemeshQualityBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  RemeshQualityBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\RemeshQualityBenchmark\bin\Release\net10.0\RemeshQualityBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:10.97
+
+=== benchmark-SelfIntersectionBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\SelfIntersectionBenchmark\SelfIntersectionBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  SelfIntersectionBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\SelfIntersectionBenchmark\bin\Release\net10.0\SelfIntersectionBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:04.84
+
+=== benchmark-SnapRoundingExperiment: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\SnapRoundingExperiment\SnapRoundingExperiment.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  SnapRoundingExperiment -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\SnapRoundingExperiment\bin\Release\net10.0\SnapRoundingExperiment.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:04.26
+
+=== benchmark-TerrainBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\TerrainBenchmark\TerrainBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  TerrainBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\TerrainBenchmark\bin\Release\net10.0\TerrainBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:05.52
+
+=== benchmark-UVAtlasBenchmark: exit 0 ===
+dotnet build D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\UVAtlasBenchmark\UVAtlasBenchmark.csproj -c Release
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  UVAtlasBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\UVAtlasBenchmark\bin\Release\net10.0\UVAtlasBenchmark.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:04.27
+
+=== predicate-compiler: exit 0 ===
+dotnet build tools\PredicateCompiler -c Release
+  "D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tools\PredicateCompiler\PredicateCompiler.csproj" wiederhergestellt (in 111 ms.).
+  PredicateCompiler -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tools\PredicateCompiler\bin\Release\net10.0\PredicateCompiler.dll
+Der Buildvorgang wurde erfolgreich ausgeführt.
+    0 Warnung(en)
+    0 Fehler
+Verstrichene Zeit 00:00:03.69

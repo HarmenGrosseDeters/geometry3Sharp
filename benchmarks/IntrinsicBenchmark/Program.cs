@@ -11,7 +11,7 @@ using System.Linq;
 using g3;
 using gs;
 
-static class Program
+static partial class Program
 {
     // median time of runs of f after one untimed warm-up run (JIT); returns the result of the last run
     static T Timed<T>(Func<T> f, out long ms, int runs = 3)
@@ -38,6 +38,16 @@ static class Program
 
     static void Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--affine-export") {
+            AffineReferenceExport(args[1]);
+            return;
+        }
+        if (args.Length > 0 && (args[0] == "--affine-logmap" || args[0] == "--affine-adaptive")) {
+            LogMapStrategy strategy = args[0] == "--affine-adaptive" ? LogMapStrategy.AffineAdaptive : LogMapStrategy.AffineLocal;
+            double time = args.Length > 2 ? double.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture) : 1;
+            Environment.ExitCode = AffineLogMapProbe(strategy, args.Length > 1 ? args[1] : null, time) ? 0 : 1;
+            return;
+        }
         bool onlyScaling = args.Contains("--scaling");
         if (onlyScaling == false)
             Quality();

@@ -83,7 +83,7 @@ integer grid (`ExactMeshArrangement.ToInputExact`).
 
 ## Intrinsic triangulations and geodesics (`IntrinsicTriangulation`, `VectorHeatMethod`, `MeshGeodesicDistance`)
 
-Implemented from the papers, no code taken over (geometry-central, MIT, was not used as a source).
+Implemented from the papers, except for the affine heat ports identified below. The legacy methods did not use geometry-central code.
 
 | Part | Source |
 |---|---|
@@ -100,6 +100,8 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Intrinsic mollification of degenerate triangles | N. Sharp, K. Crane, *A Laplacian for Nonmanifold Triangle Meshes*, Computer Graphics Forum (SGP) 2020 |
 | Heat method for geodesic distance (also on the intrinsic triangulation) | K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013; *The Heat Method for Distance Computation*, CACM 2017 |
 | Vector heat method: connection Laplacian, parallel transport, scalar extension, log map | N. Sharp, Y. Soliman, K. Crane, *The Vector Heat Method*, ACM TOG 2019 |
+| Local and adaptive affine heat log maps (`LogMapStrategy.AffineLocal`, `AffineAdaptive`) | Y. Soliman, N. Sharp, [*The Affine Heat Method*, CGF/SGP 2025](https://www.yousufsoliman.com/projects/the-affine-heat-method.html); adapted from [geometry-central `vector_heat_method.cpp`, revision 019669ddabda05e0f71fa3587cfb3c1dadf19cb8](https://github.com/nmwsharp/geometry-central/blob/019669ddabda05e0f71fa3587cfb3c1dadf19cb8/src/surface/vector_heat_method.cpp), MIT (notice retained in the file header). Block-triangular solve reuses existing factors; negative cotan weights are clamped to match the library's heat operators. |
+| Affine log-map executable differential (`IntrinsicBenchmark/compare_potpourri.py`) | [potpourri3d 1.4.0](https://github.com/nmwsharp/potpourri3d#mesh-vector-heat), MIT, used through its public Python API on identical procedurally generated fixtures; geometry-central bindings, not an independent algorithm. The owner-supplied 2025 paper was also checked locally (sections 3.3–4.3 and 5). |
 | Geodesic paths and loops by edge flips (`MeshGeodesicPath`): FlipOut on the wedge where the path turns by less than pi, the outer arc as the new path, smallest angle first; waypoints | N. Sharp, K. Crane, *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*, ACM TOG (SIGGRAPH Asia) 2020 (geometry-central, MIT, has an implementation; not used as a source) |
 | Log map direction from the gradient of half the squared distance against the transported reference vector | Gauss lemma (eg M. do Carmo, *Riemannian Geometry*, 1992, ch. 3); own derivation, replaces the paper's diffused radial field, which is biased by the shape of the source's one-ring |
 | Heat flow far beyond the double range: the Cholesky substitutions of an M-matrix only add non-negative terms, so they run unchanged on logarithms (`SparseCholesky.SolveLog`) | Own derivation (sign pattern of the Cholesky factor of an M-matrix, eg R. A. Horn, C. R. Johnson, *Topics in Matrix Analysis*, 1991, ch. 2.5) |

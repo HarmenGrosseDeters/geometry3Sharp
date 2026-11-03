@@ -1,0 +1,23 @@
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.4.1+b9eacec401 (64-bit .NET 10.0.12)
+[xUnit.net 00:00:01.41]   Discovering: geometry3Sharp.Tests
+[xUnit.net 00:00:03.45]   Discovered:  geometry3Sharp.Tests
+[xUnit.net 00:00:03.47]   Starting:    geometry3Sharp.Tests
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_LegacyDispatchAndReuseAreIdentical(strategy: AffineLocal) [220 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_LegacyDispatchAndReuseAreIdentical(strategy: AffineAdaptive) [29 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: False, time: 1, strategy: AffineLocal) [5 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: False, time: 1, strategy: AffineAdaptive) [1 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: True, time: 0,125, strategy: AffineAdaptive) [3 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: True, time: 0,125, strategy: AffineLocal) [4 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsTests.LogMap_Plane_IsTheOffset [321 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsTests.LogMap_ObtusePlane_Robust [555 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsTests.LogMap_Sphere_PolarCoordinates_BetterThanMeshLocalParam [334 ms]
+[xUnit.net 00:00:04.96]   Finished:    geometry3Sharp.Tests
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsTests.LogMap_Bump_SymmetricAndTransportConsistent [207 ms]
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsTests.LogMap_BoundarySource_EveryNeighbourExact [16 ms]
+
+Der Testlauf war erfolgreich.
+Gesamtzahl Tests: 11
+     Bestanden: 11
+ Gesamtzeit: 6,7922 Sekunden

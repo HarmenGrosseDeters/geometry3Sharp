@@ -1,0 +1,62 @@
+  Wiederherzustellende Projekte werden ermittelt...
+  Alle Projekte sind für die Wiederherstellung auf dem neuesten Stand.
+  G3ExactCodeAnalyzers -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tools\analyzers\G3ExactCodeAnalyzers\bin\Release\netstandard2.0\G3ExactCodeAnalyzers.dll
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\bin\Release\net10.0\geometry3Sharp.dll
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\QuadtreeBenchmark\bin\Release\net10.0\QuadtreeBenchmark.dll
+  Meshing2Oracle -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\benchmarks\Meshing2Benchmark\Oracle\bin\Release\netstandard2.0\Meshing2Oracle.dll
+  geometry3Sharp.Tests -> D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.4.1+b9eacec401 (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.91]   Discovering: geometry3Sharp.Tests
+[xUnit.net 00:00:03.43]   Discovered:  geometry3Sharp.Tests
+[xUnit.net 00:00:03.45]   Starting:    geometry3Sharp.Tests
+dotnet : [xUnit.net 00:00:03.57]
+geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: False, time: 1,
+strategy: AffineAdaptive) [FAIL]
+In Zeile:2 Zeichen:92
++ ... ee0\files'; dotnet test tests\geometry3Sharp.Tests -c Release -f net1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([xUnit.net 00:0...daptive) [FAIL]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+[xUnit.net 00:00:03.57]       source 0, vertex 1: 0.55895299 0.20866613 vs 0.69691957 -0.00095773
+[xUnit.net 00:00:03.58]       Stack Trace:
+[xUnit.net 00:00:03.58]         D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\IntrinsicGeodesicsAffineTests.cs(38,0): at geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Boolean refine, Double time, LogMapStrategy strategy)
+[xUnit.net 00:00:03.58]            at InvokeStub_IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Object, Span`1)
+[xUnit.net 00:00:03.58]            at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:03.58]
+geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: True, time: 0,125,
+strategy: AffineAdaptive) [FAIL]
+[xUnit.net 00:00:03.58]       source 0, vertex 1: 0.70065302 -0.00429035 vs 0.69614302 -0.00013206
+[xUnit.net 00:00:03.58]       Stack Trace:
+[xUnit.net 00:00:03.58]         D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\IntrinsicGeodesicsAffineTests.cs(38,0): at geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Boolean refine, Double time, LogMapStrategy strategy)
+[xUnit.net 00:00:03.58]            at InvokeStub_IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Object, Span`1)
+[xUnit.net 00:00:03.58]            at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:03.58]   Finished:    geometry3Sharp.Tests
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: False, time: 1, strategy: AffineLocal) [46 ms]
+  Fehler geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: False, time: 1, strategy: AffineAdaptive) [1 ms]
+  Fehlermeldung:
+   source 0, vertex 1: 0.55895299 0.20866613 vs 0.69691957 -0.00095773
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Boolean refine, Double time, LogMapStrategy strategy) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\IntrinsicGeodesicsAffineTests.cs:line 38
+   at InvokeStub_IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Fehler geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: True, time: 0,125, strategy: AffineAdaptive) [2 ms]
+  Fehlermeldung:
+   source 0, vertex 1: 0.70065302 -0.00429035 vs 0.69614302 -0.00013206
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Boolean refine, Double time, LogMapStrategy strategy) in D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\implement-logarithmic-map-brief-2\tests\geometry3Sharp.Tests\IntrinsicGeodesicsAffineTests.cs:line 38
+   at InvokeStub_IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Bestanden geometry3Sharp.Tests.IntrinsicGeodesicsAffineTests.Affine_MatchesFullHomogeneousSystem(refine: True, time: 0,125, strategy: AffineLocal) [1 ms]
+
+Fehler beim Testlauf.
+Gesamtzahl Tests: 4
+     Bestanden: 2
+     Nicht bestanden: 2
+ Gesamtzeit: 4,4261 Sekunden

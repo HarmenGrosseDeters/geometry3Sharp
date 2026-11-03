@@ -1,0 +1,7 @@
+Legacy oracle agreement with original C# gate, max absolute difference: 6.314393452555578e-16
+plane AffineLocal samples= 440 pp_regressions= 24 far_mean= 0.08819512816206065 far_max= 0.9039526818971859 map_delta_max= 0.903952681897185
+plane AffineAdaptive samples= 440 pp_regressions= 4 far_mean= 0.013156693044682755 far_max= 0.1779081361325905 map_delta_max= 0.1779081361325905
+sphere AffineLocal samples= 1536 pp_regressions= 460 far_mean= 0.27792867386922965 far_max= 1.7960620997032177 map_delta_max= 0.015778922369260987
+sphere AffineAdaptive samples= 1536 pp_regressions= 920 far_mean= 0.41908451889245424 far_max= 1.8871033277651692 map_delta_max= 0.016973335881535493
+cylinder AffineLocal samples= 526 pp_regressions= 70 far_mean= 0.5362530446515679 far_max= 1.3361930706460023 map_delta_max= 0.008092802173982198
+cylinder AffineAdaptive samples= 526 pp_regressions= 70 far_mean= 0.5362530446515671 far_max= 1.3361930706459988 map_delta_max= 0.008092802173984975
