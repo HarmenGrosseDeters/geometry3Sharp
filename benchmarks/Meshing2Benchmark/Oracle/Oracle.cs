@@ -45,10 +45,18 @@ namespace Meshing2Acceptance
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
         [ThreadStatic] public static bool ForceReference;
 
-        /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4, O-H5) </summary>
+        /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
-        /// <summary> self-checks: the collapsed stretches of piece a-b against boundary edges (O-H5) </summary>
-        internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel, int domainSide = 0) => Run.CollapsedStretches(a, b, (a, b), boundary, pixel, domainSide);
+        /// <summary> self-checks: the iterated snap-rounded image of a-b among the pixels of the given hot points (O-H5) </summary>
+        internal static List<(BigInteger x, BigInteger y)> SnapImage(Pt a, Pt b, IEnumerable<Pt> hotPoints, Q pixel)
+        {
+            var hot = new HashSet<(BigInteger x, BigInteger y)>(); var list = new List<(BigInteger x, BigInteger y)>();
+            foreach (var p in hotPoints.Concat(new[] { a, b })) { var n = (Run.PixelIndexOf(p.Qx, pixel), Run.PixelIndexOf(p.Qy, pixel)); if (hot.Add(n)) list.Add(n); }
+            long work = 0;
+            return Run.Image(a, b, hot, list, pixel, ref work);
+        }
+        /// <summary> test hook: <see cref="Run.ImageWorkForTests"/> </summary>
+        internal static long ImageWorkForTests { get => Run.ImageWorkForTests; set => Run.ImageWorkForTests = value; }
 
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
@@ -621,13 +629,18 @@ namespace Meshing2Acceptance
 
             // ------------------------------------------------------------ O-H5: parts of the domain collapsed by snapping (Q17)
             // Owner decision 2026-11-02 (spec Q17): a part of the domain narrower than a pixel may collapse; the oracle accepts what is
-            // missing there only on a collapsed part. A part is collapsed where the domain across it is narrower than a pixel: boundary
-            // on both sides of a segment piece whose distances add up to less than a pixel, or another boundary edge closer than a
-            // pixel on the domain's side of a boundary piece (see CollapsedStretches). Snap rounding puts the chains on both sides into
-            // shared pixel centres there, and the part has no area of its own (Guibas and Marimont 1998: topology is kept up to
-            // collapsing features). From the input and the grid alone, never from the output.
+            // missing there only on a collapsed part. Decided on the snapped arrangement as snap rounding defines it (Hobby 1999,
+            // Guibas and Marimont 1998; iterated, Halperin and Packer 2002). Hot pixels: the pixels of the input points, of the proper
+            // crossings of the input's edges, and of every output vertex (refinement's grid points are vertices too, and every vertex
+            // makes its pixel hot). The image of an edge runs from pixel centre to pixel centre through every hot pixel one of its
+            // links passes, rerouted again until none is left (ISR). The snapped domain is the input's rule (D5) applied to the images
+            // of its rings. A link is collapsed where the snapped domain has no interior on either side of it. The definition reads
+            // the input, the grid and the output's vertex positions, never the output's edges or triangles. Built once, on the first
+            // piece without a chain or unused input point (none for most valid meshes).
 
             /// <summary> the pixel index of x: floor(x / pixel + 1/2), pixels half-open [(i - 1/2) pixel, (i + 1/2) pixel) </summary>
+            internal static BigInteger PixelIndexOf(Q x, Q pixel) => PixelIndex(x, pixel);
+
             static BigInteger PixelIndex(Q x, Q pixel)
             {
                 Q q = x / pixel + new Q(1, 2);
@@ -636,7 +649,7 @@ namespace Meshing2Acceptance
                 return f;
             }
 
-            /// <summary> edge a-b passes the pixel with centre c (O-H4's rule) </summary>
+            /// <summary> edge a-b passes the pixel with centre c (O-H4's rule: its interior shrunk by a hair, or its centre) </summary>
             internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel)
             {
                 Q half = pixel / 2;
@@ -653,179 +666,209 @@ namespace Meshing2Acceptance
                 return pos > 0 && neg > 0;
             }
 
-            /// <summary> the parameters in [0, 1] where segment p-q crosses a pixel boundary line, with 0 and 1; null above limit </summary>
-            static List<Q> PixelBreaks(Pt p, Pt q, Q pixel, int limit)
+            /// <summary> the parameters in [0, 1] where segment p-q crosses a pixel boundary line, with 0 and 1, sorted </summary>
+            static List<Q> PixelBreaks(Pt p, Pt q, Q pixel)
             {
                 var ts = new List<Q> { Q.Zero, Q.One };
                 foreach (bool y in new[] { false, true }) {
                     Q from = y ? p.Qy : p.Qx, to = y ? q.Qy : q.Qx;
                     if (from == to) continue;
                     BigInteger i0 = PixelIndex(Q.Min(from, to), pixel), i1 = PixelIndex(Q.Max(from, to), pixel);
-                    if (i1 - i0 > limit) return null;
                     for (var i = i0; i < i1; ++i) ts.Add(((new Q(i, 1) + new Q(1, 2)) * pixel - from) / (to - from));
                 }
-                return ts;
+                return ts.Distinct().OrderBy(t => t).ToList();
             }
 
-            static Pt PixelCentre(Pt p, Q pixel) => new Pt(new Q(PixelIndex(p.Qx, pixel), 1) * pixel, new Q(PixelIndex(p.Qy, pixel), 1) * pixel);
+            static (BigInteger x, BigInteger y) PixelOf(Pt p, Q pixel) => (PixelIndex(p.Qx, pixel), PixelIndex(p.Qy, pixel));
 
-            static bool BoxesMeet(Pt a, Pt b, Pt c, Pt d, Q margin) =>
-                !(Q.Max(a.Qx, b.Qx) + margin < Q.Min(c.Qx, d.Qx) || Q.Max(c.Qx, d.Qx) + margin < Q.Min(a.Qx, b.Qx)
-                  || Q.Max(a.Qy, b.Qy) + margin < Q.Min(c.Qy, d.Qy) || Q.Max(c.Qy, d.Qy) + margin < Q.Min(a.Qy, b.Qy));
+            static Pt Centre((BigInteger x, BigInteger y) n, Q pixel) => new Pt(new Q(n.x, 1) * pixel, new Q(n.y, 1) * pixel);
 
-            /// <summary>
-            /// O-H5: the collapsed stretches of piece a-b (of the input constraint or boundary edge source), closed parameter intervals
-            /// of [0, 1] in order: where the domain across the piece is narrower than a pixel (spec Q17). Snapping and refinement put
-            /// every vertex at a pixel centre, the chains of the piece and of the boundary there share them, and the part pinches to
-            /// nothing. Narrower than a pixel:
-            /// <list type="bullet">
-            /// <item>a piece of an input segment: boundary on its left and on its right whose distances add up to less than a pixel
-            /// (the side of an edge is that of its nearest point; on the piece's line, both where that point is an end of the edge
-            /// or the piece's point itself, neither where the edge passes across the line ahead of the piece);</item>
-            /// <item>a piece of the boundary itself (distance 0 on the outside): another boundary edge closer than a pixel whose nearest
-            /// point lies on the domain's side of the piece, or on its line (a slit of the outside between two walls does not
-            /// count).</item>
-            /// </list>
-            /// Decided per stretch between pixel crossings for one and the same edge or pair of edges at both ends: a distance, and a
-            /// sum of two, to segments is convex along a line. At an end shared with an edge that edge counts only if the wedge
-            /// between them is still narrower than a pixel where the piece leaves the end's square of half-width two pixels (a 90 or
-            /// 60 degree corner is no collapse; a tip of a fraction of a degree is). The source edge itself never counts. From the
-            /// input and the grid alone. Cost: O(E) to select the boundary edges whose box, widened by a pixel, meets the piece's, then
-            /// per pixel crossing a box test against each of them, an exact distance only where the box is within a pixel, and per
-            /// stretch the pairs of a left and a right edge within a pixel. Called only on the failure paths (a piece without a chain,
-            /// an unused input point), never for a valid mesh's pieces.
-            /// </summary>
-            List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source)
+            /// <summary> where segment p-q enters the closed square of half-width h around c, as a parameter (exact); null if it misses it </summary>
+            static Q? Entry(Pt p, Pt q, Pt c, Q h)
             {
-                if (!(input.SnapTolerance > 0) || a.Equals(b)) return new List<(Q t0, Q t1)>();
-                // the domain's sides of the piece: points beside its middle, 2^-40 of its length off it. Inside on both: a piece
-                // inside the domain (0); on one: a piece of the boundary, or a segment on a boundary edge (1 left, -1 right); on
-                // neither: nothing to collapse. (Where the side changes along the piece, or another ring passes within that
-                // distance, the middle decides; a wrong side only makes the rule stricter.)
-                Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, e = new Q(BigInteger.One, BigInteger.One << 40);
-                Q nx = -(b.Qy - a.Qy) * e, ny = (b.Qx - a.Qx) * e;
-                bool left = domain.Classify(new Pt(mx + nx, my + ny)) == Where.Inside, right = domain.Classify(new Pt(mx - nx, my - ny)) == Where.Inside;
-                if (!left && !right) return new List<(Q t0, Q t1)>();
-                int domainSide = left && right ? 0 : left ? 1 : -1;
-                return CollapsedStretches(a, b, source, domain.Edges(), Q.FromDouble(input.SnapTolerance), domainSide);
-            }
-
-            static bool SameEdge((Pt a, Pt b) g, (Pt a, Pt b) h) => g.a.Equals(h.a) && g.b.Equals(h.b) || g.a.Equals(h.b) && g.b.Equals(h.a);
-
-            /// <summary> the point of segment g nearest to p (exact) </summary>
-            static Pt Nearest((Pt a, Pt b) g, Pt p)
-            {
-                Q dx = g.b.Qx - g.a.Qx, dy = g.b.Qy - g.a.Qy, len2 = dx * dx + dy * dy;
-                if (len2.Sign == 0) return g.a;
-                Q u = ((p.Qx - g.a.Qx) * dx + (p.Qy - g.a.Qy) * dy) / len2;
-                if (u.Sign <= 0) return g.a;
-                if (u >= Q.One) return g.b;
-                return new Pt(g.a.Qx + dx * u, g.a.Qy + dy * u);
-            }
-
-            /// <summary> sqrt(d1) + sqrt(d2) &lt; pixel, exactly: d1 + d2 &lt; p^2 and 4 d1 d2 &lt; (p^2 - d1 - d2)^2 </summary>
-            static bool SumBelow(Q d1, Q d2, Q pixel2)
-            {
-                Q rest = pixel2 - d1 - d2;
-                return rest.Sign > 0 && 4 * d1 * d2 < rest * rest;
-            }
-
-            /// <summary>
-            /// <see cref="CollapsedStretches(Pt, Pt, ValueTuple{Pt, Pt})"/> against the given boundary edges on a grid of the given pixel;
-            /// domainSide is 0 for a piece of an input segment, else the side of a boundary piece the domain lies on (1 left, -1 right)
-            /// </summary>
-            internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source, IEnumerable<(Pt a, Pt b)> boundary, Q pixel, int domainSide)
-            {
-                var result = new List<(Q t0, Q t1)>();
-                if (a.Equals(b)) return result;
-                Q pixel2 = pixel * pixel;
-                // the source never counts against itself, nor does an edge on the piece's line (it is on both sides at once, or
-                // continues the piece beyond an end: no width across the piece)
-                var near = boundary.Where(g => !SameEdge(g, source) && BoxesMeet(g.a, g.b, a, b, pixel)
-                    && !(Exact.Orient(a, b, g.a) == 0 && Exact.Orient(a, b, g.b) == 0)).ToList();
-                var ts = PixelBreaks(a, b, pixel, 1 << 16);
-                if (ts == null || near.Count == 0) return result;
-                // the corner guard: the piece leaves a's square of half-width two pixels at ta, b's at tb
-                Q h = 2 * pixel, dx = Q.Abs(b.Qx - a.Qx), dy = Q.Abs(b.Qy - a.Qy);
-                Q leave = Q.One;
-                if (dx.Sign > 0) leave = Q.Min(leave, h / dx);
-                if (dy.Sign > 0) leave = Q.Min(leave, h / dy);
-                Q ta = leave, tb = Q.One - leave;
-                ts.Add(ta); ts.Add(tb);
-                ts = ts.Where(t => t.Sign >= 0 && t <= Q.One).Distinct().OrderBy(t => t).ToList();
-                Pt At(Q t) => new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t);
-                Pt exitA = At(ta), exitB = At(tb);
-                var atA = near.Select(g => g.a.Equals(a) || g.b.Equals(a)).ToArray();
-                var atB = near.Select(g => g.a.Equals(b) || g.b.Equals(b)).ToArray();
-                var wedgeA = near.Select((g, i) => atA[i] && Exact.Dist2ToSegment(g.a, g.b, exitA) < pixel2).ToArray();
-                var wedgeB = near.Select((g, i) => atB[i] && Exact.Dist2ToSegment(g.a, g.b, exitB) < pixel2).ToArray();
-                // per point and edge: the squared distance (null where the edge does not count there) and the side of its nearest point
-                var d2 = new Q?[ts.Count, near.Count]; var side = new int[ts.Count, near.Count]; var passes = new bool[ts.Count, near.Count];
-                for (int j = 0; j < ts.Count; ++j) {
-                    var p = At(ts[j]);
-                    for (int i = 0; i < near.Count; ++i) {
-                        if (atA[i] && ts[j] < ta && !wedgeA[i] || atB[i] && ts[j] > tb && !wedgeB[i]) continue;
-                        if (!BoxesMeet(near[i].a, near[i].b, p, p, pixel)) continue;   // farther than a pixel in x or y: no exact distance
-                        var q = Nearest(near[i], p);
-                        Q dd = Exact.Len2(p, q);
-                        if (!(dd < pixel2)) continue;
-                        d2[j, i] = dd; side[j, i] = Exact.Orient(a, b, q);
-                        passes[j, i] = side[j, i] == 0 && dd.Sign > 0 && !q.Equals(near[i].a) && !q.Equals(near[i].b);
-                    }
+                Q t0 = Q.Zero, t1 = Q.One;
+                foreach (bool y in new[] { false, true }) {
+                    Q from = y ? p.Qy : p.Qx, d = (y ? q.Qy : q.Qx) - from, mid = y ? c.Qy : c.Qx;
+                    if (d.Sign == 0) { if (from < mid - h || from > mid + h) return null; continue; }
+                    Q a = (mid - h - from) / d, b = (mid + h - from) / d;
+                    if (a > b) { var s = a; a = b; b = s; }
+                    t0 = Q.Max(t0, a); t1 = Q.Min(t1, b);
+                    if (t0 > t1) return null;
                 }
-                for (int j = 0; j + 1 < ts.Count; ++j) {
-                    bool collapsed = false;
-                    if (domainSide != 0) {
-                        // a boundary piece: one edge closer than a pixel at both ends, on the domain's side (or on the piece's line: an
-                        // edge at a shared end, under the corner guard)
-                        for (int i = 0; i < near.Count && !collapsed; ++i)
-                            collapsed = d2[j, i] != null && d2[j + 1, i] != null && side[j, i] * domainSide >= 0 && side[j + 1, i] * domainSide >= 0;
-                    } else {
-                        // a piece of a segment: an edge on the left and one on the right at both ends, their distances summing below a
-                        // pixel. An edge whose nearest point is on the piece's line serves both sides where that point is an end of the
-                        // edge (a tip or corner, under the corner guard at the piece's own ends) or the piece's point itself (on the
-                        // edge), neither where it is inside the edge away from the piece (the edge passes across the piece's line ahead of
-                        // it, a T-junction: it lies ahead of the piece, not beside it)
-                        var left = new List<int>(); var right = new List<int>();
-                        for (int i = 0; i < near.Count; ++i) {
-                            if (d2[j, i] == null || d2[j + 1, i] == null) continue;
-                            if (passes[j, i] || passes[j + 1, i]) continue;
-                            if (side[j, i] >= 0 && side[j + 1, i] >= 0) left.Add(i);
-                            if (side[j, i] <= 0 && side[j + 1, i] <= 0) right.Add(i);
-                        }
-                        foreach (int i in left) {
-                            foreach (int k in right) {
-                                collapsed = SumBelow(d2[j, i].Value, d2[j, k].Value, pixel2) && SumBelow(d2[j + 1, i].Value, d2[j + 1, k].Value, pixel2);
-                                if (collapsed) break;
-                            }
-                            if (collapsed) break;
-                        }
+                return t0;
+            }
+
+            /// <summary>
+            /// The hot pixels other than u and w that link u-w passes, in order along it: by walking the pixels the link crosses where they
+            /// are fewer than the hot pixels, else by testing each hot pixel in the link's box. Work: the smaller of the two counts.
+            /// </summary>
+            static List<(BigInteger x, BigInteger y)> HotPassed((BigInteger x, BigInteger y) u, (BigInteger x, BigInteger y) w,
+                HashSet<(BigInteger x, BigInteger y)> hot, List<(BigInteger x, BigInteger y)> hotList, Q pixel, ref long work)
+            {
+                Pt cu = Centre(u, pixel), cw = Centre(w, pixel);
+                var result = new List<(BigInteger x, BigInteger y)>();
+                BigInteger span = BigInteger.Abs(w.x - u.x) + BigInteger.Abs(w.y - u.y);
+                if (span <= hotList.Count) {
+                    var ts = PixelBreaks(cu, cw, pixel);
+                    work += ts.Count;
+                    for (int j = 0; j + 1 < ts.Count; ++j) {
+                        Q t = (ts[j] + ts[j + 1]) / 2;
+                        var n = PixelOf(new Pt(cu.Qx + (cw.Qx - cu.Qx) * t, cu.Qy + (cw.Qy - cu.Qy) * t), pixel);
+                        if (n.Equals(u) || n.Equals(w) || !hot.Contains(n) || result.Count > 0 && result[result.Count - 1].Equals(n)) continue;
+                        if (PassesPixel(cu, cw, Centre(n, pixel), pixel)) result.Add(n);
                     }
-                    if (!collapsed) continue;
-                    if (result.Count > 0 && result[result.Count - 1].t1 == ts[j]) result[result.Count - 1] = (result[result.Count - 1].t0, ts[j + 1]);
-                    else result.Add((ts[j], ts[j + 1]));
+                    return result;
+                }
+                work += hotList.Count;
+                BigInteger x0 = BigInteger.Min(u.x, w.x), x1 = BigInteger.Max(u.x, w.x), y0 = BigInteger.Min(u.y, w.y), y1 = BigInteger.Max(u.y, w.y);
+                var found = new List<(Q t, (BigInteger x, BigInteger y) n)>();
+                foreach (var n in hotList) {
+                    if (n.x < x0 || n.x > x1 || n.y < y0 || n.y > y1 || n.Equals(u) || n.Equals(w)) continue;
+                    var c = Centre(n, pixel);
+                    if (!PassesPixel(cu, cw, c, pixel)) continue;
+                    var t = Entry(cu, cw, c, pixel / 2);
+                    if (t != null) found.Add((t.Value, n));
+                }
+                return found.OrderBy(f => f.t).Select(f => f.n).ToList();
+            }
+
+            /// <summary>
+            /// The iterated snap-rounded image of segment a-b, as pixels from a's to b's (Halperin and Packer 2002). Each pass reroutes every
+            /// link through the hot pixels it passes that the image does not hold yet, in order along the link, until a pass adds none.
+            /// Terminates: the hot pixels are finite and every pass but the last adds at least one to the image, which only grows. Cost per
+            /// pass: per link the smaller of its pixel count and the hot pixel count (<see cref="HotPassed"/>); at most one pass per hot
+            /// pixel the image gains, plus one.
+            /// </summary>
+            internal static List<(BigInteger x, BigInteger y)> Image(Pt a, Pt b, HashSet<(BigInteger x, BigInteger y)> hot, List<(BigInteger x, BigInteger y)> hotList, Q pixel, ref long work)
+            {
+                var image = new List<(BigInteger x, BigInteger y)> { PixelOf(a, pixel) };
+                var last = PixelOf(b, pixel);
+                if (!last.Equals(image[0])) image.Add(last);
+                var held = new HashSet<(BigInteger x, BigInteger y)>(image);
+                for (bool changed = true; changed; ) {
+                    changed = false;
+                    var next = new List<(BigInteger x, BigInteger y)> { image[0] };
+                    for (int k = 0; k + 1 < image.Count; ++k) {
+                        foreach (var n in HotPassed(image[k], image[k + 1], hot, hotList, pixel, ref work))
+                            if (held.Add(n)) { next.Add(n); changed = true; }
+                        next.Add(image[k + 1]);
+                    }
+                    image = next;
+                }
+                return image;
+            }
+
+            /// <summary> test hook: the work of building images (pixels walked, hot pixels tested), summed over checks on this thread </summary>
+            [ThreadStatic] internal static long ImageWorkForTests;
+
+            Q snapPixel;
+            HashSet<(BigInteger x, BigInteger y)> hot;
+            List<(BigInteger x, BigInteger y)> hotList;
+            Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>> images;
+            Domain snappedDomain;
+            Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool> linkCollapsed;
+            Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>> linksAt;
+
+            /// <summary> builds the hot pixels, the images of all edges, the snapped domain and the links at each pixel, once </summary>
+            void Snap()
+            {
+                if (hot != null) return;
+                long work = 0;
+                snapPixel = Q.FromDouble(input.SnapTolerance);
+                hot = new HashSet<(BigInteger x, BigInteger y)>(); hotList = new List<(BigInteger x, BigInteger y)>();
+                void Hot(Pt p) { var n = PixelOf(p, snapPixel); if (hot.Add(n)) hotList.Add(n); }
+                foreach (var p in inPts) Hot(p);
+                foreach (var p in v) Hot(p);
+                var edges = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Distinct().ToList();
+                foreach (var p in Crossings(edges)) Hot(p);
+                images = new Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>>();
+                List<(BigInteger x, BigInteger y)> Of(Pt a, Pt b)
+                {
+                    if (images.TryGetValue((a, b), out var known)) return known;
+                    if (images.TryGetValue((b, a), out var back)) { known = new List<(BigInteger x, BigInteger y)>(back); known.Reverse(); }
+                    else known = Image(a, b, hot, hotList, snapPixel, ref work);
+                    images[(a, b)] = known;
+                    return known;
+                }
+                linksAt = new Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>>();
+                void Link((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+                {
+                    if (!linksAt.TryGetValue(p, out var list)) linksAt.Add(p, list = new List<(BigInteger x, BigInteger y)>());
+                    if (!list.Contains(q)) list.Add(q);
+                }
+                foreach (var g in edges) {
+                    var image = Of(g.a, g.b);
+                    for (int k = 0; k + 1 < image.Count; ++k) { Link(image[k], image[k + 1]); Link(image[k + 1], image[k]); }
+                }
+                var rings = new List<(Pt[] ring, bool hole)>();
+                foreach (var (ring, hole) in domain.Rings) {
+                    var nodes = new List<(BigInteger x, BigInteger y)>();
+                    for (int i = 0; i < ring.Length; ++i) {
+                        if (ring[i].Equals(ring[(i + 1) % ring.Length])) continue;
+                        foreach (var n in Of(ring[i], ring[(i + 1) % ring.Length])) if (nodes.Count == 0 || !nodes[nodes.Count - 1].Equals(n)) nodes.Add(n);
+                    }
+                    while (nodes.Count > 1 && nodes[nodes.Count - 1].Equals(nodes[0])) nodes.RemoveAt(nodes.Count - 1);
+                    rings.Add((nodes.Select(n => Centre(n, snapPixel)).ToArray(), hole));
+                }
+                snappedDomain = new Domain(rings, !e.Reference);
+                linkCollapsed = new Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool>();
+                ImageWorkForTests += work;
+            }
+
+            /// <summary> the points where two of the edges cross properly (exact), found through a grid of their boxes </summary>
+            static List<Pt> Crossings(List<(Pt a, Pt b)> edges)
+            {
+                var box = new double[4 * edges.Count];
+                for (int i = 0; i < edges.Count; ++i) {
+                    var (a, b) = edges[i];
+                    if (a.Bounds(false, out double ax0, out double ax1) && b.Bounds(false, out double bx0, out double bx1)
+                        && a.Bounds(true, out double ay0, out double ay1) && b.Bounds(true, out double by0, out double by1)) {
+                        box[4 * i] = Math.Min(ax0, bx0); box[4 * i + 1] = Math.Max(ax1, bx1); box[4 * i + 2] = Math.Min(ay0, by0); box[4 * i + 3] = Math.Max(ay1, by1);
+                    } else for (int k = 0; k < 4; ++k) box[4 * i + k] = double.NaN;
+                }
+                var grid = new BoxGrid(box, edges.Count);
+                var result = new List<Pt>();
+                for (int i = 0; i < edges.Count; ++i) {
+                    var candidates = double.IsNaN(box[4 * i]) ? Enumerable.Range(0, edges.Count).ToList()
+                        : grid.Query(box[4 * i], box[4 * i + 1], box[4 * i + 2], box[4 * i + 3]);
+                    foreach (int j in candidates) {
+                        if (j <= i) continue;   // (a pair is met from both sides, an unknown box from every other edge)
+                        var (a, b) = edges[i]; var (c, d) = edges[j];
+                        if (!Exact.ProperCross(a, b, c, d)) continue;
+                        Q den = (b.Qx - a.Qx) * (d.Qy - c.Qy) - (b.Qy - a.Qy) * (d.Qx - c.Qx);
+                        Q t = ((c.Qx - a.Qx) * (d.Qy - c.Qy) - (c.Qy - a.Qy) * (d.Qx - c.Qx)) / den;
+                        result.Add(new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t));
+                    }
                 }
                 return result;
             }
 
-            /// <summary> the whole piece a-b is collapsed </summary>
-            bool WhollyCollapsed(Pt a, Pt b)
+            /// <summary> link p-q of an image is collapsed: the snapped domain has no interior just beside its middle on either side </summary>
+            bool LinkCollapsed((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
             {
-                var st = CollapsedStretches(a, b, (a, b));
-                return st.Count == 1 && st[0].t0.Sign == 0 && st[0].t1 == Q.One;
+                var key = p.x < q.x || p.x == q.x && p.y < q.y ? (p, q) : (q, p);
+                if (linkCollapsed.TryGetValue(key, out bool known)) return known;
+                Pt a = Centre(p, snapPixel), b = Centre(q, snapPixel);
+                // 2^-40 of the link's length off its middle: no other link comes that close to the middle of one between pixel
+                // centres (at least a pixel / (2 length) for lengths below 2^30 pixels), except one on it
+                Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, eps = new Q(BigInteger.One, BigInteger.One << 40);
+                Q nx = -(b.Qy - a.Qy) * eps, ny = (b.Qx - a.Qx) * eps;
+                bool collapsed = snappedDomain.Classify(new Pt(mx + nx, my + ny)) != Where.Inside && snappedDomain.Classify(new Pt(mx - nx, my - ny)) != Where.Inside;
+                linkCollapsed[key] = collapsed;
+                return collapsed;
             }
 
             /// <summary>
-            /// O-H5 for an unused input point p: every input constraint and boundary edge that ends at p (at least one) is collapsed along
-            /// its whole length. A point with one constraint on a part that has area keeps its violation; a corner whose edges have area
-            /// too. (This implies that p itself lies closer than a pixel to the boundary: an interior point to an edge that does not end
-            /// at it, a corner to its own edges, which then collapse onto each other along their whole length, as at a collapsed tip.)
+            /// O-H5 for an unused input point p: its pixel's centre is not inside the snapped domain, and every link of an image at that
+            /// pixel is collapsed (a point on a part that has area keeps its violation; so does a corner whose edges have area).
             /// </summary>
             bool OnCollapsedPoint(Pt p)
             {
                 if (!(input.SnapTolerance > 0)) return false;
-                var ends = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Where(g => g.a.Equals(p) || g.b.Equals(p)).ToList();
-                return ends.Count > 0 && ends.All(g => WhollyCollapsed(g.a, g.b));
+                Snap();
+                var n = PixelOf(p, snapPixel);
+                if (snappedDomain.Classify(Centre(n, snapPixel)) == Where.Inside) return false;
+                return !linksAt.TryGetValue(n, out var at) || at.All(q => LinkCollapsed(n, q));
             }
 
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
@@ -1794,29 +1837,34 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// O-H5 in the chain search: the piece from-to has a chain if one exists when the collapsed stretches of the piece may be
-            /// crossed without one. Each stretch is a node joined to every candidate vertex whose closed pixel (the square of half a
-            /// pixel around it) meets it: the chain reaches the hot pixel where the stretch begins, at the stretch's first pixel
-            /// boundary at the latest. Only the stretches bridge: everywhere else the chain must be there, and the search starts and
-            /// ends at vertices (an end without one is a violation of its own unless the whole piece is collapsed).
+            /// O-H5 in the chain search: the piece from-to of source has a chain if one exists when the collapsed links of the source's
+            /// image may be crossed without one. Each pixel of the image is a node, joined to the next one where the link between them is
+            /// collapsed and to every candidate vertex in it; the pixels of the piece's ends start and end the search too. Everywhere else
+            /// the chain must be there.
             /// </summary>
             bool ChainAcrossCollapsed(Pt from, Pt to, (Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
             {
-                var stretches = CollapsedStretches(from, to, source);
-                if (stretches.Count == 0) return false;
-                if (stretches.Count == 1 && stretches[0].t0.Sign == 0 && stretches[0].t1 == Q.One) return true;
-                Pt At(Q t) => new Pt(from.Qx + (to.Qx - from.Qx) * t, from.Qy + (to.Qy - from.Qy) * t);
-                var ends = stretches.Select(st => (a: At(st.t0), b: At(st.t1))).ToList();
-                Q half = Q.FromDouble(input.SnapTolerance) / 2;
-                var bridge = new Dictionary<int, List<int>>();   // stretch node -1 - k <-> candidate vertices
-                for (int k = 0; k < stretches.Count; ++k) bridge[-1 - k] = new List<int>();
-                foreach (int i in candidates)
-                    for (int k = 0; k < stretches.Count; ++k)
-                        if (InEnvelopeOf(ends[k].a, ends[k].b, v[i], half)) { bridge[-1 - k].Add(i); if (!bridge.ContainsKey(i)) bridge[i] = new List<int>(); bridge[i].Add(-1 - k); }
+                if (!(input.SnapTolerance > 0)) return false;
+                Snap();
+                var image = images[source];
+                var node = new Dictionary<(BigInteger x, BigInteger y), int>();
+                for (int k = 0; k < image.Count; ++k) node[image[k]] = -1 - k;
+                var bridge = new Dictionary<int, List<int>>();
+                void Join(int x, int y)
+                {
+                    if (!bridge.TryGetValue(x, out var lx)) bridge.Add(x, lx = new List<int>()); lx.Add(y);
+                    if (!bridge.TryGetValue(y, out var ly)) bridge.Add(y, ly = new List<int>()); ly.Add(x);
+                }
+                bool any = false;
+                for (int k = 0; k + 1 < image.Count; ++k) if (LinkCollapsed(image[k], image[k + 1])) { Join(-1 - k, -2 - k); any = true; }
+                if (!any) return false;
+                foreach (int i in candidates) if (node.TryGetValue(PixelOf(v[i], snapPixel), out int id)) Join(id, i);
                 var goalNodes = new HashSet<int>(goals);
+                if (node.TryGetValue(PixelOf(to, snapPixel), out int goal)) goalNodes.Add(goal);
                 var queue = new Queue<int>();
                 var seen = new HashSet<int>();
                 foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
+                if (node.TryGetValue(PixelOf(from, snapPixel), out int start) && seen.Add(start)) queue.Enqueue(start);
                 while (queue.Count > 0) {
                     int at = queue.Dequeue();
                     if (goalNodes.Contains(at)) return true;

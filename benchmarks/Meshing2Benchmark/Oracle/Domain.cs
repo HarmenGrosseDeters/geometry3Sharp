@@ -56,6 +56,25 @@ namespace Meshing2Acceptance
             Perimeter2Bound = length;
         }
 
+        /// <summary>
+        /// The domain of the given rings and roles by the same rule (D5), for the snapped domain of O-H5: the images of the input's rings,
+        /// the hull's image as its outer ring for a hull domain. Without area and perimeter (not needed there).
+        /// </summary>
+        internal Domain(IEnumerable<(Pt[] ring, bool hole)> rings, bool filter)
+        {
+            Filter = filter;
+            foreach (var (r, hole) in rings) {
+                var ring = OpenRing(r);
+                (hole ? Holes : Outers).Add(ring);
+                Rings.Add((ring, hole));
+            }
+            inside = new bool[Rings.Count, Rings.Count];
+            for (int a = 0; a < Rings.Count; ++a)
+                for (int b = 0; b < Rings.Count; ++b)
+                    if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
+            Area = Q.Zero; Perimeter2Bound = Q.Zero;
+        }
+
         static Pt[] OpenRing(Pt[] ring)
         {
             int n = ring.Length;
