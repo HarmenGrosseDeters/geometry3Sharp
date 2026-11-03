@@ -6,11 +6,16 @@ using Xunit;
 
 namespace geometry3Sharp.Tests
 {
+    [CollectionDefinition("Meshing2OracleTiming", DisableParallelization = true)]
+    public class Meshing2OracleTimingCollection { }
+
     /// <summary>
     /// The parts of <see cref="QualityMesh2CollapsedPartsTests"/> that use the change's own members (the oracle's O-H5 counts, the
     /// mesher's diagnostics), apart so that the cases themselves compile against the library without the change. The library change is
     /// the diagnostics only: of these tests, the mesher's fail on the library without it
     /// </summary>
+    // The oracle's wall-clock budget must not include CPU contention from other test collections.
+    [Collection("Meshing2OracleTiming")]
     public class QualityMesh2CollapsedPartsReportTests
     {
         /// <summary>
