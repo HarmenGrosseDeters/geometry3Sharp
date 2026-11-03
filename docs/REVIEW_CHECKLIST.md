@@ -105,6 +105,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Is per-element state (a tag, a label) kept right while an invariant is lifted for a moment, eg a constraint removed
   and re-inserted around a split? Test with an enclosed hole or region of a single triangle next to the operation
   (meshing M3 review: the flips around a lifted constraint filled a hole).
+- Does state that is updated only for "touched" elements (a dirty list, a changed-since set) see every change? A change of
+  meaning without a change of topology escapes it, eg a chain rerouted through a vertex already there: no triangle is
+  rewritten, yet the triangles between the old and the new chain change sides (meshing: a grid split onto an existing
+  vertex left stale domain tags). Test the path where the operation adds nothing new, with the full check from scratch
+  after every step (`CheckTagsForTests`).
 
 ## 8. Untrusted input (#86, #88, #90, #91)
 

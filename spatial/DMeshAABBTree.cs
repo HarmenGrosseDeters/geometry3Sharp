@@ -319,11 +319,19 @@ namespace g3
             //   nearestT to double.MaxValue, then we will test all boxes (!)
             double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
             int tNearID = DMesh3.InvalidID;
-            find_hit_triangle(root_index, ref ray, ref fNearestT, ref tNearID);
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            find_hit_triangle(root_index, ref ray, ref p, ref fNearestT, ref tNearID);
             return tNearID;
         }
 
         protected void find_hit_triangle(int iBox, ref Ray3d ray, ref double fNearestT, ref int tID)
+        {
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            find_hit_triangle(iBox, ref ray, ref p, ref fNearestT, ref tID);
+        }
+
+        // (secondPoint: the ray's ExactRayTriangle.SecondPoint, once per query)
+        void find_hit_triangle(int iBox, ref Ray3d ray, ref Vector3d secondPoint, ref double fNearestT, ref int tID)
         {
             int idx = box_to_index[iBox];
             if ( idx < triangles_end ) {            // triange-list case, array is [N t1 t2 ... tN]
@@ -336,7 +344,7 @@ namespace g3
 
                     mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
                     double rayt;
-                    if (IntrRay3Triangle3.Intersects(ref ray, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
+                    if (IntrRay3Triangle3.Intersects(ref ray, ref secondPoint, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
                         // ties (a ray through a shared edge or vertex) go to the lowest id, as in
                         // MeshQueries.FindHitTriangle_LinearSearch: otherwise the traversal order, which the absolute box
                         // padding changes with the scale, picked the triangle
@@ -362,7 +370,7 @@ namespace g3
                     iChild1 = (-iChild1) - 1;
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fNearestT + e) {
-                        find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                        find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                     }
 
                 } else {                            // 2 children, descend closest first
@@ -373,16 +381,16 @@ namespace g3
                     double fChild2T = box_ray_intersect_t(iChild2, ray);
                     if (fChild1T < fChild2T) {
                         if (fChild1T <= fNearestT + e) {
-                            find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                            find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             if (fChild2T <= fNearestT + e) {
-                                find_hit_triangle(iChild2, ref ray, ref fNearestT, ref tID);
+                                find_hit_triangle(iChild2, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             }
                         }
                     } else {
                         if (fChild2T <= fNearestT + e) {
-                            find_hit_triangle(iChild2, ref ray, ref fNearestT, ref tID);
+                            find_hit_triangle(iChild2, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             if (fChild1T <= fNearestT + e) {
-                                find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                                find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             }
                         }
                     }
@@ -414,11 +422,21 @@ namespace g3
             //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
             //   nearestT to double.MaxValue, then we will test all boxes (!)
             double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
-            int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, fUseMaxDist);
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, ref p, fUseMaxDist, false);
             return nCount;
         }
 
         protected int find_all_hit_triangles(int iBox, List<int> hitTriangles, ref Ray3d ray, double fMaxDist)
+        {
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            return find_all_hit_triangles(iBox, hitTriangles, ref ray, ref p, fMaxDist, false);
+        }
+
+        // perturbed: count the crossings of the perturbed ray (ExactRayTriangle.RayHitPerturbed: a ray through an edge
+        // or a vertex crosses exactly one triangle of a closed fan), for IsInside's parity; else the hits of the
+        // closed triangles (IntrRay3Triangle3)
+        int find_all_hit_triangles(int iBox, List<int> hitTriangles, ref Ray3d ray, ref Vector3d secondPoint, double fMaxDist, bool perturbed)
         {
             int hit_count = 0;
 
@@ -432,8 +450,17 @@ namespace g3
                         continue;
 
                     mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
+                    if (perturbed) {
+                        // (only for IsInside, which casts an unbounded ray: no distance)
+                        if (ExactRayTriangle.RayHitPerturbed(ray.Origin, secondPoint, tri.V0, tri.V1, tri.V2) != ExactRayTriangle.Miss) {
+                            if (hitTriangles != null)
+                                hitTriangles.Add(ti);
+                            hit_count++;
+                        }
+                        continue;
+                    }
                     double rayt;
-                    if (IntrRay3Triangle3.Intersects(ref ray, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
+                    if (IntrRay3Triangle3.Intersects(ref ray, ref secondPoint, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
                         if (rayt < fMaxDist) {
                             if (hitTriangles != null)
                                 hitTriangles.Add(ti);
@@ -458,7 +485,7 @@ namespace g3
                     iChild1 = (-iChild1) - 1;
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fMaxDist + e)
-                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
 
                 } else {                            // 2 children, descend closest first
                     iChild1 = iChild1 - 1;
@@ -466,11 +493,11 @@ namespace g3
 
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fMaxDist + e)
-                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
 
                     double fChild2T = box_ray_intersect_t(iChild2, ray);
                     if (fChild2T <= fMaxDist + e) 
-                        hit_count += find_all_hit_triangles(iChild2, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild2, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
                 }
             }
 
@@ -1039,9 +1066,13 @@ namespace g3
 
         /// <summary>
         /// Returns true if point p is inside this mesh, using a ray-crossing parity test: a ray in a fixed
-        /// direction is cast from p and the point is inside if it hits an odd number of triangles.
-        /// Only reliable for closed meshes without self-intersections; can be wrong if the ray hits an
-        /// edge or vertex exactly. For open, non-manifold or noisy meshes use WindingNumber(p) &gt; 0.5 instead.
+        /// direction is cast from p and the point is inside if it crosses the surface an odd number of times. The
+        /// crossings are exact, with a symbolic perturbation of the ray (ExactRayTriangle.RayHitPerturbed): a ray
+        /// through an edge or a vertex crosses it once, a ray in the plane of a triangle not at all, so the parity is right for every closed mesh (each edge in
+        /// two triangles) without self-intersections and every p off its surface (p on the surface: either answer).
+        /// For open, non-manifold, self-intersecting or noisy meshes the parity has no meaning: use
+        /// WindingNumber(p) &gt; 0.5 (the general inside test for such inputs is ROADMAP Phase 5 #5, generalized
+        /// winding numbers).
         /// </summary>
         public virtual bool IsInside(Vector3d p)
         {
@@ -1059,10 +1090,24 @@ namespace g3
             //Vector3d rayOrigin = p - 2 * bounds.Width * rayDir;
             Vector3d rayOrigin = p;
 
-            Ray3d ray = new Ray3d(rayOrigin, rayDir);
-            int nHits = FindAllHitTriangles(ray, null);
+            // (the direction as given, not renormalized: the line through p and p + rayDir)
+            int nHits = CountCrossings(rayOrigin, rayDir);
 
             return (nHits % 2) != 0;
+        }
+
+        /// <summary>
+        /// The number of crossings of the ray from origin along direction (need not be normalized) with the mesh,
+        /// each counted once (ExactRayTriangle.RayHitPerturbed: a ray through an edge or a vertex crosses exactly one
+        /// triangle of a closed fan; FindAllHitTriangles counts every triangle there). IsInside's parity.
+        /// </summary>
+        internal int CountCrossings(Vector3d origin, Vector3d direction)
+        {
+            if (mesh_timestamp != mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.IsInside: mesh has been modified since tree construction");
+            Ray3d ray = new Ray3d(origin, direction, true);
+            Vector3d secondPoint = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, float.MaxValue, true);
         }
 
 
