@@ -621,10 +621,11 @@ namespace Meshing2Acceptance
 
             // ------------------------------------------------------------ O-H5: parts of the domain collapsed by snapping (Q17)
             // Owner decision 2026-11-02 (spec Q17): a part of the domain narrower than a pixel may collapse; the oracle accepts what is
-            // missing there only on a collapsed part. A part is collapsed where every pixel it lies in is passed by another edge of the
-            // domain's boundary: snap rounding routes that edge's chain through those pixels, and a domain narrower than a pixel has no
-            // pixel of its own between its boundary chains (Guibas and Marimont 1998: topology is kept up to collapsing features).
-            // "Passes" as in O-H4: the edge crosses the pixel's interior shrunk by a hair, or passes its centre; pixels half-open.
+            // missing there only on a collapsed part. A part is collapsed where the domain across it is narrower than a pixel: boundary
+            // on both sides of a segment piece whose distances add up to less than a pixel, or another boundary edge closer than a
+            // pixel on the domain's side of a boundary piece (see CollapsedStretches). Snap rounding puts the chains on both sides into
+            // shared pixel centres there, and the part has no area of its own (Guibas and Marimont 1998: topology is kept up to
+            // collapsing features). From the input and the grid alone, never from the output.
 
             /// <summary> the pixel index of x: floor(x / pixel + 1/2), pixels half-open [(i - 1/2) pixel, (i + 1/2) pixel) </summary>
             static BigInteger PixelIndex(Q x, Q pixel)
@@ -688,8 +689,10 @@ namespace Meshing2Acceptance
             /// sum of two, to segments is convex along a line. At an end shared with an edge that edge counts only if the wedge
             /// between them is still narrower than a pixel where the piece leaves the end's square of half-width two pixels (a 90 or
             /// 60 degree corner is no collapse; a tip of a fraction of a degree is). The source edge itself never counts. From the
-            /// input and the grid alone. Cost: the piece's pixel crossings times the boundary edges whose box, widened by a pixel,
-            /// meets the stretch's; only for a piece without a chain or an unused input point.
+            /// input and the grid alone. Cost: O(E) to select the boundary edges whose box, widened by a pixel, meets the piece's, then
+            /// per pixel crossing a box test against each of them, an exact distance only where the box is within a pixel, and per
+            /// stretch the pairs of a left and a right edge within a pixel. Called only on the failure paths (a piece without a chain,
+            /// an unused input point), never for a valid mesh's pieces.
             /// </summary>
             List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source)
             {
@@ -757,6 +760,7 @@ namespace Meshing2Acceptance
                     var p = At(ts[j]);
                     for (int i = 0; i < near.Count; ++i) {
                         if (atA[i] && ts[j] < ta && !wedgeA[i] || atB[i] && ts[j] > tb && !wedgeB[i]) continue;
+                        if (!BoxesMeet(near[i].a, near[i].b, p, p, pixel)) continue;   // farther than a pixel in x or y: no exact distance
                         var q = Nearest(near[i], p);
                         Q dd = Exact.Len2(p, q);
                         if (!(dd < pixel2)) continue;
@@ -773,12 +777,18 @@ namespace Meshing2Acceptance
                     } else {
                         // a piece of a segment: an edge on the left and one on the right at both ends, their distances summing below a
                         // pixel (one edge may serve both sides where its nearest point is on the piece's line)
-                        for (int i = 0; i < near.Count && !collapsed; ++i) {
-                            if (d2[j, i] == null || d2[j + 1, i] == null || side[j, i] < 0 || side[j + 1, i] < 0) continue;
-                            for (int k = 0; k < near.Count && !collapsed; ++k) {
-                                if (d2[j, k] == null || d2[j + 1, k] == null || side[j, k] > 0 || side[j + 1, k] > 0) continue;
+                        var left = new List<int>(); var right = new List<int>();
+                        for (int i = 0; i < near.Count; ++i) {
+                            if (d2[j, i] == null || d2[j + 1, i] == null) continue;
+                            if (side[j, i] >= 0 && side[j + 1, i] >= 0) left.Add(i);
+                            if (side[j, i] <= 0 && side[j + 1, i] <= 0) right.Add(i);
+                        }
+                        foreach (int i in left) {
+                            foreach (int k in right) {
                                 collapsed = SumBelow(d2[j, i].Value, d2[j, k].Value, pixel2) && SumBelow(d2[j + 1, i].Value, d2[j + 1, k].Value, pixel2);
+                                if (collapsed) break;
                             }
+                            if (collapsed) break;
                         }
                     }
                     if (!collapsed) continue;
@@ -1775,32 +1785,28 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// O-H5 in the chain search: the piece from-to has a chain if one exists when the collapsed stretches of the piece may be
-            /// crossed without one. Each stretch is a node joined to every candidate vertex whose projection onto the piece lies in it;
-            /// a stretch that holds the piece's start (end) is a start (goal). Only the stretches bridge: everywhere else the chain must
-            /// be there.
+            /// crossed without one. Each stretch is a node joined to every candidate vertex whose closed pixel (the square of half a
+            /// pixel around it) meets it: the chain reaches the hot pixel where the stretch begins, at the stretch's first pixel
+            /// boundary at the latest. Only the stretches bridge: everywhere else the chain must be there, and the search starts and
+            /// ends at vertices (an end without one is a violation of its own unless the whole piece is collapsed).
             /// </summary>
             bool ChainAcrossCollapsed(Pt from, Pt to, (Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
             {
                 var stretches = CollapsedStretches(from, to, source);
                 if (stretches.Count == 0) return false;
                 if (stretches.Count == 1 && stretches[0].t0.Sign == 0 && stretches[0].t1 == Q.One) return true;
-                Q dx = to.Qx - from.Qx, dy = to.Qy - from.Qy, len2 = dx * dx + dy * dy;
-                Q Along(Pt p) { Q t = ((p.Qx - from.Qx) * dx + (p.Qy - from.Qy) * dy) / len2; return t.Sign < 0 ? Q.Zero : t > Q.One ? Q.One : t; }
+                Pt At(Q t) => new Pt(from.Qx + (to.Qx - from.Qx) * t, from.Qy + (to.Qy - from.Qy) * t);
+                var ends = stretches.Select(st => (a: At(st.t0), b: At(st.t1))).ToList();
+                Q half = Q.FromDouble(input.SnapTolerance) / 2;
                 var bridge = new Dictionary<int, List<int>>();   // stretch node -1 - k <-> candidate vertices
                 for (int k = 0; k < stretches.Count; ++k) bridge[-1 - k] = new List<int>();
-                foreach (int i in candidates) {
-                    Q t = Along(v[i]);
+                foreach (int i in candidates)
                     for (int k = 0; k < stretches.Count; ++k)
-                        if (stretches[k].t0 <= t && t <= stretches[k].t1) { bridge[-1 - k].Add(i); if (!bridge.ContainsKey(i)) bridge[i] = new List<int>(); bridge[i].Add(-1 - k); }
-                }
+                        if (InEnvelopeOf(ends[k].a, ends[k].b, v[i], half)) { bridge[-1 - k].Add(i); if (!bridge.ContainsKey(i)) bridge[i] = new List<int>(); bridge[i].Add(-1 - k); }
                 var goalNodes = new HashSet<int>(goals);
                 var queue = new Queue<int>();
                 var seen = new HashSet<int>();
                 foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
-                for (int k = 0; k < stretches.Count; ++k) {
-                    if (stretches[k].t0.Sign == 0 && seen.Add(-1 - k)) queue.Enqueue(-1 - k);
-                    if (stretches[k].t1 == Q.One) goalNodes.Add(-1 - k);
-                }
                 while (queue.Count > 0) {
                     int at = queue.Dequeue();
                     if (goalNodes.Contains(at)) return true;

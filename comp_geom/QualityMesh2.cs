@@ -326,13 +326,13 @@ namespace g3
                     if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
                 }
                 // parts narrower than a pixel may collapse (owner decision 2026-11-02, spec Q17): input segments with a piece that has no
-                // triangle on either side, those that snapping collapsed and those that refinement pinched (a split point on one side's
-                // chain landing on the other side's) reported apart
+                // triangle on either side, those without one already after snapping and those that lost theirs in refinement (a split
+                // point of one side's chain landing on the other side's, say) reported apart
                 if (collapsedBySnapping != null) {
                     var collapsedAfter = SegmentsWithoutArea();
                     int pinched = collapsedAfter.Count(s => !collapsedBySnapping.Contains(s));
-                    if (collapsedBySnapping.Count > 0) b.diagnostics.Add("snap grid: " + collapsedBySnapping.Count + " input segments with pieces on parts that snapping collapsed (narrower than a pixel, no area)");
-                    if (pinched > 0) b.diagnostics.Add("snap grid: " + pinched + " input segments with pieces on parts that refinement pinched (narrower than a pixel: a split point of one chain landed on another)");
+                    if (collapsedBySnapping.Count > 0) b.diagnostics.Add("snap grid: " + collapsedBySnapping.Count + " input segments with pieces on parts that snapping collapsed (no triangle on either side after snapping)");
+                    if (pinched > 0) b.diagnostics.Add("snap grid: " + pinched + " input segments with pieces on parts that refinement pinched (a triangle on a side after snapping, none after refinement)");
                 }
                 if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))

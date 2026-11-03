@@ -760,8 +760,11 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
   accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
   diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
-  **Collapsed part (2026-11-03, rule O-H5):** a stretch of an input segment or boundary edge that lies
-  closer than a pixel to another edge of the domain's boundary. A chain may be missing only on such
+  **Collapsed part (2026-11-03, rule O-H5):** a stretch where the domain across it is narrower than a
+  pixel. For a stretch of an input segment: boundary on its left and on its right whose distances add
+  up to less than a pixel. For a stretch of a boundary edge: another boundary edge closer than a pixel
+  on the domain's side. The edge itself never counts, and at a shared corner the adjacent edge counts
+  only below about 30° (`MESHING2D_HULL_GRID.md` section 7). A chain may be missing only on such
   stretches. An unused input point is accepted only when every constraint and boundary edge at it is
   collapsed along its whole length.
 

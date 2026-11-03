@@ -185,8 +185,8 @@ namespace Meshing2Acceptance
         /// </summary>
         public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
         /// <summary>
-        /// Q17 (O-H5): input segments and input points on a part of the domain that snapping collapsed (every pixel they lie in is
-        /// passed by another edge of the domain's boundary, so the part has no area). Findings to look at, as the merge zone's.
+        /// Q17 (O-H5): pieces of input segments and boundary edges whose chain is missing, and unused input points, on a part of the
+        /// domain that snapping collapsed (narrower than a pixel, so the part has no area). Findings to look at, as the merge zone's.
         /// </summary>
         public int CollapsedSegments, CollapsedPoints;
         public string ExcusedSummary()

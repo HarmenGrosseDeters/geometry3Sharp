@@ -309,6 +309,32 @@ namespace Meshing2Acceptance
                 var mixed = CorridorIn(0.25, 1, true);
                 var mixedReport = Oracle.Check(mixed, CorridorOut(mixed, false), m3);
                 Must("reject: a point on the collapsed corridor with a segment into the square as VertexUnused", mixedReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 10 ")), "report: " + mixedReport);
+                // a dumbbell: two 20 squares joined by a corridor 0.25 wide from x 20 to 50, a segment from the middle of one to the
+                // middle of the other, either way. Its chain must be there in both squares, up to the corridor's mouths at (20, 10) and
+                // (50, 10), whose hot pixels the chain reaches before the collapsed stretch's first pixel boundary; it may be missing in
+                // the corridor only
+                foreach (bool forward in new[] { true, false }) {
+                    var bell = new Mesh2Input { SnapTolerance = 1,
+                        X = new double[] { 0, 20, 20, 50, 50, 70, 70, 50, 50, 20, 20, 0, 10, 60 },
+                        Y = new double[] { 0, 0, 9.875, 9.875, 0, 0, 20, 20, 10.125, 10.125, 20, 20, 10, 10 } };
+                    bell.Rings.Add(new RingInput(Enumerable.Range(0, 12).ToArray(), false));
+                    bell.Segments.Add(forward ? new SegmentInput(12, 13) : new SegmentInput(13, 12));
+                    var map = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 3, 2, 10, 11, 12, 13 };
+                    var fans = new[] { new[] { 0, 1, 12 }, new[] { 1, 2, 12 }, new[] { 2, 10, 12 }, new[] { 10, 11, 12 }, new[] { 11, 0, 12 },
+                        new[] { 3, 4, 13 }, new[] { 4, 5, 13 }, new[] { 5, 6, 13 }, new[] { 6, 7, 13 }, new[] { 7, 3, 13 } };
+                    var ring = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 10), new SubsegmentOutput(10, 11),
+                        new SubsegmentOutput(11, 0), new SubsegmentOutput(3, 4), new SubsegmentOutput(4, 5), new SubsegmentOutput(5, 6), new SubsegmentOutput(6, 7), new SubsegmentOutput(7, 3) };
+                    Mesh2Output Bell(bool chainInA) => new Mesh2Output { Status = Mesh2Status.Success,
+                        VX = bell.X.Select(x => Math.Floor(x + 0.5)).ToArray(), VY = bell.Y.Select(y => Math.Floor(y + 0.5)).ToArray(), InputToVertex = map,
+                        Triangles = fans, Neighbours = NeighboursOf(fans), TriangleLabels = new int[fans.Length], BadTriangles = new int[0],
+                        Subsegments = ring.Concat(chainInA ? new[] { new SubsegmentOutput(12, 2), new SubsegmentOutput(3, 13) } : new[] { new SubsegmentOutput(3, 13) }).ToList() };
+                    string way = forward ? "forward" : "backward";
+                    var withChain = Oracle.Check(bell, Bell(true), m3);
+                    Must("accept: a segment through a collapsed corridor with its chain in both squares (" + way + ")", withChain.Ok && withChain.CollapsedSegments > 0, "report: " + withChain);
+                    var noChain = Oracle.Check(bell, Bell(false), m3);
+                    Must("reject: the same segment without its chain in one square (" + way + ")",
+                        noChain.Violations.Any(v => v.Kind == Violation.SegmentMissing && v.Detail.StartsWith("input constraint")), "report: " + noChain);
+                }
                 var corner = Oracle.Check(thin, CorridorOut(thin, true), m3);
                 Must("reject: a corner whose edges have area, unused, as VertexUnused", corner.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 1 ")), "report: " + corner);
                 // at a corner shared with the piece the adjacent edge comes closer than a pixel, but a corner of 90 or 60 degrees is no
@@ -322,11 +348,26 @@ namespace Meshing2Acceptance
                     Must("collapsed: a 90 degree corner is not collapsed next to it", !AtStart(At(0, 20)), null);
                     Must("collapsed: a 60 degree corner is not collapsed next to it", !AtStart(At(10, 17.320508075688775)), null);
                     Must("collapsed: a corner of 1 degree (a tip) is collapsed next to it", AtStart(At(20, 0.349)), null);
+                    // the guard's square of half-width two pixels: 2 sin 25 degrees is below a pixel, 2 sin 35 degrees above; an edge
+                    // exactly a pixel from the point where the piece leaves the square (to (1.4, 0.8), about 29.7 degrees) is not
+                    Must("collapsed: a corner of 25 degrees is collapsed next to it", AtStart(At(18.126155740733, 8.452365234813989)), null);
+                    Must("collapsed: a corner of 35 degrees is not collapsed next to it", !AtStart(At(16.383040885779835, 11.471528727020921)), null);
+                    Pt exact = new Pt(new Q(7, 5), new Q(4, 5));   // exactly 1 from (2, 0), the nearest point of its edge from O
+                    Must("collapsed: a corner exactly a pixel wide where the piece leaves the guard's square is not",
+                        !AtStart(Oracle.CollapsedStretches(O, X, new[] { (O, X), (exact, O) }, Q.One, 1)), null);
                     // a segment along the middle of a corridor: boundary on both sides, the distances summing below a pixel or not
                     List<(Q, Q)> Corridor(double half) => Oracle.CollapsedStretches(O, X,
                         new[] { (Pt.FromDoubles(0, half), Pt.FromDoubles(20, half)), (Pt.FromDoubles(20, -half), Pt.FromDoubles(0, -half)) }, Q.One);
                     Must("collapsed: a segment in a corridor 0.25 wide is collapsed along its length", Corridor(0.125).Count == 1 && AtStart(Corridor(0.125)), null);
                     Must("collapsed: a segment in a corridor 1.5 wide is not", Corridor(0.75).Count == 0, null);
+                    // the sum of the distances, not of their squares, and strictly below a pixel
+                    List<(Q, Q)> Uneven(double above, double below) => Oracle.CollapsedStretches(O, X,
+                        new[] { (Pt.FromDoubles(0, above), Pt.FromDoubles(20, above)), (Pt.FromDoubles(20, -below), Pt.FromDoubles(0, -below)) }, Q.One);
+                    Must("collapsed: a segment 0.45 and 0.5 from the corridor's edges is", Uneven(0.45, 0.5).Count == 1, null);
+                    Must("collapsed: a segment 0.45 and 0.6 from the corridor's edges is not (squares below, distances above a pixel)", Uneven(0.45, 0.6).Count == 0, null);
+                    Must("collapsed: a segment in a corridor exactly a pixel wide is not", Uneven(0.5, 0.5).Count == 0, null);
+                    // one edge on one side only, close enough to pass the sum twice: the other side must have its own
+                    Must("collapsed: a segment 0.3 from one edge of a wide domain is not", Uneven(0.3, 20).Count == 0, null);
                     // boundary on one side only, 0.7 away (a wide domain): no collapse (review: closer than a pixel to one edge is no
                     // narrow domain)
                     Must("collapsed: a segment 0.7 from one edge of a wide domain is not", Oracle.CollapsedStretches(O, X,
@@ -336,6 +377,61 @@ namespace Meshing2Acceptance
                         new[] { (O, X), (Pt.FromDoubles(0, 0.5), Pt.FromDoubles(20, 0.5)) }, Q.One, -1).Count == 0, null);
                     Must("collapsed: a boundary piece with another edge 0.5 away inside is", Oracle.CollapsedStretches(O, X,
                         new[] { (O, X), (Pt.FromDoubles(0, 0.5), Pt.FromDoubles(20, 0.5)) }, Q.One, 1).Count == 1, null);
+                    Must("collapsed: a boundary piece with another edge exactly a pixel away inside is not", Oracle.CollapsedStretches(O, X,
+                        new[] { (O, X), (Pt.FromDoubles(0, 1), Pt.FromDoubles(20, 1)) }, Q.One, 1).Count == 0, null);
+                }
+                // the review's cases (where the rule could excuse a gap that snap rounding does not create): parts of a wide domain
+                // closer than a pixel to one edge only. Output: the input snapped to pixel 1, without what the case drops; nothing may be
+                // excused as collapsed
+                {
+                    Mesh2Output Snapped(Mesh2Input input, int[][] tri, int[][] subs)
+                    {
+                        var vx = input.X.Select(v => Math.Floor(v + 0.5)).ToArray(); var vy = input.Y.Select(v => Math.Floor(v + 0.5)).ToArray();
+                        return new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                            Triangles = tri, Neighbours = NeighboursOf(tri), TriangleLabels = new int[tri.Length], BadTriangles = new int[0],
+                            Subsegments = subs.Select(s => new SubsegmentOutput(s[0], s[1])).ToList() };
+                    }
+                    int[][] Square = { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } };
+                    bool NothingExcused(OracleReport rep) => rep.CollapsedSegments == 0 && rep.CollapsedPoints == 0;
+                    // E1: a constraint 0.7 above the bottom of a 20 square, dropped with its ends
+                    var e1 = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 5, 15 }, Y = new double[] { 0, 0, 20, 20, 0.7, 0.7 }, SnapTolerance = 1 };
+                    e1.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    e1.Segments.Add(new SegmentInput(4, 5));
+                    var e1r = Oracle.Check(e1, Snapped(e1, new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } }, Square), m3);
+                    Must("reject: a constraint 0.7 from one edge of a wide square, dropped (review E1)", e1r.Has(Violation.SegmentMissing) && e1r.Has(Violation.VertexUnused) && NothingExcused(e1r), "report: " + e1r);
+                    // E1b: the same along the hypotenuse of a right triangle, 0.9 away
+                    double d = 0.9 / Math.Sqrt(2);
+                    var e1b = new Mesh2Input { X = new double[] { 0, 20, 0, 15 - d, 5 - d }, Y = new double[] { 0, 0, 20, 5 - d, 15 - d }, SnapTolerance = 1 };
+                    e1b.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                    e1b.Segments.Add(new SegmentInput(3, 4));
+                    var e1br = Oracle.Check(e1b, Snapped(e1b, new[] { new[] { 0, 1, 2 } }, new[] { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 0 } }), m3);
+                    Must("reject: a constraint 0.9 from a diagonal edge, dropped (review E1b)", e1br.Has(Violation.SegmentMissing) && NothingExcused(e1br), "report: " + e1br);
+                    // E2: a hole on a stretch of the outer bottom edge; the outer bottom's pieces beside the hole dropped (the source edge,
+                    // not the piece, is excluded: the outer bottom does not collapse onto itself)
+                    var e2 = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 8, 12, 10 }, Y = new double[] { 0, 0, 20, 20, 0, 0, 5 }, SnapTolerance = 1 };
+                    e2.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    e2.Rings.Add(new RingInput(new[] { 4, 5, 6 }, true));
+                    var e2t = new[] { new[] { 0, 4, 6 }, new[] { 5, 1, 6 }, new[] { 1, 2, 6 }, new[] { 6, 2, 3 }, new[] { 0, 6, 3 } };
+                    var e2r = Oracle.Check(e2, Snapped(e2, e2t, new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 }, new[] { 5, 6 }, new[] { 6, 4 } }), m3);
+                    Must("reject: a hole on the outer edge with the outer edge's pieces missing (review E2)", e2r.Has(Violation.SegmentMissing) && NothingExcused(e2r), "report: " + e2r);
+                    var e2c = Oracle.Check(e2, Snapped(e2, e2t, new[] { new[] { 0, 4 }, new[] { 5, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 }, new[] { 5, 6 }, new[] { 6, 4 } }), m3);
+                    Must("accept: the hole on the outer edge, complete (review E2)", e2c.Ok, "report: " + e2c);
+                    // E6: a constraint 0.8 long into a wide square from its bottom, its inner end dropped (a T-junction)
+                    var e6 = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 10, 10 }, Y = new double[] { 0, 0, 20, 20, 0, 0.8 }, SnapTolerance = 1 };
+                    e6.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    e6.Segments.Add(new SegmentInput(4, 5));
+                    var e6r = Oracle.Check(e6, Snapped(e6, new[] { new[] { 0, 4, 3 }, new[] { 4, 1, 2 }, new[] { 4, 2, 3 } },
+                        new[] { new[] { 0, 4 }, new[] { 4, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } }), m3);
+                    Must("reject: a short constraint into a wide square, inner end dropped (review E6)", e6r.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 5 ")) && NothingExcused(e6r), "report: " + e6r);
+                    // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
+                    // filled, its tips dropped
+                    var e8 = new Mesh2Input { X = new double[] { 0, 10, 10, 10.5, 10.5, 20, 20, 0 }, Y = new double[] { 0, 0, 10, 10, 0, 0, 20, 20 }, SnapTolerance = 1 };
+                    e8.Rings.Add(new RingInput(Enumerable.Range(0, 8).ToArray(), false));
+                    var keep = new List<int> { 0, 1, 4, 5, 6, 7 };
+                    var kept = new Mesh2Input { X = keep.Select(i => Math.Floor(e8.X[i] + 0.5)).ToArray(), Y = keep.Select(i => Math.Floor(e8.Y[i] + 0.5)).ToArray() };
+                    var e8t = DelaunayByDefinition(kept).Select(t => t.Select(j => keep[j]).ToArray()).ToArray();
+                    var e8r = Oracle.Check(e8, Snapped(e8, e8t, new[] { new[] { 0, 1 }, new[] { 1, 4 }, new[] { 4, 5 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 0 } }), m3);
+                    Must("reject: a slit of the outside filled, its tips dropped (review E8)", e8r.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 2 ")) && NothingExcused(e8r), "report: " + e8r);
                 }
                 // "passes": crossing the interior or the centre; touching the boundary does not count
                 Pt P(double a, double b) => Pt.FromDoubles(a, b);

@@ -205,9 +205,21 @@ corner tip, which O-H4 does not cover.
   and Packer 2002) and stable snap rounding (Hershberger 2013) keep no sub-pixel feature either.
 
 **Oracle**, rule O-H5 (`CollapsedStretches`, `ChainAcrossCollapsed`, `OnCollapsedPoint`), only with an explicit tolerance:
-- **Collapsed stretch:** a stretch of an input piece is collapsed where it lies closer than a pixel to another edge of the domain's
-  boundary (not the piece itself). It is decided exactly per stretch between the piece's pixel crossings: the distance to a segment is
-  convex along a line, so both ends decide.
+- **Collapsed stretch:** a stretch of an input piece is collapsed where the domain across it is narrower than a pixel:
+  - a piece of an input segment: boundary on its left and on its right whose distances add up to less than a pixel (the side of an
+    edge is that of its nearest point; an edge whose nearest point lies on the piece's line serves both sides). Exactly:
+    d1 + d2 < p² and 4·d1·d2 < (p² − d1 − d2)² for the squared distances d1, d2;
+  - a piece of a boundary edge: another boundary edge closer than a pixel whose nearest point lies on the domain's side of the piece
+    (the side of a point 2^-40 of the piece's length beside its middle that lies inside), or on its line. An edge on the outside side
+    (a slit of the outside between two walls) does not count;
+  - the source edge (the whole input segment or boundary edge, not only the piece) never counts against itself.
+  - It is decided exactly per stretch between the piece's pixel crossings, for one and the same edge (or pair of edges) at both ends: a
+    distance to a segment, and a sum of two, is convex along a line.
+- **Why two-sided (review 2):** a first form excused a stretch closer than a pixel to any one other edge. That excused gaps snap rounding
+  does not create, on parts of a wide domain: a constraint 0.7 pixel from one edge of a 20 pixel square (E1, also diagonal 0.9, E1b), a
+  constraint 0.8 long into a wide square from its bottom (a T-junction, E6), an outer edge beside a hole that shares a stretch of it
+  (E2: the piece, not the source, was excluded), and the walls of a slit of the outside 0.5 wide (E8). All five are reject self-checks
+  now: nothing in them may be excused as collapsed.
 - **Corners:** at a corner shared with the piece, the adjacent edge comes closer than a pixel, but two chains from one hot pixel
   part there.
   - Near the shared end, the adjacent edge counts only if the wedge between the two is still narrower than a pixel where the piece
@@ -216,11 +228,16 @@ corner tip, which O-H4 does not cover.
 - **Diagonal parts:** parts between one and 1.4 pixels wide that a diagonal grid could collapse are judged strictly: their missing
   chains are reported.
 - **Segments:** the chain search may cross a collapsed stretch without a chain, and only there. A stretch of a piece that is not
-  collapsed still needs its chain.
+  collapsed still needs its chain. A stretch is joined to every vertex near the piece whose closed pixel meets it: stretches begin
+  and end at pixel boundaries, and the chain reaches the hot pixel at a corridor's mouth half a pixel before (found with a dumbbell,
+  two squares joined by a corridor 0.25 wide, which a join by projection onto the stretch rejected).
 - **Points:** an unused input point is accepted only when every input constraint and boundary edge that ends at it is collapsed along
   its whole length. A point with one constraint on a part that has area keeps its violation; so does a corner whose edges have area.
 - **Inputs:** the stretches come from the input and the grid alone, never from the output.
-- **Cost:** the piece's pixel crossings times the boundary edges near it. It runs only for a piece without a chain or an unused point.
+- **Cost:** O(E) to select the boundary edges whose box, widened by a pixel, meets the piece's; then per pixel crossing a box test
+  against each of them, an exact distance only within a pixel's box, and per stretch the pairs of a left and a right edge within a
+  pixel. An unused point looks at the O(S + E) edges ending at it. All of it runs only on the failure paths (a piece without a chain,
+  an unused point), never for the pieces of a valid mesh: no O(V·S) on the normal path.
 - **Rejected first forms:**
   - Pixel coverage of the input piece: sub-millimetre gaps on the hull caps, where a chain runs straight between hot pixel centres.
   - A 3×3 pixel neighbourhood: it let through the middle of a corridor three pixels wide.
@@ -233,10 +250,22 @@ corner tip, which O-H4 does not cover.
     - the collapsed corridor without a tolerance;
     - a point with one constraint on the corridor and one into the square;
     - an unused corner whose edges have area;
-    - a pixel only touched by an edge.
+    - a pixel only touched by an edge;
+    - the review's cases E1, E1b, E2, E6 and E8 (above), with nothing excused; E2 complete is accepted;
+    - a segment through the dumbbell's corridor without its chain in one square (either way; accepted with both chains).
+  - Direct checks of the stretches: a 90°, 60° and 35° corner not collapsed, a 25° corner and a 1° tip collapsed, a corner exactly
+    a pixel wide where the piece leaves the guard's square not; a segment in a corridor 0.25 wide collapsed, 1.5 wide not, exactly a
+    pixel wide not; distances 0.45 and 0.5 collapsed, 0.45 and 0.6 not (their squares sum below a pixel); a segment 0.3 or 0.7 from
+    one edge of a wide domain not; a boundary piece beside an outside slit not, with an edge 0.5 away inside it is, exactly a pixel
+    away not.
+  - Mutations: 19 mutants of the rule, all killed except two equivalent ones: the tolerance check in the point rule (the stretches
+    are empty without one) and `rest > 0` against `rest ≥ 0` in the exact sum (rest 0 needs 4·d1·d2 < 0). Two survivors pointed at
+    code that could not matter, start and goal nodes for stretches at the piece's ends (an end without a vertex is a violation of
+    its own unless the whole piece is collapsed); it is removed, which is stricter.
 - **Reports:** the counts appear as "on collapsed parts: N segment pieces, M input points".
 
-**Mesher:** the diagnostics report the input segments with pieces on parts that snapping collapsed, and those with pieces on parts
-that refinement pinched, apart.
+**Mesher:** the diagnostics report, apart, the input segments with a piece that has no triangle on either side already after
+snapping (taken before the carve of the outside), and those whose piece lost its triangles in refinement. The mesher does not decide
+"narrower than a pixel"; the oracle does.
 
 **Follow-up (not done):** whether refinement should avoid Steiner points in pixels that two chains pass, since those make the pinch.
