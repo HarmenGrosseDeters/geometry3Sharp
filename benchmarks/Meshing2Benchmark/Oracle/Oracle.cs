@@ -626,7 +626,9 @@ namespace Meshing2Acceptance
             /// <summary>
             /// The mesher refines (QualityMesh2.Refines, with the M3 candidate's options): an angle, an area or size bound, a region's area,
             /// or conforming Delaunay, which the candidate turns on unless the constrained-quality mode asks otherwise. Not every M3 input
-            /// refines: the constrained-quality mode at angle 0, or a Steiner limit alone (review of #36, S3)
+            /// refines: the constrained-quality mode at angle 0, or a Steiner limit alone (review of #36, S3). The benchmark switch
+            /// G3_M2_CONFORMING (QualityMesh2Candidate.ConformingForBenchmarks) is not mirrored: it is for timing measurements (mesh
+            /// --no-oracle); a hull domain meshed with it at angle 0 may be judged against the wrong hull model
             /// </summary>
             bool Refining => e.Milestone == Milestone.M3 && ((input.MinAngleDeg ?? 0) > 0 || input.MaxArea != null || input.SizeFunction != null
                 || input.SizeConstant != null || input.Regions.Any(g => g.MaxArea != null)
@@ -641,8 +643,8 @@ namespace Meshing2Acceptance
             /// both edges' chains through its vertex and the tip between has no area. Point i is that corner, with some other used
             /// output vertex in such a pixel, or i's own pixel is such a pixel (it lies on the shared chain). Passing a pixel is decided
             /// as for grid splits: the edge crosses its interior, a hair smaller, or passes its centre (the half-open pixels of snap
-            /// rounding; a corner on a pixel boundary is not excused; review). Only with an explicit tolerance at M3, where the mesher
-            /// snap-rounds the hull edges; the mesher reports such vertices in its diagnostics.
+            /// rounding; a corner on a pixel boundary is not excused; review). Only where the mesher snap-rounds the hull edges (HullRounded:
+            /// an explicit tolerance and refinement at M3); the mesher reports such vertices in its diagnostics.
             /// </summary>
             bool CollapsedHullTip(int i, HashSet<int> usedVertices)
             {
@@ -978,8 +980,8 @@ namespace Meshing2Acceptance
             /// else the nearest useful one (R3); with none, the nearest pixel within two of it, not hot, whose interior s crosses and whose
             /// centre projects strictly between a's and b's (widened). Nearest: the squared distance of the pixel's centre to s, ties by
             /// the pixel's x, then y. A round's choices are made on one arrangement and all made hot at its end (their Proposition
-            /// 4.17); rounds repeat until no critical pixel is left. The edges: the input segments and ring edges, and at M3 a hull
-            /// domain's hull edges (the mesher snap-rounds them only when it refines, option C)
+            /// 4.17); rounds repeat until no critical pixel is left. The edges: the input segments and ring edges, and a hull domain's hull
+            /// edges where the mesher snap-rounds them (HullRounded: it refines, option C)
             /// </summary>
             List<(BigInteger x, BigInteger y)> RestorePixels(HashSet<(BigInteger x, BigInteger y)> hotR, List<(BigInteger x, BigInteger y)> hotRList)
             {
@@ -993,8 +995,7 @@ namespace Meshing2Acceptance
                     if (seenEdge.Add(key)) edgesR.Add((a, b));
                 }
                 foreach (var s in sources) AddEdge(s.a, s.b);
-                // (M3 stands for refinement here, as in HullSources; a hull of fewer than three corners, all points collinear, has no
-                // hull edges to round, as in the mesher)
+                // (a hull of fewer than three corners, all points collinear, has no hull edges to round, as in the mesher)
                 if (HullRounded) {
                     var hullEdges = domain.Edges().ToList();
                     if (hullEdges.Count >= 3) foreach (var (a, b) in hullEdges) AddEdge(a, b);
@@ -1164,7 +1165,7 @@ namespace Meshing2Acceptance
                     if (!st.LinksAt.TryGetValue(p, out var list)) st.LinksAt.Add(p, list = new List<(BigInteger x, BigInteger y)>());
                     if (!list.Contains(q)) list.Add(q);
                 }
-                // the hull model: with refinement (M3) the mesher snap-rounds a hull domain's hull edges with the segments (option C), so
+                // the hull model: with refinement (Refining) the mesher snap-rounds a hull domain's hull edges with the segments (option C), so
                 // the snapped hull is their image; without it the triangulation's boundary is the convex hull of the snapped vertices,
                 // straight between hot pixel centres, and the hull edges are no chains
                 bool roundedHull = !domain.IsHull || HullRounded;
@@ -1261,6 +1262,8 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> link p-q of an image is collapsed in state st: its snapped domain has no interior just beside its middle on either side </summary>
+            static bool IsLink(SnapState st, (BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => st.LinksAt.TryGetValue(p, out var at) && at.Contains(q);
+
             bool LinkCollapsed(SnapState st, (BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
             {
                 var key = p.x < q.x || p.x == q.x && p.y < q.y ? (p, q) : (q, p);
@@ -1856,7 +1859,7 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// The hull edges of a hull domain (D13) at M3, where refinement constrains the hull: the boundary, so an input segment at a small
+            /// The hull edges of a hull domain (D13) where the mesher refines (Refining), which constrains the hull: the boundary, so an input segment at a small
             /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
             /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
             /// a small angle must lie on one piece; review of the fix). In the merge zone only paired with a segment and without an explicit
@@ -2374,8 +2377,11 @@ namespace Meshing2Acceptance
             /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
             /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
-            /// the pixel). Excused, as by O-H5, where the pixel collapses in both images, or the edge's own links there collapse in the
-            /// input's rounding. Pixels of refinement are not demanded (#360 does not reroute through them)
+            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
+            /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
+            /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only, so other
+            /// chains cannot stand in for the piece's (review of #36, S2). Pixels of refinement are not demanded (#360 does not reroute
+            /// through them)
             /// </summary>
             void ChainThroughContactedPixels(Pt a, Pt b)
             {
@@ -2395,38 +2401,59 @@ namespace Meshing2Acceptance
                 Q half = snapPixel / 2;
                 Q Along(Pt p) => (p.Qx - a.Qx) * (b.Qx - a.Qx) + (p.Qy - a.Qy) * (b.Qy - a.Qy);
                 long work = 0;
-                List<(BigInteger x, BigInteger y)> image = null;
+                var image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
+                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
-                    // pixel's centre along the edge (another chain sharing the vertex and an end of the piece does not count; review of
-                    // #36, S2); a side also holds where the edge's own link of the image on that side collapses in both images (O-H5's
-                    // rule (ii'): refinement may open area the input's rounding collapses)
+                    // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
+                    // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
                     Q along = Along(Centre(h, snapPixel));
-                    bool before = false, after = false;
+                    int k = image.IndexOf(h);
+                    bool? goneBefore = null, goneAfter = null;
+                    bool onChain = false;
                     if (verticesInPixel.TryGetValue(h, out var at))
                         foreach (int i in at) {
                             if (!subsegmentsAt.TryGetValue(i, out var next)) continue;
                             // (judged at the neighbour's exact pixel centre: an output vertex is that centre rounded to doubles, and a
                             // piece's end on its pixel's corner would otherwise miss the envelope by an ulp)
                             var centres = next.Select(q => Centre(PixelOf(v[q], snapPixel), snapPixel)).Where(q => InEnvelopeOf(a, b, q, half)).ToList();
-                            bool b0 = centres.Any(q => Along(q) < along), a0 = centres.Any(q => Along(q) > along);
-                            if (b0 && a0) { before = after = true; break; }
-                            before |= b0; after |= a0;
+                            bool before = centres.Any(q => Along(q) < along), after = centres.Any(q => Along(q) > along);
+                            if (!(before && after) && k >= 0) {
+                                Snap();
+                                if (!before) before = goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value;
+                                if (!after) after = goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value;
+                            }
+                            if (before && after) { onChain = true; break; }
                         }
-                    if (before && after) continue;
-                    Snap();
-                    var c = Centre(h, snapPixel);
-                    // (a pixel that collapses in both images needs none either: it lies on the edge's own image, so its own links there
-                    // collapse in both, which the sides below cover)
-                    if (image == null) image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
-                    int k = image.IndexOf(h);
-                    bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
-                    if (k >= 0) {
-                        before |= k == 0 || Gone(image[k - 1], h);
-                        after |= k == image.Count - 1 || Gone(h, image[k + 1]);
+                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in both images
+                    if (!onChain && k >= 0) {
+                        Snap();
+                        onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);
                     }
-                    if (before && after) continue;
-                    r.Add(Violation.ChainSkipsHotPixel, "the chain of " + a + " - " + b + " does not run through the hot pixel of " + c + " that the input contacts");
+                    if (onChain) continue;
+                    r.Add(Violation.ChainSkipsHotPixel, "the chain of " + a + " - " + b + " does not run through the hot pixel of " + Centre(h, snapPixel) + " that the input contacts");
+                }
+                // a subsegment between two pixels of the piece's image that skips image pixels between them is no link of this edge; it
+                // must be another edge's link (or a hull link) of the input's rounding, or the edge's links it spans collapse in both
+                // images. Otherwise two other chains could stand in for the skipped pixel's vertex above (review of #36, S2)
+                Dictionary<(BigInteger x, BigInteger y), int> index = null;
+                for (int k = 0; k + 2 < image.Count; ++k) {
+                    if (!verticesInPixel.TryGetValue(image[k], out var at)) continue;
+                    foreach (int i in at) {
+                        if (!subsegmentsAt.TryGetValue(i, out var next)) continue;
+                        foreach (int j in next) {
+                            if (index == null) { index = new Dictionary<(BigInteger x, BigInteger y), int>(); for (int t = 0; t < image.Count; ++t) index[image[t]] = t; }
+                            var pj = PixelOf(v[j], snapPixel);
+                            if (!index.TryGetValue(pj, out int m) || m <= k + 1) continue;
+                            Snap();
+                            if (IsLink(inputOnly, image[k], pj) || IsLink(full, image[k], pj)) continue;
+                            bool spanGone = true;
+                            for (int t = k; t < m && spanGone; ++t) spanGone = Gone(image[t], image[t + 1]);
+                            if (spanGone) continue;
+                            r.Add(Violation.ChainSkipsHotPixel, "subsegment " + i + "-" + j + " of the chain of " + a + " - " + b + " skips the hot pixel of " + Centre(image[k + 1], snapPixel)
+                                + " that the input contacts, and is no link of the input's rounding");
+                        }
+                    }
                 }
                 ImageWorkForTests += work;
             }

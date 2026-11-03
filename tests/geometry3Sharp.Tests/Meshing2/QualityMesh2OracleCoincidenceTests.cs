@@ -204,6 +204,55 @@ namespace geometry3Sharp.Tests
             Assert.True(wrong.Count == 0, wrong.Count + " differ:\n" + string.Join("\n", wrong.Take(10)));
         }
 
+        /// <summary>
+        /// every clause of the oracle's refinement test (Refining, review of #36): the hull of (0, 0), (10, 1.4), (10, -3), (0, -3) with
+        /// (5, 0.4) inside has the restore pixel (4, 1) on its top hull edge, which the oracle computes only where the mesher rounds the hull
+        /// (M3 and refining). Each option set is judged on the candidate's mesh, which must be accepted at M3 (M2 judges the unrefined mesh with the angle set for the oracle only)
+        /// </summary>
+        [Theory]
+        [InlineData("angle 20", true)]
+        [InlineData("angle 0", true)]
+        [InlineData("area 50", true)]
+        [InlineData("size 5", true)]
+        [InlineData("size function", true)]
+        [InlineData("conforming", true)]
+        [InlineData("cq angle 20", true)]
+        [InlineData("cq area 50", true)]
+        [InlineData("cq region area 50", true)]
+        [InlineData("cq angle 0", false)]
+        [InlineData("cq conforming", false)]
+        [InlineData("Steiner limit", false)]
+        [InlineData("none", false)]
+        [InlineData("M2 angle 20", false)]
+        public void Refining_DecidesTheHullModel(string options, bool rounded)
+        {
+            var input = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 10, 10, 0, 5 }, Y = new[] { 0.0, 1.4, -3, -3, 0.4 } };
+            var milestone = Milestone.M3;
+            switch (options) {
+                case "angle 20": input.MinAngleDeg = 20; break;
+                case "angle 0": input.MinAngleDeg = 0; break;
+                case "area 50": input.MaxArea = 50; break;
+                case "size 5": input.SizeConstant = 5; break;
+                case "size function": input.SizeFunction = (x, y) => Q.FromDouble(5); break;
+                case "conforming": input.Conforming = true; break;
+                case "cq angle 20": input.ConstrainedQuality = true; input.MinAngleDeg = 20; break;
+                case "cq area 50": input.ConstrainedQuality = true; input.MaxArea = 50; break;
+                case "cq region area 50": input.ConstrainedQuality = true; input.Regions.Add(new RegionInput { Seed = new[] { 5.0, -1 }, Label = 1, MaxArea = 50 }); break;
+                case "cq angle 0": input.ConstrainedQuality = true; input.MinAngleDeg = 0; break;
+                case "cq conforming": input.ConstrainedQuality = true; input.Conforming = true; break;
+                case "Steiner limit": input.SteinerLimit = 5; break;
+                case "none": break;
+                case "M2 angle 20": milestone = Milestone.M2; break;
+            }
+            var o = new QualityMesh2Candidate().Run(input);
+            if (options == "M2 angle 20") input.MinAngleDeg = 20;
+            Assert.Equal(Mesh2Status.Success, o.Status);
+            var r = Oracle.Check(input, o, new OracleExpect { Milestone = milestone });
+            // (at M2 the oracle also holds the unrefined mesh to the angle: only the hull model is judged there)
+            if (milestone == Milestone.M3) Assert.True(r.Ok, options + ": " + r);
+            Assert.Equal(rounded, r.RestorePixels.Contains((4, 1)));
+        }
+
         static Mesh2Input Soup(int seed)
         {
             var rnd = new System.Random(seed);

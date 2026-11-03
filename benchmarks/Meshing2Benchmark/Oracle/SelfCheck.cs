@@ -640,7 +640,7 @@ namespace Meshing2Acceptance
                             "report: " + r414 + " restore " + string.Join(" ", r414.RestorePixels ?? new List<(BigInteger, BigInteger)>()));
                         var rl2 = Oracle.Check(srr, SrrOutput(s1.Concat(new[] { new SubsegmentOutput(4, 3) }).ToList()), new OracleExpect { Milestone = Milestone.M2 });
                         Must("reject: the same chain past that restore pixel's corner, as SRR's Listing 2 leaves it (its segment contacts the pixel) as ChainSkipsHotPixel",
-                            rl2.Violations.Count == 1 && rl2.Has(Violation.ChainSkipsHotPixel), "report: " + rl2 + " / " + rl2.ExcusedSummary());
+                            rl2.Violations.Count == 2 && rl2.Violations.All(x => x.Kind == Violation.ChainSkipsHotPixel), "report: " + rl2 + " / " + rl2.ExcusedSummary());
                         // chains meet only at hot pixels of the input's rounding: two crossing segments, snapped, share the crossing's
                         // vertex (2, 2), four subsegments there; no coincidence, no pinch (they are judged at vertices of refinement only)
                         var xcross = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 4, 0, 4 }, Y = new[] { 0.0, 4, 4, 0 } };
@@ -667,6 +667,13 @@ namespace Meshing2Acceptance
                         var rs2 = Oracle.Check(srr2, osr2, new OracleExpect { Milestone = Milestone.M2 });
                         Must("reject: a chain past a contacted hot pixel whose vertex another chain shares with the piece's end as ChainSkipsHotPixel",
                             rs2.Has(Violation.ChainSkipsHotPixel), "report: " + rs2 + " / " + rs2.ExcusedSummary());
+                        // the same with a second T (4.2, 1) - (5.4, 3.4) from the shared end: the subsegments of the two T chains at (4, 1)
+                        // have neighbours on both sides of the pixel along the edge, but neither is the edge's chain (review of #36, S2)
+                        srr2.Segments.Add(new SegmentInput(5, 3));
+                        osr2.Subsegments.Add(new SubsegmentOutput(5, 3));
+                        var rs2b = Oracle.Check(srr2, osr2, new OracleExpect { Milestone = Milestone.M2 });
+                        Must("reject: a chain past a contacted hot pixel whose vertex two other chains share as ChainSkipsHotPixel",
+                            rs2b.Has(Violation.ChainSkipsHotPixel), "report: " + rs2b + " / " + rs2b.ExcusedSummary());
                         // a vertex of refinement (5, 0) on the chain of (0, 0) - (8, 0): the chain of (0, 3) - (8, 1) rerouted onto its link
                         // (5, 0) - (8, 0) shares it from there (three subsegments at (5, 0)); and the two chains meeting in (5, 0) (four)
                         var two = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 8, 0, 8 }, Y = new[] { 0.0, 0, 3, 1 } };

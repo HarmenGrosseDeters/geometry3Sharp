@@ -417,10 +417,13 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
 - **ChainSkipsHotPixel (rule, task 39):** every hot pixel of the input's rounding (input points, crossings, restore pixels) that a
   retained piece of an input edge contacts holds an output vertex with subsegments to vertices in the edge's envelope on both sides
   of the pixel along the edge (snap rounding's defining property on the input's own rounding; O-H4 checks only that no link passes a
-  hot pixel; one side alone let another chain that shares the vertex and the piece's end stand in, review S2). A side also holds where
-  the edge's own image link on it collapses in both images, and the pixel is excused where it collapses in both images, as O-H5 does
-  (fuzz seed 818: the thin second lobe of a self-crossing star ring; seeds 493 and 1762: points on collapsed parts). Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects
-  SRR's Listing 2 chain of the discrepancy above (self-check).
+  hot pixel; one side alone let another chain that shares the vertex and the piece's end stand in, review S2). Both sides come from
+  one vertex. A side also holds where the edge's own image link on it collapses in both images, as O-H5 does (a pixel that collapses
+  in both images lies on such links; fuzz seed 818: the thin second lobe of a self-crossing star ring; seeds 493 and 1762: points on
+  collapsed parts). Two other chains could still stand in, one on each side (second review, S2), so a subsegment between two pixels
+  of the piece's image that skips image pixels must be a link of the input's rounding (another edge's, or the hull's) or span
+  collapsed links only. Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects SRR's Listing 2 chain of
+  the discrepancy above (self-check).
 - **The snapped area (a report, opt-in):** `--snapped-area` (`OracleExpect.ReportSnappedArea`) reports the mesh area minus the area
   of the snapped domain with all hot pixels, exact, in px². No rule: the full image routes a boundary edge through every hot pixel
   its input edge contacts, refinement's too, which the mesher by #360's design does not do through vertices of refinement it only
