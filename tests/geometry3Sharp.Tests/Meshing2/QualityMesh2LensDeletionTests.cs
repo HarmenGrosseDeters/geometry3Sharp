@@ -14,11 +14,14 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2LensDeletionTests
     {
-        static Mesh2Output Run(Mesh2Input input, bool? deletion = null)
+        static Mesh2Output Run(Mesh2Input input, bool? deletion = null, bool check = false)
         {
             QualityMesh2.Refiner.DeleteInCircleForBenchmarks = deletion;
+            // (the checks: the tags after every operation against domain membership from scratch, and every deletion pass against a
+            // brute force over all triangles; both throw)
+            QualityMesh2.Refiner.CheckTagsForTests = check; QualityMesh2.Refiner.CheckDeletionForTests = check;
             try { return new QualityMesh2Candidate().Run(input); }
-            finally { QualityMesh2.Refiner.DeleteInCircleForBenchmarks = null; }
+            finally { QualityMesh2.Refiner.DeleteInCircleForBenchmarks = null; QualityMesh2.Refiner.CheckTagsForTests = false; QualityMesh2.Refiner.CheckDeletionForTests = false; }
         }
 
         static long Deleted(Func<Mesh2Output> run, out Mesh2Output output)
@@ -66,7 +69,7 @@ namespace geometry3Sharp.Tests
         // ------------------------------------------------------------ the meshes
 
         /// <summary> a square with a triangular hole and random segments (the lens tests' fuzz), in the constrained quality mode </summary>
-        internal static Mesh2Input Fuzz(int seed, double angle, double snap = 0)
+        internal static Mesh2Input Fuzz(int seed, double angle, double snap = 0, bool region = false)
         {
             var r = new Random(seed);
             var x = new List<double> { 0, 16, 16, 0, 6, 9, 7 }; var y = new List<double> { 0, 0, 16, 16, 6, 6.5, 9 };
@@ -83,23 +86,31 @@ namespace geometry3Sharp.Tests
                 }
                 input.Segments.Add(new SegmentInput(x.Count - 2, x.Count - 1));
             }
+            // a region of one small triangle among the segments, its own label (a tag that only constraints enclose)
+            if (region) { x.AddRange(new[] { 12.0, 12.75, 12.25 }); y.AddRange(new[] { 2.0, 2.0, 2.625 }); input.Regions.Add(new RegionInput { Ring = new[] { x.Count - 3, x.Count - 2, x.Count - 1 }, Label = 1 }); }
             input.X = x.ToArray(); input.Y = y.ToArray();
             input.MinAngleDeg = angle; input.SteinerLimit = 50000; input.ConstrainedQuality = true;
             if (snap > 0) input.SnapTolerance = snap;
             return input;
         }
 
-        /// <summary> deletions happen, and every mesh passes the oracle (constrained Delaunay after them, the angle bound, the domain) </summary>
+        /// <summary>
+        /// deletions happen, every mesh passes the oracle (constrained Delaunay after them, the angle bound, the domain), and with the
+        /// checks on: the tags after every operation, and every deletion pass against a brute force (no free vertex left in the circle
+        /// that sees the midpoint, none deleted that does not)
+        /// </summary>
         [Theory]
-        [InlineData(20.0)]
-        [InlineData(25.0)]
-        [InlineData(25.65)]
-        public void Fuzz_DeletesAndPassesTheOracle(double angle)
+        [InlineData(20.0, false)]
+        [InlineData(25.0, false)]
+        [InlineData(25.65, false)]
+        [InlineData(20.0, true)]
+        [InlineData(25.0, true)]
+        public void Fuzz_DeletesAndPassesTheOracle(double angle, bool region)
         {
             long deleted = 0; int differ = 0;
             for (int seed = 0; seed < 40; ++seed) {
-                var input = Fuzz(3000 + seed, angle);
-                deleted += Deleted(() => Run(input), out var o);
+                var input = Fuzz(3000 + seed, angle, 0, region);
+                deleted += Deleted(() => Run(input, null, true), out var o);
                 Assert.Equal(Mesh2Status.Success, o.Status);
                 Assert.False(o.SteinerLimitReached, "seed " + seed);
                 var report = Judge(input, o);
@@ -133,7 +144,7 @@ namespace geometry3Sharp.Tests
             long deleted = 0;
             for (int seed = 0; seed < 40; ++seed) {
                 var input = Fuzz(4000 + seed, new[] { 20.0, 25 }[seed % 2], new[] { 0.25, 0.5, 0.3, 1.0 / 3, 0.125 }[seed % 5]);
-                deleted += Deleted(() => Run(input), out var o);
+                deleted += Deleted(() => Run(input, null, true), out var o);
                 Assert.Equal(Mesh2Status.Success, o.Status);
                 var report = Judge(input, o);
                 Assert.True(report.Ok, "seed " + seed + ": " + report);

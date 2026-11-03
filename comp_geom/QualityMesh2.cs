@@ -23,11 +23,11 @@ namespace g3
     /// <para>Without <see cref="Conforming"/> (the default), a subsegment counts as encroached only by a vertex in its diametral lens
     /// (Shewchuk 2002, section 6.4: the points that see it under at least 120 degrees, a narrower region than the diametral circle)
     /// when the angle bound is at most arcsin(sqrt 3 / 4) = 25.65 degrees, the bound the paper proves for lenses; above it the
-    /// diametral circle is used. As in the paper (and Chew 1993), before a subsegment is bisected the free vertices (made by refinement,
-    /// on no constraint) in its open diametral circle that see its midpoint are deleted. With that, the paper's termination argument
-    /// covers inputs without input angles below 60 degrees off the snap grid; on the grid, where split points and circumcentres are
-    /// rounded to pixel centres, and at small input angles, termination is measured (catalogue, corpus, Herne tiles) and the Steiner
-    /// limit bounds every run. With Conforming the circle is always used (O2).</para>
+    /// diametral circle is used. As the paper's rule says (after Chew 1993), before a subsegment is bisected the free vertices (made by
+    /// refinement, on no constraint) in its open diametral circle that see its midpoint are deleted. The paper's termination proof is
+    /// for circumcentres and midpoint bisection; this mesher also inserts off-centres, splits at concentric shells next to input
+    /// vertices and, on the snap grid, rounds every point to a pixel centre, so termination here is measured (catalogue, corpus, Herne
+    /// tiles), not proven, and the Steiner limit bounds every run. With Conforming the circle is always used (O2).</para>
     /// <para>Terminates: angles up to about 33 degrees converge on ordinary input; any input stops at the Steiner limit
     /// (default 10 x (points + segments) + 100 000, spec Q13). Pieces that are too short to split in doubles stay as they are.</para>
     /// <para>Locked segments (spec O9) keep their vertices and the mesh stays valid, but the bounds are not guaranteed near them
@@ -46,7 +46,9 @@ namespace g3
         /// be deterministic and thread safe; it is combined with the other bounds by taking the stricter one.
         /// </summary>
         public Func<double, double, double> SizeFunction;
-        /// <summary> Most Steiner points to insert, or null for 10 x (points + segments) + 100 000. </summary>
+        /// <summary> Most Steiner points to insert, or null for 10 x (points + segments) + 100 000. Every insertion counts, also of a
+        /// vertex that is deleted later (diametral lenses delete free vertices before a bisection), so the output may hold fewer Steiner
+        /// points than the limit when it was reached. </summary>
         public int? SteinerLimit;
         /// <summary>
         /// Conforming Delaunay even without bounds: split subsegments until none is encroached (spec O2), encroachment by the
@@ -1247,8 +1249,11 @@ namespace g3
                 return null;
             }
 
-            /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread </summary>
+            /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread
+            /// (counted in every run: one addition per deletion) </summary>
             [ThreadStatic] internal static long DeletedForTests;
+            /// <summary> tests only (per thread): after every deletion pass, check it against a brute force over all triangles (slow) </summary>
+            [ThreadStatic] internal static bool CheckDeletionForTests;
             /// <summary> tests and benchmarks only (per thread): Chew's deletion with lenses on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? DeleteInCircleForBenchmarks;
             readonly bool deleteInCircle;
@@ -1259,20 +1264,25 @@ namespace g3
             /// refinement (not one of the input, its crossings or snap rounding's hot pixels: those come before firstSteiner) that lies in
             /// the open diametral circle of the subsegment e = pu pw, sees its midpoint (no other constrained edge meets the segment
             /// between them, closed: a touch blocks too), and is not on a constraint (DeleteVertex refuses those, so a vertex a chain is
-            /// routed through stays). The split point p itself, if a vertex is there already (a reroute on the grid), stays. Only called
-            /// before a bisection that happens: a split refused (no split point, the Steiner limit) deletes nothing. The circle is local:
-            /// the triangles are searched from e across unconstrained edges that meet the circle (a margin in doubles; what is deleted is
+            /// routed through stays). The split point p itself, if a vertex is there already (a reroute on the grid), stays. Called once
+            /// the split point is found and the Steiner limit allows the split: a split refused before that deletes nothing. The midpoint
+            /// is (pu + pw) / 2 rounded in doubles. The circle is local: the triangles are searched from e across unconstrained edges that
+            /// come within twice the radius of the midpoint, in a frame centred on it and scaled by a power of two (no underflow at small
+            /// scales; the margin is far above the rounding of these distances, and searching more only costs time: what is deleted is
             /// decided exactly). Returns the number deleted.
             /// </summary>
             int DeleteFreeInCircle(int e, Vector2d pu, Vector2d pw, Vector2d p)
             {
                 var m = (pu + pw) * 0.5;
-                double r2 = (pw - pu).LengthSquared / 4 * (1 + 1e-6);
+                var duw = pw - pu;
+                int ex = ScaleOf(duw.x, duw.y, 0, 0);
+                // (twice the radius: (2 |uw| / 2)^2 in the scaled frame)
+                double reach2 = ScaleB(duw, -ex).LengthSquared;
                 bool MeetsCircle(Vector2d a, Vector2d c)
                 {
-                    var d = c - a; double l2 = d.LengthSquared;
-                    double t = l2 > 0 ? Math.Max(0, Math.Min(1, (m - a).Dot(d) / l2)) : 0;
-                    return (a + d * t - m).LengthSquared <= r2;
+                    var sa = ScaleB(a - m, -ex); var d = ScaleB(c - a, -ex); double l2 = d.LengthSquared;
+                    double t = l2 > 0 ? Math.Max(0, Math.Min(1, -sa.Dot(d) / l2)) : 0;
+                    return (sa + d * t).LengthSquared <= reach2;
                 }
                 var seen = new HashSet<int>();
                 var stack = new Stack<int>();
@@ -1296,14 +1306,54 @@ namespace g3
                 }
                 var doomed = new List<int>();
                 foreach (int v in candidates) if (k.Point(v) != p && InCircleAndVisible(pu, pw, k.Point(v), blockers)) doomed.Add(v);
+                if (CheckDeletionForTests) CheckDeletion(e, pu, pw, p, doomed, true);
                 int deleted = 0;
                 foreach (int v in doomed) if (k.DeleteVertex(v)) ++deleted;
                 DeletedForTests += deleted;
+                if (CheckTagsForTests && deleted > 0) lastOperation = "deletion of " + deleted + " free vertices before the split of " + k.V[e] + "-" + k.V[Next(e)];
+                if (CheckDeletionForTests) CheckDeletion(-1, pu, pw, p, doomed, false);
                 return deleted;
             }
 
+            /// <summary>
+            /// tests only: the deletion pass against a brute force over every triangle and every constrained edge. Before the deletion,
+            /// each vertex to be deleted lies in the open diametral circle of pu pw, sees its midpoint and is a free vertex; after it, no
+            /// free vertex (made by refinement, in triangles of one tag only, none of them a ghost, on no constrained edge) other than one at
+            /// p is left in the circle that sees the midpoint
+            /// </summary>
+            void CheckDeletion(int e, Vector2d pu, Vector2d pw, Vector2d p, List<int> doomed, bool before)
+            {
+                var all = new List<(Vector2d a, Vector2d c)>();
+                var free = new Dictionary<int, bool>();
+                var tagOf = new Dictionary<int, int>();
+                for (int t = 0; t < k.TriangleSlots; ++t) {
+                    bool ghost = k.IsGhost(t);
+                    for (int j = 0; j < 3; ++j) {
+                        int f = 3 * t + j, v = k.V[f];
+                        if (v == k.Infinite) continue;
+                        if (k.V[Next(f)] != k.Infinite && k.Seg[f] >= 0) {
+                            var a = k.Point(v); var c = k.Point(k.V[Next(f)]);
+                            // (the piece being split is no obstacle to its own midpoint)
+                            if (!((a == pu && c == pw) || (a == pw && c == pu))) all.Add((a, c));
+                        }
+                        bool ok = !ghost && k.Seg[f] < 0 && k.Seg[3 * t + (j + 2) % 3] < 0 && v >= firstSteiner;
+                        if (!ghost) { if (!tagOf.TryGetValue(v, out int tag)) tagOf[v] = k.Tag[t]; else if (tag != k.Tag[t]) ok = false; }
+                        free[v] = free.TryGetValue(v, out bool was) ? was && ok : ok;
+                    }
+                }
+                if (before) {
+                    foreach (int v in doomed)
+                        if (!InCircleAndVisible(pu, pw, k.Point(v), all) || !free.TryGetValue(v, out bool f) || !f)
+                            throw new InvalidOperationException("deletion: vertex " + v + " at " + k.Point(v) + " is not a free vertex in the circle that sees the midpoint");
+                    return;
+                }
+                foreach (var pair in free)
+                    if (pair.Value && k.Point(pair.Key) != p && InCircleAndVisible(pu, pw, k.Point(pair.Key), all))
+                        throw new InvalidOperationException("deletion: free vertex " + pair.Key + " at " + k.Point(pair.Key) + " is left in the circle of " + pu + " " + pw + " and sees its midpoint");
+            }
+
             /// <summary> v lies in the open diametral circle of pu pw (exact) and sees its midpoint: the segment between them meets none of
-            /// the blocking constrained edges, closed (exact orientations; the midpoint is that of the doubles, as the search's) </summary>
+            /// the blocking constrained edges, closed (exact orientations; the midpoint is (pu + pw) / 2 rounded in doubles, as the search's) </summary>
             internal static bool InCircleAndVisible(Vector2d pu, Vector2d pw, Vector2d v, List<(Vector2d a, Vector2d c)> blockers)
             {
                 if (DotSign(pu, pw, v) >= 0) return false;
