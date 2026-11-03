@@ -449,9 +449,12 @@ new UVPacker(mesh) { Padding = 0.01 }.Compute().ApplyToMesh(mesh);
 | `SLIMParameterization` | disc (or any, from flip-free `InitialUV`) | free | no flipped triangles, minimizes symmetric Dirichlet energy |
 | `TutteEmbedding` | disc | circle | bijective, high distortion (initialization) |
 
-`ParameterizationDistortion.Compute(mesh, uv)` measures flipped triangles, conformal distortion (s1/s2),
-angle error, area distortion (log of the area ratio relative to the global scale), symmetric Dirichlet and
-ARAP energies.
+`ParameterizationDistortion.Compute(mesh, uv)` measures flipped triangles, degenerate UV triangles
+(`DegenerateUVTriangles`: collapsed onto a line), conformal distortion (s1/s2), angle error, area distortion (log of
+the area ratio relative to the global scale), symmetric Dirichlet and ARAP energies. LSCM and ARAP, which do not
+promise a flip-free map, return `ParameterizationStatus.FlippedTriangles` instead of `Success` when their map has a
+flipped or degenerate triangle; the result keeps the map (`UV`, `Distortion`) for inspection, and `Succeeded` is
+false, so code that applies only successful maps skips it. SLIM, or the UV atlas, gives a flip-free map.
 
 ## Spatial Data Structures
 

@@ -91,6 +91,11 @@ namespace gs
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5, RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
+        /// SafeRounding's effort budget, passed to the exact resolve (ExactMeshBoolean.RoundingMaxPairTests) and to the
+        /// repair after SeparateTouchingVertices (MeshRoundingRepair.MaxPairTests). Default 5M
+        /// </summary>
+        public long RoundingMaxPairTests = 5000000;
+        /// <summary>
         /// ExactMeshBoolean.StrictRounding for the exact resolve (and the relative bound only for the repair after
         /// SeparateTouchingVertices): a resolve whose rounding is not clean within the relative bound fails
         /// (ExactResolveReason starts with "rounding not clean (StrictRounding)"), and the repair goes on with its other
@@ -643,7 +648,8 @@ namespace gs
                 timer.Restart();
                 var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
-                    RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding
+                    RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
+                    RoundingMaxPairTests = RoundingMaxPairTests
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;
@@ -689,7 +695,7 @@ namespace gs
                         // make, are possible now)
                         var rounding = new MeshRoundingRepair(res) {
                             MaxDisplacement = RoundingMaxDisplacement, UlpFactor = StrictRounding ? 0 : RoundingUlpFactor,
-                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance
+                            AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance, MaxPairTests = RoundingMaxPairTests
                         };
                         rounding.Apply();
                         SeparatedRounding = rounding;

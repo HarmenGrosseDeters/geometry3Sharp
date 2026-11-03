@@ -13,8 +13,9 @@ namespace g3
     ///
     /// Works on any connected mesh with at least one boundary loop (discs, annuli, ...). Two (or more) pinned
     /// vertices fix the similarity transform; by default two boundary vertices far apart are pinned, and the
-    /// result is scaled to the surface area. Triangles can flip on strongly curved inputs; use SLIM for a
-    /// guaranteed flip-free map.
+    /// result is scaled to the surface area. Triangles can flip on strongly curved inputs (and on annuli the
+    /// free inner boundary can collapse): such a map is reported as ParameterizationStatus.FlippedTriangles, not
+    /// as a success; use SLIM for a guaranteed flip-free map.
     /// </summary>
     /// <example>
     /// var lscm = new LSCMParameterization(mesh);
@@ -52,7 +53,7 @@ namespace g3
                 pm.ScaleToSurfaceArea(u, v);
             Result = pm.MakeResult(u, v);
             Result.Energy = conformalEnergy(pm, u, v);
-            return Result;
+            return Result = ParameterizationResult.RejectFlipped(Result, "LSCM");
         }
 
 

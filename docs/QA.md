@@ -453,9 +453,10 @@ points, a hilly terrain 1500 edges long (transport, log map, extension), the coa
 refinements, a reversed edge path, a 1.69 degree wedge and needle in the Delaunay refinement, slivers down to zero
 width in the vector transport, and a reversed triangle. Distances are checked against |p - s| or exact (FlipOut) paths,
 the heat method within its documented accuracy. Fixed: `MeshGeodesicPath.Path` repeated the end point of an edge
-traced exactly through a vertex (G1). Known failures ([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): tangent
-frames at coincident vertices are arbitrary, so `ToWorld` of transported vectors is off by up to 135 degrees there
-(G2); `MeshGeodesicPath` reports `TraceFailed` for edges of 1.25e-4 at UTM coordinates (G3).
+traced exactly through a vertex (G1); `MeshGeodesicPath` reported `TraceFailed` for edges of 1.25e-4 at UTM
+coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3). Known failure
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): tangent frames at coincident vertices are arbitrary, so `ToWorld`
+of transported vectors is off by up to 135 degrees there (G2).
 
 **Parameterization (November 2026):** `ParameterizationIssueCasesTests` rebuilds 12 failure modes from the trackers of
 libigl, boundary-first-flattening and xatlas, each over LSCM, ARAP, SLIM, Tutte, BFF (default and Disk) and the atlas
@@ -464,9 +465,10 @@ orientation (facing -z, in the plane x = 0, with pins), a three-peak terrain, a 
 identical holes (symmetry), saddles, a long thin triangle in the plane x = 0 (and a needle quad with both diagonals),
 packing with rotated charts, and a thin tall box. Success is checked by finite UVs, the surface's orientation, flips where a method
 promises none, overlaps, disc charts with uniform texel density. Fixed: BFF Disk threw an `ArithmeticException` on a
-needle quad whose boundary scale factors overflow, now `SolverFailed` (P4). Known failures
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): LSCM (and ARAP from it) collapses the unpinned ring of a low-poly
-cylinder and reports success (P1); BFF Disk with the conformal extension does not keep the boundary on the circle on
+needle quad whose boundary scale factors overflow, now `SolverFailed` (P4); LSCM (and ARAP from it) collapsed the
+unpinned ring of a low-poly cylinder and reported success, now LSCM and ARAP report `FlippedTriangles` (with the map)
+for a map with flipped or degenerate UV triangles (P1; the collapse itself stays). Known failures
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): BFF Disk with the conformal extension does not keep the boundary on the circle on
 meshes without interior vertices, and on two needles gives a flipped sliver (P2); LSCM with automatic pins is
 asymmetric by 1e-4 on a symmetric patch (P3).
 
@@ -502,10 +504,13 @@ with vertices but no triangles, and point in polygon at 4e5, 2^26 and UTM agains
 casts are compared with a brute-force loop over the same leaf predicate, so a difference can only come from the tree:
 the tree equals brute force everywhere (the 0 * inf slab case of libigl does not occur), and the grids, the winding
 numbers and `Polygon2d.Contains` are right. Fixed: `FindNearestHitTriangle` picked among equal-t triangles by traversal
-order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id). Known
-failures, with findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md): `IntrRay3Triangle3.Intersects` is not
-watertight, so a rounded ray onto a shared edge can miss both triangles (Q2, at 1e-3 and 1e-7), and `IsInside`
-counts vertex hits 0 times and edge hits twice (Q3, its documented limitation).
+order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id);
+`IntrRay3Triangle3` was not watertight, so a rounded ray onto a shared edge could miss both triangles (Q2, at 1e-3 and
+1e-7; now decided by exact `Orient3d` signs against the closed triangle), and `IsInside` counted vertex hits 0 times
+and edge hits twice (Q3; now the crossings of a ray perturbed by Simulation of Simplicity, each counted once, the same
+test as the exact winding number of `VolumeSampleCells`). Findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md);
+`ExactRayTriangleTests` checks the perturbation against big integers, parity and hits through the vertices and edges
+of a closed grid cube along 29 directions, and invariance over `Similarity.All()`.
 
 ## 3. Performance
 

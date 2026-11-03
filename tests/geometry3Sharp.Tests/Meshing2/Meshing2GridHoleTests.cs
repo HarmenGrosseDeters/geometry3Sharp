@@ -139,13 +139,15 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// holes on the grid: random segments in a square ring with two holes, crossing them or not, pass the oracle (M2). Refinement on
-        /// the grid with holes (M3) has failures of its own on master, a hole edge missing or a boundary edge unconstrained (seeds 31 at
-        /// 20 degrees and 30 at 25 degrees of this generator with the angle in the seed); they are reported separately, not part of this
-        /// fix
+        /// holes on the grid: random segments in a square ring with two holes, crossing them or not, pass the oracle, as M2 and refined
+        /// (M3), with the tags checked against domain membership from scratch after every operation of the refinement. Seeds 31 at 20
+        /// degrees and 30 at 25 failed in M3 with a split rerouted through a vertex already there (QualityMesh2GridRerouteTests)
         /// </summary>
         [Theory]
         [InlineData(0)]
+        [InlineData(20)]
+        [InlineData(25)]
+        [InlineData(30)]
         public void Fuzz_HolesOnTheGrid_PassTheOracle(double angle)
         {
             for (int seed = 0; seed < 120; ++seed) {
@@ -164,7 +166,10 @@ namespace geometry3Sharp.Tests
                 input.SnapTolerance = new[] { 0.5, 0.25, 1.0 / 3, 0.3, 0.125 }[seed % 5];
                 Milestone milestone = angle == 0 ? Milestone.M2 : Milestone.M3;
                 if (milestone == Milestone.M3) { input.MinAngleDeg = angle; input.SteinerLimit = 50000; }
-                var o = CandidateRegistry.For(milestone).Run(input);
+                Mesh2Output o;
+                QualityMesh2.Refiner.CheckTagsForTests = true;
+                try { o = CandidateRegistry.For(milestone).Run(input); }
+                finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
                 Assert.Equal(Mesh2Status.Success, o.Status);
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = milestone });
                 Assert.True(report.Ok, "seed " + seed + ": " + report);

@@ -1181,6 +1181,35 @@ namespace Meshing2Acceptance
 
             bool WithinTube((Pt a, Pt b, int marker, int sourceId, bool locked) s, Pt p) => Exact.Dist2ToSegment(s.a, s.b, p) <= tube2;
 
+            /// <summary>
+            /// a boundary edge a-b of a hull domain (D13) that skips hull corners: a near one hull edge and b near another (within the
+            /// tube), and every hull corner between them, from edge i forward to edge j, within the tube of a-b (the hull runs
+            /// counter-clockwise, and so does a-b in its triangle: the corners cut off are those from i forward). A hull corner that
+            /// O11 merged into a point within the tolerance, inside or on the hull, leaves the boundary to run past it, cutting the
+            /// corner by at most the tube (found with the corpus run: delaunator's robustness1, hull corner 25 merged into its twin 1,
+            /// 2.8e-14 away, and the boundary edge 13-15 passing 2.6e-15 from it). A corner farther than the tube is a real corner.
+            /// </summary>
+            bool CutsMergedHullCorners(Pt pa, Pt pb)
+            {
+                if (tube2.Sign == 0 || domain.Outers.Count != 1) return false;
+                var ring = domain.Outers[0];
+                int n = ring.Length;
+                for (int i = 0; i < n; ++i) {
+                    if (Exact.Dist2ToSegment(ring[i], ring[(i + 1) % n], pa) > tube2) continue;
+                    for (int j = 0; j < n; ++j) {
+                        if (j == i || Exact.Dist2ToSegment(ring[j], ring[(j + 1) % n], pb) > tube2) continue;
+                        // the corners from the end of edge i to the start of edge j
+                        bool near = true;
+                        for (int k = (i + 1) % n; near; k = (k + 1) % n) {
+                            near = Exact.Dist2ToSegment(pa, pb, ring[k]) <= tube2;
+                            if (k == j) break;
+                        }
+                        if (near) return true;
+                    }
+                }
+                return false;
+            }
+
             /// <summary>The union of the triangles is the domain: exact area, boundary edges constrained or on the hull, centroids inside.</summary>
             void Coverage()
             {
@@ -1219,7 +1248,8 @@ namespace Meshing2Acceptance
                     bool constrained = constraintEdges.Contains(pair.Key);
                     if (domain.IsHull) {
                         // on a hull edge: within the tube of it, so exactly on it if the tube is 0
-                        bool hull = domain.Edges().Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2);
+                        bool hull = domain.Edges().Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2)
+                            || CutsMergedHullCorners(v[a], v[b]);
                         if (!hull && !(constrained && SourceCovers(a, b))) r.Add(e.Milestone == Milestone.M1 ? Violation.HullBoundary : Violation.BoundaryNotConstrained,
                             "boundary edge " + a + "-" + b + " neither on the hull nor on a constraint");
                     } else if (!constrained) r.Add(Violation.BoundaryNotConstrained, "boundary edge " + a + "-" + b + " is no constraint");
