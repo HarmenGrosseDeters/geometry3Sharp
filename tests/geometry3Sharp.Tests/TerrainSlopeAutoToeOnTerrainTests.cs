@@ -77,7 +77,7 @@ namespace geometry3Sharp.Tests
         // the crossing on a terrain edge (x = 0, between its vertices: h 4, 3.3), on a terrain vertex with the toe along
         // terrain edges (h 5, 10), and in a triangle (the plane through z = 5 at x = 1.3); an open toe with its crossing on
         // a terrain edge (h 4) and on a terrain vertex (h 5, tilted off the grid line y = -5: an open toe along a terrain
-        // edge is a separate failure, TerrainSlopeKnownFailureTests)
+        // edge is a separate failure, docs/design/TERRAIN.md §11)
         [Theory]
         [InlineData(4.0, 0.0, false, 0.0)]
         [InlineData(3.3, 0.0, false, 0.0)]

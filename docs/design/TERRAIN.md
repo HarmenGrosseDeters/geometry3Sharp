@@ -1399,15 +1399,24 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
    `LocalFrame`, a runnable example; SOURCES.md for the band merge, the local frame and the early region check) and
    `g3cli slope` (CLI and MCP tool: GeoJSON toes, a TIN mesh file, the composite or replacement, surface and region,
    catch and target lines as GeoJSON, a report with the design's status; `SlopeCliTests`).
-   - Found by its tests, pinned (`TerrainSlopeKnownFailureTests`): `Direction.Auto` with a closed toe exactly at the
-     terrain's height where it crosses it (a square at z = 5 on z = 5 + 0.03 x) ends with `CompositeFailed`
-     ("inconsistent parity" in a terrain triangle both runs replace); 0.1 above or below it succeeds. The joint
-     triangulation of the triangles both runs replace, where the toe touches the terrain exactly. **Next, before
-     RoundToGrid** (a toe drawn on the terrain is a plausible input): the root cause in the Partner path (which
-     predicate decides the parity there, and why it is inconsistent), a fix that decides the degenerate case exactly
-     with a consistent tie rule (symbolic perturbation or an explicit "on the terrain" class, no epsilon), the repro
-     and its variants (an edge on a terrain vertex, along a terrain edge, an open toe, the 2^k frames), and the
-     prior-art line (coincident boundaries in overlay and arrangement code).
+   - Done, found by its tests: `Direction.Auto` with a toe exactly at the terrain's height where it crosses it ended
+     with `CompositeFailed` ("inconsistent parity"). In a terrain triangle that both runs replace, the cut run's region
+     is then a sliver of zero width along an edge, held by both runs' flags; the joint triangulation took an edge piece
+     in either region as no constraint, and sorted both runs' nodes by their rounded parameter. Now a piece is a
+     constraint where it is in both regions or in neither (the terrain part's boundary is the triangle's plus both
+     regions', mod 2), and the two runs' nodes are merged keeping each run's order: the parity is consistent by
+     construction, no epsilon (`TerrainSlopeAutoToeOnTerrainTests`; prior art: coincident edges in polygon overlay,
+     Martínez, Rueda and Feito 2009).
+   - **Next, before RoundToGrid, in this order** (each a Success that is not right, worse than a failure):
+     - (a) **T-junctions next to a replaced terrain triangle.** A replaced triangle with nodes inside an edge whose
+       neighbour has no region face: an open toe along a terrain edge that ends inside it, a lateral limit along a
+       terrain edge, a catch point rounded onto a terrain edge. The neighbour is copied whole, a crack that the area and
+       overlap checks of the tests do not see. Close that test gap too (a T-junction check in `AssertComposite`).
+     - (b) **A design below `MinFeatureSize`.** In the frame "rotated, scale 1e-3, utm" the 7-gon of the mixed tests
+       (r 1.1 cm, `MinFeatureSize` 1.5 cm) gives Success with catch points moved by more than `MinFeatureSize` or an
+       empty region, in cut and fill alone too. It should get a status, not Success: an existing `StatusKind` first,
+       a new one only with the 1.0.324 API check; the prior-art line on how other tools report results below their
+       resolution; a procedural repro.
    - Later: a DGM reader for the CLI (real users have DGM1 as a grid: ASCII XYZ, or the f32 grid of the benchmark,
      without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh files only.
 3. Volume per cell, 2D columns first (section 9.3).

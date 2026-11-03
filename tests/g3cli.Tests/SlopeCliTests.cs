@@ -231,8 +231,8 @@ namespace g3cli.Tests
             // a bare Polygon geometry inline, side and slope from the options; mixed cut and fill
             var terrain = Terrain(Vector3d.Zero);
             string t = WriteTerrain("inline_terrain.obj", terrain);
-            var ring = Square(new Vector3d(0, 0, 5.1));
-            // (at exactly 5 the toe meets the terrain on its crossing, a known failure of Auto: TerrainSlopeKnownFailureTests)
+            // (at z 5 the toe meets the terrain on its crossing: TerrainSlopeAutoToeOnTerrainTests)
+            var ring = Square(new Vector3d(0, 0, 5));
             string geo = "{\"type\": \"Polygon\", \"coordinates\": [[" + string.Join(", ", ring.Concat(new[] { ring[0] }).Select(Pos)) + "]]}";
             var (exit, r) = Run("slope", t, "--toes-geojson", geo, "--output", m.Path_("inline.g3mesh"), "--tolerance", "0.05",
                 "--side", "outside", "--slope", "degrees:40", "--direction", "auto");
