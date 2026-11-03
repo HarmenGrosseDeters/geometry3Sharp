@@ -214,6 +214,9 @@ on the reference triangulation (Q9). Decisions and findings:
 - Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
   free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
   vertices within the tube of a hull edge count as moved (O2, D13: a split of a hull edge in doubles cannot stay exactly on it).
+- Oracle, hull domain (D13) with merged points (O11): a boundary edge may run past hull corners that lie within the tube of it, as
+  when a hull corner is merged into a point within the tolerance inside the hull (delaunator's robustness1, 2026-11-03); a corner
+  farther than the tube is a real corner (self-checks accept and reject).
 - Bugs found and fixed on the way: splitting a segment lifted its constraint before inserting (non-Delaunay edges and mixed tags, as in M2's crossings);
   the source lists of an edge grew without bound when a piece was re-inserted (now a union; out of memory before); split points on hull edges moved inwards
   left slivers at unconstrained hull edges (now they may round outwards; Lawson's flips remove the old hull edge).
@@ -273,3 +276,47 @@ ALKIS and DGM tiles (local only).
    committed).
 7. **Performance and platforms:** M3 against spec 3.1 (F-27: more than 50 000 vertices in about 2 s) is not measured as a benchmark yet; net48 timing
    is open for all milestones.
+
+**State of 2026-11-03** (after the owner's order of 2026-11-02: lenses, grid-hole bugs, tracker cases, reference findings, docs).
+
+- **Merged:**
+  - #322 off-centres (Üngör 2004), only for triangles bad by their angle.
+  - #328 a pixel cache per vertex on the snap path, byte-identical, Herne 373600 q30 14.8 s → 9.1 s.
+  - #332 the constrained-quality mode, the library default (`Conforming = false`, judged as constrained Delaunay):
+    - diametral lenses up to arcsin(√3/4) = 25.65° (Shewchuk 2002 §6.4, without vertex deletion, so "unproven"), circles above;
+    - catalogue vertices −7.2 %, corpus at 20° 116k → 94k vertices;
+    - Herne 373600 q20-snap 93 320 → 62 303 triangles (the reference has 57 890).
+  - #334 a crossing inside a hole on the snap grid is no output vertex (Q8).
+  - #337 a grid split onto a vertex already there reroutes the chain, and the triangles it sweeps are retagged (stale domain tags
+    before; `REVIEW_CHECKLIST.md` §7).
+  - #340 with `Conforming`, the constrained edges of every triangle are queued, also those outside the domain: a segment piece inside
+    a hole hid a vertex across the hole (NotDelaunayGlobal).
+- **Open PRs at the time of writing:**
+  - #342: the oracle accepts a hull-domain boundary edge that cuts hull corners merged within the tube (O11, D13; delaunator's
+    robustness1).
+  - #344: twelve situations from other libraries' trackers as tests. All pass; the shallow crossing stops at the Steiner limit by
+    design.
+- **Fuzz:** the grid fuzz with holes runs refined at 20, 25 and 30 degrees with the tags checked after every operation
+  (`Meshing2GridHoleTests`).
+- **Open:**
+  - **T15:** the grid fuzz with holes at pixel 1/3, 30° seed 867 and 25° seed 1367, fails with NotDelaunayGlobal on master. The
+    mesher refuses a grid split because of content inside a hole, which the oracle does not see. The owner decides between (a)
+    removing the content of holes before refinement (spec Q7) and (b) an oracle excuse; the coordinator recommends (a).
+  - **Q17:** domains narrower than a pixel.
+  - The oracle's `ForcedByInputAngle` excuses a whole triangle whose small corner lies in an input wedge, without checking its other
+    corners. Whether that is intended is to be decided.
+  - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
+    108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
+    first.
+  - f-38/a and f-38/b (1 triangle vs 13 and 19) are correct: a single thin triangle whose small angle is the input angle, with no
+    encroached segment.
+
+| reference run (90711d0c, constrained) | ours, triangles | reference, triangles |
+|---|---|---|
+| f-38/a | 1 | 13 |
+| f-38/b | 1 | 19 |
+| f-11/a | 275 | 108 |
+| f-11/b | 416 | 205 |
+| f-40/angle-33.75 | 276 | 130 |
+| Herne 381000 q20 | 5 400 | 2 329 |
+| Herne 371800 q20-snap 1 cm | 11 278 | 277 418 |

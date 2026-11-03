@@ -35,56 +35,14 @@ namespace g3
 
 
 
-        // same code as IntrRay3Triangle3, but can be called w/o constructing additional data structures
+        /// <summary>
+        /// Does the ray hit the triangle: the exact, watertight decision of IntrRay3Triangle3 (ExactRayTriangle), without
+        /// constructing additional data structures. rayDirection need not be normalized.
+        /// </summary>
         public static bool Intersects(Vector3d rayOrigin, Vector3d rayDirection, Vector3d V0, Vector3d V1, Vector3d V2)
         {
-            // Compute the offset origin, edges, and normal.
-            Vector3d diff = rayOrigin - V0;
-            Vector3d edge1 = V1 - V0;
-            Vector3d edge2 = V2 - V0;
-            Vector3d normal = edge1.Cross(edge2);
-
-            // Solve Q + t*D = b1*E1 + b2*E2 (Q = kDiff, D = ray direction,
-            // E1 = kEdge1, E2 = kEdge2, N = Cross(E1,E2)) by
-            //   |Dot(D,N)|*b1 = sign(Dot(D,N))*Dot(D,Cross(Q,E2))
-            //   |Dot(D,N)|*b2 = sign(Dot(D,N))*Dot(D,Cross(E1,Q))
-            //   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
-            double DdN = rayDirection.Dot(normal);
-            // relative to the ray and triangle size, as in IntrRay3Triangle3 (an absolute 1e-8 made every triangle with
-            // edges below about 1e-4 'parallel')
-            double parallelTol = MathUtil.ZeroTolerance * Math.Sqrt(rayDirection.LengthSquared * normal.LengthSquared);
-            double sign;
-            if (DdN > parallelTol) {
-                sign = 1;
-            } else if (DdN < -parallelTol) {
-                sign = -1;
-                DdN = -DdN;
-            } else {
-                // Ray and triangle are parallel, call it a "no intersection"
-                // even if the ray does intersect.
-                return false;
-            }
-
-            double DdQxE2 = sign * rayDirection.Dot(diff.Cross(edge2));
-            if (DdQxE2 >= 0) {
-                double DdE1xQ = sign * rayDirection.Dot(edge1.Cross(diff));
-                if (DdE1xQ >= 0) {
-                    if (DdQxE2 + DdE1xQ <= DdN) {
-                        // Line intersects triangle, check if ray does.
-                        double QdN = -sign * diff.Dot(normal);
-                        if (QdN >= 0) {
-                            // Ray intersects triangle.
-                            return true;
-                        }
-                        // else: t < 0, no intersection
-                    }
-                    // else: b1+b2 > 1, no intersection
-                }
-                // else: b2 < 0, no intersection
-            }
-            // else: b1 < 0, no intersection
-            return false;
-
+            Vector3d p = ExactRayTriangle.SecondPoint(rayOrigin, rayDirection);
+            return ExactRayTriangle.RayHitClosed(rayOrigin, p, V0, V1, V2) != ExactRayTriangle.Miss;
         }
 
 

@@ -127,18 +127,24 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   (b) Document that frames at coincident vertices are undefined and return NaN there (cheap, but a silent value is
   worse than the current finite but wrong one only if callers check).
 
-### G3 (open): `TraceFailed` for short edges far from the origin
+### G3 (fixed): `TraceFailed` for short edges far from the origin
 
-- Test: `PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities` (case `_rotated_scale_1e-3_utm`).
+- Test: `PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities` (case `_rotated_scale_1e-3_utm`); the forced
+  failure `MeshGeodesicPathTests.FailedTrace_IsReported`.
 - Input -> wrong result: the flat 8 x 8 grid of size 1 rotated, scaled by 1e-3 and moved to UTM coordinates
-  (632117, 5712043, 114): edges of 1.25e-4 at coordinates of 6e6. `Compute(corner, opposite corner)` returns
-  `TraceFailed` (Length is right) where the same grid at the origin, or only at UTM, or only scaled, gives `Success`.
-- Cause: `build_output` (mesh_ops/MeshGeodesicPath.cs:544) accepts a traced edge if its walk ends within
-  `TraceTolerance * T.Length(h)` = 1e-6 of the edge length (1.25e-10 here) of its head vertex; the coordinates
-  themselves are only resolved to about 1e-9 there (one ulp of 6e6), so any walk misses by more than the tolerance.
-- Fix idea: a tolerance of max(1e-6 of the edge length, a few ulps of the largest coordinate of the edge's
-  triangles); `TraceTolerance` is internal and tests set it below 0 to force a failure, which must stay possible.
-  Small, low risk; not done in this pass because it changes when the status is reported.
+  (632117, 5712043, 114): edges of 1.25e-4 at coordinates of 6e6. `Compute(corner, opposite corner)` returned
+  `TraceFailed` (Length was right) where the same grid at the origin, or only at UTM, or only scaled, gives `Success`.
+- Cause: `build_output` (mesh_ops/MeshGeodesicPath.cs, around line 560) accepted a traced edge if its walk ended
+  within `TraceTolerance * T.Length(h)` = 1e-6 of the edge length of its head vertex: 5.3e-10 for the 5.3e-4 long
+  diagonal edge here. The walk ends with `to_world`, a barycentric combination of the triangle's coordinates, which
+  rounds to about one ulp of the coordinates (9.3e-10 at 5.7e6); the measured miss was 9.39e-10, one ulp.
+- Fix: the tolerance is max(`TraceTolerance` of the length, 16 eps M), M the largest absolute coordinate of the head
+  vertex (`trace_tolerance`; the rounding of `to_world` is at most about 6.1 eps M as a distance, derived in the comment). eps M is
+  scaled exactly by a 2^k scale, like the length, so such scales keep the same decision; the ulp term matters only
+  for edges below about 3.6e-9 of the coordinates (16 eps / 1e-6). A `TraceTolerance` below 0 still fails every trace (tests). With
+  the term removed the UTM case fails; with the `< 0` guard removed `FailedTrace_IsReported` fails (its new
+  one-edge path ends exactly at its vertex). A factor of 2 instead of 16 still passes (the miss is one ulp): the
+  margin is the derivation's, not a tuned value.
 
 ### Notes (no finding)
 
@@ -197,7 +203,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
   conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
 
-### P2 (open): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
+### P2 (open, decided: kept): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
 - Test: `LongThinTriangleInPlaneX0_ValidChart` (case `_BffDiskTwoTriangles`).
 - Issue: https://github.com/jpcy/xatlas/issues/130 (a long thin triangle in the plane x = 0).
@@ -223,6 +229,33 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   the boundary and needs a distortion A/B (`benchmarks/`). (b) Build BFF's Laplacian on the intrinsic Delaunay
   triangulation (`IntrinsicTriangulation`, non-negative weights); medium cost. (c) Check the result (flips, finiteness,
   boundary on the target circle) and report `SolverFailed`; cheap.
+- Fix attempt (November 2026, `claude/fix-p2`, not fixed; measured with a probe on the `ParameterizationBenchmark`
+  meshes at 4, 8, 30 and 60 rings and the quads above, comparing the conformal and harmonic extensions per mode):
+  - The conjugate v is discretely harmonic at every interior vertex (the Neumann right-hand side is zero there), so
+    the only interior-harmonic function with v = gamma.y on the boundary is the harmonic extension itself: there is
+    no "conformal extension with the exact boundary". Idea (a) as written (keep the conjugate inside, gamma.y on the
+    boundary) is not harmonic next to the boundary and flips triangles: Disk on the ellipsoid cap 23 (30 rings) and
+    194 (60 rings) flips, on the cut-open cylinder 78 to 974 flips, where today there are none.
+  - Where the boundary target pair (u, k~) is consistent the conjugate does give gamma: MinimalAreaDistortion keeps
+    the boundary within 6e-5 (hemisphere, 60 rings) to 7e-4 (cap 0.8 pi) of the UV diagonal, and to 1e-12 on the
+    quads without interior vertices. In Disk mode the pair is not consistent: the five rounds of the fixed point
+    (u from the angles, the angles from the inscribed polygon of the lengths of u) end with u of the previous angles.
+    The conjugate's boundary is then 0.6 % (ellipsoid) to 2.1 % (cylinder, at every resolution) of the diagonal off
+    the circle, and on the quads 0.09 to 176 diagonals. Iterating to convergence brings the ellipsoid and cylinder to
+    4e-4 to 7e-4 (the fixed point residual from 1e-2 to 1e-13 in 20 to 50 rounds), but on the quads the iteration
+    diverges (z = 50: a flip after 20 rounds; z = 1: infinite UVs after 10), so it does not fix this case.
+  - The BFF reference implementation (MIT, github.com/GeometryCollective/boundary-first-flattening, `Bff.cpp`, read
+    to check the construction, nothing taken over) uses the conjugate only for given scale factors and the harmonic
+    extension for given angles, cones and the disk (`flattenToDisk` ends in `flatten(u, ktilde, false)`). Doing the
+    same here (Disk always harmonic) fixes the quad (the two-needle quad: no flip, on the circle; conformal distortion
+    3.6e12, the price of a needle quad on a circle) and is exact on the circle everywhere, but changes Disk broadly:
+    mean / max conformal distortion (area weighted) on the cut-open cylinder 1.029 / 2.42 -> 5.52 / 64146 (60 rings;
+    its rectangle corners must open to pi), the ellipsoid cap 1.014 -> 1.021, the hemisphere and the 0.8 pi cap
+    unchanged to 1e-4. It also makes `Extension` a no-op in Disk mode.
+- Decision (owner, November 2026): P2 stays pinned and documented; Disk keeps the documented "boundary close to the
+  target curve". The harmonic extension for Disk (the reference behaviour) is not taken: it worsens the distortion
+  broadly (the cylinder above). Making the Disk iteration consistent, so that u and the angles agree at the end, is
+  parked as a later research item (it would not fix the quads without interior vertices, where it diverges).
 
 ### P4 (fixed): BFF Disk threw on the needle quad with the short diagonal
 
@@ -296,7 +329,7 @@ test, and while listed the test checks the specific wrong outcome).
   boundary edges if its normal deviates by more than 60 degrees from the removed triangles' normals: small, but it
   only covers one kind. MaxDeviation does not help (the walls are within the deviation of the input).
 
-### S2 (open): Remesher smoothing and projection flip triangles without MinTriangleQuality
+### S2 (open, decided: kept): Remesher smoothing and projection flip triangles without MinTriangleQuality
 
 - Tests: `RemesherIssueCasesTests.FlatOpenFan_BoundaryFixed_NoFlippedTriangle_0_basic` / `_0_pro`,
   `RemesherIssueCasesTests.LongThinSharpParts_NoInvertedTriangles_0`.
@@ -316,8 +349,13 @@ test, and while listed the test checks the specific wrong outcome).
   flips an incident non-flat triangle) by default, independently of the quality threshold: changes default results
   of Remesher and RemesherPro (an UPSTREAM_CHANGES row, the RemeshQualityBenchmark A/B), low to medium risk. (b) make
   g3cli-like defaults (MinTriangleQuality 0.2) the library default: a larger behaviour change.
+- Decision (owner, November 2026): the Remesher defaults stay those of upstream, and S2 stays pinned. For inputs like
+  these the docs recommend `PreventNormalFlips` and `MinTriangleQuality` (docs/OPERATIONS.md). Turning a flip guard on
+  by default would also change other results: in a prototype (`claude/fix-s2`) it regressed the hole fill on UTM
+  coordinates, the UTM gear and the boundary of an open surface. A default change would be a separate item with
+  those cases.
 
-### S3 (open): without feature constraints the Remesher cuts the creases of a coarse part
+### S3 (open, decided: kept): without feature constraints the Remesher cuts the creases of a coarse part
 
 - Test: `RemesherIssueCasesTests.CreasedPart_BoundsKept_none`.
 - Issue: https://github.com/MeshInspector/MeshLib/issues/4148 (prose only).
@@ -333,6 +371,8 @@ test, and while listed the test checks the specific wrong outcome).
   (eg 60 degrees): small code, but changes default results on every creased mesh; needs the benchmarks and an
   UPSTREAM_CHANGES row; medium risk. (b) document more prominently that remeshing without
   `PreserveBoundaryAndFeatures` is only for smooth surfaces (no code risk).
+- Decision (owner, November 2026): no default change (upstream behaviour kept), S3 stays pinned; the docs recommend
+  feature constraints (`PreserveBoundaryAndFeatures`) and `PreventNormalFlips` for creased inputs (idea (b)).
 
 ### Fixed: bowtie vertices in the Reducer
 
@@ -380,12 +420,12 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   about 1e10 with non-dyadic geometry a rounded box entry can exceed an equal triangle t and the tie can still depend
   on the order (as in the old code, not a regression). Row in UPSTREAM_CHANGES.md.
 
-### Q2: the ray-triangle test is not watertight
+### Q2 (fixed): the ray-triangle test was not watertight
 
-- Test: `RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits` (known failure).
+- Test: `RayOntoTheSharedDiagonalOrVertexOfASplitSquare_Hits` (also `ExactRayTriangleTests`).
 - Issue: https://github.com/mikedh/trimesh/issues/1766 (a ray onto the shared diagonal of a split square, rescaled:
   0 hits); also https://github.com/mikedh/trimesh/issues/2317 (vertex hits gave 0-n).
-- Input -> wrong result: the unit square split along the diagonal (1,0)-(0,1) into (0,1,3) and (1,2,3), scaled by
+- Input -> wrong result (before the fix): the unit square split along the diagonal (1,0)-(0,1) into (0,1,3) and (1,2,3), scaled by
   1e-3; a vertical ray onto the diagonal point (97/98, 1/98) * 1e-3 hits neither triangle (brute force and tree: 0 hits).
   At 1e-7 four of the 97 diagonal points miss (u = 89/98, 92/98, 95/98, 97/98). At 1, 2^±30, 1e3 and UTM all hit. A
   ray exactly through a vertex can miss every triangle of its fan: the apex of the pyramid in Q3 (4 triangles) gives
@@ -396,24 +436,31 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   evaluate that edge from different corners and operands, so their rounding is independent and a ray on (or within
   rounding of) the edge can be rejected by both. The tree is not the cause: in every case it equals brute force
   (asserted).
-- Fix ideas:
-  - Watertight ray-triangle intersection (Woop, Benthin, Wald, JCGT 2013): axis permutation and shear to ray space,
-    2D edge functions with the same operands for both triangles of an edge, a recomputation in higher precision when
-    one is 0. Watertight, but a hit on an edge then counts in both triangles (fine for nearest hit, not for
-    parity). Cost: rewrite of one core predicate used by every ray query (picking, IsInside, projections); needs an
-    A/B benchmark (`benchmarks/PredicateComparison`) and a check of the callers that read the barycentrics.
-  - Edge sides decided exactly: orient3d of the rounded ray line (O, O + D) against each edge, with the edge's vertices
-    in a canonical order (lower id first) and symbolic perturbation for exact zeros, so every edge belongs to exactly
-    one side. Watertight and single-counting, which also fixes Q3. Cost: adaptive predicates in the hot loop (fast
-    filter, so likely small), more code; risk: changes results on edges for every caller.
+- Fix: the hit / no-hit decision is exact (`math/ExactRayTriangle.cs`, `RayHitClosed`, used by
+  `IntrRay3Triangle3.Find` / `Intersects`, every ray query of `DMeshAABBTree3`, `MeshQueries.FindHitTriangle_LinearSearch`
+  and `IntersectionUtil.Intersects`): the ray is the half line from the origin through `SecondPoint` = origin +
+  2^m direction (rounded once; 2^m from the exponents, so that the scaled direction is at least twice the origin's
+  largest coordinate and 2^k scaling stays exact); the line meets the closed triangle iff the signs of
+  `ExactPredicates.Orient3d(o, p, edge)` of its three edges are not opposite (Plücker test; all three 0: the line lies in
+  the plane, no hit as upstream), and the hit is ahead iff `Orient3d(a, b, c, o)` is opposite to the crossing sign (0: the
+  origin is on the triangle, t = 0 as upstream). The triangle is closed: a ray onto a shared edge or vertex hits every
+  triangle there, so it never misses all of them, at any scale, also on the boundary of an open mesh (the alternative,
+  counting each crossing once by symbolic perturbation, misses at a boundary vertex or edge: kept for counting, Q3). The
+  ray parameter and the barycentrics are the same doubles as before for every ray that both rules hit (near the edge of a lone or boundary
+  triangle a hit can become a miss or the reverse, as the exact decision says); no parallel tolerance
+  any more (upstream rejected rays within about 1e-8 of the plane). Cost (`benchmarks/RayQueryBenchmark`, where
+  the numbers are): tree queries +2 % to +29 % per query, and the static single-triangle `Intersects` about 4.2x
+  (35 -> 146 ns), with identical decisions. In a robust repair, the ray queries of `MeshRepairOrientation` add about
+  0.9 % of the CPU time. 142 of 143 results are bit-identical on the meshes where any nearest hit changed, plus
+  controls. Row in UPSTREAM_CHANGES.md.
 
-### Q3: IsInside counts vertex and edge hits wrongly
+### Q3 (fixed): IsInside counted vertex and edge hits wrongly
 
-- Test: `ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight` (known failure).
+- Test: `ParityRayThroughAVertexOrAnEdge_InsideTestStaysRight` (also `ExactRayTriangleTests`).
 - Issues: https://github.com/isl-org/Open3D/issues/5105 (a parity ray along an edge of the cube, wrong sign),
   https://github.com/mikedh/trimesh/issues/85 (an edge hit counted several times: outside taken as inside),
   https://github.com/mikedh/trimesh/issues/2317.
-- Input -> wrong result, all on IsInside's own fixed ray direction D = (0.331960519038825, 0.462531727525156,
+- Input -> wrong result (before the fix), all on IsInside's own fixed ray direction D = (0.331960519038825, 0.462531727525156,
   0.822111072077288), at scales 1 and 2^±20:
   - a square pyramid with its apex exactly at D and its base around 3D, query at the origin (outside): 1 hit (the base;
     the apex gives 0 of its 4 triangles), IsInside true;
@@ -422,14 +469,18 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
     2 hits (both triangles of the edge), IsInside false.
   The fourth case (the edge on the ray from outside) happens to be right. `WindingNumber` is right in all of them
   (asserted).
-- Cause: `spatial/DMeshAABBTree.cs` `IsInside` (line 1046) takes the parity of `FindAllHitTriangles` along a fixed
-  direction; a vertex hit counts 0 to n times and an edge hit 0 to 2 times (Q2). Its doc comment already says it "can
-  be wrong if the ray hits an edge or vertex exactly" (upstream behaviour).
-- Fix ideas:
-  - With the exact, single-counting ray test of Q2 the parity is right for closed meshes at no extra cost.
-  - Without it: detect a degenerate hit (an edge function within a relative tolerance of 0, or a triangle nearly
-    parallel to the ray near it) among the triangles in the boxes the ray passes, and re-cast along the next of a
-    fixed list of directions. Local, but the detector must also catch rays that missed every triangle of a fan, so it
-    has to scan near misses, not only hits: moderate cost, and still a tolerance.
-  - Decide by `WindingNumber(p) > 0.5`: robust, but slower and a change of meaning for open, overlapping or
-    self-intersecting meshes (parity vs winding), so an API behaviour change.
+- Cause: `spatial/DMeshAABBTree.cs` `IsInside` (line 1046) took the parity of `FindAllHitTriangles` along a fixed
+  direction; a vertex hit counted 0 to n times and an edge hit 0 to 2 times (Q2). Its doc comment already said it "can
+  be wrong if the ray hits an edge or vertex exactly" (upstream behaviour). The closed rule of the Q2 fix alone would
+  count an edge hit twice.
+- Fix: `IsInside` counts the crossings of a perturbed ray (`ExactRayTriangle.RayHitPerturbed`, through the internal
+  `DMeshAABBTree3.CountCrossings`): the edge signs of Q2, with exact zeros decided by Simulation of Simplicity
+  (Edelsbrunner, Mücke 1990): the second point moved by (ε, ε², ε³), the origin by (ε⁴, ε⁸, ε¹²); the ε terms are
+  exact `Orient2d` of projections and coordinate differences, checked against an explicit perturbation in big integers.
+  The perturbed line meets no edge, so a ray through an edge or a vertex crosses exactly one triangle of a closed fan,
+  and a ray in a triangle's plane does not cross it: the parity is right for every closed mesh without
+  self-intersections and every point off its surface, at any scale. The same crossing test now decides
+  `VolumeSampleCells.ExactWinding` (one mechanism; its retry over 64 directions on a degenerate segment is gone, the
+  winding numbers are exact either way). The meaning of `IsInside` (parity) is unchanged; inside / outside for open,
+  overlapping or self-intersecting inputs is Phase 5 #5 (generalized winding numbers, `WindingNumber`), not this fix.
+  Cost: `IsInside` 6427 -> 7564 ns on the sphere, 3402 -> 4162 ns on the terrain (about 20 %), identical answers. Row in UPSTREAM_CHANGES.md.
