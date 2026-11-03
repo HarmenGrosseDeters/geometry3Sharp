@@ -545,18 +545,37 @@ two old triangles.
      - its XY length ℓ is at most r_band (≤ `MinFeatureSize`). Both its triangles are then needles, since a
        triangle's altitude is at most its shortest edge, so no separate needle test is needed (ℓ = `MinFeatureSize`
        exactly is harmless);
-     - the plane sets of its two ends are not nested (otherwise the collapse of step 1 may take it);
+     - the plane sets of its two ends differ. Sets of which neither contains the other are a near-quadruple point,
+       which step 1 may not collapse. Nested sets step 1 may collapse, but it leaves some: it refuses a collapse
+       that shrinks a thin altitude, and it measures in 3D, so an edge short in XY and long in z stays. Such a
+       nested pair is the band merge's too (added with the chains, below: the wavy toe on the Hambach DGM in its
+       local frame, 5.8.1, failed on both). Its removed labels are a subset of the kept ones, so the kept z does not
+       change;
      - neither end lies on a barrier (toe, lateral limit). Toe and lateral vertices are never moved, and they stay
        shared with the TIN and the composite;
      - neither end lies on the mesh's boundary (the cap's level line, which a collapse would move);
      - at least one of its two triangles fails the exact checks (i) or (ii). A needle that passes is left as it is,
        so the band merge never makes a passing design worse; its z changes would move the gradients of the kept
        vertex's other triangles.
-   - **What it does:** in one pass, shortest edges first, then by edge id (the build's order, which does not depend
-     on λ), each edge is collapsed onto one end. The end is chosen by a total order that is 2^k-invariant: more
-     labels first, then x, then y, as `merge_close_positions` orders. The kept vertex takes the union of both
-     plane sets, and its z is the lowest of those planes at its XY, lowered by λ, as the realization evaluates
-     it.
+   - **What it does:** in passes until one merges nothing, in each pass shortest edges first, then by edge id,
+     each edge is collapsed onto one end. Chains are merged: three triple points pairwise within r_band (a
+     near-quintuple point) need two merges at one vertex, and with one pass and no chains the second edge, the one
+     of the failing needles, was never taken.
+     - **Cumulative cap.** Every vertex carries the original XY positions merged into it (its own, and those of
+       the vertices it absorbed). A merge is refused if one of the removed vertex's positions would move by more
+       than r_band in XY to the kept vertex. The kept vertex never moves in XY, so the move of every original
+       position is its distance to the vertex it ends in, at most r_band. The distance is an upper bound, every
+       step rounded up (difference, squares, sum, root), so the cap and ℓ_max hold for the exact distances.
+     - **Order.** "Shortest first" uses the lengths at the start of the pass. A collapse moves the removed
+       vertex's edges to the kept one, which changes their lengths within the pass; the cap decides on the move,
+       which for the removed end is that edge's current length.
+     - **Termination.** Each merge removes a vertex, so there are fewer merges than vertices, and a pass without a
+       merge ends the loop.
+     - **Determinism.** The order in a pass is canonical (XY length, then edge id) on a realization that is itself
+       deterministic, and the checks are exact, so the merges are the same on every run.
+     - **Kept end.** The end is chosen by a total order that is 2^k-invariant: more labels first, then x, then y,
+       as `merge_close_positions` orders. The kept vertex takes the union of both plane sets, and its z is the
+       lowest of those planes at its XY, lowered by λ, as the realization evaluates it.
    - **When it is refused:** the collapse is made only if it keeps every other triangle of the removed vertex
      counter-clockwise (exact Orient2d, as `CollapseShortEdges`) and the mesh's link condition holds
      (`DMesh3.CollapseEdge`). A refused edge stays, and the check decides. There is no global radius, so no merge
@@ -568,17 +587,24 @@ two old triangles.
      − e_xy − r)), rounded down, with the facets' slack below; the lowering of band merges is rounded up. Both caps count r + r_band, as the moves add up. With today's
      flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda` gate keeps today's merges
      and flips. Where the slack leaves no room, r_band = r and no band merge is made: that design fails as today.
-   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the edge's
-     length ℓ, the distance the removed vertex moves, in place of r. The surface moves:
+   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with ℓ, the
+     largest move of an original position (the distance a label is carried), in place of r. The surface moves:
      - below S̃ by at most 4·sMax·(ℓ_max + e_xy);
      - above it by at most 2·sMax·(ℓ_max + e_xy), plus the rounding of a vertex, which λ covers.
 
-     - **Moves add up.** A vertex kept or removed is not merged again in the pass, so band merges do not chain.
-       But a position the merge within r has already moved, and then a band merge moves, has moved by r + ℓ. So
-       the lowering counts r + ℓ_max whenever the merge within r moved positions, and r_band's cap counts r + r_band
-       (λ room − r).
-   - **Independent of λ.** The needles, the lengths and the decisions are in XY, so a realization at another λ
-     makes the same band merges. Only z is evaluated again.
+     - **Moves add up.** Chains of band merges do not add up beyond r_band: ℓ_max is the largest move of an
+       original position over all band merges (the cumulative cap above), not the longest edge merged, and it is at
+       most r_band. A position the merge within r has already moved, and then band merges move, has moved by at
+       most r + ℓ_max. So the lowering counts r + ℓ_max whenever the merge within r moved positions, and r_band's
+       cap counts r + r_band (λ room − r). The labels a vertex carries come from positions at most that far away,
+       which is what the bound's premise uses.
+   - **Per realization.** The band merge is decided anew on each realization: the lengths and moves are in XY,
+     but which edges qualify depends on the exact checks of that realization, so on λ (z) and on δ (through
+     `MinFeatureSize` and so r_band). Only the collapses of step 1 are recorded and replayed. The bound holds per
+     realization: each realization's lowering need is computed from its own merges (r if the merge within r moved
+     positions, plus that realization's ℓ_max), and the attempt's checks run on that realization. A need above λ's
+     bound, which the radius's caps exclude, is still checked: λ is not raised past its bound, and the attempt goes
+     back for a larger δ.
    - **Spike** (the repro, local, with a global radius r_band; the targeted version replaces it): at the origin
      3 merges per realization, ℓ_max = 8.5e-12 (2.3·r), and `Success` in 1 attempt (2 realizations) instead of
      `SlopeViolation` after 3. At UTM there were 0 merges.
@@ -1223,6 +1249,14 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      the slope side (`nudge`, `onto_slope_side`). From a coordinate of exactly 0 the first step was the subnormal
      4.9e-324 in every frame, which 2^k does not scale. The step from 0 is now the ulp of the edge's coordinate
      scale (`TerrainSlopeCompositeZeroTests`; the band repair's test compares its composite bit for bit again).
+   - Done: the band merge's gaps (found by the local-frame spike, 5.8.1, on the wavy toe on the Hambach DGM: in its
+     local frame `SlopeViolation` after 3 attempts where UTM succeeds). Clusters of three triple points pairwise
+     within r_band were left (one pass, no chains), and nested pairs in the band were taken by neither repair. The
+     band merge now takes chains with a cumulative cap on every position's move, and nested pairs (5.4;
+     `TerrainSlopeBandRepairTests`, `TerrainSlopeBandMergeTests`). The DGM case then succeeds locally in 2 attempts.
+   - Next, found there: the first attempt still fails on one triangle of the composite's clipped slope region (an
+     altitude of 2.3e-9 m at the catch line), under its support by 0.43 mm, more than λ's bound covers, so δ is
+     raised. The band merge acts on the realization, not on the clipping. Diagnosis and a procedural repro first.
    - Parked until the owner decides: `MinFeatureSize` relative to the input's scale (1(a)), an opt-in local frame
      (5.8.1). Its spike showed two things:
      - outputs translated back to UTM lose the local margins: the support check failed in every benchmark case;
