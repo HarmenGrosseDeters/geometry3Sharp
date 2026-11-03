@@ -15,10 +15,12 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeClippedRegionTests
     {
-        // a wavy 32-gon (r 100 m) on waves of amplitude 30 m near the origin (TerrainSlopeBandRepairTests.WavyOnWaves)
+        // a wavy 48-gon (r 150 m) on waves of amplitude 30 m near the origin (TerrainSlopeBandRepairTests.WavyOnWaves)
+        // (first the 32-gon of r 100 m; since the composite's snap reserves Tolerance / 4, its finer facets have the sliver
+        // in this one)
         static TerrainSlopeDesign Make(Similarity s)
         {
-            return TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340), n: 32, r: 100, amp: 30, sp: 8);
+            return TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340), amp: 30);
         }
 
         static readonly Lazy<TerrainSlopeDesign> reference = new Lazy<TerrainSlopeDesign>(() => {
@@ -29,10 +31,10 @@ namespace geometry3Sharp.Tests
 
         // near the origin and in its 2^k scalings the first attempt fails on a clipped sliver (an altitude far below
         // MinFeatureSize), δ is raised by 8 and the second attempt succeeds. At UTM, rotated and at scale 1e3 or 1e-3 the
-        // sliver rounds away (one attempt). In "rotated, scale 1e-3, utm" the design (20 cm across) is near that frame's
-        // MinFeatureSize (1.9 mm): 16 triangles below it fail the first attempt, with no room for the band merge (its
-        // radius is r), another cause (TERRAIN.md 5.8.1). Every frame succeeds with a valid composite; the 2^k frames are
-        // bit for bit
+        // sliver rounds away (one attempt). In "rotated, scale 1e-3, utm" the design (30 cm across) is near that frame's
+        // MinFeatureSize (2.3 mm at the first margin): triangles of the clipped region fail the first two attempts, with
+        // no room for the band merge (its radius is r), another cause (TERRAIN.md 5.8.1). Every frame succeeds with a
+        // valid composite; the 2^k frames are bit for bit
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void WavyToeNearTheOrigin_ClippedSliverRaisesTheMargin(string name)
@@ -54,8 +56,29 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
                 Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
             } else {
-                Assert.Equal(s.Name.StartsWith("rotated, scale 1e-3, utm") ? 2 : 1, d.Attempts);
+                Assert.Equal(s.Name.StartsWith("rotated, scale 1e-3, utm") ? 3 : 1, d.Attempts);
             }
+        }
+
+        // the 32-gon (r 100 m) this test had first: success with valid catch lines and composite in every frame but
+        // "rotated, scale 1e-3, utm", where the design (20 cm across) is near the frame's MinFeatureSize and the composite
+        // fails honestly (CompositeFailed); the local frame succeeds there
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void WavyToe32_Succeeds(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
+            var d = TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340), n: 32, r: 100, amp: 30, sp: 8);
+            if (name == Similarity.RotatedUtmMillimetre.Name) {
+                if (d.Compute() == false) Assert.Equal(TerrainSlopeDesign.Statuses.CompositeFailed, d.Status);
+                d = TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340), n: 32, r: 100, amp: 30, sp: 8);
+                d.LocalFrame = true;
+            }
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            if (d.LocalFrame) TerrainSlopeLocalFrameTests.InputsToLocal(d);
+            TerrainSlopeCatchLineTests.AssertCatchLines(d, false);
+            TerrainSlopeCatchLineTests.AssertComposite(d);
         }
     }
 }

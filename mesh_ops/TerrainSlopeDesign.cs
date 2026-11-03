@@ -234,7 +234,14 @@ namespace gs
         /// below it, for fill above)
         /// </summary>
         public double HeightLimit = double.NaN;
-        /// <summary> required: the largest vertical deviation below the exact cone envelope (data units) </summary>
+        /// <summary>
+        /// required: the largest vertical deviation below the exact cone envelope (data units). With a Terrain and
+        /// BuildComposite, the composite is within Tolerance of the clamp of the terrain and the envelope
+        /// (max(S_fill, min(T, S_cut))) except within m of the steps at the toe, the lateral limits and the cap, whose
+        /// position shifts by m: m is the largest move of a catch point, below UsedMinFeatureSize in a single run (with
+        /// Direction Auto, the snap at a toe crossing adds up to max(UsedMinFeatureSize, 1e-4 x the toes' size)); a
+        /// composite that cannot be certified so fails with SlopeViolation (docs/design/TERRAIN.md 5.5)
+        /// </summary>
         public double Tolerance = double.NaN;
         /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
         public double SlopeMargin = 1e-6;
@@ -357,7 +364,8 @@ namespace gs
         public List<Index2i> ToeProblems = new List<Index2i>();
         /// <summary>
         /// SlopeViolation: the failing triangles of the last attempt (ids of the slope surface of that attempt or, if
-        /// the composite's slope triangles failed, of its SlopeRegion; neither is returned)
+        /// the composite's slope triangles failed, of its SlopeRegion; neither is returned); empty if the composite's
+        /// certificate failed (the Message names the catch point)
         /// </summary>
         public List<int> ProblemTriangles = new List<int>();
         /// <summary>
@@ -599,6 +607,15 @@ namespace gs
             if (bad.Count > 0) {
                 ProblemTriangles = bad;
                 return fail(Statuses.SlopeViolation, $"{bad.Count} triangles of the mixed composite's slope region failed the exact check");
+            }
+            // the snap certificate of the mixed composite (TERRAIN.md 5.5): the larger of the two runs' budgets, which each
+            // reserved Tolerance / 4 for it
+            {
+                double budget = Math.Max(c.SnapBudget, f.SnapBudget);
+                double dev = comp.SnapDeviation();
+                SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
+                if (!(ExactInterval.Up(budget + dev) <= Tolerance))
+                    return fail(Statuses.SlopeViolation, cert_message(comp, dev, budget));
             }
             SlopeRegion = comp.Region;
             Composite = CompositeKind == CompositeKinds.Full ? comp.Composite : null;
@@ -892,12 +909,14 @@ namespace gs
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
             // needs, measured; a slope or orientation failure raises the margin δ
             double delta = SlopeMargin, lambdaReq = -1;
+            string certFail = null;
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
                 BuildResult br;
                 Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br);
                 if (attempt > 0 && st == Statuses.InvalidInput)
-                    return fail(Statuses.SlopeViolation, $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
+                    return fail(Statuses.SlopeViolation, certFail != null ? certFail + "; a larger margin does not fit into Tolerance"
+                                                       : $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
@@ -924,6 +943,7 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
+                certFail = br.CertFail;
                 // (the altitudes on the mesh the ids are of: the realization, or the clipped region of the composite)
                 if (br.BadMesh != null)
                     AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(br.BadMesh, t)).ToList());
@@ -933,7 +953,7 @@ namespace gs
                 }
                 // (the build raised λ itself, by realizing again; what is left needs a larger margin δ and a new build)
                 if (attempt >= 7 || delta * 8 > 1e-3)
-                    return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
+                    return fail(Statuses.SlopeViolation, br.CertFail ?? $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
                 // (the measured lowering is kept; the next build caps it at its own bound)
                 lambdaReq = Math.Max(br.Lambda, (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1);
@@ -961,6 +981,7 @@ namespace gs
             public DMesh3 Region, Composite;
             public SlopeTerrainOverlay Overlay;
             public List<int> Replaced;
+            public string CertFail;
             public int[] TerrainVertexOf, CompositeVertexOf;
             public double[] Volumes, PlanAreas, SlopeAreas;
         }
@@ -1049,9 +1070,12 @@ namespace gs
             // z_q <= S̃(q) + O(e_xy) (TERRAIN_1B_PLAN.md, reviews))
             double mergeRadius = MergeRadius(exy);
             double mergeShare = MergeShare(exy, sMax);
-            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare;
+            // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
+            // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
+            double snapShare = Terrain != null ? Tolerance / 4 : 0;
+            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare;
             if (!(facetShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare:G3})");
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare:G3})");
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
             double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
             foreach (var pc in pieces)
@@ -1074,6 +1098,11 @@ namespace gs
             double oneMinusCos = ExactInterval.Up((1 - Math.Cos(0.75 * theta)) + Math.Pow(2, -49));
             double facetNeed = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(sMax * 1.1) * D0) * oneMinusCos);
             double facetSlack = ExactInterval.Down(facetShare - facetNeed);
+            {
+                double deltaTerm = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(delta * sMax) * 1.1) * D0);
+                snapBase = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lambdaBound + deltaTerm) + mergeShare) + facetNeed);
+                snapSMax = sMax; snapExy = exy; snapMergeRadius = mergeRadius;
+            }
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
@@ -1410,6 +1439,8 @@ namespace gs
                         return true;
                     }
                 };
+                // (the realized surface's budget without the snap: the mixed composite of Direction Auto takes both runs')
+                SnapBudget = budget_without_snap();
                 var comp = new SlopeComposite(overlay, pieces.Count, minFeature, CancelF) {
                     CopyTerrain = CompositeKind == CompositeKinds.Full, RegionCheck = EarlyRegionCheck ? regionCheck : null
                 };
@@ -1427,6 +1458,16 @@ namespace gs
                     br.BadMesh = comp.Region;
                     return Statuses.SlopeViolation;
                 }
+                // the snap certificate (TERRAIN.md 5.5): the budget of the realized surface (its sum rounded up), plus the exact bound
+                // of the deviation that the catch points' moves made, within Tolerance; else a larger margin δ, whose
+                // smaller MinFeatureSize moves them less
+                double dev = comp.SnapDeviation();
+                SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
+                phase("certificate");
+                if (!(ExactInterval.Up(SnapBudget + dev) <= Tolerance)) {
+                    br.CertFail = cert_message(comp, dev, SnapBudget);
+                    return Statuses.SlopeViolation;
+                }
                 br.Region = comp.Region;
                 br.Composite = comp.Composite;
                 br.Replaced = comp.Replaced.ToList();
@@ -1434,6 +1475,32 @@ namespace gs
                 br.CompositeVertexOf = comp.CompositeVertexOf;
             }
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
+        }
+
+        /// <summary> the budget of the last build's realized surface without the snap (TERRAIN.md 5.4, 5.5), its sum rounded up </summary>
+        internal double SnapBudget;
+        /// <summary> tests: the last certificate's bound D, the composite triangles it bounded, its step width m </summary>
+        internal double SnapCertificate, SnapStep;
+        internal List<int> SnapTriangles = new List<int>();
+        internal List<double> SnapTriangleBounds = new List<double>();
+        internal List<KeyValuePair<Vector2d, int>> SnapMoves = new List<KeyValuePair<Vector2d, int>>();
+
+        // the tolerance budget with the measured parts (TERRAIN.md 5.4): the λ bound, the margin's share, the realization
+        // merge, the facets at the quantized angle and the band merge's move (if it merged), each term as the budget
+        // computes it, the sum rounded up
+        // (set by build: the terms that do not depend on the realization)
+        double snapBase, snapSMax, snapExy, snapMergeRadius;
+        double budget_without_snap()
+        {
+            double band = BandMerges > 0 ? ExactInterval.Up(4 * snapSMax * ExactInterval.Up(ExactInterval.Up(snapMergeRadius + MaxMergeDistance) + snapExy)) : 0;
+            return ExactInterval.Up(snapBase + band);
+        }
+
+        string cert_message(SlopeComposite comp, double dev, double budget)
+        {
+            return $"the composite is not certified: its catch points moved (one at the largest deviation at ({comp.SnapWorstCatchAt.x:R}, {comp.SnapWorstCatchAt.y:R}), "
+                 + $"{comp.SnapWorstCatchOwn.xy.Distance(comp.SnapWorstCatchAt.xy):G3} from its own position) and changed the surface by up to {dev:G3}, "
+                 + $"where at most {Tolerance - budget:G3} fits into Tolerance (TERRAIN.md 5.5)";
         }
 
         // every boundary edge of the realized surface lies on a toe or lateral limit (both ends on a barrier) or on the

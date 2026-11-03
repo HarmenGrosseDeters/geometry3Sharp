@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
     {
         // the inputs of d translated by -UsedOrigin (exact: LocalFrame checked it), so that the checks of the outputs,
         // which read Terrain and Toes, see the local frame the outputs are in
-        static void InputsToLocal(TerrainSlopeDesign d)
+        internal static void InputsToLocal(TerrainSlopeDesign d)
         {
             Vector2d o = d.UsedOrigin;
             var toes = d.Toes.Select(t => new SlopeToe() {

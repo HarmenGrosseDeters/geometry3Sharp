@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using g3;
 
 namespace gs
@@ -641,6 +642,501 @@ namespace gs
                 if (compVerts.TryGetValue(cutPos(bv), out cv)) { TerrainVertexOf[cv] = bv; CompositeVertexOf[bv] = cv; }
             }
             return true;
+        }
+
+        // ---------------------------------------------------------------- the snap certificate (TERRAIN.md 5.5)
+
+        // a point with rational coordinates (X / D, Y / D), D > 0, exactly: a vertex (D = 1), or the crossing of two
+        // segments; Box holds it (the crossing lies on both segments)
+        internal struct RPoint
+        {
+            public ExactDyadic X, Y, D;
+            public Vector2d V;          // the vertex (D = 1)
+            public bool IsVertex;
+            public AxisAlignedBox2d Box;
+            public ExactInterval IX, IY; // intervals that hold X / D and Y / D
+            public static RPoint Of(Vector2d p)
+            {
+                return new RPoint() { X = ExactDyadic.Of(p.x), Y = ExactDyadic.Of(p.y), D = one, V = p, IsVertex = true, Box = new AxisAlignedBox2d(p, p),
+                                      IX = ExactInterval.Of(p.x), IY = ExactInterval.Of(p.y) };
+            }
+        }
+        static readonly ExactDyadic one = new ExactDyadic(System.Numerics.BigInteger.One, 0);
+
+        // the sign of the orientation of a, b, p (exact)
+        static int orient(Vector2d a, Vector2d b, RPoint p)
+        {
+            if (p.IsVertex) return ExactPredicates.Orient2d(a, b, p.V);
+            // (an interval filter first: its sign, if decided, is the exact one)
+            ExactInterval ia = ExactInterval.Of(a.x), ib = ExactInterval.Of(a.y);
+            int f = ((ExactInterval.Of(b.x) - ia) * (p.IY - ib) - (ExactInterval.Of(b.y) - ib) * (p.IX - ia)).Sign();
+            if (f == 1 || f == -1) return f;
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y);
+            return ((ExactDyadic.Of(b.x) - ax) * (p.Y - ay * p.D) - (ExactDyadic.Of(b.y) - ay) * (p.X - ax * p.D)).Sign;
+        }
+
+        // the crossing of the segments ab and cd, exactly; false if they do not cross or are collinear (a crossing of
+        // collinear segments is an end of one of them, a candidate of its own)
+        static bool crossing(Vector2d a, Vector2d b, Vector2d c, Vector2d d, out RPoint x)
+        {
+            x = default(RPoint);
+            int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+            int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+            if (o1 * o2 > 0 || o3 * o4 > 0 || (o1 == 0 && o2 == 0)) return false;
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay;
+            ExactDyadic cx = ExactDyadic.Of(c.x), cy = ExactDyadic.Of(c.y);
+            ExactDyadic wx = ExactDyadic.Of(d.x) - cx, wy = ExactDyadic.Of(d.y) - cy;
+            ExactDyadic den = ux * wy - uy * wx;
+            if (den.Sign == 0) return false;
+            // a + t u with t = ((c - a) x w) / (u x w)
+            ExactDyadic tn = (cx - ax) * wy - (cy - ay) * wx;
+            ExactDyadic X = ax * den + tn * ux, Y = ay * den + tn * uy;
+            if (den.Sign < 0) { X = -X; Y = -Y; den = -den; }
+            var box = new AxisAlignedBox2d(a, b);
+            var box2 = new AxisAlignedBox2d(c, d);
+            box = new AxisAlignedBox2d(Math.Max(box.Min.x, box2.Min.x), Math.Max(box.Min.y, box2.Min.y), Math.Min(box.Max.x, box2.Max.x), Math.Min(box.Max.y, box2.Max.y));
+            // (each quotient rounded to nearest: within half a spacing, so one step out holds it)
+            double qx = ExactDyadic.Quotient(X, den), qy = ExactDyadic.Quotient(Y, den);
+            // (the box of its intervals holds it, within the segments' boxes)
+            var ix = new ExactInterval(ExactInterval.Down(qx), ExactInterval.Up(qx));
+            var iy = new ExactInterval(ExactInterval.Down(qy), ExactInterval.Up(qy));
+            box = new AxisAlignedBox2d(Math.Max(box.Min.x, ix.Lo), Math.Max(box.Min.y, iy.Lo), Math.Min(box.Max.x, ix.Hi), Math.Min(box.Max.y, iy.Hi));
+            x = new RPoint() { X = X, Y = Y, D = den, Box = box, IX = ix, IY = iy };
+            return true;
+        }
+
+        // the height of the plane through a, b, c at p, as num / den exactly (a, b, c not collinear in XY)
+        static void plane_at(Vector3d a, Vector3d b, Vector3d c, RPoint p, out ExactDyadic num, out ExactDyadic den)
+        {
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay, uz = ExactDyadic.Of(b.z) - az;
+            ExactDyadic wx = ExactDyadic.Of(c.x) - ax, wy = ExactDyadic.Of(c.y) - ay, wz = ExactDyadic.Of(c.z) - az;
+            ExactDyadic nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            num = az * nz * p.D - nx * (p.X - ax * p.D) - ny * (p.Y - ay * p.D);
+            den = nz * p.D;
+        }
+
+        // p lies within m of the segment ab (a != b; the capsule, convex), exactly
+        static bool within_of_segment(Vector2d a, Vector2d b, double m, RPoint p)
+        {
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay;
+            // (p - a, times D)
+            ExactDyadic wx = p.X - ax * p.D, wy = p.Y - ay * p.D;
+            ExactDyadic mm = ExactDyadic.Of(m), m2D2 = mm * mm * p.D * p.D, uu = ux * ux + uy * uy;
+            ExactDyadic t = ux * wx + uy * wy;
+            if (t.Sign <= 0) return ExactDyadic.Compare(wx * wx + wy * wy, m2D2) <= 0;
+            if (ExactDyadic.Compare(t, uu * p.D) >= 0) {
+                ExactDyadic vx = wx - ux * p.D, vy = wy - uy * p.D;
+                return ExactDyadic.Compare(vx * vx + vy * vy, m2D2) <= 0;
+            }
+            ExactDyadic cr = ux * wy - uy * wx;
+            return ExactDyadic.Compare(cr * cr, m2D2 * uu) <= 0;
+        }
+
+        // a plane through a, b, c with the intervals of its normal, for its height at points as an interval
+        internal struct PlaneI
+        {
+            public Vector3d A, B, C;
+            ExactInterval ax, ay, az, nx, ny, nz;
+            bool ok;
+            public static PlaneI Of(Vector3d a, Vector3d b, Vector3d c)
+            {
+                var p = new PlaneI() { A = a, B = b, C = c };
+                p.ax = ExactInterval.Of(a.x); p.ay = ExactInterval.Of(a.y); p.az = ExactInterval.Of(a.z);
+                ExactInterval ux = ExactInterval.Of(b.x) - p.ax, uy = ExactInterval.Of(b.y) - p.ay, uz = ExactInterval.Of(b.z) - p.az;
+                ExactInterval wx = ExactInterval.Of(c.x) - p.ax, wy = ExactInterval.Of(c.y) - p.ay, wz = ExactInterval.Of(c.z) - p.az;
+                p.nx = uy * wz - uz * wy; p.ny = uz * wx - ux * wz; p.nz = ux * wy - uy * wx;
+                // (the interval of the normal's z keeps its sign)
+                p.ok = p.nz.Lo > 0 || p.nz.Hi < 0;
+                return p;
+            }
+            // the height at p as an interval that holds it; false if it cannot be had so
+            public bool At(RPoint p, out ExactInterval z)
+            {
+                z = default(ExactInterval);
+                if (ok == false) return false;
+                ExactInterval num = -(nx * (p.IX - ax)) - ny * (p.IY - ay);
+                double q1 = num.Lo / nz.Lo, q2 = num.Lo / nz.Hi, q3 = num.Hi / nz.Lo, q4 = num.Hi / nz.Hi;
+                if (double.IsNaN(q1) || double.IsNaN(q2) || double.IsNaN(q3) || double.IsNaN(q4)) return false;
+                // (each quotient rounded to nearest: one step out holds the exact one)
+                z = az + new ExactInterval(ExactInterval.Down(Math.Min(Math.Min(q1, q2), Math.Min(q3, q4))), ExactInterval.Up(Math.Max(Math.Max(q1, q2), Math.Max(q3, q4))));
+                return true;
+            }
+        }
+
+        // the difference of the heights of planes 1 and 2 at p (z1 the first's, if ok1), an upper (up) or lower bound: from
+        // intervals where they are narrow (relative to the heights, 2^-30), else exact and rounded once outward
+        static double difference(PlaneI p1, bool ok1, ExactInterval z1, PlaneI p2, RPoint p, bool up)
+        {
+            ExactInterval z2;
+            if (ok1 && p2.At(p, out z2)) {
+                ExactInterval df = z1 - z2;
+                double scale = Math.Max(Math.Max(Math.Abs(z1.Lo), Math.Abs(z1.Hi)), Math.Max(Math.Abs(z2.Lo), Math.Abs(z2.Hi)));
+                if (df.Hi - df.Lo <= scale * Math.Pow(2, -30)) return up ? df.Hi : df.Lo;
+            }
+            ExactDyadic n1, d1, n2, d2;
+            plane_at(p1.A, p1.B, p1.C, p, out n1, out d1);
+            plane_at(p2.A, p2.B, p2.C, p, out n2, out d2);
+            return difference(n1, d1, n2, d2, up);
+        }
+
+        // closed triangle a, b, c (o: its orientation, != 0) contains p
+        static bool contains(Vector2d a, Vector2d b, Vector2d c, int o, RPoint p)
+        {
+            return orient(a, b, p) * o >= 0 && orient(b, c, p) * o >= 0 && orient(c, a, p) * o >= 0;
+        }
+
+        // the interiors of two triangles (non-degenerate in XY) overlap: no edge line of either separates them (exact)
+        static bool interiors_overlap(Vector2d[] s, Vector2d[] t)
+        {
+            foreach (var pair in new[] { new[] { s, t }, new[] { t, s } }) {
+                Vector2d[] p = pair[0], q = pair[1];
+                int o = ExactPredicates.Orient2d(p[0], p[1], p[2]);
+                for (int i = 0; i < 3; ++i) {
+                    bool separates = true;
+                    for (int j = 0; j < 3 && separates; ++j)
+                        if (ExactPredicates.Orient2d(p[i], p[(i + 1) % 3], q[j]) * o > 0) separates = false;
+                    if (separates) return false;
+                }
+            }
+            return true;
+        }
+
+        // the closed triangles s and t (t counter-clockwise or clockwise, non-degenerate) meet: no edge line of either has
+        // the other wholly strictly outside (exact); a degenerate s counts as meeting
+        static bool closed_meet(Vector2d[] s, Vector2d[] t, int ot)
+        {
+            int os = ExactPredicates.Orient2d(s[0], s[1], s[2]);
+            if (os == 0) return true;
+            for (int i = 0; i < 3; ++i) {
+                if (ExactPredicates.Orient2d(t[i], t[(i + 1) % 3], s[0]) * ot < 0 && ExactPredicates.Orient2d(t[i], t[(i + 1) % 3], s[1]) * ot < 0
+                    && ExactPredicates.Orient2d(t[i], t[(i + 1) % 3], s[2]) * ot < 0) return false;
+                if (ExactPredicates.Orient2d(s[i], s[(i + 1) % 3], t[0]) * os < 0 && ExactPredicates.Orient2d(s[i], s[(i + 1) % 3], t[1]) * os < 0
+                    && ExactPredicates.Orient2d(s[i], s[(i + 1) % 3], t[2]) * os < 0) return false;
+            }
+            return true;
+        }
+
+        // the triangles of a mesh within a box, from a quadtree (built here, or the overlay's of the terrain)
+        internal sealed class SurfaceIndex
+        {
+            public readonly DMesh3 M;
+            readonly List<int> tris;
+            readonly LooseQuadtree2d tree;
+            public SurfaceIndex(DMesh3 m, LooseQuadtree2d tree, List<int> tris) { M = m; this.tree = tree; this.tris = tris; }
+            public SurfaceIndex(DMesh3 m) : this(m, m.TriangleIndices()) { }
+            public SurfaceIndex(DMesh3 m, IEnumerable<int> of)
+            {
+                M = m; tris = new List<int>();
+                var boxes = new List<AxisAlignedBox2d>();
+                foreach (int t in of) {
+                    Index3i v = m.GetTriangle(t);
+                    var box = new AxisAlignedBox2d(m.GetVertex(v.a).xy, m.GetVertex(v.b).xy);
+                    box.Contain(m.GetVertex(v.c).xy);
+                    tris.Add(t); boxes.Add(box);
+                }
+                tree = new LooseQuadtree2d(boxes, false);
+            }
+            public List<int> In(AxisAlignedBox2d box)
+            {
+                return In(box, new List<int>());
+            }
+            public List<int> In(AxisAlignedBox2d box, List<int> r)
+            {
+                r.Clear();
+                tree.QueryRectangle(box, r);
+                for (int i = 0; i < r.Count; ++i) r[i] = tris[r[i]];
+                return r;
+            }
+            public Vector2d[] XY(int t)
+            {
+                Index3i v = M.GetTriangle(t);
+                return new[] { M.GetVertex(v.a).xy, M.GetVertex(v.b).xy, M.GetVertex(v.c).xy };
+            }
+            readonly Dictionary<int, PlaneI> planes = new Dictionary<int, PlaneI>();
+            // the first of the triangles (closed, non-degenerate) that contains p, its plane; false if none does
+            public bool Containing(List<int> among, RPoint p, out PlaneI plane)
+            {
+                plane = default(PlaneI);
+                foreach (int t in among) {
+                    Index3i v = M.GetTriangle(t);
+                    Vector3d a = M.GetVertex(v.a), b = M.GetVertex(v.b), c = M.GetVertex(v.c);
+                    int o = ExactPredicates.Orient2d(a.xy, b.xy, c.xy);
+                    if (o == 0 || contains(a.xy, b.xy, c.xy, o, p) == false) continue;
+                    if (planes.TryGetValue(t, out plane) == false) { plane = PlaneI.Of(a, b, c); planes[t] = plane; }
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // n1 / d1 - n2 / d2, rounded up or down
+        static double difference(ExactDyadic n1, ExactDyadic d1, ExactDyadic n2, ExactDyadic d2, bool up)
+        {
+            double q = ExactDyadic.Quotient(n1 * d2 - n2 * d1, d1 * d2);
+            return up ? ExactInterval.Up(q) : ExactInterval.Down(q);
+        }
+
+        /// <summary>
+        /// the bound of |z - c| on the composite triangle (pa, pb, pc) (TERRAIN.md 5.5): ownRun the run it is a slope
+        /// triangle of (-1: a terrain triangle), the runs' slope surfaces with their directions (+1 cut, -1 fill), maxMove
+        /// the largest move, wider an index of more terrain triangles for points beyond terrain's; 0 if it has no area in
+        /// XY, +infinity if a candidate is off the terrain
+        /// </summary>
+        internal static double TriangleBound(Vector3d pa, Vector3d pb, Vector3d pc, int ownRun, SurfaceIndex terrain,
+                                             List<SurfaceIndex> slopes, int[] dirs, double maxMove, Func<SurfaceIndex> wider = null)
+        {
+            Vector2d[] tri = { pa.xy, pb.xy, pc.xy };
+            int ot = ExactPredicates.Orient2d(tri[0], tri[1], tri[2]);
+            // (no area in XY, a vertical wall of a step, eg at a toe crossing where the cut and fill points share their
+            // XY: it holds no point of the height field, whose points its neighbours bound)
+            if (ot == 0) return 0;
+            var box = new AxisAlignedBox2d(tri[0], tri[1]); box.Contain(tri[2]);
+            // the triangles of each mesh within t's box; of the slope surfaces, those whose interiors overlap t's
+            // (those that meet t: only they have vertices in t or edges that cross t's)
+            var near = new List<List<int>>();
+            var meshes = new List<SurfaceIndex> { terrain };
+            meshes.AddRange(slopes);
+            var overlapping = new List<List<int>>();
+            for (int m = 0; m < meshes.Count; ++m) {
+                SurfaceIndex s = meshes[m];
+                var meet = new List<int>();
+                var ov = new List<int>();
+                foreach (int st in s.In(box)) {
+                    Vector2d[] sxy = s.XY(st);
+                    if (closed_meet(sxy, tri, ot) == false) continue;
+                    meet.Add(st);
+                    if (m > 0 && ExactPredicates.Orient2d(sxy[0], sxy[1], sxy[2]) != 0 && interiors_overlap(sxy, tri)) ov.Add(st);
+                }
+                near.Add(meet);
+                if (m > 0) overlapping.Add(ov);
+            }
+            // the candidates: the corners, the vertices of the meshes inside t, the crossings of t's edges with theirs.
+            // (A crossing inside t of edges of two meshes, a cell vertex too, is never needed: along each of the two edges
+            // its own mesh's part of f is linear through it; f there equals one of the parts, so f takes its value again
+            // at the next vertex on that part's edge in the direction where the part does not fall, and so on to a
+            // candidate; TERRAIN.md 5.5)
+            var pts = new List<RPoint> { RPoint.Of(tri[0]), RPoint.Of(tri[1]), RPoint.Of(tri[2]) };
+            // (a vertex at one position once)
+            var seenAt = new HashSet<Vector2d> { tri[0], tri[1], tri[2] };
+            var edgesOf = new List<List<Vector2d[]>>();
+            for (int m = 0; m < meshes.Count; ++m) {
+                var es = new List<Vector2d[]>();
+                var seenE = new HashSet<long>();
+                var seenV = new HashSet<int>();
+                foreach (int st in near[m]) {
+                    Index3i sv = meshes[m].M.GetTriangle(st);
+                    int[] ids = { sv.a, sv.b, sv.c };
+                    for (int i = 0; i < 3; ++i) {
+                        Vector2d qi = meshes[m].M.GetVertex(ids[i]).xy;
+                        if (seenV.Add(ids[i]) && seenAt.Contains(qi) == false && contains(tri[0], tri[1], tri[2], ot, RPoint.Of(qi))) { pts.Add(RPoint.Of(qi)); seenAt.Add(qi); }
+                        int u = Math.Min(ids[i], ids[(i + 1) % 3]), w = Math.Max(ids[i], ids[(i + 1) % 3]);
+                        if (seenE.Add(((long)u << 32) | (uint)w)) es.Add(new[] { meshes[m].M.GetVertex(u).xy, meshes[m].M.GetVertex(w).xy });
+                    }
+                }
+                edgesOf.Add(es);
+            }
+            for (int i = 0; i < 3; ++i)
+                foreach (List<Vector2d[]> es in edgesOf)
+                    foreach (Vector2d[] e in es) {
+                        RPoint x;
+                        if (crossing(tri[i], tri[(i + 1) % 3], e[0], e[1], out x)) pts.Add(x);
+                    }
+            // the step at a boundary edge of a run's slope surface (the toe, a lateral limit, the cap): where the overlap
+            // of t with the run's surface lies within the moves (and the rounding of the points on that edge) of one
+            // boundary edge, it is that step, displaced by the move; the run is not compared there
+            // (the overlap is the convex hull of the candidates where the run's S counts, so the capsule around the
+            // edge, convex, holds it if it holds them)
+            var stepOnly = new bool[slopes.Count];
+            {
+                double bm = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)));
+                double step = ExactInterval.Up(maxMove + 8 * (ExactInterval.Up(bm) - bm));
+                for (int r = 0; r < slopes.Count; ++r) {
+                    if (r == ownRun || overlapping[r].Count == 0) continue;
+                    var counted = new List<RPoint>();
+                    foreach (RPoint x in pts) {
+                        PlaneI sp;
+                        if (slopes[r].Containing(overlapping[r], x, out sp)) counted.Add(x);
+                    }
+                    DMesh3 a = slopes[r].M;
+                    foreach (int st in overlapping[r]) {
+                        Index3i te = a.GetTriEdges(st);
+                        foreach (int e in new[] { te.a, te.b, te.c }) {
+                            if (a.IsBoundaryEdge(e) == false) continue;
+                            Index2i ev = a.GetEdgeV(e);
+                            Vector2d e0 = a.GetVertex(ev.a).xy, e1 = a.GetVertex(ev.b).xy;
+                            if (counted.All(x => within_of_segment(e0, e1, step, x))) { stepOnly[r] = true; break; }
+                        }
+                        if (stepOnly[r]) break;
+                    }
+                }
+            }
+            // the bounds at each candidate x: f <= U(x), f >= L(x) on every cell whose closure holds x
+            //   U = max(z - T, z - S_cut) (0 for the cut run's own triangles: S_cut = z), or 0 on the fill run's own
+            //   L = min(z - T, z - S_fill) (z - T replaced by 0 on the cut run's own: f >= min(z - S_fill, 0)), or
+            //       min(0, z - T) on the fill run's own
+            double up = double.NegativeInfinity, low = double.PositiveInfinity;
+            PlaneI tp = PlaneI.Of(pa, pb, pc);
+            var buffer = new List<int>();
+            foreach (RPoint x in pts) {
+                PlaneI terr;
+                if (terrain.Containing(terrain.In(x.Box, buffer), x, out terr) == false) {
+                    // (a point beyond the overlays' terrain triangles: the wider index, if there is one)
+                    SurfaceIndex w = wider != null ? wider() : null;
+                    if (w == null || w.Containing(w.In(x.Box, buffer), x, out terr) == false) return double.PositiveInfinity;
+                }
+                ExactInterval zi;
+                bool zok = tp.At(x, out zi);
+                double uz = double.NegativeInfinity, lz = double.PositiveInfinity;
+                bool ownFill = ownRun >= 0 && dirs[ownRun] < 0, ownCut = ownRun >= 0 && dirs[ownRun] > 0;
+                if (ownFill) { uz = 0; lz = Math.Min(0, difference(tp, zok, zi, terr, x, false)); }
+                else {
+                    double hi = difference(tp, zok, zi, terr, x, true);
+                    uz = ownCut ? Math.Max(0, hi) : hi;
+                    lz = ownCut ? 0 : difference(tp, zok, zi, terr, x, false);
+                    for (int r = 0; r < slopes.Count; ++r) {
+                        if (r == ownRun || stepOnly[r]) continue;
+                        PlaneI sp;
+                        if (slopes[r].Containing(overlapping[r], x, out sp) == false) continue;
+                        if (dirs[r] > 0) uz = Math.Max(uz, difference(tp, zok, zi, sp, x, true));
+                        else lz = Math.Min(lz, difference(tp, zok, zi, sp, x, false));
+                    }
+                }
+                up = Math.Max(up, uz); low = Math.Min(low, lz);
+            }
+            return Math.Max(up, -low);
+        }
+
+        /// <summary> the certificate's worst point: a moved catch point of the triangle with the largest deviation </summary>
+        internal Vector3d SnapWorstCatchOwn, SnapWorstCatchAt;
+        /// <summary> tests: the composite triangles the last certificate bounded, and its step width m </summary>
+        internal List<int> SnapTriangles = new List<int>();
+        internal List<double> SnapTriangleBounds = new List<double>();
+        internal double SnapStep;
+        /// <summary> tests: the moved points of the last certificate, (own position, composite vertex) </summary>
+        internal List<KeyValuePair<Vector2d, int>> SnapMoves = new List<KeyValuePair<Vector2d, int>>();
+
+        /// <summary>
+        /// an upper bound of |z - ideal| on the composite triangles at the catch points that the snap, the merge or the
+        /// partner snap moved, with ideal = max(S_fill, min(T, S_cut)) of the realized surfaces T (the terrain) and S (each
+        /// run's slope surface, where it lies; one run in a single run), exactly up to the final rounding up: 0 if no
+        /// catch point moved. TERRAIN.md 5.5 has the proof: f = z - ideal on a composite triangle t is bounded above by
+        /// max(z - T, z - S_cut) and below by min(z - T, z - S_fill), both piecewise linear on the cells of t's
+        /// refinement by the triangles of T and of each S, so the bounds are taken at the cells' vertices: t's corners,
+        /// the vertices of T and S inside t, and the crossings of edges of two of t, T, S_cut, S_fill, each an exact
+        /// rational point. A run's S counts at a point only through its triangles whose interiors overlap t's (a triangle
+        /// that only touches t has no cell in it); on a slope triangle of the run itself S is t's own plane (the region is
+        /// the slope surface as realized: the base budget bounds that)
+        /// </summary>
+        internal double SnapDeviation()
+        {
+            var moved = new Dictionary<int, double>();
+            var movedFrom = new Dictionary<int, Vector3d>();
+            foreach (SlopeComposite c in Partner != null ? new[] { this, Partner } : new[] { this })
+                foreach (var kv in c.catchAt) {
+                    Vector3d own;
+                    if (c.catchOwn.TryGetValue(kv.Key, out own) == false || (own.x == kv.Value.x && own.y == kv.Value.y)) continue;
+                    int cv;
+                    // (a moved point the composite does not have: nothing to bound it by)
+                    if (compVerts.TryGetValue(kv.Value, out cv) == false) { SnapWorstCatchOwn = own; SnapWorstCatchAt = kv.Value; return double.PositiveInfinity; }
+                    double d = own.xy.Distance(kv.Value.xy), d0;
+                    if (moved.TryGetValue(cv, out d0) == false || d > d0) { moved[cv] = d; movedFrom[cv] = own; }
+                }
+            SnapTriangles = new List<int>(); SnapTriangleBounds = new List<double>(); SnapStep = 0;
+            SnapMoves = moved.Keys.OrderBy(v => v).Select(v => new KeyValuePair<Vector2d, int>(movedFrom[v].xy, v)).ToList();
+            if (moved.Count == 0) { SnapWorstCatchOwn = SnapWorstCatchAt = Vector3d.Zero; return 0; }
+            // the triangles where the move changed the composite: a point moved from p0 to p1 changes it within the
+            // interiors of the triangles (u, p0, p1) swept by its edges to its neighbours u, so every composite triangle
+            // whose interior overlaps one of them (exact). They form one connected set with the triangles at p1 (a
+            // conforming mesh covers the convex area), so a search from those over shared vertices finds them all
+            var tris = new SortedSet<int>();
+            var sweptAll = AxisAlignedBox2d.Empty;
+            foreach (int v in moved.Keys) {
+                Vector2d p1 = Composite.GetVertex(v).xy, p0 = movedFrom[v].xy;
+                // (a swept triangle without area changes nothing)
+                var swept = new List<Vector2d[]>();
+                foreach (int u in Composite.VtxVerticesItr(v)) {
+                    var sw = new[] { Composite.GetVertex(u).xy, p0, p1 };
+                    if (ExactPredicates.Orient2d(sw[0], sw[1], sw[2]) == 0) continue;
+                    swept.Add(sw);
+                    sweptAll.Contain(sw[0]); sweptAll.Contain(sw[1]); sweptAll.Contain(sw[2]);
+                }
+                var seen = new HashSet<int>();
+                var queue = new Queue<int>();
+                foreach (int t in Composite.VtxTrianglesItr(v)) if (seen.Add(t)) queue.Enqueue(t);
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    Index3i tv = Composite.GetTriangle(t);
+                    Vector2d[] txy = { Composite.GetVertex(tv.a).xy, Composite.GetVertex(tv.b).xy, Composite.GetVertex(tv.c).xy };
+                    // (the triangles at p1 always; the others where their interior overlaps a swept triangle's, exactly:
+                    // outside, and on the boundary, the composite is as without the move)
+                    bool meets = tv.a == v || tv.b == v || tv.c == v;
+                    if (meets == false && ExactPredicates.Orient2d(txy[0], txy[1], txy[2]) != 0)
+                        foreach (Vector2d[] sw in swept)
+                            if (interiors_overlap(txy, sw)) { meets = true; break; }
+                    if (meets == false) continue;
+                    tris.Add(t);
+                    sweptAll.Contain(txy[0]); sweptAll.Contain(txy[1]); sweptAll.Contain(txy[2]);
+                    foreach (int w in new[] { tv.a, tv.b, tv.c })
+                        foreach (int t2 in Composite.VtxTrianglesItr(w))
+                            if (seen.Add(t2)) queue.Enqueue(t2);
+                }
+            }
+            // (the largest move, rounded up: a move of a point by d moves the triangles' edges at it by at most d)
+            double maxMove = 0;
+            foreach (double d in moved.Values) maxMove = Math.Max(maxMove, ExactInterval.Up(ExactInterval.Up(d) * (1 + Math.Pow(2, -50))));
+            SnapTriangles = tris.ToList(); SnapStep = maxMove;
+            // (the terrain triangles of the overlays, those where the slope surfaces are: of both runs in a mixed one)
+            var terrain = Partner == null ? new SurfaceIndex(B, O.TerrainTree, O.TerrainTreeTris)
+                                          : new SurfaceIndex(B, O.TerrainTreeTris.Union(Partner.O.TerrainTreeTris).OrderBy(x => x));
+            var runs = new List<SlopeComposite>();
+            var slopes = new List<SurfaceIndex>();
+            foreach (SlopeComposite c in Partner != null ? new[] { this, Partner } : new[] { this }) { runs.Add(c); slopes.Add(new SurfaceIndex(c.A)); }
+            int[] dirs = runs.Select(c => c.O.Dir).ToArray();
+            // (the composite's triangles there may be copies of terrain triangles that no overlay has: then every terrain
+            // triangle in the box of all of them, indexed once when first needed)
+            SurfaceIndex wide = null;
+            Func<SurfaceIndex> wider = () => {
+                if (wide == null) {
+                    var near = new List<int>();
+                    foreach (int bt in B.TriangleIndices()) {
+                        Index3i bv = B.GetTriangle(bt);
+                        var bb = new AxisAlignedBox2d(B.GetVertex(bv.a).xy, B.GetVertex(bv.b).xy);
+                        bb.Contain(B.GetVertex(bv.c).xy);
+                        if (bb.Min.x <= sweptAll.Max.x && sweptAll.Min.x <= bb.Max.x && bb.Min.y <= sweptAll.Max.y && sweptAll.Min.y <= bb.Max.y) near.Add(bt);
+                    }
+                    wide = new SurfaceIndex(B, near);
+                }
+                return wide;
+            };
+            double dev = 0;
+            int worstTriangle = -1;
+            foreach (int t in tris) {
+                Index3i tv = Composite.GetTriangle(t);
+                Vector3d pa = Composite.GetVertex(tv.a), pb = Composite.GetVertex(tv.b), pc = Composite.GetVertex(tv.c);
+                int grp = Composite.GetTriangleGroup(t);
+                int ownRun = grp == terrainGroup ? -1 : (Partner != null && grp >= Partner.GroupOffset ? 1 : 0);
+                double d = TriangleBound(pa, pb, pc, ownRun, terrain, slopes, dirs, maxMove, wider);
+                SnapTriangleBounds.Add(d);
+                if (d > dev) {
+                    dev = d;
+                    worstTriangle = t;
+                }
+                if (double.IsPositiveInfinity(d)) break;
+            }
+            // (the message's catch point: of the worst triangle the moved vertex that moved most, else the point that moved
+            // most of all)
+            int best = -1;
+            double bestMove = -1;
+            if (worstTriangle >= 0) {
+                Index3i wv = Composite.GetTriangle(worstTriangle);
+                foreach (int v in new[] { wv.a, wv.b, wv.c }) { double mv; if (moved.TryGetValue(v, out mv) && mv > bestMove) { bestMove = mv; best = v; } }
+            }
+            if (best < 0) foreach (var kv in moved) if (kv.Value > bestMove || (kv.Value == bestMove && kv.Key < best)) { bestMove = kv.Value; best = kv.Key; }
+            SnapWorstCatchOwn = movedFrom[best]; SnapWorstCatchAt = Composite.GetVertex(best);
+            return dev;
         }
 
         /// <summary> added to the slope surface's group ids (the second overlay of a mixed run: its pieces after the first's) </summary>

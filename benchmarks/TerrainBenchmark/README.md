@@ -432,3 +432,53 @@ Setup:
 A rejected variant reserved a share of `Tolerance` for the band, taken from the facets. It changed every design: the
 facet angle shrank by 1–2 %, and the octagon took 10.2 → 14.3 s (one more λ round), although no design used the
 band.
+
+### The catch points' move in the budget, and its certificate (item (b), `TERRAIN.md` 5.5)
+
+On a terrain, `Tolerance` / 4 is reserved for the move of the composite's catch points, so the facets are finer. An
+exact certificate then bounds the surface's deviation at the moved points; if it does not fit, δ is raised.
+
+Setup:
+- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is this branch.
+- The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
+- "certificate" is the phase `certificate` (`SlopeComposite.SnapDeviation`) of the final build.
+
+| case | before (s) | after (s) | attempts | realizations | slope triangles | certificate (s) |
+|---|---|---|---|---|---|---|
+| one toe edge, 1 m | 1.89, 2.04 | 1.93, 2.25 | 1 → 1 | 1 → 1 | 3 → 3 | 0.09, 0.09 |
+| octagon r 100 m, 1 m | 10.64, 10.74 | 11.22, 10.83 | 1 → 1 | 2 → 2 | 159 → 182 | 0.27, 0.23 |
+| L shape 120 m, 2 m | 3.08, 3.13 | 4.41, 5.13 | 1 → 1 | 2 → 3 | 255 → 294 | 0.06, 0.07 |
+| wavy 48-gon r 150 m, 2 m | 9.32, 8.84 | 13.52, 13.78 | 1 → 1 | 2 → 3 | 474 → 565 | 0.21, 0.18 |
+| octagon, 1 m, `localframe=1` | 11.07, 10.81 | 10.71, 11.11 | 1 → 1 | 2 → 2 | 159 → 182 | 0.01, 0.01 |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`, no terrain) | 4.14, 4.27 | 4.10, 4.25 | 1 → 1 | 2 → 2 | 487 → 487 | – |
+| wavy 48-gon on waves amp 20, local | 4.52, 4.56 | 4.70, 5.40 | 1 → 1 | 4 → 3 | 371 → 413 | 0.03, 0.03 |
+| wavy 32-gon on waves amp 10, local | 3.15, 3.05 | 4.44, 3.61 | 1 → 1 | 3 → 3 | 332 → 369 | 0.04, 0.03 |
+
+What the numbers show:
+- **Finer facets.** There are 10–19 % more slope triangles, and the time rises by 4–12 % where the realizations stay
+  the same.
+- **One more realization on the L shape and the wavy 48-gon (+46 %, +53 %).** Both times the composite's clipped
+  region fails its support check twice:
+  - λ is raised to 4 × the measured excess.
+  - The next realization clips differently and measures an excess 10–14 × the first (L shape 7.1e-7 → 1.0e-5 m,
+    wavy 7.3e-8 → 7.3e-7 m), so a third realization is needed.
+  - This is the clipped-region item (face 1 of `TERRAIN.md` §11). It is a speed follow-up there.
+- **The certificate costs 1.3–2.3 % of the run on the octagon, the L shape and the wavy case, and 4.5 % on the one
+  toe edge.** On the toe edge about half of it is the JIT compilation of the certificate's code (the profile's
+  unmanaged time), a fixed cost per process.
+  - The certificate is fast because of four things:
+    - an interval filter: heights and differences come from outward-rounded intervals, and are exact only where an
+      interval is wide;
+    - point queries in tiny boxes;
+    - only the terrain triangles that meet the composite triangle;
+    - the triangles of the move's sweep found by exact interior overlap (a box test took the fans around the far
+      vertex, 8 × the triangles).
+  - The first exact version took 14 % on the octagon.
+- **Without the reserved share** (the certificate alone, δ raised where it fails), the run takes more attempts on the
+  DGM:
+  - one toe edge: 2 attempts, 3.2 s;
+  - L shape: 2 attempts, 5.2 s;
+  - wavy 48-gon: 3 attempts, 27 s.
+  - On Mixed's 180 procedural designs at UTM, 7 need a second attempt.
+  - So the share stays.
+
