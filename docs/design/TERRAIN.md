@@ -484,7 +484,8 @@ Every collapse removes a vertex. Flips are only accepted if they raise the small
 terminates.
 
 **Repair of the band [64·e_xy, `MinFeatureSize`) (item 4 of 1c, design 2026-11-03, revised after the bound
-review and a spike; not implemented yet).** Today the realization repairs by thresholds that scale with e_xy:
+review and a spike; the band merge is implemented, `SlopeMap.BandMerge`, the band flips are not).** Before it,
+the realization repaired by thresholds that scale with e_xy:
 - the merge of positions and the needle flips (`SlopeMap.FlipNeedles`) act below r = 64·e_xy;
 - `CollapseShortEdges` acts on edges shorter than `MinFeatureSize`;
 - δ covers only triangles with h_min ≥ `MinFeatureSize` ≈ 16·e_xy/δ.
@@ -513,12 +514,13 @@ A cap needle (long edges, small altitude) with r ≤ h < `MinFeatureSize` is cov
   raised once by measurement, to 5.3e-7. The crease points that are 4e-12 apart near the origin round to one
   position on the 9.3e-10 grid. The geometry is the same; the result depends on the frame because the grid does.
   A UTM design with crease features between 6e-8 m and 1.5 cm wide could fail the same way.
-- **Repro** (`TerrainSlopeKnownFailureTests`, procedural, about 8 s):
+- **Repro** (`TerrainSlopeBandRepairTests`, procedural, about 8 s):
   - toe: a wavy 48-gon of r 150 m, z −340 ± 4 m, ratio 1.5;
   - terrain: a wave terrain 60 m above the toe, amplitude 20 m, 8 m grid, 13k triangles;
   - `Tolerance` 0.05.
 
-  At (0, 0) it fails after 3 attempts, with needles among the failing triangles. At UTM it succeeds in 1 attempt.
+  Before the band merge, at (0, 0) it failed after 3 attempts, with needles among the failing triangles; with it,
+  it succeeds in 1 attempt (one band merge of 8.5e-12 m). At UTM it succeeds in 1 attempt, with no band merge.
 
 **Why a small deviation is not enough.** The flip's deviation bound d = |z_ab(X) − z_cd(X)| at the crossing X of
 the diagonals bounds how far the surface moves, not its slope or support:
@@ -1212,10 +1214,11 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      off the slope side of the edge's line, so the slope part's edge to it dipped below the nudged terrain nodes. It
      is moved onto the slope side (`onto_slope_side`, the mirror of the nudge) and its z taken there
      (`TerrainSlopeTerrainBoundaryTests`).
-   - Next, a defect found by the 1(a) spike (item 4): near the origin a design fails with `SlopeViolation` where
-     the same design at UTM succeeds. The cause is needles in the band [64·e_xy, `MinFeatureSize`) that no repair
-     covers, from near-quadruple points. Pinned by `TerrainSlopeKnownFailureTests`. The repair (a band merge, then
-     band flips) is designed in 5.4, "Repair of the band"; the implementation follows in its own PR.
+   - Done (item 4, found by the 1(a) spike): near the origin a design failed with `SlopeViolation` where the same
+     design at UTM succeeds. The cause was needles in the band [64·e_xy, `MinFeatureSize`) that no repair covered,
+     from near-quadruple points. The targeted band merge of 5.4, "Repair of the band", fixes it
+     (`TerrainSlopeBandRepairTests`). Designs without band merges are bitwise unchanged (the benchmark's output
+     hashes). The band flips stay documented until a case needs them.
    - Then a bugfix of the composite's 2^k invariance (found in item 4). `SlopeComposite` moves a node by ulps off
      the slope side (`nudge`, `onto_slope_side`: `ExactInterval.Up/Down`). From a coordinate of exactly 0 the first
      step is the subnormal 4.9e-324 in every frame, which 2^k does not scale. A composite node on a terrain grid
