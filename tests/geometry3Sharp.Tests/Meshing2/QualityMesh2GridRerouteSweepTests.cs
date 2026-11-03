@@ -12,12 +12,14 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2GridRerouteSweepTests
     {
-        /// <summary> the reduced cases do take the path of a split onto a vertex already there </summary>
+        /// <summary>
+        /// the reduced cases do take the path of a split onto a vertex already there (case 30 no longer does: its target was a vertex of
+        /// a segment piece inside the hole, which the carve before refinement removes, T15; case 292 replaces it)
+        /// </summary>
         [Theory]
-        [InlineData(30, 0.0)]
         [InlineData(31, 0.0)]
-        [InlineData(30, 25.0)]
         [InlineData(31, 20.0)]
+        [InlineData(292, 20.0)]
         public void SplitOntoAVertexAlreadyThere_TakesTheReroutePath(int which, double angle)
         {
             QualityMesh2.Refiner.ReroutesForTests = 0;
