@@ -866,10 +866,18 @@ namespace Meshing2Acceptance
             Q snapPixel;
             HashSet<(BigInteger x, BigInteger y)> hot, snapHot;
             List<(BigInteger x, BigInteger y)> hotList;
-            Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>> images;
-            Domain snappedDomain;
-            Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool> linkCollapsed;
-            Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>> linksAt;
+            List<(BigInteger x, BigInteger y)> snapHotList;
+
+            /// <summary> the images of all input edges under one set of hot pixels, the snapped domain of their rings, the links at each pixel </summary>
+            sealed class SnapState
+            {
+                public readonly Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>> Images = new Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>>();
+                public Domain Domain;
+                public readonly Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool> Collapsed = new Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool>();
+                public readonly Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>> LinksAt = new Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>>();
+            }
+            /// <summary> with all hot pixels (the output vertices' too), and with those of the input alone (points, crossings) </summary>
+            SnapState full, inputOnly;
 
             List<(Pt a, Pt b)> inputEdges;
 
@@ -884,6 +892,7 @@ namespace Meshing2Acceptance
                 inputEdges = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Distinct().ToList();
                 foreach (var p in Crossings(inputEdges)) Hot(p);
                 snapHot = new HashSet<(BigInteger x, BigInteger y)>(hot);   // those of snapping (input points, crossings): met by contact
+                snapHotList = new List<(BigInteger x, BigInteger y)>(hotList);
                 foreach (var p in v) Hot(p);
             }
 
@@ -911,29 +920,39 @@ namespace Meshing2Acceptance
                 ImageWorkForTests += work;
             }
 
-            /// <summary> builds the images of all edges, the snapped domain and the links at each pixel, once </summary>
+            /// <summary>
+            /// O-H5's two states, once: the images with all hot pixels (<see cref="full"/>), and with the input's alone
+            /// (<see cref="inputOnly"/>, rule (ii'): an excuse must already hold there, so output vertices reroute only inside parts the
+            /// input's rounding collapses and never create a collapse; coordinator 2026-11-03)
+            /// </summary>
             void Snap()
             {
-                if (images != null) return;
+                if (full != null) return;
                 SnapHot();
                 long work = 0;
-                var edges = inputEdges;
-                images = new Dictionary<(Pt a, Pt b), List<(BigInteger x, BigInteger y)>>();
+                full = BuildState(hot, hotList, ref work);
+                inputOnly = BuildState(snapHot, snapHotList, ref work);
+                ImageWorkForTests += work;
+            }
+
+            SnapState BuildState(HashSet<(BigInteger x, BigInteger y)> hotSet, List<(BigInteger x, BigInteger y)> hotSetList, ref long work)
+            {
+                var st = new SnapState();
+                long w = 0;
                 List<(BigInteger x, BigInteger y)> Of(Pt a, Pt b)
                 {
-                    if (images.TryGetValue((a, b), out var known)) return known;
-                    if (images.TryGetValue((b, a), out var back)) { known = new List<(BigInteger x, BigInteger y)>(back); known.Reverse(); }
-                    else known = Image(a, b, hot, hotList, snapPixel, ref work, snapHot);
-                    images[(a, b)] = known;
+                    if (st.Images.TryGetValue((a, b), out var known)) return known;
+                    if (st.Images.TryGetValue((b, a), out var back)) { known = new List<(BigInteger x, BigInteger y)>(back); known.Reverse(); }
+                    else known = Image(a, b, hotSet, hotSetList, snapPixel, ref w, snapHot);
+                    st.Images[(a, b)] = known;
                     return known;
                 }
-                linksAt = new Dictionary<(BigInteger x, BigInteger y), List<(BigInteger x, BigInteger y)>>();
                 void Link((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
                 {
-                    if (!linksAt.TryGetValue(p, out var list)) linksAt.Add(p, list = new List<(BigInteger x, BigInteger y)>());
+                    if (!st.LinksAt.TryGetValue(p, out var list)) st.LinksAt.Add(p, list = new List<(BigInteger x, BigInteger y)>());
                     if (!list.Contains(q)) list.Add(q);
                 }
-                foreach (var g in edges) {
+                foreach (var g in inputEdges) {
                     var image = Of(g.a, g.b);
                     for (int k = 0; k + 1 < image.Count; ++k) { Link(image[k], image[k + 1]); Link(image[k + 1], image[k]); }
                 }
@@ -947,9 +966,9 @@ namespace Meshing2Acceptance
                     while (nodes.Count > 1 && nodes[nodes.Count - 1].Equals(nodes[0])) nodes.RemoveAt(nodes.Count - 1);
                     rings.Add((nodes.Select(n => Centre(n, snapPixel)).ToArray(), hole));
                 }
-                snappedDomain = new Domain(rings, !e.Reference);
-                linkCollapsed = new Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), bool>();
-                ImageWorkForTests += work;
+                st.Domain = new Domain(rings, !e.Reference);
+                work += w;
+                return st;
             }
 
             /// <summary> the points where two of the edges cross properly (exact), found through a grid of their boxes </summary>
@@ -980,35 +999,65 @@ namespace Meshing2Acceptance
                 return result;
             }
 
-            /// <summary> link p-q of an image is collapsed: the snapped domain has no interior just beside its middle on either side </summary>
-            bool LinkCollapsed((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+            /// <summary> the two points just beside the middle of link p-q (2^-40 of its length off it) </summary>
+            (Pt left, Pt right) Beside((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
             {
-                var key = p.x < q.x || p.x == q.x && p.y < q.y ? (p, q) : (q, p);
-                if (linkCollapsed.TryGetValue(key, out bool known)) return known;
                 Pt a = Centre(p, snapPixel), b = Centre(q, snapPixel);
-                // 2^-40 of the link's length off its middle: no other link comes that close to the middle of one between pixel
-                // centres (at least a pixel / (2 length) for lengths below 2^30 pixels), except one on it
+                // images are snap-rounded, so links meet only at pixel centres; another link through these points would have to pass
+                // within 2^-40 of the length of this one's middle, which a link between lattice points does only on it
                 Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, eps = new Q(BigInteger.One, BigInteger.One << 40);
                 Q nx = -(b.Qy - a.Qy) * eps, ny = (b.Qx - a.Qx) * eps;
-                bool collapsed = snappedDomain.Classify(new Pt(mx + nx, my + ny)) != Where.Inside && snappedDomain.Classify(new Pt(mx - nx, my - ny)) != Where.Inside;
-                linkCollapsed[key] = collapsed;
+                return (new Pt(mx + nx, my + ny), new Pt(mx - nx, my - ny));
+            }
+
+            /// <summary> link p-q of an image is collapsed in state st: its snapped domain has no interior just beside its middle on either side </summary>
+            bool LinkCollapsed(SnapState st, (BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+            {
+                var key = p.x < q.x || p.x == q.x && p.y < q.y ? (p, q) : (q, p);
+                if (st.Collapsed.TryGetValue(key, out bool known)) return known;
+                var (l, rr) = Beside(p, q);
+                bool collapsed = st.Domain.Classify(l) != Where.Inside && st.Domain.Classify(rr) != Where.Inside;
+                st.Collapsed[key] = collapsed;
                 return collapsed;
             }
 
             /// <summary>
-            /// O-H5 for an unused input point p: its pixel's centre is not inside the snapped domain, and every link of an image at that
-            /// pixel is collapsed (a point on a part that has area keeps its violation; so does a corner whose edges have area).
+            /// O-H5 on a link of the full image: collapsed there, and no interior beside its middle in the input's own rounding either
+            /// (rule (ii'): an output vertex may reroute a chain only inside a part the input's rounding collapses)
+            /// </summary>
+            bool Excused((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+            {
+                if (!LinkCollapsed(full, p, q)) return false;
+                var (l, rr) = Beside(p, q);
+                return inputOnly.Domain.Classify(l) != Where.Inside && inputOnly.Domain.Classify(rr) != Where.Inside;
+            }
+
+            /// <summary> point p's pixel in state st: every link there collapsed, or, with no link, its centre not inside </summary>
+            bool PixelCollapsed(SnapState st, Pt p)
+            {
+                var n = PixelOf(p, snapPixel);
+                // with links there, all collapsed implies the centre is not inside (images meet only at pixel centres, so an interior
+                // around the centre would lie beside a link's middle): the centre is classified only where no link is (a corridor with a
+                // ring vertex every pixel: 4000 exact classifications against the 4000 coinciding edges took 35 s)
+                if (st.LinksAt.TryGetValue(n, out var at)) return at.All(q => LinkCollapsed(st, n, q));
+                return st.Domain.Classify(Centre(n, snapPixel)) != Where.Inside;
+            }
+
+            /// <summary>
+            /// O-H5 for an unused input point p: its pixel collapsed in the full rounding and in the input's own (rule (ii')): every link
+            /// of an image at that pixel is collapsed, or, with no link there, the pixel's centre is not inside the snapped domain
             /// </summary>
             bool OnCollapsedPoint(Pt p)
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
+                if (!PixelCollapsed(full, p) || !PixelCollapsed(inputOnly, p)) return false;
+                // (iii): the links at its pixel differ between the roundings: output vertices rerouted them
                 var n = PixelOf(p, snapPixel);
-                // with links there, all collapsed implies the centre is not inside (images meet only at pixel centres, so an interior
-                // around the centre would lie beside a link's middle): the centre is classified only where no link is (a corridor with a
-                // ring vertex every pixel: 4000 exact classifications against the 4000 coinciding edges took 35 s)
-                if (linksAt.TryGetValue(n, out var at)) return at.All(q => LinkCollapsed(n, q));
-                return snappedDomain.Classify(Centre(n, snapPixel)) != Where.Inside;
+                full.LinksAt.TryGetValue(n, out var withAll); inputOnly.LinksAt.TryGetValue(n, out var withInput);
+                if (!(withAll ?? new List<(BigInteger x, BigInteger y)>()).OrderBy(q => q.x).ThenBy(q => q.y).SequenceEqual((withInput ?? new List<(BigInteger x, BigInteger y)>()).OrderBy(q => q.x).ThenBy(q => q.y)))
+                    ++r.CollapsedViaRefinement;
+                return true;
             }
 
             static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
@@ -2019,7 +2068,7 @@ namespace Meshing2Acceptance
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
-                var image = images[source];
+                var image = full.Images[source];
                 var node = new Dictionary<(BigInteger x, BigInteger y), int>();
                 for (int k = 0; k < image.Count; ++k) node[image[k]] = -1 - k;
                 var bridge = new Dictionary<int, List<int>>();
@@ -2031,7 +2080,7 @@ namespace Meshing2Acceptance
                 // (candidate vertices join only the ends of collapsed links, and only at their pixels' centres: elsewhere, or off the
                 // centre in a foreign output, two vertices in one pixel are not connected without an edge; reviews 4 and 5)
                 var ends = new HashSet<int>();
-                for (int k = 0; k + 1 < image.Count; ++k) if (LinkCollapsed(image[k], image[k + 1])) { Join(-1 - k, -2 - k); ends.Add(-1 - k); ends.Add(-2 - k); }
+                for (int k = 0; k + 1 < image.Count; ++k) if (Excused(image[k], image[k + 1])) { Join(-1 - k, -2 - k); ends.Add(-1 - k); ends.Add(-2 - k); }
                 if (ends.Count == 0) return false;
                 foreach (int i in candidates) {
                     var n = PixelOf(v[i], snapPixel);
@@ -2044,7 +2093,11 @@ namespace Meshing2Acceptance
                 foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
                 while (queue.Count > 0) {
                     int at = queue.Dequeue();
-                    if (goalNodes.Contains(at)) return true;
+                    if (goalNodes.Contains(at)) {
+                        // (iii): excuses on an image that output vertices rerouted, reported apart
+                        if (!image.SequenceEqual(inputOnly.Images[source])) ++r.CollapsedViaRefinement;
+                        return true;
+                    }
                     if (at >= 0 && adjacency.TryGetValue(at, out var next))
                         foreach (int n in next) if (candidates.Contains(n) && seen.Add(n)) queue.Enqueue(n);
                     if (bridge.TryGetValue(at, out var across))

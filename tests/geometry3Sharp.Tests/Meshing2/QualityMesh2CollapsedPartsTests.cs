@@ -44,26 +44,34 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
-        /// <summary> snapped and refined (M3): what snapping collapsed and refinement pinched is accepted </summary>
+        /// <summary>
+        /// Known violation, pinned (not skipped): with refinement (M3) the mesher pinches parts of the zigzag that the rounding of the input
+        /// keeps (owner decision 2026-11-03: the refinement must not collapse what the rounding of the input keeps; the oracle accepts a
+        /// collapse only where the input-only image collapses). The input-only snapped domain has 382 px² (z0) and 804 px² (z1), the
+        /// rounding with refinement's points 358.5 and 635 px². The fix is the mesher's own bugfix (a grid point must not bring together two
+        /// chains of the input's image that are apart there); these cases become acceptance tests there. Counts exact, so a change shows.
+        /// </summary>
         [Theory]
-        [InlineData(0, 0.0)]
-        [InlineData(0, 20.0)]
-        [InlineData(1, 0.0)]
-        [InlineData(1, 20.0)]
-        public void DomainNarrowerThanAPixel_RefinedCollapseIsAccepted(int which, double angle)
+        [InlineData(0, 0.0, 3, 1)]
+        [InlineData(0, 20.0, 3, 1)]
+        [InlineData(1, 0.0, 5, 0)]
+        [InlineData(1, 20.0, 5, 0)]
+        public void DomainNarrowerThanAPixel_RefinementPinch_KnownInvalid(int which, double angle, int segmentsMissing, int verticesUnused)
         {
             var input = Zigzag(which, angle);
             var o = new QualityMesh2Candidate().Run(input);
             Assert.Equal(Mesh2Status.Success, o.Status);
             var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
+            Assert.Equal(segmentsMissing, report.Violations.Count(v => v.Kind == Violation.SegmentMissing));
+            Assert.Equal(verticesUnused, report.Violations.Count(v => v.Kind == Violation.VertexUnused));
+            Assert.Equal(segmentsMissing + verticesUnused, report.Violations.Count);
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
 
         /// <summary>
-        /// the same under every similarity: snapped alone and snapped and refined, the oracle accepts the mesh in every frame; refined,
-        /// the 2^k scales give the same mesh bit for bit
+        /// the same under every similarity: snapped alone, the oracle accepts the mesh in every frame; refined, the 2^k scales give the
+        /// same mesh bit for bit and the same verdict
         /// </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
@@ -85,14 +93,14 @@ namespace geometry3Sharp.Tests
             var refined = Moved(Zigzag(0, 20));
             var m3 = new QualityMesh2Candidate().Run(refined);
             Assert.Equal(Mesh2Status.Success, m3.Status);
-            var refinedReport = Oracle.Check(refined, m3, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(refinedReport.Ok, name + " (M3): " + refinedReport);
             if (s.IsExact) {
                 var plain = Zigzag(0, 20);
                 var a = new QualityMesh2Candidate().Run(plain);
                 var b = m3;
-                // the oracle's excuses too: the same counts at every 2^k scale
+                // the oracle's verdict too (the refinement pinch, pinned above): the same violations and excuses at every 2^k scale
                 var plainReport = Oracle.Check(plain, a, new OracleExpect { Milestone = Milestone.M3 });
+                var refinedReport = Oracle.Check(refined, m3, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.Equal(plainReport.Violations.Select(v => v.Kind), refinedReport.Violations.Select(v => v.Kind));
                 Assert.Equal(plainReport.CollapsedSegments, refinedReport.CollapsedSegments);
                 Assert.Equal(plainReport.CollapsedPoints, refinedReport.CollapsedPoints);
                 Assert.Equal(a.VX.Select(v => v * s.Scale), b.VX);

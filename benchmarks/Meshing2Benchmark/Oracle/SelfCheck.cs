@@ -566,6 +566,18 @@ namespace Meshing2Acceptance
                         var t45 = new[] { new[] { 3, 4, 5 }, new[] { 3, 5, 6 } };
                         var r45 = Oracle.Check(corner45, Snapped(corner45, t45, new[] { new[] { 3, 4 }, new[] { 4, 5 }, new[] { 5, 6 }, new[] { 6, 3 } }), new OracleExpect { Milestone = Milestone.M2 });
                         Must("accept: a triangle whose edge runs through a hot pixel's bottom-left corner, collapsed (review 5)", r45.Ok && r45.CollapsedPoints == 3, "report: " + r45 + " / " + r45.ExcusedSummary());
+                        // review 5, S-C, rule (ii'): without the point (12, 0.1) the hypotenuse passes pixel (12, 0) only if an output vertex
+                        // makes it hot; a Steiner vertex there must not buy the collapse of (0, 0) - (12, 0): the input's own rounding keeps
+                        // the whole triangle, so the dropped 6 px² are reported
+                        var bought = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { -0.45, -0.45, 0.55 } };
+                        bought.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                        var tb = new[] { new[] { 3, 1, 2 } };
+                        var ob = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 0, 20, 20, 12 }, VY = new double[] { 0, 0, 1, 0 }, InputToVertex = new[] { 0, 1, 2 },
+                            Triangles = tb, Neighbours = NeighboursOf(tb), TriangleLabels = new int[1], BadTriangles = new int[0],
+                            Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(3, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3) } };
+                        var rb = Oracle.Check(bought, ob, m3);
+                        Must("reject: a Steiner vertex that would make the input collapse where its own rounding keeps area (review 5, S-C, rule (ii'))",
+                            rb.Has(Violation.SegmentMissing) && rb.CollapsedSegments == 0 && rb.CollapsedPoints == 0, "report: " + rb + " / " + rb.ExcusedSummary());
                         // ... and the converse: the hypotenuse (0, -0.45) - (20, 0.55) passes the pixel of the point (12, 0.1), so snap rounding
                         // collapses (0, 0) - (12, 0) onto the bottom; the mesh of the triangle (12, 0), (20, 0), (20, 1) is accepted
                         var hyp = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20, 12 }, Y = new double[] { -0.45, -0.45, 0.55, 0.1 } };

@@ -190,10 +190,13 @@ namespace Meshing2Acceptance
         /// domain that snap rounding collapsed (no area left between the images of its boundary). Findings to look at, as the merge zone's.
         /// </summary>
         public int CollapsedSegments, CollapsedPoints;
+        /// <summary> Q17 (O-H5): of those, the excuses whose images output vertices rerouted (inside parts the input's rounding collapses) </summary>
+        public int CollapsedViaRefinement;
         public string ExcusedSummary()
         {
             var parts = new List<string>();
-            if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points");
+            if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points"
+                + (CollapsedViaRefinement > 0 ? " (" + CollapsedViaRefinement + " of them rerouted by output vertices)" : ""));
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
