@@ -184,11 +184,14 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
 
 Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 
-### P1 (open): LSCM on a low-poly cylinder collapses a boundary and reports Success
+### P1 (fixed): LSCM on a low-poly cylinder collapses a boundary and reported Success
 
-- Test: `LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion` (case `_LscmAndArap`).
+- Tests: `LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion` (case `_LscmAndArap`),
+  `ParameterizationFlippedMapTests.LowPolyCylinder_LscmAndArapWithFlippedMap_NotSuccess` (public API),
+  `ParameterizationTests.LSCM_ARAP_FlippedMap_IsNotSuccess_InvariantUnderSimilarities`,
+  `ParameterizationTests.ARAP_FlippedInitialMap_IsNotSuccess`.
 - Issue: https://github.com/GeometryCollective/boundary-first-flattening/issues/97.
-- Input -> wrong result: an open cylinder of 8 sides and 3 rings (radius 1, height 1.8; an annulus). LSCM returns
+- Input -> wrong result: an open cylinder of 8 sides and 3 rings (radius 1, height 1.8; an annulus). LSCM returned
   `Success`, but the 8 vertices of the far ring all get v = 0 (the ring collapses onto a segment): 2 flipped UV
   triangles, mean conformal distortion 2e13, maximum 7e14. ARAP, started from that map, also ends with 2 flipped
   triangles. SLIM, Tutte and BFF return `InvalidTopology`; the atlas cuts the cylinder and is fine.
@@ -197,12 +200,31 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   E_D - A(uv) (line 104: A is the signed area over all boundary loops, the inner loop counted negatively) is lowered by
   shrinking the hole; on a coarse cylinder the minimizer with free inner boundary is the collapsed ring. On the flat
   annulus (`LSCM_Annulus_TwoBoundaries`) the exact conformal embedding has E_C = 0 and wins.
-- Fix ideas: (a) report failure (or a non-success status such as `SolverFailed`) when a success has flipped or
-  zero-area UV triangles on non-degenerate surface triangles, as SLIM's guarantees are checked; cheap, but changes
-  the status of results that are only locally flipped today (the docs promise nothing), so it needs a decision. (b)
-  For several boundary loops, close the inner loops with virtual fan vertices for the area term (the hole's area then
-  enters positively), or use the spectral conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has
-  no pins. Medium cost, changes LSCM results on annuli.
+- Fix (owner: a status check only, the algorithms unchanged): LSCM and ARAP (the methods without a flip-free
+  promise) return the new status `ParameterizationStatus.FlippedTriangles` instead of `Success` when their map has a
+  flipped, zero-area or not finite UV triangle, or one degenerate by the rule for surface triangles (twice the area at
+  most 1e-12 of the longest edge squared, `TriangleFrame.DegenerateShape`, new count
+  `ParameterizationDistortion.DegenerateUVTriangles`) and also much flatter than its surface triangle (shape ratio
+  below 1e-4 of the surface's, so a surface sliver mapped with mild anisotropy stays valid), on a non-degenerate surface
+  triangle
+  (`ParameterizationResult.RejectFlipped`, parameterization/MeshParameterization.cs). The degenerate count is needed:
+  the collapsed triangles have areas of rounding noise (about 1e-16), whose sign is positive at UTM coordinates, so a
+  sign test alone said `Success` there. The result keeps its map and distortion (UV is not null for this status), so
+  a caller can still inspect or use it. The enum and the classes are fork-only (not in 1.0.324), so the new value is
+  no API break. SLIM's LSCM start (`LSCMParameterization.Solve`) is unchanged. The atlas (LSCM after a failed BFF)
+  falls back to SLIM / Tutte as before for a flipped map, which it treated as not injective already; a chart whose
+  LSCM map is only degenerate with a positive rounding-noise area, which its exact overlap test accepted, now falls
+  back too. Before the fix the theory's 8 cases, the issue case and
+  `ARAP_FlippedInitialMap_IsNotSuccess` fail; with the degenerate count removed the UTM case and the zero-area ARAP
+  start fail. `ThreePeakTerrain_SlimAndTutteFlipFree` and `StrongSaddles_LocallyInjective` accept the new status for
+  LSCM and ARAP (LSCM flips 23 of 1800 and 4 of 828 triangles there). Cost: one more relative area test per triangle
+  in the distortion pass; `ParameterizationBenchmark` (LSCM, ARAP; 3k-58k vertices) gives the same distortion and
+  flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
+  first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
+  seams, overlaps, distortion), total time 1116 s against 1114 s.
+- Open (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
+  loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
+  conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
 
 ### P2 (open, decided: kept): BFF Disk with the conformal extension leaves the circle on meshes without interior vertices
 
