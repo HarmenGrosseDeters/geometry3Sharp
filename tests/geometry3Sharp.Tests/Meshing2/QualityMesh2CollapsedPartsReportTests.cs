@@ -193,7 +193,8 @@ namespace geometry3Sharp.Tests
             var input = new Mesh2Input { X = x, Y = y, SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
             input.Rings.Add(new RingInput(Enumerable.Range(0, x.Length).ToArray(), false));
             var before = Oracle.Check(input, WithoutTheChainRule(input), new OracleExpect { Milestone = Milestone.M3 });
-            Assert.Equal(new[] { Violation.VertexUnused }, before.Violations.Select(v => v.Kind).ToArray());
+            // (the tip's dropped point takes its edges' chains past a hot pixel they contact: ChainSkipsHotPixel as well)
+            Assert.Equal(new[] { Violation.VertexUnused, Violation.ChainSkipsHotPixel }, before.Violations.Select(v => v.Kind).Distinct().ToArray());
             Assert.Equal(new[] { ((System.Numerics.BigInteger)16, (System.Numerics.BigInteger)11) }, before.RestorePixels.ToArray());
             var now = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
             Assert.True(now.Ok, now.ToString());

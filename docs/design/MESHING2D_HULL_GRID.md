@@ -382,16 +382,20 @@ cannot be ordered strictly. A certificate of collapsed double chains from the me
 Näher and Schweitzer 2011) is not needed under the strict decision.
 
 **Hull model, refinement coincidences and pinches, contacted hot pixels (2026-11-03, after #362; coordinator decisions of the same day):**
-- **Hull model of the snapped domain:** with refinement (M3) the image of the exact input hull (option C, as the mesher rounds it);
-  without it (M1, M2) the convex hull of the snapped vertices, straight between hot pixel centres, which is what the constrained
-  Delaunay triangulation builds; the hull edges then carry no links of the images. The snapped domain's area, left 0 by its ring
+- **Hull model of the snapped domain:** where the mesher refines (QualityMesh2.Refines with the M3 candidate's options; not the
+  constrained-quality mode at angle 0, nor a Steiner limit alone) the image of the exact input hull (option C, as the mesher rounds
+  it); otherwise the convex hull of the snapped vertices, the centres on its edges kept, straight between hot pixel centres, which is
+  what the constrained Delaunay triangulation builds. Its edges are the links there (a snapped input point on the hull's boundary is
+  not a collapsed part). The restore step's hull edges and the hull-tip rule key on the same condition (review: at M3 without
+  refinement the oracle had rounded a hull the mesher does not round). The snapped domain's area, left 0 by its ring
   constructor, is computed on first use. Test: snapped alone, the mesh area equals the snapped domain exactly on 300 star seeds and
   300 hull-domain segment soups (`QualityMesh2OracleCoincidenceTests.SnappedAlone_MeshAreaEqualsTheSnappedDomain`; the old hull
   model and the old area each fail it).
 - **RefinementCoincidence (rule):** a vertex of refinement (its pixel no hot pixel of the input's rounding) lies on one chain, two
   subsegments. Three mean that two chains share a link from there on, which the input's rounding keeps apart: the R class of #360's
   refusals, which the chain search could not see (the chains exist). Images meet only at hot pixel centres, and a link the input's
-  rounding already shares keeps two subsegments when refinement splits it. Upper bound with the chain rule on: 0 on the fuzz (seeds
+  rounding already shares keeps two subsegments when refinement splits it. Not seen: a shared stretch whose two ends are both hot
+  pixels of the input's rounding (degree 2 throughout; no case known). Upper bound with the chain rule on: 0 on the fuzz (seeds
   0 to 2999, M3) and on all 12 Herne runs; with it off: 69 in 63 fuzz inputs and 1 to 74 per Herne run (482 in all).
 - **RefinementPinch (known violation, not failing yet):** four or more subsegments at a vertex of refinement: two chains meet in
   it. Listed on the report, the verdict unchanged. Fuzz seed 527: a spike whose two edges have the separate links (9, 8) - (13, 12)
@@ -411,10 +415,11 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
 | cq 381000 | 11 | 21 |
 
 - **ChainSkipsHotPixel (rule, task 39):** every hot pixel of the input's rounding (input points, crossings, restore pixels) that a
-  retained piece of an input edge contacts holds an output vertex with a subsegment whose other end lies in the edge's envelope
-  (snap rounding's defining property on the input's own rounding; O-H4 checks only that no link passes a hot pixel). Excused, as
-  O-H5 does, where the pixel collapses in both images or the edge's own links there collapse in the input's rounding (fuzz seed 818:
-  the thin second lobe of a self-crossing star ring). Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects
+  retained piece of an input edge contacts holds an output vertex with subsegments to vertices in the edge's envelope on both sides
+  of the pixel along the edge (snap rounding's defining property on the input's own rounding; O-H4 checks only that no link passes a
+  hot pixel; one side alone let another chain that shares the vertex and the piece's end stand in, review S2). A side also holds where
+  the edge's own image link on it collapses in both images, and the pixel is excused where it collapses in both images, as O-H5 does
+  (fuzz seed 818: the thin second lobe of a self-crossing star ring; seeds 493 and 1762: points on collapsed parts). Upper bound 0 on the corpus, the catalogue rows, Herne and the fuzz. It rejects
   SRR's Listing 2 chain of the discrepancy above (self-check).
 - **The snapped area (a report, opt-in):** `--snapped-area` (`OracleExpect.ReportSnappedArea`) reports the mesh area minus the area
   of the snapped domain with all hot pixels, exact, in px². No rule: the full image routes a boundary edge through every hot pixel

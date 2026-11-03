@@ -151,6 +151,74 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// a contacted hot pixel that collapses in both images needs no chain (O-H5; it lies on the edge's own image, whose links there
+        /// collapse in both). Seeds of <see cref="StarPolygonFuzz"/> at M3 whose input points on collapsed parts lie in pixels their
+        /// neighbours' edges contact
+        /// </summary>
+        [Theory]
+        [InlineData(493)]
+        [InlineData(1762)]
+        public void HotPixelCollapsedInBothImages_IsNotDemanded(int seed)
+        {
+            var input = StarPolygonFuzz.Make(seed);
+            var report = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(report.CollapsedPoints > 0, report.ExcusedSummary());
+        }
+
+        /// <summary>
+        /// at UTM coordinates and a pixel of 0.01 the output vertices are pixel centres rounded to doubles: the segment of Herne 373600
+        /// (373662.135, 5709174.775) - (373662.129, 5709174.025), whose start lies exactly on the corner of its pixel, contacts the hot
+        /// pixel of the point (373662.13, 5709174.77); its chain through that pixel is judged at the neighbours' exact pixel centres (the
+        /// rounded start vertex misses the envelope by an ulp)
+        /// </summary>
+        [Fact]
+        public void ChainAtUtmScale_IsJudgedAtExactPixelCentres()
+        {
+            var input = new Mesh2Input { X = new[] { 373662.135, 373662.129, 373662.13, 373661.9 }, Y = new[] { 5709174.775, 5709174.025, 5709174.77, 5709174.4 }, SnapTolerance = 0.01 };
+            input.Segments.Add(new SegmentInput(0, 1));
+            var o = new ConstrainedDelaunayMesh2Candidate().Run(input);
+            Assert.Equal(Mesh2Status.Success, o.Status);
+            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        /// <summary>
+        /// option C only where the mesher refines (review of #36, S3): hull-domain soups at M3 in the constrained-quality mode at angle
+        /// 0 are not refined, so their hull is not rounded and gets no restore pixels; judged as M3 they get the same verdict as the
+        /// identical mesh judged as M2
+        /// </summary>
+        [Fact]
+        public void HullNotRefined_IsNotRounded()
+        {
+            var wrong = new List<string>();
+            for (int seed = 0; seed < 300; ++seed) {
+                var input = Soup(seed);
+                input.ConstrainedQuality = true; input.MinAngleDeg = 0;
+                var o = new QualityMesh2Candidate().Run(input);
+                if (o.Status != Mesh2Status.Success) continue;
+                var m3 = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                var m2 = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2 });
+                if (m3.ToString() != m2.ToString()) wrong.Add(seed + ": M3 " + m3 + " | M2 " + m2);
+            }
+            Assert.True(wrong.Count == 0, wrong.Count + " differ:\n" + string.Join("\n", wrong.Take(10)));
+        }
+
+        static Mesh2Input Soup(int seed)
+        {
+            var rnd = new System.Random(seed);
+            int n = 3 + rnd.Next(6);
+            var xs = new List<double>(); var ys = new List<double>();
+            var soup = new Mesh2Input { SnapTolerance = 1 };
+            for (int i = 0; i < n; ++i) {
+                for (int k = 0; k < 2; ++k) { xs.Add(rnd.Next(25) * 0.25); ys.Add(rnd.Next(25) * 0.25); }
+                if (xs[2 * i] != xs[2 * i + 1] || ys[2 * i] != ys[2 * i + 1]) soup.Segments.Add(new SegmentInput(2 * i, 2 * i + 1));
+            }
+            soup.X = xs.ToArray(); soup.Y = ys.ToArray();
+            return soup;
+        }
+
+        /// <summary>
         /// the snapped domain's area (it was left 0) and the hull model: snapped alone (M2), the mesh is exactly the snapped domain, for
         /// ring domains and, with the convex hull of the snapped vertices as the boundary, for hull domains (segment soups); with the
         /// exact hull's rounded image (the M3 model) the hull domains differ. Seeds of <see cref="StarPolygonFuzz"/> and soups of 3 to 8
@@ -160,33 +228,25 @@ namespace geometry3Sharp.Tests
         public void SnappedAlone_MeshAreaEqualsTheSnappedDomain()
         {
             var wrong = new List<string>();
-            int hullRuns = 0;
+            int hullRuns = 0, starRuns = 0;
             for (int seed = 0; seed < 300; ++seed) {
                 var star = StarPolygonFuzz.Make(seed);
                 var ring = new Mesh2Input { X = star.X, Y = star.Y, SnapTolerance = 1 };
                 ring.Rings.AddRange(star.Rings);
                 ring.Segments.AddRange(star.Segments);
-                var rnd = new System.Random(seed);
-                int n = 3 + rnd.Next(6);
-                var xs = new List<double>(); var ys = new List<double>();
-                var soup = new Mesh2Input { SnapTolerance = 1 };
-                for (int i = 0; i < n; ++i) {
-                    for (int k = 0; k < 2; ++k) { xs.Add(rnd.Next(25) * 0.25); ys.Add(rnd.Next(25) * 0.25); }
-                    if (xs[2 * i] != xs[2 * i + 1] || ys[2 * i] != ys[2 * i + 1]) soup.Segments.Add(new SegmentInput(2 * i, 2 * i + 1));
-                }
-                soup.X = xs.ToArray(); soup.Y = ys.ToArray();
+                var soup = Soup(seed);
                 foreach (var (name, input) in new[] { ("star", ring), ("soup", soup) }) {
                     var o = new ConstrainedDelaunayMesh2Candidate().Run(input);
                     if (o.Status != Mesh2Status.Success) continue;
                     var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M2, ReportSnappedArea = true });
                     if (!report.Ok) continue;
-                    if (name == "soup") ++hullRuns;
+                    if (name == "soup") ++hullRuns; else ++starRuns;
                     if (report.MeshMinusSnappedArea == null || report.MeshMinusSnappedArea.Value.Sign != 0)
                         wrong.Add(name + " " + seed + ": " + report.MeshMinusSnappedArea);
                 }
             }
             Assert.True(wrong.Count == 0, wrong.Count + " differ:\n" + string.Join("\n", wrong.Take(20)));
-            Assert.True(hullRuns >= 250, "hull runs " + hullRuns);
+            Assert.True(hullRuns >= 250 && starRuns >= 250, "hull runs " + hullRuns + ", star runs " + starRuns);
         }
     }
 }
