@@ -47,6 +47,8 @@ namespace Meshing2Acceptance
 
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4, O-H5) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
+        /// <summary> self-checks: the collapsed stretches of piece a-b against boundary edges (O-H5) </summary>
+        internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel) => Run.CollapsedStretches(a, b, boundary, pixel);
 
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
@@ -682,15 +684,42 @@ namespace Meshing2Acceptance
             /// </summary>
             List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b)
             {
+                if (!(input.SnapTolerance > 0) || a.Equals(b)) return new List<(Q t0, Q t1)>();
+                return CollapsedStretches(a, b, domain.Edges(), Q.FromDouble(input.SnapTolerance));
+            }
+
+            /// <summary> <see cref="CollapsedStretches(Pt, Pt)"/> against the given boundary edges, on a grid of the given pixel </summary>
+            internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel)
+            {
                 var result = new List<(Q t0, Q t1)>();
-                if (!(input.SnapTolerance > 0) || a.Equals(b)) return result;
-                Q pixel = Q.FromDouble(input.SnapTolerance), pixel2 = pixel * pixel;
-                var near = domain.Edges().Where(g => !(g.a.Equals(a) && g.b.Equals(b) || g.a.Equals(b) && g.b.Equals(a)) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
+                if (a.Equals(b)) return result;
+                Q pixel2 = pixel * pixel;
+                var near = boundary.Where(g => !(g.a.Equals(a) && g.b.Equals(b) || g.a.Equals(b) && g.b.Equals(a)) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
                 var ts = PixelBreaks(a, b, pixel, 1 << 16);
                 if (ts == null || near.Count == 0) return result;
+                // At a corner shared with the piece the adjacent edge's distance goes to 0, though two chains from one hot pixel part
+                // there and a gap is a defect. Near the shared end the adjacent edge counts only if the wedge between the two is still
+                // narrower than a pixel where the piece leaves the end's square of half-width two pixels (a wedge below about 30
+                // degrees, 2 sin(angle) < 1: the zigzag's tip; not a 90 or 60 degree corner). The piece leaves a's square at ta and
+                // b's at tb.
+                Q h = 2 * pixel, dx = Q.Abs(b.Qx - a.Qx), dy = Q.Abs(b.Qy - a.Qy);
+                Q leave = Q.One;
+                if (dx.Sign > 0) leave = Q.Min(leave, h / dx);
+                if (dy.Sign > 0) leave = Q.Min(leave, h / dy);
+                Q ta = leave, tb = Q.One - leave;
+                ts.Add(ta); ts.Add(tb);
                 ts = ts.Where(t => t.Sign >= 0 && t <= Q.One).Distinct().OrderBy(t => t).ToList();
                 Pt At(Q t) => new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t);
-                var close = ts.Select(t => { var p = At(t); return near.Select(g => Exact.Dist2ToSegment(g.a, g.b, p) < pixel2).ToArray(); }).ToList();
+                var atA = near.Select(g => g.a.Equals(a) || g.b.Equals(a)).ToArray();
+                var atB = near.Select(g => g.a.Equals(b) || g.b.Equals(b)).ToArray();
+                Pt exitA = At(ta), exitB = At(tb);
+                var wedgeA = near.Select((g, i) => atA[i] && Exact.Dist2ToSegment(g.a, g.b, exitA) < pixel2).ToArray();
+                var wedgeB = near.Select((g, i) => atB[i] && Exact.Dist2ToSegment(g.a, g.b, exitB) < pixel2).ToArray();
+                var close = ts.Select(t => {
+                    var p = At(t);
+                    return near.Select((g, i) => Exact.Dist2ToSegment(g.a, g.b, p) < pixel2
+                        && (!atA[i] || t >= ta || wedgeA[i]) && (!atB[i] || t <= tb || wedgeB[i])).ToArray();
+                }).ToList();
                 for (int j = 0; j + 1 < ts.Count; ++j) {
                     bool collapsed = false;
                     for (int g = 0; g < near.Count && !collapsed; ++g) collapsed = close[j][g] && close[j + 1][g];

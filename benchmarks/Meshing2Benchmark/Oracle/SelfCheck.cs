@@ -311,6 +311,21 @@ namespace Meshing2Acceptance
                 Must("reject: a point on the collapsed corridor with a segment into the square as VertexUnused", mixedReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 10 ")), "report: " + mixedReport);
                 var corner = Oracle.Check(thin, CorridorOut(thin, true), m3);
                 Must("reject: a corner whose edges have area, unused, as VertexUnused", corner.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 1 ")), "report: " + corner);
+                // at a corner shared with the piece the adjacent edge comes closer than a pixel, but a corner of 90 or 60 degrees is no
+                // collapsed part: two chains from one hot pixel part there. Only a wedge still narrower than a pixel beyond the corner's
+                // square of two pixels collapses (below about 30 degrees), as the zigzag's tip of 0.2 degrees
+                {
+                    Pt O = Pt.FromDoubles(0, 0), X = Pt.FromDoubles(20, 0);
+                    List<(Q, Q)> At(double ex, double ey) => Oracle.CollapsedStretches(O, X, new[] { (O, X), (Pt.FromDoubles(ex, ey), O) }, Q.One);
+                    bool AtStart(List<(Q t0, Q t1)> st) => st.Count > 0 && st[0].t0.Sign == 0;
+                    Must("collapsed: a 90 degree corner is not collapsed next to it", !AtStart(At(0, 20)), null);
+                    Must("collapsed: a 60 degree corner is not collapsed next to it", !AtStart(At(10, 17.320508075688775)), null);
+                    Must("collapsed: a corner of 1 degree (a tip) is collapsed next to it", AtStart(At(20, 0.349)), null);
+                    Must("collapsed: a corridor 0.25 wide is collapsed along its length", Oracle.CollapsedStretches(Pt.FromDoubles(0, 0), Pt.FromDoubles(20, 0),
+                        new[] { (Pt.FromDoubles(0, 0.25), Pt.FromDoubles(20, 0.25)) }, Q.One).Count == 1, null);
+                    Must("collapsed: a corridor 1.5 wide is not", Oracle.CollapsedStretches(Pt.FromDoubles(0, 0), Pt.FromDoubles(20, 0),
+                        new[] { (Pt.FromDoubles(0, 1.5), Pt.FromDoubles(20, 1.5)) }, Q.One).Count == 0, null);
+                }
                 // "passes": crossing the interior or the centre; touching the boundary does not count
                 Pt P(double a, double b) => Pt.FromDoubles(a, b);
                 Q one = Q.One;

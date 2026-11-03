@@ -208,6 +208,13 @@ corner tip, which O-H4 does not cover.
 - **Collapsed stretch:** a stretch of an input piece is collapsed where it lies closer than a pixel to another edge of the domain's
   boundary (not the piece itself). It is decided exactly per stretch between the piece's pixel crossings: the distance to a segment is
   convex along a line, so both ends decide.
+- **Corners:** at a corner shared with the piece, the adjacent edge comes closer than a pixel, but two chains from one hot pixel
+  part there.
+  - Near the shared end, the adjacent edge counts only if the wedge between the two is still narrower than a pixel where the piece
+    leaves the corner's square of half-width two pixels, that is below about 30° (2 sin θ < 1).
+  - The zigzag's tip, about 0.2°, collapses; a 90° or 60° corner does not.
+- **Diagonal parts:** parts between one and 1.4 pixels wide that a diagonal grid could collapse are judged strictly: their missing
+  chains are reported.
 - **Segments:** the chain search may cross a collapsed stretch without a chain, and only there. A stretch of a piece that is not
   collapsed still needs its chain.
 - **Points:** an unused input point is accepted only when every input constraint and boundary edge that ends at it is collapsed along
