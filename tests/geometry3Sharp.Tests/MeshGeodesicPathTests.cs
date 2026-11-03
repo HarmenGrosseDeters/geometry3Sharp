@@ -540,6 +540,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TraceTolerance_IsTheRelativeTermWithAFloorAtTheCoordinateRounding()
+        {
+            // the floor 16 eps M (M the largest coordinate of the head) takes over only for edges shorter than about
+            // 3.6e-9 of the coordinates; it stays far below a real miss (finding G3)
+            int[,] ids;
+            var g = new MeshGeodesicPath(JitteredPlane(2, 2, 0.1, 2, out ids));
+            var utm = new Vector3d(500000.25, 5700000.5, 120);
+            Assert.Equal(16 * MathUtil.Epsilon * 5700000.5, g.trace_tolerance(1.25e-4, utm));
+            Assert.True(g.trace_tolerance(1.25e-4, utm) < 1e-3 * 1.25e-4);   // 2e-8: below 1e-3 of the edge
+            Assert.Equal(1e-6 * 2.0, g.trace_tolerance(2.0, new Vector3d(1, -3, 0.5)));
+            Assert.Equal(1e-6 * 1e-3, g.trace_tolerance(1e-3, new Vector3d(0.125, 0, 0)));
+            g.TraceTolerance = -1;
+            Assert.True(g.trace_tolerance(1.0, utm) < 0);
+        }
+
+        [Fact]
         public void FailedTrace_IsReported()
         {
             int[,] ids;

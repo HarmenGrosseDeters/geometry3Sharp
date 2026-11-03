@@ -139,9 +139,9 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   diagonal edge here. The walk ends with `to_world`, a barycentric combination of the triangle's coordinates, which
   rounds to about one ulp of the coordinates (9.3e-10 at 5.7e6); the measured miss was 9.39e-10, one ulp.
 - Fix: the tolerance is max(`TraceTolerance` of the length, 16 eps M), M the largest absolute coordinate of the head
-  vertex (`trace_tolerance`; the rounding of `to_world` is at most 3.5 eps M, derived in the comment). eps M is
+  vertex (`trace_tolerance`; the rounding of `to_world` is at most about 6.1 eps M as a distance, derived in the comment). eps M is
   scaled exactly by a 2^k scale, like the length, so such scales keep the same decision; the ulp term matters only
-  for edges below about 1e-9 of the coordinates. A `TraceTolerance` below 0 still fails every trace (tests). With
+  for edges below about 3.6e-9 of the coordinates (16 eps / 1e-6). A `TraceTolerance` below 0 still fails every trace (tests). With
   the term removed the UTM case fails; with the `< 0` guard removed `FailedTrace_IsReported` fails (its new
   one-edge path ends exactly at its vertex). A factor of 2 instead of 16 still passes (the miss is one ulp): the
   margin is the derivation's, not a tuned value.

@@ -525,14 +525,18 @@ namespace gs
         internal double TraceTolerance = 1e-6;
 
         // How far the end of a traced edge of the given length may lie from its head vertex: TraceTolerance of the
-        // length (the walk's own error, relative), but not below the rounding of the end point itself. The walk ends
-        // with to_world, b0 A + b1 B + b2 C with b0 = 1 - b1 - b2; at an end that reaches the head vertex its weight is
-        // about 1 and the others about 0, so with u = 2^-53 and M the largest absolute coordinate of the head: 3
-        // products (3 u M), 2 sums (2 u M) and |b0 + b1 + b2 - 1| <= 2 u (2 u M), together 7 u M = 3.5 eps M; 16 eps M
-        // leaves a margin of 4. That term matters only for edges shorter than about 1e-9 of the coordinates (UTM
-        // coordinates and millimetre edges: finding G3). eps M scales with a 2^k scale exactly, as the length does, so
-        // such scales keep the same decision. A TraceTolerance below 0 still fails every trace (tests).
-        double trace_tolerance(double length, Vector3d head)
+        // length (the walk's own error, relative, which also covers the rounding of the barycentric coordinates inside
+        // to_world: about u times the triangle's edge lengths), but not below the rounding of the end point itself.
+        // The walk ends with to_world, b0 A + b1 B + b2 C with b0 = 1 - b1 - b2. The head is a corner of the last
+        // triangle (no vertices are inserted), and at an end that reaches it its weight is about 1 and the others about
+        // 0, so with u = 2^-53 and M the largest absolute coordinate of the head, per component: 3 products (3 u M),
+        // 2 sums (2 u M) and |b0 + b1 + b2 - 1| <= 2 u (2 u M), together 7 u M; as a Euclidean distance 7 sqrt(3) u M,
+        // about 6.1 eps M. 16 eps M leaves a margin of about 2.6. That term takes over for edges shorter than 16 eps /
+        // TraceTolerance, about 3.6e-9 of the coordinates (UTM coordinates and millimetre edges: finding G3); for an
+        // edge shorter than about 16 eps M (a degenerate input, about 10 ulp) a walk to a neighbouring vertex passes.
+        // eps M scales with a 2^k scale exactly, as the length does, so such scales keep the same decision. A
+        // TraceTolerance below 0 still fails every trace (tests).
+        internal double trace_tolerance(double length, Vector3d head)
         {
             if (TraceTolerance < 0)
                 return TraceTolerance;
