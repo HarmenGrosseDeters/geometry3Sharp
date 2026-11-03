@@ -373,6 +373,8 @@ namespace g3
             /// that a test switching it on does not reach meshers that other tests run in parallel (refinement runs on the calling thread)
             /// </summary>
             [ThreadStatic] internal static bool CheckTagsForTests;
+            /// <summary> tests only: splits that rerouted a piece through a vertex already there (counted per thread) </summary>
+            [ThreadStatic] internal static long ReroutesForTests;
             string lastOperation;
             long operations;
 
@@ -1107,6 +1109,7 @@ namespace g3
                 k.RestoreDelaunay(new[] { ((long)u << 32) | (uint)w });
                 int before = k.VertexCount;
                 int q = k.InsertPoint(p.x, p.y);
+                bool reroute = k.VertexCount == before && q != u && q != w;
                 if (k.VertexCount > before) {
                     ++inserted;
                     if (CountsForBenchmarks != null) ++CountsForBenchmarks[splitCause];
@@ -1121,8 +1124,73 @@ namespace g3
                     var failure = b.InsertPiece(pending.Pop(), pending);
                     if (failure != null) return failure;
                 }
+                // a split point that is a vertex already (on the grid, the vertex of another constraint, as ValidGridSplit allows)
+                // reroutes the piece through it without necessarily rewriting a triangle: the triangles between the old piece and the
+                // new chain change sides, and Collect retags only what is dirty, so they are marked (found with the grid fuzz with
+                // holes: a hole edge rerouted through a segment's vertex inside the hole kept a domain triangle tagged as hole)
+                if (reroute) { ++ReroutesForTests; if (!MarkSwept(k, u, w, sources)) for (int t = 0; t < k.TriangleSlots; ++t) k.Dirty.Add(t); }
                 Collect(lifted);
                 return null;
+            }
+
+            /// <summary>
+            /// marks dirty the triangles between a lifted piece u w and the chain from u to w that replaced it: every triangle inside
+            /// the convex hull of the chain that is connected, inside it, to a triangle at a chain edge. The region between the piece
+            /// and the chain lies inside that hull; each part of it is bounded by chain edges and by triangles across the line u w,
+            /// which the flips that removed the edge u w rewrote (they are dirty already), so each part touches a chain edge and is
+            /// reached. Marking more than the region is harmless: Collect retags a dirty triangle from the pieces and its unchanged
+            /// neighbours. False when the chain is not found (not seen; the caller then marks everything).
+            /// </summary>
+            internal static bool MarkSwept(DelaunayKernel2 k, int u, int w, List<int> sources)
+            {
+                var pu = k.Point(u); var pw = k.Point(w);
+                // the chain: constrained edges carrying the piece's sources, each step to a vertex between u and w along u w (exact)
+                var chain = new List<int> { u };
+                int prev = -1, c = u;
+                while (c != w) {
+                    int next = -1;
+                    foreach (int h in k.Star(c)) {
+                        if (k.Seg[h] < 0) continue;
+                        int x = k.V[Next(h)];
+                        if (x == prev || !sources.All(k.Sources[k.Seg[h]].Contains)) continue;
+                        if (x == w) { next = w; break; }
+                        var px = k.Point(x);
+                        if (next < 0 && DotSign(px, pw, pu) > 0 && DotSign(px, pu, pw) > 0) next = x;
+                    }
+                    if (next < 0 || chain.Count > k.VertexCount) return false;
+                    chain.Add(next); prev = c; c = next;
+                }
+                // its convex hull, counter-clockwise (Andrew's monotone chain, exact orientations)
+                var pts = chain.Select(k.Point).Distinct().OrderBy(p => p.x).ThenBy(p => p.y).ToList();
+                var hull = new List<Vector2d>();
+                foreach (var pass in new[] { pts, Enumerable.Reverse(pts).ToList() }) {
+                    int start = hull.Count;
+                    foreach (var p in pass) {
+                        while (hull.Count >= start + 2 && ExactPredicates.Orient2d(hull[hull.Count - 2], hull[hull.Count - 1], p) <= 0) hull.RemoveAt(hull.Count - 1);
+                        hull.Add(p);
+                    }
+                    hull.RemoveAt(hull.Count - 1);
+                }
+                if (hull.Count < 3) return true;   // the chain lies on the line u w: no region between the two
+                bool Inside(int v)
+                {
+                    var x = k.Point(v);
+                    for (int i = 0; i < hull.Count; ++i) if (ExactPredicates.Orient2d(hull[i], hull[(i + 1) % hull.Count], x) < 0) return false;
+                    return true;
+                }
+                bool InRegion(int t) => !k.IsGhost(t) && Inside(k.V[3 * t]) && Inside(k.V[3 * t + 1]) && Inside(k.V[3 * t + 2]);
+                var seen = new HashSet<int>();
+                var stack = new Stack<int>();
+                for (int i = 0; i + 1 < chain.Count; ++i) {
+                    int h = k.FindEdge(chain[i], chain[i + 1]);
+                    foreach (int t in new[] { h / 3, k.H[h] / 3 }) if (InRegion(t) && seen.Add(t)) stack.Push(t);
+                }
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    k.Dirty.Add(t);
+                    for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (InRegion(t2) && seen.Add(t2)) stack.Push(t2); }
+                }
+                return true;
             }
         }
     }
