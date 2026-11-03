@@ -449,6 +449,17 @@ an implementation brief.
 | Curvature-adaptive sizing | M. Dunyach, D. Vanderhaeghe, L. Barthe, M. Botsch, *Adaptive Remeshing for Real-Time Mesh Deformation*, Eurographics 2013 Short Papers, pp. 29-32 | paper only |
 | Parallel decimation by independent sets (background for speculative certification) | P. Franc, V. Skala, *Parallel Triangular Mesh Reduction*, ALGORITMY 2000; S. Oh et al., *PaMO: Parallel Mesh Optimization for Intersection-Free Low-Poly Modeling on the GPU*, CGF 44(7), 2025 | PaMO code license not checked; not a port candidate |
 
+## Cross-field research
+
+The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
+(papers and documentation only; no external implementation code was read). New sources it adds to the open items:
+
+| Topic | Source | Status |
+|---|---|---|
+| Separation and rounding with a displacement budget | V. Milenkovic, E. Sacks, *Geometric Rounding and Feature Separation in Meshes*, Computer-Aided Design 108, 2019, [preprint](https://arxiv.org/abs/1805.03252); LAMMPS developers, [Neighbor lists](https://docs.lammps.org/Developer_par_neigh.html) (Verlet skins) | paper / documentation only |
+| Incidences and pinches missed by snap rounding in practice | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | paper only; background for the Q17 pinch fix |
+| Certified convex free regions | R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | paper only |
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |
