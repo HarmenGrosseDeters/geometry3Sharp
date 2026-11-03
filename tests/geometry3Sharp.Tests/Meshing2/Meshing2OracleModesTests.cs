@@ -37,9 +37,16 @@ namespace geometry3Sharp.Tests
             Assert.True(Verdict(fast) == Verdict(reference), what + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
         }
 
-        [Theory]
-        [MemberData(nameof(RowIds))]
-        public void CatalogueRow_SameVerdictOnBothPaths(string id)
+        // The expensive theories sit in nested classes (ExtremeScales split in two): xUnit runs classes in parallel but the rows of one class
+        // one after another, and in one class they took 14 minutes (841 s on net10.0, 4 cores), the second longest stretch of the suite.
+        public class CatalogueRows
+        {
+            [Theory]
+            [MemberData(nameof(RowIds), MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        static void CatalogueRow(string id)
         {
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
@@ -51,17 +58,28 @@ namespace geometry3Sharp.Tests
         /// 2^k (exact; inputs, seeds and the mesher's output alike), give the same verdict and the same reported details on both paths
         /// (review of the oracle speed-up: a distance overflowed at 2^512, a product of squared lengths underflowed at 2^-270)
         /// </summary>
-        [Theory]
-        [InlineData("F-38/a", -270)]
-        [InlineData("F-38/a", 450)]
-        [InlineData("F-38/a", 512)]
-        [InlineData("F-38/d", -270)]
-        [InlineData("F-38/d", 512)]
-        [InlineData("F-44", -270)]
-        [InlineData("F-44", 512)]
-        [InlineData("spike-0.84", -300)]
-        [InlineData("spike-0.84", 512)]
-        public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent)
+        public class ExtremeScalesSmall
+        {
+            [Theory]
+            [InlineData("F-38/a", -270)]
+            [InlineData("F-38/d", -270)]
+            [InlineData("F-44", -270)]
+            [InlineData("spike-0.84", -300)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        public class ExtremeScalesLarge
+        {
+            [Theory]
+            [InlineData("F-38/a", 450)]
+            [InlineData("F-38/a", 512)]
+            [InlineData("F-38/d", 512)]
+            [InlineData("F-44", 512)]
+            [InlineData("spike-0.84", 512)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        static void ExtremeScales(string id, int exponent)
         {
             // spike-0.84: earcut's water-huge reduced to five points (QualityMesh2Tests.SpikeOf084Degrees) at 25 degrees, whose merge zone and
             // O11-unsplittable piece the oracle excuses; at 2^-300 the leg pieces' directions are below 1e-81
@@ -135,9 +153,14 @@ namespace geometry3Sharp.Tests
             yield return ("two vertices swapped", swapped);
         }
 
-        [Theory]
-        [MemberData(nameof(RowIds))]
-        public void CorruptedRow_RejectedOnBothPaths(string id)
+        public class CorruptedRows
+        {
+            [Theory]
+            [MemberData(nameof(RowIds), MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
+        }
+
+        static void CorruptedRow(string id)
         {
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
