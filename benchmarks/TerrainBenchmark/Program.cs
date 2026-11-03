@@ -389,7 +389,7 @@ class Program
         }
         var toe = kind == "edge" ? SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(ratio))
                                  : SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
-        var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
+        var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol, SlopeMargin = double.Parse(Arg("margin", "1e-6"), CultureInfo.InvariantCulture) };
         // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
         // the catch lines and (composite=1) the composite terrain
         if (Arg("terrain", "none") == "dgm") {
@@ -521,6 +521,32 @@ class Program
                     if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) rp++;
                 }
                 R["region_oracle_pass"] = rp; R["composite_check_s"] = Secs(swc);
+                // RoundToGrid's upper bound (ROADMAP): the slope region's and the slope surface's coordinates rounded to
+                // grids (round=w1,w2,...), the exact checks again: how many triangles flip, degenerate, get steeper or
+                // lose their support
+                foreach (string ws in (Arg("round") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)) {
+                    double gw = double.Parse(ws, CultureInfo.InvariantCulture);
+                    // (z to nearest, or down: a cut surface's plane only lowers, which keeps the support)
+                    bool zdown = Arg("zround", "nearest") == "down";
+                    Func<Vector3d, Vector3d> rnd = (v) => new Vector3d(Math.Round(v.x / gw) * gw, Math.Round(v.y / gw) * gw, (zdown ? Math.Floor(v.z / gw) : Math.Round(v.z / gw)) * gw);
+                    foreach (var kv in new[] { new KeyValuePair<string, DMesh3>("region", d.SlopeRegion), new KeyValuePair<string, DMesh3>("surface", d.SlopeSurface) }) {
+                        int flipped = 0, steeper = 0, unsupported = 0, nt = 0;
+                        foreach (int t in kv.Value.TriangleIndices()) {
+                            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
+                            kv.Value.GetTriVertices(t, ref a, ref b, ref q);
+                            SlopePiece p = d.Pieces[kv.Value.GetTriangleGroup(t)];
+                            if (p.Direction == TerrainSlopeDesign.Directions.Fill) continue;
+                            nt++;
+                            int o0 = ExactPredicates.Orient2d(a.xy, b.xy, q.xy);
+                            Vector3d ra = rnd(a), rb = rnd(b), rq = rnd(q);
+                            int o1 = ExactPredicates.Orient2d(ra.xy, rb.xy, rq.xy);
+                            if (o1 == 0 || o1 != o0) { flipped++; continue; }
+                            if (Slope.IsNotSteeper(ra, rb, rq, p.Spec) == false) steeper++;
+                            else if (Slope.IsPlaneOnOrBelow(ra, rb, rq, p.P0) == false || Slope.IsPlaneOnOrBelow(ra, rb, rq, p.P1) == false) unsupported++;
+                        }
+                        R[$"round_{ws}_{kv.Key}"] = $"{nt} tris: {flipped} flipped or degenerate, {steeper} steeper, {unsupported} unsupported";
+                    }
+                }
             }
         }
         if (!ok) return;

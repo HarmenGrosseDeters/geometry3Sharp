@@ -1470,10 +1470,10 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      - **Face 2, clipped slivers:** a clipped triangle far below `MinFeatureSize` at the catch line (an altitude of
        2.3e-9 m on the DGM wavy toe in its local frame, 2.8e-9 m in the procedural pin), under its support by more
        than λ's bound covers, so δ is raised and a second attempt succeeds. The band merge acts on the
-       realization, not on the clipping. Pinned as today's behaviour (`TerrainSlopeClippedRegionTests`: a wavy 32-gon on waves near the
-       origin, two attempts in the 2^k frames, one at UTM). **To be repaired with RoundToGrid**, by the same
-       vertex-edge separation step (iterated snap rounding, Halperin and Packer 2002: every vertex at least half a
-       pixel from every non-incident edge), not a second mechanism.
+       realization, not on the clipping. Pinned as today's behaviour (`TerrainSlopeClippedRegionTests`: a wavy
+       48-gon on waves near the origin since #363, before a 32-gon; two attempts in the 2^k frames, one at UTM).
+       It was to be repaired with RoundToGrid by the same vertex-edge separation step. RoundToGrid is parked (below),
+       so face 2 stays pinned: an honest second attempt, not a wrong result.
 2. Done, finishing phase 1: the docs (OPERATIONS.md "Terrain slope design" with the statuses, the frames and
    `LocalFrame`, a runnable example; SOURCES.md for the band merge, the local frame and the early region check) and
    `g3cli slope` (CLI and MCP tool: GeoJSON toes, a TIN mesh file, the composite or replacement, surface and region,
@@ -1486,7 +1486,7 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      regions', mod 2), and the two runs' nodes are merged keeping each run's order: the parity is consistent by
      construction, no epsilon (`TerrainSlopeAutoToeOnTerrainTests`; prior art: coincident edges in polygon overlay,
      Martínez, Rueda and Feito 2009).
-   - **Next, before RoundToGrid, in this order** (each a Success that is not right, worse than a failure):
+   - **Bugfixes before RoundToGrid, in this order** (each a Success that is not right, worse than a failure):
      - (a) Done: **T-junctions next to a replaced terrain triangle.** A replaced triangle's part with a point exactly
        inside an edge whose neighbour has no region face (an open toe along a terrain edge that ends inside it, a
        lateral limit along a terrain edge, a catch point rounded onto a terrain edge) left the neighbour copied whole,
@@ -1504,8 +1504,39 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
            (7.1e-7 → 1.0e-5 m, 7.3e-8 → 7.3e-7 m).
          - A step that covers that growth, or a bound from the clipped triangles' smallest altitude, would save the
            realization.
-   - Later: a DGM reader for the CLI (real users have DGM1 as a grid: ASCII XYZ, or the f32 grid of the benchmark,
-     without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh files only.
+   - **RoundToGrid, parked** (owner decision 2026-11-03, R1; the measurements are in `TERRAIN_ROUND_TO_GRID.md`).
+     - **The upper bound.** Rounding the outputs of the Hambach cases after the fact breaks about half the slope
+       region's triangles at 1 mm and at 0.1 mm (steeper or unsupported). The margins follow the doubles'
+       resolution, not a grid.
+     - **The grid as the build's resolution (approach (A)) does not work at 1 mm with `Tolerance` 5 cm.** With today's
+       merge radius the budget is infeasible. With a merge radius of one pixel, `MinFeatureSize` is 20–52 m, and the
+       realization would collapse every shorter edge. At 0.1 mm it is 4–7 m.
+     - **A post-step** (build at doubles, round with z one-sided, check) with the largest δ the budget allows (1e-4)
+       still fails 21 % (steeper) and 28 % (unsupported) of the region at 1 mm.
+       - A λ floor of about s·0.71·w + w would remove the unsupported ones.
+       - The steeper ones, the small clipped triangles at the catch line, need a local re-triangulation of the
+         region on the grid under the slope constraint: rounding with constraints (Milenkovic; Fortune 1999), a
+         research item.
+     - The `round=`, `zround=` and `margin=` arguments of TerrainBenchmark's `slope` case measure it.
+   - **Open findings at the pause** (from #363 and its review; none is a wrong result):
+     - **Below `MinFeatureSize`.** In "rotated, scale 1e-3, utm" some designs end with `CompositeFailed`:
+       - "non-manifold composite": the wavy 32-gon on waves, and 4 of Mixed's Auto designs;
+       - "not simple after rounding": Mixed's Auto 0.23 / 0.123 / 3.9, at a toe crossing where the two runs' catch
+         points are about 1e-7 apart.
+       These are honest failures; `LocalFrame` succeeds where tried.
+     - **The mixed certificate.** No known design fails it while both runs pass theirs, so its mutant survives.
+       `BoundHoldsSampled` asserts B + D ≤ `Tolerance` for every mixed Success.
+     - **Direction Auto.** A run whose own (discarded) composite fails its certificate fails Auto, while a run whose
+       composite is `CompositeFailed` is tolerated. This is conservative; the two could be treated alike.
+     - **A certificate failure** can cost one wasted realization, through the band merge's λ branch of the
+       realization loop.
+     - **The own fill triangle's lower bound** min(0, z − T) is valid but weaker than it could be.
+     - **Speed:** the extra realization on the clipped region (face 1, above); the certificate's JIT on the one toe
+       edge (4.5 %, half of it fixed cost).
+     - **#302's terrain mutation shards** wait for the restart.
+   - Later, first after the restart (owner 2026-11-03): a DGM reader for the CLI (real users have DGM1 as a grid:
+     ASCII XYZ, or the f32 grid of the benchmark, without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh
+     files only.
 3. Volume per cell, 2D columns first (section 9.3).
 4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
    note first.
@@ -1517,6 +1548,56 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
 8. Sector polygons, exterior distance on demand.
 9. Parked (not modelled in practice): berms with constant then variable widths, inter-ramp / overall slope checks
    along profiles.
+
+### Handover at the pause (owner decision 2026-11-03)
+
+Terrain work pauses here. This section is the starting point of the restart.
+
+**What is merged** (phase 1 and the bugfixes after it; ROADMAP has the PR list):
+- the slope surface, the overlay with the catch lines, the composite (Full or Replacement), volumes, `StatusKind`,
+  mixed cut and fill, target heights, `LocalFrame`, the band repair, and `g3cli slope`;
+- the bugfixes after phase 1:
+  - #359, the Auto toe on the terrain;
+  - #361, T-junctions;
+  - #363, the catch points' move in the budget with its certificate, 5.5.
+
+Every known wrong Success is fixed. What is left fails honestly.
+
+**What is open:**
+- the list "Open findings at the pause" above;
+- the clipped-region item, face 1 (speed) and face 2 (pinned);
+- RoundToGrid, parked: `TERRAIN_ROUND_TO_GRID.md` has the measurements, the corrected bound and the options;
+- the later items 3–9 of this section.
+
+**The order after the restart:**
+1. The DGM reader for the CLI.
+2. Then the ROADMAP order: volume per cell, ramps, lofting, performance follow-ups.
+3. RoundToGrid's research item (a local re-triangulation under the slope constraint) when the owner picks it up.
+
+**Measurement tools:**
+- **TerrainBenchmark** (`benchmarks/TerrainBenchmark`, `run.sh slope ...`, the Hambach DGM fetched by
+  `fetch_data.py`). Its README has the command of every case and the A/B tables of each PR. Output hashes
+  (`hash_surface`, `hash_region`, `hash_composite`) compare results bit for bit. `round=`, `zround=` and `margin=`
+  measure the rounding.
+- **The baselines at the pause** (4 cores, #363's table in the README):
+
+  | case | time |
+  |---|---|
+  | one toe edge, 1 m | 1.9–2.3 s |
+  | octagon r 100 m, 1 m | 10.8–11.2 s |
+  | L shape 120 m, 2 m | 4.4–5.1 s |
+  | wavy 48-gon r 150 m, 2 m | 13.5–13.8 s |
+  | 1a speed case | 4.1–4.3 s |
+
+- **Procedural design sets in the tests:**
+  - `TerrainSlopeMixedTests.Make`: 60 configs × Cut, Fill, Auto × `Similarity.All()`;
+  - `TerrainSlopeBandRepairTests.WavyOnWaves`;
+  - `TerrainSlopeToeCrossingTests.Make`.
+  The PRs swept them all, comparing hashes against master; the sweep test is a scratch file, not in the
+  repository.
+- **Oracles:** `TerrainSlopeCatchLineTests.AssertComposite` (with T-junctions and vertical cracks),
+  `TerrainSlopeMixedTests.AssertMixed`, `TerrainSlopeSnapTests.WorstDeviation` (the ideal clamp on a grid), and
+  `TerrainSlopeSnapCertificateTests.CandidatesOverBound`.
 
 ## 12. Open questions for the user
 
