@@ -477,6 +477,15 @@ Checked against what the library already has (exact booleans, alpha wrap, intrin
 vector heat). Ordered by priority: effort against what it builds on and what it unlocks. Licenses checked at the
 source repositories (October 2026); "paper only" means the reference code may not be ported.
 
+**Next research items (owner 2026-11-03), only if the effort is really small:** (1) #7 foldover-free maps
+(Garanzha et al. 2021; on `SLIM` and `UVOverlap`; also a lead for the open P1 collapse), (2) the affine heat method
+(Soliman & Sharp 2025, port from geometry-central, MIT; an upgrade of the `VectorHeatMethod` log map), (3) generalized
+winding numbers for rational curves (Spainhour et al. 2024, Axom, BSD). Each starts with an effort estimate and a §2
+prior-art check; one that is not small (about one PR in one short session) goes back to the owner instead of being
+started. They take the slot the terrain session frees (§8: no third session). #6 (walk on stars, Zombie) stays later:
+no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
+bit-for-bit determinism and invariance tests.
+
 | # | Feature | Research / port source | License of reference code | Why / builds on |
 |---|---|---|---|---|
 | 1 | Geodesic paths, loops and Bézier curves on surfaces (FlipOut). **Done:** paths, waypoints, loops (`MeshGeodesicPath`); Bézier curves open | Sharp & Crane 2020 *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*; geometry-central | MIT | Almost entirely on `IntrinsicTriangulation`; cut lines (orthotics), UV seams, curves on surfaces |
