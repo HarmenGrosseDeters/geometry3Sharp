@@ -141,6 +141,14 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   Geodesic and issue-case filters 328/328. `IntrinsicTriangulation` is fork-only (no UPSTREAM_CHANGES row). Owner
   concept: none needed (a local degenerate-input rule); the general degenerate-input handling of the intrinsic code is
   the mollification it already uses.
+- Review: the first edge's world angle is 0 by definition but its own Atan2 only about 0, so a neighbour that
+  coincides with the first one (a direction, but the same one) came out just below 0 under a rotation and was taken a
+  full turn later: its corner spanned the whole circle and `FromWorld` gave one angle for every direction (older than
+  the fix, at the same vertices). It now gets 0, a corner of no width, as for the identity
+  (`CoincidentVertices_FromWorld_SameAnglesUnderSimilarities`, also with runs of several zero-length edges from a
+  squeezed row and column). Limitation: only zero-length edges are interpolated; neighbours that have a direction but
+  coincide with each other (a collapsed block of the grid) leave corners of no world width, where `ToWorld` stays
+  arbitrary, as at a vertex whose neighbours all coincide.
 
 ### G3 (fixed): `TraceFailed` for short edges far from the origin
 

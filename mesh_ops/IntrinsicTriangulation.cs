@@ -657,7 +657,7 @@ namespace gs
         /// Tangent basis of a mesh vertex in which the signpost angles are measured: e1 is the direction of
         /// the vertex' first input edge projected into the tangent plane (normal: angle-weighted), e2 = n x e1.
         /// If that edge has no direction there (length 0: a coincident neighbour), e1 is the direction ToWorld
-        /// gives it: interpolated between the neighbouring edges that have one (see tangent_wedges).
+        /// gives it: interpolated between the neighbouring edges that have one (see wedge_angles).
         /// </summary>
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
         {
@@ -779,14 +779,21 @@ namespace gs
             fan_edges(i, p, out sign, out dirs);
             int K = sign.Count;
             world = new List<double>(K + 1);
-            double prevW = 0;
+            double prevW = 0, raw0 = 0;
             int first = -1, last = -1;
             for (int k = 0; k < K; ++k) {
                 Vector3d d = dirs[k];
                 if (projected(d, n).Length < 1e-300) { world.Add(double.NaN); continue; }
                 double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
-                if (first < 0) { w = 0; first = k; }
-                else { while (w < prevW) w += 2 * Math.PI; }
+                if (first < 0) { raw0 = w; w = 0; first = k; }
+                else {
+                    // the first edge is at 0 by definition, its own Atan2 (raw0) only about 0: an edge in the same
+                    // direction (a neighbour that coincides with the first one) may come out just below 0 and must
+                    // not be taken a full turn later; it gets 0, a corner of no width (as for the identity)
+                    double lo = (last == first) ? Math.Min(raw0, 0) : prevW;
+                    while (w < lo) w += 2 * Math.PI;
+                    w = Math.Max(w, prevW);
+                }
                 world.Add(w);
                 prevW = w;
                 last = k;
