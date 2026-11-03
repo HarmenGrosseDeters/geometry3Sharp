@@ -1004,11 +1004,30 @@ namespace gs
             // (the outward normal; moved along it for side -1, against it for +1)
             Vector2d nrm = new Vector2d(e1.y - e0.y, e0.x - e1.x) * side * -1;
             Vector2d r = x;
+            // (from a coordinate of exactly 0 the first step is the ulp of the edge's coordinate scale, not the subnormal
+            // 4.9e-324: that one is the same in every frame, so 2^k would not scale the result; a power of two times the
+            // scale does. Elsewhere one ulp of the coordinate, as everywhere in a frame without subnormals)
+            double u = UlpOfScale(Math.Max(Math.Max(Math.Max(Math.Abs(e0.x), Math.Abs(e0.y)), Math.Max(Math.Abs(e1.x), Math.Abs(e1.y))),
+                                             Math.Max(Math.Abs(x.x), Math.Abs(x.y))));
             for (int it = 0; it < 64 && ExactPredicates.Orient2d(e0, e1, r) * side < 0; ++it) {
-                if (nrm.x != 0) r.x = nrm.x > 0 ? ExactInterval.Up(r.x) : ExactInterval.Down(r.x);
-                if (nrm.y != 0) r.y = nrm.y > 0 ? ExactInterval.Up(r.y) : ExactInterval.Down(r.y);
+                if (nrm.x != 0) r.x = Step(r.x, nrm.x > 0, u);
+                if (nrm.y != 0) r.y = Step(r.y, nrm.y > 0, u);
             }
             return r;
+        }
+
+        // one step up or down: the next double, from exactly 0 (or -0) the scale's ulp u
+        internal static double Step(double v, bool up, double u)
+        {
+            if (v == 0) return up ? u : -u;
+            return up ? ExactInterval.Up(v) : ExactInterval.Down(v);
+        }
+
+        // the ulp of a positive scale (a power of two; scales with 2^k). (A scale of 0 does not occur: the edge's ends and
+        // the point would all be at the origin, Orient2d 0, and nothing moves)
+        internal static double UlpOfScale(double m)
+        {
+            return ExactInterval.Up(m) - m;
         }
     }
 }
