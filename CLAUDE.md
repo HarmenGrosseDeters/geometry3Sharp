@@ -39,7 +39,8 @@ all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack`
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
 threshold, then the CI run is the gate; an upper-bound check before any performance spike; and before designing an
 optimization or algorithm, a search of the library for existing building blocks and a literature check
-([AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) sections 2, 3 and 8).
+([AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) sections 2, 3 and 8); and a short prior-art check before options go to the owner
+or when a finding hits a fundamental limit (section 2).
 
 Run the steps of `.github/workflows/ci.yml` locally:
 

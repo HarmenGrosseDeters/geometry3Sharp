@@ -49,6 +49,17 @@ Every worker session gets a brief with these fields, and nothing open-ended:
   split by feature, not by step. Stack a PR on another only when the base is ready and its mutation run has passed:
   stacking on an unmerged base cost retargets, duplicate CI and a skipped mutation job on 2026-11-01.
 
+- **Prior-art check at decision points** (owner, 2026-11-03): a short check of how others solve it (about 15 min,
+  3-5 sources: papers, standards such as IFC / OGC, the approach of established libraries; for copyleft or clean-room
+  sources the approach only, never code). Required when (1) options go to the owner for a decision, (2) a finding hits
+  a fundamental limit (representation, precision, termination, complexity, the spec's definitions), not a local defect,
+  or (3) a new mechanism is introduced. Not for local bugfixes, guards, tests or measurements. Every option list to the
+  owner carries a line "how others solve it" with sources, or "nothing found" with the terms searched. The coordinator
+  passes no decision question on without that line. (Case: the UTM precision limit of the terrain LocalFrame went to
+  the owner as three options without it; local frames with an origin are standard (IFC map conversion, relative-to-centre
+  coordinates), and the follow-up, rounding the output to a grid with guarantees, has an established answer in snap
+  rounding.)
+
 ## 3. Execution-grounded loop
 
 - The inner loop is fast: filtered `dotnet test` runs and a small benchmark subset. The full local CI steps run
