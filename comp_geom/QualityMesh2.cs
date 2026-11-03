@@ -197,6 +197,53 @@ namespace g3
 
             bool InDomain(int t) => k.Tag[t] >= 0 && !k.IsGhost(t);
 
+            /// <summary> test hook: constraints lifted and vertices deleted by carves, summed over runs on this thread </summary>
+            [ThreadStatic] internal static long LiftedForTests, CarvedForTests;
+
+            /// <summary>
+            /// Removes what lies outside the domain before refinement (spec Q7: a hole removes everything inside its ring; O2: the
+            /// output's triangles are judged against the output's vertices, owner 2026-11-03). A constraint with the outside on both
+            /// sides is lifted if it is a piece of free segments (rings stay), and the triangulation made constrained Delaunay again across
+            /// it; then every made vertex (a crossing, a hot pixel centre that snap rounding added) whose triangles all lie outside is
+            /// deleted. Input points stay. Left in place, such content
+            /// was split by the conforming queue, encroached on the domain's segments and blocked split points on the grid (T15),
+            /// though nothing of it reaches the output.
+            /// </summary>
+            void CarveOutside()
+            {
+                var lifted = new List<long>();
+                for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
+                    int f = k.H[e];
+                    if (f < e || k.Seg[e] < 0) continue;
+                    int t = e / 3, u = f / 3;
+                    if (k.IsGhost(t) || k.IsGhost(u) || k.Tag[t] >= 0 || k.Tag[u] >= 0) continue;
+                    // only pieces of free segments: a ring's edges stay, also where both sides are outside (a hole reaching beyond the
+                    // outer ring, D5), so that ring parity (InsideFromScratch, the tag check) still sees every ring
+                    if (k.Sources[k.Seg[e]].Any(src => b.sources[src].Ring >= 0)) continue;
+                    k.Unconstrain(e);
+                    lifted.Add(Key(k.V[e], k.V[Next(e)]));
+                }
+                if (lifted.Count == 0) return;
+                LiftedForTests += lifted.Count;
+                k.RestoreDelaunay(lifted);
+                // made vertices: those of the constrained phase, and on the grid the hot pixel centres snap rounding appended (input
+                // points stay); DeleteVertex refuses a vertex on a constraint, on the hull, or with a triangle inside the domain
+                int firstMadeInput = snap?.InputCount ?? int.MaxValue;
+                for (int v = firstMadeInput == int.MaxValue ? k.N + 1 : 0; v < k.VertexCount; ++v)
+                    if (v != k.Infinite && OutsideOnly(v) && k.DeleteVertex(v, firstMadeInput)) ++CarvedForTests;
+            }
+
+            bool OutsideOnly(int v)
+            {
+                bool any = false;
+                foreach (int e in k.Star(v)) {
+                    int t = e / 3;
+                    if (k.IsGhost(t) || k.Tag[t] >= 0) return false;
+                    any = true;
+                }
+                return any;
+            }
+
             internal ConstrainedTriangulation2Result Run(ConstrainedDelaunayMesh2.Builder builder)
             {
                 k = b.k;
@@ -209,6 +256,7 @@ namespace g3
                 if (!any) return null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
+                CarveOutside();
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 QueueAll();
