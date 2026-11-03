@@ -105,9 +105,10 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   the length, so it checks the reversal only). A path that passes the diagonal vertices of a grid at 1e-7 has real
   segments of 1e-10 at a scale of 2^-10: an absolute 1e-9 threshold (mutant) drops them and fails that case.
 
-### G2 (open): tangent frames at coincident vertices
+### G2 (fixed): tangent frames at coincident vertices
 
-- Test: `TinyAreaTriangles_VectorTransportFinite` (case `_CoincidentVertices`).
+- Tests: `TinyAreaTriangles_VectorTransportFinite` (case `_CoincidentVertices`),
+  `CoincidentVertices_VectorTransport_UnderSimilarities`, `IntrinsicGeodesicsTests.ToWorld_WithoutZeroLengthEdges_BitIdenticalToReference`.
 - Issues: https://github.com/nmwsharp/potpourri3d/issues/29 and https://github.com/nmwsharp/geometry-central/issues/167.
 - Input -> wrong result: a flat 10 x 10 grid whose column 5 is moved onto column 4 (coincident vertices, zero-area
   triangles), the source at a corner. `VectorHeatMethod.TransportVector` and `ComputeLogMap` are finite everywhere,
@@ -126,6 +127,28 @@ Tests: `tests/geometry3Sharp.Tests/GeodesicsIssueCasesTests.cs`.
   vertex with a coincident neighbour and needs tests of the closing corner at boundary vertices; low risk otherwise.
   (b) Document that frames at coincident vertices are undefined and return NaN there (cheap, but a silent value is
   worse than the current finite but wrong one only if callers check).
+- Fix (idea (a), mesh_ops/IntrinsicTriangulation.cs, `tangent_frame` and `wedge_angles`): an input edge without a
+  direction in the tangent plane (projected length below 1e-300) has no world angle of its own; it gets the world
+  angle interpolated linearly in the signpost angle between the neighbouring edges that have one, cyclically over the
+  closing corner (also at boundary vertices, whose closing corner is the gap). Its two corners then map as one, as if
+  the edge were not there. If the first edge is such an edge, `GetTangentBasis` takes a provisional basis from the
+  first edge with a direction and turns e1 to the first edge's interpolated direction, so its signpost angle 0 stays
+  e1. A vertex whose neighbours all coincide keeps the arbitrary axis. Vertices without zero-length edges keep their
+  angles bit for bit (`ToWorld_WithoutZeroLengthEdges_BitIdenticalToReference`: a reference copy of the old mapping
+  on a bumpy grid, a sphere, a folded fan and a squeezed grid). The un-pinned case and the new theory over
+  `Similarity.All()` (within 2 degrees everywhere, the transport bit for bit at 2^k) fail on the base; mutants
+  without the turn of e1 or without the interpolation fail 9 of the 11 G2 and ToWorld tests. Intrinsic, VectorHeat,
+  Geodesic and issue-case filters 328/328. `IntrinsicTriangulation` is fork-only (no UPSTREAM_CHANGES row). Owner
+  concept: none needed (a local degenerate-input rule); the general degenerate-input handling of the intrinsic code is
+  the mollification it already uses.
+- Review: the first edge's world angle is 0 by definition but its own Atan2 only about 0, so a neighbour that
+  coincides with the first one (a direction, but the same one) came out just below 0 under a rotation and was taken a
+  full turn later: its corner spanned the whole circle and `FromWorld` gave one angle for every direction (older than
+  the fix, at the same vertices). It now gets 0, a corner of no width, as for the identity
+  (`CoincidentVertices_FromWorld_SameAnglesUnderSimilarities`, also with runs of several zero-length edges from a
+  squeezed row and column). Limitation: only zero-length edges are interpolated; neighbours that have a direction but
+  coincide with each other (a collapsed block of the grid) leave corners of no world width, where `ToWorld` stays
+  arbitrary, as at a vertex whose neighbours all coincide.
 
 ### G3 (fixed): `TraceFailed` for short edges far from the origin
 

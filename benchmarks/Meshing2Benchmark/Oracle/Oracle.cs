@@ -45,6 +45,8 @@ namespace Meshing2Acceptance
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
         [ThreadStatic] public static bool ForceReference;
 
+        /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
+        public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
         /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
         internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b) => Run.AtLeastShewchukBound(q, r, s, apex, a, b);
 
@@ -969,6 +971,78 @@ namespace Meshing2Acceptance
                 if (tube2.Bounds(out _, out double t2hi)) reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300;
                 sBox = new double[4 * sources.Count];
                 for (int k = 0; k < sources.Count; ++k) SegmentBox(sources[k].a, sources[k].b, reach, sBox, 4 * k);
+                // the ends of each source in doubles where they are doubles exactly (NaN otherwise), and the tube squared from above
+                sEnds = new double[4 * sources.Count];
+                for (int k = 0; k < sources.Count; ++k) {
+                    bool exact = Exactly(sources[k].a, out sEnds[4 * k], out sEnds[4 * k + 1]) & Exactly(sources[k].b, out sEnds[4 * k + 2], out sEnds[4 * k + 3]);
+                    if (!exact) sEnds[4 * k] = double.NaN;
+                }
+                if (tube2.Bounds(out double t2lo, out double t2hi2)) { tube2Lo = t2lo; tube2Hi = t2hi2; } else tube2Lo = tube2Hi = double.NaN;
+            }
+
+            double[] sEnds;   // per source: ax, ay, bx, by in doubles (ax NaN: not doubles, no filter)
+            double tube2Lo, tube2Hi;   // the tube squared, an interval in doubles around the exact value
+
+            /// <summary> q as a double if it is one exactly (checked by converting back), NaN otherwise </summary>
+            static double AsDouble(Q q)
+            {
+                double c = (double)q.N / (double)q.D;
+                return !double.IsNaN(c) && !double.IsInfinity(c) && Q.FromDouble(c) == q ? c : double.NaN;
+            }
+
+            static bool Exactly(Pt p, out double x, out double y)
+            {
+                x = AsDouble(p.Qx); y = AsDouble(p.Qy);
+                return !double.IsNaN(x) && !double.IsNaN(y);
+            }
+
+            /// <summary>
+            /// Output vertex i against the tube of source k in doubles: -1 certainly farther, +1 certainly within, 0 undecided (the exact
+            /// test decides). Bounds (u = 2^-53, margins as in OrientV):
+            ///   cross = (bx-ax)(py-ay) - (by-ay)(px-ax): |error| &lt;= (3u + 16u^2)(|l| + |r|) [ccwerrboundA]; used 1e-15 (|l| + |r|);
+            ///   dot = (bx-ax)(px-ax) + (by-ay)(py-ay): the same form with a sum, so the same bound; used 1e-15 (|l'| + |r'|);
+            ///   uu = |b-a|^2: relative error below (1 + u)^4 - 1, about 4u (differences, squares, sum); used 1e-15.
+            /// The distance to the line, cross^2 / uu, bounds the distance to the segment from below: far when (|cross| - e)^2 / uu,
+            /// rounded down, exceeds the tube squared rounded up. Within when 0 &lt;= dot &lt;= uu certainly (the foot lies on the segment,
+            /// so both distances agree) and (|cross| + e)^2 / uu, rounded up, is below the tube squared rounded down. Each rounding of
+            /// the last steps is covered by a factor 1 +- 1e-15. Fast path and normal magnitudes only.
+            /// </summary>
+            int SourceTubeFilter(int k, int i)
+            {
+                if (!Fast || double.IsNaN(sEnds[4 * k]) || double.IsNaN(tube2Lo)) return 0;
+                return TubeFilter(sEnds[4 * k], sEnds[4 * k + 1], sEnds[4 * k + 2], sEnds[4 * k + 3], o.VX[i], o.VY[i], tube2Lo, tube2Hi);
+            }
+
+            /// <summary> the filter of SourceTubeFilter on doubles: segment a-b, point p, the tube squared in [tube2Lo, tube2Hi] </summary>
+            internal static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi)
+            {
+                double ux = bx - ax, uy = by - ay, vx = px - ax, vy = py - ay;
+                double l = ux * vy, rr = uy * vx;
+                double sum = Math.Abs(l) + Math.Abs(rr), err = 1e-15 * sum, cross = Math.Abs(l - rr);
+                double uu = ux * ux + uy * uy;
+                bool Normal(double x) => x > 1e-200 && x < 1e200;
+                if (!Normal(uu) || !(sum < 1e200) || !(tube2Hi > 1e-200 && tube2Hi < 1e200)) return 0;
+                double lower = cross - err;
+                if (lower > 0 && Normal(lower) && Normal(lower * lower) && lower * lower / (uu * (1 + 1e-15)) * (1 - 1e-15) > tube2Hi) return -1;
+                double upper = cross + err;
+                double d1 = ux * vx, d2 = uy * vy, dot = d1 + d2, dotSum = Math.Abs(d1) + Math.Abs(d2), dotErr = 1e-15 * dotSum;
+                // a product that underflowed, or a subnormal square divided by a small uu, would break the relative bounds: undecided.
+                // Except a cross product that is zero exactly, through a zero factor in each product (a point on an axis-parallel
+                // source's line): then the distance to the line is zero
+                bool exactlyOnLine = (ux == 0 || vy == 0) && (uy == 0 || vx == 0);
+                double upper2 = exactlyOnLine ? 0 : upper * upper;
+                if (!Normal(dotSum) || !(exactlyOnLine || Normal(upper2))) return 0;
+                bool onFoot = dot - dotErr >= 0 && dot + dotErr <= uu * (1 - 1e-15);
+                if (onFoot && upper2 / (uu * (1 - 1e-15)) * (1 + 1e-15) < tube2Lo) return 1;
+                return 0;
+            }
+
+            /// <summary> vertex i lies within the tube of source k: exactly, unless the filters decide it for certain </summary>
+            bool NearSource(int k, int i)
+            {
+                if (!MayBeNear(k, i)) return false;
+                int f = SourceTubeFilter(k, i);
+                return f != 0 ? f > 0 : WithinTube(sources[k], v[i]);
             }
 
             /// <summary> the box of segment a-b in doubles, around the exact one, widened by reach; NaN where it is unknown </summary>
@@ -1166,11 +1240,18 @@ namespace Meshing2Acceptance
                 if (e.Milestone != Milestone.M2) return;
                 var chainEnds = new HashSet<int>((o.Subsegments ?? new List<SubsegmentOutput>()).SelectMany(q => new[] { q.A, q.B }));
                 var inputs = new HashSet<Pt>(inPts);
+                // on the fast path a grid over the source boxes (widened by the tube): every vertex scanned every source exactly, 37 342
+                // vertices x 1 112 sources on GEOS shapely-829/1 (more than 600 s). Query returns a superset in ascending order and
+                // MayBeNear drops only sources certainly farther than the tube, so `near` is the same list as from the full scan
+                var sourceGrid = e.Reference ? null : new BoxGrid(sBox, sources.Count);
                 foreach (int id in o.Triangles.SelectMany(t => t).Distinct()) {
                     if (inputs.Contains(v[id])) continue;
                     // a surviving input slot is an input point even where snapping moved it (D14); Identity judges how far it moved
                     if (input.SnapTolerance > 0 && o.IdentityRules && id < input.Count && map[id] == id) continue;
-                    var near = sources.Where(s => WithinTube(s, v[id])).ToList();
+                    var candidates = sourceGrid != null && vKnown[id]
+                        ? sourceGrid.Query(vxl[id], vxh[id], vyl[id], vyh[id])
+                        : Enumerable.Range(0, sources.Count).ToList();
+                    var near = candidates.Where(k => NearSource(k, id)).Select(k => sources[k]).ToList();
                     // D14: snap rounding adds the centres of hot pixels (crossings, and the restore step's pixels) as vertices of the chains;
                     // such a vertex is on a chain (an end of a subsegment) and in the envelope of an input constraint, within half a pixel
                     // per axis of it (that it lies on the grid is checked for every vertex, OffGrid)
@@ -2280,8 +2361,7 @@ namespace Meshing2Acceptance
             {
                 if (o.Subsegments == null) return;
                 foreach (var s in o.Subsegments) {
-                    var covering = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, s.A) && MayBeNear(k, s.B)).Select(k => sources[k])
-                        .Where(c => WithinTube(c, v[s.A]) && WithinTube(c, v[s.B])).ToList();
+                    var covering = Enumerable.Range(0, sources.Count).Where(k => NearSource(k, s.A) && NearSource(k, s.B)).Select(k => sources[k]).ToList();
                     if (covering.Count == 0) {
                         bool onHull = domain.IsHull && domain.Edges().Any(h => Exact.Dist2ToSegment(h.a, h.b, v[s.A]) <= tube2 && Exact.Dist2ToSegment(h.a, h.b, v[s.B]) <= tube2);
                         if (!onHull) r.Add(Violation.SubsegmentUnsourced, "subsegment " + s.A + "-" + s.B + " lies on no input constraint");

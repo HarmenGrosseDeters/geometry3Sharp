@@ -405,3 +405,30 @@ second realization runs, with a second overlay and composite (λ 3.0e-8 → 5.1e
 map are faster there too. A way back is a first lowering that covers the clipped triangles (a change of the lowering's
 estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in this PR.
 
+
+### The band merge for needles at near-quadruple points (item 4, `TERRAIN.md` 5.4)
+
+Needles whose short edge joins two crease vertices with plane sets that are not nested, closer than
+`MinFeatureSize` but further apart than the merge radius 64 e_xy, are merged when they fail the exact check. The
+band radius lives in the facets' slack, so designs without such needles are unchanged.
+
+Setup:
+- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is this branch.
+- The output hashes (`hash_surface`, `hash_region`, `hash_composite`: FNV over the vertices' bits and the triangles)
+  compare the slope surface, the region and the composite bit for bit.
+- The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
+- The last row is the procedural repro of `TerrainSlopeBandRepairTests`:
+  `slope toe=wavy n=48 r=150 h=60 cz=-340 ratio=1.5 tol=0.05 terrain=wave amp=20 tgrid=8 composite=1 coords=local`.
+
+| case | before | after | band merges | outputs |
+|---|---|---|---|---|
+| one toe edge, 1 m | 1.78 s | 1.79 s | 0 | bitwise equal |
+| octagon r 100 m, 1 m | 10.24 s | 9.96 s | 0 | bitwise equal |
+| L shape 120 m, 2 m | 2.96 s | 2.93 s | 0 | bitwise equal |
+| wavy 48-gon r 150 m, 2 m | 8.20 s | 8.35 s | 0 | bitwise equal |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 3.92 s | 3.90 s | 0 | bitwise equal |
+| procedural repro near the origin | `SlopeViolation` after 3 attempts, 6.93 s | `Success` in 1 attempt, 4.19 s | 1 (8.5e-12 m) | – |
+
+A rejected variant reserved a share of `Tolerance` for the band, taken from the facets. It changed every design: the
+facet angle shrank by 1–2 %, and the octagon took 10.2 → 14.3 s (one more λ round), although no design used the
+band.

@@ -801,6 +801,117 @@ namespace geometry3Sharp.Tests
             Assert.True(off > 0 && off < arc, $"closing corner maps to {off} outside (0, {arc})");
         }
 
+        // ToWorld / FromWorld before finding G2 (docs/ISSUE_CASE_FINDINGS.md), rebuilt from the public signposts of an
+        // unflipped triangulation (the same as the input ones): the corners between the projected edge directions, the
+        // first edge at 0. A vertex without a zero-length edge must still give exactly this
+        static void ReferenceWedges(IntrinsicTriangulation T, DMesh3 mesh, int vid, out List<double> sign, out List<double> world,
+            out Vector3d e1, out Vector3d e2)
+        {
+            T.GetTangentBasis(vid, out e1, out e2, out Vector3d n);
+            int i = T.VertexIndex(vid);
+            Vector3d p = mesh.GetVertex(vid);
+            sign = new List<double>(); world = new List<double>();
+            int h0 = T.VertexHalfedge(i), hh = h0;
+            double prevW = 0;
+            while (true) {
+                Vector3d d = mesh.GetVertex(T.VertexID(T.Head(hh))) - p;
+                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
+                if (sign.Count == 0) w = 0;
+                else { while (w < prevW) w += 2 * Math.PI; }
+                sign.Add(T.Signpost(hh)); world.Add(w);
+                prevW = w;
+                int nh = T.NextAroundVertex(hh);
+                if (nh < 0) {
+                    Vector3d dl = mesh.GetVertex(T.VertexID(T.Head(IntrinsicTriangulation.Next(hh)))) - p;
+                    double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
+                    while (wl < prevW) wl += 2 * Math.PI;
+                    sign.Add(T.LastSignpost(i)); world.Add(wl);
+                    break;
+                }
+                if (nh == h0) break;
+                hh = nh;
+            }
+            Func<double, double> nextTurn = a => Math.Max(1, Math.Ceiling(a / (2 * Math.PI) - 1e-12)) * (2 * Math.PI);
+            sign.Add(nextTurn(sign[sign.Count - 1])); world.Add(nextTurn(world[world.Count - 1]));
+        }
+
+        static double ReferenceMap(double a, List<double> from, List<double> to)
+        {
+            a = IntrinsicTriangulation.wrap(a);
+            for (int k = 0; k + 1 < from.Count; ++k)
+                if (a <= from[k + 1] || k + 2 == from.Count) {
+                    double span = from[k + 1] - from[k];
+                    double f = (span > 0) ? (a - from[k]) / span : 0;
+                    return to[k] + f * (to[k + 1] - to[k]);
+                }
+            return a;
+        }
+
+        /// <summary> the vertices that have an input edge of length 0 (a coincident neighbour) </summary>
+        static HashSet<int> WithZeroLengthEdge(DMesh3 mesh)
+        {
+            var r = new HashSet<int>();
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                if (mesh.GetVertex(ev.a) == mesh.GetVertex(ev.b)) { r.Add(ev.a); r.Add(ev.b); }
+            }
+            return r;
+        }
+
+        /// <summary>
+        /// ToWorld and FromWorld at every vertex without a zero-length edge, bit for bit against the reference; returns
+        /// the number of vertices compared
+        /// </summary>
+        static int AssertToWorldUnchanged(DMesh3 mesh)
+        {
+            var T = new IntrinsicTriangulation(mesh);
+            HashSet<int> skip = WithZeroLengthEdge(mesh);
+            int count = 0;
+            foreach (int v in mesh.VertexIndices()) {
+                if (skip.Contains(v) || T.VertexIndex(v) < 0) continue;
+                ReferenceWedges(T, mesh, v, out List<double> sign, out List<double> world, out Vector3d e1, out Vector3d e2);
+                for (int k = 0; k < 23; ++k) {
+                    double a = -3 + 0.5 * k;    // also outside [0, 2 pi): wrapped
+                    double len = 0.75 + 0.125 * (k % 3);
+                    var t = new Vector2d(len * Math.Cos(a), len * Math.Sin(a));
+                    double am = ReferenceMap(Math.Atan2(t.y, t.x), sign, world);
+                    Vector3d expected = t.Length * (Math.Cos(am) * e1 + Math.Sin(am) * e2);
+                    Assert.Equal(expected, T.ToWorld(v, t));
+                    Vector3d w = len * (Math.Cos(a) * e1 + Math.Sin(a) * e2) + 0.3 * e1.Cross(e2);
+                    Vector2d tw = new Vector2d(w.Dot(e1), w.Dot(e2));
+                    double aw = ReferenceMap(Math.Atan2(tw.y, tw.x), world, sign);
+                    Assert.Equal(new Vector2d(tw.Length * Math.Cos(aw), tw.Length * Math.Sin(aw)), T.FromWorld(v, w));
+                }
+                count++;
+            }
+            return count;
+        }
+
+        [Fact]
+        public void ToWorld_WithoutZeroLengthEdges_BitIdenticalToReference()
+        {
+            // finding G2 changed ToWorld / FromWorld only at vertices with a zero-length input edge: every other vertex
+            // (interior, boundary, corner, curved, a cone, a folded saddle fan) maps bit for bit as before
+            DMesh3 bumpy = Grid(2, 9, (x, y) => 0.3 * Math.Sin(2 * x) * Math.Cos(3 * y));
+            Assert.Equal(bumpy.VertexCount, AssertToWorldUnchanged(bumpy));
+            DMesh3 sphere = RingSphere(1, 8, 12);
+            Assert.Equal(sphere.VertexCount, AssertToWorldUnchanged(sphere));
+            // the folded saddle fan of ToWorld_FoldedFan_EdgesExactAndClosingCornerTheShortWay
+            DMesh3 fan = new DMesh3();
+            int c = fan.AppendVertex(Vector3d.Zero);
+            double[] deg = { 0, 110, 30, 150, 230, 310 }, z = { 0, 1, -1, 0, 0, 0 };
+            for (int k = 0; k < deg.Length; ++k)
+                fan.AppendVertex(new Vector3d(Math.Cos(deg[k] * Math.PI / 180), Math.Sin(deg[k] * Math.PI / 180), z[k]));
+            for (int k = 0; k < deg.Length; ++k) fan.AppendTriangle(c, 1 + k, 1 + (k + 1) % deg.Length);
+            Assert.Equal(fan.VertexCount, AssertToWorldUnchanged(fan));
+            // a flat grid with coincident vertices (column 5 moved onto column 4): the vertices away from them too
+            DMesh3 squeezed = Grid(1, 11, (x, y) => 0);
+            for (int j = 0; j < 11; ++j) squeezed.SetVertex(11 * j + 5, squeezed.GetVertex(11 * j + 4));
+            int zero = WithZeroLengthEdge(squeezed).Count;
+            Assert.True(zero == 22, $"{zero} vertices with a zero-length edge");
+            Assert.Equal(squeezed.VertexCount - zero, AssertToWorldUnchanged(squeezed));
+        }
+
         [Fact]
         public void SparseCholesky_SolveLog_BeyondTheDoubleRange()
         {
