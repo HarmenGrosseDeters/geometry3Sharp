@@ -19,7 +19,7 @@ namespace g3cli
     public static partial class Commands
     {
         public static readonly List<Command> All = new List<Command>() {
-            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d()
+            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope()
         };
 
         public static Command Find(string name)
@@ -49,6 +49,11 @@ namespace g3cli
                 result = Ok(cmd.Name, result);
             } catch (CommandException e) {
                 result = Error(cmd.Name, e.Code, e.Message);
+                if (e.Data != null)
+                    foreach (var kv in e.Data.ToList()) {
+                        e.Data.Remove(kv.Key);
+                        if (result.ContainsKey(kv.Key) == false) result[kv.Key] = kv.Value;
+                    }
             } catch (Exception e) {
                 result = Error(cmd.Name, ResultCodes.InternalError, e.GetType().Name + ": " + e.Message);
             }

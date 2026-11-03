@@ -52,7 +52,10 @@ namespace g3cli
     public class CommandException : Exception
     {
         public string Code;
+        /// <summary> optional details of the failure, added to the error result (eg the status of a computation) </summary>
+        public System.Text.Json.Nodes.JsonObject Data;
         public CommandException(string code, string message) : base(message) { Code = code; }
+        public CommandException(string code, string message, System.Text.Json.Nodes.JsonObject data) : base(message) { Code = code; Data = data; }
     }
 
 

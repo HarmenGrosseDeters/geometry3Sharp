@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -73,6 +73,12 @@ namespace g3cli.Tests
             JsonNode query2d = tools.First(t => S(t["name"]) == "query2d");
             Assert.Equal(new[] { "input" }, query2d["inputSchema"]["required"].AsArray().Select(S).ToArray());
             Assert.Equal("integer", S(boolean["inputSchema"]["properties"]["k"]["type"]));
+            // (slope: the terrain and the tolerance are required; a local frame's outputs are local, used_origin is added back)
+            JsonNode slope = tools.First(t => S(t["name"]) == "slope");
+            Assert.Equal(new[] { "terrain", "tolerance" }, slope["inputSchema"]["required"].AsArray().Select(S).ToArray());
+            Assert.Equal(new[] { "cut", "fill", "auto" }, slope["inputSchema"]["properties"]["direction"]["enum"].AsArray().Select(S).ToArray());
+            Assert.Contains("used_origin", S(slope["description"]));
+            Assert.Contains("local frame", S(slope["description"]));
 
             r = Handle(server, Request(4, "ping"));
             Assert.NotNull(r["result"]);

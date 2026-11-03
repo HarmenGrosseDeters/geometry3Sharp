@@ -53,7 +53,7 @@ Add both: `using g3; using gs;`.
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
-| Slope design from a toe line to a terrain (open-pit benches, dumps, embankments): cut, fill or mixed cut and fill (`Direction.Auto`, the clamp max(S_fill, min(T, S_cut))), never steeper than the given slope (exact check of every output triangle); catch lines with their accuracy, the composite terrain (or only the replacement of the changed terrain triangles), cut and fill volumes and areas, level lines at target heights (`TargetHeights`, the hook for berms). The result does not depend on the order of the toe pieces. Statuses with a kind (`StatusKind`): invalid input, unsupported by the method, geometrically infeasible (eg `ToeUndercut`, `ToeOvertopped`), not certified. The smallest feature it can guarantee (`UsedMinFeatureSize`) follows from the coordinates' magnitude, about 1.5 cm at UTM with the default `SlopeMargin`; `LocalFrame` computes on the inputs translated to a local origin and returns the outputs in that frame (XY + `UsedOrigin` is the input's; translating them back rounds by up to half an ulp and is not covered by the exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not share that terrain with work running concurrently. A copy instead cost 0.2–0.6 s, 167 MB of allocations and 300 MB of peak memory on a 2-million-triangle terrain | `gs.TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec`, `SlopePiece`, `CatchLine`, `TargetHeightLine` | tests: `TerrainSlopeDesignTests`, `TerrainSlopeCatchLineTests`, `TerrainSlopeMixedTests`, `TerrainSlopeTargetHeightTests`, `TerrainSlopeLocalFrameTests`; design: [TERRAIN.md](design/TERRAIN.md) |
+| Slope design from a toe line to a terrain (open-pit benches, dumps, embankments): cut, fill or mixed cut and fill (`Directions.Auto`, the clamp max(S_fill, min(T, S_cut))), never steeper than the given slope (exact check of every output triangle); catch lines with their accuracy, the composite terrain (or only the replacement of the changed terrain triangles), cut and fill volumes and areas, level lines at target heights (`TargetHeights`, the hook for berms). The result does not depend on the order of the toe pieces. Statuses with a kind (`StatusKind`): invalid input, unsupported by the method, geometrically infeasible (eg `ToeUndercut`, `ToeOvertopped`), not certified. The smallest feature it can guarantee (`UsedMinFeatureSize`) follows from the coordinates' magnitude, about 1.5 cm at UTM with the default `SlopeMargin`; `LocalFrame` computes on the inputs translated to a local origin and returns the outputs in that frame (XY + `UsedOrigin` is the input's; translating them back rounds by up to half an ulp and is not covered by the exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not share that terrain with work running concurrently. A copy instead cost 0.2–0.6 s, 167 MB of allocations and 300 MB of peak memory on a 2-million-triangle terrain | `gs.TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec`, `SlopePiece`, `CatchLine`, `TargetHeightLine` | tests: `TerrainSlopeDesignTests`, `TerrainSlopeCatchLineTests`, `TerrainSlopeMixedTests`, `TerrainSlopeTargetHeightTests`, `TerrainSlopeLocalFrameTests`; design: [TERRAIN.md](design/TERRAIN.md); example: [TerrainSlopeExample](examples/TerrainSlopeExample.cs); CLI: `g3cli slope` |
 | 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d --quality false`](#command-line-and-mcp-g3cli) |
 | 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments. Two modes: constrained Delaunay (the default, `Conforming = false`; up to a minimum angle of 25.65° a segment is encroached only by a vertex in its diametral lens, Shewchuk 2002 §6.4, above by its diametral circle) and conforming Delaunay (`Conforming = true`, every triangle Delaunay also across segments, O2). Off-centres (Üngör 2004) for triangles bad by their angle. A small angle forced by the input stays and is reported (`BadTriangles`); at the Steiner limit the mesh is valid but the bounds are not guaranteed (`SteinerLimitReached`). With a snap tolerance every vertex, also those refinement adds, lies on the grid | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`, `QualityMesh2LensTests`, `Meshing2TrackerCasesTests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
@@ -404,6 +404,65 @@ enough (the layout is still overlap-free). From the command line: `g3cli uv mesh
 
 See [UVAtlasExample](examples/UVAtlasExample.cs).
 
+### Terrain slope design
+
+`gs.TerrainSlopeDesign` builds the slope from toe lines to a terrain: open-pit benches and pits (cut), dumps and
+embankments (fill), or both (`Directions.Auto`). Design: [design/TERRAIN.md](design/TERRAIN.md).
+
+```csharp
+using g3; using gs;
+
+var design = new TerrainSlopeDesign() {
+    Toes = { SlopeToe.Constant(toePoints, closed: true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)) },   // 1:1.5
+    Terrain = tin,                  // a DMesh3 TIN (a height field under the slope)
+    Tolerance = 0.05,               // the professional accuracy in m: required, no library default
+    BuildComposite = true,          // the whole changed terrain; CompositeKinds.Replacement: only the replaced part
+};
+design.Compute();                   // false also for NoDaylight, a partial result: check Status
+if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != TerrainSlopeDesign.Statuses.NoDaylight)
+    Console.WriteLine(design.Status + " (" + design.StatusKind + "): " + design.Message);
+// design.CatchLines, design.Composite, design.SlopeRegion, design.CutVolume / FillVolume / CutArea / FillArea
+```
+
+- **Never steeper.** Every output triangle is checked exactly against its slope and its support (the toe), so a result is
+  never steeper than specified: a design that cannot be certified fails (`SlopeViolation`, `StatusKinds.NotCertified`)
+  instead of returning a violating surface.
+- **Slopes** per toe segment (start and end, cut and fill): `SlopeSpec.Ratio(n)` (1:n), `Percent`, `Degrees`, `Rise`.
+  Open toes (`Closed` false) have lateral limits; closed ones a side `Inside` or `Outside`.
+- **Statuses** and what to do (`StatusKind` says which kind a status is):
+
+  | Status | Kind | Meaning, what to do |
+  |---|---|---|
+  | `Success` | None | complete result |
+  | `NoDaylight` | None | the slope does not reach the terrain everywhere within its footprint or below `HeightLimit`: the result is kept but partial (`IsComplete` false); the catch lines that end there say so (`EndReasons.FootprintBoundary`, `HeightLimit`). Extend the terrain or set `HeightLimit` |
+  | `InvalidInput`, `NotHeightField` | InvalidInput | a toe, slope or parameter is wrong (`ToeProblems`), or the terrain under the slope is no height field: fix the input |
+  | `ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped` | GeometricallyInfeasible or UnsupportedByMethod | no surface meets the specification (or the phase 1 method cannot build it): `ToeProblems` names the segments |
+  | `NotImplemented` | UnsupportedByMethod | a slope that changes continuously along a segment (start and end differ): not in phase 1 |
+  | `SlopeViolation`, `CatchLineAccuracyNotReached` | NotCertified | the result could not be certified within `Tolerance` (or `RequiredCatchLineAccuracy`): a larger `Tolerance`, or `LocalFrame` at UTM coordinates for small features |
+  | `Cancelled` | Cancelled | `CancelF` returned true: no result |
+  | `CompositeFailed`, `Failed` | Internal | an internal failure (a bug: please report it with the input); `CompositeFailed` keeps `SlopeSurface` and `CatchLines` |
+
+- **Coordinates and the smallest feature.** The stored points are rounded to the input's coordinates, so the smallest
+  feature the result can guarantee (`UsedMinFeatureSize`) follows from their magnitude: about 1.5 cm at UTM with the default
+  `SlopeMargin`, micrometres near the origin. It scales with the input. For smaller features at UTM set `LocalFrame`: the
+  design is computed on the inputs translated to a local origin near the toes, and **every output is then in that local
+  frame** (add `UsedOrigin` to x and y for the input's frame; that rounds by up to half an ulp and is not covered by the
+  exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for
+  bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not
+  share that terrain with work running concurrently. `LocalFrameFallback`: an input coordinate could not be translated
+  exactly, and the design ran in the input's frame.
+- **Composite.** `CompositeKinds.Full` (default) is the whole terrain with the slope region; `Replacement` only the part that
+  replaces terrain triangles, with `ReplacedTerrainTriangles` and `CompositeTerrainVertices` to join it, far less output on
+  a large terrain.
+- **Mixed cut and fill** (`Directions.Auto`): a cut run and a fill run on the terrain, the clamp max(S_fill, min(T, S_cut)),
+  one composite. **Target heights** (`TargetHeights`): the level lines of the slope region at those heights
+  (`TargetHeightLines`, eg bench levels).
+- **Determinism.** The result does not depend on the order of the toe pieces, and scaling the input by a power of two
+  scales it bit for bit (tested over `Similarity.All()`). Single-threaded.
+
+Runnable example: [TerrainSlopeExample](examples/TerrainSlopeExample.cs) (a pit, then the same at UTM in a local frame).
+The command line: `g3cli slope` (below).
+
 ### 2D polygon booleans and offsets (optional package)
 
 The package `geometry3Sharp.Clipper2` (project `addons/geometry3Sharp.Clipper2`) wraps
@@ -452,7 +511,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -538,6 +597,22 @@ g3cli query2d field.obj --points "10,10;50,30;85,30" --rect "65,25,75,35" --near
 #                  { "x": 85, "y": 30, "height": 21.5, ... } ],
 #      "rect": { "triangles_count": 58, "triangles": [...] }
 ```
+
+**Slope design** (`slope`, `TerrainSlopeDesign`): toe lines as GeoJSON (a `LineString` or `Polygon` per toe, with `side`
+and `slope` properties, coordinates as given, `crs` passed through), the terrain as a TIN mesh file. The outputs are
+checked against the library's result in `SlopeCliTests`; the input format is in the
+[g3cli README](../tools/g3cli/README.md#slope-design-input-slope):
+
+```
+g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --catch-lines pit_catch.geojson --region pit_region.ply
+#   -> "design_status": "success", "status_kind": "none", "complete": true, "cut_volume": ..., "fill_volume": 0,
+#      "catch_lines": [{"points": ..., "closed": true, "max_uncertainty": ...}], "min_feature_size": 0.0149, "attempts": 1, ...
+g3cli slope dgm_tin.ply road.geojson part.g3mesh --tolerance 0.05 --direction auto --composite replacement
+g3cli slope dgm_tin.ply pit_toe.geojson local.g3mesh --tolerance 0.05 --local-frame     # outputs local: add "used_origin"
+```
+
+A design that cannot be certified fails with `operation_failed`, an invalid toe or terrain with `read_error`; the error
+result carries `design_status`, `status_kind`, `design_message`, `toe_problems` and `problem_triangles`.
 
 **n-ary and SafeRounding booleans** (`boolean`, `resolve`; `ExactMeshBoolean`), on closed meshes `a.stl`, `b.stl`,
 `c.stl` of your own. `xor` keeps the points whose winding number is positive in an odd number of the inputs, so for three

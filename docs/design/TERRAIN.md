@@ -1395,7 +1395,21 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
        origin, two attempts in the 2^k frames, one at UTM). **To be repaired with RoundToGrid**, by the same
        vertex-edge separation step (iterated snap rounding, Halperin and Packer 2002: every vertex at least half a
        pixel from every non-incident edge), not a second mechanism.
-2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
+2. Done, finishing phase 1: the docs (OPERATIONS.md "Terrain slope design" with the statuses, the frames and
+   `LocalFrame`, a runnable example; SOURCES.md for the band merge, the local frame and the early region check) and
+   `g3cli slope` (CLI and MCP tool: GeoJSON toes, a TIN mesh file, the composite or replacement, surface and region,
+   catch and target lines as GeoJSON, a report with the design's status; `SlopeCliTests`).
+   - Found by its tests, pinned (`TerrainSlopeKnownFailureTests`): `Direction.Auto` with a closed toe exactly at the
+     terrain's height where it crosses it (a square at z = 5 on z = 5 + 0.03 x) ends with `CompositeFailed`
+     ("inconsistent parity" in a terrain triangle both runs replace); 0.1 above or below it succeeds. The joint
+     triangulation of the triangles both runs replace, where the toe touches the terrain exactly. **Next, before
+     RoundToGrid** (a toe drawn on the terrain is a plausible input): the root cause in the Partner path (which
+     predicate decides the parity there, and why it is inconsistent), a fix that decides the degenerate case exactly
+     with a consistent tie rule (symbolic perturbation or an explicit "on the terrain" class, no epsilon), the repro
+     and its variants (an edge on a terrain vertex, along a terrain edge, an open toe, the 2^k frames), and the
+     prior-art line (coincident boundaries in overlay and arrangement code).
+   - Later: a DGM reader for the CLI (real users have DGM1 as a grid: ASCII XYZ, or the f32 grid of the benchmark,
+     without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh files only.
 3. Volume per cell, 2D columns first (section 9.3).
 4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
    note first.
