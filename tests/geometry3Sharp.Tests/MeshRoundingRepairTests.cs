@@ -815,7 +815,8 @@ namespace geometry3Sharp.Tests
             // SeparateTouchingVertices (the pyramid in a dent: both run)
             DMesh3 m = PyramidInADent(0.49);
             var robust = new MeshRobustRepair(new DMesh3(m)) {
-                AlphaWrapFallback = false, RoundingMaxDisplacement = 2e-5, RoundingUlpFactor = 128, RoundingAbsoluteTolerance = 1e-9
+                AlphaWrapFallback = false, RoundingMaxDisplacement = 2e-5, RoundingUlpFactor = 128, RoundingAbsoluteTolerance = 1e-9,
+                RoundingMaxPairTests = 12345678
             };
             Assert.True(robust.Apply());
             Assert.True(robust.UsedExactResolve, robust.ExactResolveReason);
@@ -824,6 +825,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(2e-5, r.MaxDisplacement);
                 Assert.Equal(128, r.UlpFactor);
                 Assert.Equal(1e-9, r.AbsoluteTolerance);
+                Assert.Equal(12345678L, r.MaxPairTests);
             }
             // and through ExactMeshBoolean alone
             var op = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxDisplacement = 3e-5 };
@@ -858,6 +860,93 @@ namespace geometry3Sharp.Tests
             Assert.Equal(fresh.UlpFactor, eb.RoundingUlpFactor);
             Assert.Equal(fresh.AbsoluteTolerance, eb.RoundingAbsoluteTolerance);
             Assert.False(eb.StrictRounding);
+        }
+
+        static DMesh3[] NearlyCoincidentSpheres()
+        {
+            return NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+        }
+
+        [Fact]
+        public void RoundingMaxPairTests_Default_IsTheRepairsBudget()
+        {
+            // the effort budget: 5M pair tests (owner decision 2026-11-02), the same default everywhere it is passed through
+            var fresh = new MeshRoundingRepair(new DMesh3());
+            Assert.Equal(5000000L, fresh.MaxPairTests);
+            Assert.Equal(fresh.MaxPairTests, new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union).RoundingMaxPairTests);
+            Assert.Equal(fresh.MaxPairTests, new MeshRobustRepair(new DMesh3()).RoundingMaxPairTests);
+        }
+
+        [Fact]
+        public void RoundingMaxPairTests_Boolean_ReachesTheRepair()
+        {
+            // two nearly coincident spheres: by default the rounding is clean and stays below the budget; with a tiny
+            // budget it stops at the limit, reports it, and the result is valid and closed with its defects counted
+            var ab = NearlyCoincidentSpheres();
+            var full = new ExactMeshBoolean(new DMesh3(ab[0]), new DMesh3(ab[1]), ExactMeshBoolean.Operations.Union);
+            Assert.True(full.Compute());
+            Assert.True(full.RoundingClean);
+            Assert.False(full.Rounding.EvaluationLimitReached);
+            Assert.Equal(5000000L, full.Rounding.MaxPairTests);
+
+            var tiny = new ExactMeshBoolean(new DMesh3(ab[0]), new DMesh3(ab[1]), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = 10 };
+            Assert.True(tiny.Compute());
+            Assert.Equal(10L, tiny.Rounding.MaxPairTests);
+            Assert.True(tiny.Rounding.EvaluationLimitReached);
+            Assert.False(tiny.RoundingClean);
+            Assert.True(tiny.Result.CheckValidity(true, FailMode.ReturnOnly) && tiny.Result.IsClosed());
+            Assert.True(tiny.Result.Vertices().All(v => v.IsFinite));
+            Assert.Equal(MeshRepairMetrics.SelfIntersections(tiny.Result), tiny.Rounding.RemainingIntersections);
+            Assert.Equal(Degenerate(tiny.Result), tiny.Rounding.RemainingDegenerate);
+
+            // reuse: computing twice on one instance gives the same result
+            Assert.True(tiny.Compute());
+            var again = new ExactMeshBoolean(new DMesh3(ab[0]), new DMesh3(ab[1]), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = 10 };
+            Assert.True(again.Compute());
+            Assert.Equal("", Invariance.Difference(again.Result, tiny.Result));
+        }
+
+        [Fact]
+        public void RoundingMaxPairTests_Boolean_PowerOfTwoScales_SameResultScaled()
+        {
+            // the budget counts pair tests, not lengths: under 2^k scales the limited result is the same, scaled, bit for bit
+            var ab = NearlyCoincidentSpheres();
+            Func<DMesh3, DMesh3, ExactMeshBoolean> run = (a, b) => {
+                var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = 10 };
+                Assert.True(op.Compute());
+                return op;
+            };
+            ExactMeshBoolean b0 = run(new DMesh3(ab[0]), new DMesh3(ab[1]));
+            Assert.True(b0.Rounding.EvaluationLimitReached);
+            int exact = 0;
+            foreach (Similarity sim in Similarity.All().Where(s => s.IsExact)) {
+                ExactMeshBoolean b = run(Invariance.Transformed(ab[0], sim), Invariance.Transformed(ab[1], sim));
+                Assert.True(Invariance.Difference(b0.Result, Invariance.MappedBack(b.Result, sim)) == "", sim.ToString());
+                Assert.True(b.Rounding.EvaluationLimitReached, sim.ToString());
+                Assert.Equal(b0.Rounding.RemainingDegenerate, b.Rounding.RemainingDegenerate);
+                ++exact;
+            }
+            Assert.True(exact >= 3);
+        }
+
+        [Fact]
+        public void RoundingMaxPairTests_RobustRepair_ReachesBothRepairs()
+        {
+            // MeshRobustRepair passes the budget to the exact resolve's rounding (and to the repair after the separation)
+            var ab = NearlyCoincidentSpheres();
+            DMesh3 both = new DMesh3(ab[0]);
+            new MeshEditor(both).AppendMesh(ab[1]);
+            var tiny = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false, RoundingMaxPairTests = 10 };
+            tiny.Apply();
+            Assert.NotNull(tiny.ExactResolveRounding);
+            Assert.Equal(10L, tiny.ExactResolveRounding.MaxPairTests);
+            Assert.True(tiny.ExactResolveRounding.EvaluationLimitReached);
+            // (the repair after the separation: RoundingSettings_ReachTheExactStageAndTheRepairAfterSeparation)
+
+            var def = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false };
+            Assert.True(def.Apply());
+            Assert.Equal(5000000L, def.ExactResolveRounding.MaxPairTests);
+            Assert.False(def.ExactResolveRounding.EvaluationLimitReached);
         }
 
         [Fact]
