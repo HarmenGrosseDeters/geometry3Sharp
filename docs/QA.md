@@ -420,11 +420,15 @@ solid of the open input, and a large fill differs from that by more than `MinVol
 instead (by design). One fix, with a test that fails on the old code: `MinimalHoleFill` ended a quad hole on the
 existing diagonal, which `RegionOperator.BackPropropagate` then split at its midpoint, so the fill touched the
 existing edge (pmp-library#181); such edges between two loop vertices are now flipped to the other diagonal where
-that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Known failure (strict list
-`MeshRepairIssueCasesTests.KnownFailures`, finding R1): `MeshPostRepairCleanup.FindInvertedComponents` takes a
-closed component whose interior lies mostly inside another for a nested one also when their surfaces cross, so of two
-outward boxes crossing at 3 or 10 degrees one is flipped as a cavity, and the repair returns their difference as a
-clean result; the volume check accepts it, because the input's reference solid uses the same nesting rule. The
+that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Finding R1, fixed:
+- **The bug.** `MeshPostRepairCleanup.FindInvertedComponents` took a closed component whose interior lies mostly
+  inside another for a nested one, also when their surfaces cross. So of two outward boxes crossing at 3 or 10
+  degrees, one was flipped as a cavity, and the repair returned their difference as a clean result. The volume check
+  accepted it, because the input's reference solid uses the same nesting rule.
+- **The fix.** A component whose surface meets (exactly) that of a component its samples lie in has no nesting
+  at all: crossing components keep their orientation (they are never flagged).
+
+The
 analysis and fix ideas of the findings are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md) (also R2, a large
 hole fill rejected by `MeshRobustRepair`'s volume check, by design).
 

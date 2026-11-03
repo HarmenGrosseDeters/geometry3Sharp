@@ -295,7 +295,9 @@ namespace geometry3Sharp.Tests
         {
             // the safe rounding leaves slivers, which the cleanup removes, adding self-intersections. The rounding's
             // count (none) no longer holds then: the exact stage must not accept the result
-            var r = new MeshRobustRepair(NearlyCoincidentBoxes(9, 6)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
+            // (scene 9, 6 gave it while the orientation took boxes crossing others for cavities and flipped them, finding
+            // R1; with the crossing boxes kept outward, scene 4, 7 does)
+            var r = new MeshRobustRepair(NearlyCoincidentBoxes(4, 7)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
             Assert.True(r.Apply());
             // the scenario: resolved exactly, after a round whose cleaned result had intersections (if a later change
             // to the resolve or the rounding no longer gives it, this test must be given a new scene)
