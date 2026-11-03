@@ -48,7 +48,7 @@ namespace Meshing2Acceptance
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4, O-H5) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
         /// <summary> self-checks: the collapsed stretches of piece a-b against boundary edges (O-H5) </summary>
-        internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel) => Run.CollapsedStretches(a, b, boundary, pixel);
+        internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel, int domainSide = 0) => Run.CollapsedStretches(a, b, (a, b), boundary, pixel, domainSide);
 
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
@@ -673,35 +673,71 @@ namespace Meshing2Acceptance
                   || Q.Max(a.Qy, b.Qy) + margin < Q.Min(c.Qy, d.Qy) || Q.Max(c.Qy, d.Qy) + margin < Q.Min(a.Qy, b.Qy));
 
             /// <summary>
-            /// O-H5: the collapsed stretches of the input piece a-b, closed parameter intervals of [0, 1] in order: the stretches that lie
-            /// closer than a pixel to an edge of the domain's boundary other than a-b. The part between them is narrower than a pixel
-            /// (spec Q17); snapping and refinement put every vertex at a pixel centre, so the two chains can share them and pinch the
-            /// part to nothing. Decided per stretch between the piece's pixel crossings: the distance to a segment is convex along a
-            /// line, so it stays below a pixel on a stretch when it is below at both ends, for one and the same edge. From the input and
-            /// the grid alone, never from the output. Cost: the piece's pixel crossings (at most 2^16 per axis, else nothing counts as
-            /// collapsed) times the boundary edges whose box, widened by a pixel, meets the piece's; it runs only for a piece without a
-            /// chain or an unused input point.
+            /// O-H5: the collapsed stretches of piece a-b (of the input constraint or boundary edge source), closed parameter intervals
+            /// of [0, 1] in order: where the domain across the piece is narrower than a pixel (spec Q17). Snapping and refinement put
+            /// every vertex at a pixel centre, the chains of the piece and of the boundary there share them, and the part pinches to
+            /// nothing. Narrower than a pixel:
+            /// <list type="bullet">
+            /// <item>a piece of an input segment: boundary on its left and on its right whose distances add up to less than a pixel
+            /// (the side of an edge is that of its nearest point; on the piece's line, both);</item>
+            /// <item>a piece of the boundary itself (distance 0 on the outside): another boundary edge closer than a pixel whose nearest
+            /// point lies on the domain's side of the piece, or on its line (a slit of the outside between two walls does not
+            /// count).</item>
+            /// </list>
+            /// Decided per stretch between pixel crossings for one and the same edge or pair of edges at both ends: a distance, and a
+            /// sum of two, to segments is convex along a line. At an end shared with an edge that edge counts only if the wedge
+            /// between them is still narrower than a pixel where the piece leaves the end's square of half-width two pixels (a 90 or
+            /// 60 degree corner is no collapse; a tip of a fraction of a degree is). The source edge itself never counts. From the
+            /// input and the grid alone. Cost: the piece's pixel crossings times the boundary edges whose box, widened by a pixel,
+            /// meets the stretch's; only for a piece without a chain or an unused input point.
             /// </summary>
-            List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b)
+            List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source)
             {
                 if (!(input.SnapTolerance > 0) || a.Equals(b)) return new List<(Q t0, Q t1)>();
-                return CollapsedStretches(a, b, domain.Edges(), Q.FromDouble(input.SnapTolerance));
+                int domainSide = 0;
+                if (domain.Edges().Any(g => SameEdge(g, source))) {
+                    // the domain's side of a boundary piece: a point beside its middle, 2^-40 of its length off it
+                    Q mx = (a.Qx + b.Qx) / 2, my = (a.Qy + b.Qy) / 2, e = new Q(BigInteger.One, BigInteger.One << 40);
+                    Q nx = -(b.Qy - a.Qy) * e, ny = (b.Qx - a.Qx) * e;
+                    domainSide = domain.Classify(new Pt(mx + nx, my + ny)) == Where.Inside ? 1 : domain.Classify(new Pt(mx - nx, my - ny)) == Where.Inside ? -1 : 2;
+                    if (domainSide == 2) return new List<(Q t0, Q t1)>();
+                }
+                return CollapsedStretches(a, b, source, domain.Edges(), Q.FromDouble(input.SnapTolerance), domainSide);
             }
 
-            /// <summary> <see cref="CollapsedStretches(Pt, Pt)"/> against the given boundary edges, on a grid of the given pixel </summary>
-            internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, IEnumerable<(Pt a, Pt b)> boundary, Q pixel)
+            static bool SameEdge((Pt a, Pt b) g, (Pt a, Pt b) h) => g.a.Equals(h.a) && g.b.Equals(h.b) || g.a.Equals(h.b) && g.b.Equals(h.a);
+
+            /// <summary> the point of segment g nearest to p (exact) </summary>
+            static Pt Nearest((Pt a, Pt b) g, Pt p)
+            {
+                Q dx = g.b.Qx - g.a.Qx, dy = g.b.Qy - g.a.Qy, len2 = dx * dx + dy * dy;
+                if (len2.Sign == 0) return g.a;
+                Q u = ((p.Qx - g.a.Qx) * dx + (p.Qy - g.a.Qy) * dy) / len2;
+                if (u.Sign <= 0) return g.a;
+                if (u >= Q.One) return g.b;
+                return new Pt(g.a.Qx + dx * u, g.a.Qy + dy * u);
+            }
+
+            /// <summary> sqrt(d1) + sqrt(d2) &lt; pixel, exactly: d1 + d2 &lt; p^2 and 4 d1 d2 &lt; (p^2 - d1 - d2)^2 </summary>
+            static bool SumBelow(Q d1, Q d2, Q pixel2)
+            {
+                Q rest = pixel2 - d1 - d2;
+                return rest.Sign > 0 && 4 * d1 * d2 < rest * rest;
+            }
+
+            /// <summary>
+            /// <see cref="CollapsedStretches(Pt, Pt, ValueTuple{Pt, Pt})"/> against the given boundary edges on a grid of the given pixel;
+            /// domainSide is 0 for a piece of an input segment, else the side of a boundary piece the domain lies on (1 left, -1 right)
+            /// </summary>
+            internal static List<(Q t0, Q t1)> CollapsedStretches(Pt a, Pt b, (Pt a, Pt b) source, IEnumerable<(Pt a, Pt b)> boundary, Q pixel, int domainSide)
             {
                 var result = new List<(Q t0, Q t1)>();
                 if (a.Equals(b)) return result;
                 Q pixel2 = pixel * pixel;
-                var near = boundary.Where(g => !(g.a.Equals(a) && g.b.Equals(b) || g.a.Equals(b) && g.b.Equals(a)) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
+                var near = boundary.Where(g => !SameEdge(g, source) && BoxesMeet(g.a, g.b, a, b, pixel)).ToList();
                 var ts = PixelBreaks(a, b, pixel, 1 << 16);
                 if (ts == null || near.Count == 0) return result;
-                // At a corner shared with the piece the adjacent edge's distance goes to 0, though two chains from one hot pixel part
-                // there and a gap is a defect. Near the shared end the adjacent edge counts only if the wedge between the two is still
-                // narrower than a pixel where the piece leaves the end's square of half-width two pixels (a wedge below about 30
-                // degrees, 2 sin(angle) < 1: the zigzag's tip; not a 90 or 60 degree corner). The piece leaves a's square at ta and
-                // b's at tb.
+                // the corner guard: the piece leaves a's square of half-width two pixels at ta, b's at tb
                 Q h = 2 * pixel, dx = Q.Abs(b.Qx - a.Qx), dy = Q.Abs(b.Qy - a.Qy);
                 Q leave = Q.One;
                 if (dx.Sign > 0) leave = Q.Min(leave, h / dx);
@@ -710,19 +746,41 @@ namespace Meshing2Acceptance
                 ts.Add(ta); ts.Add(tb);
                 ts = ts.Where(t => t.Sign >= 0 && t <= Q.One).Distinct().OrderBy(t => t).ToList();
                 Pt At(Q t) => new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t);
+                Pt exitA = At(ta), exitB = At(tb);
                 var atA = near.Select(g => g.a.Equals(a) || g.b.Equals(a)).ToArray();
                 var atB = near.Select(g => g.a.Equals(b) || g.b.Equals(b)).ToArray();
-                Pt exitA = At(ta), exitB = At(tb);
                 var wedgeA = near.Select((g, i) => atA[i] && Exact.Dist2ToSegment(g.a, g.b, exitA) < pixel2).ToArray();
                 var wedgeB = near.Select((g, i) => atB[i] && Exact.Dist2ToSegment(g.a, g.b, exitB) < pixel2).ToArray();
-                var close = ts.Select(t => {
-                    var p = At(t);
-                    return near.Select((g, i) => Exact.Dist2ToSegment(g.a, g.b, p) < pixel2
-                        && (!atA[i] || t >= ta || wedgeA[i]) && (!atB[i] || t <= tb || wedgeB[i])).ToArray();
-                }).ToList();
+                // per point and edge: the squared distance (null where the edge does not count there) and the side of its nearest point
+                var d2 = new Q?[ts.Count, near.Count]; var side = new int[ts.Count, near.Count];
+                for (int j = 0; j < ts.Count; ++j) {
+                    var p = At(ts[j]);
+                    for (int i = 0; i < near.Count; ++i) {
+                        if (atA[i] && ts[j] < ta && !wedgeA[i] || atB[i] && ts[j] > tb && !wedgeB[i]) continue;
+                        var q = Nearest(near[i], p);
+                        Q dd = Exact.Len2(p, q);
+                        if (!(dd < pixel2)) continue;
+                        d2[j, i] = dd; side[j, i] = Exact.Orient(a, b, q);
+                    }
+                }
                 for (int j = 0; j + 1 < ts.Count; ++j) {
                     bool collapsed = false;
-                    for (int g = 0; g < near.Count && !collapsed; ++g) collapsed = close[j][g] && close[j + 1][g];
+                    if (domainSide != 0) {
+                        // a boundary piece: one edge closer than a pixel at both ends, on the domain's side (or on the piece's line: an
+                        // edge at a shared end, under the corner guard)
+                        for (int i = 0; i < near.Count && !collapsed; ++i)
+                            collapsed = d2[j, i] != null && d2[j + 1, i] != null && side[j, i] * domainSide >= 0 && side[j + 1, i] * domainSide >= 0;
+                    } else {
+                        // a piece of a segment: an edge on the left and one on the right at both ends, their distances summing below a
+                        // pixel (one edge may serve both sides where its nearest point is on the piece's line)
+                        for (int i = 0; i < near.Count && !collapsed; ++i) {
+                            if (d2[j, i] == null || d2[j + 1, i] == null || side[j, i] < 0 || side[j + 1, i] < 0) continue;
+                            for (int k = 0; k < near.Count && !collapsed; ++k) {
+                                if (d2[j, k] == null || d2[j + 1, k] == null || side[j, k] > 0 || side[j + 1, k] > 0) continue;
+                                collapsed = SumBelow(d2[j, i].Value, d2[j, k].Value, pixel2) && SumBelow(d2[j + 1, i].Value, d2[j + 1, k].Value, pixel2);
+                            }
+                        }
+                    }
                     if (!collapsed) continue;
                     if (result.Count > 0 && result[result.Count - 1].t1 == ts[j]) result[result.Count - 1] = (result[result.Count - 1].t0, ts[j + 1]);
                     else result.Add((ts[j], ts[j + 1]));
@@ -733,7 +791,7 @@ namespace Meshing2Acceptance
             /// <summary> the whole piece a-b is collapsed </summary>
             bool WhollyCollapsed(Pt a, Pt b)
             {
-                var st = CollapsedStretches(a, b);
+                var st = CollapsedStretches(a, b, (a, b));
                 return st.Count == 1 && st[0].t0.Sign == 0 && st[0].t1 == Q.One;
             }
 
@@ -1690,7 +1748,7 @@ namespace Meshing2Acceptance
                                 if (candidates.Contains(n) && !previous.ContainsKey(n)) { previous[n] = at; queue.Enqueue(n); }
                         }
                         if (reached < 0) {
-                            if (ChainAcrossCollapsed(piece.from, piece.to, candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
+                            if (ChainAcrossCollapsed(piece.from, piece.to, (s.a, s.b), candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
                             r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to);
                             continue;
                         }
@@ -1721,9 +1779,9 @@ namespace Meshing2Acceptance
             /// a stretch that holds the piece's start (end) is a start (goal). Only the stretches bridge: everywhere else the chain must
             /// be there.
             /// </summary>
-            bool ChainAcrossCollapsed(Pt from, Pt to, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
+            bool ChainAcrossCollapsed(Pt from, Pt to, (Pt a, Pt b) source, HashSet<int> candidates, List<int> starts, HashSet<int> goals, Dictionary<int, List<int>> adjacency)
             {
-                var stretches = CollapsedStretches(from, to);
+                var stretches = CollapsedStretches(from, to, source);
                 if (stretches.Count == 0) return false;
                 if (stretches.Count == 1 && stretches[0].t0.Sign == 0 && stretches[0].t1 == Q.One) return true;
                 Q dx = to.Qx - from.Qx, dy = to.Qy - from.Qy, len2 = dx * dx + dy * dy;

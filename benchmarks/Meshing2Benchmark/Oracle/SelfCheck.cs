@@ -316,15 +316,26 @@ namespace Meshing2Acceptance
                 // square of two pixels collapses (below about 30 degrees), as the zigzag's tip of 0.2 degrees
                 {
                     Pt O = Pt.FromDoubles(0, 0), X = Pt.FromDoubles(20, 0);
-                    List<(Q, Q)> At(double ex, double ey) => Oracle.CollapsedStretches(O, X, new[] { (O, X), (Pt.FromDoubles(ex, ey), O) }, Q.One);
+                    // the piece O-X as a boundary edge, the domain on its left (above)
+                    List<(Q, Q)> At(double ex, double ey) => Oracle.CollapsedStretches(O, X, new[] { (O, X), (Pt.FromDoubles(ex, ey), O) }, Q.One, 1);
                     bool AtStart(List<(Q t0, Q t1)> st) => st.Count > 0 && st[0].t0.Sign == 0;
                     Must("collapsed: a 90 degree corner is not collapsed next to it", !AtStart(At(0, 20)), null);
                     Must("collapsed: a 60 degree corner is not collapsed next to it", !AtStart(At(10, 17.320508075688775)), null);
                     Must("collapsed: a corner of 1 degree (a tip) is collapsed next to it", AtStart(At(20, 0.349)), null);
-                    Must("collapsed: a corridor 0.25 wide is collapsed along its length", Oracle.CollapsedStretches(Pt.FromDoubles(0, 0), Pt.FromDoubles(20, 0),
-                        new[] { (Pt.FromDoubles(0, 0.25), Pt.FromDoubles(20, 0.25)) }, Q.One).Count == 1, null);
-                    Must("collapsed: a corridor 1.5 wide is not", Oracle.CollapsedStretches(Pt.FromDoubles(0, 0), Pt.FromDoubles(20, 0),
-                        new[] { (Pt.FromDoubles(0, 1.5), Pt.FromDoubles(20, 1.5)) }, Q.One).Count == 0, null);
+                    // a segment along the middle of a corridor: boundary on both sides, the distances summing below a pixel or not
+                    List<(Q, Q)> Corridor(double half) => Oracle.CollapsedStretches(O, X,
+                        new[] { (Pt.FromDoubles(0, half), Pt.FromDoubles(20, half)), (Pt.FromDoubles(20, -half), Pt.FromDoubles(0, -half)) }, Q.One);
+                    Must("collapsed: a segment in a corridor 0.25 wide is collapsed along its length", Corridor(0.125).Count == 1 && AtStart(Corridor(0.125)), null);
+                    Must("collapsed: a segment in a corridor 1.5 wide is not", Corridor(0.75).Count == 0, null);
+                    // boundary on one side only, 0.7 away (a wide domain): no collapse (review: closer than a pixel to one edge is no
+                    // narrow domain)
+                    Must("collapsed: a segment 0.7 from one edge of a wide domain is not", Oracle.CollapsedStretches(O, X,
+                        new[] { (Pt.FromDoubles(0, 0.7), Pt.FromDoubles(20, 0.7)), (Pt.FromDoubles(20, -20), Pt.FromDoubles(0, -20)) }, Q.One).Count == 0, null);
+                    // a boundary piece with another edge 0.5 away on the outside (a slit of the outside between two walls): no collapse
+                    Must("collapsed: a boundary piece beside a slit of the outside is not", Oracle.CollapsedStretches(O, X,
+                        new[] { (O, X), (Pt.FromDoubles(0, 0.5), Pt.FromDoubles(20, 0.5)) }, Q.One, -1).Count == 0, null);
+                    Must("collapsed: a boundary piece with another edge 0.5 away inside is", Oracle.CollapsedStretches(O, X,
+                        new[] { (O, X), (Pt.FromDoubles(0, 0.5), Pt.FromDoubles(20, 0.5)) }, Q.One, 1).Count == 1, null);
                 }
                 // "passes": crossing the interior or the centre; touching the boundary does not count
                 Pt P(double a, double b) => Pt.FromDoubles(a, b);

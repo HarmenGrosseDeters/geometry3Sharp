@@ -268,9 +268,10 @@ namespace g3
                 if (!any) return null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
-                CarveOutside();
-                // (Q17: what snapping already collapsed, to tell it apart from what refinement pinches)
+                // (Q17: what snapping already collapsed, to tell it apart from what refinement pinches; taken before the carve, which
+                // lifts such pieces when the outside lies on both sides of them)
                 var collapsedBySnapping = grid != null ? SegmentsWithoutArea() : null;
+                CarveOutside();
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 QueueAll();
