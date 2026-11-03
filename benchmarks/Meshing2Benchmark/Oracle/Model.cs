@@ -196,6 +196,11 @@ namespace Meshing2Acceptance
         /// images share that differs; for a point, a different set of links at its pixel
         /// </summary>
         public int CollapsedViaRefinement;
+        /// <summary>
+        /// Q17 (O-H5): the hot pixels SRR's restore step adds to the input's rounding, as the oracle computes it (pixel indices: the
+        /// centre is the index times the snap tolerance); null without snap rounding. For comparison with the mesher's (tests)
+        /// </summary>
+        public List<(System.Numerics.BigInteger x, System.Numerics.BigInteger y)> RestorePixels;
         public string ExcusedSummary()
         {
             var parts = new List<string>();

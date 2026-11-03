@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
         /// must not count against rule (ii'). Post-review B2: a star polygon (2.8, 11.4), (7.2, 6.4), (6.2, 3.5), (8.6, 6.9) with the free
         /// points (2.6, 9.6) and (9.6, 6.5); the output edge (3, 11) - (7, 6) crosses the free point's pixel (3, 10), the restore step makes
         /// (4, 10) hot, and both spike edges route through it. Rejected (VertexUnused for input 0) by rule (ii') when the input-only
-        /// state lacked the restore pixels; accepted under the interim (c) (below M3 the two states are one)
+        /// state lacked the restore pixels; accepted with the oracle's own restore step, which finds (4, 10) itself
         /// </summary>
         [Fact]
         public void Oracle_AcceptsTheRestoreStepOfSnapping()
@@ -121,11 +121,11 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Known violation, pinned (not skipped): with refinement (M3) the interim (c) keeps rule (ii') with an input-only state of points and
-        /// crossings alone, so where SRR's restore step (D14) reroutes the input, the oracle wrongly charges the collapse to refinement. Of
-        /// the 3000 seeds of <see cref="StarPolygonFuzz"/> these 10 (0.3 %) are accepted once the restore pixels join the input-only state
-        /// (measured with the library's snap rounding, outside the oracle; 2459 was a refinement pinch as well before the mesher kept the
-        /// input image's chains apart). They become acceptance tests with the oracle's own restore step (a). Counts exact, so a change shows
+        /// With refinement (M3), where SRR's restore step (D14) reroutes the input, the collapse belongs to the rounding of the input, not
+        /// to refinement: the oracle's own restore step puts its pixels into the input-only state of rule (ii'). Of the 3000 seeds of
+        /// <see cref="StarPolygonFuzz"/>, these 10 were rejected without it (pinned as known false rejections in #358 and #360: the
+        /// segment pieces and input points in brackets were reported missing and unused) and are accepted now, those pieces and points
+        /// excused on collapsed parts
         /// </summary>
         [Theory]
         [InlineData(62, 1, 0)]
@@ -138,15 +138,15 @@ namespace geometry3Sharp.Tests
         [InlineData(2471, 1, 0)]
         [InlineData(2459, 0, 1)]
         [InlineData(2923, 0, 1)]
-        public void Oracle_RestoreStepAtM3_KnownFalseRejection(int seed, int segmentsMissing, int verticesUnused)
+        public void Oracle_AcceptsTheRestoreStepAtM3(int seed, int segmentsMissingBefore, int verticesUnusedBefore)
         {
             var input = StarPolygonFuzz.Make(seed);
             var o = new QualityMesh2Candidate().Run(input);
             Assert.Equal(Mesh2Status.Success, o.Status);
             var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(segmentsMissing == report.Violations.Count(v => v.Kind == Violation.SegmentMissing), "seed " + seed + ": " + report);
-            Assert.True(verticesUnused == report.Violations.Count(v => v.Kind == Violation.VertexUnused), "seed " + seed + ": " + report);
-            Assert.Equal(segmentsMissing + verticesUnused, report.Violations.Count);
+            Assert.True(report.Ok, "seed " + seed + ": " + report);
+            Assert.NotEmpty(report.RestorePixels);
+            Assert.True(report.CollapsedSegments >= segmentsMissingBefore && report.CollapsedPoints >= verticesUnusedBefore, "seed " + seed + ": " + report.ExcusedSummary());
         }
 
         /// <summary>
@@ -162,24 +162,42 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// (iii): a star with a spike 0.25 wide that snapping collapses; with the refinement of before the fix (M3, 20°) the output's vertices reroute links at
-        /// the spike's tip pixel, inside the part the input's own rounding collapses (rule (ii')). Accepted, and the excuse is counted
-        /// as rerouted by output vertices. Found by a fuzz over 4000 such stars (post-review S1); counts exact, so a change shows
+        /// (iii) for points: seed 1083 of <see cref="StarPolygonFuzz"/> at M3 is accepted with 2 segment pieces and 1 input point on
+        /// collapsed parts, all 3 on stretches or at a pixel where output vertices rerouted the image (rule (ii'): inside parts the
+        /// input's own rounding collapses, restore pixels included). Counts exact, so a change shows. (Until the oracle's own restore
+        /// step, a star whose spike tip only a restore pixel keeps stood here: the refinement before the chain rule dropped that tip,
+        /// and the oracle, without the restore pixel, counted it as collapsed and rerouted; it now rejects that mesh.)
         /// </summary>
         [Fact]
         public void Oracle_CountsExcusesReroutedByOutputVertices()
+        {
+            var input = StarPolygonFuzz.Make(1083);
+            var o = new QualityMesh2Candidate().Run(input);
+            Assert.Equal(Mesh2Status.Success, o.Status);
+            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+            Assert.True(report.Ok, report.ToString());
+            Assert.Equal(2, report.CollapsedSegments);
+            Assert.Equal(1, report.CollapsedPoints);
+            Assert.Equal(3, report.CollapsedViaRefinement);
+        }
+
+        /// <summary>
+        /// the refinement before the chain rule dropped a spike tip that only SRR's restore pixel (16, 11) keeps in the input's rounding:
+        /// rejected now (VertexUnused). The mesher with the rule keeps it (accepted, with one input point on a collapsed part)
+        /// </summary>
+        [Fact]
+        public void Oracle_RestorePixelKeepsASpikeTip_RefinementWithoutTheChainRuleIsRejected()
         {
             var x = new[] { 19.5, 18.4, 17.5, 11, 13.5, 3.1, 14.8, 10.8, 11.1, 16.3, 25.1 };
             var y = new[] { 16.3, 19, 28.2, 23.8, 16.5, 10.3, 12.3, -13.5, -13.6, 14.9, 10 };
             var input = new Mesh2Input { X = x, Y = y, SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
             input.Rings.Add(new RingInput(Enumerable.Range(0, x.Length).ToArray(), false));
-            var o = WithoutTheChainRule(input);
-            Assert.Equal(Mesh2Status.Success, o.Status);
-            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
-            Assert.Equal(2, report.CollapsedPoints);
-            Assert.Equal(0, report.CollapsedSegments);
-            Assert.Equal(1, report.CollapsedViaRefinement);
+            var before = Oracle.Check(input, WithoutTheChainRule(input), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.Equal(new[] { Violation.VertexUnused }, before.Violations.Select(v => v.Kind).ToArray());
+            Assert.Equal(new[] { ((System.Numerics.BigInteger)16, (System.Numerics.BigInteger)11) }, before.RestorePixels.ToArray());
+            var now = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.True(now.Ok, now.ToString());
+            Assert.Equal(1, now.CollapsedPoints);
         }
 
         /// <summary>

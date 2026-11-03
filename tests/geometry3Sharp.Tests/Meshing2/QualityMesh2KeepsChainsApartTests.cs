@@ -40,18 +40,13 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// the inputs <see cref="StarPolygonFuzz"/> seeds 0 to 2999 at M3 that the oracle rejects, by class; every other seed is VALID
-        /// (all 188 refinement pinches among them). Restore: SRR's restore pixels, which the oracle's input-only state does not compute yet
-        /// (interim (c)): accepted once they join it (measured outside the oracle); pinned with their counts in
-        /// QualityMesh2CollapsedPartsReportTests until the oracle's own restore step. The others fail with or without rule (ii'): free
+        /// (all 188 refinement pinches among them, and the 10 restore cases since the oracle's own restore step, see
+        /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): free
         /// points outside the ring meshed (TriangleOutsideDomain), a segment to such a point (SegmentMissing), a chain past a hot pixel
         /// (ChainPassesHotPixel), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
         /// their own, as they were before the fix
         /// </summary>
         static readonly Dictionary<int, string> Rejected = new Dictionary<int, string> {
-            // restore (10)
-            [62] = "SegmentMissing", [161] = "VertexUnused,SegmentMissing", [787] = "VertexUnused", [818] = "VertexUnused",
-            [963] = "VertexUnused", [1455] = "SegmentMissing", [2396] = "SegmentMissing", [2459] = "VertexUnused",
-            [2471] = "SegmentMissing", [2923] = "VertexUnused",
             // free points outside the ring (7, two with a chain past a hot pixel as well)
             [37] = "TriangleOutsideDomain,SubsegmentUnsourced", [41] = "TriangleOutsideDomain,AreaMismatch,SubsegmentUnsourced",
             [1019] = "TriangleOutsideDomain,AreaMismatch,SubsegmentUnsourced", [1052] = "TriangleOutsideDomain,SubsegmentUnsourced",

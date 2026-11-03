@@ -601,11 +601,11 @@ namespace Meshing2Acceptance
                         var rw = Oracle.Check(wedge, ow, m3);
                         Must("reject: a Steiner vertex that reroutes a chain off the input's own band, which keeps area there (post-review B1, rule (ii'))",
                             rw.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw.CollapsedSegments == 0, "report: " + rw + " / " + rw.ExcusedSummary());
-                        // known gap of the interim (c), pinned: below M3 the two states are one, so the same output judged at M2 is accepted
-                        // (any output vertex beyond the input's points and crossings can create a collapse there); the oracle's own restore
-                        // step (a) flips this check
+                        // the same output judged at M2 (no refinement): the input-only state holds the input's points, crossings and the
+                        // restore pixels the oracle computes itself (none here), not the output vertex (10, 1), so it is rejected as well
                         var rw2 = Oracle.Check(wedge, ow, new OracleExpect { Milestone = Milestone.M2 });
-                        Must("known gap (c): the wedge judged at M2 is accepted (flips with the oracle's own restore step)", rw2.Ok && rw2.CollapsedSegments == 2, "report: " + rw2 + " / " + rw2.ExcusedSummary());
+                        Must("reject: the wedge judged at M2, where the vertex (10, 1) is no input point, crossing or restore pixel",
+                            rw2.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw2.CollapsedSegments == 0, "report: " + rw2 + " / " + rw2.ExcusedSummary());
                         // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
                         // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
                         // row 4 there), opens 7.5 px², and
@@ -619,6 +619,28 @@ namespace Meshing2Acceptance
                         var rsl = Oracle.Check(sliver, osl, m3);
                         Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
                             rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
+                        // SRR's known discrepancy (Belussi et al. 2016): Listing 2 against Proposition 4.14. The segment (0, 0) - (10, 1.4)
+                        // with the point (5, 0.4) gets the restore pixels (4, 1) and (3, 0); the segment (5.4, 3.4) - (3.4, 1.2) crosses the
+                        // interior of (4, 1), but its link (3, 1) - (5, 3) only touches its corner. Listing 2 restores critical edges only,
+                        // so that chain stays (3, 1) - (5, 3); SR on the grown set of hot pixels (Proposition 4.14, D14, the library) routes
+                        // it through (4, 1). The oracle computes the restore pixels as the library does, and accepts both chains: O-H4
+                        // checks that no link passes a hot pixel, not that a chain runs through every hot pixel its segment crosses
+                        var srr = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 10, 5, 5.4, 3.4 }, Y = new[] { 0.0, 1.4, 0.4, 3.4, 1.2 } };
+                        srr.Segments.Add(new SegmentInput(0, 1));
+                        srr.Segments.Add(new SegmentInput(3, 4));
+                        var tsr = new[] { new[] { 4, 5, 6 }, new[] { 3, 4, 6 }, new[] { 0, 5, 4 }, new[] { 2, 6, 5 }, new[] { 0, 4, 3 }, new[] { 1, 6, 2 }, new[] { 1, 3, 6 } };
+                        Mesh2Output SrrOutput(List<SubsegmentOutput> chains) => new Mesh2Output { Status = Mesh2Status.Success,
+                            VX = new double[] { 0, 10, 5, 5, 3, 3, 4 }, VY = new double[] { 0, 1, 0, 3, 1, 0, 1 }, InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                            Triangles = tsr, Neighbours = NeighboursOf(tsr), TriangleLabels = new int[7], BadTriangles = new int[0], Subsegments = chains };
+                        var s1 = new List<SubsegmentOutput> { new SubsegmentOutput(0, 5), new SubsegmentOutput(5, 6), new SubsegmentOutput(6, 1) };
+                        var r414 = Oracle.Check(srr, SrrOutput(s1.Concat(new[] { new SubsegmentOutput(4, 6), new SubsegmentOutput(6, 3) }).ToList()), new OracleExpect { Milestone = Milestone.M2 });
+                        Must("accept: SRR's restore pixels (4, 1) and (3, 0), a chain routed through a restore pixel its segment crosses (Proposition 4.14)",
+                            r414.Ok && r414.RestorePixels.Count == 2 && r414.RestorePixels.Contains(((BigInteger)4, (BigInteger)1))
+                                && r414.RestorePixels.Contains(((BigInteger)3, (BigInteger)0)),
+                            "report: " + r414 + " restore " + string.Join(" ", r414.RestorePixels ?? new List<(BigInteger, BigInteger)>()));
+                        var rl2 = Oracle.Check(srr, SrrOutput(s1.Concat(new[] { new SubsegmentOutput(4, 3) }).ToList()), new OracleExpect { Milestone = Milestone.M2 });
+                        Must("accept (known, open): the same chain past that restore pixel's corner, as SRR's Listing 2 leaves it",
+                            rl2.Ok, "report: " + rl2 + " / " + rl2.ExcusedSummary());
                         // a hull domain's hull pieces are judged on the grid as a segment's (option C), within their own hull edge's
                         // envelope: the bottom hull edge (0, 0.5) - (6, 0.5) runs on the pixel boundary, and the oracle's tie rule for
                         // decimal pixels (blocking pixels a hair larger, the own envelope a hair smaller) puts no pixel between its ends in
