@@ -155,5 +155,40 @@ namespace geometry3Sharp.Tests
             Assert.True(off.TriangleCount < sphere.TriangleCount, "the usual check reduces at this scale");
             Assert.Equal("", Invariance.Difference(off, on));
         }
+
+        [Fact]
+        public void FusedPass_SameReductionsAsTwoPasses()
+        {
+            // the flip test and the PreventFoldOver test in one pass over each one-ring (FusedFoldCheck, the default)
+            // decide as the two passes did: the same meshes, bit for bit, over terrains, a noisy sphere and the settings
+            // of MeshRobustRepair.SimplifyWithin, without preserved boundary and in FastCollapsePass
+            var inputs = new System.Collections.Generic.List<(string, DMesh3)>();
+            for (int seed = 1; seed <= 4; ++seed)
+                foreach (double noise in new[] { 0.4, 0.8, 1.6 }) {
+                    var rnd = new Random(seed);
+                    inputs.Add(($"terrain {seed} {noise}", Grid(40, 40, (i, j) => R(3 * Math.Sin(0.2 * i) * Math.Cos(0.15 * j) + noise * (rnd.NextDouble() - 0.5)))));
+                }
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { EdgeVertices = 30, Radius = 1 }.Generate().MakeDMesh();
+            var srnd = new Random(7);
+            foreach (int v in sphere.VertexIndices().ToList())
+                sphere.SetVertex(v, sphere.GetVertex(v) * (1 + 0.05 * (srnd.NextDouble() - 0.5)));
+            inputs.Add(("noisy sphere", sphere));
+            var settings = new (string, Action<Reducer, DMesh3>)[] {
+                ("to 20 %", (r, m) => r.ReduceToTriangleCount(m.TriangleCount / 5)),
+                ("to 2 %", (r, m) => r.ReduceToTriangleCount(m.TriangleCount / 50)),
+                ("SimplifyWithin settings", (r, m) => {
+                    r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = 0.05; r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+                    r.ReduceToTriangleCount(m.TriangleCount / 10); }),
+                ("boundary not preserved", (r, m) => { r.PreserveBoundaryShape = false; r.ReduceToTriangleCount(m.TriangleCount / 10); }),
+                ("fast collapse pass", (r, m) => r.FastCollapsePass(1.5, 3)) };
+            foreach (var (name, input) in inputs)
+                foreach (var (label, run) in settings) {
+                    DMesh3 fused = new DMesh3(input), two = new DMesh3(input);
+                    run(new Reducer(fused), input);
+                    run(new Reducer(two) { FusedFoldCheck = false }, input);
+                    Assert.True(fused.TriangleCount < input.TriangleCount, $"{name}, {label}: nothing collapsed");
+                    Assert.True(Invariance.Difference(two, fused) == "", $"{name}, {label}: {Invariance.Difference(two, fused)}");
+                }
+        }
     }
 }
