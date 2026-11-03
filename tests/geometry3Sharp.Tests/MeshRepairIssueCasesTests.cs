@@ -22,12 +22,6 @@ namespace geometry3Sharp.Tests
     {
         /// <summary> case name -> finding; a listed case must still fail </summary>
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            // MeshPostRepairCleanup.FindInvertedComponents counts a closed component as enclosed by another when most of
-            // its interior samples lie inside it, also when the two surfaces cross (it assumes interiors that are
-            // disjoint or nested): of two outward boxes crossing at 3 or 10 degrees, one is flipped as a cavity, and
-            // the repair returns A minus B (0.84 of 7.24) as clean. The volume check accepts it (IoU 1): the input's
-            // reference solid uses the same nesting rule
-            [nameof(ThinFold_NearlyParallelOverlap_Resolved)] = "finding R1 (docs/ISSUE_CASE_FINDINGS.md): crossing components taken for nested ones",
         };
 
         static void Expect(string name, string failure)

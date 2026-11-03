@@ -96,6 +96,46 @@ namespace geometry3Sharp.Tests
             return sum;
         }
 
+        // a square pit whose toe runs along terrain edges, its corners on terrain vertices: rounded in a frame, the toe
+        // and those edges are a few ulps apart, and the terrain left between them is a sliver narrower than an ulp. The
+        // crossing of a toe edge with a terrain edge at such a vertex, moved off the slope side, left both terrain
+        // triangles at its edge (rotated, scale 1e-3, utm): the part of its triangle overlapped the kept triangle beyond
+        static TerrainSlopeDesign ToeOnTerrainEdges(Similarity s)
+        {
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => 5);
+            foreach (int v in terrain.VertexIndices().ToList()) terrain.SetVertex(v, s.Apply(terrain.GetVertex(v)));
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(10, 0).Select(p => s.Apply(p)).ToList(), true,
+                SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            return new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = s.ApplyLength(0.05), BuildComposite = true };
+        }
+
+        static readonly Lazy<TerrainSlopeDesign> toeOnEdgesReference = new Lazy<TerrainSlopeDesign>(() => {
+            var d = ToeOnTerrainEdges(Similarity.Identity);
+            Assert.True(d.Compute(), d.Message);
+            return d;
+        });
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ToeOnTerrainEdges_Similarities(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            var d = ToeOnTerrainEdges(s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeCatchLineTests.AssertCatchLines(d);
+            TerrainSlopeCatchLineTests.AssertComposite(d);
+            var r = toeOnEdgesReference.Value;
+            if (s.IsExact) {
+                Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
+                Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
+                Assert.Equal(r.Volume * s.Scale * s.Scale * s.Scale, d.Volume);
+            } else {
+                double vd = d.Volume / (s.Scale * s.Scale * s.Scale);
+                Assert.True(Math.Abs(vd - r.Volume) <= 2 * 0.05 * r.PlanArea, $"volume {vd} vs {r.Volume}");
+                TerrainSlopeVolumeTests.AssertVolumesMatchComposite(d, false);
+            }
+        }
+
         [Fact]
         public void Reuse_AndDeterminism()
         {

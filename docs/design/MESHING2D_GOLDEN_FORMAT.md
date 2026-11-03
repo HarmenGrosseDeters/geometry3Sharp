@@ -118,8 +118,13 @@ snap_tolerance <value>
 size_constant <value|->                           # the largest edge; a size that varies has no text form yet
 resolve_crossings <0|1>
 conforming <0|1>
+mode constrained                                  # optional: only when set
 end
 ```
+
+The line `mode constrained` marks the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as
+constrained Delaunay. It is written only when set, so every other input keeps its text and its `input_sha256`; it contradicts
+`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`.
 
 Worked example: the input `literal(0 0, 1 0, 0 1)` has this canonical text, with a final line end,
 
