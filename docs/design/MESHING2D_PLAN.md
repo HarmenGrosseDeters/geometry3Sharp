@@ -211,6 +211,10 @@ on the reference triangulation (Q9). Decisions and findings:
   (Shewchuk 2002). The oracle got the matching exemption `SpansSmallInputAngle` with an accept and a reject self-check. Without it F-39 took 103 000 vertices
   (the Steiner limit), with it 649.
 - Points within the automatic tolerance of an earlier point are merged into it (O11, Q14), for M2 and M3 (F-3/c needed it: a point 2^-39 from a segment's end).
+- Oracle, small input angles (2026-11-03): a triangle whose small angle is forced by an input angle phi is excused only when its
+  other two angles are at least arctan(sin phi / (2 − cos phi)), the bound Shewchuk 2002 proves for every angle of a triangle near a
+  small input angle (page 2, section 6.3). Before, the whole triangle was excused. A probe over the corpus, the catalogue and the Herne
+  q20 tiles found no triangle that this rule rejects and no other excuse covers (one on Herne lies at the grid floor).
 - Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
   free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
   vertices within the tube of a hull edge count as moved (O2, D13: a split of a hull edge in doubles cannot stay exactly on it).
@@ -303,13 +307,24 @@ ALKIS and DGM tiles (local only).
     mesher refuses a grid split because of content inside a hole, which the oracle does not see. The owner decides between (a)
     removing the content of holes before refinement (spec Q7) and (b) an oracle excuse; the coordinator recommends (a).
   - **Q17:** domains narrower than a pixel.
-  - The oracle's `ForcedByInputAngle` excuses a whole triangle whose small corner lies in an input wedge, without checking its other
-    corners. Whether that is intended is to be decided.
   - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
     108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
     first.
   - f-38/a and f-38/b (1 triangle vs 13 and 19) are correct: a single thin triangle whose small angle is the input angle, with no
     encroached segment.
+  - Fewer triangles than the reference by spec (O11, Q14): features below the automatic tolerance are merged. The mesher's tolerance
+    is 2^-41 of max(largest coordinate, extent) (D3; the oracle allows 2^-40), so 1.4e-14 at magnitude 10 (f-10/c, tolerance
+    4.5e-12) is noise:
+    - f-10/c: the point 1.4e-14 off the segment becomes a vertex of it.
+    - f-11/c and f-11/d: the near-duplicate points merge; the square with its centre gives 4 triangles.
+    - earcut infinite-loop-jhl: after the 1e-28 merge the hole equals the outer ring, so the domain is empty (status Empty).
+    - GEOS TestCentroid/33: three clusters, each under 1.4e-11 wide at magnitude 92.6 (tolerance 4.2e-11), merge into 3 points:
+      1 triangle.
+    - GEOS stmlf/447: the 5 exact crossings are overlaps collinear within 4.6e-9 at magnitude 5.5e6 (tolerance 2.5e-6). The
+      segments run through the vertices, no crossing vertex is made, and the 24 triangles are the 2n - 2 - h of 18 vertices, hull 10.
+  - Seven GEOS overlay rows (isochrone/49, 53, 54, 70, stmlf/1040, 1304, 1579) were INVALID (BoundaryNotConstrained) at f3d92da.
+    The meshes are byte-identical on master; the verdict changed with #342. Every hull corner the boundary edge skips is an
+    input point merged by O11, moved 5e-15 to 7e-15 at magnitude 49 and 4e-9 to 5e-9 at magnitude 5e6.
 
 | reference run (90711d0c, constrained) | ours, triangles | reference, triangles |
 |---|---|---|

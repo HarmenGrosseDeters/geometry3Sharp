@@ -175,6 +175,43 @@ namespace Meshing2Acceptance
             }
 
             Arithmetic(Must);
+
+            // ---- an angle forced by a small input angle excuses its triangle only when the triangle's other angles meet Shewchuk's bound
+            // near that angle (2002, section 6.3): arctan(sin phi / (2 - cos phi)), 10.27 degrees for phi = arctan(3/16) = 10.62. A hull
+            // domain (D13: the hull corners force their angles) with a point on its bottom edge, at a bound of 11 degrees: the triangle at
+            // the apex has its other small angle at the corner (16, 3), 10.92 degrees with the point at 8.4 and 9.94 at 8
+            {
+                Mesh2Output Fan(double sx) => new Mesh2Output {
+                    Status = Mesh2Status.Success, VX = new[] { 0, 16, 16, sx }, VY = new double[] { 0, 0, 3, 0 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 0, 3, 2 }, new[] { 3, 1, 2 } }, Neighbours = NeighboursOf(new[] { new[] { 0, 3, 2 }, new[] { 3, 1, 2 } }),
+                    TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 0 } };
+                Mesh2Input FanIn(double sx) => new Mesh2Input { X = new[] { 0, 16, 16, sx }, Y = new double[] { 0, 0, 3, 0 }, MinAngleDeg = 11 };
+                var above = Oracle.Check(FanIn(8.4), Fan(8.4), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: a second angle above Shewchuk's bound near a small input angle is excused", !above.Has(Violation.AngleBelowBound), "report: " + above);
+                var below = Oracle.Check(FanIn(8), Fan(8), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: a second angle below Shewchuk's bound near a small input angle as AngleBelowBound", below.Has(Violation.AngleBelowBound), "report: " + below);
+                // mirrored in the x axis (the triangles' corners in the other order: the small second angle at the other corner)
+                Mesh2Output Mirror(Mesh2Output o) { var m = Fan(o.VX[3]); m.VY = o.VY.Select(y => -y).ToArray(); m.Triangles = new[] { new[] { 0, 2, 3 }, new[] { 3, 2, 1 } }; m.Neighbours = NeighboursOf(m.Triangles); return m; }
+                Mesh2Input MirrorIn(double sx) { var i = FanIn(sx); i.Y = i.Y.Select(y => -y).ToArray(); return i; }
+                var aboveM = Oracle.Check(MirrorIn(8.4), Mirror(Fan(8.4)), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the same mirrored", !aboveM.Has(Violation.AngleBelowBound), "report: " + aboveM);
+                var belowM = Oracle.Check(MirrorIn(8), Mirror(Fan(8)), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same mirrored as AngleBelowBound", belowM.Has(Violation.AngleBelowBound), "report: " + belowM);
+                // a needle at the apex: a point on the far edge, 0.28 above the corner (16, 0), splits the apex into 1.0 and 9.62 degrees,
+                // both below the bound for the 10.62 degree input angle; the triangle of the apex with both far corners is excused
+                Mesh2Output Needle(double ny) => new Mesh2Output {
+                    Status = Mesh2Status.Success, VX = new double[] { 0, 16, 16, 16 }, VY = new[] { 0, 0, 3, ny }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = new[] { new[] { 0, 1, 3 }, new[] { 0, 3, 2 } }, Neighbours = NeighboursOf(new[] { new[] { 0, 1, 3 }, new[] { 0, 3, 2 } }),
+                    TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 0, 1 } };
+                Mesh2Input NeedleIn(double ny) => new Mesh2Input { X = new double[] { 0, 16, 16, 16 }, Y = new[] { 0, 0, 3, ny }, MinAngleDeg = 11 };
+                var needleReport = Oracle.Check(NeedleIn(0.28), Needle(0.28), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: a needle at the apex of a small input angle as AngleBelowBound", needleReport.Has(Violation.AngleBelowBound), "report: " + needleReport);
+                var whole = Oracle.Check(new Mesh2Input { X = new double[] { 0, 16, 16 }, Y = new double[] { 0, 0, 3 }, MinAngleDeg = 11 },
+                    new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 0, 16, 16 }, VY = new double[] { 0, 0, 3 }, InputToVertex = new[] { 0, 1, 2 },
+                        Triangles = new[] { new[] { 0, 1, 2 } }, Neighbours = NeighboursOf(new[] { new[] { 0, 1, 2 } }), TriangleLabels = new[] { 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 0 } }, new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
+            }
             DomainAreas(Must);
 
             // ---- M1: a set in general position, solved by the definition itself
@@ -1324,6 +1361,13 @@ namespace Meshing2Acceptance
         {
             Pt P(double x, double y) => Pt.FromDoubles(x, y);
             must("orient: counter-clockwise", Exact.Orient(P(0, 0), P(1, 0), P(0, 1)) == 1, null);
+            // Shewchuk 2002 section 6.3: near an input angle phi every angle of a triangle is at least arctan(sin phi / (2 - cos phi)).
+            // phi = arctan(3/16) = 10.62 degrees gives 10.27 degrees; corners just above and just below it, and an obtuse one
+            Pt apex = P(0, 0), wa = P(16, 0), wb = P(16, 3);
+            must("Shewchuk bound: 18.7 degrees near a 10.62 degree input angle", Oracle.AtLeastShewchukBound(P(4.5, 0.84375), P(0, 0), P(3, 0), apex, wa, wb), null);
+            must("Shewchuk bound: 10.40 degrees (tan 47/256) is above 10.27", Oracle.AtLeastShewchukBound(P(0, 0), P(1, 0), P(1, 47.0 / 256), apex, wa, wb), null);
+            must("Shewchuk bound: 10.18 degrees (tan 23/128) is below 10.27", !Oracle.AtLeastShewchukBound(P(0, 0), P(1, 0), P(1, 23.0 / 128), apex, wa, wb), null);
+            must("Shewchuk bound: an obtuse corner", Oracle.AtLeastShewchukBound(P(0, 0), P(1, 0), P(-1, 0.01), apex, wa, wb), null);
             must("orient: clockwise", Exact.Orient(P(0, 0), P(0, 1), P(1, 0)) == -1, null);
             must("orient: collinear", Exact.Orient(P(0, 0), P(1, 1), P(2, 2)) == 0, null);
             must("in-circle: inside", Exact.InCircle(P(0, 0), P(4, 0), P(0, 4), P(1, 1)) == 1, null);
