@@ -394,24 +394,34 @@ namespace gs
         void add_to_region(HashSet<Vector3i> region, WindingNumberOctree octree, Vector3d a, Vector3d b)
         {
             Vector3d g = (0.5 * (a + b) - octree.Origin) / octree.LeafCellSize;
-            Vector3i lo = Vector3i.Zero, hi = Vector3i.Zero;
+            Vector3d lo = Vector3d.Zero, hi = Vector3d.Zero;
             for (int d = 0; d < 3; ++d) {
-                lo[d] = (int)Math.Floor(g[d] - 0.25) - RefineMargin;
-                hi[d] = (int)Math.Floor(g[d] + 0.25) + RefineMargin;
+                lo[d] = Math.Floor(g[d] - 0.25) - RefineMargin;
+                hi[d] = Math.Floor(g[d] + 0.25) + RefineMargin;
             }
-            for (int z = lo.z; z <= hi.z; ++z)
-                for (int y = lo.y; y <= hi.y; ++y)
-                    for (int x = lo.x; x <= hi.x; ++x)
-                        region.Add(new Vector3i(x, y, z));
+            add_region_box(region, lo, hi);
         }
 
         // a coarse cell plus RefineMargin
         void add_to_region(HashSet<Vector3i> region, WindingNumberOctree octree, Vector3i cell)
         {
-            for (int z = -RefineMargin; z <= RefineMargin; ++z)
-                for (int y = -RefineMargin; y <= RefineMargin; ++y)
-                    for (int x = -RefineMargin; x <= RefineMargin; ++x)
-                        region.Add(cell + new Vector3i(x, y, z));
+            Vector3d center = new Vector3d(cell.x, cell.y, cell.z);
+            add_region_box(region, center - RefineMargin, center + RefineMargin);
+        }
+
+        static void add_region_box(HashSet<Vector3i> region, Vector3d lo, Vector3d hi)
+        {
+            for (int d = 0; d < 3; ++d) {
+                lo[d] = Math.Max(lo[d], int.MinValue);
+                hi[d] = Math.Min(hi[d], int.MaxValue);
+                if (!(lo[d] <= hi[d]))
+                    return;
+            }
+            // The inclusive upper endpoint can be int.MaxValue; the loop counter must not wrap.
+            for (long z = (long)lo.z; z <= (long)hi.z; ++z)
+                for (long y = (long)lo.y; y <= (long)hi.y; ++y)
+                    for (long x = (long)lo.x; x <= (long)hi.x; ++x)
+                        region.Add(new Vector3i((int)x, (int)y, (int)z));
         }
 
         // octree cells (fine leaf coordinates, power-of-two sizes at aligned positions) that overlap the region

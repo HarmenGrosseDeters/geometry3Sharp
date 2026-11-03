@@ -2,7 +2,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using g3;
 
 namespace gs
@@ -106,22 +105,24 @@ namespace gs
 
 
 
+        /// <summary> Rebuild containment and solids, breaking ties in Components order, independently of thread scheduling. </summary>
         public void Sort()
         {
             int N = Components.Count;
 
             ComponentMesh[] comps = Components.ToArray();
 
-            // sort by bbox containment to speed up testing (does it??)
-            Array.Sort(comps, (i,j) => {
-                return i.Bounds.Contains(j.Bounds) ? -1 : 1;
-            });
+            // Input order breaks ties; bbox containment is not a total ordering.
+            foreach (ComponentMesh comp in comps) {
+                comp.InsideOf.Clear();
+                comp.InsideSet.Clear();
+            }
 
             // containment sets
             bool[] bIsContained = new bool[N];
             Dictionary<int, List<int>> ContainSets = new Dictionary<int, List<int>>();
             Dictionary<int, List<int>> ContainedParents = new Dictionary<int, List<int>>();
-            SpinLock dataLock = new SpinLock();
+            var children = new List<int>[N];
 
             // [TODO] this is 90% of compute time...
             //   - if I know X contains Y, and Y contains Z, then I don't have to check that X contains Z
@@ -130,8 +131,9 @@ namespace gs
             //     not checking for this!  (although maybe bbox check still early-outs it?)
 
             // construct containment sets
-            gParallel.ForEach(Interval1i.Range(N), (i) => {
+            gParallel.ForRange(N, (i) => {
                 ComponentMesh compi = comps[i];
+                children[i] = new List<int>();
 
                 if (compi.IsClosed == false && AllowOpenContainers == false)
                     return;
@@ -146,27 +148,23 @@ namespace gs
                         continue;
 
                     // any other early-outs??
-                    if (compi.Contains(compj)) {
-
-                        bool entered = false;
-                        dataLock.Enter(ref entered);
-
-                        compj.InsideOf.Add(compi);
-                        compi.InsideSet.Add(compj);
-
-                        if (ContainSets.ContainsKey(i) == false)
-                            ContainSets.Add(i, new List<int>());
-                        ContainSets[i].Add(j);
-                        bIsContained[j] = true;
-                        if (ContainedParents.ContainsKey(j) == false)
-                            ContainedParents.Add(j, new List<int>());
-                        ContainedParents[j].Add(i);
-
-                        dataLock.Exit();
-                    }
-
+                    if (compi.Contains(compj))
+                        children[i].Add(j);
                 }
             });
+            for (int i = 0; i < N; ++i) {
+                if (children[i].Count == 0)
+                    continue;
+                ContainSets.Add(i, children[i]);
+                foreach (int j in children[i]) {
+                    comps[j].InsideOf.Add(comps[i]);
+                    comps[i].InsideSet.Add(comps[j]);
+                    bIsContained[j] = true;
+                    if (ContainedParents.ContainsKey(j) == false)
+                        ContainedParents.Add(j, new List<int>());
+                    ContainedParents[j].Add(i);
+                }
+            }
 
 
             List<MeshSolid> solids = new List<MeshSolid>();
@@ -217,8 +215,8 @@ namespace gs
                     ComponentMesh parentComp = comps[i];
                     int outer_idx = CompToOuterIndex[parentComp];
 
-                    List<int> children = ContainSets[i];
-                    foreach (int childj in children) {
+                    List<int> childIndices = ContainSets[i];
+                    foreach (int childj in childIndices) {
                         ComponentMesh childComp = comps[childj];
                         Util.gDevAssert(used.Contains(childComp) == false);
 
