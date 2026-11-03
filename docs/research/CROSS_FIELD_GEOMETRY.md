@@ -1,6 +1,6 @@
 # Geometry3Sharp: hard geometry problems across fields
 
-**Research report — 3 November 2026.** Pure research: no library changes, no PR, no benchmark runs. Experimental budgets below are proposed engineer-hours, not measurements. The task's supplied measurements are accepted as the starting evidence, not independently reproduced.
+**Research report — 3 November 2026.** Pure research: no library changes, no benchmark runs. Experimental budgets below are proposed engineer-hours, not measurements. The task's supplied measurements are accepted as the starting evidence, not independently reproduced.
 
 ## Executive judgment
 
@@ -465,4 +465,4 @@ Actual forward links inspected include **Wang envelope 2020 → Sacht–Jacobson
 
 ## Verification of this deliverable
 
-No empirical performance improvement, city-dataset fix, cross-platform pass, or new theorem has been claimed. The original experiments described above were not run for this research snapshot. The subsequent [spike report](../../benchmarks/CrossFieldSpikes/README.md) records the narrower checks actually executed, and what remains untested. Library source and unrelated working-tree changes are untouched. Documentation-only research does not require library builds or test runs.
+No empirical performance improvement, city-dataset fix, cross-platform pass, or new theorem has been claimed. The original experiments described above were not run for this research snapshot. A first round of synthetic probes on hand-built fixtures (two-sided clearance, a vertex-only pinch, a five-vertex fan) was reviewed and not kept: they confirmed the stated inequalities on toy models but tested no real trace, and the vertex-only pinch is already a rule of the 2D oracle (RefinementPinch, #367). The experiments above remain open. Library source and unrelated working-tree changes are untouched. Documentation-only research does not require library builds or test runs.
