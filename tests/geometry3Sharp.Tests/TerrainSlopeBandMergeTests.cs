@@ -73,7 +73,7 @@ namespace geometry3Sharp.Tests
             var m = NearQuadruple(1e-9, out labels, out onBarrier, new[] { 1, 2, 3 }, new[] { 2, 3, 4 });
             double merged;
             Assert.Equal(1, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
-            Assert.Equal(1e-9, merged);
+            AssertMove(1e-9, merged);
             Assert.Equal(5, m.VertexCount);
             Assert.Equal(4, m.TriangleCount);
             // (p kept: as many labels, smaller x; the union of the plane sets, z the lowest of them at p)
@@ -156,26 +156,127 @@ namespace geometry3Sharp.Tests
             foreach (int t in a.TriangleIndices()) Assert.Equal(a.GetTriangle(t), b.GetTriangle(t));
         }
 
-        // a chain p - q - t of two short edges: one band pass merges one of them, never both (a vertex moved twice would
-        // carry labels by the sum of the lengths, more than the lowering counts)
-        [Fact]
-        public void BandMerge_NoChainsInOnePass()
+        // a chain p - q - t of two short edges (dx and dt apart; three triple points pairwise close, a near-quintuple
+        // point), its six ring triangles
+        static DMesh3 Chain(double dq, double dt, out List<List<int>> labels, out List<bool> onBarrier)
         {
             var m = new DMesh3(false, false, false, true);
-            int p = m.AppendVertex(new Vector3d(0, 0, 0)), q = m.AppendVertex(new Vector3d(1e-9, 0, 0)), t = m.AppendVertex(new Vector3d(2e-9, 0, 0));
+            int p = m.AppendVertex(new Vector3d(0, 0, 0)), q = m.AppendVertex(new Vector3d(dq, 0, 0)), t = m.AppendVertex(new Vector3d(dq + dt, 0, 0));
             int w = m.AppendVertex(new Vector3d(-10, 0, 0)), so = m.AppendVertex(new Vector3d(0, -10, 0));
             int e = m.AppendVertex(new Vector3d(10, 0, 0)), n = m.AppendVertex(new Vector3d(0, 10, 0));
             foreach (var tri in new[] { new Index3i(w, so, p), new Index3i(p, so, q), new Index3i(q, so, t), new Index3i(t, so, e),
                                         new Index3i(e, n, t), new Index3i(t, n, q), new Index3i(q, n, p), new Index3i(p, n, w) })
                 Assert.True(m.AppendTriangle(tri) >= 0);
-            var labels = new List<List<int>> { new List<int> { 1, 2, 3 }, new List<int> { 2, 3, 4 }, new List<int> { 3, 4, 5 },
-                                               new List<int> { 6 }, new List<int> { 7 }, new List<int> { 8 }, new List<int> { 9 } };
-            var onBarrier = Enumerable.Repeat(false, 7).ToList();
+            labels = new List<List<int>> { new List<int> { 1, 2, 3 }, new List<int> { 2, 3, 4 }, new List<int> { 3, 4, 5 },
+                                           new List<int> { 6 }, new List<int> { 7 }, new List<int> { 8 }, new List<int> { 9 } };
+            onBarrier = Enumerable.Repeat(false, 7).ToList();
+            return m;
+        }
+
+        // the chain is merged into one vertex (the wavy toe on the Hambach DGM in its local frame: with one pass and no
+        // chains the second edge, the one of the failing needles, was never taken); 'merged' is the largest move of an
+        // original position: t ends at p, 2e-9 away
+        [Fact]
+        public void BandMerge_MergesChains()
+        {
+            List<List<int>> labels; List<bool> onBarrier;
+            var m = Chain(1e-9, 1e-9, out labels, out onBarrier);
             double merged;
-            Assert.Equal(1, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
-            Assert.Equal(1e-9, merged);
+            Assert.Equal(2, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
+            Assert.Equal(5, m.VertexCount);
+            Assert.True(m.IsVertex(0) && m.IsVertex(1) == false && m.IsVertex(2) == false);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, labels[0].OrderBy(l => l).ToArray());
+            AssertMove(2e-9, merged);
+            Assert.Equal(Enumerable.Range(1, 5).Min(l => PlaneHeight(l, 0, 0)), m.GetVertex(0).z);
+        }
+
+        // an edge that qualifies only after another merge: q - t merges first (its triangles fail), and then the
+        // triangles of p - q fail (a merge changes the kept vertex's z, and so its other triangles): a second pass takes
+        // it, as the first had passed it over
+        [Fact]
+        public void BandMerge_PassesUntilNothingIsLeft()
+        {
+            List<List<int>> labels; List<bool> onBarrier;
+            var m = Chain(1e-9, 2e-9, out labels, out onBarrier);
+            Func<int, bool> fails = (tid) => {
+                Index3i tv = m.GetTriangle(tid);
+                return m.IsVertex(2) == false || tv.a == 2 || tv.b == 2 || tv.c == 2;
+            };
+            double merged;
+            Assert.Equal(2, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, fails, out merged));
+            Assert.Equal(5, m.VertexCount);
+        }
+
+        // 'merged' is an upper bound of the move, by at most a few ulps
+        static void AssertMove(double exact, double merged)
+        {
+            Assert.True(merged >= exact && merged <= exact * (1 + 1e-15), merged.ToString("R"));
+        }
+
+        // the distance's upper bound: at least the exact distance (here of doubles whose difference rounds), 0 for equal
+        // points, a few ulps above, and bitwise 2^k-scaled
+        [Fact]
+        public void DistanceUp_IsAnUpperBound()
+        {
+            Assert.Equal(0.0, SlopeMap.distance_up(new Vector2d(1.5, -2), new Vector2d(1.5, -2)));
+            var rnd = new Random(7);
+            for (int i = 0; i < 1000; ++i) {
+                var a = new Vector2d(rnd.NextDouble() * 1e3 - 500, rnd.NextDouble() * 1e3 - 500);
+                var b = a + new Vector2d((rnd.NextDouble() - 0.5) * 1e-6, (rnd.NextDouble() - 0.5) * 1e-6);
+                double d = SlopeMap.distance_up(a, b);
+                // (exactly: every double as an integer multiple of 2^-1074)
+                System.Numerics.BigInteger dx = Fixed(a.x) - Fixed(b.x), dy = Fixed(a.y) - Fixed(b.y), dd = Fixed(d);
+                Assert.True(dd * dd >= dx * dx + dy * dy, $"{a} {b} {d:R}");
+                Assert.True(d <= a.Distance(b) * (1 + 1e-14));
+                Assert.Equal(d * 1024, SlopeMap.distance_up(a * 1024, b * 1024));
+            }
+        }
+
+        static System.Numerics.BigInteger Fixed(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int exp = (int)((bits >> 52) & 0x7ff);
+            long man = bits & 0xfffffffffffffL;
+            if (exp != 0) man |= 1L << 52; else exp = 1;
+            var r = new System.Numerics.BigInteger(man) << (exp - 1);
+            return v < 0 ? -r : r;
+        }
+
+        // a chain in a fill: the merged vertex's z is the highest of the planes, mirrored
+        [Fact]
+        public void BandMerge_MergesChainsInAFill()
+        {
+            List<List<int>> labels; List<bool> onBarrier;
+            var m = Chain(1e-9, 1e-9, out labels, out onBarrier);
+            double merged;
+            Assert.Equal(2, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, true, null, out merged));
+            Assert.Equal(-Enumerable.Range(1, 5).Min(l => PlaneHeight(l, 0, 0)), m.GetVertex(0).z);
+        }
+
+        // the cumulative cap: q merges onto p (1e-9), then t would move 1e-9 + 0.9e-9 = 1.9e-9 to p, more than the
+        // band radius 1.5e-9 although its edge is shorter: refused
+        [Fact]
+        public void BandMerge_CapsTheCumulativeMove()
+        {
+            List<List<int>> labels; List<bool> onBarrier;
+            var m = Chain(1e-9, 0.9e-9, out labels, out onBarrier);
+            double merged;
+            int count = SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1.5e-9, false, null, out merged);
+            Assert.True(merged <= 1.5e-9, merged.ToString("R"));
+            // (t - q first, 0.9e-9: q's labels {2, 3, 4} and t's {3, 4, 5} have as many, so the smaller x, q, is kept;
+            // then p - q, 1e-9: p ({1, 2, 3}) has fewer labels than q ({2, 3, 4, 5}), so p goes onto q: every position
+            // moves by at most 1e-9)
+            Assert.Equal(2, count);
+            AssertMove(1e-9, merged);
+            Assert.True(m.IsVertex(1) && m.IsVertex(0) == false && m.IsVertex(2) == false);
+            // with more labels at p: t goes onto q as before, then q would go onto p, which moves t's position by
+            // 1.9e-9: refused
+            m = Chain(1e-9, 0.9e-9, out labels, out onBarrier);
+            labels[0] = new List<int> { 1, 2, 3, 10, 11, 12 };
+            count = SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1.5e-9, false, null, out merged);
+            Assert.Equal(1, count);
+            Assert.True(merged <= 1.5e-9, merged.ToString("R"));
             Assert.Equal(6, m.VertexCount);
-            // (a second pass may take the other edge; the realization runs one)
         }
 
         [Fact]
@@ -189,8 +290,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
             onBarrier[1] = false; onBarrier[0] = true;
             Assert.Equal(0, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
-            // nested plane sets: the collapse's business (CollapseShortEdges), not the band merge's
+            // nested plane sets in the band (that CollapseShortEdges left: it refuses thin altitudes, measures in 3D):
+            // merged onto the superset; equal sets are not
             m = NearQuadruple(1e-9, out labels, out onBarrier, new[] { 1, 2, 3 }, new[] { 2, 3 });
+            Assert.Equal(1, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
+            Assert.True(m.IsVertex(0) && m.IsVertex(1) == false);
+            Assert.Equal(new[] { 1, 2, 3 }, labels[0].OrderBy(l => l).ToArray());
+            m = NearQuadruple(1e-9, out labels, out onBarrier, new[] { 1, 2, 3 }, new[] { 3, 2, 1 });
             Assert.Equal(0, SlopeMap.BandMerge(m, labels, onBarrier, PlaneHeight, 1e-6, false, null, out merged));
             // an edge longer than the band radius
             m = NearQuadruple(1e-9, out labels, out onBarrier, new[] { 1, 2, 3 }, new[] { 2, 3, 4 });

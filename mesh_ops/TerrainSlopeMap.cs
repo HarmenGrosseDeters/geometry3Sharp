@@ -1406,6 +1406,19 @@ namespace gs
         }
 
         // (in XY: the band merge's decisions do not depend on the lowering λ, which moves z only)
+        // an upper bound of |a - b| (each step rounded up: the difference, its square, the sum, the root; exactly 0 for
+        // a = b). Scales bitwise with 2^k away from subnormals
+        internal static double distance_up(Vector2d a, Vector2d b)
+        {
+            double dx = a.x - b.x, dy = a.y - b.y;
+            dx = dx == 0 ? 0 : ExactInterval.Up(Math.Abs(dx));
+            dy = dy == 0 ? 0 : ExactInterval.Up(Math.Abs(dy));
+            double sx = dx == 0 ? 0 : ExactInterval.Up(dx * dx), sy = dy == 0 ? 0 : ExactInterval.Up(dy * dy);
+            double sum = sx + sy;
+            if (sum == 0) return 0;
+            return ExactInterval.Up(Math.Sqrt(ExactInterval.Up(sum)));
+        }
+
         static double edge_length_xy(DMesh3 m, int e)
         {
             Index2i ev = m.GetEdgeV(e);
@@ -1424,15 +1437,18 @@ namespace gs
         /// <summary>
         /// The targeted merge of the band: an edge with XY length at most maxLength (at most MinFeatureSize, so both its
         /// triangles are needles: a triangle's altitude is at most its shortest edge), whose ends are on no barrier and
-        /// have plane sets of which neither contains the other (a near-quadruple point, which CollapseShortEdges may
-        /// not collapse), is collapsed onto one end (more labels first, then x, then y). The kept vertex takes the union
-        /// of the plane sets and the lowest of those planes at its XY ('height', mirrored for fill). Made only if every
-        /// other triangle of the removed vertex stays counter-clockwise and the link condition holds; a vertex kept or
-        /// removed is not merged again in the pass (no chains). Shortest edges first, then by id. Only where a triangle of
-        /// the edge fails ('fails', the exact checks; null: all qualify), so a needle that passes is left as it is, and
-        /// not at the mesh's boundary (the cap's level line: a collapse there would move it). Decisions in XY only (and
-        /// the exact checks of the edge's two triangles): the same for every λ but through those checks. Returns the
-        /// number of merges; 'merged' is the largest length merged (0 if none).
+        /// have different plane sets (a near-quadruple point, which CollapseShortEdges may not collapse, or nested sets
+        /// that it left: it refuses a collapse that shrinks a thin altitude, and it measures in 3D), is collapsed onto one end (more labels first, then x,
+        /// then y). The kept vertex takes the union of the plane sets and the lowest of those planes at its XY
+        /// ('height', mirrored for fill). Made only if every other triangle of the removed vertex stays counter-clockwise,
+        /// the link condition holds, and no original position merged into the removed vertex (its own and those merged
+        /// into it before) moves by more than maxLength in XY (an upper bound of the distance, rounded up): chains (clusters of triple points) are merged, the
+        /// cumulative move of every position capped by maxLength. Passes until one merges nothing (each merge removes a
+        /// vertex, so finitely many); in a pass shortest edges first, then by id. Only where a triangle of the edge fails
+        /// ('fails', the exact checks on the current mesh; null: all qualify), so a needle that passes is left as it is,
+        /// and not at the mesh's boundary (the cap's level line: a collapse there would move it). Decisions in XY and by
+        /// those checks, so they depend on the realization through the checks only. Returns the number of merges;
+        /// 'merged' is an upper bound of the largest move of an original position (0 if none).
         /// </summary>
         internal static int BandMerge(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, Func<int, double, double, double> height,
                                       double maxLength, bool fill, Func<int, bool> fails, out double merged)
@@ -1440,38 +1456,52 @@ namespace gs
             merged = 0;
             int count = 0;
             if (!(maxLength > 0)) return 0;
-            var candidates = mesh.EdgeIndices().Select(e => new KeyValuePair<double, int>(edge_length_xy(mesh, e), e))
-                .Where(kv => kv.Key <= maxLength).OrderBy(kv => kv.Key).ThenBy(kv => kv.Value).ToList();
-            var touched = new HashSet<int>();
-            foreach (var kv in candidates) {
-                int e = kv.Value;
-                if (mesh.IsEdge(e) == false) continue;
-                Index2i ev = mesh.GetEdgeV(e);
-                if (touched.Contains(ev.a) || touched.Contains(ev.b)) continue;
-                if (onBarrier[ev.a] || onBarrier[ev.b]) continue;
-                if (mesh.IsBoundaryVertex(ev.a) || mesh.IsBoundaryVertex(ev.b)) continue;
-                List<int> la = labels[ev.a], lb = labels[ev.b];
-                if (la.All(l => lb.Contains(l)) || lb.All(l => la.Contains(l))) continue;
-                if (fails != null) {
-                    Index2i et = mesh.GetEdgeT(e);
-                    if (fails(et.a) == false && (et.b < 0 || fails(et.b) == false)) continue;
+            // the original XY positions merged into a vertex before (absent: only its own); a vertex keeps its XY
+            var origins = new Dictionary<int, List<Vector2d>>();
+            for (bool more = true; more; ) {
+                more = false;
+                var candidates = mesh.EdgeIndices().Select(e => new KeyValuePair<double, int>(edge_length_xy(mesh, e), e))
+                    .Where(kv => kv.Key <= maxLength).OrderBy(kv => kv.Key).ThenBy(kv => kv.Value).ToList();
+                foreach (var kv in candidates) {
+                    int e = kv.Value;
+                    // (an edge of a removed vertex goes to the kept one in a collapse, and its length changes: the cap on
+                    // the move below covers it, as the removed end moves by the edge's length)
+                    if (mesh.IsEdge(e) == false) continue;
+                    Index2i ev = mesh.GetEdgeV(e);
+                    if (onBarrier[ev.a] || onBarrier[ev.b]) continue;
+                    if (mesh.IsBoundaryVertex(ev.a) || mesh.IsBoundaryVertex(ev.b)) continue;
+                    List<int> la = labels[ev.a], lb = labels[ev.b];
+                    if (la.Count == lb.Count && la.All(l => lb.Contains(l))) continue;
+                    if (fails != null) {
+                        Index2i et = mesh.GetEdgeT(e);
+                        if (fails(et.a) == false && (et.b < 0 || fails(et.b) == false)) continue;
+                    }
+                    Vector3d pa = mesh.GetVertex(ev.a), pb = mesh.GetVertex(ev.b);
+                    bool keepA = la.Count != lb.Count ? la.Count > lb.Count : (pa.x != pb.x ? pa.x < pb.x : pa.y < pb.y);
+                    int keep = keepA ? ev.a : ev.b, remove = keepA ? ev.b : ev.a;
+                    Vector3d kp = mesh.GetVertex(keep);
+                    // (the moves of the positions merged into 'remove', to the kept XY)
+                    List<Vector2d> moved;
+                    if (origins.TryGetValue(remove, out moved) == false) moved = new List<Vector2d> { mesh.GetVertex(remove).xy };
+                    double move = moved.Max(o => distance_up(o, kp.xy));
+                    if (move > maxLength) continue;
+                    if (stays_counter_clockwise(mesh, keep, remove) == false) continue;
+                    var union = new List<int>(labels[keep]);
+                    foreach (int l in labels[remove]) if (union.Contains(l) == false) union.Add(l);
+                    DMesh3.EdgeCollapseInfo info;
+                    if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
+                    double z = double.MaxValue;
+                    foreach (int l in union) z = Math.Min(z, height(l, kp.x, kp.y));
+                    mesh.SetVertex(keep, new Vector3d(kp.x, kp.y, fill ? -z : z));
+                    labels[keep] = union;
+                    List<Vector2d> kept;
+                    if (origins.TryGetValue(keep, out kept) == false) origins[keep] = kept = new List<Vector2d> { kp.xy };
+                    kept.AddRange(moved);
+                    origins.Remove(remove);
+                    merged = Math.Max(merged, move);
+                    count++;
+                    more = true;
                 }
-                Vector3d pa = mesh.GetVertex(ev.a), pb = mesh.GetVertex(ev.b);
-                bool keepA = la.Count != lb.Count ? la.Count > lb.Count : (pa.x != pb.x ? pa.x < pb.x : pa.y < pb.y);
-                int keep = keepA ? ev.a : ev.b, remove = keepA ? ev.b : ev.a;
-                if (stays_counter_clockwise(mesh, keep, remove) == false) continue;
-                Vector3d kp = mesh.GetVertex(keep);
-                var union = new List<int>(labels[keep]);
-                foreach (int l in labels[remove]) if (union.Contains(l) == false) union.Add(l);
-                DMesh3.EdgeCollapseInfo info;
-                if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
-                double z = double.MaxValue;
-                foreach (int l in union) z = Math.Min(z, height(l, kp.x, kp.y));
-                mesh.SetVertex(keep, new Vector3d(kp.x, kp.y, fill ? -z : z));
-                labels[keep] = union;
-                touched.Add(keep); touched.Add(remove);
-                merged = Math.Max(merged, kv.Key);
-                count++;
             }
             return count;
         }
