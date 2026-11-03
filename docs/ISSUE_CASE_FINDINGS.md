@@ -158,6 +158,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 ### P1 (fixed): LSCM on a low-poly cylinder collapses a boundary and reported Success
 
 - Tests: `LowPolyCylinderWithoutSeam_StatusOrBoundedDistortion` (case `_LscmAndArap`),
+  `ParameterizationFlippedMapTests.LowPolyCylinder_LscmAndArapWithFlippedMap_NotSuccess` (public API),
   `ParameterizationTests.LSCM_ARAP_FlippedMap_IsNotSuccess_InvariantUnderSimilarities`,
   `ParameterizationTests.ARAP_FlippedInitialMap_IsNotSuccess`.
 - Issue: https://github.com/GeometryCollective/boundary-first-flattening/issues/97.
@@ -187,7 +188,9 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   start fail. `ThreePeakTerrain_SlimAndTutteFlipFree` and `StrongSaddles_LocallyInjective` accept the new status for
   LSCM and ARAP (LSCM flips 23 of 1800 and 4 of 828 triangles there). Cost: one more relative area test per triangle
   in the distortion pass; `ParameterizationBenchmark` (LSCM, ARAP; 3k-58k vertices) gives the same distortion and
-  flips, times within the noise of the shared machine.
+  flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
+  first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
+  seams, overlaps, distortion), total time 1116 s against 1114 s.
 - Open (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
   loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
   conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
