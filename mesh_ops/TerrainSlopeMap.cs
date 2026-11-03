@@ -1319,6 +1319,9 @@ namespace gs
             return MathUtil.IsFinite(ch) ? ch : double.MaxValue;
         }
 
+        /// <summary> the XY altitude of a triangle (twice its area over its longest edge; 0 if degenerate) </summary>
+        internal static double TriangleAltitude(DMesh3 mesh, int t) { return tri_altitude(mesh, t); }
+
         static double tri_altitude(DMesh3 mesh, int t)
         {
             Index3i tv = mesh.GetTriangle(t);
@@ -1331,6 +1334,16 @@ namespace gs
         /// are only removed onto another such vertex. Returns the number of collapses.
         /// </summary>
         public static int CollapseShortEdges(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, double minLength)
+        {
+            return CollapseShortEdges(mesh, labels, onBarrier, minLength, null);
+        }
+
+        /// <summary>
+        /// CollapseShortEdges, appending the collapses made to 'made' (the kept and the removed end in XY, in order), for
+        /// ReplayCollapses on a realization with the same vertices in XY (another lowering λ: the lengths are in 3D, so
+        /// they move with z, and the decisions are made once per build, TERRAIN.md 5.4)
+        /// </summary>
+        internal static int CollapseShortEdges(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, double minLength, List<Vector2d[]> made)
         {
             int count = 0;
             for (bool again = true; again;) {
@@ -1348,8 +1361,10 @@ namespace gs
                         if (collapse_keeps_shapes(mesh, keep, remove, minLength) == false) continue;
                         DMesh3.EdgeCollapseInfo info;
                         Vector3d kp = mesh.GetVertex(keep);
+                        Vector2d rp = mesh.GetVertex(remove).xy;
                         if (mesh.CollapseEdge(keep, remove, out info) == MeshResult.Ok) {
                             mesh.SetVertex(keep, kp);
+                            if (made != null) made.Add(new[] { kp.xy, rp });
                             count++;
                             again = true;
                             break;
@@ -1360,10 +1375,119 @@ namespace gs
             return count;
         }
 
+        /// <summary>
+        /// The collapses of CollapseShortEdges again, on a realization with the same vertices in XY: each the edge
+        /// between the vertices at the recorded ends, in order, onto the kept one (its position kept). Returns the
+        /// number made (fewer if an edge is not there; the exact check of every triangle decides).
+        /// </summary>
+        internal static int ReplayCollapses(DMesh3 mesh, List<Vector2d[]> made)
+        {
+            var at = new Dictionary<Vector2d, int>();
+            foreach (int v in mesh.VertexIndices()) at[mesh.GetVertex(v).xy] = v;
+            int count = 0;
+            foreach (Vector2d[] c in made) {
+                int keep, remove;
+                if (at.TryGetValue(c[0], out keep) == false || at.TryGetValue(c[1], out remove) == false) continue;
+                if (mesh.FindEdge(keep, remove) < 0) continue;
+                Vector3d kp = mesh.GetVertex(keep);
+                DMesh3.EdgeCollapseInfo info;
+                if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
+                mesh.SetVertex(keep, kp);
+                at.Remove(c[1]);
+                count++;
+            }
+            return count;
+        }
+
         static double edge_length(DMesh3 m, int e)
         {
             Index2i ev = m.GetEdgeV(e);
             return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b));
+        }
+
+        // (in XY: the band merge's decisions do not depend on the lowering λ, which moves z only)
+        static double edge_length_xy(DMesh3 m, int e)
+        {
+            Index2i ev = m.GetEdgeV(e);
+            return m.GetVertex(ev.a).xy.Distance(m.GetVertex(ev.b).xy);
+        }
+
+        /// <summary>
+        /// The targeted merge of the band (TERRAIN.md 5.4, "Repair of the band") on a realization: see the static
+        /// overload; the heights are the planes' at 'lower' (as Realize).
+        /// </summary>
+        internal int BandMerge(DMesh3 mesh, double maxLength, double lower, bool fill, Func<int, bool> fails, out double merged)
+        {
+            return BandMerge(mesh, OutLabels, OnBarrier, (l, x, y) => K.Height(l, x, y, lower), maxLength, fill, fails, out merged);
+        }
+
+        /// <summary>
+        /// The targeted merge of the band: an edge with XY length at most maxLength (at most MinFeatureSize, so both its
+        /// triangles are needles: a triangle's altitude is at most its shortest edge), whose ends are on no barrier and
+        /// have plane sets of which neither contains the other (a near-quadruple point, which CollapseShortEdges may
+        /// not collapse), is collapsed onto one end (more labels first, then x, then y). The kept vertex takes the union
+        /// of the plane sets and the lowest of those planes at its XY ('height', mirrored for fill). Made only if every
+        /// other triangle of the removed vertex stays counter-clockwise and the link condition holds; a vertex kept or
+        /// removed is not merged again in the pass (no chains). Shortest edges first, then by id. Only where a triangle of
+        /// the edge fails ('fails', the exact checks; null: all qualify), so a needle that passes is left as it is, and
+        /// not at the mesh's boundary (the cap's level line: a collapse there would move it). Decisions in XY only (and
+        /// the exact checks of the edge's two triangles): the same for every λ but through those checks. Returns the
+        /// number of merges; 'merged' is the largest length merged (0 if none).
+        /// </summary>
+        internal static int BandMerge(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, Func<int, double, double, double> height,
+                                      double maxLength, bool fill, Func<int, bool> fails, out double merged)
+        {
+            merged = 0;
+            int count = 0;
+            if (!(maxLength > 0)) return 0;
+            var candidates = mesh.EdgeIndices().Select(e => new KeyValuePair<double, int>(edge_length_xy(mesh, e), e))
+                .Where(kv => kv.Key <= maxLength).OrderBy(kv => kv.Key).ThenBy(kv => kv.Value).ToList();
+            var touched = new HashSet<int>();
+            foreach (var kv in candidates) {
+                int e = kv.Value;
+                if (mesh.IsEdge(e) == false) continue;
+                Index2i ev = mesh.GetEdgeV(e);
+                if (touched.Contains(ev.a) || touched.Contains(ev.b)) continue;
+                if (onBarrier[ev.a] || onBarrier[ev.b]) continue;
+                if (mesh.IsBoundaryVertex(ev.a) || mesh.IsBoundaryVertex(ev.b)) continue;
+                List<int> la = labels[ev.a], lb = labels[ev.b];
+                if (la.All(l => lb.Contains(l)) || lb.All(l => la.Contains(l))) continue;
+                if (fails != null) {
+                    Index2i et = mesh.GetEdgeT(e);
+                    if (fails(et.a) == false && (et.b < 0 || fails(et.b) == false)) continue;
+                }
+                Vector3d pa = mesh.GetVertex(ev.a), pb = mesh.GetVertex(ev.b);
+                bool keepA = la.Count != lb.Count ? la.Count > lb.Count : (pa.x != pb.x ? pa.x < pb.x : pa.y < pb.y);
+                int keep = keepA ? ev.a : ev.b, remove = keepA ? ev.b : ev.a;
+                if (stays_counter_clockwise(mesh, keep, remove) == false) continue;
+                Vector3d kp = mesh.GetVertex(keep);
+                var union = new List<int>(labels[keep]);
+                foreach (int l in labels[remove]) if (union.Contains(l) == false) union.Add(l);
+                DMesh3.EdgeCollapseInfo info;
+                if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
+                double z = double.MaxValue;
+                foreach (int l in union) z = Math.Min(z, height(l, kp.x, kp.y));
+                mesh.SetVertex(keep, new Vector3d(kp.x, kp.y, fill ? -z : z));
+                labels[keep] = union;
+                touched.Add(keep); touched.Add(remove);
+                merged = Math.Max(merged, kv.Key);
+                count++;
+            }
+            return count;
+        }
+
+        // every triangle of 'remove' that does not contain 'keep' stays counter-clockwise with 'remove' at 'keep' (exact)
+        static bool stays_counter_clockwise(DMesh3 mesh, int keep, int remove)
+        {
+            Vector2d k = mesh.GetVertex(keep).xy;
+            foreach (int t in mesh.VtxTrianglesItr(remove)) {
+                Index3i tv = mesh.GetTriangle(t);
+                if (tv.a == keep || tv.b == keep || tv.c == keep) continue;
+                Vector2d a = mesh.GetVertex(tv.a).xy, b = mesh.GetVertex(tv.b).xy, c = mesh.GetVertex(tv.c).xy;
+                if (tv.a == remove) a = k; else if (tv.b == remove) b = k; else c = k;
+                if (ExactPredicates.Orient2d(a, b, c) <= 0) return false;
+            }
+            return true;
         }
 
         // A triangulation of a convex polygon (with collinear points) without triangles across collinear points,

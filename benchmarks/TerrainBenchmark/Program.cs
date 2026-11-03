@@ -460,6 +460,21 @@ class Program
         R["toe_points"] = pts.Count; R["attempts"] = d.Attempts;
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
         R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
+        // (diagnostics of the band repair, TERRAIN.md 5.4: internal fields, read by reflection)
+        foreach (string f in new[] { "BandMerges", "MaxMergeDistance", "MergedPositions", "NeedleFlips" }) {
+            var fi = typeof(TerrainSlopeDesign).GetField(f, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (fi != null) R[f] = fi.GetValue(d);
+        }
+        // (FNV-1a over the vertices' bits and the triangles: equal hashes, equal outputs bit for bit)
+        Func<DMesh3, string> hash = (m) => {
+            if (m == null) return "null";
+            ulong h = 14695981039346656037UL;
+            Action<long> mix = (x) => { for (int i = 0; i < 8; ++i) { h ^= (ulong)((x >> (8 * i)) & 0xff); h *= 1099511628211UL; } };
+            foreach (int v in m.VertexIndices()) { var p = m.GetVertex(v); mix(v); mix(BitConverter.DoubleToInt64Bits(p.x)); mix(BitConverter.DoubleToInt64Bits(p.y)); mix(BitConverter.DoubleToInt64Bits(p.z)); }
+            foreach (int t in m.TriangleIndices()) { var tv = m.GetTriangle(t); mix(t); mix(tv.a); mix(tv.b); mix(tv.c); mix(m.GetTriangleGroup(t)); }
+            return h.ToString("x16");
+        };
+        R["hash_surface"] = hash(d.SlopeSurface); R["hash_region"] = hash(d.SlopeRegion); R["hash_composite"] = hash(d.Composite ?? d.Replacement);
         R["toe_lowering"] = d.UsedToeLowering; R["slope_margin"] = d.UsedSlopeMargin; R["facet_angle"] = d.FacetAngle; R["max_slope_ratio"] = d.MaxSlopeRatio;
         if (d.Terrain != null) {
             R["catch_lines"] = d.CatchLines.Count; R["catch_points"] = d.CatchLines.Sum(l => l.Points.Count);

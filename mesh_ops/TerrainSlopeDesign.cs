@@ -388,6 +388,7 @@ namespace gs
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
+            MaxMergeDistance = 0; BandMerges = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
@@ -919,6 +920,8 @@ namespace gs
                     return st;
                 }
                 ProblemTriangles = br.Bad;
+                if (LastRealized != null)
+                    AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(LastRealized, t)).ToList());
                 if (br.RebuildLambda > 0) {
                     lambdaReq = br.RebuildLambda;
                     continue;
@@ -930,6 +933,12 @@ namespace gs
                 // (the measured lowering is kept; the next build caps it at its own bound)
                 lambdaReq = Math.Max(br.Lambda, (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1);
             }
+        }
+
+        // the collapses of a build's first realization, made again by the later ones (TERRAIN.md 5.4)
+        sealed class CollapseRecord
+        {
+            public List<Vector2d[]> Made;
         }
 
         sealed class BuildResult
@@ -1050,6 +1059,16 @@ namespace gs
             int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
             theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
+            // the band merge (TERRAIN.md 5.4, "Repair of the band") within the facet share's slack: the facets need
+            // s D (1 - cos(3/4 theta)) at the rounded angle, at most their share; the rest takes the band merge's part
+            // below S̃, 4 sMax (r + l + e_xy). A lower bound of the slack: 1 - cos is exact (Sterbenz, cos >= cos(3 pi / 32)
+            // > 1/2); Math.Cos is counted as off by up to 2^-49 (8 ulps of 1); each product and the difference are
+            // rounded outwards. It scales with 2^k bit for bit (scale-free factor, exact power-of-two scaling of the rest)
+            double oneMinusCos = ExactInterval.Up((1 - Math.Cos(0.75 * theta)) + Math.Pow(2, -49));
+            double facetNeed = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(sMax * 1.1) * D0) * oneMinusCos);
+            double facetSlack = ExactInterval.Down(facetShare - facetNeed);
+            double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
+            UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
             double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
 
@@ -1129,10 +1148,12 @@ namespace gs
             Attempts++;
             // (the kernel's work of the build itself; each realization counts its own below)
             PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
+            var collapsesMade = new CollapseRecord();
             for (int realization = 0; ; ++realization) {
                 br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
                 UsedToeLowering = lambda;
-                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), FlipShare(exy, sMax), minFeature, mergeRadius, br, phase);
+                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), FlipShare(exy, sMax), minFeature, mergeRadius, bandRadius,
+                                                (l, k) => BandRepairLambda(ez, exy, sMax, l, k), br, phase, collapsesMade);
                 Realizations++;
                 if (st != Statuses.SlopeViolation)
                     return st;
@@ -1148,7 +1169,11 @@ namespace gs
                 if (RebuildForEachLowering) {
                     // (the reference of the tests: a new map built at the new lowering; the map does not depend on λ, so
                     // the result must be the same bit for bit. Its builds count against the attempts of compute, and
-                    // each build starts its realizations from 0, so on hard inputs the two paths may stop differently)
+                    // each build starts its realizations from 0, so on hard inputs the two paths may stop differently.
+                    // Also, the realizations of one build replay the first one's collapses, which CollapseShortEdges
+                    // decides by 3D length; the rebuild decides them at the new λ. The two differ only where an edge's
+                    // 3D length lies within the rounding of z of MinFeatureSize, or where the order of two such
+                    // lengths flips)
                     br.RebuildLambda = next;
                     return st;
                 }
@@ -1189,8 +1214,9 @@ namespace gs
 
         // one realization at the lowering λ, its exact check, and (with a terrain) the overlay and the composite
         Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,
-                                   double lambdaBound, Func<int, double> repairLambda, double flipShare, double minFeature, double mergeRadius, BuildResult br,
-                                   Action<string> phase)
+                                   double lambdaBound, Func<int, double> repairLambda, double flipShare, double minFeature, double mergeRadius,
+                                   double bandRadius, Func<double, int, double> bandRepairLambda, BuildResult br, Action<string> phase,
+                                   CollapseRecord collapsesMade)
         {
             checkCancel();
             DMesh3 mesh;
@@ -1207,21 +1233,55 @@ namespace gs
             // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
             // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
             bool mayMerge = repairLambda(2) <= lambdaBound;
+            bool mergedWithin = mayMerge;
             try {
                 mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
             } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
                 mesh = map.Realize(cap, fill, 0, lambda);
                 map.MergedCount = 0;
+                mergedWithin = false;
             }
-            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            // (the collapses decided on the build's first realization, made again on the later ones: TERRAIN.md 5.4)
+            if (collapsesMade.Made == null) {
+                collapsesMade.Made = new List<Vector2d[]>();
+                SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature, collapsesMade.Made);
+            } else {
+                SlopeMap.ReplayCollapses(mesh, collapsesMade.Made);
+            }
+            // (the targeted merge of the band, TERRAIN.md 5.4: the short edges of needles at near-quadruple points, up
+            // to the band radius; in XY, so each realization of a build makes the same)
+            // (only with the merge within r made, a band beyond r, and where an edge's triangle fails the exact checks)
+            double bandLength = 0;
+            BandMerges = 0;
+            if (mergedWithin && bandRadius > mergeRadius) {
+                Func<int, bool> fails = (t) => {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                    mesh.GetTriVertices(t, ref a, ref b, ref c);
+                    InPiece pc = pieces[mesh.GetTriangleGroup(t)];
+                    if (fill) { a.z = -a.z; b.z = -b.z; c.z = -c.z; }
+                    return !(ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0 && Slope.IsNotSteeper(a, b, c, pc.Spec) &&
+                             Slope.IsPlaneOnOrBelow(a, b, c, pc.A) && Slope.IsPlaneOnOrBelow(a, b, c, pc.B));
+                };
+                BandMerges = map.BandMerge(mesh, bandRadius, lambda, fill, fails, out bandLength);
+                // (the length rounded up: a bound of the move)
+                if (BandMerges > 0) bandLength = ExactInterval.Up(bandLength);
+            }
             int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare) : 0;
             if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false)
                 return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
-            int repairs = (map.MergedCount > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
-            MergedPositions = map.MergedCount; NeedleFlips = flips;
-            MergeLambdaRequired = repairs > 0 ? repairLambda(repairs) : 0;
-            if (repairs > 0 && lambda < repairLambda(repairs)) {
-                br.MergeLambda = repairLambda(repairs);
+            int repairs = (map.MergedCount > 0 || BandMerges > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
+            MergedPositions = map.MergedCount; NeedleFlips = flips; MaxMergeDistance = bandLength;
+            // (the lowering the repairs need: a merge within r as today; a band merge by the length it merged, plus r if
+            // the merge within r moved positions too, as a band merge can take labels the merge brought from up to r
+            // away (the moves add up; one band pass, so no chains among band merges); today's value without band merges)
+            double need;
+            if (BandMerges == 0)
+                need = repairs > 0 ? repairLambda(repairs) : 0;     // (today's, bit for bit)
+            else
+                need = bandRepairLambda(ExactInterval.Up((map.MergedCount > 0 ? mergeRadius : 0) + bandLength), flips > 0 ? 1 : 0);
+            MergeLambdaRequired = need;
+            if (repairs > 0 && lambda < need) {
+                br.MergeLambda = need;
                 phase("realize");
                 count();
                 return Statuses.SlopeViolation;
@@ -1393,12 +1453,44 @@ namespace gs
         // 2 sMax (r + e_xy) above S̃ for each
         internal static double RepairLambda(double ez, double exy, double sMax, int k) { return 4 * ez + 2 * k * sMax * (MergeRadius(exy) + exy); }
         internal static double MergeLambda(double ez, double exy, double sMax) { return RepairLambda(ez, exy, sMax, 1); }
+        // the merge radius of the band (TERRAIN.md 5.4): at most MinFeatureSize; within the facet share's slack the part
+        // below S̃ of a band merge after a merge within r, 4 sMax (r + r_band + e_xy); within λ's bound its lowering and
+        // today's flips; at least today's r (then no band merges). Rounded down (4 sMax and 2 sMax are exact)
+        internal static double BandMergeRadius(double exy, double ez, double sMax, double minFeature, double facetSlack, double lambdaBound)
+        {
+            double r = MergeRadius(exy);
+            double bySlack = ExactInterval.Down(ExactInterval.Down(ExactInterval.Down(facetSlack / (4 * sMax)) - r) - exy);
+            double byLambda = ExactInterval.Down(ExactInterval.Down(ExactInterval.Down(ExactInterval.Down(lambdaBound - RepairLambdaUp(ez, exy, sMax, 1)) / (2 * sMax)) - exy) - r);
+            return Math.Max(r, Math.Min(minFeature, Math.Min(bySlack, byLambda)));
+        }
+        // RepairLambda rounded up (an upper bound of 4 ez + 2 k sMax (r + e_xy))
+        internal static double RepairLambdaUp(double ez, double exy, double sMax, int k)
+        {
+            return ExactInterval.Up(ExactInterval.Up(4 * ez) + ExactInterval.Up(2 * k * sMax * ExactInterval.Up(MergeRadius(exy) + exy)));
+        }
+        // the lowering the repairs need with band merges (TERRAIN.md 5.4), rounded up: the rounding of a vertex, the
+        // merges' move l (r + the band length when both kinds merged), and today's flips (2 sMax (r + e_xy))
+        internal static double BandRepairLambda(double ez, double exy, double sMax, double l, int flips)
+        {
+            double r = MergeRadius(exy);
+            double merge = ExactInterval.Up(2 * sMax * ExactInterval.Up(Math.Max(l, r) + exy));
+            double flip = flips > 0 ? ExactInterval.Up(2 * sMax * ExactInterval.Up(r + exy)) : 0;
+            return ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(4 * ez) + merge) + flip);
+        }
         /// <summary> diagnostics: the caps tried by the local height limit (1: not raised; 0 without it) </summary>
         internal int CapRounds;
         /// <summary> tests: the rounds of the start estimate of the local height limit (0: the highest terrain at the toe) </summary>
         internal int CapEstimateRounds = 16;
         /// <summary> diagnostics of the last realization: needles flipped </summary>
         internal int NeedleFlips;
+        /// <summary> diagnostics of the last realization: the largest length a band merge collapsed </summary>
+        internal double MaxMergeDistance;
+        /// <summary> diagnostics of the last build: today's merge radius r = 64 e_xy, and the band's </summary>
+        internal double UsedMergeRadius, UsedBandMergeRadius;
+        /// <summary> diagnostics of the last realization: the targeted merges of the band (TERRAIN.md 5.4) </summary>
+        internal int BandMerges;
+        /// <summary> diagnostics: per failed build (attempt), the XY altitudes of its failing triangles </summary>
+        internal List<List<double>> AttemptProblemAltitudes = new List<List<double>>();
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>
         internal int MergedPositions;
         /// <summary> tests and diagnostics: the slope surface of the last realization (also a failing one) </summary>
