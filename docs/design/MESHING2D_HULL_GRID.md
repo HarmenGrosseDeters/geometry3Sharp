@@ -209,28 +209,33 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
 - **Hot pixels:** the pixels of the input points, of the proper crossings of the input's edges, and of every output vertex
   (refinement's grid points are vertices too, and every vertex makes its pixel hot).
 - **Images:** the image of an edge is snap rounding's, iterated: the first pass reroutes the input segment itself through every hot
-  pixel it passes (Hobby 1999; O-H4's rule: the interior, a hair smaller, or the centre; a corner touch does not count), in order of
-  the exact entry parameter; each further pass reroutes the new links between pixel centres through the hot pixels they pass, until
+  pixel it contacts (Hobby 1999's half-open pixels, the mesher's rule in `SnapRounding2.Meets`: the open interior, the closed left and
+  bottom sides, of the corners only the bottom-left one), in order of the exact entry parameter, then exit; each further pass reroutes the new links between pixel centres through the hot pixels they pass, until
   none is left (Halperin and Packer 2002). Terminates: the image only gains hot pixels, of which there are finitely many. Work per pass
   and link: the smaller of its pixel count (an integer walk between lattice centres) and the hot pixel count (tested in its box).
 - **Snapped domain:** rule D5 on the images of the input's rings (a hull domain: the hull's image). A link is collapsed where the
   snapped domain has no interior just beside its middle on either side (2^-40 of its length off it; no other link between pixel
   centres comes that close below 2^30 pixels of length).
 - **Segments:** the chain search may cross the collapsed links of the source's own image without a chain, and only those. Each pixel
-  of the image is a node, joined to the next where the link is collapsed and to every candidate vertex in it.
+  of the image is a node, joined to the next where the link is collapsed; the ends of collapsed links join the candidate vertices at
+  their pixels' centres.
 - **Points:** an unused input point is accepted where every link at its pixel is collapsed, or, with no link there, where its pixel's
   centre is not inside the snapped domain.
-- **Why images, not distances (review 3):** "narrower than a pixel" is necessary for a collapse but not sufficient. A corridor 0.9
+- **Why images, not distances (review 3):** "narrower than a pixel" is neither necessary nor sufficient for a collapse (snap
+  rounding also collapses some parts wider than a pixel, eg the strip of review 4 without its point). A corridor 0.9
   wide whose walls (y 10.05 and 10.95) snap to rows 10 and 11 keeps its area; an oblique corridor 0.85 wide snaps onto two diagonals.
   The distance rule (two-sided sums, a corner guard, three review rounds) excused both, and rejected correct outputs (a free point in
   a collapsed corridor, review 3 S1). The images decide both by definition; no reference defines the collapse by distance (Hobby
   1999; Guibas and Marimont 1998; Halperin and Packer 2002; de Berg, Halperin and Overmars 2007).
 - **Snap rounding's invariant on the output (`ChainPassesHotPixel`):** no subsegment passes a hot pixel other than its ends' (Hobby
   1999: a chain runs through every hot pixel it meets). Because every output vertex is hot, a Steiner point placed in the pixel of a
-  chain that does not run through it is reported, so an extra vertex cannot buy an excuse. All subsegments of an identity output
+  chain that does not run through it is reported: an extra vertex cannot buy an excuse unless the chains it lies on are routed
+  through it, which is then a valid snap rounding with that vertex (review 5, S-C: a Steiner point placed in a pixel that two input
+  edges contact makes them coincide there; the mesher's grid splits refuse such points, ValidGridSplit). All subsegments of an identity output
   (held to the grid), only with a tolerance; a foreign producer (Triangle's files) is no snap rounder and is not held to it.
-- **Joins:** in the chain search the candidate vertices join only the ends of collapsed links, not every pixel of the image (two
-  vertices sharing a pixel elsewhere are not connected without an edge; review 4).
+- **Joins:** in the chain search the candidate vertices join only the ends of collapsed links, and only at the centres of their
+  pixels (two vertices sharing a pixel elsewhere, or off its centre in a foreign output, are not connected without an edge; reviews 4
+  and 5).
 - **Review 4 (blocking, fixed):** a first form rounded only the line between the end pixels' centres, never the input segment. It
   excused a diagonal strip 1.27 pixel wide whose wall passes a free point's pixel (snap rounding keeps a triangle of 5 px² there), and
   rejected a correct mesh whose hypotenuse snap rounding routes through a point's pixel. It also made the zigzag with refinement look
@@ -239,7 +244,9 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
 - **Self-checks:**
   - Images: a segment past no hot pixel; rerouted through one; rerouted again (iteration: (6, 1) is missed by the segment but passed
     by its rerouted link); a corner touch does not reroute; hot pixels in order along a link; each by walking the pixels and by
-    testing the hot pixels; review 4's strip (rejected) and hypotenuse (accepted).
+    testing the hot pixels; iterated twice over the links ((0, 0) - (24, -1.4) through (11, 0), then (14, 0)); review 4's strip
+    (rejected) and hypotenuse (accepted); the first pass through a hot pixel's bottom-left corner (rerouted) and top-right corner (not),
+    and review 5's triangle whose edge runs through a bottom-left corner (collapsed, accepted).
   - Accept: a corridor 0.25 pixel wide with its segment and its far points, and its segment from the collapsed tip; a point on it with a segment into the square (the point;
     its chain in the square is still required); the dumbbell (two squares joined by a collapsed corridor, a segment from one to the
     other, either way); E2 complete; a chain routed through a Steiner point's pixel.
@@ -247,7 +254,8 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
     point inside the square unused; two chains straight through their crossing's pixel without a vertex; the collapsed corridor without a tolerance; an unused corner whose
     edges have area; the review's cases E1, E1b, E2, E6, E8, B1 (a segment on the edge of a wide square), the stub across a pixel
     line, the corridor 0.9 wide across a row boundary and the oblique corridor 0.85 wide, each with nothing excused; the dumbbell
-    without its chain in one square; a chain past a Steiner point's pixel (`ChainPassesHotPixel`).
+    without its chain in one square; a foreign chain with a gap inside one pixel of the image, at (15, 10) and at the end (20, 10) of
+    a collapsed link; a chain past a Steiner point's pixel (`ChainPassesHotPixel`); a foreign output is not held to the invariant.
 - **Cost:** built once, lazily, on the first piece without a chain or unused point; the invariant runs on every snapped output with
   subsegments, at the work above per subsegment. A corridor with a ring vertex every pixel (4006 vertices, all unused and excused):
   the oracle's conformity phase took 37 s, of which 36 s were the existing closure test of boundary points (`InClosure` scanned all

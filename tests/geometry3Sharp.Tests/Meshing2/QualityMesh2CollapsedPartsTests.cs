@@ -91,6 +91,10 @@ namespace geometry3Sharp.Tests
                 var plain = Zigzag(0, 20);
                 var a = new QualityMesh2Candidate().Run(plain);
                 var b = m3;
+                // the oracle's excuses too: the same counts at every 2^k scale
+                var plainReport = Oracle.Check(plain, a, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.Equal(plainReport.CollapsedSegments, refinedReport.CollapsedSegments);
+                Assert.Equal(plainReport.CollapsedPoints, refinedReport.CollapsedPoints);
                 Assert.Equal(a.VX.Select(v => v * s.Scale), b.VX);
                 Assert.Equal(a.VY.Select(v => v * s.Scale), b.VY);
                 Assert.Equal(a.Triangles.SelectMany(t => t), b.Triangles.SelectMany(t => t));

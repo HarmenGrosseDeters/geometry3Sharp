@@ -761,7 +761,7 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
   diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
   **Collapsed part (2026-11-03, rule O-H5):** where snap rounding leaves the domain without area (it
-  collapses parts up to about 1.4 pixel wide, not only those narrower than a pixel): hot pixels are those of
+  can collapse parts wider than a pixel, and keeps some narrower ones): hot pixels are those of
   the input points, of the input's crossings and of the output vertices; each edge's image is the input
   segment rerouted through every hot pixel it passes, its links again until none is left (iterated snap
   rounding); a link of an image is collapsed where the domain of the ring images has no interior on either
