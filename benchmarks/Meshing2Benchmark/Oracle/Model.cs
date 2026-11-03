@@ -190,7 +190,11 @@ namespace Meshing2Acceptance
         /// domain that snap rounding collapsed (no area left between the images of its boundary). Findings to look at, as the merge zone's.
         /// </summary>
         public int CollapsedSegments, CollapsedPoints;
-        /// <summary> Q17 (O-H5): of those, the excuses whose images output vertices rerouted (inside parts the input's rounding collapses) </summary>
+        /// <summary>
+        /// Q17 (O-H5): of those, the excuses on a stretch where output vertices beyond the input's points and crossings rerouted the
+        /// image (rule (ii'): only inside parts the input's own rounding collapses). For a segment piece, a stretch between pixels both
+        /// images share that differs; for a point, a different set of links at its pixel
+        /// </summary>
         public int CollapsedViaRefinement;
         public string ExcusedSummary()
         {

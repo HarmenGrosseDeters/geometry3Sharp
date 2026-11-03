@@ -931,7 +931,14 @@ namespace Meshing2Acceptance
                 SnapHot();
                 long work = 0;
                 full = BuildState(hot, hotList, ref work);
-                inputOnly = BuildState(snapHot, snapHotList, ref work);
+                // the two states are one where no output vertex lies beyond the input's hot pixels, and, for now, below M3 (interim (c),
+                // coordinator 2026-11-03): without refinement every output vertex comes from snap rounding, whose restore step (SRR,
+                // D14) adds hot pixels the input-only state does not compute yet. Gaps, closed by the oracle's own restore step (a): at M2
+                // any output vertex beyond the input's points and crossings (a faulty restore pixel, a vertex at a chain end near a
+                // constraint) can create a collapse that is not reported (the wedge self-check at M2); at M3 the restore pixels count as
+                // refinement (false rejections), and the input's rounding without them can collapse what its real rounding keeps (false
+                // acceptances; both pinned in QualityMesh2CollapsedPartsReportTests)
+                inputOnly = hot.Count == snapHot.Count || e.Milestone != Milestone.M3 ? full : BuildState(snapHot, snapHotList, ref work);
                 ImageWorkForTests += work;
             }
 
@@ -1022,14 +1029,37 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// O-H5 on a link of the full image: collapsed there, and no interior beside its middle in the input's own rounding either
-            /// (rule (ii'): an output vertex may reroute a chain only inside a part the input's rounding collapses)
+            /// O-H5 with rule (ii') on the image of source: which links of its full image are excused, and whether output vertices
+            /// rerouted any of them. The full image and the input's own image are matched at the pixels they share, in order (the ends are
+            /// shared: both are input points); a link of the full image is excused if it is collapsed there and every link of the
+            /// input's own image between the same two shared pixels is collapsed in the input's own rounding. So an output vertex may
+            /// reroute a chain only across a stretch the input's rounding collapses, and never creates a collapse (owner 2026-11-03).
+            /// Judging the input's rounding beside the full link's middle instead is unsound: a rerouted link can run outside the
+            /// input's band while the band keeps area next to it (post-review B1, the wedge self-check).
             /// </summary>
-            bool Excused((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+            bool[] ExcusedLinks((Pt a, Pt b) source, out bool[] rerouted)
             {
-                if (!LinkCollapsed(full, p, q)) return false;
-                var (l, rr) = Beside(p, q);
-                return inputOnly.Domain.Classify(l) != Where.Inside && inputOnly.Domain.Classify(rr) != Where.Inside;
+                var image = full.Images[source];
+                var own = inputOnly.Images[source];
+                var excused = new bool[Math.Max(0, image.Count - 1)];
+                rerouted = new bool[excused.Length];
+                var index = new Dictionary<(BigInteger x, BigInteger y), int>();
+                for (int k = 0; k < own.Count; ++k) index[own[k]] = k;
+                // shared pixels in order (greedy on increasing index in the input's image; both ends are always kept)
+                var at = new List<(int full, int own)>();
+                for (int k = 0; k < image.Count; ++k)
+                    if (index.TryGetValue(image[k], out int j) && (at.Count == 0 || j > at[at.Count - 1].own)) at.Add((k, j));
+                for (int s = 0; s + 1 < at.Count; ++s) {
+                    int f0 = at[s].full, f1 = at[s + 1].full, o0 = at[s].own, o1 = at[s + 1].own;
+                    bool ownCollapsed = true;
+                    for (int j = o0; j < o1 && ownCollapsed; ++j) ownCollapsed = LinkCollapsed(inputOnly, own[j], own[j + 1]);
+                    if (!ownCollapsed) continue;
+                    bool same = f1 - f0 == o1 - o0;
+                    for (int k = f0; k < f1 && same; ++k) same = image[k].Equals(own[o0 + k - f0]);
+                    for (int k = f0; k < f1; ++k)
+                        if (LinkCollapsed(full, image[k], image[k + 1])) { excused[k] = true; rerouted[k] = !same; }
+                }
+                return excused;
             }
 
             /// <summary> point p's pixel in state st: every link there collapsed, or, with no link, its centre not inside </summary>
@@ -2071,39 +2101,45 @@ namespace Meshing2Acceptance
                 var image = full.Images[source];
                 var node = new Dictionary<(BigInteger x, BigInteger y), int>();
                 for (int k = 0; k < image.Count; ++k) node[image[k]] = -1 - k;
-                var bridge = new Dictionary<int, List<int>>();
-                void Join(int x, int y)
-                {
-                    if (!bridge.TryGetValue(x, out var lx)) bridge.Add(x, lx = new List<int>()); lx.Add(y);
-                    if (!bridge.TryGetValue(y, out var ly)) bridge.Add(y, ly = new List<int>()); ly.Add(x);
-                }
                 // (candidate vertices join only the ends of collapsed links, and only at their pixels' centres: elsewhere, or off the
                 // centre in a foreign output, two vertices in one pixel are not connected without an edge; reviews 4 and 5)
                 var ends = new HashSet<int>();
-                for (int k = 0; k + 1 < image.Count; ++k) if (Excused(image[k], image[k + 1])) { Join(-1 - k, -2 - k); ends.Add(-1 - k); ends.Add(-2 - k); }
+                var excused = ExcusedLinks(source, out bool[] rerouted);
+                for (int k = 0; k + 1 < image.Count; ++k) if (excused[k]) { ends.Add(-1 - k); ends.Add(-2 - k); }
                 if (ends.Count == 0) return false;
-                foreach (int i in candidates) {
-                    var n = PixelOf(v[i], snapPixel);
-                    // (at the centre as the grid check judges it, AtPixelCentre: a centre of a decimal pixel is no double)
-                    if (node.TryGetValue(n, out int id) && ends.Contains(id) && AtPixelCentre(v[i], v[i], snapPixel)) Join(id, i);
-                }
-                var goalNodes = new HashSet<int>(goals);
-                var queue = new Queue<int>();
-                var seen = new HashSet<int>();
-                foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
-                while (queue.Count > 0) {
-                    int at = queue.Dequeue();
-                    if (goalNodes.Contains(at)) {
-                        // (iii): excuses on an image that output vertices rerouted, reported apart
-                        if (!image.SequenceEqual(inputOnly.Images[source])) ++r.CollapsedViaRefinement;
-                        return true;
+                // the search, with the bridges of rerouted stretches or without them
+                bool Search(bool viaRerouted)
+                {
+                    var bridge = new Dictionary<int, List<int>>();
+                    void Join(int x, int y)
+                    {
+                        if (!bridge.TryGetValue(x, out var lx)) bridge.Add(x, lx = new List<int>()); lx.Add(y);
+                        if (!bridge.TryGetValue(y, out var ly)) bridge.Add(y, ly = new List<int>()); ly.Add(x);
                     }
-                    if (at >= 0 && adjacency.TryGetValue(at, out var next))
-                        foreach (int n in next) if (candidates.Contains(n) && seen.Add(n)) queue.Enqueue(n);
-                    if (bridge.TryGetValue(at, out var across))
-                        foreach (int n in across) if (seen.Add(n)) queue.Enqueue(n);
+                    for (int k = 0; k + 1 < image.Count; ++k) if (excused[k] && (viaRerouted || !rerouted[k])) Join(-1 - k, -2 - k);
+                    foreach (int i in candidates) {
+                        var n = PixelOf(v[i], snapPixel);
+                        // (at the centre as the grid check judges it, AtPixelCentre: a centre of a decimal pixel is no double)
+                        if (node.TryGetValue(n, out int id) && ends.Contains(id) && AtPixelCentre(v[i], v[i], snapPixel)) Join(id, i);
+                    }
+                    var goalNodes = new HashSet<int>(goals);
+                    var queue = new Queue<int>();
+                    var seen = new HashSet<int>();
+                    foreach (int i in starts) if (seen.Add(i)) queue.Enqueue(i);
+                    while (queue.Count > 0) {
+                        int at = queue.Dequeue();
+                        if (goalNodes.Contains(at)) return true;
+                        if (at >= 0 && adjacency.TryGetValue(at, out var next))
+                            foreach (int n in next) if (candidates.Contains(n) && seen.Add(n)) queue.Enqueue(n);
+                        if (bridge.TryGetValue(at, out var across))
+                            foreach (int n in across) if (seen.Add(n)) queue.Enqueue(n);
+                    }
+                    return false;
                 }
-                return false;
+                if (!Search(true)) return false;
+                // (iii): the piece needs a stretch that output vertices rerouted (it has no chain without one), reported apart
+                if (rerouted.Any(x => x) && !Search(false)) ++r.CollapsedViaRefinement;
+                return true;
             }
 
             static void AddAdjacent(Dictionary<int, List<int>> adjacency, int a, int b)

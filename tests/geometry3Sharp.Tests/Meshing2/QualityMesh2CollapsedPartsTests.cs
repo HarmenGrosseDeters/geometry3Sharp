@@ -8,11 +8,12 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// Q17: a domain narrower than a pixel, which snap rounding collapses. A zigzag polyline 7 mm wide and 10 m long on a grid of 1 cm, its convex hull the domain.
-    /// Snapping and refinement put every vertex at a pixel centre, the hull chains and the polyline's chains share them, and parts of
-    /// the domain collapse: corners in no triangle, segments with no chain there. Owner decision 2026-11-02 (spec Q17): such a part may
-    /// collapse; the oracle accepts what is missing only on a collapsed part (O-H5: where the snap-rounded images of the boundary on both
-    /// sides coincide), and the mesher reports it. These cases fail against master's oracle (no O-H5), not against master's library: the library change is
-    /// diagnostics only (QualityMesh2CollapsedPartsReportTests).
+    /// Snapping puts every vertex at a pixel centre, the hull chains and the polyline's chains share them, and parts of the domain
+    /// collapse: corners in no triangle, segments with no chain there. Owner decisions (spec Q17): a part that snap rounding of the
+    /// input collapses may collapse, and the oracle accepts what is missing only there (O-H5, 2026-11-02); the refinement must not
+    /// collapse what the rounding of the input keeps (rule (ii'), 2026-11-03). Snapped alone, the zigzags are accepted; refined, they are
+    /// pinned as known INVALID until the mesher's bugfix. The M2 cases fail against master's oracle (no O-H5), not against master's
+    /// library: the library change is diagnostics only (QualityMesh2CollapsedPartsReportTests).
     /// </summary>
     public class QualityMesh2CollapsedPartsTests
     {
@@ -52,11 +53,11 @@ namespace geometry3Sharp.Tests
         /// chains of the input's image that are apart there); these cases become acceptance tests there. Counts exact, so a change shows.
         /// </summary>
         [Theory]
-        [InlineData(0, 0.0, 3, 1)]
-        [InlineData(0, 20.0, 3, 1)]
-        [InlineData(1, 0.0, 5, 0)]
-        [InlineData(1, 20.0, 5, 0)]
-        public void DomainNarrowerThanAPixel_RefinementPinch_KnownInvalid(int which, double angle, int segmentsMissing, int verticesUnused)
+        [InlineData(0, 0.0, 3, 1, 2, 1)]
+        [InlineData(0, 20.0, 3, 1, 2, 1)]
+        [InlineData(1, 0.0, 5, 0, 1, 0)]
+        [InlineData(1, 20.0, 5, 0, 1, 0)]
+        public void DomainNarrowerThanAPixel_RefinementPinch_KnownInvalid(int which, double angle, int segmentsMissing, int verticesUnused, int segmentsExcused, int pointsExcused)
         {
             var input = Zigzag(which, angle);
             var o = new QualityMesh2Candidate().Run(input);
@@ -65,13 +66,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal(segmentsMissing, report.Violations.Count(v => v.Kind == Violation.SegmentMissing));
             Assert.Equal(verticesUnused, report.Violations.Count(v => v.Kind == Violation.VertexUnused));
             Assert.Equal(segmentsMissing + verticesUnused, report.Violations.Count);
+            Assert.Equal(segmentsExcused, report.CollapsedSegments);
+            Assert.Equal(pointsExcused, report.CollapsedPoints);
+            Assert.Equal(0, report.CollapsedViaRefinement);
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
 
         /// <summary>
         /// the same under every similarity: snapped alone, the oracle accepts the mesh in every frame; refined, the 2^k scales give the
-        /// same mesh bit for bit and the same verdict
+        /// same mesh bit for bit and the same verdict (the refinement pinch, known INVALID)
         /// </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
@@ -103,6 +107,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(plainReport.Violations.Select(v => v.Kind), refinedReport.Violations.Select(v => v.Kind));
                 Assert.Equal(plainReport.CollapsedSegments, refinedReport.CollapsedSegments);
                 Assert.Equal(plainReport.CollapsedPoints, refinedReport.CollapsedPoints);
+                Assert.Equal(plainReport.CollapsedViaRefinement, refinedReport.CollapsedViaRefinement);
                 Assert.Equal(a.VX.Select(v => v * s.Scale), b.VX);
                 Assert.Equal(a.VY.Select(v => v * s.Scale), b.VY);
                 Assert.Equal(a.Triangles.SelectMany(t => t), b.Triangles.SelectMany(t => t));

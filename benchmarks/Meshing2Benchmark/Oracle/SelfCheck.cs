@@ -586,6 +586,39 @@ namespace Meshing2Acceptance
                         var rh = Oracle.Check(hyp, Snapped(hyp, th, new[] { new[] { 3, 1 }, new[] { 1, 2 }, new[] { 2, 3 } }), m3);
                         Must("accept: a hypotenuse that snap rounding routes through a point's pixel off the end pixels' line (review 4, B1)",
                             rh.Ok && rh.CollapsedSegments > 0 && rh.CollapsedPoints > 0, "report: " + rh + " / " + rh.ExcusedSummary());
+                        Must("... with no excuse counted as rerouted by output vertices ((iii))", rh.CollapsedViaRefinement == 0, "report: " + rh.ExcusedSummary());
+                        // post-review B1, rule (ii'): a Steiner vertex at (10, 1) reroutes both edges of the wedge (0, 0), (40, 4.6),
+                        // (40, 5.6) onto one link (0, 0) - (10, 1), collapsed there; that link's middle lies outside the input's own band,
+                        // which keeps 1.25 px² beside it for x < 10: rejected (a second ring makes (0, 0) a used vertex)
+                        var wedge = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 40, 40, -10, -10 }, Y = new double[] { 0, 4.6, 5.6, -5, 5 } };
+                        wedge.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                        wedge.Rings.Add(new RingInput(new[] { 0, 3, 4 }, false));
+                        var tw = new[] { new[] { 5, 1, 2 }, new[] { 0, 4, 3 } };
+                        var ow = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 0, 40, 40, -10, -10, 10 }, VY = new double[] { 0, 5, 6, -5, 5, 1 }, InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                            Triangles = tw, Neighbours = NeighboursOf(tw), TriangleLabels = new int[2], BadTriangles = new int[0],
+                            Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(5, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 5),
+                                new SubsegmentOutput(0, 4), new SubsegmentOutput(4, 3), new SubsegmentOutput(3, 0) } };
+                        var rw = Oracle.Check(wedge, ow, m3);
+                        Must("reject: a Steiner vertex that reroutes a chain off the input's own band, which keeps area there (post-review B1, rule (ii'))",
+                            rw.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw.CollapsedSegments == 0, "report: " + rw + " / " + rw.ExcusedSummary());
+                        // known gap of the interim (c), pinned: below M3 the two states are one, so the same output judged at M2 is accepted
+                        // (any output vertex beyond the input's points and crossings can create a collapse there); the oracle's own restore
+                        // step (a) flips this check
+                        var rw2 = Oracle.Check(wedge, ow, new OracleExpect { Milestone = Milestone.M2 });
+                        Must("known gap (c): the wedge judged at M2 is accepted (flips with the oracle's own restore step)", rw2.Ok && rw2.CollapsedSegments == 2, "report: " + rw2 + " / " + rw2.ExcusedSummary());
+                        // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
+                        // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
+                        // row 4 there), opens 7.5 px², and
+                        // the mesh of that triangle without the upper edge's chain is rejected: a link must be collapsed in both roundings
+                        var sliver = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { 0, 4.55, 5.45 } };
+                        sliver.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                        var tsl = new[] { new[] { 0, 3, 1 } };
+                        var osl = new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 0, 20, 20, 15 }, VY = new double[] { 0, 5, 5, 3 }, InputToVertex = new[] { 0, 1, 1 },
+                            Triangles = tsl, Neighbours = NeighboursOf(tsl), TriangleLabels = new int[1], BadTriangles = new int[0],
+                            Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 3), new SubsegmentOutput(3, 1) } };
+                        var rsl = Oracle.Check(sliver, osl, m3);
+                        Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
+                            rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
                     }
                     // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
                     // filled, its tips dropped
