@@ -213,8 +213,11 @@ namespace geometry3Sharp.Tests
         {
             // ClosedCrossing and LineCrossing share the differences between their three edge predicates and run
             // Orient3d's filter on them; their decisions must be those of the plain ExactPredicates.Orient3d /
-            // EdgeSign, also on rays aimed at edges and vertices (exact zeros and filter failures) and at scales where
-            // the filter's underflow guard matters
+            // EdgeSign, also on rays aimed at edges and vertices (exact zeros and filter failures). At 1 and 1e-3 the
+            // filter decides about half of the signs; at 1e-150, 1e150 and the subnormal scale none (the permanent
+            // under- or overflows), so there only the fallback is compared. This checks the sharing (differences,
+            // edge roles, fallback arguments), not the filter's bound itself: the reference calls the same
+            // Orient3dFilter, whose soundness ExactPredicatesTests and PredicateDifferentialTests check.
             var rnd = new Random(23);
             Func<double> r = () => rnd.NextDouble() * 2 - 1;
             int zeros = 0, n = 0;
@@ -241,6 +244,43 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(zeros > 1000, $"only {zeros} of {n} cases with an exact zero");
+        }
+
+        [Fact]
+        public void SecondPoint_IsOriginPlusDirectionScaledByTheDocumentedPowerOfTwo()
+        {
+            // p = origin + ScaleB(direction, m), m = e(max |origin|) - e(max |direction|) + 1 clamped to +-2000 (0 for
+            // a zero origin), bit for bit: the one-multiplication path for a normal 2^m and the ScaleB path beyond,
+            // with subnormal and overflowing products
+            Func<double, int> e = (x) => {
+                long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
+                int ex = (int)((bits >> 52) & 0x7FF);
+                if (ex != 0) return ex - 1023;
+                return (int)((BitConverter.DoubleToInt64Bits(Math.Abs(x) * 18446744073709551616.0) >> 52) & 0x7FF) - 1023 - 64;
+            };
+            Func<Vector3d, double> maxAbs = (v) => Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            var rnd = new Random(31);
+            Func<int, double> val = (k) => (rnd.NextDouble() * 2 - 1) * Math.Pow(2, k);
+            int scaleBPath = 0, fastPath = 0;
+            for (int i = 0; i < 20000; ++i) {
+                int ko = rnd.Next(-1070, 1020), kd = rnd.Next(-1070, 1020);
+                var o = (i % 50 == 0) ? Vector3d.Zero : new Vector3d(val(ko), val(ko - rnd.Next(60)), val(ko - rnd.Next(1100)));
+                var d = new Vector3d(val(kd), val(kd - rnd.Next(60)), val(kd - rnd.Next(1100)));
+                if (maxAbs(d) == 0) continue;
+                int m = maxAbs(o) > 0 ? Math.Max(-2000, Math.Min(2000, e(maxAbs(o)) - e(maxAbs(d)) + 1)) : 0;
+                var expected = o + new Vector3d(ExactPoint3.ScaleB(d.x, m), ExactPoint3.ScaleB(d.y, m), ExactPoint3.ScaleB(d.z, m));
+                bool finite = !double.IsNaN(expected.x + expected.y + expected.z) && !double.IsInfinity(expected.x + expected.y + expected.z);
+                var p = ExactRayTriangle.SecondPoint(o, d);
+                if (finite) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(expected.x), BitConverter.DoubleToInt64Bits(p.x));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(expected.y), BitConverter.DoubleToInt64Bits(p.y));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(expected.z), BitConverter.DoubleToInt64Bits(p.z));
+                } else {
+                    Assert.Equal(o, p);     // not finite: the origin (no hits)
+                }
+                if (m >= -1022 && m <= 1023) fastPath++; else scaleBPath++;
+            }
+            Assert.True(fastPath > 1000 && scaleBPath > 1000, $"paths {fastPath} / {scaleBPath}");
         }
 
         // ---- invariance ----
