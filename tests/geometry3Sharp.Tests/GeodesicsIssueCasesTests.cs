@@ -558,6 +558,14 @@ namespace geometry3Sharp.Tests
             });
         }
 
+        [Fact]
+        public void PathPolyline_UtmMillimetreEdges_Traced()
+        {
+            // finding G3 on its own: edges of 1.25e-4 at UTM coordinates (the similarity of the pinned case), traced
+            // although their ends round to one ulp of 5.7e6, above 1e-6 of the length
+            PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities("rotated, scale 1e-3, utm");
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void PathPolyline_NoRepeatedPoints_InvariantUnderSimilarities(string name)
