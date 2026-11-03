@@ -552,8 +552,11 @@ two old triangles.
      unchanged. All terrain tests pass with it.
 2. **Collapse,** by the plane-set rule (`CollapseShortEdges`, as now). Toe, design-boundary and catch-line
    vertices are never moved.
-3. **Then flip, in one pass with today's flips,** for needles without a short edge. One `FlipNeedles` pass with one
-   deviation map and one bound handles every needle below `MinFeatureSize`.
+3. **Then flip, in one pass with today's flips,** for needles without a short edge. *Documented, not implemented:*
+   the band flips made no flip in the repro or in the terrain tests, so they are implemented only when a
+   procedural case needs them (a cap needle without a short edge that fails without them and passes with them).
+   Until then the implementation keeps today's flips below r, and R funds the band merge alone. As designed: one
+   `FlipNeedles` pass with one deviation map and one bound handles every needle below `MinFeatureSize`.
    - Below r it keeps today's rule: proper, the smaller altitude grows, and the bound ≤ maxDeviation. Today's
      successes stay.
    - A needle with r ≤ h < `MinFeatureSize` has its longest edge flipped only if all of these hold:
@@ -591,7 +594,7 @@ taking the rest. Let F0 = Tolerance − λ bound − δ share − merge be the s
 - **Before:** the flips have 2·sMax·(r + e_xy), today inside `MergeShare`.
 - **After:** the band repairs get a term of their own, R = max(FlipShare, min(2·sMax·`MinFeatureSize`, F0/32)),
   with FlipShare = 2·sMax·(r + e_xy) today's flips' share (now out of `MergeShare`). The facets take F0 − R.
-- R funds both band repairs:
+- R funds both band repairs (the merge alone until the band flips are implemented):
   - the band merge's part below S̃ beyond today's merge: 4·sMax·(r_band − r) ≤ (2/3)·R, as r_band ≤ R/(6·sMax);
   - the flips: maxDeviation ≤ R − 4·sMax·(r_band − r), at least R/3.
 - **A design that fits today still fits.** Today it fits if F0 − FlipShare > 0.
