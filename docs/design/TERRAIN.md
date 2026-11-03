@@ -532,26 +532,41 @@ two old triangles.
 
 **The repair:**
 
-1. **Merge in the band.** The realization's merge (`merge_close_positions`) works as today, with a radius up to
-   the band, r_band = min(`MinFeatureSize`, R/(6·sMax)). Positions within the radius become one vertex: z is the
-   lowest plane of the union of their labels, and a barrier position only merges onto another one. Below r this is
-   today's merge.
-   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the
-     largest distance actually moved, ℓ_max ≤ r_band, in place of r:
-     - the surface moves below S̃ by at most 4·sMax·(ℓ_max + e_xy);
-     - above it by at most 2·sMax·(ℓ_max + e_xy) plus the rounding of a vertex, which λ covers.
+1. **Normal merge and collapse first, as today.** The realization merges positions within r
+   (`merge_close_positions`, once per realization, before the collapses). Then `CollapseShortEdges` collapses
+   edges shorter than `MinFeatureSize` by the plane-set rule. Change: it measures edges in XY, not in 3D, so that
+   it does not depend on λ (z does).
+2. **Then the band merge, targeted.**
+   - **What it takes:** only the short edges of actual needles. A needle is a triangle whose XY altitude is
+     below `MinFeatureSize` after step 1. Its edge qualifies if all of these hold:
+     - its XY length ℓ is at most r_band;
+     - the plane sets of its two ends are not nested (otherwise the collapse of step 1 may take it);
+     - neither end lies on a barrier (toe, lateral limit). Toe and lateral vertices are never moved, and they stay
+       shared with the TIN and the composite.
+   - **What it does:** the edge is collapsed onto one end, chosen by a total order that is 2^k-invariant (more
+     labels first, then x, then y, as `merge_close_positions` orders). The kept vertex takes the union of both
+     plane sets, and its z is the lowest of those planes at its XY, lowered by λ, as the realization evaluates
+     it.
+   - **When it is refused:** the collapse is made only if it keeps every other triangle of the removed vertex
+     counter-clockwise (exact Orient2d, as `CollapseShortEdges`) and the mesh's link condition holds
+     (`DMesh3.CollapseEdge`). A refused edge stays, and the check decides. There is no global radius, so no merge
+     of non-adjacent vertices across a narrow face, and no crack or fold to fall back from.
+   - Everything else keeps today's r. Without needles (the UTM designs of the tests and benchmarks), nothing
+     changes.
+   - **Radius.** r_band = max(r, min(`MinFeatureSize`, R/(6·sMax), (λ bound − `RepairLambda`(1))/(2·sMax) −
+     e_xy)). With today's flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda`
+     gate keeps today's merges and flips. The extra part below S̃, 4·sMax·(r_band − r), is ≥ 0 and ≤ (2/3)·R.
+   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the edge's
+     length ℓ, the distance the removed vertex moves, in place of r. The surface moves:
+     - below S̃ by at most 4·sMax·(ℓ_max + e_xy);
+     - above it by at most 2·sMax·(ℓ_max + e_xy), plus the rounding of a vertex, which λ covers.
 
-     The merged positions are each within ℓ_max of their representative, as the derivation assumes for r. That
-     substitution and the manifold condition are what the bound review checks.
-   - **Manifold.** If the merge makes the mesh non-manifold, the realization falls back to today's radius r, and
-     then to none (today: straight to none). The check decides.
-   - The merge does not depend on λ: a realization at another λ makes the same merges.
-   - **Spike** (the repro, local): at the origin 3 merges per realization, ℓ_max = 8.5e-12 (2.3·r), no
-     non-manifold fallback. The result is `Success` in 1 attempt (2 realizations) instead of `SlopeViolation`
-     after 3, and `AssertCatchLines` and `AssertComposite` pass. At UTM there are 0 merges and the result is
-     unchanged. All terrain tests pass with it.
-2. **Collapse,** by the plane-set rule (`CollapseShortEdges`, as now). Toe, design-boundary and catch-line
-   vertices are never moved.
+     A kept vertex is not merged again in the same pass, so there are no chains.
+   - **Independent of λ.** The needles, the lengths and the decisions are in XY, so a realization at another λ
+     makes the same band merges. Only z is evaluated again.
+   - **Spike** (the repro, local, with a global radius r_band; the targeted version replaces it): at the origin
+     3 merges per realization, ℓ_max = 8.5e-12 (2.3·r), and `Success` in 1 attempt (2 realizations) instead of
+     `SlopeViolation` after 3. At UTM there were 0 merges.
 3. **Then flip, in one pass with today's flips,** for needles without a short edge. *Documented, not implemented:*
    the band flips made no flip in the repro or in the terrain tests, so they are implemented only when a
    procedural case needs them (a cap needle without a short edge that fails without them and passes with them).
@@ -578,7 +593,7 @@ two old triangles.
    2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
    - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
      - `Realize` rounds XY independently of λ (`K.Rounded`);
-     - the merge and `CollapseShortEdges` do not depend on λ;
+     - the merge, `CollapseShortEdges` (in XY) and the band merge do not depend on λ;
      - so the second realization has the same vertices in XY, the same merges and the same needles.
    - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
      decide again or measure again; its λ is the measured one.
@@ -624,7 +639,8 @@ At UTM, maxDeviation is set by the λ bound, not by R. With a larger δ (an atte
 - It does not claim the same status in every frame: the grid differs, so the needles do.
 
 **Termination.**
-- The merge is one pass in the realization: each position goes at most once onto a representative.
+- The normal merge runs once per realization, before the collapses: each position goes at most once onto a
+  representative. The band merge is one pass after them, and each band merge removes a vertex.
 - A collapse removes a vertex. A flip keeps the vertices and strictly raises the smaller altitude of its pair.
 - So the pair (vertex count, descending; the sorted vector of altitudes, ascending) grows lexicographically with
   every change, over finitely many triangulations.
@@ -1192,6 +1208,11 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
      the same design at UTM succeeds. The cause is needles in the band [64·e_xy, `MinFeatureSize`) that no repair
      covers, from near-quadruple points. Pinned by `TerrainSlopeKnownFailureTests`. The repair (a band merge, then
      band flips) is designed in 5.4, "Repair of the band"; the implementation follows in its own PR.
+   - Then a bugfix of the composite's 2^k invariance (found in item 4). `SlopeComposite` moves a node by ulps off
+     the slope side (`nudge`, `onto_slope_side`: `ExactInterval.Up/Down`). From a coordinate of exactly 0 the first
+     step is the subnormal 4.9e-324 in every frame, which 2^k does not scale. A composite node on a terrain grid
+     line x = 0 then has x = 5e-324 at scale 1 and 5e-324 at 2^10, not 2^10·5e-324. The step must be frame-relative,
+     eg the ulp of the edge's coordinate scale.
    - Parked until the owner decides: `MinFeatureSize` relative to the input's scale (1(a)), an opt-in local frame
      (5.8.1). Its spike showed two things:
      - outputs translated back to UTM lose the local margins: the support check failed in every benchmark case;
