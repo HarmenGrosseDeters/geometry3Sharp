@@ -361,8 +361,8 @@ ALKIS and DGM tiles (local only).
     links of the snap-rounded images (rule O-H5), and, by the owner's strict decision of 2026-11-03, only where the rounding of the
     input alone collapses too: a pinch by refinement is a defect. The mesher's bugfix (no split rerouting a piece through a vertex of
     refinement onto another chain, `MESHING2D_HULL_GRID.md` section 7) makes the zigzag with refinement and the fuzz's 188 pinches
-    VALID. Next the oracle's own SRR restore step (a; until then the input's rounding and the full one are one below M3, interim
-    (c)), then the hull model and coverage against the input-only snapped domain (at Herne the hull model's deviation hides the strips
+    VALID. The oracle's own SRR restore step (a) replaces the interim (c): the input's rounding holds its restore pixels at every
+    milestone, the 10 restore false rejections of the fuzz are VALID. Next the hull model and coverage against the input-only snapped domain (at Herne the hull model's deviation hides the strips
     the bugfix keeps).
   - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
     108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound

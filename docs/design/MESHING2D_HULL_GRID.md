@@ -244,18 +244,55 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   Restore (Belussi, Migliorini, Negri and Pelagatti 2016), whose hot pixels belong to the rounding of the input, not to refinement. The
   input-only state does not compute them yet, so below M3 (no refinement: every output vertex comes from snapping) the two states are
   one. Measured before (c): an M2 fuzz of 3000 star polygons gave 18 false rejections (0.6 %), all now acceptance tests
-  (`QualityMesh2CollapsedPartsReportTests.Oracle_AcceptsTheRestoreStepOfSnapping*`). Gaps:
-  - At M2 any output vertex beyond the input's points and crossings (a faulty restore pixel, a vertex at a chain end near a
-    constraint) can create a collapse that is not reported; the wedge below, judged at M2, is accepted (a pinned self-check).
-  - At M3 the restore pixels count as refinement. Of the 3000 seeds of `StarPolygonFuzz` (the test harness's generator, for reuse)
-    at 20°, 10 are false rejections (0.3 %, `Oracle_RestoreStepAtM3_KnownFalseRejection`; 9 before the mesher's bugfix, which made
-    seed 2459's pinch a restore case). Before the bugfix 3 were false acceptances as well (the input's rounding without the restore
-    pixels collapsed a spike tip that refinement then dropped); with it none remain. Measured by adding the library's snap pixels to
-    the input-only state outside the oracle.
+  (`QualityMesh2CollapsedPartsReportTests.Oracle_AcceptsTheRestoreStepOfSnapping*`). Its gaps (closed by (a), below): at M2 an output
+  vertex beyond the input's points and crossings could create a collapse that was not reported (the wedge self-check at M2 was
+  accepted); at M3 the restore pixels counted as refinement, 10 false rejections of the 3000 seeds of `StarPolygonFuzz` (the test
+  harness's generator) at 20°.
   - Also at M3, before the mesher's bugfix: 188 real refinement pinches (6.3 %; the input's own rounding keeps area there, eg the
   spike tip of (15.9, 8), (3.1, 9.9), (2.9, 9), (6.5, 6.2), whose edges both pass pixel (13, 8), where refinement put a vertex);
-  fixed below (`QualityMesh2KeepsChainsApartTests`). The gaps of (c) close with the oracle's own restore step (a), its own PR. Basing the
-  input-only state on the library's `SnapRounding2` (b) is out: the oracle must not trust the code it checks.
+  fixed below (`QualityMesh2KeepsChainsApartTests`). Basing the input-only state on the library's `SnapRounding2` (b) is out: the
+  oracle must not trust the code it checks.
+- **The oracle's own restore step (a), replacing (c):** the input-only state now holds the input's points, its crossings and SRR's
+  restore pixels, which the oracle computes itself (`RestorePixels`, from Belussi et al. 2016 and section 3b of MESHING2D_SNAP.md, not
+  from the library): rounds that route every input edge through the hot pixels it contacts (Hobby's half-open pixels), take as critical
+  every hot pixel whose open interior a link crosses, and choose for each critical pixel and link, among its eight neighbours that are
+  not hot, lie in the open envelope of the link's input segment and keep both new links off the critical pixel, the nearest to the
+  segment that no link crosses (R1), else the nearest (R3), else the nearest within two pixels whose centre projects between the
+  link's ends (widened); nearest by the squared distance of the centre, ties by x, then y; a round's choices join at its end
+  (Proposition 4.17). The edges are the input segments and ring edges, and at M3 a hull domain's hull edges (option C). The two states
+  are one only where no output vertex lies beyond these hot pixels, at every milestone.
+  - The wedge self-check judged at M2 is rejected now (2 SegmentMissing).
+  - The 10 false rejections at M3 are acceptance tests (`Oracle_AcceptsTheRestoreStepAtM3`); the fuzz at M3 has no other change.
+  - Independence: on seeds 0 to 2999 the library's extra hot pixels are exactly the crossings' and the oracle's restore pixels (200
+    seeds have restore pixels, 210 in all), as on 2000 dense segment soups at M2, and for the 10 restore seeds in every similarity
+    frame, and on 60 inputs with 100 to 200 free points, where the critical search walks along the links
+    (`QualityMesh2OracleRestoreTests`); a hull edge is restored at M3 only (M3 stands for refinement, as in the oracle's hull sources;
+    a hull of fewer than three corners has no hull edges, as in the mesher), and a tie in the nearest pixel goes to the smaller x, as
+    in the library. The widened search (no useful neighbour) was met nowhere, neither by the library nor by the oracle, in
+    the fuzz, the soups and 280 000 further random inputs.
+  - One counter test changes: its star, meshed by the refinement before the chain rule, dropped a spike tip that only the restore
+    pixel (16, 11) keeps; the oracle had counted it as collapsed and rerouted, and now rejects it (a false acceptance of (c), visible
+    only with the mesher's rule off). The count (iii) for points is held by fuzz seed 1083 instead.
+  - Against the paper (section 4, read in full): the oracle, like the library, computes SR on the grown set of hot pixels each round
+    (Proposition 4.14), so the paper's R2 (snap into the critical pixel when the segment crosses it) is part of the routing and never
+    a rule of its own; R1 (nearest free pixel of Cvs) and R3 (nearest of Cvs) are the paper's; nearest is the distance of the pixel
+    centre to the segment, ties (left open by the paper) by x, then y. Two departures from Listing 2, shared with the library and
+    kept (coordinator 2026-11-03): (1) Cvs excludes hot pixels (Definition 4.4 does not), for termination; (2) SR on the grown set of
+    hot pixels routes a chain through every hot pixel its segment contacts (Hobby; Proposition 4.14; D14), where Listing 2 restores
+    critical edges only. **A known discrepancy in the paper:** Proposition 4.14 says both give the same arrangement, but they do not.
+    Listing 2 spreads an edge around a restore pixel its segment crosses when a free candidate exists (Figure 9), and leaves alone a
+    segment that crosses a restore pixel while its link only touches the pixel's corner. Self-check case: the segment (0, 0) -
+    (10, 1.4) with the point (5, 0.4) gets the restore pixels (4, 1) and (3, 0); the segment (5.4, 3.4) - (3.4, 1.2) crosses (4, 1),
+    its link (3, 1) - (5, 3) touches its corner; Listing 2 keeps that link, SR on the grown set routes it through (4, 1). The oracle
+    accepts both: O-H4 checks that no link passes a hot pixel, not that a chain runs through every hot pixel its segment crosses
+    (open: whether it should). The widened search runs only when every Cvs pixel is hot; by Proposition 4.9 Cvs has at least two pixels, which lie
+    where the segment passes the frame between the link's ends, where no hot pixel lies (else it would split the link): so it is
+    not reached (own argument; no case in the fuzz, the soups or 280 000 random inputs), and stays a guard that reports CannotJudge.
+  - Rounds: each adds at least one pixel, and SRR adds at most n (n - 1) hot pixels for n edges after the first rounding (Proposition
+    4.25); past that bound, or in a round that adds nothing, the step reports CannotJudge instead of stopping silently. Section 4.6's
+    pruning of the free test (Propositions 4.19 to 4.24) is not used: the free test scans the round's links for the few candidates.
+  - Corpus (both modes) and the catalogue rows (M3, M3 constrained, M2): identical; Herne: all 12 runs VALID, oracle total 135.2 →
+    146.9 s (the two oracles interleaved, one run each; at most +3.1 s, on cq 373600 q20).
 - **Why images, not distances (review 3):** "narrower than a pixel" is neither necessary nor sufficient for a collapse (snap
   rounding also collapses some parts wider than a pixel, eg the strip of review 4 without its point). A corridor 0.9
   wide whose walls (y 10.05 and 10.95) snap to rows 10 and 11 keeps its area; an oblique corridor 0.85 wide snaps onto two diagonals.
@@ -325,8 +362,8 @@ seed whose sliver ring rerouted through an input point.
   dropped. A self-check holds the hull owners: a triangle below the angle whose circumcentre lies behind a hull piece on a pixel
   boundary.
 - **Results:** the zigzags z0 and z1 at 0 and 20 degrees VALID, bit for bit at 2^k scales; of the 3000 seeds of `StarPolygonFuzz`, all
-  188 refinement pinches VALID but one, 2459, which proved a restore case (VALID with the restore pixels; pinned with the other 9 until
-  the oracle's own restore step); 13 others rejected as before the fix, by class
+  188 refinement pinches VALID but one, 2459, which proved a restore case (VALID with the restore pixels; accepted since the oracle's
+  own restore step, as the other 9); 13 others rejected as before the fix, by class
   (`QualityMesh2KeepsChainsApartTests.StarPolygonFuzz_VerdictsByClass`).
 - **Herne:** not bit for bit. The rule refuses 13 to 227 reroutes per run, and the meshes grow by up to 6 % triangles. Classified
   against the oracle's input-only snapped domain, 1011 of 1035 refusals keep area beside the coinciding edge (real collapses, which

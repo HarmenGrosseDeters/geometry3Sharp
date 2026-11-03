@@ -602,7 +602,7 @@ namespace Meshing2Acceptance
                         // a vertex of refinement already at q: the piece rerouted through it must not run along another chain's
                         // subsegment (the two chains would coincide there, the part between them collapsed by refinement; Q17, owner
                         // 2026-11-03). Through a hot pixel of snapping (input point, crossing) they coincide in the rounding of the input
-                        // itself, as the mesher allows (its restore pixels are not known here, interim (c): judged as refinement's)
+                        // itself, as the mesher allows (restore pixels included: snapHot holds the oracle's own, RestorePixels)
                         if (!snapHot.Contains(PixelOf(q, snapPixel))
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         bool ok = true;
@@ -933,9 +933,165 @@ namespace Meshing2Acceptance
                 foreach (var p in inPts) Hot(p);
                 inputEdges = sources.Select(s => (s.a, s.b)).Concat(domain.Edges()).Distinct().ToList();
                 foreach (var p in Crossings(inputEdges)) Hot(p);
-                snapHot = new HashSet<(BigInteger x, BigInteger y)>(hot);   // those of snapping (input points, crossings): met by contact
+                // the pixels of SRR's restore step (D14), recomputed from its specification: part of the rounding of the input
+                r.RestorePixels = RestorePixels(new HashSet<(BigInteger x, BigInteger y)>(hot), new List<(BigInteger x, BigInteger y)>(hotList));
+                foreach (var n in r.RestorePixels) if (hot.Add(n)) hotList.Add(n);
+                snapHot = new HashSet<(BigInteger x, BigInteger y)>(hot);   // those of snapping (input points, crossings, restore): met by contact
                 snapHotList = new List<(BigInteger x, BigInteger y)>(hotList);
                 foreach (var p in v) Hot(p);
+            }
+
+            /// <summary> segment p-q crosses the open interior of the pixel of centre c (a point: lies in it), exactly </summary>
+            static bool OpenPixel(Pt p, Pt q, Pt c, Q pixel)
+            {
+                Q h = pixel / 2, x0 = c.Qx - h, x1 = c.Qx + h, y0 = c.Qy - h, y1 = c.Qy + h;
+                Q lx = Q.Min(p.Qx, q.Qx), hx = Q.Max(p.Qx, q.Qx), ly = Q.Min(p.Qy, q.Qy), hy = Q.Max(p.Qy, q.Qy);
+                if (hx <= x0 || lx >= x1 || hy <= y0 || ly >= y1) return false;
+                if (p.Equals(q)) return true;
+                int pos = 0, neg = 0;
+                foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                    int or = Exact.Orient(p, q, corner);
+                    if (or > 0) ++pos; else if (or < 0) ++neg;
+                }
+                return pos > 0 && neg > 0;
+            }
+
+            /// <summary>
+            /// SRR's restore step (Belussi, Migliorini, Negri and Pelagatti 2016, ChoosePixel of their Table II) on the input alone, as D14
+            /// specifies it (MESHING2D_SNAP.md section 3b; recomputed here, not taken from the mesher). Rounds: every input edge is
+            /// snap-rounded through the hot pixels it contacts (Hobby's half-open pixels), in order along it; a hot pixel whose open
+            /// interior a link of a chain crosses is critical. For each critical pixel and link a - b of the chain of input segment s,
+            /// among the eight neighbours of the critical pixel that are not hot, whose open interior s crosses, and for which neither
+            /// a - p nor p - b crosses the critical pixel's interior ("useful"): the nearest to s of those no link crosses ("free", R1),
+            /// else the nearest useful one (R3); with none, the nearest pixel within two of it, not hot, whose interior s crosses and whose
+            /// centre projects strictly between a's and b's (widened). Nearest: the squared distance of the pixel's centre to s, ties by
+            /// the pixel's x, then y. A round's choices are made on one arrangement and all made hot at its end (their Proposition
+            /// 4.17); rounds repeat until no critical pixel is left. The edges: the input segments and ring edges, and at M3 a hull
+            /// domain's hull edges (the mesher snap-rounds them only when it refines, option C)
+            /// </summary>
+            List<(BigInteger x, BigInteger y)> RestorePixels(HashSet<(BigInteger x, BigInteger y)> hotR, List<(BigInteger x, BigInteger y)> hotRList)
+            {
+                var added = new List<(BigInteger x, BigInteger y)>();
+                var edgesR = new List<(Pt a, Pt b)>();
+                var seenEdge = new HashSet<(Pt, Pt)>();
+                void AddEdge(Pt a, Pt b)
+                {
+                    if (a.Equals(b)) return;
+                    var key = a.Qx < b.Qx || a.Qx == b.Qx && a.Qy <= b.Qy ? (a, b) : (b, a);
+                    if (seenEdge.Add(key)) edgesR.Add((a, b));
+                }
+                foreach (var s in sources) AddEdge(s.a, s.b);
+                // (M3 stands for refinement here, as in HullSources; a hull of fewer than three corners, all points collinear, has no
+                // hull edges to round, as in the mesher)
+                if (domain.IsHull && e.Milestone == Milestone.M3) {
+                    var hullEdges = domain.Edges().ToList();
+                    if (hullEdges.Count >= 3) foreach (var (a, b) in hullEdges) AddEdge(a, b);
+                }
+                Q pixel = snapPixel;
+                // every round adds at least one pixel (only pixels not hot are chosen), and SRR adds at most n (n - 1) hot pixels for n
+                // edges after the first rounding (their Proposition 4.25); past that bound the step reports instead of stopping silently
+                long bound = -1;
+                for (long round = 0; ; ++round) {
+                    // route every edge through the hot pixels it contacts
+                    long work = 0;
+                    var chainsR = new List<List<(BigInteger x, BigInteger y)>>();
+                    foreach (var (a, b) in edgesR) {
+                        var u = PixelOf(a, pixel); var w = PixelOf(b, pixel);
+                        var chain = new List<(BigInteger x, BigInteger y)> { u };
+                        if (!u.Equals(w)) {
+                            foreach (var n in SegmentPassed(a, b, u, w, hotR, hotRList, null, pixel, ref work)) if (!chain[chain.Count - 1].Equals(n)) chain.Add(n);
+                            if (!chain[chain.Count - 1].Equals(w)) chain.Add(w);
+                        }
+                        chainsR.Add(chain);
+                    }
+                    // the critical pixels: hot pixels other than its ends whose open interior a link crosses (candidates walked
+                    // along the link, or taken from the hot pixels in its box when there are fewer of those)
+                    var links = new List<(Pt a, Pt b)>();
+                    var critical = new List<((BigInteger x, BigInteger y) cp, int edge, int link)>();
+                    for (int c = 0; c < chainsR.Count; ++c)
+                        for (int k = 0; k + 1 < chainsR[c].Count; ++k) {
+                            var la = chainsR[c][k]; var lb = chainsR[c][k + 1];
+                            Pt pa = Centre(la, pixel), pb = Centre(lb, pixel);
+                            links.Add((pa, pb));
+                            var candidates = new HashSet<(BigInteger x, BigInteger y)>();
+                            BigInteger span = BigInteger.Abs(lb.x - la.x) + BigInteger.Abs(lb.y - la.y);
+                            if (9 * (span + 1) <= hotRList.Count) {
+                                var ts = PixelBreaks(pa, pb, pixel);
+                                for (int j = 0; j + 1 < ts.Count; ++j) {
+                                    Q t = (ts[j] + ts[j + 1]) / 2;
+                                    var n = PixelOf(new Pt(pa.Qx + (pb.Qx - pa.Qx) * t, pa.Qy + (pb.Qy - pa.Qy) * t), pixel);
+                                    for (int dx = -1; dx <= 1; ++dx)
+                                        for (int dy = -1; dy <= 1; ++dy) { var m = (n.x + dx, n.y + dy); if (hotR.Contains(m)) candidates.Add(m); }
+                                }
+                            } else {
+                                BigInteger x0 = BigInteger.Min(la.x, lb.x), x1 = BigInteger.Max(la.x, lb.x), y0 = BigInteger.Min(la.y, lb.y), y1 = BigInteger.Max(la.y, lb.y);
+                                foreach (var n in hotRList) if (n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1) candidates.Add(n);
+                            }
+                            foreach (var m in candidates.OrderBy(m => m.x).ThenBy(m => m.y))
+                                if (!m.Equals(la) && !m.Equals(lb) && OpenPixel(pa, pb, Centre(m, pixel), pixel)) critical.Add((m, c, k));
+                        }
+                    // a pixel no link crosses is "free" (memoized per round; candidates are the few neighbours of critical pixels)
+                    var crossedMemo = new Dictionary<(BigInteger x, BigInteger y), bool>();
+                    bool Crossed((BigInteger x, BigInteger y) n)
+                    {
+                        if (crossedMemo.TryGetValue(n, out bool known)) return known;
+                        Pt pc = Centre(n, pixel);
+                        bool any = links.Any(l => OpenPixel(l.a, l.b, pc, pixel));
+                        crossedMemo.Add(n, any);
+                        return any;
+                    }
+                    if (critical.Count == 0) break;
+                    if (bound < 0) { long n = links.Count; bound = n * (n - 1) + 1; }
+                    if (round > bound) { r.Add(Violation.CannotJudge, "SRR's restore step did not settle within its bound of " + bound + " rounds (Proposition 4.25)"); return added; }
+                    var chosenAll = new List<(BigInteger x, BigInteger y)>();
+                    foreach (var (cp, c, k) in critical) {
+                        var (sa, sb) = edgesR[c];
+                        Pt la = Centre(chainsR[c][k], pixel), lb = Centre(chainsR[c][k + 1], pixel), ccp = Centre(cp, pixel);
+                        Q Dist2((BigInteger x, BigInteger y) n)
+                        {
+                            Pt pc = Centre(n, pixel);
+                            Q dx = sb.Qx - sa.Qx, dy = sb.Qy - sa.Qy, ux = pc.Qx - sa.Qx, uy = pc.Qy - sa.Qy, dot = ux * dx + uy * dy, len2 = dx * dx + dy * dy;
+                            if (dot.Sign <= 0 || len2.Sign == 0) return ux * ux + uy * uy;
+                            if (dot >= len2) { Q vx = pc.Qx - sb.Qx, vy = pc.Qy - sb.Qy; return vx * vx + vy * vy; }
+                            Q cr = ux * dy - uy * dx;
+                            return cr * cr / len2;
+                        }
+                        (BigInteger x, BigInteger y) Nearest(List<(BigInteger x, BigInteger y)> list)
+                            => list.OrderBy(n => Dist2(n)).ThenBy(n => n.x).ThenBy(n => n.y).First();
+                        var useful = new List<(BigInteger x, BigInteger y)>();
+                        for (int dx = -1; dx <= 1; ++dx)
+                            for (int dy = -1; dy <= 1; ++dy) {
+                                if (dx == 0 && dy == 0) continue;
+                                var n = (cp.x + dx, cp.y + dy);
+                                Pt pc = Centre(n, pixel);
+                                if (hotR.Contains(n) || !OpenPixel(sa, sb, pc, pixel)) continue;
+                                if (OpenPixel(la, pc, ccp, pixel) || OpenPixel(pc, lb, ccp, pixel)) continue;
+                                useful.Add(n);
+                            }
+                        var free = useful.Where(n => !Crossed(n)).ToList();
+                        if (free.Count > 0) chosenAll.Add(Nearest(free));
+                        else if (useful.Count > 0) chosenAll.Add(Nearest(useful));
+                        else {
+                            Q dxs = sb.Qx - sa.Qx, dys = sb.Qy - sa.Qy;
+                            Q Along(Pt q) => (q.Qx - sa.Qx) * dxs + (q.Qy - sa.Qy) * dys;
+                            Q ta = Along(la), tb = Along(lb);
+                            var wider = new List<(BigInteger x, BigInteger y)>();
+                            for (int dx = -2; dx <= 2; ++dx)
+                                for (int dy = -2; dy <= 2; ++dy) {
+                                    var n = (cp.x + dx, cp.y + dy);
+                                    Pt pc = Centre(n, pixel);
+                                    Q tp = Along(pc);
+                                    if (!hotR.Contains(n) && OpenPixel(sa, sb, pc, pixel) && Q.Min(ta, tb) < tp && tp < Q.Max(ta, tb)) wider.Add(n);
+                                }
+                            if (wider.Count == 0) { r.Add(Violation.CannotJudge, "SRR's restore step found no pixel for the critical pixel " + Centre(cp, pixel)); return added; }
+                            chosenAll.Add(Nearest(wider));
+                        }
+                    }
+                    int before = added.Count;
+                    foreach (var n in chosenAll) if (hotR.Add(n)) { hotRList.Add(n); added.Add(n); }
+                    if (added.Count == before) { r.Add(Violation.CannotJudge, "SRR's restore step chose no new pixel in a round"); return added; }
+                }
+                return added;
             }
 
             /// <summary>
@@ -973,14 +1129,9 @@ namespace Meshing2Acceptance
                 SnapHot();
                 long work = 0;
                 full = BuildState(hot, hotList, ref work);
-                // the two states are one where no output vertex lies beyond the input's hot pixels, and, for now, below M3 (interim (c),
-                // coordinator 2026-11-03): without refinement every output vertex comes from snap rounding, whose restore step (SRR,
-                // D14) adds hot pixels the input-only state does not compute yet. Gaps, closed by the oracle's own restore step (a): at M2
-                // any output vertex beyond the input's points and crossings (a faulty restore pixel, a vertex at a chain end near a
-                // constraint) can create a collapse that is not reported (the wedge self-check at M2); at M3 the restore pixels count as
-                // refinement (false rejections), and the input's rounding without them can collapse what its real rounding keeps (false
-                // acceptances; both pinned in QualityMesh2CollapsedPartsReportTests)
-                inputOnly = hot.Count == snapHot.Count || e.Milestone != Milestone.M3 ? full : BuildState(snapHot, snapHotList, ref work);
+                // the two states are one where no output vertex lies beyond the input's hot pixels plus the restore pixels the
+                // oracle computes itself (RestorePixels, Belussi et al. 2016)
+                inputOnly = hot.Count == snapHot.Count ? full : BuildState(snapHot, snapHotList, ref work);
                 ImageWorkForTests += work;
             }
 
