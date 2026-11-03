@@ -317,6 +317,7 @@ namespace Meshing2Acceptance
             }
 
             Dictionary<long, bool> unsplittableMemo;
+            BoxGrid unsplittableSubGrid, unsplittableVertexGrid;
 
             /// <summary>
             /// a-b is a subsegment that has no split point on the grid (refinement on the grid, MESHING2D_SNAP.md 3g): only that edge is
@@ -525,13 +526,36 @@ namespace Meshing2Acceptance
             {
                 Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
                 Pt pa = v[ia], pb = v[ib];
-                // its input constraints: those whose envelope holds both ends
-                var own = sources.Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
+                SnapHot();
+                // its input constraints: those whose envelope holds both ends (a hull domain's hull edges too: on the grid the mesher
+                // snap-rounds them with the segments, option C, and splits their pieces as it splits a segment's; Q17)
+                var own = sources.Select(s => (s.a, s.b)).Concat(domain.IsHull ? domain.Edges() : Enumerable.Empty<(Pt a, Pt b)>())
+                    .Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
                 if (own.Count == 0) return false;
                 Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
                 if ((kx1 - kx0) * (ky1 - ky0) > new Q(1 << 16, 1)) return false;   // (too long to enumerate: judged as splittable)
-                var subs = (o.Subsegments ?? new List<SubsegmentOutput>()).Where(g => !((g.A == ia && g.B == ib) || (g.A == ib && g.B == ia))).ToList();
+                // only what lies near the piece can block a split point: a constraint crossing its pixel or the new edges, a vertex whose
+                // pixel they cross (boxes three pixels wider in doubles, generous to the hair of a decimal pixel; every test below stays
+                // exact): the hull pieces of a domain judged here too made the whole lists per candidate too slow on the Herne tiles
+                double w3 = 3 * input.SnapTolerance;
+                double bx0 = Math.Min(o.VX[ia], o.VX[ib]) - w3, bx1 = Math.Max(o.VX[ia], o.VX[ib]) + w3, by0 = Math.Min(o.VY[ia], o.VY[ib]) - w3, by1 = Math.Max(o.VY[ia], o.VY[ib]) + w3;
+                if (unsplittableSubGrid == null) {
+                    var all = o.Subsegments ?? new List<SubsegmentOutput>();
+                    var sb = new double[4 * all.Count];
+                    for (int i = 0; i < all.Count; ++i) {
+                        var g = all[i];
+                        sb[4 * i] = Math.Min(o.VX[g.A], o.VX[g.B]); sb[4 * i + 1] = Math.Max(o.VX[g.A], o.VX[g.B]);
+                        sb[4 * i + 2] = Math.Min(o.VY[g.A], o.VY[g.B]); sb[4 * i + 3] = Math.Max(o.VY[g.A], o.VY[g.B]);
+                    }
+                    unsplittableSubGrid = new BoxGrid(sb, all.Count);
+                    var vb = new double[4 * v.Length];
+                    for (int i = 0; i < v.Length; ++i) { vb[4 * i] = vb[4 * i + 1] = o.VX[i]; vb[4 * i + 2] = vb[4 * i + 3] = o.VY[i]; }
+                    unsplittableVertexGrid = new BoxGrid(vb, v.Length);
+                }
+                var subs = unsplittableSubGrid.Query(bx0, bx1, by0, by1).Select(i => o.Subsegments[i]).Where(g => !((g.A == ia && g.B == ib) || (g.A == ib && g.B == ia))).ToList();
+                var nearVertices = unsplittableVertexGrid.Query(bx0, bx1, by0, by1);
+                nearVertices.Sort();
                 // A decimal pixel width is not exact in doubles: a vertex's doubles are k w rounded, so vertices are taken at the centre of
                 // their pixel and matched by it, and a pixel corner that an edge touches on the exact lattice may be crossed or missed by a
                 // hair in the mesher's doubles: such ties are decided generously, with blocking pixels a hair larger and the own envelope a
@@ -557,13 +581,30 @@ namespace Meshing2Acceptance
                 Q dx = s0.b.Qx - s0.a.Qx, dy = s0.b.Qy - s0.a.Qy;
                 Q Along(Pt p) => (p.Qx - s0.a.Qx) * dx + (p.Qy - s0.a.Qy) * dy;
                 Q ta = Along(pa), tb = Along(pb), lo = Q.Min(ta, tb), hi = Q.Max(ta, tb);
+                // a cheap filter first: a split point must lie in the envelope of every own constraint, so within a pixel's half diagonal
+                // (and a margin) of the first one's line; only those few of the box's pixels get the exact tests (a diagonal hull piece
+                // of the Herne tiles has a box of tens of thousands of pixels and an envelope of a few hundred)
+                s0.a.Bounds(false, out double fax, out _); s0.a.Bounds(true, out double fay, out _);
+                s0.b.Bounds(false, out double fbx, out _); s0.b.Bounds(true, out double fby, out _);
+                double fdx = fbx - fax, fdy = fby - fay, flen = Math.Sqrt(fdx * fdx + fdy * fdy), fw = input.SnapTolerance;
                 for (Q kx = kx0; kx <= kx1; kx = kx + 1)
                     for (Q ky = ky0; ky <= ky1; ky = ky + 1) {
+                        if (flen > 0) {
+                            kx.Bounds(out double ix, out _); ky.Bounds(out double iy, out _);
+                            double cx = ix * fw, cy = iy * fw;
+                            if (Math.Abs((cx - fax) * fdy - (cy - fay) * fdx) / flen > fw) continue;
+                        }
                         var q = new Pt(kx * pixel, ky * pixel);
                         if (Same(q, pa) || Same(q, pb)) continue;
                         Q tq = Along(q);
                         if (!(tq > lo && tq < hi)) continue;
                         if (!own.All(s => CrossesOpen(s.a, s.b, q, narrow) || OnSegment(s.a, s.b, q))) continue;
+                        // a vertex of refinement already at q: the piece rerouted through it must not run along another chain's
+                        // subsegment (the two chains would coincide there, the part between them collapsed by refinement; Q17, owner
+                        // 2026-11-03). Through a hot pixel of snapping (input point, crossing) they coincide in the rounding of the input
+                        // itself, as the mesher allows (its restore pixels are not known here, interim (c): judged as refinement's)
+                        if (!snapHot.Contains(PixelOf(q, snapPixel))
+                            && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];
@@ -571,7 +612,8 @@ namespace Meshing2Acceptance
                             if (Exact.ProperCross(pa, q, c, d) || Exact.ProperCross(q, pb, c, d)) { ok = false; break; }
                         }
                         if (!ok) continue;
-                        for (int i = 0; i < v.Length && ok; ++i) {
+                        foreach (int i in nearVertices) {
+                            if (!ok) break;
                             if (Same(v[i], pa) || Same(v[i], pb) || Same(v[i], q)) continue;
                             var pv = new Pt(Snap(v[i].Qx), Snap(v[i].Qy));
                             if (CrossesOpen(pa, q, pv, wide) || CrossesOpen(q, pb, pv, wide)) ok = false;
@@ -2304,10 +2346,19 @@ namespace Meshing2Acceptance
                 foreach (var t in o.Triangles) {
                     o11Pending = 0;
                     bool flagged = false;
+                    // t's merge zone depends on t alone: decided once per triangle, counted per vertex it excuses (a thin triangle at an
+                    // unsplittable piece of the Herne tiles has thousands of vertices in its circumcircle; each recomputed it)
+                    bool? inZone = null;
+                    bool ZoneOnce()
+                    {
+                        if (inZone == null) inZone = InMergeZone(t, Q.One);
+                        if (inZone.Value) r.MergeZoneExcused++;
+                        return inZone.Value;
+                    }
                     bool Check(int id)
                     {
                         if (id == t[0] || id == t[1] || id == t[2]) return false;
-                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
+                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || ZoneOnce() || HiddenByGridUnsplittable(t, id) || HiddenByO11Unsplittable(t, id)))) {
                             r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
                             flagged = true;
                             return true;
@@ -2375,7 +2426,23 @@ namespace Meshing2Acceptance
                 bool any = false;
                 for (int k = 0; k < 4; ++k) {
                     int id = new[] { a, b, c, d }[k];
-                    if (o.IdentityRules ? id < input.Count : IsInputPoint(v[id])) continue;
+                    var put = OnSegmentAgain(id);
+                    if (put == null) continue;
+                    corrected[k] = put.Value;
+                    any = true;
+                }
+                if (!any) return false;
+                return Exact.InCircle(corrected[0], corrected[1], corrected[2], corrected[3]) * Exact.Orient(corrected[0], corrected[1], corrected[2]) <= 0;
+            }
+
+            /// <summary> constructed vertex id put back exactly on the first source within 8 ulps of it, or null; once per vertex (the
+            /// global pass asks for a triangle's corners again for every vertex in its circumcircle) </summary>
+            Pt? OnSegmentAgain(int id)
+            {
+                onSegmentMemo = onSegmentMemo ?? new Dictionary<int, Pt?>();
+                if (onSegmentMemo.TryGetValue(id, out var known)) return known;
+                Pt? result = null;
+                if (!(o.IdentityRules ? id < input.Count : IsInputPoint(v[id]))) {
                     Q ulp = new Q(BigInteger.One, BigInteger.One << 49) * Q.Max(Q.Abs(v[id].Qx), Q.Abs(v[id].Qy)); // 8 ulps = 2^3 * 2^-52
                     // (where the tube is at least 8 ulps, a source farther than the tube cannot be within 8 ulps: the box filter applies)
                     bool boxed = tube2 >= ulp * ulp;
@@ -2386,14 +2453,14 @@ namespace Meshing2Acceptance
                         if (d2.Sign == 0 || d2 > ulp * ulp) continue;
                         Q ax = s.a.Qx, ay = s.a.Qy, ux = s.b.Qx - ax, uy = s.b.Qy - ay;
                         Q t = ((v[id].Qx - ax) * ux + (v[id].Qy - ay) * uy) / (ux * ux + uy * uy);
-                        corrected[k] = new Pt(ax + ux * t, ay + uy * t);
-                        any = true;
+                        result = new Pt(ax + ux * t, ay + uy * t);
                         break;
                     }
                 }
-                if (!any) return false;
-                return Exact.InCircle(corrected[0], corrected[1], corrected[2], corrected[3]) * Exact.Orient(corrected[0], corrected[1], corrected[2]) <= 0;
+                onSegmentMemo[id] = result;
+                return result;
             }
+            Dictionary<int, Pt?> onSegmentMemo;
 
             HashSet<Pt> inputSet;
             bool IsInputPoint(Pt p) => (inputSet ?? (inputSet = new HashSet<Pt>(inPts))).Contains(p);

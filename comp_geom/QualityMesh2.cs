@@ -153,6 +153,10 @@ namespace g3
 
             /// <summary> benchmarks only: off-centres on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? OffCentresForBenchmarks;
+            /// <summary> tests only: the rule that keeps chains from coinciding (<see cref="MakesChainsCoincide"/>) on or off (null: the
+            /// default, on); off gives the refinement of before the fix, whose outputs the oracle's tests of rule (ii') need </summary>
+            [ThreadStatic] internal static bool? KeepChainsApartForTests;
+            readonly bool keepChainsApart;
             readonly Queue<long> segments = new Queue<long>();
             readonly Queue<int> triangles = new Queue<int>();
             readonly HashSet<long> unsplittable = new HashSet<long>();
@@ -177,6 +181,7 @@ namespace g3
                 sin2Min = s * s;
                 halfCot = HalfCot(sin2Min);
                 offCentres = OffCentresForBenchmarks ?? true;
+                keepChainsApart = KeepChainsApartForTests ?? true;
                 // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
                 // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
                 lenses = LensesForBenchmarks ?? (!options.Conforming && options.MinAngle > 0 && sin2Min <= 3.0 / 16);
@@ -901,6 +906,12 @@ namespace g3
                         // (a constraint ending at a vertex already at q leaves its pixel there: not a crossing)
                         if (a != q && c != q && grid.CrossesInterior(a, c, qx, qy)) return false;
                         if (ProperCross(pu, q, a, c) || ProperCross(q, pw, a, c)) return false;
+                        // a vertex of refinement already at q reroutes the piece through it: neither new piece may run along a
+                        // constraint of another chain, or the two chains coincide there and the part between them collapses, which the
+                        // rounding of the input keeps (owner decision 2026-11-03 on Q17; found with the zigzag of Q17 and a fuzz of star
+                        // polygons: a spike's tip). Through a vertex of the snapped input (a hot pixel of an input point, a crossing or
+                        // the restore step) the chains coincide in the rounding of the input itself: snap rounding routes both through it
+                        if (keepChainsApart && ((a == q && k.V[f] >= firstSteiner && (c == pu || c == pw)) || (c == q && k.V[Next(f)] >= firstSteiner && (a == pu || a == pw)))) return false;
                     }
                 return true;
             }

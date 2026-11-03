@@ -44,7 +44,7 @@ namespace geometry3Sharp.Tests
             return new Mesh2Input { X = x.ToArray(), Y = y.ToArray(), MinAngleDeg = rnd.Next(2) == 0 ? 20 : 30, SnapTolerance = 0.01, SteinerLimit = 200000 };
         }
 
-        static Mesh2Input Moved(Mesh2Input input, Similarity s)
+        internal static Mesh2Input Moved(Mesh2Input input, Similarity s)
         {
             var moved = new Mesh2Input { Segments = input.Segments, SnapTolerance = input.SnapTolerance * s.Scale, MinAngleDeg = input.MinAngleDeg,
                 SteinerLimit = input.SteinerLimit, X = new double[input.Count], Y = new double[input.Count] };
@@ -99,14 +99,16 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// A hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): fuzz seed 11 in the rotated frame has a
-        /// hull corner of about 6 degrees whose tip both hull chains close through one pixel; the oracle accepts the corner in no
-        /// triangle, and the mesher reports it.
+        /// A hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): the hull triangle (0, 0), (10, 0), (10, 0.6)
+        /// with the point (6, 0.2), pixel 1: both hull edges pass the point's pixel (6, 0), so the rounding of the input routes both
+        /// chains through it and the tip (0, 0) - (6, 0) has no area; the oracle accepts the corner in no triangle, and the mesher reports
+        /// it. (Was fuzz seed 11 in the rotated frame, whose tip refinement collapsed by rerouting one hull chain onto the other through
+        /// a grid point: no longer, since the refinement keeps what the rounding of the input keeps, Q17.)
         /// </summary>
         [Fact]
         public void CollapsedHullTip_IsReported()
         {
-            var input = Moved(Fuzz(11), Similarity.ByName("rotated"));
+            var input = new Mesh2Input { X = new[] { 0.0, 10, 10, 6 }, Y = new[] { 0.0, 0, 0.6, 0.2 }, MinAngleDeg = 20, SnapTolerance = 1, SteinerLimit = 200000 };
             var report = Judge(input, out var output);
             Assert.True(report.Ok, report.ToString());
             // the same run as the judged one: the M3 candidate is conforming (O2); without it, lenses (Conforming = false) give another mesh

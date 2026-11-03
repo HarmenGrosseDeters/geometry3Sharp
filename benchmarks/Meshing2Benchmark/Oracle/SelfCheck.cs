@@ -619,6 +619,25 @@ namespace Meshing2Acceptance
                         var rsl = Oracle.Check(sliver, osl, m3);
                         Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
                             rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
+                        // a hull domain's hull pieces are judged on the grid as a segment's (option C), within their own hull edge's
+                        // envelope: the bottom hull edge (0, 0.5) - (6, 0.5) runs on the pixel boundary, and the oracle's tie rule for
+                        // decimal pixels (blocking pixels a hair larger, the own envelope a hair smaller) puts no pixel between its ends in
+                        // its envelope, so its piece (0, 1) - (6, 1) counts as having no split point (the mesher, with snap rounding's
+                        // half-open pixels, does split it at (3, 1)); the triangle (0, 1), (6, 1), (3, 2) of the free point (3, 1.6), at
+                        // 18.4 degrees at the hull's right-angled corners, is excused, its circumcentre (3, -3) behind that piece. Without
+                        // the hull edge as the piece's owner the oracle took every hull piece as splittable (found with the zigzag of Q17:
+                        // hull pieces the mesher may not split without collapsing the band). The near miss: the edge at 0.6 has the
+                        // pixels of row 1 in its envelope, a split point, and the triangle is rejected
+                        var hullFloor = new Mesh2Input { SnapTolerance = 1, MinAngleDeg = 20, X = new double[] { 0, 6, 6, 0, 3 }, Y = new double[] { 0.5, 0.5, 4, 4, 1.6 } };
+                        var ohf = Snapped(hullFloor, new[] { new[] { 0, 1, 4 }, new[] { 0, 4, 3 }, new[] { 4, 1, 2 }, new[] { 4, 2, 3 } }, new[] { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } });
+                        ohf.BadTriangles = new[] { 0 };
+                        var rhf = Oracle.Check(hullFloor, ohf, m3);
+                        Must("accept: a triangle below the angle whose circumcentre lies behind a hull piece with no split point on the grid", rhf.Ok, "report: " + rhf);
+                        var hullSplittable = new Mesh2Input { SnapTolerance = 1, MinAngleDeg = 20, X = new double[] { 0, 6, 6, 0, 3 }, Y = new double[] { 0.6, 0.6, 4, 4, 1.6 } };
+                        var ohs = Snapped(hullSplittable, new[] { new[] { 0, 1, 4 }, new[] { 0, 4, 3 }, new[] { 4, 1, 2 }, new[] { 4, 2, 3 } }, new[] { new[] { 0, 1 }, new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 0 } });
+                        ohs.BadTriangles = new[] { 0 };
+                        var rhs = Oracle.Check(hullSplittable, ohs, m3);
+                        Must("reject: the same triangle when the hull piece has a split point (edge at 0.6)", rhs.Has(Violation.AngleBelowBound), "report: " + rhs);
                     }
                     // E8: a slit of the outside 0.5 wide and 10 deep from the bottom, its walls snapped to columns 10 and 11 (kept apart):
                     // filled, its tips dropped
