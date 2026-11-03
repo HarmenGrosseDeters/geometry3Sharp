@@ -193,6 +193,34 @@ Open items where geogram has an implementation to compare with or port from (to 
 | Parameterization (Phase 3) | `parameterization/` (LSCM, ABF++ and others) |
 | Point clouds ("Later") | `points/` (Co3Ne and others) |
 
+## Other permissive libraries (survey 2026-11-03, owner request)
+
+From [github.com/topics/geometry-processing](https://github.com/topics/geometry-processing), the first three pages by
+stars. Each license comes from the repository's LICENSE file on its default branch, checked 2026-11-03. The same
+rules as for geogram apply: check the per-file headers and the bundled third-party code before reading, a port
+keeps the notice and gets a row in SOURCES.md, and the mesher logs what it reads.
+
+| Library | License | Open items it may serve (to check, not yet read) |
+|---|---|---|
+| [elalish/manifold](https://github.com/elalish/manifold) | Apache-2.0 | Boolean performance (B): robust, fast mesh booleans in floating point with symbolic perturbation; a benchmark opponent and a source of ideas for the exact path |
+| [pmp-library](https://github.com/pmp-library/pmp-library) | MIT | Remesher (uniform and adaptive remeshing), Reducer (decimation), hole filling, smoothing, parameterization |
+| [hhoppe/Mesh-processing-library](https://github.com/hhoppe/Mesh-processing-library) | MIT (Microsoft) | Reducer and simplification: mesh optimization and progressive meshes (Hoppe 1993/1996), the authors' own code |
+| [adobe/lagrange](https://github.com/adobe/lagrange) | Apache-2.0 | Mesh cleanup and repair (Phase 2), winding numbers (Phase 5 #5), remeshing |
+| [nmwsharp/geometry-central](https://github.com/nmwsharp/geometry-central) | MIT | Already a source (Phase 3, intrinsic triangulations, heat method); the affine heat method (awards table) |
+| [mlivesu/cinolib](https://github.com/mlivesu/cinolib) | MIT | Tetrahedral and hexahedral meshes (Phase 5 #4), polygon and polyhedral mesh utilities |
+| [wjakob/instant-meshes](https://github.com/wjakob/instant-meshes) | BSD-3 | Quad remeshing ("Later") |
+| [liminchen/OptCuts](https://github.com/liminchen/OptCuts) | MIT | Parameterization seams (Phase 3) |
+| [patr-schm/TinyAD](https://github.com/patr-schm/TinyAD) | MIT | Foldover-free maps and other optimization (Phase 5 #7) |
+| [microsoft/DirectXMesh](https://github.com/microsoft/DirectXMesh) | MIT | Vertex cache optimization and meshlets; no open item yet |
+| [owensgroup/RXMesh](https://github.com/owensgroup/RXMesh) | BSD-2 | GPU mesh processing; ideas for parallel patterns only |
+| [iShape-Rust/iOverlay](https://github.com/iShape-Rust/iOverlay) | MIT | 2D polygon booleans; Clipper2 already covers this |
+
+Not usable: CGAL (GPL); libigl, TetWild and TriWild (MPL-2.0: not ported, implement from the paper); Easy3D and
+QuadWild (GPL-3); DGtal (LGPL-3); mcut (LGPL-3 or commercial); MeshLib (non-commercial license); trueform (dual
+license, non-commercial or commercial). PyMesh, ManifoldPlus and Directional: no LICENSE file found, so not used
+until a license is found. The rest of the first three pages are learning or application projects without a
+library to port.
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
