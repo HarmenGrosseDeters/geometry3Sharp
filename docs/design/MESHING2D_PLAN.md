@@ -354,7 +354,14 @@ ALKIS and DGM tiles (local only).
       segment piece inside the hole, which the carve removes. Its retag tests still pass. Case 292 (fuzz seed 292 at 20°, one
       segment) takes the path with the carve, and fails without the reroute fix (oracle INVALID before #337). It replaces case 30 in
       the reroute counter test.
-  - **Q17:** domains narrower than a pixel.
+  - **T15:** the grid fuzz with holes at pixel 1/3, 30° seed 867 and 25° seed 1367, fails with NotDelaunayGlobal on master. The
+    mesher refuses a grid split because of content inside a hole, which the oracle does not see. The owner decides between (a)
+    removing the content of holes before refinement (spec Q7) and (b) an oracle excuse; the coordinator recommends (a).
+  - **Q17 (2026-11-03):** domains narrower than a pixel collapse by snapping; the oracle accepts what is missing only on collapsed
+    links of the snap-rounded images (rule O-H5), and, by the owner's strict decision of 2026-11-03, only where the rounding of the
+    input alone collapses too: a pinch by refinement is a defect. The zigzag with refinement is pinned as known INVALID; the mesher's
+    bugfix (no grid point bringing two chains of the input's image together) follows (`MESHING2D_HULL_GRID.md` section 7), then
+    the oracle's own SRR restore step (a; until then the input's rounding and the full one are one below M3, interim (c)).
   - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
     108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
     first.

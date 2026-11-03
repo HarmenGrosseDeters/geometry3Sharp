@@ -197,6 +197,25 @@ namespace g3
 
             bool InDomain(int t) => k.Tag[t] >= 0 && !k.IsGhost(t);
 
+            /// <summary>
+            /// the input segments (no ring, no hull source) with a constrained edge that has no domain triangle on either side and lies on
+            /// the domain's boundary (the edge also carries a ring or hull source): a part that collapsed onto its boundary. A free
+            /// segment outside the domain shares no edge with the boundary along that piece and does not count.
+            /// </summary>
+            HashSet<int> SegmentsWithoutArea()
+            {
+                var result = new HashSet<int>();
+                int domainRings = b.outerRings + b.holeRings;
+                for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
+                    int f = k.H[e];
+                    if (f < e || k.Seg[e] < 0 || InDomain(e / 3) || InDomain(f / 3)) continue;
+                    var srcs = k.Sources[k.Seg[e]];
+                    if (!srcs.Any(src => b.sources[src].Hull || b.sources[src].Ring >= 0 && b.sources[src].Ring < domainRings)) continue;
+                    foreach (int src in srcs) if (b.sources[src].Ring < 0 && !b.sources[src].Hull) result.Add(src);
+                }
+                return result;
+            }
+
             /// <summary> test hook: constraints lifted and vertices deleted by carves, summed over runs on this thread </summary>
             [ThreadStatic] internal static long LiftedForTests, CarvedForTests;
 
@@ -256,6 +275,9 @@ namespace g3
                 if (!any) return null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
+                // (Q17: what snapping already collapsed, to tell it apart from what refinement pinches; taken before the carve, which
+                // lifts such pieces when the outside lies on both sides of them)
+                var collapsedBySnapping = grid != null ? SegmentsWithoutArea() : null;
                 CarveOutside();
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
@@ -309,6 +331,15 @@ namespace g3
                     int collapsed = 0;
                     for (int v = 0; v < firstSteiner; ++v) if (v != k.Infinite && !inDomain.Contains(v) && OnHullChain(v)) ++collapsed;
                     if (collapsed > 0) b.diagnostics.Add("snap grid: " + collapsed + " vertices of the hull chains in no triangle (hull tips narrower than a pixel collapsed)");
+                }
+                // parts narrower than a pixel may collapse (owner decision 2026-11-02, spec Q17): input segments with a piece that has no
+                // triangle on either side, those without one already after snapping and those that lost theirs in refinement (a split
+                // point of one side's chain landing on the other side's, say) reported apart
+                if (collapsedBySnapping != null) {
+                    var collapsedAfter = SegmentsWithoutArea();
+                    int pinched = collapsedAfter.Count(s => !collapsedBySnapping.Contains(s));
+                    if (collapsedBySnapping.Count > 0) b.diagnostics.Add("snap grid: " + collapsedBySnapping.Count + " input segments with pieces on parts that snapping collapsed (no triangle on either side after snapping)");
+                    if (pinched > 0) b.diagnostics.Add("snap grid: " + pinched + " input segments with pieces on parts that refinement pinched (a triangle on a side after snapping, none after refinement)");
                 }
                 if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))

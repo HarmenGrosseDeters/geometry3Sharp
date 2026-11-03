@@ -103,7 +103,8 @@ namespace Meshing2Acceptance
         HullBoundary, AreaMismatch, NotDelaunayLocal, NotDelaunayGlobal, SegmentMissing, SubsegmentNotEdge, SubsegmentUnsourced,
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
-        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid
+        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid,
+        ChainPassesHotPixel
     }
 
     public sealed class ViolationRecord
@@ -184,9 +185,22 @@ namespace Meshing2Acceptance
         /// circumcentre lies behind it. Findings to look at, as the merge zone's.
         /// </summary>
         public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
+        /// <summary>
+        /// Q17 (O-H5): pieces of input segments and boundary edges whose chain is missing, and unused input points, on a part of the
+        /// domain that snap rounding collapsed (no area left between the images of its boundary). Findings to look at, as the merge zone's.
+        /// </summary>
+        public int CollapsedSegments, CollapsedPoints;
+        /// <summary>
+        /// Q17 (O-H5): of those, the excuses on a stretch where output vertices beyond the input's points and crossings rerouted the
+        /// image (rule (ii'): only inside parts the input's own rounding collapses). For a segment piece, a stretch between pixels both
+        /// images share that differs; for a point, a different set of links at its pixel
+        /// </summary>
+        public int CollapsedViaRefinement;
         public string ExcusedSummary()
         {
             var parts = new List<string>();
+            if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points"
+                + (CollapsedViaRefinement > 0 ? " (" + CollapsedViaRefinement + " of them rerouted by output vertices)" : ""));
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
