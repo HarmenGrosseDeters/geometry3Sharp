@@ -537,14 +537,16 @@ two old triangles.
    edges shorter than `MinFeatureSize` by the plane-set rule. Change: it measures edges in XY, not in 3D, so that
    it does not depend on λ (z does).
 2. **Then the band merge, targeted.**
-   - **What it takes:** only the short edges of actual needles. A needle is a triangle whose XY altitude is
-     below `MinFeatureSize` after step 1. Its edge qualifies if all of these hold:
-     - its XY length ℓ is at most r_band;
+   - **What it takes:** only the short edges of needles. An edge qualifies if all of these hold:
+     - its XY length ℓ is at most r_band (≤ `MinFeatureSize`). Both its triangles are then needles, since a
+       triangle's altitude is at most its shortest edge, so no separate needle test is needed (ℓ = `MinFeatureSize`
+       exactly is harmless);
      - the plane sets of its two ends are not nested (otherwise the collapse of step 1 may take it);
      - neither end lies on a barrier (toe, lateral limit). Toe and lateral vertices are never moved, and they stay
        shared with the TIN and the composite.
-   - **What it does:** the edge is collapsed onto one end, chosen by a total order that is 2^k-invariant (more
-     labels first, then x, then y, as `merge_close_positions` orders). The kept vertex takes the union of both
+   - **What it does:** in one pass, shortest edges first, then by edge id (the build's order, which does not depend
+     on λ), each edge is collapsed onto one end. The end is chosen by a total order that is 2^k-invariant: more
+     labels first, then x, then y, as `merge_close_positions` orders. The kept vertex takes the union of both
      plane sets, and its z is the lowest of those planes at its XY, lowered by λ, as the realization evaluates
      it.
    - **When it is refused:** the collapse is made only if it keeps every other triangle of the removed vertex
@@ -553,15 +555,19 @@ two old triangles.
      of non-adjacent vertices across a narrow face, and no crack or fold to fall back from.
    - Everything else keeps today's r. Without needles (the UTM designs of the tests and benchmarks), nothing
      changes.
-   - **Radius.** r_band = max(r, min(`MinFeatureSize`, R/(6·sMax), (λ bound − `RepairLambda`(1))/(2·sMax) −
-     e_xy)). With today's flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda`
-     gate keeps today's merges and flips. The extra part below S̃, 4·sMax·(r_band − r), is ≥ 0 and ≤ (2/3)·R.
+   - **Radius.** r_band = max(r, min(`MinFeatureSize`, slack/(4·sMax) − r − e_xy, (λ bound − `RepairLambda`(1))/(2·sMax)
+     − e_xy − r)), with the facets' slack below. Both caps count r + r_band, as the moves add up. With today's
+     flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda` gate keeps today's merges
+     and flips. Where the slack leaves no room, r_band = r and no band merge is made: that design fails as today.
    - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the edge's
      length ℓ, the distance the removed vertex moves, in place of r. The surface moves:
      - below S̃ by at most 4·sMax·(ℓ_max + e_xy);
      - above it by at most 2·sMax·(ℓ_max + e_xy), plus the rounding of a vertex, which λ covers.
 
-     A kept vertex is not merged again in the same pass, so there are no chains.
+     - **Moves add up.** A vertex kept or removed is not merged again in the pass, so band merges do not chain.
+       But a position the merge within r has already moved, and then a band merge moves, has moved by r + ℓ. So
+       the lowering counts r + ℓ_max whenever the merge within r moved positions, and r_band's cap counts r + r_band
+       (λ room − r).
    - **Independent of λ.** The needles, the lengths and the decisions are in XY, so a realization at another λ
      makes the same band merges. Only z is evaluated again.
    - **Spike** (the repro, local, with a global radius r_band; the targeted version replaces it): at the origin
@@ -570,7 +576,7 @@ two old triangles.
 3. **Then flip, in one pass with today's flips,** for needles without a short edge. *Documented, not implemented:*
    the band flips made no flip in the repro or in the terrain tests, so they are implemented only when a
    procedural case needs them (a cap needle without a short edge that fails without them and passes with them).
-   Until then the implementation keeps today's flips below r, and R funds the band merge alone. As designed: one
+   Until then the implementation keeps today's flips below r. As designed: one
    `FlipNeedles` pass with one deviation map and one bound handles every needle below `MinFeatureSize`.
    - Below r it keeps today's rule: proper, the smaller altitude grows, and the bound ≤ maxDeviation. Today's
      successes stay.
@@ -588,8 +594,9 @@ two old triangles.
      (λ is capped at its bound).
    - The spike made no flip; this step covers needles that the repro does not have.
 4. **The lowering λ is measured.** The realization needs
-   λ ≥ 4·e_z + [merged: 2·sMax·(max(ℓ_max, r) + e_xy)] + [flipped: d_max], with d_max the largest deviation
-   bound of the flips made. A needle 4e-12 m wide then costs about 1e-11, not R. The spike still took the a-priori
+   λ ≥ 4·e_z + [merged: 2·sMax·(m + e_xy)] + [flipped: d_max]. Here m = r if only the merge within r moved
+   positions, ℓ_max for band merges alone, r + ℓ_max for both. d_max is the largest deviation bound of the flips
+   made (today's flips: 2·sMax·(r + e_xy)). A needle 4e-12 m wide then costs about 1e-11, not R. The spike still took the a-priori
    2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
    - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
      - `Realize` rounds XY independently of λ (`K.Rounded`);
@@ -603,34 +610,28 @@ two old triangles.
 5. **The check of all triangles decides.** A needle that no repair may fix stays, fails the check, and the result
    is `SlopeViolation` with its id. Nothing fails silently.
 
-**The budget, before and after.** Tolerance = λ bound + δ·sMax·1.1·D0 + merge + flips + facets, with the facets
-taking the rest. Let F0 = Tolerance − λ bound − δ share − merge be the share left for flips and facets.
+**The budget: the band merge lives in the facets' slack.** Tolerance = λ bound + δ·sMax·1.1·D0 + merge
+(with today's flips) + facets, unchanged.
+- **The slack.** The facet share sets the facet angle θ, rounded down to 2π/nTheta with an integer nTheta. So the
+  facets need only sMax·1.1·D0·(1 − cos(¾·θ)) ≤ their share. The rest, the slack, is unused today. The code takes a
+  guaranteed lower bound:
+  - 1 − cos(¾·θ) is exact, by Sterbenz, since cos ≥ cos(3π/32) > 1/2;
+  - `Math.Cos` is counted as off by up to 2^-49 (8 ulps of 1);
+  - each product (sMax·1.1, ·D0, ·(1 − cos + 2^-49)) is rounded up and the difference down (`ExactInterval`).
 
-- **Before:** the flips have 2·sMax·(r + e_xy), today inside `MergeShare`.
-- **After:** the band repairs get a term of their own, R = max(FlipShare, min(2·sMax·`MinFeatureSize`, F0/32)),
-  with FlipShare = 2·sMax·(r + e_xy) today's flips' share (now out of `MergeShare`). The facets take F0 − R.
-- R funds both band repairs (the merge alone until the band flips are implemented):
-  - the band merge's part below S̃ beyond today's merge: 4·sMax·(r_band − r) ≤ (2/3)·R, as r_band ≤ R/(6·sMax);
-  - the flips: maxDeviation ≤ R − 4·sMax·(r_band − r), at least R/3.
-- **A design that fits today still fits.** Today it fits if F0 − FlipShare > 0.
-  - If R = FlipShare, the facets keep today's share.
-  - Otherwise R = min(2·sMax·`MinFeatureSize`, F0/32) ≤ F0/32 < F0, so F0 − R ≥ (31/32)·F0 > 0.
-  - Either way none becomes `InvalidInput`.
-- The facets lose at most max(0, F0/32 − FlipShare): less than 1/32 of their share. The facet angle shrinks by at
-  most a factor sqrt(31/32) = 0.984, about 1.6 % more cone directions.
-- R scales bitwise under 2^k. It is not translation invariant (4.2e-6 near the origin, 1.55e-3 at UTM), and neither
-  is e_xy.
-
-Values (m) for δ = 1e-6:
-
-| case | λ bound | δ share | merge | flips before → after (R) | facets before → after | facet angle | maxDeviation |
-|---|---|---|---|---|---|---|---|
-| UTM, octagon on the 1 m DGM, 1:1.5, T 0.05 | 1.5e-4 | 1.5e-4 | 1.6e-7 | 8.1e-8 → 1.55e-3 | 0.04969 → 0.04814 | ×0.984 | 1.5e-4 |
-| UTM, 1a speed case, 1:1, T 0.01 | 3.3e-5 | 3.3e-5 | 2.4e-7 | 1.2e-7 → 3.1e-4 | 0.009934 → 0.009624 | ×0.984 | 3.3e-5 |
-| origin repro, 1:1.5, T 0.05 | 8.8e-5 | 8.8e-5 | 2e-11 | 9.9e-12 → 4.2e-6 | 0.04982 → 0.04982 | ×1.000 | 4.2e-6 |
-
-At UTM, maxDeviation is set by the λ bound, not by R. With a larger δ (an attempt after a slope failure),
-`MinFeatureSize` shrinks, and R and the altitude rule with it.
+  The slack scales with 2^k bit for bit: a scale-free factor times quantities that scale by a power of two, which
+  the roundings commute with. So the band radius, and every band decision, is the same in the 2^k frames (asserted
+  in `TerrainSlopeBandRepairTests`).
+- **The band merge's part below S̃,** 4·sMax·(r + ℓ + e_xy), lives in that slack (r_band's first cap). Its part
+  above S̃ is measured into λ, under λ's bound (the second cap).
+- **Nothing else changes.** A design without band merges is bitwise today's: no facet angle changes, no extra λ
+  round. Typical slacks are about facetShare/nTheta (1e-4 m at 5 cm); the repro needs about 3e-11.
+- **Rejected: a reserve of its own.** An earlier revision of this note reserved R = max(FlipShare,
+  min(2·sMax·`MinFeatureSize`, F0/32)) from the facet share (F0 the share left for flips and facets). The A/B
+  showed the cost: every design's facet angle shrank by 1–2 %, and the octagon on the 1 m DGM took 10.2 → 14.3 s
+  (one λ round more), although no design used the band. The band flips (step 3), if they come, need such a share
+  of their own, with that cost measured.
+- It all scales bitwise under 2^k. Like e_xy, it is not translation invariant.
 
 **Goal of the fix, and what it does not claim.**
 - The repro succeeds in both frames.
