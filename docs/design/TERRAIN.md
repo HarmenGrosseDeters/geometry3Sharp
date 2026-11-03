@@ -484,7 +484,7 @@ Every collapse removes a vertex. Flips are only accepted if they raise the small
 terminates.
 
 **Repair of the band [64·e_xy, `MinFeatureSize`) (item 4 of 1c, design 2026-11-03, revised after the bound
-review; not implemented yet).** Today the realization repairs by thresholds that scale with e_xy:
+review and a spike; not implemented yet).** Today the realization repairs by thresholds that scale with e_xy:
 - the merge of positions and the needle flips (`SlopeMap.FlipNeedles`) act below r = 64·e_xy;
 - `CollapseShortEdges` acts on edges shorter than `MinFeatureSize`;
 - δ covers only triangles with h_min ≥ `MinFeatureSize` ≈ 16·e_xy/δ.
@@ -500,6 +500,15 @@ A cap needle (long edges, small altitude) with r ≤ h < `MinFeatureSize` is cov
   - λ cannot take this (λ bound 9.2e-5), so δ is raised. The next attempts fail again, with new needles and with
     thick triangles whose support fails by 1e-3 to 0.57 m, until the margins no longer fit `Tolerance`
     (`SlopeViolation` after 3 attempts).
+- **Where the needles come from.** Four planes (labels 67, 69, 75 and 77) nearly meet in one point. The exact map
+  has two triple points there, 8.5e-12 apart, joined by a short edge, with plane sets {67, 69, 77} and
+  {69, 75, 77}.
+  - `CollapseShortEdges` may not collapse it: neither plane set contains the other. Its plane-set rule keeps the
+    triangles in their cells.
+  - The merge does not take it either: 8.5e-12 is above r.
+  - The needles fan out from that edge as a strip. The neighbour of each needle across its longest edge is a needle
+    too, so no flip raises the smaller altitude: a spike of the band flips (step 3 below) made none.
+  - The later attempts have more such pairs: 3.2e-10 and 3.6e-12 apart.
 - **Why not at UTM.** The same design at UTM (e_xy 9.3e-10) has no needles at all: 0 merges, 0 flips, and λ is
   raised once by measurement, to 5.3e-7. The crease points that are 4e-12 apart near the origin round to one
   position on the 9.3e-10 grid. The geometry is the same; the result depends on the frame because the grid does.
@@ -523,44 +532,68 @@ two old triangles.
 
 **The repair:**
 
-1. **Collapse first,** by the plane-set rule (`CollapseShortEdges`, as now). Toe, design-boundary and catch-line
+1. **Merge in the band.** The realization's merge (`merge_close_positions`) works as today, with a radius up to
+   the band, r_band = min(`MinFeatureSize`, R/(6·sMax)). Positions within the radius become one vertex: z is the
+   lowest plane of the union of their labels, and a barrier position only merges onto another one. Below r this is
+   today's merge.
+   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with the
+     largest distance actually moved, ℓ_max ≤ r_band, in place of r:
+     - the surface moves below S̃ by at most 4·sMax·(ℓ_max + e_xy);
+     - above it by at most 2·sMax·(ℓ_max + e_xy) plus the rounding of a vertex, which λ covers.
+
+     The merged positions are each within ℓ_max of their representative, as the derivation assumes for r. That
+     substitution and the manifold condition are what the bound review checks.
+   - **Manifold.** If the merge makes the mesh non-manifold, the realization falls back to today's radius r, and
+     then to none (today: straight to none). The check decides.
+   - The merge does not depend on λ: a realization at another λ makes the same merges.
+   - **Spike** (the repro, local): at the origin 3 merges per realization, ℓ_max = 8.5e-12 (2.3·r), no
+     non-manifold fallback. The result is `Success` in 1 attempt (2 realizations) instead of `SlopeViolation`
+     after 3, and `AssertCatchLines` and `AssertComposite` pass. At UTM there are 0 merges and the result is
+     unchanged. All terrain tests pass with it.
+2. **Collapse,** by the plane-set rule (`CollapseShortEdges`, as now). Toe, design-boundary and catch-line
    vertices are never moved.
-2. **Then flip, in one pass with today's flips.** One `FlipNeedles` pass with one deviation map and one bound
-   handles every needle below `MinFeatureSize`.
+3. **Then flip, in one pass with today's flips,** for needles without a short edge. One `FlipNeedles` pass with one
+   deviation map and one bound handles every needle below `MinFeatureSize`.
    - Below r it keeps today's rule: proper, the smaller altitude grows, and the bound ≤ maxDeviation. Today's
      successes stay.
    - A needle with r ≤ h < `MinFeatureSize` has its longest edge flipped only if all of these hold:
-   - the old diagonal's ends lie strictly on both sides of the new one (exact Orient2d);
-   - the smaller altitude of the pair strictly grows;
-   - **both new triangles have altitude ≥ `MinFeatureSize`.** The rounding part of their gradient error is then
-     what δ covers (the premise of the δ derivation above);
-   - **both new triangles pass the exact checks (i) and (ii)** against their piece, at the current λ. The exact
-     predicates decide; no estimate of the crease part is relied on;
-   - the exact deviation bound (rounded up, and for the second flip of a triangle the larger bound of the old
-     pair plus the change) is ≤ maxDeviation = min(R, λ bound − `RepairLambda`(1)). `RepairLambda`(1) is the
-     merge's part: 4·e_z + 2·sMax·(r + e_xy). Merge and flips together then need at most `RepairLambda`(1) +
-     maxDeviation ≤ the λ bound (λ is capped at its bound). Today's `mayMerge` counts two kinds of repair
-     (`RepairLambda`(2)); with one flip pass the flips are counted once, through maxDeviation.
-3. **The lowering λ is measured.** The realization adds the largest deviation bound of the flips it made to the
-   lowering it needs, as it does for the merge: λ ≥ `RepairLambda`(k) + d_max, with k the kinds of repair made. A
-   needle 4e-12 m wide costs that, not R.
-   - **The λ round is bounded.** A larger λ means another realization. It lowers z only: `Realize` rounds XY
-     independently of λ (`K.Rounded`), and the merge and `CollapseShortEdges` do not depend on λ. So the second
-     realization has the same vertices in XY and the same needles.
+     - the old diagonal's ends lie strictly on both sides of the new one (exact Orient2d);
+     - the smaller altitude of the pair strictly grows;
+     - **both new triangles have altitude ≥ `MinFeatureSize`.** The rounding part of their gradient error is then
+       what δ covers (the premise of the δ derivation above);
+     - **both new triangles pass the exact checks (i) and (ii)** against their piece, at the current λ. The exact
+       predicates decide; no estimate of the crease part is relied on;
+     - the exact deviation bound (rounded up, and for the second flip of a triangle the larger bound of the old
+       pair plus the change) is ≤ maxDeviation.
+   - maxDeviation = min(R − 4·sMax·(r_band − r), λ bound − λ_merge). λ_merge = 4·e_z + 2·sMax·(r_band + e_xy) is
+     the merge's part, set before the merges are known. Merge and flips together then need at most the λ bound
+     (λ is capped at its bound).
+   - The spike made no flip; this step covers needles that the repro does not have.
+4. **The lowering λ is measured.** The realization needs
+   λ ≥ 4·e_z + [merged: 2·sMax·(max(ℓ_max, r) + e_xy)] + [flipped: d_max], with d_max the largest deviation
+   bound of the flips made. A needle 4e-12 m wide then costs about 1e-11, not R. The spike still took the a-priori
+   2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
+   - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
+     - `Realize` rounds XY independently of λ (`K.Rounded`);
+     - the merge and `CollapseShortEdges` do not depend on λ;
+     - so the second realization has the same vertices in XY, the same merges and the same needles.
    - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
      decide again or measure again; its λ is the measured one.
    - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
      `SlopeViolation`).
-   - So one attempt has at most two realizations for its flips, and no loop between λ and the flips.
-4. **The check of all triangles decides.** A needle that no flip may repair stays, fails the check, and the result
+   - So one attempt has at most two realizations for its repairs, and no loop between λ and the repairs.
+5. **The check of all triangles decides.** A needle that no repair may fix stays, fails the check, and the result
    is `SlopeViolation` with its id. Nothing fails silently.
 
 **The budget, before and after.** Tolerance = λ bound + δ·sMax·1.1·D0 + merge + flips + facets, with the facets
 taking the rest. Let F0 = Tolerance − λ bound − δ share − merge be the share left for flips and facets.
 
 - **Before:** the flips have 2·sMax·(r + e_xy), today inside `MergeShare`.
-- **After:** the flips get a term of their own, R = max(FlipShare, min(2·sMax·`MinFeatureSize`, F0/32)), with
-  FlipShare = 2·sMax·(r + e_xy) today's flips' share (now out of `MergeShare`). The facets take F0 − R.
+- **After:** the band repairs get a term of their own, R = max(FlipShare, min(2·sMax·`MinFeatureSize`, F0/32)),
+  with FlipShare = 2·sMax·(r + e_xy) today's flips' share (now out of `MergeShare`). The facets take F0 − R.
+- R funds both band repairs:
+  - the band merge's part below S̃ beyond today's merge: 4·sMax·(r_band − r) ≤ (2/3)·R, as r_band ≤ R/(6·sMax);
+  - the flips: maxDeviation ≤ R − 4·sMax·(r_band − r), at least R/3.
 - **A design that fits today still fits.** Today it fits if F0 − FlipShare > 0.
   - If R = FlipShare, the facets keep today's share.
   - Otherwise R = min(2·sMax·`MinFeatureSize`, F0/32) ≤ F0/32 < F0, so F0 − R ≥ (31/32)·F0 > 0.
@@ -588,6 +621,7 @@ At UTM, maxDeviation is set by the λ bound, not by R. With a larger δ (an atte
 - It does not claim the same status in every frame: the grid differs, so the needles do.
 
 **Termination.**
+- The merge is one pass in the realization: each position goes at most once onto a representative.
 - A collapse removes a vertex. A flip keeps the vertices and strictly raises the smaller altitude of its pair.
 - So the pair (vertex count, descending; the sorted vector of altitudes, ascending) grows lexicographically with
   every change, over finitely many triangulations.
@@ -595,7 +629,8 @@ At UTM, maxDeviation is set by the λ bound, not by R. With a larger δ (an atte
   of 64 passes (as in `FlipNeedles`) is the guarantee.
 
 **Tests of the implementation (its own PR):**
-- the pin turned into the fix's test: the repro succeeds at (0, 0) and at UTM;
+- the pin turned into the fix's test: the repro succeeds at (0, 0) and at UTM, with band merges at (0, 0);
+- the attempt diagnostic: the first attempt's failing triangles of today (the band needles) are gone;
 - the translation check on the test set;
 - invariance over `Similarity.All()`, with the 2^k frames bitwise;
 - a needle whose flip fails the altitude rule or the exact checks stays and gives `SlopeViolation` with its id;
@@ -1145,14 +1180,22 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
 1. Correctness items found in 1c:
    - Done (#329): the overlapping composite where toe edges run along terrain edges within ulps (a rotated UTM
      frame); a crossing node nudged out of its terrain triangles takes the terrain vertex at that end.
-   - Done (this bugfix): `CompositeFailed` where `NoDaylight` is right (a toe leaving the terrain, a rotated
+   - Done (#338): `CompositeFailed` where `NoDaylight` is right (a toe leaving the terrain, a rotated
      frame). A slope-side crossing on a boundary edge of the slope surface (toe, lateral limit or cap) rounded 1 ulp
      off the slope side of the edge's line, so the slope part's edge to it dipped below the nudged terrain nodes. It
      is moved onto the slope side (`onto_slope_side`, the mirror of the nudge) and its z taken there
      (`TerrainSlopeTerrainBoundaryTests`).
-   - Next, `MinFeatureSize` relative to the input's scale (1(a)): an opt-in local frame (inputs translated to a
-     local origin, outputs back, the exact checks re-run), with a test that a toe of a few cm at scale 2^-k gives
-     the same result scaled.
+   - Next, a defect found by the 1(a) spike (item 4): near the origin a design fails with `SlopeViolation` where
+     the same design at UTM succeeds. The cause is needles in the band [64·e_xy, `MinFeatureSize`) that no repair
+     covers, from near-quadruple points. Pinned by `TerrainSlopeKnownFailureTests`. The repair (a band merge, then
+     band flips) is designed in 5.4, "Repair of the band"; the implementation follows in its own PR.
+   - Parked until the owner decides: `MinFeatureSize` relative to the input's scale (1(a)), an opt-in local frame
+     (5.8.1). Its spike showed two things:
+     - outputs translated back to UTM lose the local margins: the support check failed in every benchmark case;
+     - the exact-stage rate does not change.
+
+     The recommendation is local outputs with `UsedOrigin`. Item 4 comes first: a run near the origin must not fail
+     where UTM succeeds.
 2. Docs (OPERATIONS.md, SOURCES.md) and the terrain commands of the CLI / MCP (g3cli), finishing phase 1.
 3. Volume per cell, 2D columns first (section 9.3).
 4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
