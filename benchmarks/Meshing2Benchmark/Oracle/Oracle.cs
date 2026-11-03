@@ -1152,12 +1152,23 @@ namespace Meshing2Acceptance
                     if (!st.LinksAt.TryGetValue(p, out var list)) st.LinksAt.Add(p, list = new List<(BigInteger x, BigInteger y)>());
                     if (!list.Contains(q)) list.Add(q);
                 }
+                // the hull model: with refinement (M3) the mesher snap-rounds a hull domain's hull edges with the segments (option C), so
+                // the snapped hull is their image; without it the triangulation's boundary is the convex hull of the snapped vertices,
+                // straight between hot pixel centres, and the hull edges are no chains
+                bool roundedHull = !domain.IsHull || e.Milestone == Milestone.M3;
+                var hullEdges = roundedHull ? null : new HashSet<(Pt, Pt)>(domain.Rings[0].ring.Select((p, i) => (p, domain.Rings[0].ring[(i + 1) % domain.Rings[0].ring.Length])));
+                var sourceEdges = roundedHull ? null : new HashSet<(Pt, Pt)>(sources.SelectMany(s => new[] { (s.a, s.b), (s.b, s.a) }));
                 foreach (var g in inputEdges) {
+                    if (!roundedHull && (hullEdges.Contains((g.a, g.b)) || hullEdges.Contains((g.b, g.a))) && !sourceEdges.Contains((g.a, g.b))) continue;
                     var image = Of(g.a, g.b);
                     for (int k = 0; k + 1 < image.Count; ++k) { Link(image[k], image[k + 1]); Link(image[k + 1], image[k]); }
                 }
                 var rings = new List<(Pt[] ring, bool hole)>();
                 foreach (var (ring, hole) in domain.Rings) {
+                    if (!roundedHull && rings.Count == 0) {
+                        rings.Add((Exact.ConvexHull(hotSetList.Select(n => Centre(n, snapPixel)).ToArray()).ToArray(), false));
+                        continue;
+                    }
                     var nodes = new List<(BigInteger x, BigInteger y)>();
                     for (int i = 0; i < ring.Length; ++i) {
                         if (ring[i].Equals(ring[(i + 1) % ring.Length])) continue;
@@ -1986,6 +1997,11 @@ namespace Meshing2Acceptance
                         }
                     }
                 }
+                // (C): the mesh area against the snapped domain with all hot pixels, a report (see OracleReport.MeshMinusSnappedArea)
+                if (e.ReportSnappedArea && input.SnapTolerance > 0 && o.IdentityRules && effectiveSeeds.Count == 0) {
+                    Snap();
+                    r.MeshMinusSnappedArea = (r.Area2 - full.Domain.Area * 2) / (snapPixel * snapPixel * 2);
+                }
                 if (effectiveSeeds.Count == 0) {
                     Q diff = Q.Abs(r.Area2 - domain.Area * 2);
                     Q perimeter = domain.Perimeter2Bound * 2;
@@ -2170,6 +2186,7 @@ namespace Meshing2Acceptance
             void Segments()
             {
                 ChainsThroughHotPixels();
+                Coincidences();
                 var adjacency = new Dictionary<int, List<int>>();
                 IEnumerable<long> graphEdges = subsegmentSet ?? (IEnumerable<long>)edges.Keys;
                 foreach (long key in graphEdges) {
@@ -2275,10 +2292,82 @@ namespace Meshing2Acceptance
                         for (int at = reached; at >= 0; at = previous[at]) { moved2 = Q.Max(moved2, Exact.Dist2ToSegment(s.a, s.b, v[at])); first = at; path.Add(at); }
                         path.Reverse();
                         chainPaths.Add((piece.from, piece.to, path));
+                        ChainThroughContactedPixels(piece.from, piece.to);
                         moved2 = Q.Max(moved2, EndMove(first, piece.from, cutFrom));
                         if (s.locked) CheckLocked(s, reached, previous);
                     }
                 }
+            }
+
+            /// <summary>
+            /// O-H5, refinement keeps the chains of the input's rounding apart (owner decision on Q17, 2026-11-03): a vertex of refinement
+            /// (its pixel no hot pixel of the input's own rounding) lies on at most one chain, so it has two subsegments. Images meet only at
+            /// hot pixel centres, so a link the input's rounding already shares, split by refinement, keeps two. Three mean that the chains
+            /// of two input or hull edges share a link from there on (RefinementCoincidence: the strip between them collapsed, the class
+            /// #360 fixed in the mesher); four or more, that they meet in the vertex (RefinementPinch: a known violation, listed, not
+            /// failing yet). Only with a snap tolerance, the identity rules and reported subsegments
+            /// </summary>
+            void Coincidences()
+            {
+                if (!(input.SnapTolerance > 0) || !o.IdentityRules || subsegmentSet == null) return;
+                SnapHot();
+                var degree = new Dictionary<int, int>();
+                foreach (long key in subsegmentSet) {
+                    if (!edges.ContainsKey(key)) continue;
+                    foreach (int i in new[] { KeyA(key), KeyB(key) }) degree[i] = degree.TryGetValue(i, out int d) ? d + 1 : 1;
+                }
+                int coincidences = 0;
+                foreach (var pair in degree.OrderBy(p => p.Key)) {
+                    if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel))) continue;
+                    if (pair.Value == 3) {
+                        if (coincidences++ < 8) r.Add(Violation.RefinementCoincidence, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has 3 subsegments: two chains share a link from there, which the input's own rounding keeps apart");
+                    } else
+                        r.KnownViolations.Add(new ViolationRecord { Kind = Violation.RefinementPinch, Detail = "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has " + pair.Value + " subsegments: two chains meet there, which the input's own rounding keeps apart" });
+                }
+            }
+
+            Dictionary<(BigInteger x, BigInteger y), List<int>> verticesInPixel;
+            Dictionary<int, List<int>> subsegmentsAt;
+
+            /// <summary>
+            /// Snap rounding's defining property on the input's own rounding (Hobby 1999; task 39, coordinator 2026-11-03): every hot pixel of
+            /// the input's rounding (input points, crossings, restore pixels) that a retained piece of an input edge contacts, its end pixels
+            /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
+            /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
+            /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
+            /// the pixel). Excused, as by O-H5, where the pixel collapses in both images, or the edge's own links there collapse in the
+            /// input's rounding. Pixels of refinement are not demanded (#360 does not reroute through them)
+            /// </summary>
+            void ChainThroughContactedPixels(Pt a, Pt b)
+            {
+                if (!(input.SnapTolerance > 0) || snapHot == null || !o.IdentityRules || subsegmentSet == null) return;
+                var u = PixelOf(a, snapPixel); var w = PixelOf(b, snapPixel);
+                if (u.Equals(w)) return;
+                if (verticesInPixel == null) {
+                    verticesInPixel = new Dictionary<(BigInteger x, BigInteger y), List<int>>();
+                    for (int i = 0; i < v.Length; ++i) {
+                        var n = PixelOf(v[i], snapPixel);
+                        if (!verticesInPixel.TryGetValue(n, out var list)) verticesInPixel.Add(n, list = new List<int>());
+                        list.Add(i);
+                    }
+                    subsegmentsAt = new Dictionary<int, List<int>>();
+                    foreach (long key in subsegmentSet) { AddAdjacent(subsegmentsAt, KeyA(key), KeyB(key)); AddAdjacent(subsegmentsAt, KeyB(key), KeyA(key)); }
+                }
+                Q half = snapPixel / 2;
+                long work = 0;
+                List<(BigInteger x, BigInteger y)> image = null;
+                foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
+                    if (verticesInPixel.TryGetValue(h, out var at) && at.Any(i => subsegmentsAt.TryGetValue(i, out var next) && next.Any(q => InEnvelopeOf(a, b, v[q], half))))
+                        continue;
+                    Snap();
+                    var c = Centre(h, snapPixel);
+                    if (PixelCollapsed(full, c) && PixelCollapsed(inputOnly, c)) continue;
+                    if (image == null) image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
+                    int k = image.IndexOf(h);
+                    if (k >= 0 && (k == 0 || LinkCollapsed(inputOnly, image[k - 1], h)) && (k == image.Count - 1 || LinkCollapsed(inputOnly, h, image[k + 1]))) continue;
+                    r.Add(Violation.ChainSkipsHotPixel, "the chain of " + a + " - " + b + " does not run through the hot pixel of " + c + " that the input contacts");
+                }
+                ImageWorkForTests += work;
             }
 
             /// <summary>
