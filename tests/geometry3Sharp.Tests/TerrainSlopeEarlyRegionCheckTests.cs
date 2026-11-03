@@ -15,11 +15,13 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeEarlyRegionCheckTests
     {
-        // a wavy 32-gon (r 100 m) on waves of amplitude 10 m (TerrainSlopeBandRepairTests.WavyOnWaves): the first
+        // a wavy 40-gon (r 120 m) on waves of amplitude 10 m (TerrainSlopeBandRepairTests.WavyOnWaves): the first
         // realization passes on the slope surface and fails on the clipped region's support, λ is raised by measurement
-        static TerrainSlopeDesign Make(Similarity s, Vector3d c, bool early)
+        // (first a 32-gon of r 100 m, which with the finer facets of the snap's reserved share, TERRAIN.md 5.4, is not
+        // certified in "rotated, scale 1e-3, utm")
+        static TerrainSlopeDesign Make(Similarity s, Vector3d c, bool early, int n = 40, double r = 120)
         {
-            var d = TerrainSlopeBandRepairTests.WavyOnWaves(s, c, n: 32, r: 100, amp: 10, sp: 8);
+            var d = TerrainSlopeBandRepairTests.WavyOnWaves(s, c, n: n, r: r, amp: 10, sp: 8);
             d.EarlyRegionCheck = early;
             return d;
         }
@@ -48,8 +50,9 @@ namespace geometry3Sharp.Tests
             if (a != null) Assert.Equal("", Invariance.Difference(a, b));
         }
 
-        // near the origin and at UTM: the failing build skipped the copy, λ was raised by measurement (one attempt), and
-        // the result is the one of the check after the whole composite, bit for bit
+        // near the origin: the failing build skipped the copy, λ was raised by measurement (one attempt), and the result
+        // is the one of the check after the whole composite, bit for bit; at UTM the same (there the region passes, so
+        // nothing is skipped: the finer facets of the snap's reserved share, TERRAIN.md 5.4, have no sliver there)
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -60,7 +63,7 @@ namespace geometry3Sharp.Tests
             Assert.True(early.Compute(), early.Status + " " + early.Message);
             Assert.Equal(1, early.Attempts);
             Assert.True(early.Realizations >= 2);
-            Assert.True(early.SkippedTerrainCopies >= 1);
+            Assert.True(utm ? early.SkippedTerrainCopies == 0 : early.SkippedTerrainCopies >= 1);
             TerrainSlopeCatchLineTests.AssertCatchLines(early, false);
             TerrainSlopeCatchLineTests.AssertComposite(early);
             var late = Make(Similarity.Identity, c, false);
@@ -152,9 +155,22 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void RebuildWithAFailingRegion_SameDecisions(string name)
         {
+            RebuildWithAFailingRegion(name, 0.23, 0.123, 3.9, true);
+        }
+
+        // the design this test had first (g 0.07, c 0.123, rot 2.1): the same decisions, its composite now built at once
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RebuildWithAFailingRegion_SameDecisions_FirstDesign(string name)
+        {
+            RebuildWithAFailingRegion(name, 0.07, 0.123, 2.1, false);
+        }
+
+        static void RebuildWithAFailingRegion(string name, double g, double c, double rot, bool rebuilt)
+        {
             Similarity s = Similarity.ByName(name);
             if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
-            var d = TerrainSlopeToeCrossingTests.Make(0.07, 0.123, 2.1, false, s);
+            var d = TerrainSlopeToeCrossingTests.Make(g, c, rot, false, s);
             d.Compute();
             Assert.NotNull(d.lastOverlay);
             var plain = new SlopeComposite(d.lastOverlay, d.Pieces.Count, d.UsedMinFeatureSize, null);
@@ -168,8 +184,31 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(plain.Region, failing.Region));
             Assert.Equal(plain.Replaced, failing.Replaced);
             Assert.True(failing.Composite.TriangleCount < plain.Composite.TriangleCount);
-            // (the frame whose composite is rebuilt: 4 builds)
-            if (name == "rotated, scale 1e-3, utm") Assert.True(plain.Builds > 1, plain.Builds.ToString());
+            // (the frame whose composite is rebuilt: 2 builds; first g 0.07, c 0.123, rot 2.1, which the finer facets of the
+            // snap's reserved share (TERRAIN.md 5.4) build at once)
+            if (rebuilt && name == "rotated, scale 1e-3, utm") Assert.True(plain.Builds > 1, plain.Builds.ToString());
+        }
+
+        // the 32-gon (r 100 m) these tests had first: early and late the same result in every frame, a success with a valid
+        // composite but in "rotated, scale 1e-3, utm", where it is not certified (SlopeViolation) since the finer facets
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FirstShape_SameResult(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
+            var early = Make(s, new Vector3d(0, 0, -340), true, 32, 100);
+            early.Compute();
+            var late = Make(s, new Vector3d(0, 0, -340), false, 32, 100);
+            late.Compute();
+            AssertSame(late, early);
+            if (name == Similarity.RotatedUtmMillimetre.Name && early.Status == TerrainSlopeDesign.Statuses.SlopeViolation) {
+                Assert.Equal(TerrainSlopeDesign.StatusKinds.NotCertified, early.StatusKind);
+                return;
+            }
+            Assert.True(early.Status == TerrainSlopeDesign.Statuses.Success, early.Status + " " + early.Message);
+            TerrainSlopeCatchLineTests.AssertCatchLines(early, false);
+            TerrainSlopeCatchLineTests.AssertComposite(early);
         }
 
         [Fact]

@@ -179,8 +179,14 @@ namespace geometry3Sharp.Tests
             none.BuildComposite = false;
             Assert.True(none.Compute(), none.Message);
             Assert.Null(none.Composite); Assert.Null(none.SlopeRegion);
-            Assert.Equal(full.CutVolume, none.CutVolume);
-            Assert.Equal(full.FillVolume, none.FillVolume);
+            // (the same surfaces, unless the exact check of a run's clipped region raised its toe lowering λ by realizing
+            // again: then the volumes differ by at most the change of λ over the area; here the fill run's)
+            foreach (var pair in new[] { new[] { full.AutoCut, none.AutoCut }, new[] { full.AutoFill, none.AutoFill } }) {
+                TerrainSlopeDesign a = pair[0], b = pair[1];
+                if (a.Realizations == b.Realizations) Assert.Equal(a.Volume, b.Volume);
+                else Assert.True(Math.Abs(a.Volume - b.Volume) <= Math.Abs(a.UsedToeLowering - b.UsedToeLowering) * Math.Max(a.PlanArea, b.PlanArea) * 2, $"{a.Volume} {b.Volume}");
+            }
+            Assert.NotEqual(full.AutoFill.Realizations, none.AutoFill.Realizations);
             Assert.Equal(full.CatchLines.Count, none.CatchLines.Count);
         }
 

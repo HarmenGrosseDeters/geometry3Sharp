@@ -427,6 +427,11 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != Ter
 - **Never steeper.** Every output triangle is checked exactly against its slope and its support (the toe), so a result is
   never steeper than specified: a design that cannot be certified fails (`SlopeViolation`, `StatusKinds.NotCertified`)
   instead of returning a violating surface.
+- **Within `Tolerance`.** The composite is within `Tolerance` of the clamp of the terrain and the slope (cut below
+  the terrain, fill above it), except near the steps at the toe, the lateral limits and the cap, where the move of the
+  catch points shifts the step: within `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
+  toe crossing with `Direction` Auto. That is certified per composite: a
+  composite whose catch points moved it too far fails with `SlopeViolation` (the message names the catch point).
 - **Slopes** per toe segment (start and end, cut and fill): `SlopeSpec.Ratio(n)` (1:n), `Percent`, `Degrees`, `Rise`.
   Open toes (`Closed` false) have lateral limits; closed ones a side `Inside` or `Outside`.
 - **Statuses** and what to do (`StatusKind` says which kind a status is):
