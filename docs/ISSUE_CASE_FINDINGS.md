@@ -420,9 +420,11 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   counting each crossing once by symbolic perturbation, misses at a boundary vertex or edge: kept for counting, Q3). The
   ray parameter and the barycentrics are the same doubles as before for every ray that both rules hit (near the edge of a lone or boundary
   triangle a hit can become a miss or the reverse, as the exact decision says); no parallel tolerance
-  any more (upstream rejected rays within about 1e-8 of the plane). Cost (median of 3, 200k random rays, scratch
-  harness): `FindNearestHitTriangle` 364 -> 378 ns on a 200k-triangle sphere, 4529 -> 6075 ns on a 100k-triangle terrain
-  with oblique rays (filtered `Orient3d` instead of a few products); identical hits. Row in UPSTREAM_CHANGES.md.
+  any more (upstream rejected rays within about 1e-8 of the plane). Cost (`benchmarks/RayQueryBenchmark`, where
+  the numbers are): tree queries +2 % to +29 % per query, and the static single-triangle `Intersects` about 4.2x
+  (35 -> 146 ns), with identical decisions. In a robust repair, the ray queries of `MeshRepairOrientation` add about
+  0.9 % of the CPU time. 142 of 143 results are bit-identical on the meshes where any nearest hit changed, plus
+  controls. Row in UPSTREAM_CHANGES.md.
 
 ### Q3 (fixed): IsInside counted vertex and edge hits wrongly
 
