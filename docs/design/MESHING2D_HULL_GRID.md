@@ -193,5 +193,43 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
 | Herne, nine runs | 2 of 9 | 9 of 9 (with #309) |
 | Meshing2, QualityMesh2 and SnapRounding2 suites | | all pass, no golden row changed |
 
-**Open (Q17):** a domain narrower than a pixel everywhere (a polyline whose hull is about 7 mm wide) loses whole segment chains
-(SegmentMissing). That is a collapse beyond a corner tip, which O-H4 does not cover.
+**Q17, domains narrower than a pixel everywhere (decided 2026-11-03, within the owner decision of 2026-11-02):** a polyline whose
+hull is about 7 mm wide, on a grid of 1 cm, lost whole segment chains (SegmentMissing) and corners (VertexUnused): a collapse beyond a
+corner tip, which O-H4 does not cover.
+
+- **Two mechanisms:**
+  - Snapping: snapped corners fall on one line, so the part has no area.
+  - Refinement pinches: a grid split point on one side's chain lands in a pixel that the other side's chain passes.
+- **Neither is a defect:** without refinement the probe shows the first; with it, the segments that had a chain lose it at the pinches.
+- **Prior art:** snap rounding keeps topology "up to collapsing of features" (Guibas and Marimont 1998). Iterated snap rounding (Halperin
+  and Packer 2002) and stable snap rounding (Hershberger 2013) keep no sub-pixel feature either.
+
+**Oracle**, rule O-H5 (`CollapsedStretches`, `ChainAcrossCollapsed`, `OnCollapsedPoint`), only with an explicit tolerance:
+- **Collapsed stretch:** a stretch of an input piece is collapsed where it lies closer than a pixel to another edge of the domain's
+  boundary (not the piece itself). It is decided exactly per stretch between the piece's pixel crossings: the distance to a segment is
+  convex along a line, so both ends decide.
+- **Segments:** the chain search may cross a collapsed stretch without a chain, and only there. A stretch of a piece that is not
+  collapsed still needs its chain.
+- **Points:** an unused input point is accepted only when every input constraint and boundary edge that ends at it is collapsed along
+  its whole length. A point with one constraint on a part that has area keeps its violation; so does a corner whose edges have area.
+- **Inputs:** the stretches come from the input and the grid alone, never from the output.
+- **Cost:** the piece's pixel crossings times the boundary edges near it. It runs only for a piece without a chain or an unused point.
+- **Rejected first forms:**
+  - Pixel coverage of the input piece: sub-millimetre gaps on the hull caps, where a chain runs straight between hot pixel centres.
+  - A 3×3 pixel neighbourhood: it let through the middle of a corridor three pixels wide.
+  - The snapped images of the edges (pixel centre to pixel centre): with the distance rule they covered nothing more; dropped, so
+    fewer excuses.
+- **Self-checks:**
+  - Accept: a corridor 0.25 pixel wide, with its segment and its far points.
+  - Reject:
+    - a corridor three pixels wide whose content is missing, the segment along its middle in particular;
+    - the collapsed corridor without a tolerance;
+    - a point with one constraint on the corridor and one into the square;
+    - an unused corner whose edges have area;
+    - a pixel only touched by an edge.
+- **Reports:** the counts appear as "on collapsed parts: N segment pieces, M input points".
+
+**Mesher:** the diagnostics report the input segments with pieces on parts that snapping collapsed, and those with pieces on parts
+that refinement pinched, apart.
+
+**Follow-up (not done):** whether refinement should avoid Steiner points in pixels that two chains pass, since those make the pinch.
