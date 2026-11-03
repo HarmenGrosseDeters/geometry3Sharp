@@ -175,6 +175,49 @@ namespace Meshing2Acceptance
             }
 
             Arithmetic(Must);
+
+            // ---- the double filters of "vertex within the tube of a source" (InventedVertices, Marks) decide only what is certain. In
+            // M2 a vertex that is no input point must be a crossing: within the tube (2^-36 here) of two sources that are not collinear.
+            // The sources are diagonal, so that a vertex near them lies inside their boxes and the filter, not the box test, decides:
+            // s1 from (2, 2) to (14, 14), s2 from (2, 14) to (14, 2), and X = (8 + d, 8 - d) on s2 (up to rounding), 1.41 d off s1: d = 0.7e-11 within the
+            // tube, 1.4e-11 outside (the filter's two bounds). And X on s1's extension, 1.3e-11 beyond (14, 14) per axis: inside s1's
+            // box widened by the tube and on its line, but 1.84e-11 from its end (the filter's foot condition), with s2 through X
+            // across. Each on the fast path and on the exact reference path
+            {
+                Mesh2Input TubeIn(double[] x, double[] y) => new Mesh2Input {
+                    X = new double[] { 0, 16, 16, 0 }.Concat(x.Take(4)).ToArray(), Y = new double[] { 0, 0, 16, 16 }.Concat(y.Take(4)).ToArray(),
+                    Segments = new List<SegmentInput> { new SegmentInput(4, 5), new SegmentInput(6, 7) } };
+                Mesh2Output TubeOut(double[] x, double[] y, int[][] t) => new Mesh2Output {
+                    Status = Mesh2Status.Success, VX = new double[] { 0, 16, 16, 0 }.Concat(x).ToArray(), VY = new double[] { 0, 0, 16, 16 }.Concat(y).ToArray(),
+                    InputToVertex = new[] { 0, 1, 2, 3, 4, 5, 6, 7 }, Triangles = t, Neighbours = NeighboursOf(t), TriangleLabels = new int[t.Length],
+                    // the piece from s1's end (14, 14) to X: along s1 for the crossing, along its extension for the vertex beyond it
+                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(5, 8) }, BadTriangles = new int[0] };
+                // triangulations of the nine points (positive, not constrained: only the checks below are looked at)
+                var crossT = new[] { new[] { 4, 0, 1 }, new[] { 0, 4, 3 }, new[] { 2, 5, 1 }, new[] { 5, 2, 3 }, new[] { 5, 3, 6 }, new[] { 3, 4, 6 }, new[] { 4, 1, 7 }, new[] { 1, 5, 7 }, new[] { 4, 8, 6 }, new[] { 8, 5, 6 }, new[] { 5, 8, 7 }, new[] { 8, 4, 7 } };
+                var beyondT = new[] { new[] { 4, 0, 1 }, new[] { 0, 4, 3 }, new[] { 5, 4, 1 }, new[] { 4, 5, 3 }, new[] { 2, 3, 6 }, new[] { 3, 5, 6 }, new[] { 5, 1, 7 }, new[] { 1, 2, 7 }, new[] { 5, 8, 6 }, new[] { 8, 2, 6 }, new[] { 2, 8, 7 }, new[] { 8, 5, 7 } };
+                (Mesh2Input, Mesh2Output) Cross(double d)
+                {
+                    double[] x = { 2, 14, 2, 14, 8 + d }, y = { 2, 14, 14, 2, 8 - d };
+                    return (TubeIn(x, y), TubeOut(x, y, crossT));
+                }
+                const double px = 14 + 1.3e-11;
+                double[] bx = { 2, 14, px - 1, px + 1, px }, by = { 2, 14, px + 1, px - 1, px };
+                var tube = new OracleExpect { Milestone = Milestone.M2, Tube = new Q(1, BigInteger.One << 36) };
+                foreach (var (path, e) in new[] { ("fast", tube), ("reference", tube.WithReference()) }) {
+                    var (ci, co) = Cross(0);
+                    var crossing = Oracle.Check(ci, co, e);
+                    Must("accept (" + path + "): a crossing vertex on both sources", !crossing.Has(Violation.SteinerNotAllowed) && !crossing.Has(Violation.SubsegmentUnsourced), "report: " + crossing);
+                    (ci, co) = Cross(0.7e-11);
+                    var inside = Oracle.Check(ci, co, e);
+                    Must("accept (" + path + "): a crossing 0.99e-11 off one source, within the tube 2^-36", !inside.Has(Violation.SteinerNotAllowed), "report: " + inside);
+                    (ci, co) = Cross(1.4e-11);
+                    var outside = Oracle.Check(ci, co, e);
+                    Must("reject (" + path + "): a vertex 1.98e-11 off one source, outside the tube 2^-36, as SteinerNotAllowed", outside.Has(Violation.SteinerNotAllowed), "report: " + outside);
+                    var beyond = Oracle.Check(TubeIn(bx, by), TubeOut(bx, by, beyondT), e);
+                    Must("reject (" + path + "): a vertex on a source's extension, 1.84e-11 beyond its end, as SteinerNotAllowed", beyond.Has(Violation.SteinerNotAllowed), "report: " + beyond);
+                    Must("reject (" + path + "): a subsegment along a source's extension as SubsegmentUnsourced", beyond.Has(Violation.SubsegmentUnsourced), "report: " + beyond);
+                }
+            }
             DomainAreas(Must);
 
             // ---- M1: a set in general position, solved by the definition itself
@@ -1329,6 +1372,21 @@ namespace Meshing2Acceptance
             must("in-circle: inside", Exact.InCircle(P(0, 0), P(4, 0), P(0, 4), P(1, 1)) == 1, null);
             must("in-circle: outside", Exact.InCircle(P(0, 0), P(4, 0), P(0, 4), P(5, 5)) == -1, null);
             must("in-circle: on the circle", Exact.InCircle(P(0, 0), P(4, 0), P(4, 4), P(0, 4)) == 0, null);
+            // the double filter of "vertex within the tube of a source", tube 1: within (0.42 off the segment), farther (1.41 off it),
+            // undecided beyond the end on the line (1.41 from the end: the line alone does not decide), and undecided in its error
+            // band: a source of length 1.4e15 with the point 1.2 off it, 4.95e14 along it, where the rounding bound is 0.5
+            must("tube filter: within", Oracle.TubeFilter(0, 0, 4, 4, 2.3, 1.7, 1, 1) == 1, null);
+            must("tube filter: farther", Oracle.TubeFilter(0, 0, 4, 4, 3, 1, 1, 1) == -1, null);
+            must("tube filter: beyond the end on the line is not within", Oracle.TubeFilter(0, 0, 4, 4, 5, 5, 1, 1) == 0, null);
+            must("tube filter: before the start on the line is not within", Oracle.TubeFilter(0, 0, 4, 4, -1, -1, 1, 1) == 0, null);
+            // one product exactly zero is not both: (2, 1 + 2^-52) off the axis-parallel source, its distance squared just above 1
+            must("tube filter: one zero product does not put a point on the line", Oracle.TubeFilter(0, 0, 4, 0, 2, 1 + Math.Pow(2, -52), 1, 1) != 1, null);
+            // (found by the review's fuzzing) a point whose distance squared is 1.23: the cross product's rounding error decides it
+            must("tube filter: the upper bound includes the cross product's error",
+                Oracle.TubeFilter(0, 0, 8826902979211216.0, 2829010415293337.0, 3625859905102232.5, 1162083174595555.5, 1, 1) != 1, null);
+            must("tube filter: inside its error band it does not decide", Oracle.TubeFilter(0, 0, 1e15, 1e15, 3.5e14, 3.5e14 + 1.7, 1, 1) == 0, null);
+            must("tube filter: exactly on an axis-parallel source", Oracle.TubeFilter(0, 0, 4, 0, 2, 0, 1, 1) == 1, null);
+            must("tube filter: on an axis-parallel source's line beyond its end is not within", Oracle.TubeFilter(0, 0, 4, 0, 5.5, 0, 1, 1) == 0, null);
             // one unit in the last place decides, where every double evaluation rounds to zero
             double up = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(1e15 + 1) + 1);
             must("orient: one ulp at 1e15", Exact.Orient(P(0, 0), P(1e15, 1e15), P(1e15 + 1, up)) == 1, null);
