@@ -23,15 +23,17 @@ namespace geometry3Sharp.Tests
             var input = new Mesh2Input();
             input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
             input.Rings.Add(new RingInput(new[] { 4, 5, 6 }, true));
-            var segments = which == 30
-                ? new[] { (3.328125, 3.90625, 8.96875, 7.515625) }
+            // 292: found again after the carve (T15) took case 30's reroute away, whose target vertex lay inside the hole; it fails without
+            // the reroute fix as well (oracle INVALID before #337)
+            var segments = which == 30 ? new[] { (3.328125, 3.90625, 8.96875, 7.515625) }
+                : which == 292 ? new[] { (5.65625, 12.875, 11.765625, 1.15625) }
                 : new[] { (7.234375, 13.734375, 6.078125, 4.453125), (2.78125, 4.375, 8.75, 11.5) };
             foreach (var (ax, ay, bx, by) in segments) {
                 x.Add(ax); y.Add(ay); x.Add(bx); y.Add(by);
                 input.Segments.Add(new SegmentInput(x.Count - 2, x.Count - 1));
             }
             input.X = x.ToArray(); input.Y = y.ToArray();
-            input.SnapTolerance = which == 30 ? 0.5 : 0.25;
+            input.SnapTolerance = which == 31 ? 0.25 : 0.5;
             input.MinAngleDeg = minAngle; input.SteinerLimit = 50000;
             return input;
         }
@@ -50,6 +52,7 @@ namespace geometry3Sharp.Tests
         [InlineData(31, 0.0)]
         [InlineData(31, 20.0)]
         [InlineData(31, 25.0)]
+        [InlineData(292, 20.0)]
         public void SplitOntoAVertexAlreadyThere_RetagsTheTrianglesBetween(int which, double angle)
         {
             var input = Case(which, angle);
@@ -68,7 +71,7 @@ namespace geometry3Sharp.Tests
         public void SplitOntoAVertexAlreadyThere_Invariance(string name)
         {
             var s = Similarity.ByName(name);
-            foreach (int which in new[] { 30, 31 }) {
+            foreach (int which in new[] { 30, 31, 292 }) {
                 var plain = Case(which, 20);
                 var moved = Case(which, 20);
                 for (int i = 0; i < plain.Count; ++i) { var q = s.Apply(new Vector3d(plain.X[i], plain.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }

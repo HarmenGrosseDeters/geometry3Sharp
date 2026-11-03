@@ -17,8 +17,8 @@ namespace g3
     /// Storage: triangle t has vertices V[3t..3t+2], counter-clockwise for a real triangle. Half-edge 3t+k runs from
     /// V[3t+k] to V[3t+(k+1)%3]; H[e] is its twin. Ghost triangles carry the vertex <see cref="Infinite"/>; a ghost
     /// (a, b, inf) lies on the outer side of the hull edge from a to b (the interior is to its right). The number of
-    /// triangles, ghosts included, is 2 (vertices) - 2 at all times, so a cavity of k triangles is replaced by k + 2 and
-    /// no slot is ever freed.
+    /// triangles, ghosts included, is 2 (vertices) - 2 at all times, so a cavity of k triangles is replaced by k + 2; only
+    /// a vertex deletion (DelaunayKernel2.Deletion.cs) frees slots, two, by moving the last slots into them.
     /// </remarks>
     internal sealed partial class DelaunayKernel2
     {

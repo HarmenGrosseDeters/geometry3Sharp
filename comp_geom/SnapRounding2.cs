@@ -56,6 +56,8 @@ namespace g3
         const int RoundLimit = 1000;
 
         readonly ConstrainedMesh2Input input;
+        /// <summary> the number of points of the input; the snapped input's points from here on are hot pixel centres it made </summary>
+        internal int InputCount => input.Points.Count;
         readonly System.Threading.CancellationToken cancel;
         readonly int emin;                  // the common exponent: coordinates and pixel width are integers times 2^emin
         readonly double w;

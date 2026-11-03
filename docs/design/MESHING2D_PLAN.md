@@ -303,9 +303,57 @@ ALKIS and DGM tiles (local only).
 - **Fuzz:** the grid fuzz with holes runs refined at 20, 25 and 30 degrees with the tags checked after every operation
   (`Meshing2GridHoleTests`).
 - **Open:**
-  - **T15:** the grid fuzz with holes at pixel 1/3, 30° seed 867 and 25° seed 1367, fails with NotDelaunayGlobal on master. The
-    mesher refuses a grid split because of content inside a hole, which the oracle does not see. The owner decides between (a)
-    removing the content of holes before refinement (spec Q7) and (b) an oracle excuse; the coordinator recommends (a).
+  - **T15 (owner decision 2026-11-03: (a), with vertex deletion in the kernel):** the grid fuzz with holes at pixel 1/3, 30° seed
+    867 and 25° seed 1367, failed with NotDelaunayGlobal. A piece of an input segment lying wholly in a hole stayed a constraint;
+    `ValidGridSplit` refused the split points of a hole edge that its pixel covered, and the oracle, which sees only the output, found
+    one of them valid. Design:
+    - **Carve before refinement** (`QualityMesh2.Refiner.CarveOutside`, after `ConstrainHull`). A constraint with the outside on both
+      sides (tag < 0, no ghost) that is a piece of free segments is lifted, and Lawson's flips make the triangulation constrained
+      Delaunay again across it (`RestoreDelaunay`). Ring edges stay, also where both sides are outside (a hole reaching beyond the
+      outer ring, D5): the tag check from scratch finds the domain by ring parity and would leak through a lifted ring edge (review).
+      Then every made vertex whose triangles all lie outside is deleted: a crossing of the constrained phase, and on the grid a hot
+      pixel centre that snap rounding appended to the input (an input vertex of the snapped input with an index at or above the
+      original input's count). Input points stay, by the owner's rule; they do not block the T15 seeds, and the oracle does not
+      count them (O2 now reads "the vertices of the output's triangles").
+    - **Why deletion and not "keep and exclude"** (keep the vertices, unconstrain the pieces, skip them in `Encroached` and
+      `ValidGridSplit`): every refinement predicate would need the exclusion, now and in any later rule, and a forgotten one fails
+      silently, as T14 and T15 did. Deletion makes the triangulation equal to that of the carved input, correct by construction,
+      in one place. The same kernel operation is what lenses with deletion (A) need (Shewchuk 2002 §6), so it is not code for
+      T15 alone.
+    - **How others solve it** (prior-art check, AGENT_WORKFLOW §2):
+      - Devillers 1999/2002 (arXiv cs/9907023, IJCGA 12): ear elimination with a priority queue of ears, Delaunay without flips,
+        O(k log k).
+      - Chew 1990 (Dartmouth PCS-TR90-147): the Delaunay triangulation of a convex polygon in linear expected time, with point
+        deletion as an application.
+      - Mostafavi, Gold, Dakowicz 2003 (Computers & Geosciences 29): insertion and deletion for interactive Delaunay/Voronoi
+        editing, building on Devillers' ear elimination.
+      - The flip algorithm for constrained Delaunay: Lawson 1977; Lee and Lin 1986; Chew 1989.
+
+      Chosen: any ear triangulation, then Lawson's flips. It is the simplest correct choice for small degrees, it reuses the
+      kernel's `RestoreDelaunay`, and it keeps constraints on the link for free. CGAL's deletion was not looked at (GPL).
+    - **Kernel** (`DelaunayKernel2.DeleteVertex`). The star of p is removed. Its link polygon is triangulated by ear clipping with
+      exact orientations (Meisters 1975; the first ear from the star's start, so the result depends only on the star), and
+      Lawson's flips restore the constrained Delaunay property. The triangles outside the star had empty circumcircles with p,
+      so they keep them without it (Devillers 1999), and the flips never leave the polygon. It refuses (and changes nothing) an
+      input vertex, a vertex on the hull, a vertex with a constrained edge, or one whose triangles carry different tags. Two
+      slots are freed, and the last slots move into them: a caller holding triangle ids must not call it (the carve runs before
+      refinement has any). `ExactPlanarSimplify` does the same in 3D (ear clipping and flips on a mesh); its structures differ,
+      so nothing could be shared.
+    - **Tests:** `DelaunayKernel2DeletionTests`:
+      - random insertions and deletions on a coarse grid (many ties), checked after every deletion for consistency and
+        constrained Delaunay, and against the triangulation built afresh up to cocircular ties;
+      - the same with constraints, whose midpoints must be refused;
+      - refusals that change nothing;
+      - invariance over `Similarity.All` (2^k bit for bit);
+      - the carve's counts.
+
+      `QualityMesh2HoleCarveTests`: the seeds reduced to two segments, at 20, 25 and 30° conforming (these fail on master) and at
+      20 and 25° in the constrained mode (these pass on master too), plus invariance (identity, 2^±10, 1e3 and 1e-3 fail on master)
+      and reuse.
+    - **Effect on an older test:** the reroute case 30 of #337 no longer takes the reroute path. Its target was a vertex of a
+      segment piece inside the hole, which the carve removes. Its retag tests still pass. Case 292 (fuzz seed 292 at 20°, one
+      segment) takes the path with the carve, and fails without the reroute fix (oracle INVALID before #337). It replaces case 30 in
+      the reroute counter test.
   - **Q17:** domains narrower than a pixel.
   - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
     108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
