@@ -114,6 +114,15 @@ namespace g3
         /// <summary> mean of (s1-1)^2 + (s2-1)^2 (0 for an isometry) </summary>
         public double ARAPEnergy;
 
+        // A UV triangle is degenerate if it is by the rule for surface triangles (TriangleFrame.DegenerateShape:
+        // twice the area at most 1e-12 of the longest edge squared) and also much flatter than its surface triangle
+        // (shape ratio below 1e-4 of the surface's): a collapsed triangle (ratio about 1e-16) is caught, a surface
+        // sliver that only just passes the rule and is mapped with mild anisotropy is not
+        static bool degenerate_uv(double area2UV, double maxLenSqrUV, double area2, double maxLenSqr)
+        {
+            return TriangleFrame.DegenerateShape(area2UV, maxLenSqrUV) && !(area2UV * maxLenSqr > 1e-4 * area2 * maxLenSqrUV);
+        }
+
         /// <summary> distortion of the given UVs (indexed by vertex id) </summary>
         public static ParameterizationDistortion Compute(DMesh3 mesh, IList<Vector2d> uv)
         {
@@ -133,8 +142,8 @@ namespace g3
                 double signedUV = 0.5 * (u1 - u0).Cross(u2 - u0);
                 if (!(signedUV > 0))
                     d.FlippedTriangles++;
-                else if (TriangleFrame.DegenerateShape(2 * signedUV,
-                        Math.Max((u1 - u0).LengthSquared, Math.Max((u2 - u0).LengthSquared, (u2 - u1).LengthSquared))))
+                else if (degenerate_uv(2 * signedUV, Math.Max((u1 - u0).LengthSquared, Math.Max((u2 - u0).LengthSquared, (u2 - u1).LengthSquared)),
+                        2 * f.Area, Math.Max((p1 - p0).LengthSquared, Math.Max((p2 - p0).LengthSquared, (p2 - p1).LengthSquared))))
                     d.DegenerateUVTriangles++;
                 Matrix2d J = f.Jacobian(u0, u1, u2);
                 double s1, s2;

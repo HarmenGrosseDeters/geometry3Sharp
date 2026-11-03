@@ -175,7 +175,9 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   promise) return the new status `ParameterizationStatus.FlippedTriangles` instead of `Success` when their map has a
   flipped, zero-area or not finite UV triangle, or one degenerate by the rule for surface triangles (twice the area at
   most 1e-12 of the longest edge squared, `TriangleFrame.DegenerateShape`, new count
-  `ParameterizationDistortion.DegenerateUVTriangles`), on a non-degenerate surface triangle
+  `ParameterizationDistortion.DegenerateUVTriangles`) and also much flatter than its surface triangle (shape ratio
+  below 1e-4 of the surface's, so a surface sliver mapped with mild anisotropy stays valid), on a non-degenerate surface
+  triangle
   (`ParameterizationResult.RejectFlipped`, parameterization/MeshParameterization.cs). The degenerate count is needed:
   the collapsed triangles have areas of rounding noise (about 1e-16), whose sign is positive at UTM coordinates, so a
   sign test alone said `Success` there. The result keeps its map and distortion (UV is not null for this status), so

@@ -456,7 +456,7 @@ namespace geometry3Sharp.Tests
             // instance gives the same again. The flat annulus (no flips) stays a success.
             Similarity sim = Similarity.ByName(name);
             DMesh3 m0 = SeamlessCylinder(8, 3), m = Invariance.Transformed(m0, sim);
-            ParameterizationResult l0 = new LSCMParameterization(m0).Compute();
+            ParameterizationResult l0 = new LSCMParameterization(m0).Compute(), a0 = new ARAPParameterization(m0).Compute();
             var lscm = new LSCMParameterization(m);
             var arap = new ARAPParameterization(m);
             foreach (int pass in new[] { 0, 1 }) {
@@ -471,13 +471,38 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(Bad(r.Distortion), Bad(ParameterizationDistortion.Compute(m, r.UV)));
                 }
                 Assert.Equal(Bad(l0.Distortion), Bad(l.Distortion));
+                Assert.Equal(Bad(a0.Distortion), Bad(a.Distortion));
                 if (sim.IsExact)
-                    foreach (int v in m.VertexIndices())
+                    foreach (int v in m.VertexIndices()) {
                         Assert.Equal(sim.Scale * l0.UV[v], l.UV[v]);
+                        Assert.Equal(sim.Scale * a0.UV[v], a.UV[v]);
+                    }
             }
             DMesh3 flat = Invariance.Transformed(FlatAnnulus(), sim);
             Assert.True(new LSCMParameterization(flat).Compute().Succeeded);
             Assert.True(new ARAPParameterization(flat).Compute().Succeeded);
+        }
+
+        [Fact]
+        public void ARAP_AnisotropicMapOfASurfaceSliver_IsSuccess()
+        {
+            // a fan of three triangles, one a sliver that just passes the surface rule (twice its area 3e-12 of its
+            // longest edge squared); the linear map (x, 0.25 y) is injective, and its sliver image (ratio 7.5e-13)
+            // is no collapse: Success, no degenerate UV triangle (review of finding P1)
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0));
+            int c = m.AppendVertex(new Vector3d(0.5, 3e-12, 0)), d = m.AppendVertex(new Vector3d(0.5, 1, 0));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); m.AppendTriangle(c, b, d);
+            var uv = new Vector2d[m.MaxVertexID];
+            foreach (int v in m.VertexIndices()) uv[v] = new Vector2d(m.GetVertex(v).x, 0.25 * m.GetVertex(v).y);
+            var r = new ARAPParameterization(m) { InitialUV = uv, MaxIterations = 0 }.Compute();
+            Assert.Equal(ParameterizationStatus.Success, r.Status);
+            Assert.Equal(0, r.Distortion.FlippedTriangles);
+            Assert.Equal(0, r.Distortion.DegenerateUVTriangles);
+            // the same image collapsed onto the line y = 0 is degenerate
+            uv[c] = new Vector2d(0.5, 0);
+            var dist = ParameterizationDistortion.Compute(m, uv);
+            Assert.Equal(1, dist.FlippedTriangles + dist.DegenerateUVTriangles);
         }
 
         [Fact]
