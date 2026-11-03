@@ -271,7 +271,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   fail (the test above and the 8 cases of the invariance theory, whose quad must give `SolverFailed` under every
   similarity; on a curved cap the Disk UVs are the same bit for bit under 2^k scales).
 
-### P3 (open): LSCM with automatic pins is not symmetric
+### P3 (by design): LSCM with automatic pins is not symmetric
 
 - Test: `TwoIdenticalRectangularHoles_SymmetricResult` (case `_LscmAutomaticPins`).
 - Issue: https://github.com/GeometryCollective/boundary-first-flattening/issues/89.
@@ -285,6 +285,15 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 - Fix ideas: pin-free spectral conformal parameterization (Mullen et al. 2008; an eigenvector solve, medium cost), or
   natural boundary conditions with a symmetric choice of pins (cheap but only helps symmetric inputs). Expected
   effect small (1e-4); low priority.
+- Reclassified as by design (November 2026, `claude/fix-p3`): no small deterministic pin rule is symmetric on this
+  input. A rule that rates pairs by the geometry alone (eg the two boundary vertices farthest apart) gives a mirror
+  image of a pair the same rating; a unique best pair is mapped onto itself and would be symmetric, but here the
+  farthest pairs are the two diagonals of the plate, which are each other's mirror images at the same distance, so
+  any such rule ties and its tie-break (by id or order) is not symmetric. A symmetric choice needs the symmetry
+  itself or a pin-free method (spectral conformal, above), and changing the pins changes every automatic-pin LSCM
+  result (and ARAP, SLIM and the atlas that start from it). The test no longer lists the case as a known failure: it
+  bounds the asymmetry at 1e-3 of the UV size and checks that both diagonals are farthest pairs; with mirrored pins
+  LSCM is symmetric to 1e-9. The class documentation states the pin dependence.
 
 ### Notes (no finding)
 
