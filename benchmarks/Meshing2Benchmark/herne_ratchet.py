@@ -61,7 +61,8 @@ def main():
         text = subprocess.run(cmd, capture_output=True, text=True).stdout
         seconds = time.time() - start
         valid = any(line.startswith("VALID") for line in text.splitlines())
-        # (a failing violation since the mesher's pinch rule: one VIOLATION line each, at most 8 listed; before, a known-violation count)
+        # (a failing violation since the mesher's pinch rule: one VIOLATION line each, at most 8 listed by the oracle, so the count
+        # saturates at 8; fine while every limit is 0. Before, a known-violation count)
         match = re.search(r"(\d+) RefinementPinch", text)
         pinches = (int(match.group(1)) if match else 0) + sum(1 for line in text.splitlines() if line.startswith("VIOLATION RefinementPinch"))
         area = re.search(r"mesh area - snapped area (-?[0-9.]+) px2", text)

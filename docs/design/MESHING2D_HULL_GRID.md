@@ -397,8 +397,8 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
   rounding already shares keeps two subsegments when refinement splits it. Not seen: a shared stretch whose two ends are both hot
   pixels of the input's rounding (degree 2 throughout; no case known). Upper bound with the chain rule on: 0 on the fuzz (seeds
   0 to 2999, M3) and on all 12 Herne runs; with it off: 69 in 63 fuzz inputs and 1 to 74 per Herne run (482 in all).
-- **RefinementPinch (known violation, not failing; 0 since the mesher's pinch rule):** four or more subsegments at a vertex of refinement: two chains meet in
-  it. Listed on the report, the verdict unchanged. Fuzz seed 527: a spike whose two edges have the separate links (9, 8) - (13, 12)
+- **RefinementPinch (a failing violation since the mesher's pinch rule; a known violation, listed only, before):** four or more subsegments at a vertex of refinement: two chains meet in
+  it. Fuzz seed 527: a spike whose two edges have the separate links (9, 8) - (13, 12)
   and (13, 12) - (10, 10), both crossing pixel (12, 11); refinement puts a vertex there and both chains run through it. On Herne the
   same at scale: boundary segments run almost collinear with the hull less than a pixel (1 cm) inside it, and a vertex of refinement
   in a pixel both cross pinches the hull chain and the segment's. #360's rule refuses reroutes onto another chain's edge, not this.
@@ -407,8 +407,14 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
   all 12 fuzz pinches, 2026-11-04). **The mesher's pinch rule** (`ValidGridSplit`): a split point may not be a vertex of refinement
   that a constraint of another chain (no shared source) already runs through; through a hot pixel of the input's rounding (input
   point, crossing, restore pixel) the chains still meet, as snap rounding routes them. The oracle mirrors it in `GridUnsplittable`:
-  a pixel that is no hot pixel of the input's rounding and holds an end of another subsegment is no split point, so the
-  subsegments the rule leaves unsplittable are excused as the grid's others are (without the mirror, 6 of the 12 Herne runs and 7 of
+  a pixel that is no hot pixel of the input's rounding and holds an end of another chain's subsegment is no split point, so the
+  subsegments the rule leaves unsplittable are excused as the grid's others are. The mirror is no broader than the rule, and may
+  demand more: the oracle counts a subsegment as the piece's own chain when its ends lie in the (slightly widened) envelope of an
+  input constraint of the piece, the mesher when it shares an input source with the piece, so the oracle never excludes a candidate
+  the mesher would take, but may demand one the mesher refuses (a segment within a pixel of another along it; 0 cases in 3000
+  segment fuzz runs, review). Self-checks 5c and 5d hand the oracle meshes whose only candidate is on another chain's vertex
+  (excused), on a free vertex, on a hot pixel of the input's rounding with another chain there, next to another chain's end, and
+  on the own chain's (all judged), and kill the mutants that widen the exclusion at its call site (without the mirror, 6 of the 12 Herne runs and 7 of
   6000 segment fuzz runs are rejected: NotDelaunay at conforming, AngleBelowBound in the constrained quality mode). Ratchet, exact in
   both directions, 0 since the rule: the fuzz (`RefinementPinches_Ratchet`; 13 in 12 inputs at the rule's introduction, 12 in 11
   after #372) and every Herne run (`herne_ratchet.py`). Before the rule (lenses cut them in the constrained quality mode: fuzz 11 in

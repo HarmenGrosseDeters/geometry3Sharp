@@ -617,10 +617,13 @@ namespace Meshing2Acceptance
                         if (!snapHot.Contains(PixelOf(q, snapPixel))
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
-                        // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, exactly: q no hot pixel of the input's rounding, and
-                        // a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its ends)
+                        // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, no broader: q no hot pixel of the input's rounding,
+                        // and a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its
+                        // ends. By envelope, where the mesher goes by source: a subsegment along the piece within a pixel counts as its own
+                        // here, so the oracle may demand a split the mesher refuses, never excuse one it would make; the envelope a hair
+                        // wider, so that ties go to "own", ie to demanded; self-checks 5c, 5d)
                         if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
-                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], half) && InEnvelopeOf(s.a, s.b, v[g.B], half))))) continue;
+                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];

@@ -115,7 +115,7 @@ namespace geometry3Sharp.Tests
         public void SnappedAreaReport_ChangesNoVerdict(int seed)
         {
             var input = StarPolygonFuzz.Make(seed);
-            // (seed 527 meshed without the pinch rule: a known violation to carry through)
+            // (seed 527 meshed without the pinch rule: a pinch, a failing violation, to carry through)
             var o = seed == 527 ? WithoutThePinchRule(input) : new QualityMesh2Candidate().Run(input);
             var plain = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
             var withArea = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, ReportSnappedArea = true });

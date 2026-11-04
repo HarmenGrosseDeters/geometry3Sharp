@@ -37,7 +37,7 @@ namespace Meshing2Acceptance
         /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule,
         /// G3_M2_KEEPAPART (0 or 1) the refinement rule of #360 that keeps chains apart (0: the refinement before it);
         /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; G3_M2_PINCHFREE (0 or 1) the pinch rule (a split
-        /// point is never another chain's vertex of refinement); unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
+        /// point is never another chain's vertex of refinement; unset, it follows G3_M2_KEEPAPART, so G3_M2_KEEPAPART=0 drops both); unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
         public static void ApplyRefinementVariant()
