@@ -20,12 +20,14 @@ import subprocess
 import sys
 import time
 
-# RefinementPinch per run, measured at the change that introduced the rule (MESHING2D_HULL_GRID.md section 7)
+# RefinementPinch per run, measured at the change that introduced the rule (MESHING2D_HULL_GRID.md section 7); cq 371800 q20 85 -> 92
+# with lenses (A), Chew's deletion before a bisection (#370): the deletion changes the mesh, and seven more split points land where two
+# chains meet (all pinch vertices are split points, none a circumcentre); the mesher's pinch fix (1) comes next
 LIMITS = {
     "base_371800_5710600_q20s": 215, "base_371800_5710600_q30s": 217,
     "base_373600_5709000_q20s": 64, "base_373600_5709000_q30s": 66,
     "base_381000_5710400_q20s": 21, "base_381000_5710400_q30s": 21,
-    "cq_371800_5710600_q20s": 85, "cq_371800_5710600_q30s": 217,
+    "cq_371800_5710600_q20s": 92, "cq_371800_5710600_q30s": 217,
     "cq_373600_5709000_q20s": 44, "cq_373600_5709000_q30s": 66,
     "cq_381000_5710400_q20s": 11, "cq_381000_5710400_q30s": 21,
 }
