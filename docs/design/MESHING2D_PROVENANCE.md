@@ -140,6 +140,17 @@ mesher). The global empty-circumcircle pass stays global: the Delaunay lemma (a 
 Delaunay; [CDS] ch. 2, [L77]) needs a triangulation of the convex hull of the vertices, while O2 asks for empty circles against all vertices
 across holes and concave boundaries, where the output has no triangles; it is indexed by a 2-d tree instead.
 
+The fast oracle (`MESHING2D_FAST_ORACLE.md`, owner 2026-11-04) follows certifying algorithms ([MMNS11]: a checker that is simpler than
+the algorithm and independent of it). Its first steps only index and filter what the reference path scans, with an equivalence argument
+per replacement, and `Oracle.CheckFastPathForTests` checks each one against the scan as it runs:
+- `DomainEdgesNear`: a grid over the domain's edge boxes, queried with the point's box widened by the distance;
+- the sources of the merge zone and of the marks: the existing source grid and tube filter;
+- `GridBlocked`: vertices by exact pixel index, and a grid over the subsegments;
+- `ZoneFilter` / `RadiusBounds` / `WithinZone`: the zone distance in doubles, decided both ways, with the slack argued in their docs.
+
+All of these are own work. CGAL's `is_valid()` was considered as a concept only, and no code was read.
+- [MMNS11] R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 5(2), 2011.
+
 ### The `m2.snap` gates (#274)
 
 The oracle rules for an explicit tolerance follow D14 (owner, 2026-11-01: snap rounding on a grid of pixel tol, Hobby 1999, with the restore

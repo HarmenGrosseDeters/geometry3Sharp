@@ -55,6 +55,15 @@ namespace Meshing2Acceptance
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
         [ThreadStatic] public static bool ForceReference;
 
+        /// <summary>
+        /// tests only (per thread): every index and filter of the fast path is checked against the scan or exact test it replaces, which
+        /// throws on a difference (InvalidOperationException, "fast path differs: ..."): the domain edges near a point, the sources near
+        /// a triangle and a subsegment, the vertices and subsegments of a pixel, and the zone tests' filters at their call sites
+        /// </summary>
+        [ThreadStatic] public static bool CheckFastPathForTests;
+
+        internal static void FastPathDiffers(string what) => throw new InvalidOperationException("fast path differs: " + what);
+
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
         /// <summary> self-checks: the iterated snap-rounded image of a-b among the pixels of the given hot points (of snapping, met by
@@ -73,6 +82,16 @@ namespace Meshing2Acceptance
 
         /// <summary> the double filter of "vertex within the tube of a source", for the self-checks: -1 farther, +1 within, 0 undecided </summary>
         public static int TubeFilter(double ax, double ay, double bx, double by, double px, double py, double tube2Lo, double tube2Hi) => Run.TubeFilter(ax, ay, bx, by, px, py, tube2Lo, tube2Hi);
+        /// <summary> the double filter of "within the merge zone" (InMergeZone, distance to a source or to the apex): -1 farther, +1 within, 0 undecided </summary>
+        public static int ZoneFilter(double ax, double ay, double bx, double by, double px, double py, double lo, double hi) => Run.ZoneFilter(ax, ay, bx, by, px, py, lo, hi);
+        /// <summary> the bounds in doubles of a radius given by its square (the merge zone's) </summary>
+        public static void RadiusBounds(Q r2, out double lo, out double hi) => Run.RadiusBounds(r2, out lo, out hi);
+        /// <summary> the query box of DomainEdgesNear: every point within sqrt(d2) of p lies in it </summary>
+        public static bool DistanceQueryBox(Pt p, Q d2, out double xl, out double xh, out double yl, out double yh) => Run.DistanceQueryBox(p, d2, out xl, out xh, out yl, out yh);
+        /// <summary> the box in doubles around segment a-b (unknown: NaN), as the oracle's grids store it </summary>
+        public static double[] SegmentBox(Pt a, Pt b) { var box = new double[4]; Run.SegmentBox(a, b, 0, box, 0); return box; }
+        /// <summary> the decision of a zone test from the filter's answer and the exact test (called only when the filter cannot decide) </summary>
+        public static bool WithinZone(int filter, Func<bool> exact) => Run.WithinZone(filter, exact);
         /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
         internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b) => Run.AtLeastShewchukBound(q, r, s, apex, a, b);
 
@@ -98,9 +117,14 @@ namespace Meshing2Acceptance
             static int KeyA(long k) => (int)(k >> 32);
             static int KeyB(long k) => (int)(uint)k;
 
+            System.Diagnostics.Stopwatch watch;
+            void Lap(string name) { if (watch != null) { Console.Error.WriteLine("ORACLE " + name + " " + watch.Elapsed.TotalMilliseconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " ms"); watch.Restart(); } }
+
             public OracleReport Execute()
             {
+                watch = Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null ? System.Diagnostics.Stopwatch.StartNew() : null;
                 if (!CheckInput()) return r;
+                Lap("input");
                 if (o == null) { r.Add(Violation.StatusInconsistent, "no result"); return r; }
                 if (o.Status == Mesh2Status.Failed || e.ExpectFailure) {
                     if (!e.ExpectFailure) r.Add(Violation.StatusInconsistent, "Failed on an input with a required result: " + o.FailureKind);
@@ -109,12 +133,15 @@ namespace Meshing2Acceptance
                     return r;
                 }
                 if (!Vertices()) return r;
+                Lap("vertices");
                 domain = new Domain(input, !e.Reference);
+                Lap("domain");
                 bool degenerate = domain.Area.Sign == 0;
                 tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
                 tube2 = tube * tube;
                 if (!Indices()) return r;
                 if (!Identity()) return r;
+                Lap("indices, identity");
                 if (o.Triangles.Length == 0) {
                     if (o.Status != Mesh2Status.Empty) r.Add(Violation.StatusInconsistent, o.Status + " with no triangles");
                     // as for the area of a mesh (Coverage): geometry may move by the tube (O11 merges points within it), so a domain whose
@@ -127,13 +154,11 @@ namespace Meshing2Acceptance
                 }
                 if (o.Status != Mesh2Status.Success) r.Add(Violation.StatusInconsistent, o.Status + " with triangles");
                 if (degenerate) r.Add(Violation.TrianglesOnDegenerate, "triangles on an input without area");
-                var watch = Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null ? System.Diagnostics.Stopwatch.StartNew() : null;
-                void Lap(string name) { if (watch != null) { Console.Error.WriteLine("ORACLE " + name + " " + watch.ElapsedMilliseconds + " ms"); watch.Restart(); } }
                 Orientation(); Lap("orientation");
                 if (!r.Ok) return r; // the rest assumes positive triangles
                 EdgesAndNeighbours(); Lap("edges");
-                Sources();
-                Filters();
+                Sources(); Lap("sources");
+                Filters(); Lap("filters");
                 Conformity(); Lap("conformity");
                 Crossings();
                 InventedVertices(); Lap("crossings, invented");
@@ -311,20 +336,67 @@ namespace Meshing2Acceptance
                 Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
                 Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
                 Q kx = Index(centre.Qx), ky = Index(centre.Qy);
-                for (int i = 0; i < v.Length; ++i) if (Index(v[i].Qx) == kx && Index(v[i].Qy) == ky && AtPixelCentre(v[i], v[i], pixel)) return true;
+                // (the vertices by their exact pixel index, computed once: every vertex's index was recomputed in rationals for every
+                // triangle, a third of the angle check on the Herne tiles. The question is whether any vertex of that pixel is at its
+                // centre, so the order does not matter; the reference path scans)
+                bool ScanVertices() { for (int i = 0; i < v.Length; ++i) if (Index(v[i].Qx) == kx && Index(v[i].Qy) == ky && AtPixelCentre(v[i], v[i], pixel)) return true; return false; }
+                if (e.Reference) {
+                    if (ScanVertices()) return true;
+                } else {
+                    if (verticesByPixel == null) {
+                        verticesByPixel = new Dictionary<(BigInteger, BigInteger), List<int>>();
+                        for (int i = 0; i < v.Length; ++i) {
+                            var key = (Index(v[i].Qx).N, Index(v[i].Qy).N);
+                            if (!verticesByPixel.TryGetValue(key, out var list)) verticesByPixel.Add(key, list = new List<int>());
+                            list.Add(i);
+                        }
+                    }
+                    bool found = verticesByPixel.TryGetValue((kx.N, ky.N), out var inPixel) && inPixel.Any(i => AtPixelCentre(v[i], v[i], pixel));
+                    if (CheckFastPathForTests && found != ScanVertices()) FastPathDiffers("a vertex at the centre of the circumcentre's pixel");
+                    if (found) return true;
+                }
                 Q x0 = kx * pixel - half, x1 = kx * pixel + half, y0 = ky * pixel - half, y1 = ky * pixel + half;
-                foreach (var s in o.Subsegments) {
+                // (the subsegments whose box in doubles meets the pixel's, from a grid: a subsegment whose box misses it fails the exact
+                // box test below, which is kept; the reference path scans all)
+                IEnumerable<SubsegmentOutput> subsegments = o.Subsegments;
+                if (!e.Reference && x0.Bounds(out double bx0, out _) && x1.Bounds(out _, out double bx1) && y0.Bounds(out double by0, out _) && y1.Bounds(out _, out double by1)) {
+                    if (subsegmentGrid == null) {
+                        subsegmentBox = new double[4 * o.Subsegments.Count];
+                        for (int k = 0; k < o.Subsegments.Count; ++k) SegmentBox(v[o.Subsegments[k].A], v[o.Subsegments[k].B], 0, subsegmentBox, 4 * k);
+                        subsegmentGrid = new BoxGrid(subsegmentBox, o.Subsegments.Count);
+                    }
+                    var inBox = subsegmentGrid.Query(bx0, bx1, by0, by1);
+                    if (CheckFastPathForTests) {
+                        // the grid's superset of the boxes, and of the subsegments the exact box test keeps (a set, not only the answer)
+                        BoxGrid.CheckSuperset(subsegmentBox, o.Subsegments.Count, bx0, bx1, by0, by1, inBox, "the subsegments at a pixel");
+                        var got = new HashSet<int>(inBox);
+                        for (int k = 0; k < o.Subsegments.Count; ++k) {
+                            Pt p = v[o.Subsegments[k].A], q = v[o.Subsegments[k].B];
+                            bool kept = !(Q.Max(p.Qx, q.Qx) <= x0 || Q.Min(p.Qx, q.Qx) >= x1 || Q.Max(p.Qy, q.Qy) <= y0 || Q.Min(p.Qy, q.Qy) >= y1);
+                            if (kept && !got.Contains(k)) FastPathDiffers("subsegment " + k + " meets the circumcentre's pixel and is missing from the grid's answer");
+                        }
+                    }
+                    subsegments = inBox.Select(k => o.Subsegments[k]);
+                }
+                bool Crosses(SubsegmentOutput s)
+                {
                     Pt p = v[s.A], q = v[s.B];
-                    if (Q.Max(p.Qx, q.Qx) <= x0 || Q.Min(p.Qx, q.Qx) >= x1 || Q.Max(p.Qy, q.Qy) <= y0 || Q.Min(p.Qy, q.Qy) >= y1) continue;
+                    if (Q.Max(p.Qx, q.Qx) <= x0 || Q.Min(p.Qx, q.Qx) >= x1 || Q.Max(p.Qy, q.Qy) <= y0 || Q.Min(p.Qy, q.Qy) >= y1) return false;
                     int pos = 0, neg = 0;
                     foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
                         int or = Exact.Orient(p, q, corner);
                         if (or > 0) ++pos; else if (or < 0) ++neg;
                     }
-                    if (pos > 0 && neg > 0) return true;
+                    return pos > 0 && neg > 0;
                 }
-                return false;
+                bool crossed = subsegments.Any(Crosses);
+                if (CheckFastPathForTests && !ReferenceEquals(subsegments, o.Subsegments) && crossed != o.Subsegments.Any(Crosses)) FastPathDiffers("a subsegment across the circumcentre's pixel");
+                return crossed;
             }
+
+            Dictionary<(BigInteger, BigInteger), List<int>> verticesByPixel;
+            BoxGrid subsegmentGrid;
+            double[] subsegmentBox;
 
             Dictionary<long, bool> unsplittableMemo;
             BoxGrid unsplittableSubGrid, unsplittableVertexGrid;
@@ -1789,7 +1861,7 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the box of segment a-b in doubles, around the exact one, widened by reach; NaN where it is unknown </summary>
-            static void SegmentBox(Pt a, Pt b, double reach, double[] box, int at)
+            internal static void SegmentBox(Pt a, Pt b, double reach, double[] box, int at)
             {
                 double axl = 0, axh = 0, ayl = 0, ayh = 0, bxl = 0, bxh = 0, byl = 0, byh = 0;
                 bool known = !double.IsNaN(reach) && a.Bounds(false, out axl, out axh) && a.Bounds(true, out ayl, out ayh)
@@ -1851,6 +1923,17 @@ namespace Meshing2Acceptance
                     j0 = Clamp((yl - y0) / cell, ny); j1 = Clamp((yh - y0) / cell, ny);
                 }
                 /// <summary> the boxes that may meet [xl, xh] x [yl, yh] (with the box's own coordinates outside the grid clamped to its border cells) </summary>
+                /// <summary> check mode: every box of `box` that meets the query box (or is unknown) is in `result`, the grid's answer
+                /// (Oracle.CheckFastPathForTests: the grid's superset property itself, independent of the exact test after it) </summary>
+                public static void CheckSuperset(double[] box, int count, double xl, double xh, double yl, double yh, List<int> result, string what)
+                {
+                    var got = new HashSet<int>(result);
+                    for (int i = 0; i < count; ++i) {
+                        bool meets = double.IsNaN(box[4 * i]) || !(box[4 * i + 1] < xl || box[4 * i] > xh || box[4 * i + 3] < yl || box[4 * i + 2] > yh);
+                        if (meets && !got.Contains(i)) FastPathDiffers(what + ": box " + i + " meets the query and is missing from the grid's answer");
+                    }
+                }
+
                 public List<int> Query(double xl, double xh, double yl, double yh)
                 {
                     var result = new List<int>(unknown);
@@ -2053,7 +2136,18 @@ namespace Meshing2Acceptance
                     foreach (var pair in edges) {
                         if (pair.Value.Count != 1) continue;
                         foreach (int id in new[] { pair.Value[0].a, pair.Value[0].b }) {
-                            Q d = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                            // (the edges within the tube only: the minimum counts only when it is within the tube, and then its edge is
+                            // among them)
+                            var near = DomainEdgesNear(v[id], tube2);
+                            if (CheckFastPathForTests && hullEdges.Count > 0) {
+                                Q full = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                                Q got = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                                if (full <= tube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
+                            }
+                            // (no hull edge at all, every input point the same: the scan's minimum of nothing threw; the domain is degenerate
+                            // and reported as such, TrianglesOnDegenerate)
+                            if (near.Count == 0) continue;
+                            Q d = near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
                             if (d <= tube2) moved2 = Q.Max(moved2, d);
                         }
                     }
@@ -2080,7 +2174,7 @@ namespace Meshing2Acceptance
                     bool constrained = constraintEdges.Contains(pair.Key);
                     if (domain.IsHull) {
                         // on a hull edge: within the tube of it, so exactly on it if the tube is 0
-                        bool hull = domain.Edges().Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2)
+                        bool hull = DomainEdgesNear(v[a], tube2).Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2)
                             || CutsMergedHullCorners(v[a], v[b]);
                         if (!hull && !(constrained && SourceCovers(a, b))) r.Add(e.Milestone == Milestone.M1 ? Violation.HullBoundary : Violation.BoundaryNotConstrained,
                             "boundary edge " + a + "-" + b + " neither on the hull nor on a constraint");
@@ -2100,7 +2194,7 @@ namespace Meshing2Acceptance
                         // with moved geometry the true boundary may be up to sqrt(moved2) away from the edge, the probe L/16 beyond it:
                         // (sqrt(m) + L/16)^2 <= 2 m + 2 L^2 / 256
                         Q near2 = moved2 * 2 + (dx * dx + dy * dy) * new Q(2, 256);
-                        if (domain.Classify(probe) != Where.Inside || (moved2.Sign > 0 && domain.Edges().Any(sg => Exact.Dist2ToSegment(sg.a, sg.b, probe) <= near2)) || LocateExact(probe) >= 0) continue;
+                        if (domain.Classify(probe) != Where.Inside || (moved2.Sign > 0 && DomainEdgesNear(probe, near2).Any(sg => Exact.Dist2ToSegment(sg.a, sg.b, probe) <= near2)) || LocateExact(probe) >= 0) continue;
                         if (gaps++ < 8) r.Add(Violation.AreaMismatch, "the domain continues uncovered beyond boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + ", at " + probe);
                     }
                 }
@@ -2115,7 +2209,53 @@ namespace Meshing2Acceptance
                 foreach (var p in e.Kept) if (LocateExact(Pt.FromDoubles(p[0], p[1])) < 0) r.Add(Violation.KeptPointMissing, "(" + p[0] + ", " + p[1] + ") must be in a triangle");
             }
 
-            bool NearBoundary(Pt p) => domain.Edges().Any(s => Exact.Dist2ToSegment(s.a, s.b, p) <= moved2);
+            bool NearBoundary(Pt p) => DomainEdgesNear(p, moved2).Any(s => Exact.Dist2ToSegment(s.a, s.b, p) <= moved2);
+
+            List<(Pt a, Pt b)> domainEdges;
+            double[] domainEdgeBox;
+            BoxGrid domainEdgeGrid;
+
+            /// <summary>
+            /// The domain's ring edges that may lie within sqrt(d2) of p: on the fast path those whose box in doubles (around the exact one,
+            /// as <see cref="SegmentBox"/>) meets p's box widened by sqrt(d2) from above, from a grid over the edge boxes; all of them on
+            /// the reference path or where a box is unknown. Equivalence: the distance from p to a segment is at least the distance from p
+            /// to the segment's box, so an edge whose box misses p's widened box is farther than sqrt(d2) and fails the exact test the
+            /// caller runs; the grid returns a superset of the boxes meeting the query box (its cells are monotone in the coordinates).
+            /// The edges come in the order of Edges(), so a caller taking the first or the minimum sees the same as with the full scan.
+            /// </summary>
+            /// <summary>
+            /// The box in doubles that holds every point within sqrt(d2) of p: p's box (around the exact point) widened by sqrt(d2) from above,
+            /// the square root of d2's upper bound times 1 + 1e-12 plus 1e-300 (Bounds pads by 1e-13 relative and 1e-300 absolute; the
+            /// square root and the subtraction round by far less). False when it cannot be computed (the caller scans)
+            /// </summary>
+            internal static bool DistanceQueryBox(Pt p, Q d2, out double xl, out double xh, out double yl, out double yh)
+            {
+                xl = xh = yl = yh = 0;
+                if (d2.Sign < 0 || !d2.Bounds(out _, out double d2hi) || !p.Bounds(false, out double pxl, out double pxh) || !p.Bounds(true, out double pyl, out double pyh)) return false;
+                double reach = Math.Sqrt(Math.Max(0, d2hi)) * (1 + 1e-12) + 1e-300;
+                if (double.IsInfinity(reach) || double.IsNaN(reach)) return false;
+                xl = pxl - reach; xh = pxh + reach; yl = pyl - reach; yh = pyh + reach;
+                return !double.IsInfinity(xl) && !double.IsInfinity(xh) && !double.IsInfinity(yl) && !double.IsInfinity(yh);
+            }
+
+            List<(Pt a, Pt b)> DomainEdgesNear(Pt p, Q d2)
+            {
+                if (domainEdges == null) {
+                    domainEdges = domain.Edges().ToList();
+                    domainEdgeBox = new double[4 * domainEdges.Count];
+                    for (int k = 0; k < domainEdges.Count; ++k) SegmentBox(domainEdges[k].a, domainEdges[k].b, 0, domainEdgeBox, 4 * k);
+                    if (!e.Reference) domainEdgeGrid = new BoxGrid(domainEdgeBox, domainEdges.Count);
+                }
+                if (domainEdgeGrid == null || !DistanceQueryBox(p, d2, out double qxl, out double qxh, out double qyl, out double qyh)) return domainEdges;
+                var found = domainEdgeGrid.Query(qxl, qxh, qyl, qyh);
+                if (CheckFastPathForTests) {
+                    BoxGrid.CheckSuperset(domainEdgeBox, domainEdges.Count, qxl, qxh, qyl, qyh, found, "the domain edges");
+                    var indexed = new HashSet<int>(found);
+                    for (int k = 0; k < domainEdges.Count; ++k)
+                        if (Exact.Dist2ToSegment(domainEdges[k].a, domainEdges[k].b, p) <= d2 && !indexed.Contains(k)) FastPathDiffers("domain edge " + k + " within the distance missing from the index");
+                }
+                return found.Select(k => domainEdges[k]).ToList();
+            }
 
             bool SourceCovers(int a, int b) => sources.Any(s => WithinTube(s, v[a]) && WithinTube(s, v[b]));
 
@@ -2246,8 +2386,8 @@ namespace Meshing2Acceptance
             /// </summary>
             void Segments()
             {
-                ChainsThroughHotPixels();
-                Coincidences();
+                ChainsThroughHotPixels(); Lap("segments: chains through hot pixels");
+                Coincidences(); Lap("segments: coincidences");
                 var adjacency = new Dictionary<int, List<int>>();
                 IEnumerable<long> graphEdges = subsegmentSet ?? (IEnumerable<long>)edges.Keys;
                 foreach (long key in graphEdges) {
@@ -3034,8 +3174,23 @@ namespace Meshing2Acceptance
                 // way (ValidGridSplit decides).
                 var hull = input.SnapTolerance > 0 ? new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>() : HullSources();
                 var near = new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>();
-                for (int k = 0; k < sources.Count; ++k)
-                    if (t.Any(i => MayBeNear(k, i) && WithinTube(sources[k], v[i]))) near.Add(sources[k]);
+                // (on the fast path the sources from the grid over their boxes widened by the tube, queried with the triangle's box, and
+                // each decided by NearSource, the filter in doubles before the exact test: the same list, in the same order, as the scan of
+                // all sources with the exact test, which the reference path keeps; the exact distances were most of the angle check)
+                if (!e.Reference && t.All(i => vKnown[i])) {
+                    if (sourceGridForZones == null) sourceGridForZones = new BoxGrid(sBox, sources.Count);
+                    double xl = t.Min(i => vxl[i]), xh = t.Max(i => vxh[i]), yl = t.Min(i => vyl[i]), yh = t.Max(i => vyh[i]);
+                    var candidates = sourceGridForZones.Query(xl, xh, yl, yh);
+                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(sBox, sources.Count, xl, xh, yl, yh, candidates, "the sources near a triangle");
+                    foreach (int k in candidates)
+                        if (t.Any(i => NearSource(k, i))) near.Add(sources[k]);
+                    if (CheckFastPathForTests) {
+                        var scan = Enumerable.Range(0, sources.Count).Where(k => t.Any(i => WithinTube(sources[k], v[i]))).Select(k => sources[k]).ToList();
+                        if (!scan.SequenceEqual(near)) FastPathDiffers("the sources near a triangle (merge zone)");
+                    }
+                } else
+                    for (int k = 0; k < sources.Count; ++k)
+                        if (t.Any(i => MayBeNear(k, i) && WithinTube(sources[k], v[i]))) near.Add(sources[k]);
                 for (int k = 0; k < hull.Count; ++k)
                     if (t.Any(i => NearHull(k, i) && WithinTube(hull[k], v[i]))) near.Add(hull[k]);
                 double tube2Hi = double.PositiveInfinity;
@@ -3081,18 +3236,21 @@ namespace Meshing2Acceptance
                         if (!pair.crosses) continue;
                         if (pair.sin2 >= sin2Low) continue;
                         Q zone2 = pair.zone2;
-                        // (a filter in doubles: the vertex surely farther from c than the zone's radius; the distance's rounding is far
-                        // below 2^-40 of the coordinates' magnitude, the slack allowed)
+                        // (depends on the pair only: before the distances, which it would otherwise follow; the conditions are all exits)
+                        if (!pair.apexOnBoth) continue;
+                        // (a filter in doubles both ways: the vertex surely farther from c than the zone's radius, or surely nearer; the
+                        // distance's rounding is far below 2^-40 of the coordinates' magnitude, the slack allowed. All of the Herne tiles'
+                        // 625 000 exact tests here came out nearer)
+                        int f = 0;
                         if (Fast && vKnown[t[0]] && pair.zoneHi < double.PositiveInfinity) {
                             var ca = PtD(c.a); var cb = PtD(c.b);
-                            double px = o.VX[t[0]], py = o.VY[t[0]];
-                            double m = Math.Max(Math.Max(Math.Abs(px), Math.Abs(py)), Math.Max(Math.Max(Math.Abs(ca.x), Math.Abs(ca.y)), Math.Max(Math.Abs(cb.x), Math.Abs(cb.y))));
-                            if (FilterRange(m) && Math.Sqrt(Dist2D(ca, cb, px, py)) - m * 1e-12 > pair.zoneHi) continue;
+                            f = ZoneFilter(ca.x, ca.y, cb.x, cb.y, o.VX[t[0]], o.VY[t[0]], pair.zoneLo, pair.zoneHi);
                         }
-                        if (Exact.Dist2ToSegment(c.a, c.b, v[t[0]]) > zone2) continue;
-                        if (!pair.apexOnBoth) continue;
+                        var vc = c; var vt = v[t[0]];
+                        if (CheckFastPathForTests && f != 0 && (f > 0) != (Exact.Dist2ToSegment(vc.a, vc.b, vt) <= zone2)) FastPathDiffers("a vertex's distance to the merge zone's source");
+                        if (!WithinZone(f, () => Exact.Dist2ToSegment(vc.a, vc.b, vt) <= zone2)) continue;
                         var apex = pair.apex;
-                        if (!t.All(i => Exact.Len2(apex, v[i]) <= zone2)) continue;
+                        if (!t.All(i => ApexWithinZone(apex, i, pair))) continue;
                         // the small angle is that between a branch of a and a branch of c leaving the apex (their directions with a
                         // positive dot product), and the triangle lies on its side: on the obtuse side (eg past a collinear split point
                         // of one source, or at a corner of nearly 180 degrees) the sources are not within the tube of each other, and the
@@ -3104,7 +3262,22 @@ namespace Meshing2Acceptance
                 return false;
             }
 
-            Dictionary<(int, int), (bool crosses, Q sin2, Q zone2, double zoneHi, bool apexOnBoth, Pt apex)> pairs;
+            Dictionary<(int, int), (bool crosses, Q sin2, Q zone2, double zoneHi, double zoneLo, bool apexOnBoth, Pt apex)> pairs;
+
+            /// <summary> vertex i lies within the zone's radius of the apex (|apex - v_i|^2 &lt;= zone2), with the filter in doubles of the zone
+            /// test in front both ways (the apex rounded to doubles moves by an ulp of its magnitude, inside the slack) </summary>
+            bool ApexWithinZone(Pt apex, int i, (bool crosses, Q sin2, Q zone2, double zoneHi, double zoneLo, bool apexOnBoth, Pt apex) pair)
+            {
+                if (Fast && vKnown[i] && pair.zoneHi < double.PositiveInfinity) {
+                    var ad = PtD(apex);
+                    // (a point is the segment from it to itself)
+                    int f = ZoneFilter(ad.x, ad.y, ad.x, ad.y, o.VX[i], o.VY[i], pair.zoneLo, pair.zoneHi);
+                    if (CheckFastPathForTests && f != 0 && (f > 0) != (Exact.Len2(apex, v[i]) <= pair.zone2)) FastPathDiffers("a vertex's distance to the merge zone's apex");
+                    return WithinZone(f, () => Exact.Len2(apex, v[i]) <= pair.zone2);
+                }
+                return Exact.Len2(apex, v[i]) <= pair.zone2;
+            }
+            BoxGrid sourceGridForZones;
 
             static (double x, double y) PtD(Pt p) => (ToD(p.Qx), ToD(p.Qy));
 
@@ -3151,6 +3324,38 @@ namespace Meshing2Acceptance
                 return (o1 > e1 && o2 > e2) || (o1 < -e1 && o2 < -e2);
             }
 
+            /// <summary>
+            /// The radius sqrt(r2) between lo and hi in doubles: hi from above (infinite when unknown), lo from below (0 when unknown).
+            /// Bounds gives r2 within 1e-13 relative; the square root halves that, and its own rounding is far inside the factors 1 +- 1e-12
+            /// </summary>
+            internal static void RadiusBounds(Q r2, out double lo, out double hi)
+            {
+                bool known = r2.Bounds(out double l2, out double h2) && !double.IsInfinity(h2);
+                hi = known ? Math.Sqrt(Math.Max(0, h2)) * (1 + 1e-12) : double.PositiveInfinity;
+                lo = known && l2 > 0 ? Math.Sqrt(l2) * (1 - 1e-12) : 0;
+            }
+
+            /// <summary>
+            /// The double filter of "point p within radius r of segment a-b" (a == b: of a point), r given by its bounds lo &lt;= r &lt;= hi:
+            /// -1 certainly farther, +1 certainly within, 0 undecided (the exact test decides). The inputs are the doubles of the exact
+            /// points or within an ulp of them; the distance in doubles is then within 1e-12 of the largest magnitude m of the
+            /// exact one (the rounding of the projection and the square root is a few ulps of m), which is the slack on either side.
+            /// Magnitudes in [1e-140, 1e140] only (no square overflows or falls into the subnormals)
+            /// </summary>
+            internal static int ZoneFilter(double ax, double ay, double bx, double by, double px, double py, double lo, double hi)
+            {
+                if (double.IsNaN(ax) || double.IsNaN(ay) || double.IsNaN(bx) || double.IsNaN(by) || double.IsInfinity(hi)) return 0;
+                double m = Math.Max(Math.Max(Math.Abs(px), Math.Abs(py)), Math.Max(Math.Max(Math.Abs(ax), Math.Abs(ay)), Math.Max(Math.Abs(bx), Math.Abs(by))));
+                if (!FilterRange(m)) return 0;
+                double dist = Math.Sqrt(Dist2D((ax, ay), (bx, by), px, py));
+                if (dist - m * 1e-12 > hi) return -1;
+                if (dist + m * 1e-12 < lo) return 1;
+                return 0;
+            }
+
+            /// <summary> the decision of a zone test: the filter's where it decides (-1 farther, +1 within), else the exact test's </summary>
+            internal static bool WithinZone(int filter, Func<bool> exact) => filter != 0 ? filter > 0 : exact();
+
             /// <summary> squared distance in doubles from (px, py) to segment ab (a filter only) </summary>
             static double Dist2D((double x, double y) a, (double x, double y) b, double px, double py)
             {
@@ -3163,22 +3368,23 @@ namespace Meshing2Acceptance
 
             /// <summary> for sources a and c: whether their lines cross, the sine squared of their angle, the merge zone's radius squared
             /// (ZoneFactor tube / sin)^2, and their crossing point if it lies on both (exact; memoized per pair of source ids) </summary>
-            (bool crosses, Q sin2, Q zone2, double zoneHi, bool apexOnBoth, Pt apex) Pair((Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c)
+            (bool crosses, Q sin2, Q zone2, double zoneHi, double zoneLo, bool apexOnBoth, Pt apex) Pair((Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c)
             {
-                pairs = pairs ?? new Dictionary<(int, int), (bool, Q, Q, double, bool, Pt)>();
+                pairs = pairs ?? new Dictionary<(int, int), (bool, Q, Q, double, double, bool, Pt)>();
                 if (pairs.TryGetValue((a.sourceId, c.sourceId), out var known)) return known;
                 Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
                 Q cross = d1x * d2y - d1y * d2x;
-                (bool, Q, Q, double, bool, Pt) result;
-                if (cross.Sign == 0) result = (false, Q.Zero, Q.Zero, double.PositiveInfinity, false, default(Pt));
+                (bool, Q, Q, double, double, bool, Pt) result;
+                if (cross.Sign == 0) result = (false, Q.Zero, Q.Zero, double.PositiveInfinity, 0, false, default(Pt));
                 else {
                     Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
                     Q zone2 = tube2 * (ZoneFactor * ZoneFactor) / sin2;   // (ZoneFactor tube / sin)^2
                     Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
                     bool onBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
                     // (the zone's radius from above in doubles, for the filter; infinite when it cannot be bounded)
-                    double zoneHi = zone2.Bounds(out _, out double z2h) && !double.IsInfinity(z2h) ? Math.Sqrt(z2h) * (1 + 1e-12) : double.PositiveInfinity;
-                    result = (true, sin2, zone2, zoneHi, onBoth, onBoth ? new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y) : default(Pt));
+                    // (and from below, for the filter's other side; 0 when it cannot be bounded, so that nothing is surely within)
+                    RadiusBounds(zone2, out double zoneLo, out double zoneHi);
+                    result = (true, sin2, zone2, zoneHi, zoneLo, onBoth, onBoth ? new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y) : default(Pt));
                 }
                 pairs[(a.sourceId, c.sourceId)] = result;
                 return result;
@@ -3345,10 +3551,18 @@ namespace Meshing2Acceptance
             void Marks()
             {
                 if (o.Subsegments == null) return;
+                // on the fast path the sources come from a grid over their boxes widened by the tube, queried with the box of the
+                // subsegment's first end: a superset, in ascending order, of the sources whose box meets it, and MayBeNear drops only
+                // sources certainly farther than the tube, so `covering` is the list of the full scan (as in InventedVertices)
+                var grid = e.Reference ? null : new BoxGrid(sBox, sources.Count);
                 foreach (var s in o.Subsegments) {
-                    var covering = Enumerable.Range(0, sources.Count).Where(k => NearSource(k, s.A) && NearSource(k, s.B)).Select(k => sources[k]).ToList();
+                    var candidates = grid != null && vKnown[s.A] ? grid.Query(vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A]) : Enumerable.Range(0, sources.Count).ToList();
+                    if (CheckFastPathForTests && grid != null && vKnown[s.A]) BoxGrid.CheckSuperset(sBox, sources.Count, vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A], candidates, "the sources at a subsegment's end");
+                    var covering = candidates.Where(k => NearSource(k, s.A) && NearSource(k, s.B)).Select(k => sources[k]).ToList();
+                    if (CheckFastPathForTests && !covering.SequenceEqual(sources.Where(c => WithinTube(c, v[s.A]) && WithinTube(c, v[s.B]))))
+                        FastPathDiffers("the sources covering subsegment " + s.A + "-" + s.B);
                     if (covering.Count == 0) {
-                        bool onHull = domain.IsHull && domain.Edges().Any(h => Exact.Dist2ToSegment(h.a, h.b, v[s.A]) <= tube2 && Exact.Dist2ToSegment(h.a, h.b, v[s.B]) <= tube2);
+                        bool onHull = domain.IsHull && DomainEdgesNear(v[s.A], tube2).Any(h => Exact.Dist2ToSegment(h.a, h.b, v[s.A]) <= tube2 && Exact.Dist2ToSegment(h.a, h.b, v[s.B]) <= tube2);
                         if (!onHull) r.Add(Violation.SubsegmentUnsourced, "subsegment " + s.A + "-" + s.B + " lies on no input constraint");
                         continue;
                     }
