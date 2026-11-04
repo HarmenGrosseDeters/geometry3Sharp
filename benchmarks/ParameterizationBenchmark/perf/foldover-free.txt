@@ -1,0 +1,47 @@
+﻿D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp.worktrees\brief1-foldover-free-maps-resumption\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+fixture,method,boundary,status,iterations,converged,flips,degenerate,symmetric_dirichlet,overlap_pairs,milliseconds
+folded-disc,SLIM-default,free,Success,1,True,0,0,4,0,24.6193
+folded-disc,start,unchanged,FlippedTriangles,0,False,4,0,Infinity,54,0.2044
+folded-disc,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.7398
+diagnostic=initial UVs have flipped or degenerate triangles
+folded-disc,FoldoverFree,fixed,Success,115,False,0,0,5.2237076566121,0,76.025
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=1.305926914153025; target=UNSATISFIED
+annulus-8x3,LSCM,two-pins,FlippedTriangles,0,True,1,1,Infinity,5,1.8859
+diagnostic=LSCM: of 48 UV triangles 1 flipped or of zero area, 1 degenerate
+annulus-8x3,SLIM-default,free,InvalidTopology,0,False,NA,NA,NA,NA,0.3624
+diagnostic=mesh is not a topological disc (2 boundary loops, Euler characteristic 0); cut it with MeshDiscCut
+annulus_boundary_vertices=0:2.328460334294555:-5.347847416070293E-16;1:1.404254655641653:1.311807653265183;2:1.292555137530099E-15:1.7490768710202416;3:-1.4042546556416484:1.3118076532651797;4:-2.3284603342945442:-5.347847416070293E-16;5:-1.404254655641649:-1.3118076532651795;6:-2.3265992475541783E-15:-1.7490768710202405;7:1.404254655641648:-1.3118076532651834
+boundary_y_range=-1.7490768710202405:1.7490768710202416; feasibility=undetermined-not-certified
+annulus_boundary_vertices=25:0.49878244338532973:6.556747706363866E-15;24:0.7175023676635481:3.5997823689714286E-15;31:0.49878244338532246:-1.9533311503780907E-15;30:-4.136176440096317E-15:-5.364294121751206E-15;29:-0.49878244338532973:-5.150689722528738E-15;28:-0.717502367663552:-2.7968776588196785E-15;27:-0.49878244338532535:6.108613732441407E-16;26:3.877665412590297E-15:4.5040252634807486E-15
+boundary_y_range=-5.364294121751206E-15:6.556747706363866E-15; feasibility=undetermined-not-certified
+annulus-8x3,start,unchanged,FlippedTriangles,0,False,1,1,Infinity,5,0.1136
+annulus-8x3,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.1221
+diagnostic=initial UVs have flipped or degenerate triangles
+annulus-8x3,FoldoverFree,fixed,Success,132,False,0,0,686.9691923981898,0,55.846
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=NaN; target=UNSATISFIED
+three-peaks-30,LSCM,two-pins,FlippedTriangles,0,True,19,0,Infinity,2486,63.3515
+diagnostic=LSCM: of 1800 UV triangles 19 flipped or of zero area, 0 degenerate
+three-peaks-30,SLIM-default,free,Success,69,True,0,0,6.894915679752159,0,344.8116
+three-peaks-30,start,unchanged,FlippedTriangles,0,False,19,0,Infinity,2486,1.0383
+three-peaks-30,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,2.0936
+diagnostic=initial UVs have flipped or degenerate triangles
+three-peaks-30,FoldoverFree,fixed,Success,169,False,0,0,17.150550444535156,1344,860.5868
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=2.4874198962142553; target=UNSATISFIED
+torus-stock status=Success; components=1; cone_components=0; charts=18; fallback_components=1
+torus-cone-cut,SLIM-default,free,Success,33,True,0,0,4.005961599952599,8,68.5053
+torus-cone-cut,start,unchanged,Success,0,False,0,0,4.0657132767588955,8,1.0587
+torus-cone-cut,SLIM-same-start,free,Success,32,True,0,0,4.006618716536014,8,23.4854
+torus-cone-cut,FoldoverFree,fixed,Success,132,False,0,0,4.061251309608658,8,449.7957
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=1.0138018571263174; target=met
+torus-repair globally_injective=False; accepted_by_auto_limits=False; counterfactual_cones_fallback_components=1; production_defaults_unchanged=true

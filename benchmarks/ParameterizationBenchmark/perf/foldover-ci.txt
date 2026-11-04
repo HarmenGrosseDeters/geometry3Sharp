@@ -1,0 +1,30 @@
+﻿Full local CI command: powershell -File <session-files>\brief1-full-ci.ps1
+Per-step commands match CLAUDE.md; core-all-targets additionally runs dotnet build geometry3Sharp_netstandard.csproj -c Release.
+All steps completed; exit codes below are unmodified output:
+core-tests exit=1 seconds=3826,6
+cli-tests exit=1 seconds=27,7
+core-all-targets exit=0 seconds=3,0
+core-pack exit=0 seconds=17,6
+core-smoke exit=0 seconds=4,6
+core-net48 exit=0 seconds=26,1
+clipper-tests exit=0 seconds=29,6
+clipper-pack exit=0 seconds=22,3
+clipper-smoke exit=0 seconds=4,5
+clipper-net48 exit=0 seconds=8,3
+benchmark-BooleanComparison exit=0 seconds=6,8
+benchmark-IntrinsicBenchmark exit=0 seconds=2,9
+benchmark-Meshing2Benchmark exit=0 seconds=4,0
+benchmark-Meshing2Oracle exit=0 seconds=1,7
+benchmark-MeshRepairBenchmark exit=0 seconds=3,0
+benchmark-ParameterizationBenchmark exit=0 seconds=2,9
+benchmark-PredicateComparison exit=0 seconds=2,8
+benchmark-QuadtreeBenchmark exit=0 seconds=2,8
+benchmark-RayQueryBenchmark exit=0 seconds=2,6
+benchmark-ReducerBenchmark exit=0 seconds=2,8
+benchmark-RemeshBenchmark exit=0 seconds=2,9
+benchmark-RemeshQualityBenchmark exit=0 seconds=2,9
+benchmark-SelfIntersectionBenchmark exit=0 seconds=2,8
+benchmark-SnapRoundingExperiment exit=0 seconds=3,0
+benchmark-TerrainBenchmark exit=0 seconds=3,0
+benchmark-UVAtlasBenchmark exit=0 seconds=2,8
+predicate-compiler exit=0 seconds=2,3

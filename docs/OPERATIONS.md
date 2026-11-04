@@ -382,7 +382,7 @@ if (cut.Compute())
     new BoundaryFirstFlattening(cut.CutMesh).Compute();
 ```
 
-All parameterizations need discs. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
+The disc-based parameterizations need a cut before processing closed surfaces. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
 shortest paths: on a closed surface of genus g, 2g short loops; between boundary loops, shortest paths; for a
 sphere, a path), and splits the vertices along the seams in a new mesh. `ConeFlattening` is BFF with cone
 singularities: cones are placed greedily where the conformal scale factor is largest, the mesh is cut through
@@ -394,6 +394,30 @@ with exact predicates (`UVOverlap`) on the double UVs; the float UVs stored in t
 defects caused only by rounding (tiny or sliver triangles, eg vertices 1e-7 apart) are reported in
 `FloatRoundingDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
 enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
+
+### Untangling supplied UVs without moving the boundary
+
+`new FoldoverFreeParameterization(mesh, startUV).Compute()` attempts to remove inverted/degenerate UV
+triangles on one connected open manifold mesh, including annuli. It rejects degenerate surface triangles.
+UVs are indexed by vertex id; all used vertices need finite entries. Every boundary vertex is fixed bit for
+bit. The input mesh and UV list are unchanged and reread on each Compute. No atlas integration is enabled.
+
+Options: `MaxIterations` (200, zero retains the initial map), `InitialEpsilon` (1) and `MinimumEpsilon`
+(1e-12, positive and <= InitialEpsilon). The epsilon schedule is equation 6 of Garanzha et al.; no alternate
+optimizer or free-boundary mode. `Success` requires finite UVs, zero flipped/degenerate triangles and finite
+symmetric Dirichlet distortion; it does **not** mean global injectivity or optimal distortion. Use
+`UVOverlap.Compute(mesh, result.UV)` separately. `Converged` is false when the returned best candidate is not
+the converged iterate. `Energy` is the normalized shape/area objective evaluated at InitialEpsilon, not
+symmetric Dirichlet; surface area is normalized to one and UVs use a translated power-of-two frame.
+
+Iteration exhaustion or stalling with invalid triangles returns `FlippedTriangles` with the best finite map
+(fewest invalid triangles, then lowest common-epsilon energy). Invalid input/constraints and unrepresentable
+arithmetic/solver failures have distinct failure statuses and no UVs. The method cannot guarantee a feasible
+fixed boundary, a bounded iteration count to success, global overlap removal or SLIM-equivalent distortion.
+A collapsed locked edge or invalid fully locked triangle is rejected; near-collapsed boundaries are not
+silently declared infeasible. At extreme source/UV scales the existing distortion diagnostics can be
+unrepresentable even after internal normalization; this returns `SolverFailed`, not success.
+See [measured acceptance](../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md).
 
 | Method | Charts | Use |
 |---|---|---|

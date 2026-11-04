@@ -175,6 +175,18 @@ Implemented from the papers, no code taken over.
 | BFF disk mode: exterior angles of the boundary polygon inscribed in a circle (inscribed angle theorem, the longest edge on the major arc if the center lies outside) | elementary geometry; own derivation |
 | ARAP and SLIM with degenerate triangles: mollified cotangents and a flat layout along the longest edge (ARAP), unit springs on the current UV edges in the SLIM proxy | own adaptation of the intrinsic mollification of Sharp & Crane 2020 (see Intrinsic triangulations); the rotations as Procrustes over the edges, O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007 |
 
+## Fixed-boundary untangling (`FoldoverFreeParameterization`)
+
+Implemented from V. Garanzha, I. Kaporin, L. Kudryavtseva, F. Protais, N. Ray and D. Sokolov,
+[*Foldover-free maps in 50 lines of code*, ACM TOG 40(4), 2021](https://arxiv.org/html/2102.03069v1),
+sections 2.2–2.3 (regularized shape/area objective and equation-6 epsilon schedule), section 4.1 and Appendix A
+(analytic gradient and modified Hessian). The implementation specializes the lifted convex Hessian to 2D,
+uses the existing constrained sparse Cholesky solver and bounded Armijo backtracking. Normalization, result
+retention and validation are local integration choices. No authors' implementation, libigl, GPL/MPL or native
+AD code was read or ported. SLIM's publication and the previously MIT-checked TinyAD README were architectural
+prior art only. Conditional convergence (section 4.2) is not an iteration-bound guarantee; section 3.3's global
+overlap limitation remains. See [design and limits](design/FOLDOVER_FREE_MAPS.md).
+
 ## Minimal enclosing circle (`ContMinCircle2`)
 
 Replaces the WildMagic port. Implemented from one paper, no code taken over: E. Welzl, *Smallest enclosing disks (balls and ellipsoids)*, 1991. The three nested loops were derived from Welzl's recursion; no paper by Seidel was consulted for them.
