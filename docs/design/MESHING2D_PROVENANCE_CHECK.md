@@ -166,3 +166,85 @@ Four places were stated more precisely, applied in the same PR as this report:
   from outside and from seeds is what the definition forces.
 - **E4** (oracle section): the two bounds cited as [Sh97]'s, without the identifiers of Shewchuk's public-domain predicates code.
   The same identifiers in the comment at `Oracle.cs` 556-558 are public domain, not mesher expression, and stay as they are.
+
+## Delta check of the mesher as of 2026-11-04 (stage 6b-3)
+
+A dirty-side session (2026-11-04, the reference session of `g3-meshing-references`) repeated the method of 6b-2 on what changed
+in the 2D mesher after the first two passes. As above, this section names only our files, routines and lines; the evidence on the
+reference side is kept outside this repository.
+
+- **Our side**: master `d9006aa` (after #384). Changed since the state of 6b-2 (`7ed6db7`):
+  - `comp_geom/QualityMesh2.cs`: +1026 lines. Off-centres, diametral lenses with the deletion before a bisection, the
+    worst-first queue, grading steps 1-2 (candidate choice, petal), the carve before refinement, the pinch fix and the
+    point-location hint.
+  - `comp_geom/DelaunayKernel2.Deletion.cs`: new, 134 lines, vertex deletion.
+  - `comp_geom/DelaunayKernel2.cs`: the location hint and the slot bookkeeping for deletion.
+  - `comp_geom/DelaunayKernel2.Constraints.cs`: one line.
+  - `comp_geom/ConstrainedMesh2.cs`: hull segments from snapped chains, collapsed outer rings, dropping unused made vertices.
+  - `comp_geom/ConstrainedDelaunayMesh2.cs`: hull sources, the walk counter.
+  - `comp_geom/SnapRounding2.cs`: `SnapGrid` double filters, collapsed outer rings, hull chains.
+  - The oracle: 8 files of `benchmarks/Meshing2Benchmark/Oracle`; token comparison only, as before.
+
+  All mesher files were compared in full, not only the changed lines: 11 files, 57 000 tokens.
+- **Reference side read**:
+  - Triangle 1.6 (`triangle.zip` from `netlib.org/voronoi`, sha256 `1766327a…f8480`, the archive of 6b-2);
+  - Triangle.NET upstream `wo80/Triangle.NET`, commit `fa6f2fdb` (the first pass's version), all 82 C# files of `src/Triangle`.
+- **Tool**: the token comparison of 6b-2 with its settings: comments, strings and preprocessor lines stripped; identifiers, numbers
+  and type keywords each mapped to one token; `->` mapped to `.`; 12-grams, 8-grams as a second setting; longest covered run;
+  shared comment word 6-grams, strings, numbers and identifiers of six or more letters.
+  - The script of 6b-2 was not kept, so it was written again from that description (own Python 3 code, reads files as data).
+  - Recalibrated before use: noise floor from the same unrelated upstream files, and the positive control Triangle.NET against
+    `triangle.c`.
+- **By hand**: every routine added or changed since 6b-2, against both references, for data layout, decomposition, control flow,
+  constants, names, comments and messages.
+
+### Tool result
+
+| | against `triangle.c`: share in shared 12-grams (8-grams) | longest run | comment 6-grams | strings |
+|---|---:|---:|---:|---:|
+| our mesher, 11 files | 4.3 to 11.9 % (23 to 47 %); `Triangulation2Result.cs` 33 % (115 tokens, unchanged) | 18 to 53 | 2 (`QualityMesh2.cs`, see D3) | 0 |
+| `QualityMesh2.cs` (19 011 tokens) | 5.6 % (33.3 %) | 49 (line 677, the exact dot-product sign, as in 6b-2) | 2 | 0 |
+| `DelaunayKernel2.Deletion.cs` (1 211 tokens) | 11.9 % (47.4 %) | 34 (lines 106-109: array moves of a slot) | 0 | 0 |
+| *noise floor: unrelated upstream files* | *6.1 to 15.7 % (33 to 49 %)* | *up to 38* | *1* | *0* |
+| *positive control: Triangle.NET, 7 core files* | *18.5 to 68.0 % (52 to 94 %)* | *27 to 928* | *155 to 2250 per file* | *–* |
+
+| | against Triangle.NET (82 files): share in shared 12-grams, all files / best single file | longest run | comment 6-grams |
+|---|---:|---:|---:|
+| our mesher, 11 files | 24.5 to 40.7 % / 5.7 to 14.3 % (two small type files higher: 56.8 % and 88.7 %, enums and declarations) | 32 to 90 | 3 (D3; one `<summary> <param name>` phrase) |
+| *noise floor: the same unrelated upstream files* | *38.4 to 53.0 % / 9.3 to 18.7 %* | *47 to 121* | *1* |
+
+The rewritten tool reproduces 6b-2's calibration within a few points (6b-2: noise 5.8 to 13.5 %, positive control 17.9 to 53.7 %,
+runs up to 928). It still separates the known port by a wide margin.
+
+The mesher stays at or below the noise floor. That includes the 1026 new lines of `QualityMesh2.cs`, whose share went from 6.2 % to
+5.6 %. The new runs at or above 30 tokens were inspected; all are generic:
+- the slot moves of `ReleaseSlot`;
+- the dot-product sign of 6b-2;
+- call sequences and enum lists in the oracle (`Oracle.cs` 159-171, a list of check calls, 107 tokens; `Model.cs` 102-108, the
+  violation enum, 93 tokens; the first pass's oracle runs reached 85).
+
+No string literal or message of the mesher is shared.
+
+### Findings
+
+| # | Our file : lines (`d9006aa`) | Routine | Class | Category | Note |
+|---|---|---|---|---|---|
+| D1 | `QualityMesh2.cs` 192-254 | `TriangleQueue`: a binary heap keyed by sin² of the smallest angle, ties in queue order, FIFO for the rest | C | structure, control flow | Worst first by angle is our own ordering (MESHING2D_GRADING.md); the reference's queue orders by another key with another structure. |
+| D2 | `QualityMesh2.cs` 646-660, 683-716 | `Encroached`, `EncroachesOn`, `InLens` | B | control flow, constant | The lens of [S02] §6.4: the apex angle of at least 120° (lens radius \|ac\|/√3), tested as a negative dot product and 4 (pa·pc)² ≥ \|pa\|²\|pc\|². Comparing an angle through a squared dot product is the generic formula. Ours has a fixed 120° lens (the one [S02] proves the 25.65° bound for) and decides it exactly (a filter, then integers). The reference's lens and its parameter differ. |
+| D3 | `QualityMesh2.cs` 23 (doc comment); 114 | wording | B | comment | Two comment 6-grams are shared with `triangle.c`. "… a vertex in its diametral lens" is the definition of lens encroachment, in our sentence "a subsegment counts as encroached only by a vertex in its diametral lens". "of the convex hull of the" is plain English. A rewording of line 23 (eg "only a vertex inside the diametral lens encroaches on a subsegment") would remove even the phrase match. It is not needed, since the definition is [S02]'s; it is left to the clean side. |
+| D4 | `QualityMesh2.cs` 1138-1183 | `OffCentre`, `HalfCot` | B | control flow, constant | [U04]'s off-centre: on the bisector of the shortest edge, at \|pq\| cot(θ/2) / 2 from its midpoint, used if nearer than the circumcentre. Ours computes the point along the direction to the circumcentre, with cot(θ/2) = (1 + cos θ)/sin θ from square roots and no extra factor, in a 2^k-scaled frame, and only for triangles bad by their angle. The reference's case split, its constant and its distance test differ. The circumcentre formula is the textbook one (Q5). |
+| D5 | `QualityMesh2.cs` 1230-1322, 1330-1381, 1383-1437 | `BestCandidate`, `PetalCandidates`, `Score` | B | control flow, constant, name | The petal and choosing among points are [EU07]'s ideas; "petal" is the paper's word. Our candidates (seven arc points by a rational half-angle parameter, quadratically spaced; the circumcentres of up to 64 nearby triangles inside the petal), the score (bad triangles removed less those made) and the floor on the insertion radius are our own (MESHING2D_GRADING.md 4.3). The reference's new-location code computes its point by a different geometric construction, with no candidate list and no score. |
+| D6 | `QualityMesh2.cs` 1622-1626, 1675-1731, 1733-1768, 1770-1778 | `DeleteFreeInCircle`, `CheckDeletion`, `InCircleAndVisible` | B | control flow | The rule (delete the free vertices inside the diametral circle that see the midpoint before a bisection) is [S02] §6.4 after Chew 1993, quoted in the comment. Ours: a local search across unconstrained edges in a scaled frame, an exact circle and visibility test against the constrained edges met, then deletion through the kernel. The reference deletes in another way, with another loop and stopping condition, and its own conditions on the subsegment's ends. |
+| D7 | `DelaunayKernel2.Deletion.cs` 27-131 | `DeleteVertex`, `IsEar`, `MakeTriangle`, `ReleaseSlot` | B | control flow, name | Vertex deletion: only the star changes ([Dev99]); here by ear clipping with exact orientations ([Mei75]), then Lawson flips over the new diagonals, and the two freed slots are filled by moving the last slots. The reference retriangulates the star's polygon by another method and frees memory in another way. `DeleteVertex` and `MakeTriangle` are plain English names of the operations; also used in the references, in other roles and signatures. No rename needed. |
+| D8 | `QualityMesh2.cs` 326-368 | `CarveOutside`, `OutsideOnly` | B | control flow | Removing what lies outside the domain is the domain definition (spec Q7, I4, I6; C6). Ours lifts free constraint pieces with the outside on both sides, restores the constrained Delaunay property, and deletes made vertices whose triangles all lie outside, through D7. Input points stay and the triangulation is kept. The reference removes outside content differently. |
+| D9 | `DelaunayKernel2.cs` 41-57; `QualityMesh2.cs` 1513, 1635 | `LocateHint` | B | control flow | Starting a walk at a triangle near the point is the generic remedy for long walks (also [DPT], [MSZ]). Ours passes the triangle the refiner found, replacing a ghost by the real triangle across its hull edge. |
+| D10 | `QualityMesh2.cs` 165-168, 1448, 1800; `SnapRounding2.cs` 610-700; `ConstrainedMesh2.cs`, `ConstrainedDelaunayMesh2.cs` (hull sources, collapsed outer rings, unused made vertices) | the pinch rule, `RoundableOnGrid`, `MarkSwept`, `SnapGrid` filters, hull chains | C | – | Snap grid and hull-on-grid code (MESHING2D_SNAP.md, MESHING2D_HULL_GRID.md); no counterpart in either reference. |
+| D11 | oracle, 8 changed files | token comparison | C | – | 1.5 to 12.5 % against `triangle.c`, at or below the floor; the long runs are a list of check calls and an enum. The one shared comment phrase is the first pass's (O1). |
+
+Sources not listed in this file's earlier sections: [U04] A. Üngör, *Off-centers: a new type of Steiner points for computing
+size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004; [EU07] H. Erten, A. Üngör, *Triangulations with Locally
+Optimal Steiner Points*, SGP 2007; [Dev99] O. Devillers, *On deletion in Delaunay triangulations*, 1999 (IJCGA 2002); [Mei75]
+G. H. Meisters, *Polygons have ears*, 1975. All are in [SOURCES.md](../SOURCES.md).
+
+**No (A) finding.** Everything added or changed since 6b-2 is (B) or (C), and the classes of the first two passes still hold for
+the unchanged routines. No rewrite is needed. One optional comment rewording (D3) is left to the clean side.
