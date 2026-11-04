@@ -22,7 +22,8 @@ import time
 
 # RefinementPinch per run, measured at the change that introduced the rule (MESHING2D_HULL_GRID.md section 7); cq 371800 q20 85 -> 92
 # with lenses (A), Chew's deletion before a bisection (#370): the deletion changes the mesh, and seven more split points land where two
-# chains meet (all pinch vertices are split points, none a circumcentre); the mesher's pinch fix (1) comes next
+# chains meet (all pinch vertices are split points, none a circumcentre). A temporary exception (coordinator 2026-11-04): the
+# mesher's pinch fix (1) brings this limit back to 85 or below, and its acceptance includes that; the other limits stay
 LIMITS = {
     "base_371800_5710600_q20s": 215, "base_371800_5710600_q30s": 217,
     "base_373600_5709000_q20s": 64, "base_373600_5709000_q30s": 66,

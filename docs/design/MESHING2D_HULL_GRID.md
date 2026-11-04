@@ -413,7 +413,7 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
 | base 371800 | 215 | 217 |
 | base 373600 | 64 | 66 |
 | base 381000 | 21 | 21 |
-| cq 371800 | 85 (92 with lenses (A), #370) | 217 |
+| cq 371800 | 85 (92 with lenses (A), #370: a temporary exception, to be brought back to 85 or below by the pinch fix (1)) | 217 |
 | cq 373600 | 44 | 66 |
 | cq 381000 | 11 | 21 |
 
