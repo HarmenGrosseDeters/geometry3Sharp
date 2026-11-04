@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -98,7 +99,7 @@ namespace g3cli.Tests
             for (int i = 0; i < segments.Length; ++i) sb.Append(i + 1).Append(' ').Append(segments[i][0]).Append(' ').Append(segments[i][1]).Append('\n');
             int h = holes == null ? 0 : holes.Length / 2;
             sb.Append(h).Append('\n');
-            for (int i = 0; i < h; ++i) sb.Append(i + 1).Append(' ').Append(holes[2 * i]).Append(' ').Append(holes[2 * i + 1]).Append('\n');
+            for (int i = 0; i < h; ++i) sb.Append(i + 1).Append(' ').Append(holes[2 * i].ToString("R", CultureInfo.InvariantCulture)).Append(' ').Append(holes[2 * i + 1].ToString("R", CultureInfo.InvariantCulture)).Append('\n');
             return sb.ToString();
         }
 
@@ -397,6 +398,65 @@ namespace g3cli.Tests
             Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("convex hull"));
             DMesh3 mesh = StandardMeshReader.ReadMesh(m.Path_("open.obj"));
             Assert.NotEqual(DMesh3.InvalidID, mesh.FindEdge(4, 5));     // the constraint 5-6 (0-based 4-5) is an edge
+        }
+
+        [Theory]
+        [InlineData("de-DE")]
+        [InlineData("en-US")]
+        public void PolyFixture_HoleSeeds_AreCultureIndependent(string cultureName)
+        {
+            var culture = CultureInfo.CurrentCulture;
+            try {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                string text = Poly(Outer4, TwoSquares.Take(4).ToArray(), new[] { 0.75, 0.25 });
+                Assert.Contains("1 0.75 0.25\n", text);
+                var back = TrianglePolyFormat.ReadPoly(text, null, false, out var info);
+                Assert.Equal(new[] { new Vector2d(0.75, 0.25) }, back.HoleSeeds);
+                Assert.Equal(1, info.Loops);
+            } finally {
+                CultureInfo.CurrentCulture = culture;
+            }
+        }
+
+        [Theory]
+        [InlineData("de-DE")]
+        [InlineData("en-US")]
+        public void TriangleWriters_AreCultureIndependent(string cultureName)
+        {
+            var input = new ConstrainedMesh2Input {
+                Points = new List<Vector2d> { new Vector2d(0.25, 0.5), new Vector2d(2.25, 0.5), new Vector2d(0.25, 2.5) },
+                Heights = new List<double> { 0.125, -0.25, 1.75 },
+                HoleSeeds = new List<Vector2d> { new Vector2d(0.75, 0.25) },
+                Regions = new List<Mesh2Region> { Mesh2Region.BySeed(new Vector2d(0.5, 0.75), -2, 0.0625) }
+            };
+            var segments = new[] { (a: 0, b: 1, marker: -3), (a: 1, b: 2, marker: -3), (a: 2, b: 0, marker: -3) };
+            input.Segments.AddRange(segments.Select(s => new Mesh2Segment(s.a, s.b, s.marker)));
+            var culture = CultureInfo.CurrentCulture;
+            try {
+                CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+                string poly = TrianglePolyFormat.WritePolyOfInput(input);
+                string node = TrianglePolyFormat.WriteNode(input.Points, input.Heights, segments);
+                string subsegments = TrianglePolyFormat.WritePolyOfSubsegments(segments, input.HoleSeeds, input.Regions);
+                string ele = TrianglePolyFormat.WriteEle(new[] { new Index3i(0, 1, 2) }, new[] { -2 });
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                Assert.Equal(poly, TrianglePolyFormat.WritePolyOfInput(input));
+                Assert.Equal(node, TrianglePolyFormat.WriteNode(input.Points, input.Heights, segments));
+                Assert.Equal(subsegments, TrianglePolyFormat.WritePolyOfSubsegments(segments, input.HoleSeeds, input.Regions));
+                Assert.Equal(ele, TrianglePolyFormat.WriteEle(new[] { new Index3i(0, 1, 2) }, new[] { -2 }));
+                var back = TrianglePolyFormat.ReadPoly(poly, null, true, out _);
+                Assert.Equal(input.Points, back.Points);
+                Assert.Equal(input.Heights, back.Heights);
+                Assert.Equal(input.HoleSeeds, back.HoleSeeds);
+                Assert.Equal(input.Regions[0].MaxArea, back.Regions[0].MaxArea);
+                back = TrianglePolyFormat.ReadPoly(subsegments, () => node, true, out _);
+                Assert.Equal(input.Points, back.Points);
+                Assert.Equal(input.Heights, back.Heights);
+                Assert.Equal(input.HoleSeeds, back.HoleSeeds);
+                Assert.Equal(new[] { new Index3i(0, 1, 2) }, TrianglePolyFormat.ReadEle(ele, 3, 1, out var labels));
+                Assert.Equal(new[] { -2.0 }, labels);
+            } finally {
+                CultureInfo.CurrentCulture = culture;
+            }
         }
 
         [Fact]
