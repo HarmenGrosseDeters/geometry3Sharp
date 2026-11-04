@@ -166,7 +166,84 @@ namespace g3
             [ThreadStatic] internal static bool? KeepPinchFreeForTests;
             readonly bool keepPinchFree;
             readonly Queue<long> segments = new Queue<long>();
-            readonly Queue<int> triangles = new Queue<int>();
+            readonly TriangleQueue triangles;
+            /// <summary> benchmarks and tests only (per thread): bad triangles split worst first (smallest angle first) or in the order queued
+            /// (null: the default, worst first with an angle bound) </summary>
+            [ThreadStatic] internal static bool? WorstFirstForBenchmarks;
+            /// <summary> benchmarks and tests only (per thread): the split point of a triangle bad by its angle chosen among candidates on the
+            /// bisector of its shortest edge (<see cref="BestCandidate"/>) or always the off-centre or circumcentre (null: the default, chosen) </summary>
+            [ThreadStatic] internal static bool? BestCandidateForBenchmarks;
+            readonly bool bestCandidate;
+            /// <summary> tests only (per thread): called for every choice of <see cref="BestCandidate"/> where the default point counts, with
+            /// its insertion radius, the winner's (both squared, scaled), whether the winner is not the default point (only then it is
+            /// used), and the winner </summary>
+            [ThreadStatic] internal static Action<double, double, bool, Vector2d> PickedForTests;
+            /// <summary> tests only (per thread): every angle test the choice reuses is checked against a fresh one (throws) </summary>
+            [ThreadStatic] internal static bool CheckScoresForTests;
+
+            /// <summary>
+            /// The queue of triangles to look at. Worst first: a binary heap keyed by the triangle's sin^2 of its smallest angle when queued
+            /// (<see cref="MinSin2"/>, scale-free), ties in the order queued, so the order is deterministic; only triangles below the angle bound, the others follow in the order queued. Splitting the worst triangle
+            /// first lets its new vertex remove the slightly bad triangles around it before they are split for themselves, which gives fewer
+            /// triangles (measured: MESHING2D_GRADING.md; the ordering is a known heuristic, see MESHING2D_PROVENANCE.md). An entry may
+            /// be stale (its slot refilled or freed); the main loop judges the triangle as it is when taken out.
+            /// </summary>
+            internal sealed class TriangleQueue
+            {
+                readonly Refiner r;
+                readonly bool worstFirst;
+                readonly Queue<int> fifo = new Queue<int>();
+                readonly List<(double key, long seq, int t)> heap = new List<(double key, long seq, int t)>();
+                long seq;
+
+                internal TriangleQueue(Refiner r, bool worstFirst) { this.r = r; this.worstFirst = worstFirst; }
+
+                internal int Count => heap.Count + fifo.Count;
+
+                static bool Less((double key, long seq, int t) a, (double key, long seq, int t) b) => a.key < b.key || (a.key == b.key && a.seq < b.seq);
+
+                internal void Enqueue(int t)
+                {
+                    if (!worstFirst) { fifo.Enqueue(t); return; }
+                    // (a slot that is no real triangle now goes to the FIFO; the main loop drops it)
+                    if (t >= r.k.TriangleSlots || r.k.IsGhost(t)) { fifo.Enqueue(t); return; }
+                    double key = r.MinSin2(t, out _);
+                    // (a needle whose squared edges underflow even in the scaled frame gives 0/0: the worst, and a NaN would break the order)
+                    if (double.IsNaN(key)) key = 0;
+                    // only triangles below the angle bound are ordered; the others (bad by size, or not bad: most of those queued) wait in
+                    // the FIFO behind them, in the order queued as before (a heap of every triangle queued cost a quarter of the time)
+                    if (key >= r.sin2Min) { fifo.Enqueue(t); return; }
+                    var item = (key, seq++, t);
+                    heap.Add(item);
+                    int i = heap.Count - 1;
+                    while (i > 0) {
+                        int parent = (i - 1) / 2;
+                        if (!Less(item, heap[parent])) break;
+                        heap[i] = heap[parent]; i = parent;
+                    }
+                    heap[i] = item;
+                }
+
+                internal int Dequeue()
+                {
+                    if (!worstFirst || heap.Count == 0) return fifo.Dequeue();
+                    var top = heap[0];
+                    var last = heap[heap.Count - 1];
+                    heap.RemoveAt(heap.Count - 1);
+                    int n = heap.Count, i = 0;
+                    if (n > 0) {
+                        while (true) {
+                            int c = 2 * i + 1;
+                            if (c >= n) break;
+                            if (c + 1 < n && Less(heap[c + 1], heap[c])) ++c;
+                            if (!Less(heap[c], last)) break;
+                            heap[i] = heap[c]; i = c;
+                        }
+                        heap[i] = last;
+                    }
+                    return top.t;
+                }
+            }
             readonly HashSet<long> unsplittable = new HashSet<long>();
             readonly HashSet<long> exempt = new HashSet<long>();
             long limit, inserted, splits;
@@ -192,6 +269,9 @@ namespace g3
                 keepChainsApart = KeepChainsApartForTests ?? true;
                 keepPinchFree = KeepPinchFreeForTests ?? keepChainsApart;
                 deleteInCircle = DeleteInCircleForBenchmarks ?? true;
+                // (without an angle bound the order and the split point stay as before: size refinement takes circumcentres)
+                triangles = new TriangleQueue(this, WorstFirstForBenchmarks ?? options.MinAngle > 0);
+                bestCandidate = BestCandidateForBenchmarks ?? options.MinAngle > 0;
                 // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
                 // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
                 lenses = LensesForBenchmarks ?? (!options.Conforming && options.MinAngle > 0 && sin2Min <= 3.0 / 16);
@@ -670,15 +750,17 @@ namespace g3
                 return ExactPoint3.ScaleB(LocalArea(q, r), 2 * ex);
             }
 
+            static Vector2d Corner(int j, Vector2d q0, Vector2d r0) { j %= 3; return j == 0 ? Vector2d.Zero : j == 1 ? q0 : r0; }
+
             /// <summary> sin^2 of the smallest angle, and the corner it is at </summary>
             double MinSin2(int t, out int corner)
             {
                 double best = double.MaxValue; corner = 0;
                 Local(t, out var q0, out var r0, out _);
-                var corners = new[] { Vector2d.Zero, q0, r0 };
                 double area2 = 2 * LocalArea(q0, r0);
                 for (int j = 0; j < 3; ++j) {
-                    var p = corners[j]; var q = corners[(j + 1) % 3]; var r = corners[(j + 2) % 3];
+                    // (the corners 0, q0, r0 without an array: this runs for every triangle queued)
+                    var p = Corner(j, q0, r0); var q = Corner(j + 1, q0, r0); var r = Corner(j + 2, q0, r0);
                     double l1 = (q - p).LengthSquared, l2 = (r - p).LengthSquared;
                     double s2 = area2 * area2 / (l1 * l2);
                     if (s2 < best) { best = s2; corner = j; }
@@ -1082,6 +1164,191 @@ namespace g3
                 return !double.IsNaN(point.x) && !double.IsNaN(point.y) && !double.IsInfinity(point.x) && !double.IsInfinity(point.y);
             }
 
+            // (buffers of BestCandidate and Score, reused: one refiner runs on one thread)
+            readonly List<Vector2d> candidateBuffer = new List<Vector2d>();
+            readonly List<Vector2d> seenBuffer = new List<Vector2d>();
+            readonly List<int> cavityBuffer = new List<int>();
+            readonly Stack<int> stackBuffer = new Stack<int>();
+            readonly List<int> boundaryBuffer = new List<int>();
+            // marks by triangle slot with a generation instead of sets: a set grown by one large cavity zeroes all its buckets on every
+            // clear (profiled: most of the choice's time). cavityMark[t] == cavityGen: t is in the cavity being built; badMark[t] ==
+            // badGen: badValue[t] is t's BadByAngle in this choice (the candidates' cavities overlap, the mesh does not change meanwhile)
+            int[] cavityMark = new int[0], badMark = new int[0];
+            bool[] badValue = new bool[0];
+            int cavityGen, badGen;
+
+            static int NextGeneration(ref int gen, int[] marks)
+            {
+                if (gen == int.MaxValue) { Array.Clear(marks, 0, marks.Length); gen = 0; }
+                return ++gen;
+            }
+
+            void EnsureMarks()
+            {
+                int n = k.TriangleSlots;
+                if (cavityMark.Length >= n) return;
+                int m = Math.Max(n, 2 * cavityMark.Length);
+                Array.Resize(ref cavityMark, m); Array.Resize(ref badMark, m); Array.Resize(ref badValue, m);
+            }
+
+            // the circumcentre's pixel centre of the triangle being split, once per split (the choice needs it as its default point)
+            bool ccPixelKnown, ccPixelOk;
+            Vector2d ccPixel;
+
+            bool CircumcentrePixel(int t, out Vector2d c)
+            {
+                if (!ccPixelKnown) {
+                    ccPixelOk = grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out ccPixel);
+                    ccPixelKnown = true;
+                }
+                c = ccPixel;
+                return ccPixelOk;
+            }
+
+            /// <summary> the number of candidates on the bisector besides the default point and the circumcentre </summary>
+            const int BisectorCandidates = 6;
+
+            /// <summary>
+            /// The split point of a triangle t bad by its angle, chosen among candidates on the perpendicular bisector of its shortest edge
+            /// pq (where the circumcentre and the off-centre lie): the default point (the off-centre if there is one, else the
+            /// circumcentre), the circumcentre, and six points evenly from the nearer of the off-centre and the circumcentre to 1.3 times
+            /// the circumcentre's distance from the midpoint of pq (from the circumcentre with off-centres switched off). On the grid the
+            /// default point is the pixel centre refinement inserts without the choice, the others are rounded to their pixel centres. A candidate
+            /// counts only where it would be inserted as it is: reached from t without crossing a constraint, encroaching on no
+            /// subsegment, with t in its cavity, and on the grid with no constraint across its pixel. Of those the one wins that removes
+            /// the most triangles bad by their angle (in its cavity) less those it makes (in the fan of new triangles), ties to the larger
+            /// insertion radius (the distance to the nearest vertex of the fan), then to the earlier candidate. The fan's count takes the
+            /// angle bound only (a new triangle at a small input angle counts as bad although refinement would leave it): it skews the
+            /// score, not the mesh. When the default point wins, nothing is chosen.
+            ///
+            /// The floor: a candidate's insertion radius must be at least the default point's, so every point inserted is at least as far
+            /// from the mesh as the point refinement would insert without the choice, and the insertion radius argument of termination
+            /// (Ruppert 1995; Shewchuk 2002; Ungor 2004 for off-centres) holds as for the default point. When the default point itself
+            /// does not count (it is blocked, encroaches or lies in a constraint's pixel), nothing is chosen: refinement goes on as without
+            /// the choice (it splits the subsegment, or falls back to the circumcentre). Choosing among several points is the idea of
+            /// Erten and Ungor 2009 (locally optimal Steiner points), here on the bisector only (MESHING2D_GRADING.md).
+            /// </summary>
+            bool BestCandidate(int t, Vector2d cc, bool off, Vector2d oc, out Vector2d picked)
+            {
+                picked = default(Vector2d);
+                if (!BadByAngle(t)) return false;
+                // the frame of Local: t's first vertex at the origin, scaled by a power of two to unit size, so the candidates and the scores
+                // of an input scaled by 2^k are the same bit for bit
+                var a0 = Local(t, out var q0, out var r0, out int ex);
+                var corners = new[] { Vector2d.Zero, q0, r0 };
+                int j = 0; double shortest = double.MaxValue;
+                for (int i = 0; i < 3; ++i) { double l = (corners[(i + 2) % 3] - corners[(i + 1) % 3]).LengthSquared; if (l < shortest) { shortest = l; j = i; } }
+                Vector2d m = (corners[(j + 1) % 3] + corners[(j + 2) % 3]) * 0.5;
+                Vector2d ccLocal = ScaleB(cc - a0, -ex);
+                double dcc = (ccLocal - m).Length;
+                if (!(dcc > 0) || double.IsInfinity(dcc)) return false;
+                Vector2d dir = (ccLocal - m) / dcc;
+                // (with off-centres switched off the candidates start at the circumcentre)
+                double dOff = !offCentres || double.IsInfinity(halfCot) ? dcc : Math.Sqrt(shortest) * 0.5 * halfCot;
+                double lo = Math.Min(dOff, dcc), hi = dcc * 1.3;
+                // the default point exactly as refinement inserts it without the choice: on the grid the off-centre's pixel centre, or the
+                // circumcentre's decided exactly (not the rounded double circumcentre: review)
+                Vector2d dflt = off ? oc : cc;
+                if (grid != null) {
+                    if (off) dflt = grid.Round(oc);
+                    else if (!CircumcentrePixel(t, out dflt)) return false;
+                }
+                var candidates = candidateBuffer; candidates.Clear();
+                candidates.Add(dflt); candidates.Add(cc);
+                for (int i = 0; i < BisectorCandidates; ++i) {
+                    var l = m + dir * (lo + (hi - lo) * i / (BisectorCandidates - 1));
+                    candidates.Add(new Vector2d(a0.x + ExactPoint3.ScaleB(l.x, ex), a0.y + ExactPoint3.ScaleB(l.y, ex)));
+                }
+                double floor = -1, bestRadius = -1; int bestScore = int.MinValue, best = -1;
+                var seen = seenBuffer; seen.Clear();
+                EnsureMarks();
+                NextGeneration(ref badGen, badMark);
+                for (int i = 0; i < candidates.Count; ++i) {
+                    var p = candidates[i];
+                    if (grid != null && i > 0) p = grid.Round(p);
+                    if (double.IsNaN(p.x) || double.IsNaN(p.y) || Math.Abs(p.x) > DelaunayMesh2.CoordinateLimit || Math.Abs(p.y) > DelaunayMesh2.CoordinateLimit) {
+                        if (i == 0) return false;
+                        continue;
+                    }
+                    if (seen.Contains(p)) continue;
+                    seen.Add(p);
+                    // (the checks that only refuse, the encroachment and the pixel, run only for a candidate that would win: the same
+                    // winner, without their cost for the others)
+                    if (!Score(t, p, ex, out int at, out int score, out double radius)) {
+                        if (i == 0) return false;
+                        continue;
+                    }
+                    if (i == 0) floor = radius;
+                    if (radius < floor) continue;
+                    if (!(score > bestScore || (score == bestScore && radius > bestRadius))) continue;
+                    if (!Insertable(at, p)) {
+                        if (i == 0) return false;
+                        continue;
+                    }
+                    bestScore = score; bestRadius = radius; picked = p; best = i;
+                }
+                if (PickedForTests != null) PickedForTests(floor, bestRadius, best > 0, picked);
+                // the default point winning is no choice: refinement goes on as without it (the same point, counted as before)
+                return best > 0;
+            }
+
+            /// <summary>
+            /// The score of inserting p for triangle t (<see cref="BestCandidate"/>): the triangles of the domain bad by their angle in p's
+            /// cavity less the triangles of its fan below the angle bound, and p's insertion radius squared (in the frame scaled by 2^-ex).
+            /// False if p cannot be reached from t without crossing a constraint, or t is not in its cavity; the other refusals are
+            /// <see cref="Insertable"/>. at: the triangle that holds p
+            /// </summary>
+            bool Score(int t, Vector2d p, int ex, out int at, out int score, out double radius)
+            {
+                score = 0; radius = 0;
+                at = Walk(t, p, out int blocked);
+                if (blocked >= 0) return false;
+                if (!InCircle(at, p)) return false;
+                // the cavity: the triangles whose circumcircle holds p, connected across unconstrained edges (as the insertion finds it)
+                int gen = NextGeneration(ref cavityGen, cavityMark);
+                var cavity = cavityBuffer; cavity.Clear(); cavity.Add(at); cavityMark[at] = gen;
+                var stack = stackBuffer; stack.Clear();
+                stack.Push(at);
+                var boundary = boundaryBuffer; boundary.Clear();
+                while (stack.Count > 0) {
+                    int u = stack.Pop();
+                    for (int e = 3 * u; e < 3 * u + 3; ++e) {
+                        int w = k.H[e] / 3;
+                        if (cavityMark[w] == gen) continue;
+                        if (k.Seg[e] < 0 && !k.IsGhost(w) && InCircle(w, p)) { cavity.Add(w); cavityMark[w] = gen; stack.Push(w); }
+                        else boundary.Add(e);
+                    }
+                }
+                if (cavityMark[t] != gen) return false;
+                int destroyed = 0, created = 0;
+                foreach (int u in cavity) {
+                    if (!InDomain(u)) continue;
+                    // (the candidates' cavities overlap: each triangle judged once per choice; the mesh does not change during it)
+                    if (badMark[u] != badGen) { badValue[u] = BadByAngle(u); badMark[u] = badGen; }
+                    else if (CheckScoresForTests && badValue[u] != BadByAngle(u)) throw new InvalidOperationException("stale angle test of triangle " + u + " in a choice");
+                    if (badValue[u]) ++destroyed;
+                }
+                double nearest = double.MaxValue;
+                foreach (int e in boundary) {
+                    // the new triangle of p and the boundary edge, in the frame scaled by 2^-ex around p
+                    var u = ScaleB(k.Point(k.V[e]) - p, -ex); var w = ScaleB(k.Point(k.V[Next(e)]) - p, -ex);
+                    double lu = u.LengthSquared, lw = w.LengthSquared, luw = (w - u).LengthSquared;
+                    double area2 = u.x * w.y - u.y * w.x, a2 = area2 * area2;
+                    double s2 = Math.Min(a2 / (lu * lw), Math.Min(a2 / (lu * luw), a2 / (lw * luw)));
+                    if (s2 < sin2Min) ++created;
+                    nearest = Math.Min(nearest, Math.Min(lu, lw));
+                }
+                score = destroyed - created;
+                radius = nearest;
+                return true;
+            }
+
+            /// <summary> p (in triangle at) encroaches on no subsegment, and on the grid no constraint crosses its pixel: refinement would
+            /// insert it as it is (<see cref="SplitTriangle"/>) </summary>
+            bool Insertable(int at, Vector2d p) => EncroachedByPoint(at, p).Count == 0 && !(grid != null && ConstraintInPixel(at, p));
+
+            bool InCircle(int t, Vector2d p) => ExactPredicates.InCircle(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), p) > 0;
+
             ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
@@ -1089,8 +1356,10 @@ namespace g3
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
                 Vector2d oc = default(Vector2d);
                 bool off = tryOffCentre && OffCentre(t, out oc);
+                ccPixelKnown = false;
+                if (bestCandidate && tryOffCentre && BestCandidate(t, c, off, oc, out var picked)) { off = true; oc = picked; }
                 if (off) c = grid != null ? grid.Round(oc) : oc;
-                else if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
+                else if (grid != null && !CircumcentrePixel(t, out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
