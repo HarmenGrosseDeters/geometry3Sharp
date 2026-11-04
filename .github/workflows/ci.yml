@@ -82,7 +82,8 @@ jobs:
   # net48 test run, which uses the netstandard2.0 build of the library. It runs in two shards with complementary
   # filters (every test exactly once): the net48 run took 40-60 min in one job and hit timeout-minutes; the 2D mesher
   # and envelope tests are about half of its time (net10.0 timings, 2026-11-04). The first shard keeps the check name
-  # `netstandard` and runs the Clipper2 and benchmark steps too.
+  # `netstandard` and runs the Clipper2 and benchmark steps too. The envelope tests moved to shard b on 2026-11-04
+  # (shard a had grown to 40 min with the mesher tests, shard b was at 20-26 min).
   netstandard:
     name: ${{ matrix.name }}
     runs-on: windows-latest
@@ -93,10 +94,10 @@ jobs:
         include:
           - name: netstandard
             shard: a
-            filter: FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Envelope
+            filter: FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2
           - name: netstandard-b
             shard: b
-            filter: FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Envelope
+            filter: FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
