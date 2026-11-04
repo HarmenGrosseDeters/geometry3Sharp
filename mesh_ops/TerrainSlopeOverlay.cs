@@ -58,6 +58,9 @@ namespace gs
 
         // B triangles counter-clockwise: vertices and edges (edge j between vertex j and j + 1)
         public readonly Dictionary<int, int[]> bTriV = new Dictionary<int, int[]>(), bTriE = new Dictionary<int, int[]>();
+        /// <summary> the terrain triangles of bTriV in a quadtree (item i is TerrainTreeTris[i]), for point queries </summary>
+        internal LooseQuadtree2d TerrainTree;
+        internal List<int> TerrainTreeTris;
         public DMesh3 Slope { get { return A; } }
         /// <summary> +1 cut, -1 fill </summary>
         public int Dir { get { return dir; } }
@@ -208,6 +211,7 @@ namespace gs
                 bTris.Add(tb); boxes.Add(box);
             }
             var qt = new LooseQuadtree2d(boxes, false);
+            TerrainTree = qt; TerrainTreeTris = bTris;
             // the terrain must be a height field where the overlay works: no two of these triangles overlap (exact)
             {
                 var near = new List<int>();

@@ -311,6 +311,7 @@ public documentation only. The user's company code was not looked at.
 | The opt-in local frame (`LocalFrame`, TERRAIN.md 5.8.1, #355): the inputs translated to a local origin, every translation checked exact by TwoSum, the outputs kept local with `UsedOrigin` | the practice of storing data relative to an origin: the LAS point cloud format's scale and offset (ASPRS LAS 1.4 specification, 2019); the relative-to-centre vertices of 3D Tiles (`CESIUM_RTC`, Cesium) and P. Cozzi, K. Ring, *3D Engine Design for Virtual Globes*, CRC 2011, ch. 5; IFC's `IfcMapConversion` (buildingSMART IFC 4.3); TwoSum: D. E. Knuth, *The Art of Computer Programming* vol. 2, 4.2.2; P. H. Sterbenz, *Floating-Point Computation*, 1974 (exact differences within a factor 2) |
 | The composite's region checked as soon as it is made (TERRAIN.md 5.4 step 4, #356): a failed build skips the copy of the rest of the terrain, every decision unchanged | the filter, verify, fall-back pattern of adaptive predicates: J. R. Shewchuk, *Adaptive precision floating-point arithmetic and fast robust geometric predicates*, DCG 18, 1997; T. Bartels, V. Fisikopoulos, M. Weiser, *Fast floating-point filters for robust predicates*, arXiv 2208.00497, 2022 |
 | The composite's terrain triangles next to a replaced one split at its points inside their shared edge (TERRAIN.md §11, no T-junctions) | conforming triangulations: hanging nodes removed by splitting the neighbour, as in red-green refinement (R. E. Bank, A. H. Sherman, A. Weiser, *Refinement algorithms and data structures for regular local mesh refinement*, Scientific Computing, IMACS 1983); the split by the library's exact CDT (`ExactTriangulation2`) |
+| The certificate of the composite catch points' move (TERRAIN.md 5.5): the bound of a piecewise linear deviation at the vertices of the refinement, crossings as exact rational points, an interval filter before the exact evaluation | a-posteriori certification with a floating-point filter and an exact stage, as in adaptive predicates (J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18, 1997); the extremes of a convex piecewise-linear function at the vertices of its cells (linear programming); a move below the resolution with a documented bound, as in snap rounding (J. D. Hobby, *Practical segment intersection with finite precision output*, CGTA 13, 1999) |
 | The `g3cli slope` command: toe lines read as GeoJSON, catch lines and target-height lines written as GeoJSON | H. Butler et al., *The GeoJSON Format*, RFC 7946, IETF 2016 (read with System.Text.Json; coordinates taken as given, projected, the `crs` member of the older 2008 GeoJSON specification passed through, not interpreted) |
 | Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
 
@@ -459,6 +460,17 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 (shared writes, ordering and nested parallelism).
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
+
+## Cross-field research
+
+The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
+(papers and documentation only; no external implementation code was read). New sources it adds to the open items:
+
+| Topic | Source | Status |
+|---|---|---|
+| Separation and rounding with a displacement budget | V. Milenkovic, E. Sacks, *Geometric Rounding and Feature Separation in Meshes*, Computer-Aided Design 108, 2019, [preprint](https://arxiv.org/abs/1805.03252); LAMMPS developers, [Neighbor lists](https://docs.lammps.org/Developer_par_neigh.html) (Verlet skins) | paper / documentation only |
+| Incidences and pinches missed by snap rounding in practice | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | paper only; background for the Q17 pinch fix |
+| Certified convex free regions | R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | paper only |
 
 ## Forks of geometry3Sharp
 

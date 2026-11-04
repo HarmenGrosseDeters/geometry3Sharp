@@ -440,6 +440,11 @@ a steeper neighbouring piece where the exact S has a gentler apex. Under the aud
 fine, because the triangle is below all cones of the piece it is attributed to. Under a pointwise reading against
 the exact S it would not be. The guarantee is stated for the attribution rule (2.3).
 
+**The composite.** With a terrain the composite is within `Tolerance` of the clamp max(S_fill, min(T, S_cut))
+except within m of the toe, lateral-limit and cap steps, whose position shifts by m. Here m is the catch points' move:
+below `MinFeatureSize` in a single run, and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing
+of a mixed run. It is certified per composite (5.5).
+
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
 - First, round the XY of each vertex directly to the final double (UTM) coordinates. Then evaluate z at exactly
@@ -813,6 +818,80 @@ documentation says so.
   - coincident points after realization are merged, which handles SoS-realized degeneracies and clamped t;
   - the clipped part of an S̃ triangle is triangulated as a fan from its S̃ vertex farthest from the catch line, so
     altitudes stay large even where the catch-line vertices are nearly collinear (planar terrain at UTM).
+- **The move of the catch points and its certificate** (item (b) of section 11). The snap above, the merge of catch
+  points nearer than `MinFeatureSize` and, in a mixed run, the snap of the fill run's points on the toe to the cut
+  run's at a toe crossing each move a catch point in XY; each keeps its z on its own S̃ planes. The terrain triangles
+  at a moved point follow it, so the surface there differs from the clamp of S̃ and T by up to the gradients of T
+  and S̃ times the move. The budget of 5.4 did not hold that. Where the design is near `MinFeatureSize` the excess was
+  up to 72 × `Tolerance` on a Success (Mixed's 7-gon of r 11 m, scaled by 1e-3 at UTM). At UTM with the toe at its
+  own size the move was not covered by the budget, but the actual excess was 0.06 to 0.49 × `Tolerance`.
+  - **Budget.** On a terrain, `Tolerance` / 4 is reserved for it: the facet share is smaller by that, so the
+    facets are finer. It is reserved also without a composite, so the slope surface does not depend on
+    `BuildComposite`.
+  - **Certificate.** After the composite is built, `SlopeComposite.SnapDeviation` bounds the deviation exactly:
+    - The base B is the budget of the realized surface, the bound of |S̃ − S|, rounded up: the λ bound, the margin's
+      share, the realization merge, the facets at the quantized angle and the band merge's move.
+    - The composite is certified if B + D ≤ `Tolerance`, where D is the bound below.
+    - Otherwise the build fails like a failed exact check: δ is raised by 8 (a smaller `MinFeatureSize`, so smaller
+      moves), and if that does not fit, the status is `SlopeViolation` (`StatusKind` NotCertified). Its message
+      names the catch point that moved farthest, its move and the deviation.
+    - A mixed composite takes the larger of the two runs' B.
+  - **Why B + D bounds the error.** Let c = max(S_fill, min(T, S_cut)) be the clamp, and c̃ the same with S̃. The clamp is
+    1-Lipschitz in the sup norm in each argument, so |c̃ − c| ≤ B. Triangles not at a moved catch point are pieces of
+    T's and S̃'s planes, as before; D bounds |z − c̃| on the composite triangles at the moved points.
+  - **The bound D.** Let t be such a triangle, with plane z. Then f = z − c̃ on t satisfies
+    max(z − T, z − S̃_cut) ≥ f ≥ min(z − T, z − S̃_fill), each side where the run's surface lies. The upper side holds
+    because c̃ ≥ min(T, S̃_cut); the lower because c̃ ≤ max(S̃_fill, T), as min(T, S̃_cut) ≤ T. On t's refinement by the
+    triangles of T, S̃_cut and S̃_fill, every cell sees one plane of each, so the upper side is convex and the lower
+    concave there, and both take their extremes at the cells' vertices. The candidate classes are:
+    1. t's corners;
+    2. T's vertices inside t;
+    3. S̃'s vertices inside t (of each run);
+    4. crossings of t's edges with T and S̃ edges.
+
+    The other cell vertices, the crossings inside t of a T edge with an S̃ edge (or of the two runs' S̃ edges), are
+    not needed. At such a point v, along each of the two edges its own mesh's part of f is linear through v, and f
+    is at least that part. Say the upper bound's maximum is at v and equals the T part (z − T, linear along the T
+    edge e). Along e
+    in the direction where z − T does not fall, f stays ≥ f(v) up to the next vertex on e. If that is again such a
+    crossing, the same holds from there, until a vertex of class 2 or 4. So the maximum is also taken there; the
+    lower bound is the same with the signs swapped. Edges of one triangulation do not cross. Each crossing is an
+    exact rational point (`ExactDyadic`), each containment an exact orientation test. Each difference such as z − T
+    is computed exactly as one quotient and rounded outward once. D is the largest |f| bound over the candidates of
+    all such t.
+  - **Rules for which surface counts:**
+    - **Overlap.** A run's S̃ counts at a candidate x only through its triangles that contain x and whose interiors
+      overlap t's (an exact separating-axis test). A triangle that only touches t has no cell in t. One that overlaps
+      t has t ∩ it as the closure of its interior, so x is a vertex of one of its cells.
+    - **Own run.** On a slope triangle of the run itself, S̃ is t's own plane: the region is the slope surface as
+      realized, and B bounds that. Then f ≤ max(z − T, 0) on a cut triangle and f ≤ 0 on a fill triangle.
+    - **The steps.** At a boundary edge of S̃ (the toe, a lateral limit, the cap) the clamp jumps. Example: the
+      terrain inside the toe against the region λ below it. A terrain triangle whose edge lies on the toe line up to
+      a moved point's rounding overlaps S̃ in a sliver, and the jump would count there. So a run is not compared on t
+      where the candidates at which it counts all lie within m of one boundary edge (the capsule around the segment,
+      exact). Here m is the largest move, rounded up, plus 8 ulps of t's coordinates. The overlap lies in their convex
+      hull, so it lies in that capsule.
+    - **Which triangles.** A point moved from p0 to p1 changes the composite only within the interiors of the
+      triangles (u, p0, p1) that its edges to its neighbours u sweep. Every composite triangle whose interior overlaps
+      one of them is bounded (exact). The conforming mesh covers each such convex area, so those triangles form one
+      vertex-connected set with the triangles at p1, and a search from those finds them. (A first version took the
+      triangles at p1 only, then any triangle whose box met a swept one: the first missed some, the second took the
+      fans around the far end u, up to 8 × the triangles and 16 % of the octagon's run.)
+    - **What is certified.** |z − c| ≤ `Tolerance` except within m of the toe, lateral-limit and cap steps, whose
+      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move: below `MinFeatureSize` in
+      a single run (snap and merge, no chains). In a mixed run the partner snap at a toe crossing adds up to
+      max(`MinFeatureSize`, 1e-4 × the toes' size).
+    - **A mixed run** does not raise δ when its certificate fails, since each run raised its own: it fails with
+      `SlopeViolation`.
+    - **Tests.** `TerrainSlopeSnapBoundTests` has one synthetic case per candidate class where that class alone holds
+      the extreme, and the steps within and beyond m. `TerrainSlopeSnapCertificateTests` checks the bound of every
+      certified triangle of Mixed's designs against |z − c| at the candidates, the dropped crossings included,
+      recomputed in floating point, and on a grid.
+  - **Prior art** (the prior-art line). Certified output with a measured error bound against an a-posteriori check,
+    instead of an a-priori bound that does not hold: Shewchuk 1997 (adaptive predicates: filter, then an exact
+    stage). Reporting what is below the resolution as not certified instead of rounding it into a Success: snap
+    rounding (Hobby 1999; Halperin and Packer 2002), which moves features by up to the pixel size and documents that
+    bound.
 - **Region and final surface.** For cut, the excavation is the set of faces with D < 0 that is **connected to the
   toe** through face adjacency. Components of {D < 0} not connected to the toe, eg a hill behind a valley that
   the cone passes under, are not excavated. Final surface = design inside the toe, S̃ on the region, terrain
@@ -1414,11 +1493,17 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
        a crack. The neighbour is now split at those points by the exact CDT and replaced too; `AssertComposite` checks
        every composite for T-junctions (`TerrainSlopeOpenToeAlongEdgeTests`; prior art: hanging nodes in conforming
        refinement, Bank, Sherman and Weiser 1983).
-     - (b) **A design below `MinFeatureSize`.** In the frame "rotated, scale 1e-3, utm" the 7-gon of the mixed tests
-       (r 1.1 cm, `MinFeatureSize` 1.5 cm) gives Success with catch points moved by more than `MinFeatureSize` or an
-       empty region, in cut and fill alone too. It should get a status, not Success: an existing `StatusKind` first,
-       a new one only with the 1.0.324 API check; the prior-art line on how other tools report results below their
-       resolution; a procedural repro.
+     - (b) Done: **a design below `MinFeatureSize`.** The catch points' move (snap, merge, partner snap) was outside the
+       tolerance budget: Mixed's 7-gon at r 1.1 cm ("rotated, scale 1e-3, utm") gave Success up to 72 × `Tolerance`
+       off the clamp. Now `Tolerance` / 4 is reserved for it and an exact certificate checks it; what does not fit
+       raises δ, then fails with `SlopeViolation` (NotCertified) (5.5, `TerrainSlopeSnapTests`).
+       - **Speed follow-up.** The finer facets cost an extra realization on the L shape and the wavy 48-gon of the
+         benchmark (+46 %, +53 %; TerrainBenchmark README).
+         - In both, the clipped region fails its support check twice (face 1 above). After λ is raised to 4 × the
+           measured excess, the next realization clips differently and measures 10–14 × the first excess
+           (7.1e-7 → 1.0e-5 m, 7.3e-8 → 7.3e-7 m).
+         - A step that covers that growth, or a bound from the clipped triangles' smallest altitude, would save the
+           realization.
    - Later: a DGM reader for the CLI (real users have DGM1 as a grid: ASCII XYZ, or the f32 grid of the benchmark,
      without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh files only.
 3. Volume per cell, 2D columns first (section 9.3).
