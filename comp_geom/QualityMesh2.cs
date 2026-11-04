@@ -94,7 +94,7 @@ namespace g3
                 }
             }
             return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
-                var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken);
+                var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false };
                 if (hullFrom >= 0) { builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom]; builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count]; }
                 var refiner = new Refiner(this, builder, snap);
                 builder.refine = refiner.Run;
@@ -372,7 +372,7 @@ namespace g3
             /// <summary> without outer rings the hull is the boundary (D13): its edges become constraints, so it does not grow </summary>
             ConstrainedTriangulation2Result ConstrainHull()
             {
-                if (b.outerRings > 0) return null;
+                if (b.outerRings > 0 || b.OuterRingsCollapsed) return null;
                 var pieces = new List<ConstrainedDelaunayMesh2.Builder.Piece>();
                 // (on the grid the hull edges came in as snapped segments, hull sources already: only the flood below)
                 for (int t = 0; t < k.TriangleSlots && !b.HullFromSegments; ++t) {

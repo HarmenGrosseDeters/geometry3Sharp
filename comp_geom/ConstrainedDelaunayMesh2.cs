@@ -53,7 +53,7 @@ namespace g3
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken).Run());
+            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false }.Run());
         }
 
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
@@ -117,6 +117,10 @@ namespace g3
             internal double tolerance;
             internal double[] heights;     // per kernel vertex (ranks, then new vertices), if any
             internal int outerRings, holeRings, regionRings;
+            /// <summary> the input's outer rings all collapsed in snapping (SnapRounding2.OuterRingsCollapsed): no part of the plane is
+            /// in the domain, though no outer ring is left (without this the domain would be the hull, D13, and cover input outside
+            /// the rings; found with the star polygon fuzz, seeds 37 and 41) </summary>
+            internal bool OuterRingsCollapsed;
             bool[] ringIsHole;
             /// <summary> runs after the domain and the tags are known, before the output; a failure result stops it </summary>
             internal Func<Builder, ConstrainedTriangulation2Result> refine;
@@ -743,7 +747,7 @@ namespace g3
                 overlaps = new List<int[]>();
                 for (int si = 0; si < setList.Count; ++si) {
                     var rings = domainRings[si];
-                    if (rings.Length == 0) { inside[si] = outerRings == 0; continue; }
+                    if (rings.Length == 0) { inside[si] = outerRings == 0 && !OuterRingsCollapsed; continue; }
                     int pick = -1;
                     foreach (int r in rings)
                         if (containers[r] != null && rings.All(q => containers[r].Contains(q))) pick = Math.Max(pick, r);
@@ -768,6 +772,7 @@ namespace g3
                 // point rounded inwards, as the tags have it (found by the tag check on F-35 and F-3/c). All input lies inside the hull,
                 // so no other constraint is met from outside. (The check then follows ConstrainHull's own rule: a hull edge that
                 // ConstrainHull left unconstrained would leak in both; the oracle's area and coverage checks catch that.)
+                // (with OuterRingsCollapsed nothing is inside already, and the flood changes nothing)
                 if (outerRings == 0) {
                     var seen = new bool[state.Length];
                     var queue = new Queue<int>();
