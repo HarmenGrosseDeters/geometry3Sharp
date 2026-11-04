@@ -111,6 +111,7 @@ static class Program
 
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "foldover") { FoldoverFreeComparison.Run(); return; }
         int maxRings = args.Length > 0 ? int.Parse(args[0]) : 120;
         var only = args.Length > 1 ? new HashSet<string>(args[1].Split(',')) : null;
         Want = (name) => only == null || only.Contains(name);
