@@ -118,7 +118,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// ratchet (coordinator 2026-11-03): the refinement pinches on seeds 0 to 2999 of <see cref="StarPolygonFuzz"/> at M3, exactly.
-        /// More fails; fewer means the limit goes down with the change that removes them
+        /// More fails; fewer means the limit goes down with the change that removes them (13 in 12 inputs at the rule's introduction; 12 in
+        /// 11 since an input whose outer rings all collapse has an empty domain: one of those seeds pinched in its hull mesh)
         /// </summary>
         [Fact]
         public void RefinementPinches_Ratchet()
@@ -130,7 +131,7 @@ namespace geometry3Sharp.Tests
                 int k = report.KnownViolations.Count(v => v.Kind == Violation.RefinementPinch);
                 if (k > 0) { ++inputs; pinches += k; }
             }
-            Assert.Equal((13, 12), (pinches, inputs));
+            Assert.Equal((12, 11), (pinches, inputs));
         }
 
         /// <summary>

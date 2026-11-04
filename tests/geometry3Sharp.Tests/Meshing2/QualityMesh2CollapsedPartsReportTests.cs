@@ -211,21 +211,58 @@ namespace geometry3Sharp.Tests
         /// refinement of before the fix)
         /// has a full image of one edge rerouted near (8, 14) and an input-only image (8, 14), (11, 9), (11, 8), (12, 7); its excused
         /// piece is crossed on the identical links (11, 9) - (11, 8) - (12, 7) alone, so it is not counted (post-review of (ii'), S3: the
-        /// count was 1 when any stretch of the image differed)
+        /// count was 1 when any stretch of the image differed). The ring collapses entirely in snapping, so the mesher now leaves the
+        /// domain empty (QualityMesh2CollapsedRingDomainTests); the mesh the oracle judges here is the one that refinement made of the
+        /// ring's hull before that fix, kept as text
         /// </summary>
         [Fact]
         public void Oracle_DoesNotCountExcusesOnStretchesNotRerouted()
         {
             var input = new Mesh2Input { X = new[] { 11, 8.4, 12.1, 11.3 }, Y = new[] { 9.3, 14.4, 6.9, 7.6 }, SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
             input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
-            var o = WithoutTheChainRule(input);
-            Assert.Equal(Mesh2Status.Success, o.Status);
+            Assert.Equal(Mesh2Status.Empty, WithoutTheChainRule(input).Status);
+            var o = TextFormat.ReadOutput(HullMeshOfACollapsedRing, out _);
             var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
             Assert.True(report.Ok, report.ToString());
             Assert.Equal(1, report.CollapsedSegments);
             Assert.Equal(1, report.CollapsedPoints);
             Assert.Equal(0, report.CollapsedViaRefinement);
         }
+
+        /// <summary> the mesh of the star above as refinement made it before an input whose outer rings all collapse had an empty domain
+        /// (the refinement of before #360's chain rule) </summary>
+        const string HullMeshOfACollapsedRing = ""
+            + "mesh2-output 1\n"
+            + "producer g3-quality\n"
+            + "status Success\n"
+            + "vertices 8\n"
+            + "0x4026000000000000 0x4022000000000000\n"
+            + "0x4020000000000000 0x402c000000000000\n"
+            + "0x4028000000000000 0x401c000000000000\n"
+            + "0x4026000000000000 0x4020000000000000\n"
+            + "0x4024000000000000 0x4022000000000000\n"
+            + "0x4024000000000000 0x4028000000000000\n"
+            + "0x4022000000000000 0x4028000000000000\n"
+            + "0x4022000000000000 0x402c000000000000\n"
+            + "triangles 5\n"
+            + "0 4 3\n"
+            + "0 5 4\n"
+            + "5 7 6\n"
+            + "4 5 6\n"
+            + "1 6 7\n"
+            + "subsegments 7\n"
+            + "4 3 0\n"
+            + "3 0 0\n"
+            + "0 5 0\n"
+            + "5 7 0\n"
+            + "6 4 0\n"
+            + "7 1 0\n"
+            + "1 6 0\n"
+            + "map 4 0 1 2 3\n"
+            + "labels 5 0 0 0 0 0\n"
+            + "bad 2 1 3\n"
+            + "steiner_limit_reached 0\n"
+            + "end\n";
 
         /// <summary>
         /// (iii) for segment pieces: seed 1742 of <see cref="StarPolygonFuzz"/> at M3 (the same mesh with and without the mesher's rule that

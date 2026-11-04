@@ -41,24 +41,23 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// the inputs <see cref="StarPolygonFuzz"/> seeds 0 to 2999 at M3 that the oracle rejects, by class; every other seed is VALID
         /// (all 188 refinement pinches among them, and the 10 restore cases since the oracle's own restore step, see
-        /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): free
-        /// points outside the ring meshed (TriangleOutsideDomain), a segment to such a point (SegmentMissing), a chain past a hot pixel
-        /// (ChainPassesHotPixel), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
+        /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): a segment to a free point outside the ring
+        /// (SegmentMissing), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
         /// their own, as they were before the fix
         /// </summary>
         static readonly Dictionary<int, string> Rejected = new Dictionary<int, string> {
-            // free points outside the ring (7, two with a chain past a hot pixel as well)
-            [37] = "TriangleOutsideDomain,SubsegmentUnsourced", [41] = "TriangleOutsideDomain,AreaMismatch,SubsegmentUnsourced",
-            [1019] = "TriangleOutsideDomain,AreaMismatch,SubsegmentUnsourced", [1052] = "TriangleOutsideDomain,SubsegmentUnsourced",
-            [1331] = "TriangleOutsideDomain,SubsegmentUnsourced", [2200] = "TriangleOutsideDomain,ChainPassesHotPixel,AreaMismatch,SubsegmentUnsourced",
-            [2248] = "TriangleOutsideDomain,ChainPassesHotPixel,SubsegmentUnsourced",
+            // (free points outside the ring meshed, 37, 41, 1019, 1052, 1331, 2200 and 2248: the only outer ring collapsed in snapping and
+            // the domain became the hull; fixed, the domain is empty now: QualityMesh2CollapsedRingDomainTests)
             // a segment to a free point outside the ring
             [709] = "SegmentMissing",
-            // a chain past a hot pixel
-            [2022] = "ChainPassesHotPixel",
             // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
             [56] = "VertexUnused,ChainSkipsHotPixel", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
         };
+
+        /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests). Seven
+        /// of them had free points outside the ring meshed (rejected before the fix); 127 and 686 were accepted, their meshes covering the
+        /// ring's hull within the tolerance; 2022 was rejected for a chain past a hot pixel in that hull mesh </summary>
+        internal static readonly int[] EmptyDomain = { 37, 41, 127, 686, 1019, 1052, 1331, 2022, 2200, 2248 };
 
         [Fact]
         public void StarPolygonFuzz_VerdictsByClass()
@@ -67,7 +66,9 @@ namespace geometry3Sharp.Tests
             for (int seed = 0; seed < 3000; ++seed) {
                 var input = StarPolygonFuzz.Make(seed);
                 var o = new QualityMesh2Candidate().Run(input);
-                if (o.Status != Mesh2Status.Success) { wrong.Add(seed + ": status " + o.Status); continue; }
+                // (a ring that collapsed entirely in snapping leaves an empty domain: these seeds, judged like the others)
+                var status = EmptyDomain.Contains(seed) ? Mesh2Status.Empty : Mesh2Status.Success;
+                if (o.Status != status) { wrong.Add(seed + ": status " + o.Status + ", expected " + status); continue; }
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 string kinds = string.Join(",", report.Violations.Select(v => v.Kind).Distinct());
                 string expected = Rejected.TryGetValue(seed, out var k) ? k : "";
