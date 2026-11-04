@@ -32,6 +32,9 @@ namespace g3
         /// <summary> the largest distance by which an input point moved, per axis (at most half a pixel) </summary>
         public double MaxDisplacement;
         public int Rounds, Crossings, Spread, Widened, ForcedSpread, CollapsedSegments, CollapsedRings, DroppedSeeds;
+        /// <summary> the input had outer rings and snapping collapsed every one of them: the domain is empty, not the hull (the result
+        /// has no outer ring left, which alone would read as a hull domain, D13) </summary>
+        public bool OuterRingsCollapsed;
         /// <summary> the pixel grid, for refinement on the grid (all output vertices on it, owner decision 2026-11-01) </summary>
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
@@ -480,6 +483,7 @@ namespace g3
                 for (int i = 0; i < list.Count && list.Count >= 2; ++i)
                     if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
             }
+            OuterRingsCollapsed = input.Rings.Any(r => !r.Hole) && !result.Rings.Any(r => !r.Hole);
             // A hole or region seed that snapping swept (constraint geometry moved across it or onto it, eg a contour that collapsed around
             // it) is dropped: left on the other side, it would remove or label the cell there, eg the whole domain (clean-room answer 6,
             // MESHING2D_SNAP_QA.md; review of #277: a hole collapsing to a line, a seed next to an edge that moved over it). Any other seed,
