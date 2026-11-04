@@ -349,12 +349,15 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
-        [Fact]
-        public void SpikeOf084Degrees_At25_ReachesAnO11UnsplittablePiece()
+        [Theory]
+        [InlineData(24.0)]
+        [InlineData(30.0)]
+        public void SpikeOf084Degrees_ReachesAnO11UnsplittablePiece(double angle)
         {
             // the case still reaches what it is for: the mesher stops at a piece it may not split, and the oracle excuses it there (a
-            // hidden vertex and a triangle whose circumcentre lies behind the piece; the local test of the piece itself is not reached here)
-            var report = Judge(SpikeOf084Degrees(25), out _);
+            // hidden vertex and a triangle whose circumcentre lies behind the piece; the local test of the piece itself is not reached here).
+            // At 25 degrees until the grading of MESHING2D_GRADING.md, which reaches the piece at 24 and 30 degrees instead (and passes at all)
+            var report = Judge(SpikeOf084Degrees(angle), out _);
             Assert.True(report.Ok, report.ToString());
             Assert.True(report.O11GlobalExcused > 0 && report.O11AngleExcused > 0,
                 "excused: " + report.O11LocalExcused + " local, " + report.O11GlobalExcused + " global, " + report.O11AngleExcused + " angle");
