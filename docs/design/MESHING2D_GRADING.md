@@ -416,6 +416,48 @@ Options, each to be measured by the deletions per insertion and the triangle cou
 - **Order.** Split encroached subsegments before choosing for nearby triangles. The segment queue already comes first. Check
   whether the churn comes from subsegments that become encroached only after the choice.
 
+### 4.5 Step 3: a time-boxed look at the 1.5× target (2026-11-04; stopped, owner decision)
+
+**Target** (owner 2026-11-04): at most 1.5× the reference (1.4× would be good), so f-11/a ≤ 162, f-11/b ≤ 307 and f-40 (33.75°) ≤ 195,
+with no verdict worse and the speed rule kept. Step 2 stands at 215, 363 and 184. The owner chose to stop after this look (option (a)),
+and step 2 (#380) is the grading result.
+
+**Levers measured** on a probe branch on top of #380, behind benchmark switches; none is adopted. No verdict changed in any run.
+
+| lever | f-11/a | f-11/b | f-40 33.75° | f-40 34.5° |
+|---|---|---|---|---|
+| step 2 (worst smallest angle first) | 215 | 363 | 184 | 185 |
+| postpone triangles within 2° / 5° of the bound once | 211 / 235 | 414 / 373 | 191 / 193 | 192 / 194 |
+| a non-default candidate needs 1.5× / 2.5× the default's radius | 248 / 246 | 410 / 459 | 225 / 238 | 247 / 250 |
+| score plus a radius term (weights 0.5 to 2) | 215–217 | 363–365 | 184 | 185 |
+| bisector candidates beyond the circumcentre, up to 2× its distance | 253 | 336 | 172 | 182 |
+| off-centres off (the floor at the circumcentre) | 203 | 369 | 184 | — |
+| queue: largest area first | 235 | 416 | 199 | 200 |
+| queue: **smallest area first** | **183** | **310** | **202** | **171** |
+| queue: shortest edge first | 173 | 345 | 213 | 216 |
+| queue: smallest circumradius first | 189 | 359 | 217 | 170 |
+| smallest area first + beyond the circumcentre (2×) | 166 | 362 | 176 | 197 |
+| smallest area first + beyond the circumcentre (1.5×) | 181 | 329 | 176 | 180 |
+
+**Smallest area first is the best general lever, and it is not adopted.**
+- It is neutral at scale: Herne 620 451 → 616 403 (−0.65 %), the 55 catalogue rows 735 318 → 732 929 (−0.3 %), every row ok.
+- It reaches f-11/a 1.69×, f-11/b 1.51× and f-40 1.55× (worse than step 2's 1.42×).
+- Shortest edge first costs Herne +6 %.
+
+**The small cases are chaotic.** Neighbouring settings move them by ±15 %; f-40 at 34.5° lies anywhere between 170 and 308 across
+the variants. A setting that meets all three targets would be tuned to three inputs rather than a general gain.
+
+**Structural diagnosis.**
+- f-11/a (a cluster 2^-20 wide in the unit square) has about 5 vertices per octave of distance from the cluster; the reference has
+  about 2.7. f-11/b and f-11/a differ by 13 octaves: we add 11.4 triangles per octave, the reference 7.5.
+- Our meshes are better than needed. The median smallest angle is 31° at a 20° bound (10 % of the triangles lie within 0.6° of it),
+  and vertices have 5–7 triangles.
+- So the choice of a point per bad triangle, and the order in which bad triangles are taken, cannot close the gap. It would take a
+  different placement strategy that places points for a ring of triangles at once, coarser by design. That is a project of its own,
+  not a lever on the choice.
+
+**Next speed item instead:** `SplitSegment`, for the ≤ 2× fork target (cq 373600 q30 3.1×, q20 4.0× after #380).
+
 ### Measurements to make first (no code changes)
 
 - Step 1's G3_M2_COUNTS slot 7 per Herne run: how often a non-default candidate wins, in total and for triangles within 2° of the
