@@ -23,7 +23,9 @@ namespace Meshing2Acceptance
         public readonly bool IsHull;
         /// <summary> false: no floating-point filter in the ring tests (the oracle's reference path) </summary>
         public readonly bool Filter = true;
-        public readonly Q Area;
+        /// <summary> the area of the domain (D5 parity of its rings), exact; for a snapped domain computed on first use </summary>
+        public Q Area => area ?? (area = ComputeArea()).Value;
+        Q? area;
         public readonly Q Perimeter2Bound; // an upper bound of the summed ring lengths, for area tolerances
 
         public Domain(Mesh2Input input, bool filter = true)
@@ -46,7 +48,7 @@ namespace Meshing2Acceptance
             for (int a = 0; a < Rings.Count; ++a)
                 for (int b = 0; b < Rings.Count; ++b)
                     if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
-            Area = ComputeArea();
+            area = ComputeArea();
             Q length = Q.Zero;
             foreach (var ring in Outers.Concat(Holes))
                 for (int i = 0; i < ring.Length; ++i) {
@@ -58,7 +60,7 @@ namespace Meshing2Acceptance
 
         /// <summary>
         /// The domain of the given rings and roles by the same rule (D5), for the snapped domain of O-H5: the images of the input's rings,
-        /// the hull's image as its outer ring for a hull domain. Without area and perimeter (not needed there).
+        /// and for a hull domain the snapped hull as its outer ring. Its area is computed on first use; no perimeter (not needed there).
         /// </summary>
         internal Domain(IEnumerable<(Pt[] ring, bool hole)> rings, bool filter)
         {
@@ -72,7 +74,7 @@ namespace Meshing2Acceptance
             for (int a = 0; a < Rings.Count; ++a)
                 for (int b = 0; b < Rings.Count; ++b)
                     if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
-            Area = Q.Zero; Perimeter2Bound = Q.Zero;
+            Perimeter2Bound = Q.Zero;
         }
 
         static Pt[] OpenRing(Pt[] ring)

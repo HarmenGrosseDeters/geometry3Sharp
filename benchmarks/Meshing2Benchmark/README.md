@@ -293,6 +293,27 @@ Oracle time only (`oracle --input --output`, one process each, this 4-core conta
 
 `Segments` (13.6 s here) keeps its own filters (`InTube`, with a far side only).
 
+## Herne ratchet and the snapped-area report (2026-11-03)
+
+`herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them
+at M3, and exits non-zero unless every run is VALID and its RefinementPinch count (a known violation of the strict decision on Q17,
+listed by the oracle without failing; `docs/design/MESHING2D_HULL_GRID.md` section 8) equals its limit exactly. A run with fewer
+lowers its limit in the script with the change that removed them. `--snapped-area` adds the mesh area minus the snapped domain's
+(exact, px²); CI does not run it, and `oracle`, `rows` and `corpus` take the same switch.
+
+| Run (q20 / q30) | RefinementPinch | mesh - snapped area, px² | oracle, #362 → this change, s | with --snapped-area, s |
+|---|---|---|---|---|
+| base 371800 | 215 / 217 | 0 / 0 | 4.3 → 4.2 / 6.0 → 6.4 | 6.9 / 12.4 |
+| base 373600 | 64 / 66 | 0.5 / 0.5 | 21.1 → 22.4 / 49.6 → 51.6 | 48.6 / 76.5 |
+| base 381000 | 21 / 21 | 21.5 / 24.5 | 3.2 → 2.9 / 3.5 → 4.0 | 3.6 / 4.5 |
+| cq 371800 | 85 / 217 | 0 / 0 | 3.2 → 3.5 / 5.7 → 5.5 | 4.6 / 12.2 |
+| cq 373600 | 44 / 66 | 0 / 0.5 | 11.2 → 10.1 / 32.9 → 29.0 | 33.0 / 58.0 |
+| cq 381000 | 11 / 21 | 7.5 / 24.5 | 2.8 → 2.3 / 3.3 → 3.3 | 2.5 / 4.2 |
+| total | | | 146.9 → 145.2 | 267.0 |
+
+One run each, one process at a time, this 4-core container; the oracle's new rules cost 0 to 10 % per run (noise included), the
+report 2.3 to 3.6 times on the large runs.
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in
