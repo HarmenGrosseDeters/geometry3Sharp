@@ -130,9 +130,8 @@ bound, or a bound on the score that prunes candidates early) change the result a
 
 ## 3. Next steps (open)
 
-- **A 2D candidate region.** Erten and Üngör choose the Steiner point in a region around the circumcentre, not only on a line, by a
-  local optimality criterion (H. Erten, A. Üngör, *Quality triangulations with locally optimal Steiner points*, SIAM J. Sci. Comput.
-  31(3), 2009; **from memory, not re-read**: its host was blocked in this session). Next after this step, once the paper can be read.
+- **A 2D candidate region.** Erten and Üngör choose the Steiner point in a region, the petal of the shortest edge, not only on a
+  line. The conference version (SGP 2007) was read on 2026-11-04; see section 4.3.
 - **The bad-triangle criterion.** At present a triangle is split when its smallest angle is below the bound. A criterion that also
   weighs the edge-length ratio, so that triangles slightly below the bound next to good ones are left to their neighbours' splits, is
   to be measured.
@@ -154,8 +153,8 @@ The agreed order (coordinator 2026-11-04):
 
 The code for (A) waits for the owner's decision on the order of the fast-oracle steps.
 
-The 2D candidate region (4.3) needs Erten and Üngör 2009. That paper could not be read from this session: the SIAM page is paywalled,
-and the Eurographics digital library (diglib.eg.org), which holds the SGP 2007 version, is not on the network allow-list.
+The 2D candidate region (4.3) follows Erten and Üngör, read on 2026-11-04 in its SGP 2007 version (the journal version of 2009 is
+paywalled and not read).
 
 ### 4.1 Speed: what the choice costs, and four ways to cut it
 
@@ -230,14 +229,56 @@ exemptions), in the order of `TriangleQueue`. Two ideas to measure, both changin
 
 Measure on f-11 and f-40 first: the triangles per octave against the reference's 5–6 (about 15 before step 1).
 
-### 4.3 A 2D candidate region (pending the paper)
+### 4.3 A 2D candidate region: the petal (Erten and Üngör, SGP 2007, read 2026-11-04)
 
-From memory, not re-read: Erten and Üngör choose a Steiner point in a region around the circumcentre by a local criterion, not
-only on the bisector. That region, the criterion and their termination argument are what this step needs from the paper. Until it
-can be read, this section only records the question.
+**What the paper does** (Algorithm 1):
+- **The region.** For a bad triangle pqr with shortest edge pq, the region is the petal of pq: the disk through p and q, on the
+  triangle's side, in which pq subtends at least the angle bound α. Its radius is |pq| / (2 sin α).
+- **The point.** The point of the petal furthest from all existing vertices, i.e. the centre of the largest empty circle centred in
+  the petal. It lies on the Voronoi diagram:
+  - a Voronoi vertex inside the petal: the circumcentre of pqr (type IV) or of a nearby triangle (type III);
+  - or a Voronoi edge's intersection with the petal's boundary: the off-centre on pq's dual edge (type I), or another edge (type II).
+- **The search.** It is local, on the Voronoi graph from pqr. Start at the triangle opposite pqr's largest angle; a triangle with a
+  smallest angle below α/2 always gives type I.
+- **Results.** About half the Steiner points of off-centres at 30°, and termination in practice up to 42° with relocation
+  (Algorithm 2).
+- **Analysis.** Lemma 1: inserting the point creates no edge shorter than the existing ones for type I if α ≤ 60°, type II if
+  α ≤ 45° / 36° / 30° (by subcase), types III and IV if α ≤ 30°. Theorem 1: termination for α ≤ 30° on periodic point sets.
 
-Can a few candidates off the bisector, for example at ± a small angle from it at the off-centre's distance, find better points? A
-probe can measure that without the paper. The rule built would then need the paper's argument, or our own.
+**What it means for us.**
+- **The floor holds by construction.** Our default point (the off-centre, type I, or the circumcentre, type IV) is in the petal (the
+  off-centre on its boundary, the circumcentre inside when it is the default). The point furthest from all vertices is therefore at
+  least as far from them as the default point, so its insertion radius is at least the default's. This is the floor of step 1, with
+  no separate check. On the snap grid both points are rounded to their pixel centres, which can reverse the order; there the rounded
+  radii are compared again, as step 1 does.
+- **Cheaper than step 1's score.** The criterion is the insertion radius alone, with no count of bad triangles in a cavity per
+  candidate:
+  - a Voronoi vertex's distance to its nearest vertex is its circumradius;
+  - a point on a Voronoi edge is as far from both of the edge's generators.
+
+  The search visits the triangles whose circumcentres lie in the petal, plus the dual edges that cross the petal's boundary. That is
+  about the cavity of one point, not of eight. This addresses the speed target (4.1) and the quality target together. It replaces
+  step 1's score, so it changes the output; it is measured against step 1.
+
+**What our setting adds**, and the paper's analysis (periodic point sets, no constraints) does not cover:
+- **Constraints.** The Voronoi diagram of a constrained Delaunay triangulation is not the plain one; the search must not cross a
+  constraint. A point beyond a constraint, or one encroaching a subsegment, is refused as in step 1, and the default point is then
+  taken.
+- **Lenses** (cq ≤ 25.65°), **the snap grid** (the point rounded to its pixel centre, as in step 1, moving it by up to half a pixel's
+  diagonal) and **small input angles**: the same handling as step 1.
+- **Termination** stays measured, not proven, as for lenses, off-centres and the grid. The floor keeps the insertion-radius argument
+  for every point inserted.
+- **The paper's points exactly.** The type II points (a ray's or line's intersection with a circle) need square roots, so they are
+  computed in doubles in the triangle's scaled frame (`Local`), as the off-centre is. That keeps the 2^k invariance.
+
+**Plan.**
+1. A probe first: the petal point in place of step 1's choice, behind a switch. Triangle counts on f-11/a, f-11/b, f-40, the corpus
+   and the catalogue; Herne for counts and time.
+2. Then a decision against step 1, on both quality and speed.
+3. Algorithm 2 (relocation) only if the angle range above 30° becomes a goal.
+
+(Before the paper this section proposed a probe of a few candidates off the bisector. The petal is the region that idea was looking
+for.)
 
 ### 4.4 The cq churn
 
