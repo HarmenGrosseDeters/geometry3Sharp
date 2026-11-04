@@ -86,6 +86,10 @@ namespace Meshing2Acceptance
         public static int ZoneFilter(double ax, double ay, double bx, double by, double px, double py, double lo, double hi) => Run.ZoneFilter(ax, ay, bx, by, px, py, lo, hi);
         /// <summary> the bounds in doubles of a radius given by its square (the merge zone's) </summary>
         public static void RadiusBounds(Q r2, out double lo, out double hi) => Run.RadiusBounds(r2, out lo, out hi);
+        /// <summary> the query box of DomainEdgesNear: every point within sqrt(d2) of p lies in it </summary>
+        public static bool DistanceQueryBox(Pt p, Q d2, out double xl, out double xh, out double yl, out double yh) => Run.DistanceQueryBox(p, d2, out xl, out xh, out yl, out yh);
+        /// <summary> the box in doubles around segment a-b (unknown: NaN), as the oracle's grids store it </summary>
+        public static double[] SegmentBox(Pt a, Pt b) { var box = new double[4]; Run.SegmentBox(a, b, 0, box, 0); return box; }
         /// <summary> the decision of a zone test from the filter's answer and the exact test (called only when the filter cannot decide) </summary>
         public static bool WithinZone(int filter, Func<bool> exact) => Run.WithinZone(filter, exact);
         /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
@@ -114,7 +118,7 @@ namespace Meshing2Acceptance
             static int KeyB(long k) => (int)(uint)k;
 
             System.Diagnostics.Stopwatch watch;
-            void Lap(string name) { if (watch != null) { Console.Error.WriteLine("ORACLE " + name + " " + watch.Elapsed.TotalMilliseconds.ToString("F1") + " ms"); watch.Restart(); } }
+            void Lap(string name) { if (watch != null) { Console.Error.WriteLine("ORACLE " + name + " " + watch.Elapsed.TotalMilliseconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " ms"); watch.Restart(); } }
 
             public OracleReport Execute()
             {
@@ -357,11 +361,22 @@ namespace Meshing2Acceptance
                 IEnumerable<SubsegmentOutput> subsegments = o.Subsegments;
                 if (!e.Reference && x0.Bounds(out double bx0, out _) && x1.Bounds(out _, out double bx1) && y0.Bounds(out double by0, out _) && y1.Bounds(out _, out double by1)) {
                     if (subsegmentGrid == null) {
-                        var box = new double[4 * o.Subsegments.Count];
-                        for (int k = 0; k < o.Subsegments.Count; ++k) SegmentBox(v[o.Subsegments[k].A], v[o.Subsegments[k].B], 0, box, 4 * k);
-                        subsegmentGrid = new BoxGrid(box, o.Subsegments.Count);
+                        subsegmentBox = new double[4 * o.Subsegments.Count];
+                        for (int k = 0; k < o.Subsegments.Count; ++k) SegmentBox(v[o.Subsegments[k].A], v[o.Subsegments[k].B], 0, subsegmentBox, 4 * k);
+                        subsegmentGrid = new BoxGrid(subsegmentBox, o.Subsegments.Count);
                     }
-                    subsegments = subsegmentGrid.Query(bx0, bx1, by0, by1).Select(k => o.Subsegments[k]);
+                    var inBox = subsegmentGrid.Query(bx0, bx1, by0, by1);
+                    if (CheckFastPathForTests) {
+                        // the grid's superset of the boxes, and of the subsegments the exact box test keeps (a set, not only the answer)
+                        BoxGrid.CheckSuperset(subsegmentBox, o.Subsegments.Count, bx0, bx1, by0, by1, inBox, "the subsegments at a pixel");
+                        var got = new HashSet<int>(inBox);
+                        for (int k = 0; k < o.Subsegments.Count; ++k) {
+                            Pt p = v[o.Subsegments[k].A], q = v[o.Subsegments[k].B];
+                            bool kept = !(Q.Max(p.Qx, q.Qx) <= x0 || Q.Min(p.Qx, q.Qx) >= x1 || Q.Max(p.Qy, q.Qy) <= y0 || Q.Min(p.Qy, q.Qy) >= y1);
+                            if (kept && !got.Contains(k)) FastPathDiffers("subsegment " + k + " meets the circumcentre's pixel and is missing from the grid's answer");
+                        }
+                    }
+                    subsegments = inBox.Select(k => o.Subsegments[k]);
                 }
                 bool Crosses(SubsegmentOutput s)
                 {
@@ -381,6 +396,7 @@ namespace Meshing2Acceptance
 
             Dictionary<(BigInteger, BigInteger), List<int>> verticesByPixel;
             BoxGrid subsegmentGrid;
+            double[] subsegmentBox;
 
             Dictionary<long, bool> unsplittableMemo;
             BoxGrid unsplittableSubGrid, unsplittableVertexGrid;
@@ -1845,7 +1861,7 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the box of segment a-b in doubles, around the exact one, widened by reach; NaN where it is unknown </summary>
-            static void SegmentBox(Pt a, Pt b, double reach, double[] box, int at)
+            internal static void SegmentBox(Pt a, Pt b, double reach, double[] box, int at)
             {
                 double axl = 0, axh = 0, ayl = 0, ayh = 0, bxl = 0, bxh = 0, byl = 0, byh = 0;
                 bool known = !double.IsNaN(reach) && a.Bounds(false, out axl, out axh) && a.Bounds(true, out ayl, out ayh)
@@ -1907,6 +1923,17 @@ namespace Meshing2Acceptance
                     j0 = Clamp((yl - y0) / cell, ny); j1 = Clamp((yh - y0) / cell, ny);
                 }
                 /// <summary> the boxes that may meet [xl, xh] x [yl, yh] (with the box's own coordinates outside the grid clamped to its border cells) </summary>
+                /// <summary> check mode: every box of `box` that meets the query box (or is unknown) is in `result`, the grid's answer
+                /// (Oracle.CheckFastPathForTests: the grid's superset property itself, independent of the exact test after it) </summary>
+                public static void CheckSuperset(double[] box, int count, double xl, double xh, double yl, double yh, List<int> result, string what)
+                {
+                    var got = new HashSet<int>(result);
+                    for (int i = 0; i < count; ++i) {
+                        bool meets = double.IsNaN(box[4 * i]) || !(box[4 * i + 1] < xl || box[4 * i] > xh || box[4 * i + 3] < yl || box[4 * i + 2] > yh);
+                        if (meets && !got.Contains(i)) FastPathDiffers(what + ": box " + i + " meets the query and is missing from the grid's answer");
+                    }
+                }
+
                 public List<int> Query(double xl, double xh, double yl, double yh)
                 {
                     var result = new List<int>(unknown);
@@ -2196,6 +2223,21 @@ namespace Meshing2Acceptance
             /// caller runs; the grid returns a superset of the boxes meeting the query box (its cells are monotone in the coordinates).
             /// The edges come in the order of Edges(), so a caller taking the first or the minimum sees the same as with the full scan.
             /// </summary>
+            /// <summary>
+            /// The box in doubles that holds every point within sqrt(d2) of p: p's box (around the exact point) widened by sqrt(d2) from above,
+            /// the square root of d2's upper bound times 1 + 1e-12 plus 1e-300 (Bounds pads by 1e-13 relative and 1e-300 absolute; the
+            /// square root and the subtraction round by far less). False when it cannot be computed (the caller scans)
+            /// </summary>
+            internal static bool DistanceQueryBox(Pt p, Q d2, out double xl, out double xh, out double yl, out double yh)
+            {
+                xl = xh = yl = yh = 0;
+                if (d2.Sign < 0 || !d2.Bounds(out _, out double d2hi) || !p.Bounds(false, out double pxl, out double pxh) || !p.Bounds(true, out double pyl, out double pyh)) return false;
+                double reach = Math.Sqrt(Math.Max(0, d2hi)) * (1 + 1e-12) + 1e-300;
+                if (double.IsInfinity(reach) || double.IsNaN(reach)) return false;
+                xl = pxl - reach; xh = pxh + reach; yl = pyl - reach; yh = pyh + reach;
+                return !double.IsInfinity(xl) && !double.IsInfinity(xh) && !double.IsInfinity(yl) && !double.IsInfinity(yh);
+            }
+
             List<(Pt a, Pt b)> DomainEdgesNear(Pt p, Q d2)
             {
                 if (domainEdges == null) {
@@ -2204,12 +2246,10 @@ namespace Meshing2Acceptance
                     for (int k = 0; k < domainEdges.Count; ++k) SegmentBox(domainEdges[k].a, domainEdges[k].b, 0, domainEdgeBox, 4 * k);
                     if (!e.Reference) domainEdgeGrid = new BoxGrid(domainEdgeBox, domainEdges.Count);
                 }
-                if (domainEdgeGrid == null || d2.Sign < 0 || !d2.Bounds(out _, out double d2hi) || !p.Bounds(false, out double xl, out double xh) || !p.Bounds(true, out double yl, out double yh))
-                    return domainEdges;
-                double reach = Math.Sqrt(Math.Max(0, d2hi)) * (1 + 1e-12) + 1e-300;
-                if (double.IsInfinity(reach) || double.IsNaN(reach)) return domainEdges;
-                var found = domainEdgeGrid.Query(xl - reach, xh + reach, yl - reach, yh + reach);
+                if (domainEdgeGrid == null || !DistanceQueryBox(p, d2, out double qxl, out double qxh, out double qyl, out double qyh)) return domainEdges;
+                var found = domainEdgeGrid.Query(qxl, qxh, qyl, qyh);
                 if (CheckFastPathForTests) {
+                    BoxGrid.CheckSuperset(domainEdgeBox, domainEdges.Count, qxl, qxh, qyl, qyh, found, "the domain edges");
                     var indexed = new HashSet<int>(found);
                     for (int k = 0; k < domainEdges.Count; ++k)
                         if (Exact.Dist2ToSegment(domainEdges[k].a, domainEdges[k].b, p) <= d2 && !indexed.Contains(k)) FastPathDiffers("domain edge " + k + " within the distance missing from the index");
@@ -3140,7 +3180,9 @@ namespace Meshing2Acceptance
                 if (!e.Reference && t.All(i => vKnown[i])) {
                     if (sourceGridForZones == null) sourceGridForZones = new BoxGrid(sBox, sources.Count);
                     double xl = t.Min(i => vxl[i]), xh = t.Max(i => vxh[i]), yl = t.Min(i => vyl[i]), yh = t.Max(i => vyh[i]);
-                    foreach (int k in sourceGridForZones.Query(xl, xh, yl, yh))
+                    var candidates = sourceGridForZones.Query(xl, xh, yl, yh);
+                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(sBox, sources.Count, xl, xh, yl, yh, candidates, "the sources near a triangle");
+                    foreach (int k in candidates)
                         if (t.Any(i => NearSource(k, i))) near.Add(sources[k]);
                     if (CheckFastPathForTests) {
                         var scan = Enumerable.Range(0, sources.Count).Where(k => t.Any(i => WithinTube(sources[k], v[i]))).Select(k => sources[k]).ToList();
@@ -3515,6 +3557,7 @@ namespace Meshing2Acceptance
                 var grid = e.Reference ? null : new BoxGrid(sBox, sources.Count);
                 foreach (var s in o.Subsegments) {
                     var candidates = grid != null && vKnown[s.A] ? grid.Query(vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A]) : Enumerable.Range(0, sources.Count).ToList();
+                    if (CheckFastPathForTests && grid != null && vKnown[s.A]) BoxGrid.CheckSuperset(sBox, sources.Count, vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A], candidates, "the sources at a subsegment's end");
                     var covering = candidates.Where(k => NearSource(k, s.A) && NearSource(k, s.B)).Select(k => sources[k]).ToList();
                     if (CheckFastPathForTests && !covering.SequenceEqual(sources.Where(c => WithinTube(c, v[s.A]) && WithinTube(c, v[s.B]))))
                         FastPathDiffers("the sources covering subsegment " + s.A + "-" + s.B);

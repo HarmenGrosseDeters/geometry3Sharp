@@ -76,6 +76,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, calls);
         }
 
+        /// <summary>
+        /// The query box of the domain-edge index (Oracle.DistanceQueryBox): a segment exactly sqrt(d2) from p, d2 its exact squared
+        /// distance, has a box (Oracle.SegmentBox, as the grid stores it) that meets the query box, in the frames 2^-500 to 2^500. Where
+        /// the squares do not fit doubles (the far frames) DistanceQueryBox refuses and the caller scans every edge. A query box narrower
+        /// than the widening by sqrt(d2) misses the segment at the edge of the distance, the case the exact test still accepts
+        /// (d &lt;= d2): the widening from d2's lower bound with a factor below 1 fails here. Each margin alone (the factor 1 + 1e-12, the
+        /// 1e-300, d2's upper bound) is one of several layers with Bounds' own pads, so dropping a single one changes nothing
+        /// </summary>
+        [Fact]
+        public void DistanceQueryBox_MeetsEverySegmentAtExactlyTheDistance()
+        {
+            var rnd = new Random(500);
+            int[] frames = { -500, -480, -300, 0, 300, 480, 500 };
+            int checkedFrames = 0;
+            for (int n = 0; n < 3000; ++n) {
+                double mag = Math.Pow(10, rnd.Next(-3, 6));
+                double ax = (rnd.NextDouble() - 0.5) * mag, ay = (rnd.NextDouble() - 0.5) * mag;
+                double bx = ax, by = ay;
+                int kind = rnd.Next(3);   // 0 a segment, 1 a horizontal one, 2 a point
+                if (kind != 2) { bx = (rnd.NextDouble() - 0.5) * mag; by = kind == 1 ? ay : (rnd.NextDouble() - 0.5) * mag; }
+                double px = (rnd.NextDouble() - 0.5) * mag, py = (rnd.NextDouble() - 0.5) * mag;
+                foreach (int k in frames) {
+                    double f = Math.Pow(2, k);
+                    double sax = ax * f, say = ay * f, sbx = bx * f, sby = by * f, spx = px * f, spy = py * f;
+                    if (!Same(ax, sax, f) || !Same(ay, say, f) || !Same(bx, sbx, f) || !Same(by, sby, f) || !Same(px, spx, f) || !Same(py, spy, f)) continue;
+                    Pt a = Pt.FromDoubles(sax, say), b = Pt.FromDoubles(sbx, sby), p = Pt.FromDoubles(spx, spy);
+                    Q d2 = Exact.Dist2ToSegment(a, b, p);
+                    if (!Oracle.DistanceQueryBox(p, d2, out double xl, out double xh, out double yl, out double yh)) continue;
+                    var box = Oracle.SegmentBox(a, b);
+                    if (double.IsNaN(box[0])) continue;
+                    ++checkedFrames;
+                    Assert.False(box[1] < xl || box[0] > xh || box[3] < yl || box[2] > yh,
+                        "case " + n + " at 2^" + k + ": the segment's box misses the query box (a " + sax + " " + say + ", b " + sbx + " " + sby + ", p " + spx + " " + spy + ")");
+                }
+            }
+            Assert.True(checkedFrames > 10000, "only " + checkedFrames + " frames checked");
+        }
+
         [Fact]
         public void RadiusBounds_EncloseTheExactRadius()
         {

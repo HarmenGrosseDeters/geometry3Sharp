@@ -132,6 +132,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal(!withinTube, report.Has(Violation.HullBoundary) || report.Has(Violation.BoundaryNotConstrained));
         }
 
+        /// <summary>
+        /// The one intended output difference of the fast path's indexes: a hull domain without any hull edge (all input points the same)
+        /// whose output has triangles. The scan's minimum over no hull edges threw out of Oracle.Check; now the boundary vertices count as
+        /// not moved, and the degenerate domain is reported as such (TrianglesOnDegenerate), on both paths and with the checks on
+        /// </summary>
+        [Fact]
+        public void HullDomain_WithoutHullEdges_IsReportedNotThrown()
+        {
+            var input = new Mesh2Input { X = new double[] { 1, 1, 1 }, Y = new double[] { 1, 1, 1 } };
+            var o = new Mesh2Output {
+                Status = Mesh2Status.Success, VX = new double[] { 1, 0, 2, 1 }, VY = new double[] { 1, 0, 0, 2 }, InputToVertex = new[] { 0, 0, 0 },
+                Triangles = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 }, new[] { 0, 3, 1 } }, BadTriangles = new int[0], Subsegments = new List<SubsegmentOutput>() };
+            o.Neighbours = SelfCheck.NeighboursOf(o.Triangles);
+            var e = new OracleExpect { Milestone = Milestone.M2 };
+            Assert.True(Checked(input, o, e).Has(Violation.TrianglesOnDegenerate));
+            Assert.True(Oracle.Check(input, o, e.WithReference()).Has(Violation.TrianglesOnDegenerate));
+        }
+
         /// <summary> the lens tests' fuzz (a square, a hole, random segments) with and without the snap grid, both modes, 20 to 30 degrees:
         /// the merge zone (small angles between segments), GridBlocked and the marks </summary>
         [Fact]

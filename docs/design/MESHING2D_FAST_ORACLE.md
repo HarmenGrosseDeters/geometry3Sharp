@@ -89,7 +89,7 @@ the box of the subsegment's first end. This is the argument `InventedVertices` a
 
 ### Mutants (by hand, against the oracle's tests)
 
-19 mutants on the new code. 18 die and 1 is argued equivalent below.
+19 mutants on the new code. 18 die and 1 is argued equivalent below. After the review of #376, three more mutants on the margins of the domain-edge query are argued equivalent (see the box-level checks below).
 
 Killed by the filter tests (`Meshing2OracleZoneFilterTests`):
 - the within threshold always true, or taken from the upper bound;
@@ -108,12 +108,39 @@ Killed by `Meshing2OracleFastPathCheckTests` with the check switch on:
 - the minimum over the edges within distance 0. Its case: a 400-gon hull domain with a vertex 0.09 outside an edge at 45 degrees,
   tube 0.1 (`HullDomain_BoundaryVertexOffTheHullEdge`).
 
-Argued equivalent: the marks' source query with the corner of the vertex's box instead of the box.
+Argued equivalent: a mutant of the marks' source query. The code queries the grid with the full box of the subsegment's first end;
+the mutant queries with only the lower corner of that box.
 - A vertex's box is an interval of about 2e-13 of its magnitude around the exact point. `BoxGrid` returns every box registered in the
   cells the query meets.
-- The corner and the box therefore give different answers only when the box straddles a cell boundary and a qualifying source's box
-  starts inside that strip.
+- The corner query and the full-box query therefore give different answers only when the vertex's box straddles a cell boundary and a
+  qualifying source's box starts inside that strip.
 - The cells are at least the extent over the square root of the number of sources, many orders of magnitude wider than the strip.
+
+**Box-level checks** (review of #376). The check switch also tests the grids' superset property on its own,
+`BoxGrid.CheckSuperset`: every box that meets the query box must be in the grid's answer. GridBlocked compares the set of subsegments
+the exact box test keeps, not only the boolean. The margins of the domain-edge query (`Oracle.DistanceQueryBox`) are tested directly:
+- for 3 000 random segments, horizontal segments and points, with d2 set to their exact squared distance from a point;
+- in the frames 2^−500 … 2^500 (where the squares do not fit doubles the query box is refused and the caller scans every edge);
+- the segment's box must meet the query box (`DistanceQueryBox_MeetsEverySegmentAtExactlyTheDistance`).
+
+A widening from d2's lower bound with a factor below 1 fails this test. The three single margins are argued equivalent:
+- no factor 1 + 1e-12;
+- no 1e-300;
+- d2's lower bound in place of its upper.
+
+Each is one of several layers: d2's upper bound is padded by 1e-13 relative and 1e-300 absolute, p's box by 1e-13 of its magnitude,
+and the factor. Dropping one leaves the others to cover the rounding of the square root and of the subtraction, which is far below
+1e-15 relative. The mutation runs agree.
+
+**The one intended output difference.** A hull domain without any hull edge (all input points the same) whose output has triangles.
+The scan's minimum over no hull edges threw out of `Oracle.Check`. Now the boundary vertices count as not moved, and the degenerate
+domain is reported as `TrianglesOnDegenerate`, on both paths (`HullDomain_WithoutHullEdges_IsReportedNotThrown`).
+
+**Cost notes for later** (no change needed now):
+- The subsegment and domain-edge grids span the whole extent of their boxes, so one far-away part coarsens all the cells.
+- A box over more than 256 cells (a long diagonal) is returned by every query.
+
+Both cost time, never correctness.
 
 ## 3. Results
 
