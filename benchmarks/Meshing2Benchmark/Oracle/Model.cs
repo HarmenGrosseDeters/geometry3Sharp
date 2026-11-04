@@ -183,10 +183,8 @@ namespace Meshing2Acceptance
         public readonly List<ViolationRecord> Violations = new List<ViolationRecord>();
         public bool Ok => Violations.Count == 0;
         /// <summary>
-        /// Known violations, counted and listed but not failing yet (the verdict is <see cref="Ok"/> without them): RefinementPinch,
-        /// a vertex of refinement where the chains of two input or hull edges meet in a point although the input's own rounding keeps
-        /// them apart. A violation of the owner's strict decision on Q17 (2026-11-03), not enforced until the mesher's fix; a ratchet
-        /// test pins how many there are
+        /// Known violations, counted and listed but not failing (the verdict is <see cref="Ok"/> without them). None at present:
+        /// RefinementPinch was one until the mesher's pinch rule and is a failing violation since
         /// </summary>
         public readonly List<ViolationRecord> KnownViolations = new List<ViolationRecord>();
         /// <summary>No free interior edge has four cocircular points: the (constrained) Delaunay triangulation is unique.</summary>

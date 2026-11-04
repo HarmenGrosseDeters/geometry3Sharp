@@ -161,6 +161,10 @@ namespace g3
             /// default, on); off gives the refinement of before the fix, whose outputs the oracle's tests of rule (ii') need </summary>
             [ThreadStatic] internal static bool? KeepChainsApartForTests;
             readonly bool keepChainsApart;
+            /// <summary> tests and benchmarks only (per thread): the rule that keeps a split from routing a chain through another chain's vertex of
+            /// refinement (a pinch) on or off (null: the default, on) </summary>
+            [ThreadStatic] internal static bool? KeepPinchFreeForTests;
+            readonly bool keepPinchFree;
             readonly Queue<long> segments = new Queue<long>();
             readonly Queue<int> triangles = new Queue<int>();
             readonly HashSet<long> unsplittable = new HashSet<long>();
@@ -186,6 +190,7 @@ namespace g3
                 halfCot = HalfCot(sin2Min);
                 offCentres = OffCentresForBenchmarks ?? true;
                 keepChainsApart = KeepChainsApartForTests ?? true;
+                keepPinchFree = KeepPinchFreeForTests ?? keepChainsApart;
                 deleteInCircle = DeleteInCircleForBenchmarks ?? true;
                 // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
                 // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
@@ -920,8 +925,20 @@ namespace g3
                         // polygons: a spike's tip). Through a vertex of the snapped input (a hot pixel of an input point, a crossing or
                         // the restore step) the chains coincide in the rounding of the input itself: snap rounding routes both through it
                         if (keepChainsApart && ((a == q && k.V[f] >= firstSteiner && (c == pu || c == pw)) || (c == q && k.V[Next(f)] >= firstSteiner && (a == pu || a == pw)))) return false;
+                        // nor may the piece pass through a vertex of refinement that another chain already runs through: the two chains
+                        // would meet in that vertex (a pinch), where the rounding of the input keeps them apart (owner decision
+                        // 2026-11-03 on Q17, strict). Every pinch measured came this way: one chain's split made the vertex, another
+                        // chain's split later chose it (star polygon fuzz, Herne)
+                        if (keepPinchFree && ((a == q && k.V[f] >= firstSteiner) || (c == q && k.V[Next(f)] >= firstSteiner)) && !SharesSource(k.Seg[f], k.Seg[e])) return false;
                     }
                 return true;
+            }
+
+            /// <summary> the constraints c and d share an input source (one chain, or chains that share the edge) </summary>
+            bool SharesSource(int c, int d)
+            {
+                foreach (int s in k.Sources[c]) if (k.Sources[d].Contains(s)) return true;
+                return false;
             }
 
             static bool ProperCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)

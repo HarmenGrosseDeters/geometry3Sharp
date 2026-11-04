@@ -687,8 +687,15 @@ namespace Meshing2Acceptance
                         var rco = Oracle.Check(two, Two(2, 4, 1, 3), m3plain);
                         Must("reject: two chains sharing a link from a vertex of refinement as RefinementCoincidence", rco.Has(Violation.RefinementCoincidence), "report: " + rco);
                         var rpi = Oracle.Check(two, Two(2, 4, 3), m3plain);
-                        Must("list (known, not failing yet): two chains meeting in a vertex of refinement as RefinementPinch",
-                            rpi.KnownViolations.Any(k => k.Kind == Violation.RefinementPinch) && !rpi.Has(Violation.RefinementCoincidence), "report: " + rpi + " / " + rpi.ExcusedSummary());
+                        Must("reject: two chains meeting in a vertex of refinement as RefinementPinch",
+                            rpi.Has(Violation.RefinementPinch) && !rpi.Has(Violation.RefinementCoincidence) && rpi.KnownViolations.Count == 0, "report: " + rpi + " / " + rpi.ExcusedSummary());
+                        // the oracle's mirror of the mesher's pinch rule, no broader: a candidate split pixel is excluded only when it is no
+                        // hot pixel of the input's rounding and a subsegment of another chain ends there
+                        Must("grid split: a candidate where another chain's subsegment ends is excluded (pinch rule)", Oracle.PinchRuleExcludes(false, new[] { false }), "");
+                        Must("grid split: a candidate on a hot pixel of the input's rounding stays demanded", !Oracle.PinchRuleExcludes(true, new[] { false }), "");
+                        Must("grid split: a candidate where only the own chain's subsegments end stays demanded", !Oracle.PinchRuleExcludes(false, new[] { true, true }), "");
+                        Must("grid split: a candidate where no subsegment ends stays demanded", !Oracle.PinchRuleExcludes(false, new bool[0]), "");
+                        Must("grid split: own and another chain's subsegments at the candidate: excluded", Oracle.PinchRuleExcludes(false, new[] { true, false }), "");
                         // the M2 hull model keeps a snapped input point on the hull's boundary (a vertex of a boundary edge): the square with
                         // (5, 0) on its bottom edge, meshed without it, is rejected (review of #36, S1)
                         var sq = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 10, 10, 0, 5 }, Y = new[] { 0.0, 0, 10, 10, 0 } };
@@ -1171,6 +1178,55 @@ namespace Meshing2Acceptance
                 o.Subsegments.Add(new SubsegmentOutput(7, 8));
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 must(what, report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+            }
+            // 5c. the pinch rule in GridUnsplittable, at its call site (review of the pinch fix: the static rule alone did not catch a call
+            //     that passes the wrong arguments). The subsegment (3, 13)-(9, 13) at pixel 1 has one candidate split pixel, (6, 13): a vertex
+            //     there makes the new edges of every other candidate cross its pixel. A skinny triangle on the piece has its circumcentre
+            //     behind it. The candidate is excluded, and the angle excused, only when a subsegment of another chain ends there and it is
+            //     no hot pixel of the input's rounding; it stays demanded with a free vertex there, on an input point (a hot pixel), and
+            //     where only the piece's own chain ends
+            foreach (var (kind, excused, what) in new[] {
+                ("other", true, "grid split: a candidate where another chain's subsegment ends is excluded (pinch rule), the angle excused"),
+                ("free", false, "grid split: a candidate on a free vertex of refinement stays demanded"),
+                ("hot", false, "grid split: a candidate on a hot pixel of the input's rounding stays demanded, another chain's subsegment there or not"),
+                ("near", false, "grid split: a candidate on a free vertex stays demanded when another chain ends in the next pixel, not in its own") }) {
+                // 0-3 the square, 4-5 the piece's input segment, 6 the apex, 7-8 another input segment (6, 18)-(6, 22); 9 the vertex at the
+                // candidate (an input point for "hot")
+                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 3, 13, 9, 13, 6, 14, 6, 18, 6, 22 };
+                if (kind == "hot") xy.AddRange(new[] { 6.0, 13 });
+                var input = Points(xy.ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(7, 8));
+                input.SnapTolerance = 1; input.MinAngleDeg = 20;
+                var vx = xy.Where((_, i) => i % 2 == 0).ToList(); var vy = xy.Where((_, i) => i % 2 == 1).ToList();
+                if (kind != "hot") { vx.Add(6); vy.Add(13); }
+                if (kind == "near") { vx.Add(7); vy.Add(14); }   // 10: another chain's end, diagonally next to the candidate
+                var tri = new[] { new[] { 4, 5, 6 } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx.ToArray(), VY = vy.ToArray(), InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 }, Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, 5) } };
+                if (kind == "other" || kind == "hot") o.Subsegments.Add(new SubsegmentOutput(9, 7));
+                if (kind == "near") o.Subsegments.Add(new SubsegmentOutput(10, 7));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must(what, report.Has(Violation.AngleBelowBound) != excused, "report: " + report);
+            }
+            // 5d. the piece's own chain at the candidate: the input segment (2, 10.3)-(9, 12.7) snaps to (2, 10)-(9, 13); a vertex at (3, 10)
+            //     in its envelope ends a subsegment to (3, 11), also in the envelope (its own chain by the oracle's attribution). The
+            //     candidate stays demanded, so the skinny triangle (2, 10), (9, 13), (5, 12) is judged; counting that subsegment as another
+            //     chain's would excuse it (found by a search over such layouts, against the oracle with the attribution dropped)
+            {
+                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 2, 10.3, 9, 12.7, 5, 12 };
+                var input = Points(xy.ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = 1; input.MinAngleDeg = 20;
+                var vx = new[] { 0.0, 24, 24, 0, 2, 9, 5, 3, 3 }; var vy = new[] { 0.0, 0, 24, 24, 10, 13, 12, 10, 11 };
+                var tri = new[] { new[] { 4, 5, 6 } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 },
+                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, 5), new SubsegmentOutput(7, 8) } };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must("grid split: a candidate where only the piece's own chain ends stays demanded", report.Has(Violation.AngleBelowBound), "report: " + report);
             }
             // 7. a subsegment with no split point on the grid excuses only itself and what it hides, never an unconstrained edge of a
             //    triangle next to it (review of #277: the exemption had covered every edge of such a triangle). Here (5, 5)-(6, 6) at pixel
