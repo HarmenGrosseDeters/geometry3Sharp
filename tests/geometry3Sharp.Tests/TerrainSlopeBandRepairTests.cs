@@ -144,7 +144,9 @@ namespace geometry3Sharp.Tests
         // the 48-gon (r 150 m) these tests had first (now with a clipped sliver near the origin, see above): success with
         // valid catch lines and composite in every frame
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        // (near the origin and at UTM only, to keep the suite's time: the other frames are the retuned tests')
+        [InlineData("identity")]
+        [InlineData("utm")]
         public void WavyToeOnHighWaves48_Succeeds(string name)
         {
             Similarity s = Similarity.ByName(name);

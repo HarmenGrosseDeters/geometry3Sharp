@@ -192,7 +192,9 @@ namespace geometry3Sharp.Tests
         // the 32-gon (r 100 m) these tests had first: early and late the same result in every frame, a success with a valid
         // composite but in "rotated, scale 1e-3, utm", where it is not certified (SlopeViolation) since the finer facets
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        // (near the origin and at UTM only, to keep the suite's time: the other frames are the retuned tests')
+        [InlineData("identity")]
+        [InlineData("utm")]
         public void FirstShape_SameResult(string name)
         {
             Similarity s = Similarity.ByName(name);

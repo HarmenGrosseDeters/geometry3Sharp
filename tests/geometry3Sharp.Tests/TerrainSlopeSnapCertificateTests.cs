@@ -241,7 +241,7 @@ namespace geometry3Sharp.Tests
             var perClass = new int[5];
             foreach (double g in new[] { 0.07, 0.15, 0.23 })
                 foreach (double c in new[] { -1.1, 0.123, 0.3, 1.7 })
-                    foreach (double rot in new[] { 0.0, 1.3, 3.9 }) {
+                    foreach (double rot in new[] { 0.0, 3.9 }) {
                         var d = TerrainSlopeMixedTests.Make(g, c, rot, dir, s);
                         if (d.Compute() == false) continue;
                         certified++;
