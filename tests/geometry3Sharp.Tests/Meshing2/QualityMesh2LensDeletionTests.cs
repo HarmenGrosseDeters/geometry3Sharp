@@ -154,9 +154,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// star polygons on the grid (the chain-coincidence fuzz of #360) in the constrained quality mode at 20 and 25 degrees: every
-        /// verdict is the one without the deletion, and accepted except on seeds 37 and 41. Those fail without lenses as well
-        /// (TriangleOutsideDomain: triangles to a free point outside the ring in the constrained quality mode on the grid; a separate
-        /// defect, reported, pinned here so that a change to it is seen)
+        /// verdict is the one without the deletion, and every mesh is accepted (seeds 37 and 41 were rejected until #372: their only ring
+        /// collapses, and the domain became the hull; it is empty now, and empty outputs are judged too)
         /// </summary>
         [Fact]
         public void StarFuzz_ConstrainedQuality_VerdictsAsWithoutDeletion()
@@ -170,13 +169,13 @@ namespace geometry3Sharp.Tests
                 deleted += Deleted(() => Run(input), out var o);
                 var without = Run(input, false);
                 Assert.Equal(without.Status, o.Status);
-                if (o.Status != Mesh2Status.Success) continue;
+                if (o.Status != Mesh2Status.Success && o.Status != Mesh2Status.Empty) continue;
                 var report = Judge(input, o);
                 var reportWithout = Judge(input, without);
                 Assert.Equal(reportWithout.Violations.Select(v => v.Kind).Distinct().OrderBy(x => x), report.Violations.Select(v => v.Kind).Distinct().OrderBy(x => x));
                 if (!report.Ok) rejected.Add(seed);
             }
-            Assert.Equal(new[] { 37, 41 }, rejected);
+            Assert.Empty(rejected);
             Assert.True(deleted > 0, "no vertex deleted");
         }
 
