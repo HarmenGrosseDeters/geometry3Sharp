@@ -66,7 +66,11 @@ namespace geometry3Sharp.Tests
                 var input = StarPolygonFuzz.Make(seed);
                 var library = LibraryExtraPixels(input);
                 var o = new QualityMesh2Candidate().Run(input);
-                Assert.Equal(Mesh2Status.Success, o.Status);
+                // (an input whose ring collapses entirely has an empty domain, and the oracle computes no snapped domain for an empty
+                // output: those seeds are skipped here)
+                bool empty = QualityMesh2KeepsChainsApartTests.EmptyDomain.Contains(seed);
+                Assert.Equal(empty ? Mesh2Status.Empty : Mesh2Status.Success, o.Status);
+                if (empty) continue;
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 Assert.NotNull(report.RestorePixels);
                 var expected = OracleExtraPixels(input, report);
