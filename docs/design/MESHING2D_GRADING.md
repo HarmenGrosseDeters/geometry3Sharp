@@ -140,3 +140,143 @@ bound, or a bound on the score that prunes candidates early) change the result a
   could count the free vertices in the diametral circles of nearby subsegments, or deletion could spare points above some insertion
   radius.
 - **Snap speed and unsplittable subsegments.** These are separate items on the ROADMAP.
+
+## 4. Step 2: design (paper-independent; draft of 2026-11-04, no code yet)
+
+The two targets pull against each other. Quality should move toward 1.25× the reference (section 3). Speed has a stop rule from the
+coordinator (2026-11-04): the mesher back to at most +10 % of pre-grading on Herne, or a stated reason why not.
+
+The agreed order (coordinator 2026-11-04):
+1. (A), the union cavity, with its equivalence argument;
+2. a measurement;
+3. then (B);
+4. (C) and (D) only with numbers.
+
+The code for (A) waits for the owner's decision on the order of the fast-oracle steps.
+
+The 2D candidate region (4.3) needs Erten and Üngör 2009. That paper could not be read from this session: the SIAM page is paywalled,
+and the Eurographics digital library (diglib.eg.org), which holds the SGP 2007 version, is not on the network allow-list.
+
+### 4.1 Speed: what the choice costs, and four ways to cut it
+
+Profile of step 1 on Herne 373600 q30 (dotnet-trace, final code):
+
+- The choice (`BestCandidate`) is about 24 % of refinement time.
+- Of that, `Score` is 45 %. This is the cavity search per candidate: a walk, a breadth-first search with exact InCircle, and the fan.
+- The exact pixel of the circumcentre is 12 %. The default path needs it anyway.
+- The refusal checks (`EncroachedByPoint`, `ConstraintInPixel`) are 8–13 %.
+- The worst-first queue is +5 to 8 % on its own.
+
+**(A) One union cavity per choice instead of one per candidate. Same output.**
+
+The 8 candidates lie on one bisector, so their cavities overlap heavily.
+
+1. Search once from t, over unconstrained edges, for every triangle whose circumcircle holds *any* candidate. That is the union of
+   the cavities.
+2. For each candidate, mark which union triangles hold it: one exact InCircle per pair, at most 8 × |union|.
+3. Take each candidate's connected component through unconstrained edges inside the union, starting from the triangle that holds
+   it (a walk inside the union). That component is the candidate's cavity. Its boundary edges give the fan.
+
+This drops 7 of the 8 walks and searches and their memory traffic. The InCircle tests stay.
+
+Expected saving: about half of `Score`, so about 10–12 % of refinement time. On its own that reaches roughly +15 %.
+
+Equivalence:
+- The cavity of p is the connected component, through unconstrained edges, of the triangles whose circumcircle holds p, containing
+  the triangle that holds p.
+- That component lies inside the union.
+- So the same set is found, and the same score.
+
+**(B) An upper bound on each candidate's score, to stop early. Same output.**
+
+- destroyed(p) is at most the number of bad triangles in p's cavity, so it is at most the number of bad triangles in the union.
+  Together with created(p) ≥ 0, that bounds the score from above.
+- Candidates are taken in a fixed order, so a candidate whose bound cannot beat the current best (score, then radius) is skipped
+  without its fan.
+- The default point is always scored, because it sets the floor.
+- The order of evaluation does not change the winner, given the tie-break by radius and then by index. The skipped candidates could
+  not have won.
+
+Expected saving: small when many candidates score alike. To be measured.
+
+**(C) Fewer candidates where the choice rarely matters. Changes the output; to be measured.**
+
+Step 1's counters (G3_M2_COUNTS slot 7) give how often a point other than the default wins. If that is rare for triangles just below
+the bound, those triangles can take the default point without the search.
+
+- The rule to try: no choice when t's smallest angle is at least θ − δ, for example δ = 2°.
+- Measure the triangle counts and the time against step 1 on f-11, f-40, the corpus and Herne.
+- Stop rule: drop the rule if it costs more than 2 % of step 1's triangle savings.
+
+**(D) The worst-first queue: a bucket queue instead of a binary heap.** A small output change: the order inside a bucket is FIFO.
+
+- 64 buckets by sin² of the smallest angle, covering [0, sin²θ).
+- O(1) per operation instead of O(log n).
+- The order within a bucket is the order queued, so the result is still deterministic but not the same as step 1's.
+- Measure the triangle counts as well.
+
+Plan: (A) first, the exact one, then measure. (B) next. (C) and (D) only if the target is not met, each measured on its own.
+
+### 4.2 The bad-triangle criterion
+
+At present a triangle is split when its smallest angle is below the bound (`BadByAngle`, with the O3 and small-input-angle
+exemptions), in the order of `TriangleQueue`. Two ideas to measure, both changing the output:
+
+- **Postpone, do not skip.** A triangle just below the bound (within δ) whose neighbours across unconstrained edges include a worse
+  triangle is put back at the end of the queue once. A neighbour's split often removes it. Termination is not affected: it is taken
+  the second time.
+- **Count, then choose.** Track how often a triangle that was queued as bad is no longer bad when it is taken out (step 1's queue
+  already judges it then). If that is frequent, the order is doing the grading work, and the criterion needs no change.
+
+Measure on f-11 and f-40 first: the triangles per octave against the reference's 5–6 (about 15 before step 1).
+
+### 4.3 A 2D candidate region (pending the paper)
+
+From memory, not re-read: Erten and Üngör choose a Steiner point in a region around the circumcentre by a local criterion, not
+only on the bisector. That region, the criterion and their termination argument are what this step needs from the paper. Until it
+can be read, this section only records the question.
+
+Can a few candidates off the bisector, for example at ± a small angle from it at the off-centre's distance, find better points? A
+probe can measure that without the paper. The rule built would then need the paper's argument, or our own.
+
+### 4.4 The cq churn
+
+In the constrained-quality mode, lens deletion (A) deletes free vertices in a subsegment's diametral circle before it is bisected.
+Points the choice placed near subsegments are deleted again later. On f-11/a cq before step 1, 128 of 265 insertions were deleted.
+Options, each to be measured by the deletions per insertion and the triangle counts:
+
+- **Score penalty.** A candidate inside the diametral circle of a nearby subsegment that will be encroached scores lower. These are
+  the subsegments on the boundary of its cavity, already visited by `EncroachedByPoint`.
+- **Order.** Split encroached subsegments before choosing for nearby triangles. The segment queue already comes first. Check
+  whether the churn comes from subsegments that become encroached only after the choice.
+
+### Measurements to make first (no code changes)
+
+- Step 1's G3_M2_COUNTS slot 7 per Herne run: how often a non-default candidate wins, in total and for triangles within 2° of the
+  bound.
+- The size of the union cavity against the cavity per candidate (an instrumented probe build), to estimate (A).
+- The cq churn after step 1: deletions against insertions on f-11/a cq and on the Herne cq runs.
+
+### Measured 2026-11-04 (master after #375, `G3_M2_COUNTS`)
+
+The step-1 code on the 12 Herne runs. "Default" is the circumcentre or off-centre; "chosen" is a point other than the default; the
+deletions are lens deletion (A), cq at 20° only.
+
+| run | default | chosen | deleted |
+|---|---|---|---|
+| base 371800 q20 | 2742 | 1618 | 0 |
+| base 371800 q30 | 12775 | 4875 | 0 |
+| base 373600 q20 | 10173 | 6801 | 0 |
+| base 373600 q30 | 47747 | 20920 | 0 |
+| base 381000 q20 | 612 | 342 | 0 |
+| base 381000 q30 | 3268 | 980 | 0 |
+| cq 371800 q20 | 1877 | 1199 | 281 |
+| cq 373600 q20 | 8607 | 5111 | 1272 |
+| cq 381000 q20 | 501 | 236 | 54 |
+
+The cq runs at 30° are the default runs: lenses apply only up to 25.65°.
+
+- **The choice wins often.** A point other than the default is inserted for 25–40 % of the triangles split. So (C) saves little
+  unless those triangles lie close to the bound; measure how the wins spread over the smallest angle before building (C).
+- **The cq churn is small after step 1.** Deletions are 7–9 % of the insertions on Herne, against 48 % on f-11/a cq before step 1.
+  Section 4.4 is therefore low priority for Herne. f-11/a cq is to be measured again.
