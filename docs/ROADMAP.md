@@ -361,6 +361,23 @@ library to port.
 - [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
   `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
   with the direct solver `SparseCholesky`.
+  - [ ] **Near-field log map from affine heat (priority: medium-low, small).** Brief 2 (#371) failed its global
+    gate only toward the cut locus. Near the source, AffineLocal is far more accurate than the current log map
+    ([AFFINE_LOGMAP_GATE.md](design/AFFINE_LOGMAP_GATE.md)): exact on the plane where Legacy errs by 0.03-0.07; on
+    the sphere for r < π/4 a mean of 0.0024 against 0.028; on the cylinder's first two bands 0.0006-0.0015 against
+    0.05-0.08. Queries are also 2-3 times faster. Use: local parameterization (decals, texture stamps, surface
+    brushes, local polar coordinates, geodesic means), the role of `MeshLocalParam` (discrete exponential map,
+    Schmidt 2006). Task: a new gate on that use, comparing AffineLocal with `MeshLocalParam` and Legacy within a patch
+    radius, on the smooth fixtures plus noisy and anisotropic meshes. If it wins clearly, ship it as
+    `ComputeLogMap(int, LogMapStrategy.AffineLocal)` with its documented range ("accurate near the source, not for
+    distances up to the cut locus"). Prior art: geometry-central offers AffineLocal exactly as the fast near-source
+    variant. The code is on branch `agents/implement-logarithmic-map-brief-2` at f8a5f388; reuse it, do not port
+    again. Why medium-low: no library caller (the value is API for users), after the mesher queue and the
+    robustness and CI work; a good owner-local brief.
+  - [ ] **The current log map is not exact on a plane (priority: low).** It errs by 0.03-0.07 on the planar grid
+    of the #371 gate, up to 0.38 in the outer band. This is probably the heat method's own smoothing (time step
+    ~h²). First compare with the Vector Heat paper's reported errors; treat it as a defect only if ours is clearly
+    worse.
 - [x] Intrinsic Delaunay *refinement* (vertex insertion): `IntrinsicTriangulation.DelaunayRefine` (insertion in
   faces and on edges with signpost updates, Chew / Ruppert circumcenter refinement with a minimum angle,
   boundary edges opposite obtuse angles split, concentric shells and skipped triangles at small input
@@ -482,7 +499,7 @@ source repositories (October 2026); "paper only" means the reference code may no
 (Soliman & Sharp 2025, port from geometry-central, MIT; an upgrade of the `VectorHeatMethod` log map), (3) generalized
 winding numbers for rational curves (Spainhour et al. 2024, Axom, BSD). Each starts with an effort estimate and a §2
 prior-art check; one that is not small (about one PR in one short session) goes back to the owner instead of being
-started. The owner runs them locally (2026-11-03); the coordinator reviews and merges the PRs. #6 (walk on stars, Zombie) stays later:
+started. The owner runs them locally (2026-11-03); the coordinator reviews and merges the PRs. Status 2026-11-04: effort gates in #364 (item 1 stopped at the gate, item 3 only as the reduced method; its one internal caller would be the loop nesting of `PlanarComplex.FindSolidRegions`, which today decides it on sampled polygons with an absolute default tolerance of 0.1, so near-touching curve loops and scale may change the result; probe that first (two close concentric circles over `Similarity.All()`) when item 3 is picked up, later per owner 2026-11-04); item 2 built and stopped at its accuracy gate. Both affine variants are less accurate than the existing log map on the sphere and cylinder, geometry-central's own implementation (potpourri3d) included. The code is not merged; the findings are in [AFFINE_LOGMAP_GATE.md](design/AFFINE_LOGMAP_GATE.md) (#371, closed). #6 (walk on stars, Zombie) stays later:
 no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
 bit-for-bit determinism and invariance tests.
 

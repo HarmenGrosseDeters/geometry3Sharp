@@ -22,7 +22,7 @@ namespace Meshing2Acceptance
                                     rewrite the rows; <file> has one line per changed case: <case><TAB><reason>
   golden verify-changes --base <old.json> [--current <new.json>]
                                     every changed row states a new reason (the gate on a pull request)
-  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--stated-area <a> [--stated-area-tolerance <t>]] [--case <id>] [--row <file>]
+  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--stated-area <a> [--stated-area-tolerance <t>]] [--case <id>] [--row <file>] [--snapped-area]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
   mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
@@ -39,8 +39,8 @@ namespace Meshing2Acceptance
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
   snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
-  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending] [--mode constrained]   (--fast skips the slow rows; --pending also runs pending rows)
-  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000] [--mode constrained]
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending] [--mode constrained] [--snapped-area]   (--fast skips the slow rows; --pending also runs pending rows; --snapped-area reports mesh - snapped area, slow)
+  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000] [--mode constrained] [--snapped-area]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
@@ -118,7 +118,7 @@ namespace Meshing2Acceptance
                     if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
                     double meshMs = sw.Elapsed.TotalMilliseconds;
                     if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
-                    var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
+                    var report = Oracle.Check(row.Case.Input, output, Has(args, "--snapped-area") ? row.Case.Expect.WithSnappedArea() : row.Case.Expect);
                     string text = report.ToString();
                     Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
                         + (report.ExcusedSummary() != "" ? report.ExcusedSummary() + ", " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
@@ -237,10 +237,12 @@ namespace Meshing2Acceptance
             var input = TextFormat.ReadInput(File.ReadAllText(inputPath));
             var output = TextFormat.ReadOutput(File.ReadAllText(outputPath), out string producer);
             var e = MeshCommand.OracleExpectation(MilestoneArg(args, Milestone.M1), Arg(args, "--tube"), Arg(args, "--stated-area"), Arg(args, "--stated-area-tolerance"));
+            e.ReportSnappedArea = Has(args, "--snapped-area");
             var report = Oracle.Check(input, output, e);
             foreach (var v in report.Violations) Console.WriteLine("VIOLATION " + v);
             Console.WriteLine((report.Ok ? "VALID" : "INVALID") + " " + producer + ": " + output.Triangles.Length + " triangles, unique " + report.Unique.ToString().ToLowerInvariant()
                 + ", twice the area " + report.Area2 + ", min_angle_sin2 " + (report.MinSin2?.ToDecimal(GoldenRow.MinAngleDigits) ?? "-"));
+            if (report.ExcusedSummary() != "") Console.WriteLine("SUMMARY " + report.ExcusedSummary());
             string rowPath = Arg(args, "--row");
             if (rowPath != null) {
                 var c = new Mesh2Case { Id = Arg(args, "--case") ?? Path.GetFileNameWithoutExtension(inputPath), Milestone = e.Milestone, Input = input, Generator = Arg(args, "--generator") ?? "text:" + Path.GetFileName(inputPath), Expect = e };

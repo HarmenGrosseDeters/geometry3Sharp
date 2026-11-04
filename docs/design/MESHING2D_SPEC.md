@@ -770,8 +770,16 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   there, where its pixel's centre is not inside that domain. No subsegment of an identity output may pass a
   hot pixel other than its ends' (snap rounding's invariant). **Owner decision 2026-11-03 (strict):** the
   refinement must not collapse what the rounding of the input keeps; the oracle accepts a collapse only
-  where the image with the input's hot pixels alone (points and crossings) collapses too, matched stretch
-  by stretch. Until the oracle computes SRR's restore step itself, the two images are one below M3.
+  where the image with the input's hot pixels alone (points, crossings and SRR's restore pixels, which the
+  oracle computes itself since #362) collapses too, matched stretch by stretch. Refinement keeps the chains of
+  the input's rounding apart: a vertex of refinement lies on one chain (two subsegments), so two chains
+  sharing a link from one (RefinementCoincidence) are rejected. Every hot pixel of the input's rounding that an
+  input edge contacts lies on its chain unless its links collapse there (ChainSkipsHotPixel; snap rounding's
+  defining property, which SRR's Listing 2 can break). **Known violation, not enforced yet:** two chains that
+  meet in a vertex of refinement where the input's rounding keeps them apart (RefinementPinch, eg a spike
+  whose two edges cross the pixel of a refinement vertex, or a boundary segment less than a pixel beside the
+  hull) break the strict decision too; the oracle lists them without failing, a ratchet pins their number,
+  and the mesher's fix (refinement does not pinch two chains) comes next (coordinator 2026-11-03).
 
 ---
 
