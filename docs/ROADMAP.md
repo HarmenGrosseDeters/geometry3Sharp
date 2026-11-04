@@ -361,6 +361,23 @@ library to port.
 - [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
   `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
   with the direct solver `SparseCholesky`.
+  - [ ] **Near-field log map from affine heat (priority: medium-low, small).** Brief 2 (#371) failed its global
+    gate only toward the cut locus. Near the source, AffineLocal is far more accurate than the current log map
+    ([AFFINE_LOGMAP_GATE.md](design/AFFINE_LOGMAP_GATE.md)): exact on the plane where Legacy errs by 0.03-0.07; on
+    the sphere for r < π/4 a mean of 0.0024 against 0.028; on the cylinder's first two bands 0.0006-0.0015 against
+    0.05-0.08. Queries are also 2-3 times faster. Use: local parameterization (decals, texture stamps, surface
+    brushes, local polar coordinates, geodesic means), the role of `MeshLocalParam` (discrete exponential map,
+    Schmidt 2006). Task: a new gate on that use, comparing AffineLocal with `MeshLocalParam` and Legacy within a patch
+    radius, on the smooth fixtures plus noisy and anisotropic meshes. If it wins clearly, ship it as
+    `ComputeLogMap(int, LogMapStrategy.AffineLocal)` with its documented range ("accurate near the source, not for
+    distances up to the cut locus"). Prior art: geometry-central offers AffineLocal exactly as the fast near-source
+    variant. The code is on branch `agents/implement-logarithmic-map-brief-2` at f8a5f388; reuse it, do not port
+    again. Why medium-low: no library caller (the value is API for users), after the mesher queue and the
+    robustness and CI work; a good owner-local brief.
+  - [ ] **The current log map is not exact on a plane (priority: low).** It errs by 0.03-0.07 on the planar grid
+    of the #371 gate, up to 0.38 in the outer band. This is probably the heat method's own smoothing (time step
+    ~h²). First compare with the Vector Heat paper's reported errors; treat it as a defect only if ours is clearly
+    worse.
 - [x] Intrinsic Delaunay *refinement* (vertex insertion): `IntrinsicTriangulation.DelaunayRefine` (insertion in
   faces and on edges with signpost updates, Chew / Ruppert circumcenter refinement with a minimum angle,
   boundary edges opposite obtuse angles split, concentric shells and skipped triangles at small input
