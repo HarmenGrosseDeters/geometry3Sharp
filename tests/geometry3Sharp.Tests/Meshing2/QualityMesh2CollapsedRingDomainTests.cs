@@ -44,7 +44,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> a ring 0.1 wide along y = 0.4 (snapped to the grid line y = 0 at pixel 1) and a free point well outside it </summary>
-        static Mesh2Input ThinRing(bool square)
+        static Mesh2Input ThinRing(bool square, bool squareIsHole = false)
         {
             var x = new List<double> { 0.2, 10.2, 20.2, 10.2, 6, 3 }; var y = new List<double> { 0.4, 0.45, 0.4, 0.35, 8, 5 };
             var input = new Mesh2Input { SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
@@ -52,7 +52,7 @@ namespace geometry3Sharp.Tests
             if (square) {
                 // a second outer ring that survives, the free point (6, 8) inside it and (3, 5) outside both
                 x.AddRange(new double[] { 4, 9, 9, 4 }); y.AddRange(new double[] { 6, 6, 11, 11 });
-                input.Rings.Add(new RingInput(new[] { 6, 7, 8, 9 }, false));
+                input.Rings.Add(new RingInput(new[] { 6, 7, 8, 9 }, squareIsHole));
             }
             input.X = x.ToArray(); input.Y = y.ToArray();
             return input;
@@ -72,6 +72,38 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
+        /// <summary> the outer ring collapses, a hole ring survives: still empty (a surviving hole is no outer ring) </summary>
+        [Theory]
+        [InlineData("M2")]
+        [InlineData("M3")]
+        [InlineData("M3cq")]
+        public void OuterCollapses_HoleSurvives_DomainIsEmpty(string mode)
+        {
+            var input = ThinRing(true, true);
+            var o = Run(input, mode);
+            Assert.Equal(Mesh2Status.Empty, o.Status);
+            Assert.Empty(o.Triangles);
+            var report = Judge(input, o, mode);
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        /// <summary> the flag itself: true only when the input has outer rings and all of them collapse </summary>
+        [Theory]
+        [InlineData("none", false)]
+        [InlineData("holes only", false)]
+        [InlineData("one of two", false)]
+        [InlineData("all", true)]
+        [InlineData("all, a hole survives", true)]
+        public void SnapRounding_OuterRingsCollapsed(string which, bool expected)
+        {
+            var input = which == "one of two" ? ThinRing(true) : which == "all, a hole survives" ? ThinRing(true, true) : ThinRing(false);
+            if (which == "none") input.Rings.Clear();
+            if (which == "holes only") input.Rings[0] = new RingInput(input.Rings[0].Vertices, true);
+            var snap = SnapRounding2.Apply(ConstrainedDelaunayMesh2Candidate.Convert(input), 1, System.Threading.CancellationToken.None);
+            Assert.Equal(expected, snap.OuterRingsCollapsed);
+            Assert.Equal(expected, snap.Diagnostics.Any(d => d.Contains("every outer ring collapsed")));
+        }
+
         /// <summary> the diagnostics say why: the ring collapsed </summary>
         [Fact]
         public void ThinRing_Collapses_Reported()
@@ -80,6 +112,7 @@ namespace geometry3Sharp.Tests
             var r = new QualityMesh2 { MinAngle = 20, SnapTolerance = 1 }.Compute(lib);
             Assert.Equal(Triangulation2Status.Empty, r.Status);
             Assert.Contains(r.Diagnostics, d => d.Contains("ring 0 collapsed below the tolerance"));
+            Assert.Contains(r.Diagnostics, d => d.Contains("every outer ring collapsed below the tolerance; the domain is empty"));
             var c = new ConstrainedDelaunayMesh2 { SnapTolerance = 1 }.Compute(lib);
             Assert.Equal(Triangulation2Status.Empty, c.Status);
         }

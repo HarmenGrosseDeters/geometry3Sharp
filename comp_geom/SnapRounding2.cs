@@ -484,6 +484,7 @@ namespace g3
                     if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
             }
             OuterRingsCollapsed = input.Rings.Any(r => !r.Hole) && !result.Rings.Any(r => !r.Hole);
+            if (OuterRingsCollapsed) Diagnostics.Add("snap: every outer ring collapsed below the tolerance; the domain is empty (not the convex hull: D13 is for input without outer rings)");
             // A hole or region seed that snapping swept (constraint geometry moved across it or onto it, eg a contour that collapsed around
             // it) is dropped: left on the other side, it would remove or label the cell there, eg the whole domain (clean-room answer 6,
             // MESHING2D_SNAP_QA.md; review of #277: a hole collapsing to a line, a seed next to an edge that moved over it). Any other seed,

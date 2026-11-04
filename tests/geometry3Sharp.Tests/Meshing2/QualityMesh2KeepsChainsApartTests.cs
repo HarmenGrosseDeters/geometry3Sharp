@@ -42,8 +42,7 @@ namespace geometry3Sharp.Tests
         /// the inputs <see cref="StarPolygonFuzz"/> seeds 0 to 2999 at M3 that the oracle rejects, by class; every other seed is VALID
         /// (all 188 refinement pinches among them, and the 10 restore cases since the oracle's own restore step, see
         /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): a segment to a free point outside the ring
-        /// (SegmentMissing), a chain past a hot pixel
-        /// (ChainPassesHotPixel), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
+        /// (SegmentMissing), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
         /// their own, as they were before the fix
         /// </summary>
         static readonly Dictionary<int, string> Rejected = new Dictionary<int, string> {
@@ -51,14 +50,14 @@ namespace geometry3Sharp.Tests
             // the domain became the hull; fixed, the domain is empty now: QualityMesh2CollapsedRingDomainTests)
             // a segment to a free point outside the ring
             [709] = "SegmentMissing",
-            // a chain past a hot pixel
-            [2022] = "ChainPassesHotPixel",
             // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
             [56] = "VertexUnused", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
         };
 
-        /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests) </summary>
-        internal static readonly int[] EmptyDomain = { 37, 41, 1019, 1052, 1331, 2200, 2248 };
+        /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests). Seven
+        /// of them had free points outside the ring meshed (rejected before the fix); 127 and 686 were accepted, their meshes covering the
+        /// ring's hull within the tolerance; 2022 was rejected for a chain past a hot pixel in that hull mesh </summary>
+        internal static readonly int[] EmptyDomain = { 37, 41, 127, 686, 1019, 1052, 1331, 2022, 2200, 2248 };
 
         [Fact]
         public void StarPolygonFuzz_VerdictsByClass()

@@ -760,9 +760,6 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
   accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
   diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
-  A ring that collapses entirely leaves its pieces as segments; when every outer ring of the input collapses, the domain is
-  empty (status Empty), not the convex hull: D13 applies to input without outer rings, not to input whose outer rings snapping
-  removed (found with the star polygon fuzz: free points outside such a ring were meshed).
   **Collapsed part (2026-11-03, rule O-H5):** where snap rounding leaves the domain without area (it
   can collapse parts wider than a pixel, and keeps some narrower ones): hot pixels are those of
   the input points, of the input's crossings and of the output vertices; each edge's image is the input

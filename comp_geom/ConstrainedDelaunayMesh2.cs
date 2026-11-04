@@ -772,6 +772,7 @@ namespace g3
                 // point rounded inwards, as the tags have it (found by the tag check on F-35 and F-3/c). All input lies inside the hull,
                 // so no other constraint is met from outside. (The check then follows ConstrainHull's own rule: a hull edge that
                 // ConstrainHull left unconstrained would leak in both; the oracle's area and coverage checks catch that.)
+                // (with OuterRingsCollapsed nothing is inside already, and the flood changes nothing)
                 if (outerRings == 0) {
                     var seen = new bool[state.Length];
                     var queue = new Queue<int>();
