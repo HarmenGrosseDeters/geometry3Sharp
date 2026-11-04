@@ -209,15 +209,22 @@ namespace geometry3Sharp.Tests
         /// The tag check (tags against domain membership from scratch, after every operation) on the catalogue rows. On a hull domain a
         /// hull edge whose split point rounds inwards leaves a sliver between its pieces and the old, now unconstrained hull edge: the
         /// tags put it outside the constrained hull, and so must the check (F-35 and F-3/c failed it; the check reached them only when another test had switched it on in parallel).
+        /// Only the M3 rows reach the refiner and its check, so only they run; they run in parallel, the per-thread switch set on each
+        /// worker (serially over all covered rows this one test took 951 s on net10.0, the longest stretch of the suite).
         /// </summary>
         [Fact]
         public void TagCheck_HoldsOnTheCoveredCatalogueRows()
         {
-            QualityMesh2.Refiner.CheckTagsForTests = true;
-            try {
-                foreach (var row in Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow))
-                    CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);   // throws InvalidOperationException on a wrong tag
-            } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+            var rows = Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow && r.Case.Milestone == Milestone.M3).ToList();
+            Assert.True(rows.Count > 20, rows.Count + " M3 rows");
+            var wrong = new System.Collections.Concurrent.ConcurrentBag<string>();
+            Parallel.ForEach(rows, row => {
+                QualityMesh2.Refiner.CheckTagsForTests = true;
+                try { CandidateRegistry.For(Milestone.M3).Run(row.Case.Input); }
+                catch (InvalidOperationException e) { wrong.Add(row.Id + ": " + e.Message); }   // a wrong tag
+                finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+            });
+            Assert.True(wrong.IsEmpty, string.Join("\n", wrong.OrderBy(w => w, StringComparer.Ordinal)));
         }
 
         /// <summary>
