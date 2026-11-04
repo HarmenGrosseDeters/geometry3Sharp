@@ -6,11 +6,16 @@ using Xunit;
 
 namespace geometry3Sharp.Tests
 {
+    [CollectionDefinition("Meshing2OracleTiming", DisableParallelization = true)]
+    public class Meshing2OracleTimingCollection { }
+
     /// <summary>
     /// The parts of <see cref="QualityMesh2CollapsedPartsTests"/> that use the change's own members (the oracle's O-H5 counts, the
     /// mesher's diagnostics), apart so that the cases themselves compile against the library without the change. The library change is
     /// the diagnostics only: of these tests, the mesher's fail on the library without it
     /// </summary>
+    // The oracle's wall-clock budget must not include CPU contention from other test collections.
+    [Collection("Meshing2OracleTiming")]
     public class QualityMesh2CollapsedPartsReportTests
     {
         /// <summary>
@@ -193,7 +198,8 @@ namespace geometry3Sharp.Tests
             var input = new Mesh2Input { X = x, Y = y, SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
             input.Rings.Add(new RingInput(Enumerable.Range(0, x.Length).ToArray(), false));
             var before = Oracle.Check(input, WithoutTheChainRule(input), new OracleExpect { Milestone = Milestone.M3 });
-            Assert.Equal(new[] { Violation.VertexUnused }, before.Violations.Select(v => v.Kind).ToArray());
+            // (the tip's dropped point takes its edges' chains past a hot pixel they contact: ChainSkipsHotPixel as well)
+            Assert.Equal(new[] { Violation.VertexUnused, Violation.ChainSkipsHotPixel }, before.Violations.Select(v => v.Kind).Distinct().ToArray());
             Assert.Equal(new[] { ((System.Numerics.BigInteger)16, (System.Numerics.BigInteger)11) }, before.RestorePixels.ToArray());
             var now = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
             Assert.True(now.Ok, now.ToString());

@@ -22,8 +22,12 @@ namespace Meshing2Acceptance
             public List<double[]> Points;        // point set
         }
 
+        /// <summary> --snapped-area: report the mesh area against the snapped domain (OracleExpect.ReportSnappedArea) </summary>
+        static bool SnappedArea;
+
         public static int Run(string[] args, Func<string[], string, string> arg)
         {
+            SnappedArea = args.Contains("--snapped-area");
             string dir = arg(args, "--dir") ?? Path.Combine(RepositoryRoot(), "benchmarks", "Meshing2Benchmark", "corpus", "data");
             if (!Directory.Exists(dir)) {
                 Console.WriteLine("no corpus at " + dir + ": run python3 benchmarks/Meshing2Benchmark/corpus/fetch.py first");
@@ -102,7 +106,7 @@ namespace Meshing2Acceptance
                 + ms.ToString("F0", CultureInfo.InvariantCulture) + " ms" + (output.SteinerLimitReached ? ", Steiner limit" : "");
             if (output.Status == Mesh2Status.Failed) { detail = output.FailureKind + "; " + size; return "FAILED"; }
             if (output.VX.Length > judgeLimit) { detail = size + " (above --judge-limit)"; return "unjudged"; }
-            var report = Oracle.Check(input, output, new OracleExpect { Milestone = m });
+            var report = Oracle.Check(input, output, new OracleExpect { Milestone = m, ReportSnappedArea = SnappedArea });
             string text = report.ToString();
             if (report.ExcusedSummary() != "") size += ", " + report.ExcusedSummary();
             detail = size + (report.Ok ? "" : "; " + (text.Length > 300 ? text.Substring(0, 300) : text));
