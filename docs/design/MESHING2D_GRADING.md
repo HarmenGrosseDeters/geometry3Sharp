@@ -280,6 +280,131 @@ Measure on f-11 and f-40 first: the triangles per octave against the reference's
 (Before the paper this section proposed a probe of a few candidates off the bisector. The petal is the region that idea was looking
 for.)
 
+#### 4.3.1 The probe, measured (2026-11-04, master after #378, switch `G3_M2_PETAL`)
+
+**The probe** (`Refiner.PetalCandidates`, benchmarks only):
+- **Candidates in the petal.**
+  - The circumcentres of the triangles near t that lie in the petal. These are the Voronoi vertices, types III and IV. They are found
+    from t across unconstrained edges, among triangles whose circumdisks meet the petal, at most 64 of them.
+  - Seven points of the petal's boundary arc, including its far end, the off-centre. These approximate the arc points of types I
+    and II.
+- **The rest is step 1's machinery:** the default point first, the floor (insertion radius at least the default's), the refusals,
+  and rounding on the grid.
+
+**Three variants against step 1 (v0):**
+- **v1:** the default point and the petal's candidates; the one farthest from the mesh wins (the paper's criterion).
+- **v2:** the same candidates, with step 1's score (bad triangles removed less made, then the radius).
+- **v3:** step 1's eight candidates plus the petal's, with step 1's score.
+
+**Triangles** (no verdict changes anywhere):
+
+| | v0 | v1 | v2 | v3 | reference |
+|---|---|---|---|---|---|
+| f-11/a | 217 | 288 | 239 | 237 | 108 |
+| f-11/b | 379 | 441 | 379 | 337 | 205 |
+| f-40, 33.75° | 245 | 196 | 190 | 202 | 130 |
+| f-40, 34.5° | 292 | 189 | 181 | 195 | |
+| catalogue rows (55) | 750907 | −0.8 % | −2.4 % | −2.5 % | |
+| corpus M3@20 / @25 / @30 | | +1.5 / +0.2 / −9.3 % | −1.7 / −4.2 / −14.7 % | −1.7 / −4.6 / −15.9 % | |
+| corpus constrained @20 / @25 / @30 | | +0.6 / +0.1 / −4.1 % | −1.0 / −2.2 / −7.9 % | −0.9 / −2.2 / −8.8 % | |
+| Herne, 12 runs | 733898 | −6.4 % | −16.9 % | −18.7 % | |
+
+**Mesher time on Herne:** serial runs, the minimum of two each, all 12 runs summed.
+- v0: 33.4 s.
+- v2: 33.4 s. Per run v2 is within −6 % to +6 %. At 30° it has 21–22 % fewer triangles, and the fewer insertions pay for the larger
+  search.
+- v3: 36.6 s (+9 %).
+- v1 was measured only in a loaded run, at about +8 %.
+
+**Reading.**
+- **The paper's criterion alone (v1) is worse than step 1 at 20° and on f-11.** The point farthest from the mesh is not the one that
+  removes the most bad triangles. It is better at 30°.
+- **The petal's candidates with step 1's score (v2) win on both targets.**
+  - Fewer triangles in every corpus mode and in the catalogue: Herne −16.9 %, f-40 −22 to −38 %.
+  - The same mesher time.
+  - f-11/a is the exception, at +10 % (239 against 217). Its cluster is denser than the petal's reach, and the bisector's far
+    candidates (beyond the off-centre, up to 1.3 times the circumcentre's distance) help there; v3 keeps them but costs 9 % of time.
+- **Against the reference:** f-11/a 2.2×, f-11/b 1.85×, f-40 1.46× (v0: 2.0×, 1.85×, 1.9×). The target of 1.25× is not reached on
+  f-11.
+- **Union cavity ((A)/(B) of 4.1).** v2 already meets the speed rule without them, so they are not needed for it. They would still
+  shorten the choice; that is a separate, exact optimisation.
+
+**Termination.**
+- The floor is kept, so every point inserted has an insertion radius at least the default's. The insertion-radius argument of
+  Ruppert, Shewchuk and Üngör holds as for step 1.
+- The paper's own proof (Theorem 1, α ≤ 30°) is for its setting only: periodic point sets, no constraints, the exact petal point.
+  It does not cover ours. Our grid and O11 cases, lenses and small input angles stay **measured, not proven**, as before.
+
+**Before it could become the default** (all done in 4.3.2): arc points without the runtime's trig functions; step 1's tests
+of the choice extended to the petal's candidates; a reason for every changed golden row; a decision between v2 and v3
+(coordinator 2026-11-04: v2).
+
+#### 4.3.2 The default (grading step 2)
+
+**What changed from the probe.**
+- **The arc points are rational in the half-angle parameter.** s = tan(psi / 2), where psi is the angle from the bisector at the
+  petal's centre. At p and q, s = cot(theta / 2) = `HalfCot`. The point is (cos, sin) = ((1 - s^2), 2 s) / (1 + s^2), with s at
+  `HalfCot` · f |f| for f = i / 4, i = -3 … 3. No `Asin`, `Sin` or `Cos` remain; the frame of `Local` keeps the 2^k invariance.
+- **The spacing is quadratic in f, measured against the alternatives:**
+
+  | spacing | Herne | f-11/a | f-11/b | f-40 33.75° |
+  |---|---|---|---|---|
+  | equal angles (probe) | 609 970 | 239 | 379 | 190 |
+  | linear in s | 638 705 | 235 | 433 | 198 |
+  | **quadratic in s** | **620 451** | **215** | **363** | **184** |
+
+  Quadratic puts more points near the far end. It also removes the f-11/a regression of the probe: 215 against step 1's 217.
+- **Fewer arc points save little time and cost quality** (v2, Herne):
+
+  | arc points | mesher time | triangles |
+  |---|---|---|
+  | 7 | 34.3 s | 609 970 |
+  | 3 | 32.8 s | 633 303 |
+  | the far end only | 32.9 s | 655 103 |
+
+  Seven are kept.
+- **A bound in the score** ((B) of 4.1, in its simple form, exact). A candidate that removes fewer bad triangles than the best score
+  so far cannot win, so its fan is not evaluated. Same output; −0.7 % mesher time.
+- **Step 1's candidates stay behind a switch** (`PetalForBenchmarks = false`) for comparisons.
+
+**Speed: the stop rule of 4.1.** Herne, mesher only, serial, the minimum of two runs, all 12 runs summed:
+
+| build | time | against pre-grading | triangles |
+|---|---|---|---|
+| pre-grading (c0f7de6e) | 26.4 s | | 838 128 |
+| step 1 (master) | 34.0 s | +28.8 % | 733 898 |
+| step 2 alone (petal, bound) | 31.5 s | +19.4 % | 620 451 |
+| step 2 on the SnapGrid filters (own PR, before this one) | 23.3 s | −11.9 % | 620 451 |
+
+- **The SnapGrid filters carry the speed.** They are exact double filters in front of `SnapGrid.Pixel` and
+  `SnapGrid.CrossesInterior`, which had run on BigInteger. They take master from 34.0 s to 23.1 s with bit-identical output.
+- **The petal step itself costs about +2 % on top of them,** with 15.5 % fewer triangles than step 1 and 26 % fewer than
+  pre-grading.
+- **The rule (within +10 % of pre-grading) is met.**
+- **The union cavity ((A) of 4.1) was not built.** On cq 373600 q30 the choice scores 457 000 candidates with 3.85 million in-circle
+  tests, and a cavity averages 4.8 triangles. Sharing the searches would save the walks and bookkeeping, not the tests: an estimated
+  4–5 %, no longer needed for the rule.
+- **The next speed item is outside the choice.** `SplitSegment` (the grid split point, `ValidGridSplit`) is about half of the
+  refinement time on the snap runs.
+
+**Quality** (the final build; no verdict changes):
+
+| | step 1 | step 2 | reference |
+|---|---|---|---|
+| f-11/a | 217 | 215 | 108 |
+| f-11/b | 379 | 363 | 205 |
+| f-40, 33.75° | 245 | 184 | 130 |
+| Herne, 12 runs | 733 898 | 620 451 (−15.5 %) | |
+| catalogue rows (55), default / constrained | | −2.1 % / −2.0 % | |
+| corpus M3 @20 / @25 / @30 | | −1.2 / −3.3 / −13.5 % | |
+| corpus constrained @20 / @25 / @30 | | −0.7 / −1.7 / −7.4 % | |
+
+f-40 is now 1.4× the reference, f-11/a and f-11/b 2.0× and 1.8×; **the 1.25× target stays open on f-11.** The 31 changed
+golden M3 rows all pass the oracle; one grows (f-58/c, 779 → 791 triangles).
+
+**Termination:** as in 4.3.1. The floor holds for every chosen point. The paper's proof does not cover our setting, so the grid, O11,
+lens and small-angle cases stay measured, not proven.
+
 ### 4.4 The cq churn
 
 In the constrained-quality mode, lens deletion (A) deletes free vertices in a subsegment's diametral circle before it is bisected.

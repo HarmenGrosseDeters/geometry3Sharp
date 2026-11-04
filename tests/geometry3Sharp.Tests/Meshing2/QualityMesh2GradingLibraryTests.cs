@@ -10,7 +10,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// The grading levers of <see cref="QualityMesh2"/> (MESHING2D_GRADING.md) through their switches: the worst-first queue and the
-    /// choice of the split point among candidates on the bisector, with its floor (no chosen point nearer to the mesh than the default
+    /// choice of the split point among candidates (in the petal of the shortest edge, or step 1's on its bisector), with its floor (no chosen point nearer to the mesh than the default
     /// point); on the snap grid; invariance, reuse and determinism.
     /// </summary>
     public class QualityMesh2GradingLibraryTests
@@ -66,6 +66,59 @@ namespace geometry3Sharp.Tests
             Assert.True(totals[1] < totals[0], "worst first: " + totals[1] + " against " + totals[0]);
             Assert.True(totals[2] < totals[0], "best candidate: " + totals[2] + " against " + totals[0]);
             Assert.True(totals[3] < totals[0], "both: " + totals[3] + " against " + totals[0]);
+        }
+
+        /// <summary>
+        /// the petal's candidates (grading step 2, the default) against step 1's on the bisector: every mesh passes the oracle, in
+        /// both modes and on the snap grid, and the petal saves triangles summed over the seeds
+        /// </summary>
+        [Theory]
+        [InlineData(20.0, false, 0.0)]
+        [InlineData(30.0, true, 0.0)]
+        [InlineData(25.0, false, 0.25)]
+        public void Petal_SavesTriangles_AndEveryMeshPasses(double angle, bool constrainedQuality, double snap)
+        {
+            long bisector = 0, petal = 0;
+            for (int seed = 0; seed < 24; ++seed) {
+                var input = Fuzz(6300 + seed, angle, constrainedQuality, snap);
+                Mesh2Output withPetal = Run(input), onBisector;
+                QualityMesh2.Refiner.PetalForBenchmarks = false;
+                try { onBisector = Run(input); } finally { QualityMesh2.Refiner.PetalForBenchmarks = null; }
+                foreach (var o in new[] { withPetal, onBisector }) {
+                    Assert.Equal(Mesh2Status.Success, o.Status);
+                    Assert.False(o.SteinerLimitReached, "seed " + seed);
+                    var report = Judge(input, o);
+                    Assert.True(report.Ok, "seed " + seed + ": " + report);
+                }
+                bisector += onBisector.Triangles.Length; petal += withPetal.Triangles.Length;
+            }
+            Assert.True(petal < bisector, "the petal: " + petal + " against " + bisector + " on the bisector");
+        }
+
+        /// <summary>
+        /// the bound in Score (a candidate that removes fewer bad triangles than the best score so far is refused without its fan) is
+        /// exact: with it switched off every mesh and every pick are the same, over the fuzz in both modes and on the grid (a bound
+        /// that also refused an equal score would lose the tie to the larger radius: such ties occur in these seeds)
+        /// </summary>
+        [Theory]
+        [InlineData(20.0, false, 0.0)]
+        [InlineData(30.0, true, 0.0)]
+        [InlineData(25.0, false, 0.25)]
+        [InlineData(30.0, false, 0.0)]
+        public void ScoreBound_LeavesEveryChoiceUnchanged(double angle, bool constrainedQuality, double snap)
+        {
+            for (int seed = 0; seed < 24; ++seed) {
+                var input = Fuzz(6400 + seed, angle, constrainedQuality, snap);
+                var withBound = new List<(double, double, bool, Vector2d)>();
+                var o = Run(input, picked: (f, r, other, p) => withBound.Add((f, r, other, p)));
+                var withoutBound = new List<(double, double, bool, Vector2d)>();
+                QualityMesh2.Refiner.ScoreBoundOffForTests = true;
+                Mesh2Output u;
+                try { u = Run(input, picked: (f, r, other, p) => withoutBound.Add((f, r, other, p))); }
+                finally { QualityMesh2.Refiner.ScoreBoundOffForTests = false; }
+                Assert.True(Same(o, u), "seed " + seed + ": the meshes differ");
+                Assert.Equal(withoutBound, withBound);
+            }
         }
 
         /// <summary>

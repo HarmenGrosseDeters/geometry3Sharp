@@ -38,7 +38,8 @@ namespace Meshing2Acceptance
         /// G3_M2_KEEPAPART (0 or 1) the refinement rule of #360 that keeps chains apart (0: the refinement before it);
         /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; G3_M2_KEEPAPART=0 drops the pinch rule (a split point
         /// is never another chain's vertex of refinement) as well; G3_M2_WORSTFIRST (0 or 1) bad triangles split worst first or in the order
-        /// queued; G3_M2_BEST (0 or 1) the split point chosen among candidates on the bisector or the off-centre / circumcentre; unset keeps
+        /// queued; G3_M2_BEST (0 or 1) the split point chosen among candidates or the off-centre / circumcentre; G3_M2_PETAL (0 or 1) the candidates
+        /// in the petal of the shortest edge or step 1's on its bisector; unset keeps
         /// the defaults. G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
@@ -53,6 +54,7 @@ namespace Meshing2Acceptance
             // (by name: tools/new_tests_on_base.py builds this file against the library of before the switches)
             SetRefinerSwitch("WorstFirstForBenchmarks", Flag("G3_M2_WORSTFIRST"));
             SetRefinerSwitch("BestCandidateForBenchmarks", Flag("G3_M2_BEST"));
+            SetRefinerSwitch("PetalForBenchmarks", Flag("G3_M2_PETAL"));
         }
 
         static void SetRefinerSwitch(string name, bool? value)

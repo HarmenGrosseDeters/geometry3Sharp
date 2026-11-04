@@ -175,12 +175,19 @@ namespace g3
             /// bisector of its shortest edge (<see cref="BestCandidate"/>) or always the off-centre or circumcentre (null: the default, chosen) </summary>
             [ThreadStatic] internal static bool? BestCandidateForBenchmarks;
             readonly bool bestCandidate;
+            /// <summary> benchmarks and tests only (per thread): the choice's candidates in the petal of the shortest edge
+            /// (<see cref="PetalCandidates"/>) or step 1's on its bisector (null: the default, the petal) </summary>
+            [ThreadStatic] internal static bool? PetalForBenchmarks;
+            readonly bool petal;
             /// <summary> tests only (per thread): called for every choice of <see cref="BestCandidate"/> where the default point counts, with
             /// its insertion radius, the winner's (both squared, scaled), whether the winner is not the default point (only then it is
             /// used), and the winner </summary>
             [ThreadStatic] internal static Action<double, double, bool, Vector2d> PickedForTests;
             /// <summary> tests only (per thread): every angle test the choice reuses is checked against a fresh one (throws) </summary>
             [ThreadStatic] internal static bool CheckScoresForTests;
+            /// <summary> tests only (per thread): the bound in <see cref="Score"/> off (every candidate's fan evaluated), to show that it
+            /// leaves the choice unchanged </summary>
+            [ThreadStatic] internal static bool ScoreBoundOffForTests;
 
             /// <summary>
             /// The queue of triangles to look at. Worst first: a binary heap keyed by the triangle's sin^2 of its smallest angle when queued
@@ -273,6 +280,7 @@ namespace g3
                 // (without an angle bound the order and the split point stay as before: size refinement takes circumcentres)
                 triangles = new TriangleQueue(this, WorstFirstForBenchmarks ?? options.MinAngle > 0);
                 bestCandidate = BestCandidateForBenchmarks ?? options.MinAngle > 0;
+                petal = PetalForBenchmarks ?? true;
                 // lenses only for constrained Delaunay and up to the bound proven for them, arcsin(sqrt 3 / 4) = 25.65 degrees, ie
                 // sin^2 <= 3/16 (exact in doubles); above it the diametral circle (owner decision 2026-11-02, rule 3i)
                 lenses = LensesForBenchmarks ?? (!options.Conforming && options.MinAngle > 0 && sin2Min <= 3.0 / 16);
@@ -1210,10 +1218,11 @@ namespace g3
             const int BisectorCandidates = 6;
 
             /// <summary>
-            /// The split point of a triangle t bad by its angle, chosen among candidates on the perpendicular bisector of its shortest edge
-            /// pq (where the circumcentre and the off-centre lie): the default point (the off-centre if there is one, else the
-            /// circumcentre), the circumcentre, and six points evenly from the nearer of the off-centre and the circumcentre to 1.3 times
-            /// the circumcentre's distance from the midpoint of pq (from the circumcentre with off-centres switched off). On the grid the
+            /// The split point of a triangle t bad by its angle, chosen among candidates: the default point (the off-centre if there is
+            /// one, else the circumcentre) and the candidates in the petal of t's shortest edge pq (<see cref="PetalCandidates"/>; grading
+            /// step 2). With <see cref="PetalForBenchmarks"/> off, step 1's candidates on the perpendicular bisector of pq instead: the
+            /// circumcentre and six points evenly from the nearer of the off-centre and the circumcentre to 1.3 times the circumcentre's
+            /// distance from the midpoint of pq (from the circumcentre with off-centres switched off). On the grid the
             /// default point is the pixel centre refinement inserts without the choice, the others are rounded to their pixel centres. A candidate
             /// counts only where it would be inserted as it is: reached from t without crossing a constraint, encroaching on no
             /// subsegment, with t in its cavity, and on the grid with no constraint across its pixel. Of those the one wins that removes
@@ -1227,7 +1236,8 @@ namespace g3
             /// (Ruppert 1995; Shewchuk 2002; Ungor 2004 for off-centres) holds as for the default point. When the default point itself
             /// does not count (it is blocked, encroaches or lies in a constraint's pixel), nothing is chosen: refinement goes on as without
             /// the choice (it splits the subsegment, or falls back to the circumcentre). Choosing among several points is the idea of
-            /// Erten and Ungor 2009 (locally optimal Steiner points), here on the bisector only (MESHING2D_GRADING.md).
+            /// Erten and Ungor 2007 (locally optimal Steiner points, SGP 2007), with step 1's score instead of their farthest point
+            /// (MESHING2D_GRADING.md 4.3.1).
             /// </summary>
             bool BestCandidate(int t, Vector2d cc, bool off, Vector2d oc, out Vector2d picked)
             {
@@ -1255,10 +1265,14 @@ namespace g3
                     else if (!CircumcentrePixel(t, out dflt)) return false;
                 }
                 var candidates = candidateBuffer; candidates.Clear();
-                candidates.Add(dflt); candidates.Add(cc);
-                for (int i = 0; i < BisectorCandidates; ++i) {
-                    var l = m + dir * (lo + (hi - lo) * i / (BisectorCandidates - 1));
-                    candidates.Add(new Vector2d(a0.x + ExactPoint3.ScaleB(l.x, ex), a0.y + ExactPoint3.ScaleB(l.y, ex)));
+                candidates.Add(dflt);
+                if (petal) PetalCandidates(t, a0, ex, m, dir, Math.Sqrt(shortest), candidates);
+                else {
+                    candidates.Add(cc);
+                    for (int i = 0; i < BisectorCandidates; ++i) {
+                        var l = m + dir * (lo + (hi - lo) * i / (BisectorCandidates - 1));
+                        candidates.Add(new Vector2d(a0.x + ExactPoint3.ScaleB(l.x, ex), a0.y + ExactPoint3.ScaleB(l.y, ex)));
+                    }
                 }
                 double floor = -1, bestRadius = -1; int bestScore = int.MinValue, best = -1;
                 var seen = seenBuffer; seen.Clear();
@@ -1276,7 +1290,7 @@ namespace g3
                     seen.Add(p);
                     // (the checks that only refuse, the encroachment and the pixel, run only for a candidate that would win: the same
                     // winner, without their cost for the others)
-                    if (!Score(t, p, ex, out int at, out int score, out double radius)) {
+                    if (!Score(t, p, ex, bestScore, out int at, out int score, out double radius)) {
                         if (i == 0) return false;
                         continue;
                     }
@@ -1297,13 +1311,73 @@ namespace g3
                 return best > 0;
             }
 
+            /// <summary> the arc points of the petal on each side of its far end (<see cref="PetalCandidates"/>) </summary>
+            const int PetalArcPoints = 3;
+            /// <summary> at most this many triangles near t are searched for circumcentres in the petal </summary>
+            const int PetalSearch = 64;
+            readonly Queue<int> petalQueue = new Queue<int>();
+            int[] petalMark = new int[0];
+            int petalGen;
+
+            /// <summary>
+            /// The candidates of the choice besides the default point (<see cref="BestCandidate"/>), in the petal of t's shortest edge pq
+            /// (Erten and Ungor 2007): the disk through p and q from which pq is seen under the angle bound theta or more, on t's side of
+            /// pq. It lies in t's circumdisk, and its far end on the bisector is the off-centre. Their point is the petal's point farthest
+            /// from every vertex, at a Voronoi vertex inside the petal or on its boundary; here the candidates are where it can lie, and
+            /// step 1's score decides among them (measured better than the farthest point: MESHING2D_GRADING.md 4.3.1):
+            /// - the circumcentres (Voronoi vertices) of the triangles reached from t across unconstrained edges whose circumdisks meet the
+            ///   petal, at most <see cref="PetalSearch"/> of them, that lie inside it;
+            /// - seven points of its boundary arc: the far end and three on each side, by the half-angle parameter s = tan(psi / 2) of
+            ///   the angle psi from the bisector at the petal's centre, s = cot(theta / 2) (i / 4) |i / 4| for i = -3 ... 3, spaced
+            ///   quadratically: 0 at the far end, and cot(theta / 2) = <see cref="HalfCot"/> would be p and q. Rational in s: no trigonometric function (whose last bit
+            ///   may differ by runtime); the quadratic spacing puts more points near the far end (measured better than linear).
+            /// In t's frame of <see cref="Local"/> (an input scaled by 2^k gives the candidates scaled by 2^k, bit for bit), returned in
+            /// the mesh's coordinates
+            /// </summary>
+            void PetalCandidates(int t, Vector2d a0, int ex, Vector2d m, Vector2d dir, double len, List<Vector2d> candidates)
+            {
+                double sinT = Math.Sqrt(sin2Min), cosT = Math.Sqrt(1 - sin2Min);
+                if (!(sinT > 0) || double.IsInfinity(halfCot)) return;
+                double radius = 0.5 * len / sinT;
+                var centre = m + dir * (0.5 * len * cosT / sinT);
+                var normal = new Vector2d(-dir.y, dir.x);
+                Vector2d Out(Vector2d l) => new Vector2d(a0.x + ExactPoint3.ScaleB(l.x, ex), a0.y + ExactPoint3.ScaleB(l.y, ex));
+                const int arc = PetalArcPoints + 1;
+                for (int i = -arc + 1; i < arc; ++i) {
+                    double f = (double)i / arc, s = halfCot * f * Math.Abs(f), d = 1 + s * s;
+                    candidates.Add(Out(centre + (dir * ((1 - s * s) / d) + normal * (2 * s / d)) * radius));
+                }
+                // the Voronoi vertices near t: breadth first across unconstrained edges, through triangles whose circumdisks meet the petal
+                if (petalMark.Length < k.TriangleSlots) Array.Resize(ref petalMark, Math.Max(k.TriangleSlots, 2 * petalMark.Length));
+                int gen = NextGeneration(ref petalGen, petalMark);
+                var queue = petalQueue; queue.Clear();
+                queue.Enqueue(t); petalMark[t] = gen;
+                int budget = PetalSearch;
+                while (queue.Count > 0 && budget-- > 0) {
+                    int u = queue.Dequeue();
+                    if (!Circumcentre(u, out var cu)) continue;
+                    var lu = ScaleB(cu - a0, -ex);
+                    var corner = ScaleB(k.Point(k.V[3 * u]) - a0, -ex);
+                    double ru = (corner - lu).Length, dc = (lu - centre).Length;
+                    if (u != t && !(dc < radius + ru)) continue;
+                    if (dc <= radius && (lu - m).Dot(dir) > 0) candidates.Add(Out(lu));
+                    for (int e = 3 * u; e < 3 * u + 3; ++e) {
+                        int w = k.H[e] / 3;
+                        if (k.Seg[e] >= 0 || petalMark[w] == gen || k.IsGhost(w) || !InDomain(w)) continue;
+                        petalMark[w] = gen;
+                        queue.Enqueue(w);
+                    }
+                }
+            }
+
             /// <summary>
             /// The score of inserting p for triangle t (<see cref="BestCandidate"/>): the triangles of the domain bad by their angle in p's
             /// cavity less the triangles of its fan below the angle bound, and p's insertion radius squared (in the frame scaled by 2^-ex).
-            /// False if p cannot be reached from t without crossing a constraint, or t is not in its cavity; the other refusals are
+            /// False if p cannot be reached from t without crossing a constraint, or t is not in its cavity, or it removes fewer bad
+            /// triangles than toBeat (it cannot win: its score is at most that count); the other refusals are
             /// <see cref="Insertable"/>. at: the triangle that holds p
             /// </summary>
-            bool Score(int t, Vector2d p, int ex, out int at, out int score, out double radius)
+            bool Score(int t, Vector2d p, int ex, int toBeat, out int at, out int score, out double radius)
             {
                 score = 0; radius = 0;
                 at = Walk(t, p, out int blocked);
@@ -1333,6 +1407,10 @@ namespace g3
                     else if (CheckScoresForTests && badValue[u] != BadByAngle(u)) throw new InvalidOperationException("stale angle test of triangle " + u + " in a choice");
                     if (badValue[u]) ++destroyed;
                 }
+                // (a bound: the score is at most the triangles removed, so a candidate that removes fewer than the best score so far
+                // cannot win, whatever its fan; refused here without the fan's angles. The same winner: BestCandidate only takes a
+                // score above the best, or equal with a larger radius. The default point, scored first, meets int.MinValue)
+                if (destroyed < toBeat && !ScoreBoundOffForTests) return false;
                 double nearest = double.MaxValue;
                 foreach (int e in boundary) {
                     // the new triangle of p and the boundary edge, in the frame scaled by 2^-ex around p
