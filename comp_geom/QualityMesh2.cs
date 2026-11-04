@@ -892,23 +892,32 @@ namespace g3
             List<int> TrianglesNear(int t0, double x0, double y0, double x1, double y1)
             {
                 var result = new List<int>();
-                var seen = new HashSet<int> { t0 };
-                var stack = new Stack<int>();
+                // (marks by triangle slot with a generation and a reused stack instead of a set and a stack per call: a few allocations
+                // per call, from every split point tried on the grid, were most of its time; the result list stays per call, as callers
+                // keep it while asking again)
+                if (nearMark.Length < k.TriangleSlots) Array.Resize(ref nearMark, Math.Max(k.TriangleSlots, 2 * nearMark.Length));
+                int gen = NextGeneration(ref nearGen, nearMark);
+                bool Seen(int t) { if (nearMark[t] == gen) return false; nearMark[t] = gen; return true; }
+                var stack = nearStack; stack.Clear();
+                Seen(t0);
                 stack.Push(t0);
                 while (stack.Count > 0) {
                     int t = stack.Pop();
                     if (k.IsGhost(t)) {
-                        if (t == t0) for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (seen.Add(t2)) stack.Push(t2); }
+                        if (t == t0) for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (Seen(t2)) stack.Push(t2); }
                         continue;
                     }
                     double lx = double.MaxValue, ly = double.MaxValue, hx = double.MinValue, hy = double.MinValue;
                     for (int j = 0; j < 3; ++j) { var p = k.Point(k.V[3 * t + j]); lx = Math.Min(lx, p.x); ly = Math.Min(ly, p.y); hx = Math.Max(hx, p.x); hy = Math.Max(hy, p.y); }
                     if (hx < x0 || lx > x1 || hy < y0 || ly > y1) continue;
                     result.Add(t);
-                    for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (seen.Add(t2)) stack.Push(t2); }
+                    for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (Seen(t2)) stack.Push(t2); }
                 }
                 return result;
             }
+            int[] nearMark = new int[0];
+            int nearGen;
+            readonly Stack<int> nearStack = new Stack<int>();
 
             /// <summary>
             /// The split point of constrained edge u-w on the grid (MESHING2D_SNAP.md section 3g): the point at the given fraction between
@@ -1173,6 +1182,7 @@ namespace g3
                 return !double.IsNaN(point.x) && !double.IsNaN(point.y) && !double.IsInfinity(point.x) && !double.IsInfinity(point.y);
             }
 
+            readonly Stack<ConstrainedDelaunayMesh2.Builder.Piece> pendingPieces = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
             // (buffers of BestCandidate and Score, reused: one refiner runs on one thread)
             readonly List<Vector2d> candidateBuffer = new List<Vector2d>();
             readonly List<Vector2d> seenBuffer = new List<Vector2d>();
@@ -1498,7 +1508,12 @@ namespace g3
                 if (grid != null && ConstraintInPixel(at, c)) { if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
                 int before = k.VertexCount;
                 if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
+                // (the walk above found the triangle that holds c: the kernel's point location starts there instead of at the last
+                // insertion, which the worst-first order puts anywhere in the mesh; profiled: 85 steps per location on Herne)
+                k.LocateHint(at);
+                long walked = k.WalkSteps;
                 k.InsertPoint(c.x, c.y);
+                WalkStepsForTests += k.WalkSteps - walked; ++LocationsForTests;
                 if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
                 if (CountsForBenchmarks != null) { int slot = chosen ? 7 : off ? 4 : 3; if (slot < CountsForBenchmarks.Length) ++CountsForBenchmarks[slot]; }
@@ -1617,14 +1632,17 @@ namespace g3
                 // without its constraint the edge may not be Delaunay: restore that first, Lawson's insertion assumes it (as at crossings)
                 k.RestoreDelaunay(new[] { ((long)u << 32) | (uint)w });
                 int before = k.VertexCount;
+                { int fe = k.FindEdge(u, w); k.LocateHint(fe >= 0 ? fe / 3 : e / 3); }
+                long walked = k.WalkSteps;
                 int q = k.InsertPoint(p.x, p.y);
+                SegmentWalkStepsForTests += k.WalkSteps - walked; ++SegmentLocationsForTests;
                 bool reroute = k.VertexCount == before && q != u && q != w;
                 if (k.VertexCount > before) {
                     ++inserted;
                     if (CountsForBenchmarks != null) ++CountsForBenchmarks[splitCause];
                     if (b.heights != null) b.SetHeight(q, u, w);
                 } else if (grid == null || q == u || q == w) unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
-                var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
+                var pending = pendingPieces; pending.Clear();
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = sources });
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(sources) });
                 long guard = 0;
@@ -1641,6 +1659,10 @@ namespace g3
                 Collect(lifted);
                 return null;
             }
+
+            /// <summary> tests only: point-location walk steps and locations of the refiner's insertions in triangles and on subsegments,
+            /// summed over runs on this thread (counted in every run: two additions per insertion) </summary>
+            [ThreadStatic] internal static long WalkStepsForTests, LocationsForTests, SegmentWalkStepsForTests, SegmentLocationsForTests;
 
             /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread
             /// (counted in every run: one addition per deletion) </summary>
