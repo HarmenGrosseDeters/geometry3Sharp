@@ -133,7 +133,7 @@ namespace Meshing2Acceptance
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
-            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[7] : null;
+            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[8] : null;
             long deleted = 0;
             var thread = new System.Threading.Thread(() => {
                 try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }
@@ -148,7 +148,8 @@ namespace Meshing2Acceptance
             if (counts != null)
                 Console.Error.WriteLine("refinement counts: " + counts[0] + " subsegments split as encroached, " + counts[1] + " for a point behind them, " + counts[2]
                     + " encroached by a point, " + counts[3] + " circumcentres, " + counts[4] + " off-centres, " + counts[5] + " grid-blocked triangles, " + counts[6]
-                    + " subsegments unsplittable on the grid, " + deleted + " free vertices deleted before bisections (lenses)");
+                    + " subsegments unsplittable on the grid, " + deleted + " free vertices deleted before bisections (lenses), " + counts[7]
+                    + " points chosen on the bisector (grading)");
             clock.Restart();
             var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
             double oracleMs = clock.Elapsed.TotalMilliseconds;

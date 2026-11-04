@@ -173,6 +173,37 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> a candidate is rounded to the grid only when its pixel index fits (|coordinate| / W below 2^52, the bound of the exact
+        /// circumcentre's pixel): the grid's rounding throws far beyond it (review of #375: a sliver's far bisector point) </summary>
+        [Fact]
+        public void RoundableOnGrid_GuardsTheRounding()
+        {
+            var grid = new SnapGrid(0.25);
+            Assert.True(QualityMesh2.Refiner.RoundableOnGrid(grid, new Vector2d(1e6, -3)));
+            Assert.True(QualityMesh2.Refiner.RoundableOnGrid(null, new Vector2d(1e30, 0)));
+            Assert.False(QualityMesh2.Refiner.RoundableOnGrid(grid, new Vector2d(1e30, 0)));
+            Assert.False(QualityMesh2.Refiner.RoundableOnGrid(grid, new Vector2d(0, -Math.Pow(2, 51))));   // 2^53 pixels of 1/4
+            Assert.True(QualityMesh2.Refiner.RoundableOnGrid(grid, new Vector2d(0, Math.Pow(2, 49))));     // 2^51 pixels
+            Assert.False(QualityMesh2.Refiner.RoundableOnGrid(grid, new Vector2d(double.NaN, 0)));
+            Assert.False(QualityMesh2.Refiner.RoundableOnGrid(null, new Vector2d(2e70, 0)));
+            Assert.ThrowsAny<Exception>(() => grid.Round(new Vector2d(1e30, 0)));   // what the guard keeps away
+        }
+
+        /// <summary> the benchmark counts chosen points apart from off-centres and circumcentres: as many as the choices of a point other
+        /// than the default </summary>
+        [Fact]
+        public void Counts_ChosenPointsApart()
+        {
+            var input = Fuzz(6003, 25, false);
+            var counts = new long[8];
+            int others = 0;
+            QualityMesh2.Refiner.CountsForBenchmarks = counts;
+            try { Run(input, picked: (f, r, other, p) => { if (other) ++others; }); }
+            finally { QualityMesh2.Refiner.CountsForBenchmarks = null; }
+            Assert.True(others > 0);
+            Assert.Equal(others, counts[7]);
+        }
+
         // ------------------------------------------------------------ invariance, reuse, determinism
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });

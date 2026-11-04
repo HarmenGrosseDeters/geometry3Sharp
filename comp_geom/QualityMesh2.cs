@@ -150,7 +150,8 @@ namespace g3
             /// benchmarks only (per thread): when set, refinement adds what it inserts and refuses here, by cause: 0 subsegments split as
             /// encroached, 1 subsegments split because a triangle's point lies behind them, 2 because the point encroaches them, 3
             /// circumcentres, 4 off-centres, 5 grid-blocked triangles, 6 subsegments with no split point on the grid (5 and 6 of the last sweep
-            /// only, the others summed over all)
+            /// only, the others summed over all), 7 points chosen among candidates other than the default (<see cref="BestCandidate"/>; an array
+            /// of 7 leaves them uncounted)
             /// </summary>
             [ThreadStatic] internal static long[] CountsForBenchmarks;
             int splitCause;
@@ -1265,11 +1266,12 @@ namespace g3
                 NextGeneration(ref badGen, badMark);
                 for (int i = 0; i < candidates.Count; ++i) {
                     var p = candidates[i];
-                    if (grid != null && i > 0) p = grid.Round(p);
-                    if (double.IsNaN(p.x) || double.IsNaN(p.y) || Math.Abs(p.x) > DelaunayMesh2.CoordinateLimit || Math.Abs(p.y) > DelaunayMesh2.CoordinateLimit) {
+                    // (finite and in range before rounding: a far candidate's pixel index does not fit the grid's integers; review)
+                    if (!(i == 0 ? Usable(p) : RoundableOnGrid(grid, p))) {
                         if (i == 0) return false;
                         continue;
                     }
+                    if (grid != null && i > 0) p = grid.Round(p);
                     if (seen.Contains(p)) continue;
                     seen.Add(p);
                     // (the checks that only refuse, the encroachment and the pixel, run only for a candidate that would win: the same
@@ -1285,6 +1287,9 @@ namespace g3
                         if (i == 0) return false;
                         continue;
                     }
+                    // (a point other than the default exactly on a constrained edge is not chosen: EncroachedByPoint skips locked and
+                    // unsplittable edges, so nothing else would refuse it there; review)
+                    if (i > 0 && OnConstrainedEdge(at, p)) continue;
                     bestScore = score; bestRadius = radius; picked = p; best = i;
                 }
                 if (PickedForTests != null) PickedForTests(floor, bestRadius, best > 0, picked);
@@ -1347,6 +1352,27 @@ namespace g3
             /// insert it as it is (<see cref="SplitTriangle"/>) </summary>
             bool Insertable(int at, Vector2d p) => EncroachedByPoint(at, p).Count == 0 && !(grid != null && ConstraintInPixel(at, p));
 
+            static bool Usable(Vector2d p) => !double.IsNaN(p.x) && !double.IsNaN(p.y)
+                && Math.Abs(p.x) <= DelaunayMesh2.CoordinateLimit && Math.Abs(p.y) <= DelaunayMesh2.CoordinateLimit;
+
+            /// <summary> p is finite, within the coordinate limit and, on a grid, at most 2^52 pixels from the origin in each coordinate (the
+            /// bound <see cref="SnapGrid.CircumcentrePixelCentre"/> keeps: the pixel index then fits the grid's integers exactly) </summary>
+            internal static bool RoundableOnGrid(SnapGrid grid, Vector2d p)
+            {
+                if (!Usable(p)) return false;
+                if (grid == null) return true;
+                const double limit = 4503599627370496.0;   // 2^52
+                return Math.Abs(p.x) / grid.W < limit && Math.Abs(p.y) / grid.W < limit;
+            }
+
+            /// <summary> p lies on a constrained edge of triangle at (which holds it) </summary>
+            bool OnConstrainedEdge(int at, Vector2d p)
+            {
+                for (int e = 3 * at; e < 3 * at + 3; ++e)
+                    if (k.Seg[e] >= 0 && ExactPredicates.Orient2d(k.Point(k.V[e]), k.Point(k.V[Next(e)]), p) == 0) return true;
+                return false;
+            }
+
             bool InCircle(int t, Vector2d p) => ExactPredicates.InCircle(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), p) > 0;
 
             ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
@@ -1357,7 +1383,10 @@ namespace g3
                 Vector2d oc = default(Vector2d);
                 bool off = tryOffCentre && OffCentre(t, out oc);
                 ccPixelKnown = false;
-                if (bestCandidate && tryOffCentre && BestCandidate(t, c, off, oc, out var picked)) { off = true; oc = picked; }
+                // (a chosen point takes the path of an off-centre: rounded again, a no-op, and if the kernel refuses it after all, the
+                // triangle is tried once more without the choice; counted apart)
+                bool chosen = false;
+                if (bestCandidate && tryOffCentre && BestCandidate(t, c, off, oc, out var picked)) { off = true; oc = picked; chosen = true; }
                 if (off) c = grid != null ? grid.Round(oc) : oc;
                 else if (grid != null && !CircumcentrePixel(t, out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
@@ -1394,7 +1423,7 @@ namespace g3
                 k.InsertPoint(c.x, c.y);
                 if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
-                if (CountsForBenchmarks != null) ++CountsForBenchmarks[off ? 4 : 3];
+                if (CountsForBenchmarks != null) { int slot = chosen ? 7 : off ? 4 : 3; if (slot < CountsForBenchmarks.Length) ++CountsForBenchmarks[slot]; }
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
                 Collect();
                 return null;
