@@ -10,7 +10,9 @@ namespace geometry3Sharp.Tests
     /// An input whose outer rings all collapse in snapping (D14) has an empty domain, not the convex hull (D13 is the rule for input
     /// without outer rings): snapping keeps the collapsed rings' pieces as segments, and with no outer ring left the builder took the hull
     /// of all points for the domain and meshed free points outside the rings (star polygon fuzz seeds 37, 41, 1019, 1052, 1331, 2200,
-    /// 2248: TriangleOutsideDomain and SubsegmentUnsourced; found again by the lens fuzz of #370).
+    /// 2248: TriangleOutsideDomain and SubsegmentUnsourced; found again by the lens fuzz of #370). Only the library's existing API
+    /// here, so that these tests run against the library before the fix (they fail there); the flag and the diagnostic are tested in
+    /// QualityMesh2CollapsedRingDomainLibraryTests.
     /// </summary>
     public class QualityMesh2CollapsedRingDomainTests
     {
@@ -44,7 +46,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> a ring 0.1 wide along y = 0.4 (snapped to the grid line y = 0 at pixel 1) and a free point well outside it </summary>
-        static Mesh2Input ThinRing(bool square, bool squareIsHole = false)
+        internal static Mesh2Input ThinRing(bool square, bool squareIsHole = false)
         {
             var x = new List<double> { 0.2, 10.2, 20.2, 10.2, 6, 3 }; var y = new List<double> { 0.4, 0.45, 0.4, 0.35, 8, 5 };
             var input = new Mesh2Input { SnapTolerance = 1, MinAngleDeg = 20, SteinerLimit = 5000 };
@@ -85,36 +87,6 @@ namespace geometry3Sharp.Tests
             Assert.Empty(o.Triangles);
             var report = Judge(input, o, mode);
             Assert.True(report.Ok, report.ToString());
-        }
-
-        /// <summary> the flag itself: true only when the input has outer rings and all of them collapse </summary>
-        [Theory]
-        [InlineData("none", false)]
-        [InlineData("holes only", false)]
-        [InlineData("one of two", false)]
-        [InlineData("all", true)]
-        [InlineData("all, a hole survives", true)]
-        public void SnapRounding_OuterRingsCollapsed(string which, bool expected)
-        {
-            var input = which == "one of two" ? ThinRing(true) : which == "all, a hole survives" ? ThinRing(true, true) : ThinRing(false);
-            if (which == "none") input.Rings.Clear();
-            if (which == "holes only") input.Rings[0] = new RingInput(input.Rings[0].Vertices, true);
-            var snap = SnapRounding2.Apply(ConstrainedDelaunayMesh2Candidate.Convert(input), 1, System.Threading.CancellationToken.None);
-            Assert.Equal(expected, snap.OuterRingsCollapsed);
-            Assert.Equal(expected, snap.Diagnostics.Any(d => d.Contains("every outer ring collapsed")));
-        }
-
-        /// <summary> the diagnostics say why: the ring collapsed </summary>
-        [Fact]
-        public void ThinRing_Collapses_Reported()
-        {
-            var lib = ConstrainedDelaunayMesh2Candidate.Convert(ThinRing(false));
-            var r = new QualityMesh2 { MinAngle = 20, SnapTolerance = 1 }.Compute(lib);
-            Assert.Equal(Triangulation2Status.Empty, r.Status);
-            Assert.Contains(r.Diagnostics, d => d.Contains("ring 0 collapsed below the tolerance"));
-            Assert.Contains(r.Diagnostics, d => d.Contains("every outer ring collapsed below the tolerance; the domain is empty"));
-            var c = new ConstrainedDelaunayMesh2 { SnapTolerance = 1 }.Compute(lib);
-            Assert.Equal(Triangulation2Status.Empty, c.Status);
         }
 
         /// <summary> control: one outer ring collapses, another survives; the domain is the survivor (unchanged by the fix), and a free point
