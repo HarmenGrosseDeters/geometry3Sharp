@@ -41,13 +41,18 @@ namespace geometry3Sharp.Tests
         public void RefinerInsertions_WalkAFewSteps(double angle, double snap)
         {
             long steps0 = QualityMesh2.Refiner.WalkStepsForTests, n0 = QualityMesh2.Refiner.LocationsForTests;
+            long segSteps0 = QualityMesh2.Refiner.SegmentWalkStepsForTests, segN0 = QualityMesh2.Refiner.SegmentLocationsForTests;
             var result = new QualityMesh2 { MinAngle = angle, MaxArea = 40, SnapTolerance = snap }.Compute(Clusters());
             long steps = QualityMesh2.Refiner.WalkStepsForTests - steps0, n = QualityMesh2.Refiner.LocationsForTests - n0;
+            long segSteps = QualityMesh2.Refiner.SegmentWalkStepsForTests - segSteps0, segN = QualityMesh2.Refiner.SegmentLocationsForTests - segN0;
             Assert.True(result.Mesh != null && result.Mesh.Triangles.Count > 20000, "triangles " + result.Mesh?.Triangles.Count);
-            output.WriteLine(n + " locations, " + steps + " steps, " + (steps / (double)n).ToString("F2") + " per location");
+            output.WriteLine("triangles: " + n + " locations, " + steps + " steps; subsegments: " + segN + " locations, " + segSteps + " steps");
             // the triangle found holds the point: 0.01 steps per location here; from the last insertion instead 15 to 22 (85 on the
-            // Herne tiles)
+            // Herne tiles). A subsegment's point lies on the edge being split (or rounded next to it), and that edge's triangle is the
+            // start: 2 to 8 steps in about 500 locations here; 86 to 179 if a hull edge's ghost is not replaced by its real triangle,
+            // 12 to 26 per location without the hint
             Assert.True(n > 10000 && steps < n, n + " locations, " + steps + " walk steps");
+            Assert.True(segN > 300 && 20 * segSteps < segN, segN + " subsegment locations, " + segSteps + " walk steps");
         }
     }
 }

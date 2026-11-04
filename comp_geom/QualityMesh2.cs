@@ -1635,7 +1635,7 @@ namespace g3
                 { int fe = k.FindEdge(u, w); k.LocateHint(fe >= 0 ? fe / 3 : e / 3); }
                 long walked = k.WalkSteps;
                 int q = k.InsertPoint(p.x, p.y);
-                WalkStepsForTests += k.WalkSteps - walked; ++LocationsForTests;
+                SegmentWalkStepsForTests += k.WalkSteps - walked; ++SegmentLocationsForTests;
                 bool reroute = k.VertexCount == before && q != u && q != w;
                 if (k.VertexCount > before) {
                     ++inserted;
@@ -1660,9 +1660,9 @@ namespace g3
                 return null;
             }
 
-            /// <summary> tests only: point-location walk steps and locations of the refiner's insertions, summed over runs on this thread
-            /// (counted in every run: two additions per insertion) </summary>
-            [ThreadStatic] internal static long WalkStepsForTests, LocationsForTests;
+            /// <summary> tests only: point-location walk steps and locations of the refiner's insertions in triangles and on subsegments,
+            /// summed over runs on this thread (counted in every run: two additions per insertion) </summary>
+            [ThreadStatic] internal static long WalkStepsForTests, LocationsForTests, SegmentWalkStepsForTests, SegmentLocationsForTests;
 
             /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread
             /// (counted in every run: one addition per deletion) </summary>

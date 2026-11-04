@@ -40,9 +40,21 @@ namespace g3
         int stamp, hint = -1;
 
         /// <summary> the triangle the next point location starts from (a live triangle near the point, eg the one that holds it): the
-        /// walk is then short. Point location by a walk ends at the same triangle whatever the start for a point strictly inside; on an
-        /// edge or vertex the triangle reached may differ, the insertion is the same </summary>
-        internal void LocateHint(int t) { if (t >= 0 && t < TriangleSlots) hint = t; }
+        /// walk is then short. A ghost is replaced by the real triangle across its hull edge (LocatePoint would start a ghost hint far
+        /// away, at the first real slot). For a point strictly inside a triangle the walk ends there whatever the start; on an edge or a
+        /// vertex, or outside the hull, the triangle (or ghost) reached depends on the start, and the insertion's slot layout with it </summary>
+        internal void LocateHint(int t)
+        {
+            if (t < 0 || t >= TriangleSlots) return;
+            if (IsGhost(t)) {
+                for (int j = 0; j < 3; ++j) {
+                    int e = 3 * t + j;
+                    if (V[e] != Infinite && V[Next(e)] != Infinite) { t = H[e] / 3; break; }
+                }
+                if (IsGhost(t)) return;
+            }
+            hint = t;
+        }
         /// <summary> on a failure: a vertex where it was found (the point being inserted, or a vertex of the defect) </summary>
         internal int FailureVertex = -1;
         uint walkState = 2463534242;
