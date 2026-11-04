@@ -64,7 +64,9 @@ namespace geometry3Sharp.Tests
         // "rotated, scale 1e-3, utm", where the design (20 cm across) is near the frame's MinFeatureSize and the composite
         // fails honestly (CompositeFailed); the local frame succeeds there
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        // (near the origin and at UTM only, to keep the suite's time: the other frames are the retuned tests')
+        [InlineData("identity")]
+        [InlineData("utm")]
         public void WavyToe32_Succeeds(string name)
         {
             Similarity s = Similarity.ByName(name);

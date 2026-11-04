@@ -482,3 +482,17 @@ What the numbers show:
   - On Mixed's 180 procedural designs at UTM, 7 need a second attempt.
   - So the share stays.
 
+
+### RoundToGrid's upper bound (`slope ... round=w1,w2 zround=nearest|down margin=δ`, `TERRAIN_ROUND_TO_GRID.md`)
+
+- `round=`: after the run, the slope region's and the slope surface's coordinates are rounded to each grid width (at the
+  origin 0), and the exact checks run again. Each width gives a line: the triangles that flip or degenerate, get
+  steeper, or lose their support.
+- `zround=down`: rounds z down (a cut plane only lowers) instead of to nearest.
+- `margin=`: sets `SlopeMargin`.
+
+It runs only with a terrain and a composite, and it skips the fill pieces. The counts are exclusive, in this order:
+flipped or degenerate, then steeper, then unsupported (of those not steeper).
+
+On the Hambach cases about half of the region's triangles fail at 1 mm and at 0.1 mm with the default margin, and
+21 % / 28 % (steeper / unsupported) at 1 mm with `margin=1e-4`. The table and the conclusion are in the design note.
