@@ -350,13 +350,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(24.0)]
-        [InlineData(30.0)]
+        [InlineData(25.0)]
+        [InlineData(28.0)]
         public void SpikeOf084Degrees_ReachesAnO11UnsplittablePiece(double angle)
         {
             // the case still reaches what it is for: the mesher stops at a piece it may not split, and the oracle excuses it there (a
             // hidden vertex and a triangle whose circumcentre lies behind the piece; the local test of the piece itself is not reached here).
-            // At 25 degrees until the grading of MESHING2D_GRADING.md, which reaches the piece at 24 and 30 degrees instead (and passes at all)
+            // Which angles reach the piece depends on the split points: 25 degrees before the grading of MESHING2D_GRADING.md, 24 and 30
+            // with step 1, and 22.5, 23.5, 25, 28, 31.5 and 33 to 34 with the petal's candidates of step 2 (every angle passes)
             var report = Judge(SpikeOf084Degrees(angle), out _);
             Assert.True(report.Ok, report.ToString());
             Assert.True(report.O11GlobalExcused > 0 && report.O11AngleExcused > 0,

@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// Grading of <see cref="QualityMesh2"/> with an angle bound: bad triangles are split worst first, and a triangle bad by its angle at
-    /// the best of a few points on the bisector of its shortest edge (MESHING2D_GRADING.md). These tests use only the API of before the
+    /// the best of a few candidates (step 1: on the bisector of its shortest edge; step 2: in the edge's petal; MESHING2D_GRADING.md). These tests use only the API of before the
     /// change: on it they fail (more triangles), so they show the change. The switches, the floor, invariance and determinism are in
     /// <see cref="QualityMesh2GradingLibraryTests"/>.
     /// </summary>
@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// the unit square with a cluster of three points 2^-20 apart at its centre (the shape of the reference case f-11/a): the mesh
         /// grades from the cluster out to the square over 20 octaves. Before the change 256 triangles (default) and 286 (constrained
-        /// quality); with it 217 and 222; the reference mesher 108
+        /// quality); with step 1 217 and 222, with step 2 215 and 220; the reference mesher 108
         /// </summary>
         internal static Mesh2Input Cluster(bool constrainedQuality)
         {
@@ -50,10 +50,10 @@ namespace geometry3Sharp.Tests
         /// and the triangles summed over the seeds stay below the bound (the sums before and with the change next to each bound)
         /// </summary>
         [Theory]
-        [InlineData(25.0, false, 7300)]     // before 7610, with the change 7126
-        [InlineData(30.0, false, 16000)]    // before 18113, with it 14951
-        [InlineData(25.0, true, 5150)]      // before 5288, with it 5053
-        [InlineData(30.0, true, 15700)]     // before 17794, with it 14690
+        [InlineData(25.0, false, 6800)]     // before grading 7610, step 1 7126, step 2 (the petal) 6537
+        [InlineData(30.0, false, 12000)]    // before 18113, step 1 14951, step 2 11272
+        [InlineData(25.0, true, 4900)]      // before 5288, step 1 5053, step 2 4742
+        [InlineData(30.0, true, 11800)]     // before 17794, step 1 14690, step 2 11092
         public void Fuzz_FewerTriangles(double angle, bool constrainedQuality, int most)
         {
             long total = 0;
