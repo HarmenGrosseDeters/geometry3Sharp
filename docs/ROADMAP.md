@@ -482,7 +482,7 @@ source repositories (October 2026); "paper only" means the reference code may no
 (Soliman & Sharp 2025, port from geometry-central, MIT; an upgrade of the `VectorHeatMethod` log map), (3) generalized
 winding numbers for rational curves (Spainhour et al. 2024, Axom, BSD). Each starts with an effort estimate and a §2
 prior-art check; one that is not small (about one PR in one short session) goes back to the owner instead of being
-started. The owner runs them locally (2026-11-03); the coordinator reviews and merges the PRs. #6 (walk on stars, Zombie) stays later:
+started. The owner runs them locally (2026-11-03); the coordinator reviews and merges the PRs. Status 2026-11-04: effort gates in #364 (item 1 stopped at the gate, item 3 only as the reduced method); item 2 built and stopped at its accuracy gate. Both affine variants are less accurate than the existing log map on the sphere and cylinder, geometry-central's own implementation (potpourri3d) included. The code is not merged; the findings are in [AFFINE_LOGMAP_GATE.md](design/AFFINE_LOGMAP_GATE.md) (#371, closed). #6 (walk on stars, Zombie) stays later:
 no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
 bit-for-bit determinism and invariance tests.
 
