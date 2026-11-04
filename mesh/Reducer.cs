@@ -378,7 +378,7 @@ namespace g3
 
                     COUNT_ITERATIONS++;
 
-                    Vector3d midpoint = (va + vb) * 0.5;
+                    Vector3d midpoint = va * 0.5 + vb * 0.5;
                     int vKept;
                     ProcessResult result = CollapseEdge(eid, midpoint, out vKept);
                     if (result == ProcessResult.Ok_Collapsed) {
@@ -1004,10 +1004,10 @@ namespace g3
             // [TODO] if we have constraints, we should apply them here, for same reason as bdry above...
 
 			if (MinimizeQuadricPositionError == false) {
-				return project( (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5 );
+				return project(mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5);
 			} else {
                 Vector3d result = Vector3d.Zero;
-                Vector3d mid = 0.5 * (mesh.GetVertex(ea) + mesh.GetVertex(eb)) - quadricOrigin;
+                Vector3d mid = mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5 - quadricOrigin;
                 if (q.OptimalPoint(ref result, mid, QuadricRegularization))
                     return project(result + quadricOrigin);
 
@@ -1015,7 +1015,7 @@ namespace g3
 				// (could do line search here...)
 				Vector3d va = mesh.GetVertex(ea);
 				Vector3d vb = mesh.GetVertex(eb);
-				Vector3d c = project((va + vb) * 0.5);
+				Vector3d c = project(va * 0.5 + vb * 0.5);
 				double fa = evaluate(ref q, va);
 				double fb = evaluate(ref q, vb);
 				double fc = evaluate(ref q, c);

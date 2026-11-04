@@ -535,6 +535,13 @@ Each operation with a nested loop over the input gets a scaling test, which coun
 (candidate pairs, visited cells, or time with a wide margin). It is cheaper and less noisy than timing.
 Past cases: #63, #72, #105.
 
+Wall-clock budget tests must not compete with other test collections in the same runner. The collapsed-corridor
+oracle check remains in `QualityMesh2CollapsedPartsReportTests` with its unchanged input, result assertions and
+budget, but that class uses the `Meshing2OracleTiming` collection with `DisableParallelization = true`.
+The scheduling regression in `RobustnessSweepRemainingTests` checks both the assignment and opt-out metadata.
+This uses xUnit's [collection-level parallelism opt-out](https://xunit.net/docs/running-tests-in-parallel), not a
+suite-wide concurrency change; it does not eliminate noise from unrelated processes or other test assemblies.
+
 ## 4a. Making agent work verifiable
 
 Most rules in CLAUDE.md are enforced by review only. These items make them machine-checked, or add oracles that do

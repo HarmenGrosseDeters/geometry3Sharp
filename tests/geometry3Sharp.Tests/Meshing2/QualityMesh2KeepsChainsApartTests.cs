@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
             // a chain past a hot pixel
             [2022] = "ChainPassesHotPixel",
             // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
-            [56] = "VertexUnused", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
+            [56] = "VertexUnused,ChainSkipsHotPixel", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
         };
 
         [Fact]

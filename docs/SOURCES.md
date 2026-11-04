@@ -449,6 +449,29 @@ an implementation brief.
 | Curvature-adaptive sizing | M. Dunyach, D. Vanderhaeghe, L. Barthe, M. Botsch, *Adaptive Remeshing for Real-Time Mesh Deformation*, Eurographics 2013 Short Papers, pp. 29-32 | paper only |
 | Parallel decimation by independent sets (background for speculative certification) | P. Franc, V. Skala, *Parallel Triangular Mesh Reduction*, ALGORITMY 2000; S. Oh et al., *PaMO: Parallel Mesh Optimization for Intersection-Free Low-Poly Modeling on the GPU*, CGF 44(7), 2025 | PaMO code license not checked; not a port candidate |
 
+## Deterministic parallel output
+
+`DSubmesh3Set`, `MeshSpatialSort` and `MarchingCubes` use indexed worker-local results followed by ordered
+publication. Existing building block: `gParallel.ForRange` (including its serial test hook). Reference for preserving
+source order independently of scheduling: Microsoft Learn,
+[Order Preservation in PLINQ](https://learn.microsoft.com/en-us/dotnet/standard/parallel-programming/order-preservation-in-plinq),
+[thread-local loop state](https://learn.microsoft.com/en-us/dotnet/standard/parallel-programming/how-to-write-a-parallel-for-loop-with-thread-local-variables)
+and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/parallel-programming/potential-pitfalls-in-data-and-task-parallelism)
+(shared writes, ordering and nested parallelism).
+This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
+and uses bounded slab batches rather than buffering the entire volume.
+
+## Cross-field research
+
+The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
+(papers and documentation only; no external implementation code was read). New sources it adds to the open items:
+
+| Topic | Source | Status |
+|---|---|---|
+| Separation and rounding with a displacement budget | V. Milenkovic, E. Sacks, *Geometric Rounding and Feature Separation in Meshes*, Computer-Aided Design 108, 2019, [preprint](https://arxiv.org/abs/1805.03252); LAMMPS developers, [Neighbor lists](https://docs.lammps.org/Developer_par_neigh.html) (Verlet skins) | paper / documentation only |
+| Incidences and pinches missed by snap rounding in practice | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | paper only; background for the Q17 pinch fix |
+| Certified convex free regions | R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | paper only |
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |
