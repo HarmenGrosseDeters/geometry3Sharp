@@ -218,16 +218,19 @@ The oracle builds a triangulation W of the used vertices U itself:
   output beyond U;
 - certified before it is used:
   - **(a) it triangulates conv(U):** every triangle positive; no directed edge in two triangles, so every edge is in at most two, in
-    opposite directions; every edge in one triangle lies on a supporting line of U (every corner of conv(U) on its left or on it);
-    the cross products of those boundary edges sum to the cross sum of conv(U)'s boundary, exactly (the boundary sum is twice the
-    triangles' total area, since the interior edges cancel in pairs); the vertices of W are exactly U;
+    opposite directions; the edges in one triangle (the boundary), followed from a corner of conv(U), run along conv(U)'s edges in
+    order, each on the current hull edge and forward, back to the start after the last hull edge, and that walk takes every boundary
+    edge (no vertex starts two boundary edges); the vertices of W are exactly U. Exact: orientations, and coordinates compared along
+    a hull edge;
   - **(b) it is Delaunay:** every edge in two triangles is locally Delaunay. The fourth vertex is not strictly inside the circumcircle
     (in-circle sign ≤ 0).
 
 **(a) makes W a triangulation of conv(U).** Positive triangles whose edges pair up in opposite directions cover the plane with a
 locally constant number of layers, away from the vertices and edges. The boundary edges lie on conv(U)'s boundary, so outside conv(U)
-that number is 0. The total area equal to conv(U)'s then forces exactly 1 inside: a second layer anywhere adds area. A vertex of U
-in the interior of another triangle or edge would put a second layer there. (This is the standard degree argument of a triangulation
+that number is 0. The boundary is conv(U)'s boundary, run once, so crossing it changes the number by exactly 1: it is 1 inside. A
+vertex of U in the interior of another triangle or edge would put a second layer there. (A first version compared the boundary's
+cross sum with the hull's, exactly, after testing every boundary edge against every hull corner: quadratic in convex position, as
+the coordinator's review found. The walk is linear and gives the same conclusion.) (This is the standard degree argument of a triangulation
 checker; own write-up, and [MMNS11] is cited for the approach.)
 
 **(b) with (a) makes W Delaunay** by the Delaunay lemma ([CDS] ch. 2; [L77]): every circumcircle of a triangle of W has no vertex of
@@ -273,14 +276,21 @@ A wrong W cannot make the reduction accept a violation, because only a certified
   `NotDelaunayGlobal` reports (in order), the merge-zone count and the O11 count must agree. Every triangle of W is tested against
   every vertex of U (the lemma's conclusion, directly).
 - **Mutants:** on the certificate (each of the conditions of (a) and (b)), on the membership test (triples), and on the fallback.
-  They must die: an uncertified or wrong W must be caught by the check mode, or by a verdict difference on corrupted meshes.
+  They must die: an uncertified or wrong W must be caught by the check mode, or by a verdict difference on corrupted meshes. Two
+  conditions of the walk are defensive and have no mutant-killing case: "forward" along a hull edge (a boundary edge back along a
+  hull edge needs a triangle outside the hull, whose edges fail the walk anyway) and "the corner reached is the hull corner's id"
+  (two used vertices at one point stop the build before the certificate).
 - **Corrupted meshes and witnesses** (`Meshing2OracleDelaunayWitnessTests`):
   - a constrained Delaunay mesh with a vertex inside a circumcircle across a thin hole (the case the local test misses), judged as
     conforming, is rejected with the witness, as on the reference path;
   - a flipped edge in a Delaunay triangulation is reported for both its triangles;
   - a witness made wrong in each way the certificate tests (a triangle reversed, duplicated or dropped, an interior vertex dropped,
-    an edge flipped, and a second layer that only the cross sum detects) is refused for that reason, and the verdicts stay the full
-    pass's;
+    an edge flipped, an ear at the hull dropped, and a second layer on the half and the whole sides of a square) is refused for that
+    reason, and the verdicts stay the full pass's;
+  - a witness that throws while it is built or certified falls back to the full pass (`try`/`catch`: a defect of the witness costs
+    time, never a verdict);
+  - invariance: random points under every similarity of `Similarity.All()` and the scales 2^-500 and 2^200 use the witness, with the
+    full pass's reports; under the exact scales the report is the identity's;
   - with the certificate skipped, a witness holding the output's non-Delaunay triangles hides their violation: the certificate is
     what the reduction rests on;
   - the witness is not built from the output's triangles at all, only from U, so a mesh that is no triangulation reaches it like any
@@ -291,7 +301,7 @@ A wrong W cannot make the reduction accept a violation, because only a certified
 - **Building W:** O(|U| log |U|) expected with a randomized insertion order: rounds of doubling size over a fixed pseudo-random
   permutation, each round sorted along a Morton curve of the coordinates' ranks (the biased randomized insertion order, [ACR]; own
   code), and a visibility walk from the last new triangle for the point location.
-- **The certificate:** linear.
+- **The certificate:** linear (the boundary walk; a hash of the directed edges, with a mixing hash).
 - **Membership:** a hash of the triples.
 - **The pass:** over S only.
 

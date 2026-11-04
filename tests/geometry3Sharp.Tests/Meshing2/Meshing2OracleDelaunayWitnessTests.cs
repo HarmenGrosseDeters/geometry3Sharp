@@ -236,6 +236,50 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> an exception while building or certifying the witness (here thrown by the corruption hook, which runs between
+        /// the two; and a witness triangle with a vertex id out of range) is a failed witness: the full pass runs, with its verdicts </summary>
+        [Fact]
+        public void WitnessThatThrows_FallsBackToTheFullPass()
+        {
+            var input = RandomPoints(9, 150);
+            var o = CandidateRegistry.For(Milestone.M1).Run(input);
+            var bad = WithTriangles(o, Flip(o));
+            var (full, _) = Run(input, bad, M1, failWitness: true);
+            Assert.True(full.Has(Violation.NotDelaunayGlobal), full.ToString());
+            var (thrown, tp) = Run(input, bad, M1, w => throw new InvalidOperationException("broken"));
+            Assert.Equal("fallback: the witness threw InvalidOperationException", tp);
+            Assert.Equal(Summary(full), Summary(thrown));
+            var (outOfRange, op) = Run(input, bad, M1, w => w.Concat(new[] { new[] { 0, 1, input.Count + 5 } }).ToList());
+            Assert.StartsWith("fallback: ", op);
+            Assert.Equal(Summary(full), Summary(outOfRange));
+        }
+
+        /// <summary>
+        /// Invariance (CLAUDE.md): random points under every similarity of Similarity.All() and the scales 2^-500 and 2^200 (the mesher takes coordinates up to 1e70), meshed in
+        /// that frame: the witness is used and the verdicts and details are those of the full pass; under a power of two (exact) the
+        /// report is the identity's, bit for bit
+        /// </summary>
+        [Fact]
+        public void Invariance_WitnessEqualsTheFullPass_UnderSimilarities()
+        {
+            var baseInput = RandomPoints(31, 200);
+            string identity = null;
+            var frames = Similarity.All().Select(s => (s.Name, s.IsExact, (Func<double, double, (double, double)>)((x, y) => { var p = s.Apply(new g3.Vector3d(x, y, 0)); return (p.x, p.y); })))
+                .Concat(new[] { -500, 200 }.Select(k => ("scale 2^" + k, true, (Func<double, double, (double, double)>)((x, y) => (x * Math.Pow(2, k), y * Math.Pow(2, k))))));
+            foreach (var (name, exact, map) in frames) {
+                var pts = baseInput.X.Select((x, i) => map(x, baseInput.Y[i])).ToList();
+                var input = Points(pts);
+                var o = CandidateRegistry.For(Milestone.M1).Run(input);
+                var (r, pass) = Run(input, o, M1);
+                Assert.True(pass == "witness", name + ": " + pass);
+                var (full, _) = Run(input, o, M1, failWitness: true);
+                Assert.Equal(Summary(full), Summary(r));
+                Assert.True(r.Ok, name + ": " + r);
+                if (identity == null) identity = Summary(r);
+                else if (exact) Assert.Equal(identity, Summary(r));
+            }
+        }
+
         static int[][] Reversed(int[][] w, int i) => w.Select((t, j) => j == i ? new[] { t[0], t[2], t[1] } : t).ToArray();
 
         public static IEnumerable<object[]> Corruptions() => new[] {
@@ -243,6 +287,7 @@ namespace geometry3Sharp.Tests
             new object[] { "duplicated", "a directed edge in two witness triangles" },
             new object[] { "vertex dropped", "a used vertex is not in the witness" },
             new object[] { "triangle dropped", "a witness boundary edge is not on the hull" },
+            new object[] { "ear dropped", "a witness boundary edge is not on the hull" },
             new object[] { "edge flipped", "a witness edge is not locally Delaunay" },
         };
 
@@ -274,6 +319,16 @@ namespace geometry3Sharp.Tests
                         int i = w.FindIndex(t => t.All(x => !hull.Contains(x)));
                         return w.Where((t, j) => j != i).ToList();
                     }
+                    case "ear dropped": {
+                        // a triangle with one boundary edge and its third vertex inside: the boundary then dents in at that vertex, one
+                        // cycle still, every edge reached, the vertex still in W (its other triangles)
+                        var directed = new HashSet<(int, int)>();
+                        foreach (var t in w) for (int k = 0; k < 3; ++k) directed.Add((t[k], t[(k + 1) % 3]));
+                        var hull = new HashSet<int>(BoundaryVertices(w));
+                        int i = w.FindIndex(t => Enumerable.Range(0, 3).Count(k => !directed.Contains((t[(k + 1) % 3], t[k]))) == 1
+                            && Enumerable.Range(0, 3).Any(k => !directed.Contains((t[(k + 1) % 3], t[k])) && !hull.Contains(t[(k + 2) % 3])));
+                        return w.Where((t, j) => j != i).ToList();
+                    }
                     case "edge flipped": {
                         var fo = new Mesh2Output { VX = o.VX, VY = o.VY, Triangles = w.ToArray() };
                         return Flip(fo).ToList();
@@ -297,11 +352,11 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// The winding check alone: the square [0,4]^2 with the midpoints of its sides and its centre, triangulated as a fan around the
+        /// A double cover: the square [0,4]^2 with the midpoints of its sides and its centre, triangulated as a fan around the
         /// centre (Delaunay, all ties), and a witness that is that fan plus a second layer, the square's two triangles over the corners
         /// only. Every triangle is positive, no directed edge repeats (the fan's boundary edges are the half sides, the second layer's the
-        /// whole sides), every vertex is in it, every boundary edge on the hull, every interior edge a tie: only the boundary's cross sum,
-        /// twice the hull's, shows that it covers the square twice
+        /// whole sides), every vertex is in it, every boundary edge on the hull, every interior edge a tie: only the boundary walk sees
+        /// it, as two boundary edges leaving one corner (the boundary does not run once around the hull)
         /// </summary>
         [Fact]
         public void DoubleCover_IsRefusedByTheWinding()

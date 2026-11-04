@@ -32,10 +32,17 @@ namespace Meshing2Acceptance
             {
                 why = null;
                 if (FailWitnessForTests) { why = "failed for tests"; return null; }
-                var w = BuildWitness(used, out why);
-                if (w == null) return null;
-                if (CorruptWitnessForTests != null) w = CorruptWitnessForTests(w);
-                if (!SkipWitnessCertificateForTests && !CertifyWitness(w, used, out why)) return null;
+                // (a defect in building or certifying W costs time, never a verdict: an exception there is a failed witness too)
+                List<int[]> w;
+                try {
+                    w = BuildWitness(used, out why);
+                    if (w == null) return null;
+                    if (CorruptWitnessForTests != null) w = CorruptWitnessForTests(w);
+                    if (!SkipWitnessCertificateForTests && !CertifyWitness(w, used, out why)) return null;
+                } catch (Exception ex) when (!(ex is OutOfMemoryException)) {
+                    why = "the witness threw " + ex.GetType().Name;
+                    return null;
+                }
                 var triples = new HashSet<(int, int, int)>();
                 foreach (var t in w) triples.Add(Sorted(t[0], t[1], t[2]));
                 var outside = new List<int>();
@@ -262,9 +269,9 @@ namespace Meshing2Acceptance
             /// <summary>
             /// (a) W is a triangulation of the convex hull of U and (b) every interior edge of W is locally Delaunay, checked from W's
             /// triangles alone (MESHING2D_FAST_ORACLE.md 6.2): positive triangles; every edge in at most two triangles, in opposite
-            /// directions; every edge in one triangle on a supporting line of U (all used vertices on its left or on it), and their cross
-            /// products summing to twice the hull's area, exactly (the boundary winds once around the hull, so W covers it once); every
-            /// vertex of U in W; then the in-circle sign of every interior edge's fourth vertex at most 0
+            /// directions; the edges in one triangle, followed from a hull corner, run once around the hull's boundary, each on a hull edge
+            /// and forward, and are all reached (the boundary is the hull's, once, so W covers the hull once; linear in the boundary);
+            /// every vertex of U in W; then the in-circle sign of every interior edge's fourth vertex at most 0
             /// </summary>
             bool CertifyWitness(List<int[]> w, int[] used, out string why)
             {
@@ -285,7 +292,8 @@ namespace Meshing2Acceptance
                 if (vertices.Count != used.Length || used.Any(id => !vertices.Contains(id))) { why = "a used vertex is not in the witness"; return false; }
                 var hull = HullOf(used);
                 if (hull == null) { why = "no hull"; return false; }
-                Q boundary = Q.Zero;
+                // the boundary edges, by their start (a vertex starting two runs the boundary through it twice)
+                var next = new Dictionary<int, int>();
                 foreach (var pair in directed) {
                     int x = (int)(pair.Key >> 32), y = (int)(uint)pair.Key;
                     if (directed.ContainsKey(D(y, x))) {
@@ -296,18 +304,32 @@ namespace Meshing2Acceptance
                         if (InCircle(x, y, c, d) > 0) { why = "a witness edge is not locally Delaunay"; return false; }
                         continue;
                     }
-                    // a boundary edge: on a supporting line of U, U on its left
-                    foreach (int h in hull) if (OrientV(x, y, h) < 0) { why = "a witness boundary edge is not on the hull"; return false; }
-                    boundary += Q.FromDouble(o.VX[x]) * Q.FromDouble(o.VY[y]) - Q.FromDouble(o.VX[y]) * Q.FromDouble(o.VY[x]);
+                    if (next.ContainsKey(x)) { why = "the witness boundary does not wind once around the hull"; return false; }
+                    next[x] = y;
                 }
-                Q hullCross = Q.Zero;
-                for (int i = 0; i < hull.Count; ++i) {
-                    int x = hull[i], y = hull[(i + 1) % hull.Count];
-                    hullCross += Q.FromDouble(o.VX[x]) * Q.FromDouble(o.VY[y]) - Q.FromDouble(o.VX[y]) * Q.FromDouble(o.VY[x]);
+                // followed from the first hull corner, the boundary runs along the hull's edges in order, each boundary edge on the current
+                // hull edge, forward, until it is back at the start after the last hull edge; and that walk takes every boundary edge.
+                // The boundary is then the hull's boundary, once (linear in the boundary; exact: orientations and coordinates compared)
+                int start = hull[0], at = start, side = 0, walked = 0;
+                while (true) {
+                    if (!next.TryGetValue(at, out int to) || walked >= next.Count) { why = "a witness boundary edge is not on the hull"; return false; }
+                    int a = hull[side], b = hull[(side + 1) % hull.Count];
+                    if (OrientV(a, b, to) != 0 || !(Along(a, b, at) < Along(a, b, to) && Along(a, b, to) <= Along(a, b, b))) { why = "a witness boundary edge is not on the hull"; return false; }
+                    ++walked;
+                    if (Along(a, b, to) == Along(a, b, b)) {
+                        if (to != b) { why = "a witness boundary edge is not on the hull"; return false; }
+                        ++side;
+                    }
+                    at = to;
+                    if (side == hull.Count) break;
                 }
-                if (boundary != hullCross) { why = "the witness boundary does not wind once around the hull"; return false; }
+                if (at != start || walked != next.Count) { why = "a witness boundary edge is not on the hull"; return false; }
                 return true;
             }
+
+            /// <summary> the position of vertex v along the hull edge a-b, v on its line: the coordinate in which a and b differ, signed so
+            /// that it grows from a to b (doubles, exact) </summary>
+            double Along(int a, int b, int v) => o.VX[a] != o.VX[b] ? (o.VX[b] > o.VX[a] ? o.VX[v] : -o.VX[v]) : (o.VY[b] > o.VY[a] ? o.VY[v] : -o.VY[v]);
 
             /// <summary> the convex hull of the used vertices by the monotone chain (doubles sorted exactly, the filtered exact orientation),
             /// counter-clockwise, strictly convex corners only; null when it has fewer than three corners </summary>
