@@ -110,6 +110,8 @@ namespace g3
 
         /// <summary>
         /// Run MC algorithm and generate Output mesh (stored in Mesh). Returns early with a partial mesh if CancelF returns true.
+        /// CubeSize must be finite and positive; bounds must be finite and each cell count must fit in int.
+        /// Empty/inverted axes retain one cell, as upstream; streaming grids have no total-cell array limit.
         /// </summary>
         public void Generate()
         {
@@ -117,9 +119,20 @@ namespace g3
 
             VertexHash = new Dictionary<Vector3d, int>();
 
-            CellDimensions = SamplingGridSize.Dimensions(Bounds.Min, Bounds.Max, CubeSize);
-            if (CellDimensions.x < 0)
-                throw new ArgumentException("MarchingCubes.Generate: the cube size and bounds must be finite and give a grid that fits in an array");
+            if (!(CubeSize > 0) || double.IsInfinity(CubeSize))
+                throw new ArgumentException("MarchingCubes.Generate: the cube size must be finite and positive");
+            Vector3i dimensions = Vector3i.Zero;
+            for (int d = 0; d < 3; ++d) {
+                double min = Bounds.Min[d], max = Bounds.Max[d];
+                if (double.IsNaN(min) || double.IsInfinity(min) || double.IsNaN(max) || double.IsInfinity(max))
+                    throw new ArgumentException("MarchingCubes.Generate: the bounds must be finite");
+                // Match Bounds.Width/Height/Depth for empty or inverted axes. Cells are streamed, not a dense array.
+                double cells = Math.Max(max - min, 0) / CubeSize;
+                if (cells >= int.MaxValue)
+                    throw new ArgumentException("MarchingCubes.Generate: each cell axis must fit in int");
+                dimensions[d] = (int)cells + 1;
+            }
+            CellDimensions = dimensions;
 
             if (ParallelCompute) {
                 generate_parallel();

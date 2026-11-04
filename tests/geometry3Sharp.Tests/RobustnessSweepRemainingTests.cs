@@ -47,6 +47,88 @@ namespace geometry3Sharp.Tests
             Assert.True(mesh.CheckValidity());
         }
 
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void MarchingCubes_StreamingGridHasNoDenseArrayProductLimit(bool parallel, bool flat)
+        {
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, flat ? new Vector3d(20000, 20000, 10) : Vector3d.One);
+            var mc = new MarchingCubes {
+                Bounds = bounds, CubeSize = flat ? 1 : 7e-4, ParallelCompute = parallel, CancelF = () => true
+            };
+            mc.Generate();
+            Assert.Equal(new Vector3i((int)(bounds.Width / mc.CubeSize) + 1,
+                (int)(bounds.Height / mc.CubeSize) + 1, (int)(bounds.Depth / mc.CubeSize) + 1), mc.CellDimensions);
+            Assert.True((long)mc.CellDimensions.x * mc.CellDimensions.y * mc.CellDimensions.z > int.MaxValue);
+            Assert.Equal(0, mc.Mesh.TriangleCount);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void MarchingCubes_StreamingAxisFitsInclusiveCornerIndices(bool parallel)
+        {
+            var mc = new MarchingCubes {
+                Bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(int.MaxValue - 1, 0, 0)),
+                CubeSize = 1, ParallelCompute = parallel, CancelF = () => true
+            };
+            mc.Generate();
+            Assert.Equal(new Vector3i(int.MaxValue, 1, 1), mc.CellDimensions);
+            mc.Bounds.Max.x = int.MaxValue;
+            Assert.Throws<ArgumentException>(() => mc.Generate());
+        }
+
+        sealed class OutsideField : ImplicitFunction3d
+        {
+            public int Calls;
+            public double Value(ref Vector3d p)
+            {
+                System.Threading.Interlocked.Increment(ref Calls);
+                return 1;
+            }
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void MarchingCubes_EmptyAndInvertedBoundsKeepOneCell(bool parallel, bool empty)
+        {
+            var field = new OutsideField();
+            var bounds = AxisAlignedBox3d.Empty;
+            if (!empty) {
+                bounds.Min = Vector3d.One;
+                bounds.Max = -Vector3d.One;
+            }
+            var mc = new MarchingCubes { Bounds = bounds, Implicit = field, ParallelCompute = parallel };
+            mc.Generate();
+            Assert.Equal(Vector3i.One, mc.CellDimensions);
+            Assert.Equal(8, field.Calls);
+            Assert.Equal(0, mc.Mesh.VertexCount);
+            Assert.Equal(0, mc.Mesh.TriangleCount);
+            Assert.Empty(mc.VertexHash);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void MarchingCubes_InvertedAxisKeepsOtherDimensions(bool parallel)
+        {
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, 1);
+            bounds.Min.x = 1;
+            bounds.Max.x = -1;
+            var mc = new MarchingCubes {
+                Bounds = bounds, CubeSize = 0.25, Implicit = new OutsideField(), ParallelCompute = parallel
+            };
+            mc.Generate();
+            Assert.Equal(new Vector3i(1, 9, 9), mc.CellDimensions);
+            Assert.Equal(0, mc.Mesh.VertexCount);
+            Assert.Equal(0, mc.Mesh.TriangleCount);
+        }
+
         static void AssertFiniteCoordinates(DMesh3 mesh)
         {
             foreach (Vector3d v in mesh.Vertices())
