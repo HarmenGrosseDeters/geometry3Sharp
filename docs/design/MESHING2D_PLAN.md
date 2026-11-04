@@ -362,8 +362,10 @@ ALKIS and DGM tiles (local only).
     input alone collapses too: a pinch by refinement is a defect. The mesher's bugfix (no split rerouting a piece through a vertex of
     refinement onto another chain, `MESHING2D_HULL_GRID.md` section 7) makes the zigzag with refinement and the fuzz's 188 pinches
     VALID. The oracle's own SRR restore step (a) replaces the interim (c): the input's rounding holds its restore pixels at every
-    milestone, the 10 restore false rejections of the fuzz are VALID. Next the hull model and coverage against the input-only snapped domain (at Herne the hull model's deviation hides the strips
-    the bugfix keeps).
+    milestone, the 10 restore false rejections of the fuzz are VALID (#362). Then the oracle's hull model, RefinementCoincidence,
+    ChainSkipsHotPixel and RefinementPinch as a known violation with a ratchet (`MESHING2D_HULL_GRID.md` section 8); next the
+    mesher's pinch fix, then lenses (A). An area rule against the input-only snapped domain cannot
+    show a collapsed strip on Herne (grid splits move long boundary links within their envelopes), hence the topological rule.
   - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
     108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
     first.

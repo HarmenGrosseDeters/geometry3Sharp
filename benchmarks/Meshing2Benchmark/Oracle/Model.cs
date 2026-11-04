@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Meshing2Acceptance
 {
@@ -104,7 +105,7 @@ namespace Meshing2Acceptance
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
         LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid,
-        ChainPassesHotPixel
+        ChainPassesHotPixel, ChainSkipsHotPixel, RefinementCoincidence, RefinementPinch
     }
 
     public sealed class ViolationRecord
@@ -142,6 +143,21 @@ namespace Meshing2Acceptance
         /// </summary>
         public bool Reference;
 
+        /// <summary>
+        /// With snap rounding, report the mesh area against the snapped domain with all hot pixels
+        /// (<see cref="OracleReport.MeshMinusSnappedArea"/>). Off by default: it builds both snapped images and their exact area on every
+        /// run, which the oracle otherwise does only where O-H5 has something to excuse (Herne: 2.3 to 3.6 times the oracle's time)
+        /// </summary>
+        public bool ReportSnappedArea;
+
+        /// <summary> the same expectations with the snapped area reported </summary>
+        public OracleExpect WithSnappedArea()
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.ReportSnappedArea = true;
+            return copy;
+        }
+
         /// <summary> the same expectations on the reference path </summary>
         public OracleExpect WithReference()
         {
@@ -166,6 +182,13 @@ namespace Meshing2Acceptance
     {
         public readonly List<ViolationRecord> Violations = new List<ViolationRecord>();
         public bool Ok => Violations.Count == 0;
+        /// <summary>
+        /// Known violations, counted and listed but not failing yet (the verdict is <see cref="Ok"/> without them): RefinementPinch,
+        /// a vertex of refinement where the chains of two input or hull edges meet in a point although the input's own rounding keeps
+        /// them apart. A violation of the owner's strict decision on Q17 (2026-11-03), not enforced until the mesher's fix; a ratchet
+        /// test pins how many there are
+        /// </summary>
+        public readonly List<ViolationRecord> KnownViolations = new List<ViolationRecord>();
         /// <summary>No free interior edge has four cocircular points: the (constrained) Delaunay triangulation is unique.</summary>
         public bool Unique = true;
         public int TieEdges;
@@ -201,11 +224,19 @@ namespace Meshing2Acceptance
         /// centre is the index times the snap tolerance); null without snap rounding. For comparison with the mesher's (tests)
         /// </summary>
         public List<(System.Numerics.BigInteger x, System.Numerics.BigInteger y)> RestorePixels;
+        /// <summary>
+        /// With snap rounding: the mesh area minus the area of the snapped domain with all hot pixels (the full image), in pixels squared,
+        /// exact; a report, no rule. It need not be 0: the full image routes a boundary edge through every hot pixel its input edge
+        /// contacts, refinement's too, while the mesher does not reroute a chain through a vertex of refinement it only passes (#360)
+        /// </summary>
+        public Q? MeshMinusSnappedArea;
         public string ExcusedSummary()
         {
             var parts = new List<string>();
             if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points"
                 + (CollapsedViaRefinement > 0 ? " (" + CollapsedViaRefinement + " of them rerouted by output vertices)" : ""));
+            if (KnownViolations.Count > 0) parts.Add(KnownViolations.Count + " known violations (" + string.Join(", ", KnownViolations.GroupBy(k => k.Kind).Select(g => g.Count() + " " + g.Key)) + ")");
+            if (MeshMinusSnappedArea != null) parts.Add("mesh area - snapped area " + MeshMinusSnappedArea.Value.ToDecimal(3) + " px2");
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
