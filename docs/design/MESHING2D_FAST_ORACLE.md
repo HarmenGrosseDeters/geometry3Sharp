@@ -189,3 +189,166 @@ The measurement plan, the profiles and the options for (3) as prepared before th
   - McConnell, Mehlhorn, Näher, Schweitzer, *Certifying algorithms*, Computer Science Review 5(2), 2011;
   - the constrained Delaunay lemma (Chew 1989; Cheng–Dey–Shewchuk 2012, ch. 2);
   - CGAL's `is_valid()` concept, as a black box only (no code read).
+
+## 6. Step (3): the global Delaunay pass with a witness (owner decision 2026-11-04, A+C; argument written before the code)
+
+Targets from the owner's decision:
+- the fast path at most 2× the mesher per run where the mesher takes at least 100 ms;
+- for smaller runs, at most 1 s of oracle time per run;
+- stop rule: if (3) does not bring Herne to at most 2.5× in total, stop and go to grading step 2.
+
+### 6.1 What the pass decides
+
+`Delaunay()` runs the global pass when the milestone is M1, or when the mesh is conforming (O2) and no source is locked:
+- every output triangle t is tested against every used vertex v, the vertices of the output's triangles;
+- t has a violation when v lies strictly inside t's circumcircle (in-circle sign > 0) and no excuse applies (`ExcusedOffSegment`,
+  `Zone`, `HiddenByGridUnsplittable`, `HiddenByO11Unsplittable`; the O11 excuses are counted per triangle);
+- one report per triangle, in the order of the triangles;
+- the fast path indexes the candidates with a 2-d tree, but needles and nearly degenerate triangles go against every vertex. That is
+  most of the pass's time on Herne (section 1).
+
+The local test per edge, which the plan named, cannot replace the pass by itself. The Delaunay lemma is about a triangulation of the
+convex hull of the vertices, while the output triangulates only the domain, and O2 asks for empty circles across holes and concave
+boundaries too. Hence a witness.
+
+### 6.2 The witness: the oracle's own Delaunay triangulation of the used vertices
+
+The oracle builds a triangulation W of the used vertices U itself:
+- incremental insertion with exact predicates (the oracle's `Exact`, filtered); nothing of the library and nothing of the mesher's
+  output beyond U;
+- certified before it is used:
+  - **(a) it triangulates conv(U):** every triangle positive; no directed edge in two triangles, so every edge is in at most two, in
+    opposite directions; the edges in one triangle (the boundary), followed from a corner of conv(U), run along conv(U)'s edges in
+    order, each on the current hull edge and forward, back to the start after the last hull edge, and that walk takes every boundary
+    edge (no vertex starts two boundary edges); the vertices of W are exactly U. Exact: orientations, and coordinates compared along
+    a hull edge;
+  - **(b) it is Delaunay:** every edge in two triangles is locally Delaunay. The fourth vertex is not strictly inside the circumcircle
+    (in-circle sign ≤ 0).
+
+**(a) makes W a triangulation of conv(U).** Positive triangles whose edges pair up in opposite directions cover the plane with a
+locally constant number of layers, away from the vertices and edges. The boundary edges lie on conv(U)'s boundary, so outside conv(U)
+that number is 0. The boundary is conv(U)'s boundary, run once, so crossing it changes the number by exactly 1: it is 1 inside. A
+vertex of U in the interior of another triangle or edge would put a second layer there. (A first version compared the boundary's
+cross sum with the hull's, exactly, after testing every boundary edge against every hull corner: quadratic in convex position, as
+the coordinator's review found. The walk is linear and gives the same conclusion.) (This is the standard degree argument of a triangulation
+checker; own write-up, and [MMNS11] is cited for the approach.)
+
+**(b) with (a) makes W Delaunay** by the Delaunay lemma ([CDS] ch. 2; [L77]): every circumcircle of a triangle of W has no vertex of
+U strictly inside. If W fails (a) or (b), or cannot be built (U has fewer than three vertices not on one line, or a step limit is
+reached), the pass runs as before, over all triangles. The witness is then not used at all, so a defect in building it can cost
+time, never a verdict.
+
+### 6.3 The reduction
+
+Let S be the output triangles that are not triangles of W, compared as unordered vertex triples.
+- **A triangle of the output that is in W has no vertex of U strictly inside its circumcircle** (6.2). The global pass reports
+  nothing for it, and counts no O11 excuse for it, since an excuse is counted only for a vertex inside.
+- **So the pass over S alone gives the same reports, in the same order (S kept in the triangles' order), and the same counts.** The
+  pass on S is the existing one: the 2-d tree, the exact in-circle test, every excuse.
+
+What S holds:
+- **real violations**, which are never in W: some vertex is inside;
+- **excused ones**, likewise;
+- **cocircular ties**: W picks one of the possible diagonals, and an output triangle with a cocircular fourth vertex, but none inside,
+  may not be in W. Common on the snap grid, where squares of pixel centres are cocircular. The pass checks them exactly and finds
+  nothing, as it would.
+
+Three conditions the step "in W, so empty" rests on (coordinator 2026-11-04), each held by the code:
+1. **U is exactly the vertex set the pass tests against.** `Delaunay()` computes `used`, the vertices of the output's triangles, once,
+   and gives that same array to the witness and to the pass. Unused input points and isolated vertices are in neither.
+2. **The same predicate and the same strictness.** The certificate and the pass both call the oracle's filtered exact `InCircle` on
+   the output's doubles. The certificate demands sign ≤ 0 for every interior edge, which gives "no vertex strictly inside"; the pass
+   reports, and counts an excuse, only at sign > 0. A cocircular fourth vertex is therefore neither; an output triangle whose
+   diagonal differs from W's at a tie lands in S and is checked there.
+3. **Triangles are identified by their sorted vertex ids, and no two used vertices share coordinates.** Sorting removes rotation and
+   orientation. Two vertices at the same point stop the build ("two vertices coincide": the walk ends at a triangle with the other
+   vertex as a corner), and a degenerate triangle in W fails the certificate's positivity, so the pass then runs in full
+   (`DuplicateCoordinates_FallBackToTheFullPass`).
+
+A wrong W cannot make the reduction accept a violation, because only a certified W is used. A certified W that is still unlucky
+(many ties) only makes S larger.
+
+### 6.4 What stays and how it is checked
+
+- **The reference path is unchanged**: all exact, the full pass.
+- **`Meshing2OracleModesTests`** keeps comparing the two paths on the catalogue, on corrupted meshes and at extreme scales.
+- **Check mode** (`Oracle.CheckFastPathForTests`): the full pass and the pass on S run into scratch reports, and their
+  `NotDelaunayGlobal` reports (in order), the merge-zone count and the O11 count must agree. Every triangle of W is tested against
+  every vertex of U (the lemma's conclusion, directly).
+- **Mutants:** on the certificate (each of the conditions of (a) and (b)), on the membership test (triples), and on the fallback.
+  They must die: an uncertified or wrong W must be caught by the check mode, or by a verdict difference on corrupted meshes. Two
+  conditions of the walk are defensive and have no mutant-killing case: "forward" along a hull edge (a boundary edge back along a
+  hull edge needs a triangle outside the hull, whose edges fail the walk anyway) and "the corner reached is the hull corner's id"
+  (two used vertices at one point stop the build before the certificate).
+- **Corrupted meshes and witnesses** (`Meshing2OracleDelaunayWitnessTests`):
+  - a constrained Delaunay mesh with a vertex inside a circumcircle across a thin hole (the case the local test misses), judged as
+    conforming, is rejected with the witness, as on the reference path;
+  - a flipped edge in a Delaunay triangulation is reported for both its triangles;
+  - a witness made wrong in each way the certificate tests (a triangle reversed, duplicated or dropped, an interior vertex dropped,
+    an edge flipped, an ear at the hull dropped, and a second layer on the half and the whole sides of a square) is refused for that
+    reason, and the verdicts stay the full pass's;
+  - a witness that throws while it is built or certified falls back to the full pass (`try`/`catch`: a defect of the witness costs
+    time, never a verdict);
+  - invariance: random points under every similarity of `Similarity.All()` and the scales 2^-500 and 2^200 use the witness, with the
+    full pass's reports; under the exact scales the report is the identity's;
+  - with the certificate skipped, a witness holding the output's non-Delaunay triangles hides their violation: the certificate is
+    what the reduction rests on;
+  - the witness is not built from the output's triangles at all, only from U, so a mesh that is no triangulation reaches it like any
+    other.
+
+### 6.5 Cost
+
+- **Building W:** O(|U| log |U|) expected with a randomized insertion order: rounds of doubling size over a fixed pseudo-random
+  permutation, each round sorted along a Morton curve of the coordinates' ranks (the biased randomized insertion order, [ACR]; own
+  code), and a visibility walk from the last new triangle for the point location.
+- **The certificate:** linear (the boundary walk; a hash of the directed edges, with a mixing hash).
+- **Membership:** a hash of the triples.
+- **The pass:** over S only.
+
+On a valid conforming Herne mesh, S is the ties and the excused triangles. The aim is for the pass to drop from 25 s (373600 q30) to
+the cost of building W: about the mesher's own Delaunay time, a few hundred ms.
+
+### 6.6 Sources
+
+- [CDS] S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC Press 2012: ch. 2 (the Delaunay lemma), ch. 3
+  (incremental insertion, ghost triangles, conflict sets).
+- [L77] C. L. Lawson, *Software for C1 surface interpolation*, 1977 (the local Delaunay criterion).
+- [ACR] N. Amenta, S. Choi, G. Rote, *Incremental constructions con BRIO*, SoCG 2003 (the insertion order in rounds).
+- [MMNS11] R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 5(2), 2011.
+- The hash of the edge keys in the certificate: the SplitMix64 finalizer (G. L. Steele, D. Lea, C. H. Flood, *Fast splittable
+  pseudorandom number generators*, OOPSLA 2014).
+
+The keys are those of `MESHING2D_PROVENANCE.md`. The witness is the oracle's own code, written from these sources; nothing of the
+mesher (`DelaunayKernel2`) or of the library is used or read for it.
+
+### 6.7 Measured (2026-11-04, Herne, the step-1 mesher's outputs)
+
+Oracle seconds per run, fast path, `G3_ORACLE_TIMING`, before (master after #376) → after this step. The cq runs ask for constrained
+Delaunay only and have no global pass.
+
+| run | mesher s | delaunay s | oracle s | oracle / mesher |
+|---|---|---|---|---|
+| base 371800 q20 | 1.6 | 0.6 → 0.7 | 3.0 → 3.3 | 1.9× → 2.1× |
+| base 371800 q30 | 1.9 | 0.9 → 0.8 | 4.3 → 4.4 | 2.3× → 2.3× |
+| base 373600 q20 | 3.7 | 8.9 → 6.5 | 20.4 → 18.5 | 5.6× → 5.1× |
+| base 373600 q30 | 5.3 | 25.2 → 10.3 | 42.4 → 28.9 | 8.1× → 5.5× |
+| base 381000 q20 | 0.9 | 0.3 → 0.5 | 1.5 → 1.5 | 1.7× → 1.7× |
+| base 381000 q30 | 1.1 | 0.4 → 0.4 | 1.9 → 1.9 | 1.7× → 1.7× |
+| cq 371800 q20 | 1.3 | 0.0 → 0.0 | 1.7 → 1.5 | 1.3× → 1.1× |
+| cq 371800 q30 | 1.7 | 0.0 → 0.0 | 3.9 → 3.8 | 2.3× → 2.2× |
+| cq 373600 q20 | 2.8 | 0.0 → 0.0 | 9.1 → 9.3 | 3.3× → 3.4× |
+| cq 373600 q30 | 5.2 | 0.1 → 0.1 | 21.4 → 21.7 | 4.1× → 4.1× |
+| cq 381000 q20 | 0.7 | 0.0 → 0.0 | 0.7 → 0.9 | 1.1× → 1.4× |
+| cq 381000 q30 | 1.1 | 0.0 → 0.0 | 1.7 → 1.6 | 1.5× → 1.4× |
+
+- **In total 111.8 → 97.3 s, 4.1× → 3.6× of the mesher.** The stop rule (at most 2.5×) is not met: the work goes on with grading
+  step 2, as decided.
+- **Where 373600 q30's delaunay time went.** The witness itself: 0.45 s to build, 0.9 s to certify, for 122721 vertices; S is 4367
+  of 245104 triangles. The pass on S took 24.6 s at first, almost all in `HiddenByGridUnsplittable`: `Behind` tested every
+  subsegment exactly, 14 ms per call. For a vertex it now asks the subsegment grid (21 → 3 s).
+- **What remains.** 2.9 million in-circle hits of S's triangles, nearly all excused by the merge zone; `ExcusedOffSegment` runs
+  first on each, by the order the counts depend on (3.2 s). The local test per edge is 1.9 s.
+- **An early version's certificate took 220 s:** its edge keys `(x << 32) | y` used `long`'s own hash, x ^ y, which collides for
+  every pair with the same xor. A mixing hash took it below a second.
+- **Verdicts unchanged:** the twelve Herne reports and the corpus verdicts (both modes) are those of master; one corpus run below the
+  judge limit now (water-huge3 M3@25, ok) only because the step-1 mesher makes fewer triangles there.

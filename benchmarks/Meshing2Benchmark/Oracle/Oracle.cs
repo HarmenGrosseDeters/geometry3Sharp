@@ -13,7 +13,7 @@ namespace Meshing2Acceptance
     /// equivalent to the (constrained) Delaunay property (Delaunay's lemma; Lee and Lin 1986; Chew 1989). Validity
     /// itself (orientation, edge manifold, no vertex in a triangle, no crossing, exact area) is checked first and separately.
     /// </summary>
-    public static class Oracle
+    public static partial class Oracle
     {
         /// <summary>
         /// The mesher's pinch rule as the oracle applies it to a candidate split pixel q (MESHING2D_HULL_GRID.md section 7): q is no
@@ -95,10 +95,10 @@ namespace Meshing2Acceptance
         /// <summary> self-checks: <see cref="Run.AtLeastShewchukBound"/> </summary>
         internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b) => Run.AtLeastShewchukBound(q, r, s, apex, a, b);
 
-        sealed class Run
+        sealed partial class Run
         {
             readonly Mesh2Input input; readonly Mesh2Output o; readonly OracleExpect e;
-            readonly OracleReport r = new OracleReport();
+            OracleReport r = new OracleReport();   // (not readonly: the check mode of the witness runs the full global pass into a scratch report)
             Pt[] inPts, v;
             Domain domain;
             Q tube, tube2;
@@ -400,6 +400,7 @@ namespace Meshing2Acceptance
 
             Dictionary<long, bool> unsplittableMemo;
             BoxGrid unsplittableSubGrid, unsplittableVertexGrid;
+            double[] unsplittableSubBox;
 
             /// <summary>
             /// a-b is a subsegment that has no split point on the grid (refinement on the grid, MESHING2D_SNAP.md 3g): only that edge is
@@ -449,13 +450,32 @@ namespace Meshing2Acceptance
             {
                 Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
                 var g = new Pt((a.Qx + b.Qx + c.Qx) / 3, (a.Qy + b.Qy + c.Qy) / 3);
-                foreach (var s in o.Subsegments) {
-                    if (s.A == skip || s.B == skip) continue;
+                bool Crossed(SubsegmentOutput s)
+                {
+                    if (s.A == skip || s.B == skip) return false;
                     Pt sa = v[s.A], sb = v[s.B];
                     int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
-                    if (o1 * o2 >= 0 || Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) > 0) continue;
-                    if (unsplittable(s.A, s.B)) return true;
+                    return o1 * o2 < 0 && Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) <= 0;
                 }
+                if (Fast && skip >= 0) {
+                    // p is vertex skip (the global test): the segment from the centroid to p lies in the box of t's vertices and p, exact in
+                    // doubles on the fast path, and a subsegment that crosses it has a box that meets that box (the grid returns a
+                    // superset of those, in ascending order). The answer is a boolean: the order of the visits does not change it
+                    EnsureUnsplittableGrids();
+                    double xl = Math.Min(Math.Min(o.VX[t[0]], o.VX[t[1]]), Math.Min(o.VX[t[2]], o.VX[skip]));
+                    double xh = Math.Max(Math.Max(o.VX[t[0]], o.VX[t[1]]), Math.Max(o.VX[t[2]], o.VX[skip]));
+                    double yl = Math.Min(Math.Min(o.VY[t[0]], o.VY[t[1]]), Math.Min(o.VY[t[2]], o.VY[skip]));
+                    double yh = Math.Max(Math.Max(o.VY[t[0]], o.VY[t[1]]), Math.Max(o.VY[t[2]], o.VY[skip]));
+                    var near = unsplittableSubGrid.Query(xl, xh, yl, yh);
+                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(unsplittableSubBox, o.Subsegments.Count, xl, xh, yl, yh, near, "the subsegments near a triangle and a vertex");
+                    bool found = false;
+                    foreach (int i in near) if (Crossed(o.Subsegments[i]) && unsplittable(o.Subsegments[i].A, o.Subsegments[i].B)) { found = true; break; }
+                    if (CheckFastPathForTests && found != o.Subsegments.Any(s => Crossed(s) && unsplittable(s.A, s.B)))
+                        FastPathDiffers("a vertex hidden from a triangle by an unsplittable subsegment");
+                    return found;
+                }
+                foreach (var s in o.Subsegments)
+                    if (Crossed(s) && unsplittable(s.A, s.B)) return true;
                 return false;
             }
 
@@ -598,6 +618,24 @@ namespace Meshing2Acceptance
 
 
 
+            /// <summary> the grids over the subsegments' boxes and the vertices, in doubles (built once) </summary>
+            void EnsureUnsplittableGrids()
+            {
+                if (unsplittableSubGrid != null) return;
+                var all = o.Subsegments ?? new List<SubsegmentOutput>();
+                var sb = new double[4 * all.Count];
+                for (int i = 0; i < all.Count; ++i) {
+                    var g = all[i];
+                    sb[4 * i] = Math.Min(o.VX[g.A], o.VX[g.B]); sb[4 * i + 1] = Math.Max(o.VX[g.A], o.VX[g.B]);
+                    sb[4 * i + 2] = Math.Min(o.VY[g.A], o.VY[g.B]); sb[4 * i + 3] = Math.Max(o.VY[g.A], o.VY[g.B]);
+                }
+                unsplittableSubBox = sb;
+                unsplittableSubGrid = new BoxGrid(sb, all.Count);
+                var vb = new double[4 * v.Length];
+                for (int i = 0; i < v.Length; ++i) { vb[4 * i] = vb[4 * i + 1] = o.VX[i]; vb[4 * i + 2] = vb[4 * i + 3] = o.VY[i]; }
+                unsplittableVertexGrid = new BoxGrid(vb, v.Length);
+            }
+
             /// <summary>
             /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
             /// grid if some pixel centre q, other than its ends, lies in the envelope of every input constraint the subsegment belongs to
@@ -623,19 +661,7 @@ namespace Meshing2Acceptance
                 // exact): the hull pieces of a domain judged here too made the whole lists per candidate too slow on the Herne tiles
                 double w3 = 3 * input.SnapTolerance;
                 double bx0 = Math.Min(o.VX[ia], o.VX[ib]) - w3, bx1 = Math.Max(o.VX[ia], o.VX[ib]) + w3, by0 = Math.Min(o.VY[ia], o.VY[ib]) - w3, by1 = Math.Max(o.VY[ia], o.VY[ib]) + w3;
-                if (unsplittableSubGrid == null) {
-                    var all = o.Subsegments ?? new List<SubsegmentOutput>();
-                    var sb = new double[4 * all.Count];
-                    for (int i = 0; i < all.Count; ++i) {
-                        var g = all[i];
-                        sb[4 * i] = Math.Min(o.VX[g.A], o.VX[g.B]); sb[4 * i + 1] = Math.Max(o.VX[g.A], o.VX[g.B]);
-                        sb[4 * i + 2] = Math.Min(o.VY[g.A], o.VY[g.B]); sb[4 * i + 3] = Math.Max(o.VY[g.A], o.VY[g.B]);
-                    }
-                    unsplittableSubGrid = new BoxGrid(sb, all.Count);
-                    var vb = new double[4 * v.Length];
-                    for (int i = 0; i < v.Length; ++i) { vb[4 * i] = vb[4 * i + 1] = o.VX[i]; vb[4 * i + 2] = vb[4 * i + 3] = o.VY[i]; }
-                    unsplittableVertexGrid = new BoxGrid(vb, v.Length);
-                }
+                EnsureUnsplittableGrids();
                 var subs = unsplittableSubGrid.Query(bx0, bx1, by0, by1).Select(i => o.Subsegments[i]).Where(g => !((g.A == ia && g.B == ib) || (g.A == ib && g.B == ia))).ToList();
                 var nearVertices = unsplittableVertexGrid.Query(bx0, bx1, by0, by1);
                 nearVertices.Sort();
@@ -2775,7 +2801,27 @@ namespace Meshing2Acceptance
                 if (wanted && (Fast ? e.GlobalDelaunayLimit > 0 : work <= e.GlobalDelaunayLimit)) {
                     r.GlobalDelaunayChecked = true;
                     var used = new HashSet<int>(o.Triangles.SelectMany(t => t));
-                    if (Fast) GlobalDelaunayIndexed(used.ToArray(), conforming);
+                    if (Fast) {
+                        var ids = used.ToArray();
+                        // the witness (MESHING2D_FAST_ORACLE.md section 6): the pass on the output triangles that are not triangles of the
+                        // oracle's own certified Delaunay triangulation of the used vertices; the full pass when it cannot be had
+                        var outside = OutsideDelaunayWitness(ids, out string why);
+                        LastGlobalPassForTests = outside == null ? "fallback: " + why : "witness";
+                        // (check mode: both into scratch reports, which keep 200 violations each, as every report: a difference after
+                        // the 200th global report would go unseen there; the tests' meshes stay far below)
+                        if (outside != null && CheckFastPathForTests) {
+                            var keep = r;
+                            r = new OracleReport(); GlobalDelaunayIndexed(ids, conforming, null); var full = r;
+                            r = new OracleReport(); GlobalDelaunayIndexed(ids, conforming, outside); var part = r;
+                            r = keep;
+                            var fm = full.Violations.Where(x => x.Kind == Violation.NotDelaunayGlobal).Select(x => x.Detail);
+                            var pm = part.Violations.Where(x => x.Kind == Violation.NotDelaunayGlobal).Select(x => x.Detail);
+                            if (!fm.SequenceEqual(pm) || full.MergeZoneExcused != part.MergeZoneExcused || full.O11GlobalExcused != part.O11GlobalExcused)
+                                FastPathDiffers("the global Delaunay pass on the triangles outside the witness: " + part + " (" + part.MergeZoneExcused + ", "
+                                    + part.O11GlobalExcused + ") against the full pass: " + full + " (" + full.MergeZoneExcused + ", " + full.O11GlobalExcused + ")");
+                        }
+                        GlobalDelaunayIndexed(ids, conforming, outside);
+                    }
                     else
                         foreach (var t in o.Triangles) {
                             o11Pending = 0;
@@ -2824,15 +2870,17 @@ namespace Meshing2Acceptance
             /// the triangle is not nearly degenerate (its orientation determinant above 1e-6 of the sum of its terms) and not a needle
             /// (its shortest edge above 1e-8 of its longest): the centre's error is then about u (|b| + |q|) / |b - q| of the radius,
             /// below 1e-7. A nearly degenerate triangle or a needle is checked against all vertices. Every candidate in the circle's box
-            /// goes to the filtered exact in-circle test; one report per triangle, as on the reference path.
+            /// goes to the filtered exact in-circle test; one report per triangle, as on the reference path. Only the triangles in subset
+            /// when it is given (the triangles outside the witness, in order), all of them otherwise.
             /// </summary>
-            void GlobalDelaunayIndexed(int[] used, bool conforming)
+            void GlobalDelaunayIndexed(int[] used, bool conforming, List<int> subset)
             {
                 double magnitude = 0;
                 foreach (int id in used) magnitude = Math.Max(magnitude, Math.Max(Math.Abs(o.VX[id]), Math.Abs(o.VY[id])));
                 var tree = (int[])used.Clone();
                 BuildTree(tree, 0, tree.Length, 0);
-                foreach (var t in o.Triangles) {
+                foreach (int ti in subset ?? Enumerable.Range(0, o.Triangles.Length)) {
+                    var t = o.Triangles[ti];
                     o11Pending = 0;
                     bool flagged = false;
                     // t's merge zone depends on t alone: decided once per triangle, counted per vertex it excuses (a thin triangle at an
