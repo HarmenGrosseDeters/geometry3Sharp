@@ -618,13 +618,6 @@ namespace Meshing2Acceptance
 
 
 
-            /// <summary>
-            /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
-            /// grid if some pixel centre q, other than its ends, lies in the envelope of every input constraint the subsegment belongs to
-            /// (the constraint crosses q's open pixel or passes through q), projects strictly between a and b, no other constraint crosses
-            /// q's pixel (one ending at q may), and the new edges a-q and q-b cross no vertex's open pixel and no other constraint. If none
-            /// can, conforming Delaunay is not demanded at it.
-            /// </summary>
             /// <summary> the grids over the subsegments' boxes and the vertices, in doubles (built once) </summary>
             void EnsureUnsplittableGrids()
             {
@@ -643,6 +636,13 @@ namespace Meshing2Acceptance
                 unsplittableVertexGrid = new BoxGrid(vb, v.Length);
             }
 
+            /// <summary>
+            /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
+            /// grid if some pixel centre q, other than its ends, lies in the envelope of every input constraint the subsegment belongs to
+            /// (the constraint crosses q's open pixel or passes through q), projects strictly between a and b, no other constraint crosses
+            /// q's pixel (one ending at q may), and the new edges a-q and q-b cross no vertex's open pixel and no other constraint. If none
+            /// can, conforming Delaunay is not demanded at it.
+            /// </summary>
             bool GridUnsplittable(int ia, int ib)
             {
                 Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
@@ -2807,6 +2807,8 @@ namespace Meshing2Acceptance
                         // oracle's own certified Delaunay triangulation of the used vertices; the full pass when it cannot be had
                         var outside = OutsideDelaunayWitness(ids, out string why);
                         LastGlobalPassForTests = outside == null ? "fallback: " + why : "witness";
+                        // (check mode: both into scratch reports, which keep 200 violations each, as every report: a difference after
+                        // the 200th global report would go unseen there; the tests' meshes stay far below)
                         if (outside != null && CheckFastPathForTests) {
                             var keep = r;
                             r = new OracleReport(); GlobalDelaunayIndexed(ids, conforming, null); var full = r;

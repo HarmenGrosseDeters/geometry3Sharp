@@ -198,6 +198,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(fast.O11GlobalExcused, reference.O11GlobalExcused);
         }
 
+        /// <summary> two used vertices at the same point (different ids): no witness, the full pass, with its verdicts </summary>
+        [Fact]
+        public void DuplicateCoordinates_FallBackToTheFullPass()
+        {
+            var input = Points(new List<(double, double)> { (0, 0), (4, 0), (4, 4), (0, 4), (1, 1) });
+            var vx = new[] { 0.0, 4, 4, 0, 1, 0 }; var vy = new[] { 0.0, 0, 4, 4, 1, 0 };
+            var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 5, 4 } };
+            var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = Enumerable.Range(0, 5).ToArray(),
+                Triangles = tris, Neighbours = SelfCheck.NeighboursOf(tris), BadTriangles = new int[0], Subsegments = new List<SubsegmentOutput>() };
+            input.Conforming = true;
+            var m2 = new OracleExpect { Milestone = Milestone.M2 };
+            var (got, pass) = Run(input, o, m2);
+            Assert.True(pass == "fallback: two vertices coincide", got + " | " + pass);
+            var (full, _) = Run(input, o, m2, failWitness: true);
+            Assert.Equal(Summary(full), Summary(got));
+        }
+
+        /// <summary> a 7 x 7 lattice: every hull side has five points between its corners (the ghosts' on-the-edge case of the
+        /// conflict test, boundary edges between points that are no hull corners), every cell four cocircular points; and the same
+        /// lattice with every second point of the bottom row dropped </summary>
+        [Fact]
+        public void Lattice_CollinearHullPoints_GiveACertifiedWitness()
+        {
+            for (int variant = 0; variant < 2; ++variant) {
+                var p = new List<(double, double)>();
+                for (int i = 0; i < 7; ++i)
+                    for (int j = 0; j < 7; ++j)
+                        if (variant == 0 || j != 0 || i % 2 == 0) p.Add((i, j));
+                var input = Points(p);
+                var o = CandidateRegistry.For(Milestone.M1).Run(input);
+                var (r, pass) = Run(input, o, M1);
+                Assert.Equal("witness", pass);
+                Assert.True(r.Ok, r.ToString());
+                var (full, _) = Run(input, o, M1, failWitness: true);
+                Assert.Equal(Summary(full), Summary(r));
+            }
+        }
+
         static int[][] Reversed(int[][] w, int i) => w.Select((t, j) => j == i ? new[] { t[0], t[2], t[1] } : t).ToArray();
 
         public static IEnumerable<object[]> Corruptions() => new[] {

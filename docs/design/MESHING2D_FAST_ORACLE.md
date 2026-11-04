@@ -250,6 +250,18 @@ What S holds:
   may not be in W. Common on the snap grid, where squares of pixel centres are cocircular. The pass checks them exactly and finds
   nothing, as it would.
 
+Three conditions the step "in W, so empty" rests on (coordinator 2026-11-04), each held by the code:
+1. **U is exactly the vertex set the pass tests against.** `Delaunay()` computes `used`, the vertices of the output's triangles, once,
+   and gives that same array to the witness and to the pass. Unused input points and isolated vertices are in neither.
+2. **The same predicate and the same strictness.** The certificate and the pass both call the oracle's filtered exact `InCircle` on
+   the output's doubles. The certificate demands sign ≤ 0 for every interior edge, which gives "no vertex strictly inside"; the pass
+   reports, and counts an excuse, only at sign > 0. A cocircular fourth vertex is therefore neither; an output triangle whose
+   diagonal differs from W's at a tie lands in S and is checked there.
+3. **Triangles are identified by their sorted vertex ids, and no two used vertices share coordinates.** Sorting removes rotation and
+   orientation. Two vertices at the same point stop the build ("two vertices coincide": the walk ends at a triangle with the other
+   vertex as a corner), and a degenerate triangle in W fails the certificate's positivity, so the pass then runs in full
+   (`DuplicateCoordinates_FallBackToTheFullPass`).
+
 A wrong W cannot make the reduction accept a violation, because only a certified W is used. A certified W that is still unlucky
 (many ties) only makes S larger.
 
@@ -298,3 +310,35 @@ the cost of building W: about the mesher's own Delaunay time, a few hundred ms.
 
 The keys are those of `MESHING2D_PROVENANCE.md`. The witness is the oracle's own code, written from these sources; nothing of the
 mesher (`DelaunayKernel2`) or of the library is used or read for it.
+
+### 6.7 Measured (2026-11-04, Herne, the step-1 mesher's outputs)
+
+Oracle seconds per run, fast path, `G3_ORACLE_TIMING`, before (master after #376) → after this step. The cq runs ask for constrained
+Delaunay only and have no global pass.
+
+| run | mesher s | delaunay s | oracle s | oracle / mesher |
+|---|---|---|---|---|
+| base 371800 q20 | 1.6 | 0.6 → 0.7 | 3.0 → 3.3 | 1.9× → 2.1× |
+| base 371800 q30 | 1.9 | 0.9 → 0.8 | 4.3 → 4.4 | 2.3× → 2.3× |
+| base 373600 q20 | 3.7 | 8.9 → 6.5 | 20.4 → 18.5 | 5.6× → 5.1× |
+| base 373600 q30 | 5.3 | 25.2 → 10.3 | 42.4 → 28.9 | 8.1× → 5.5× |
+| base 381000 q20 | 0.9 | 0.3 → 0.5 | 1.5 → 1.5 | 1.7× → 1.7× |
+| base 381000 q30 | 1.1 | 0.4 → 0.4 | 1.9 → 1.9 | 1.7× → 1.7× |
+| cq 371800 q20 | 1.3 | 0.0 → 0.0 | 1.7 → 1.5 | 1.3× → 1.1× |
+| cq 371800 q30 | 1.7 | 0.0 → 0.0 | 3.9 → 3.8 | 2.3× → 2.2× |
+| cq 373600 q20 | 2.8 | 0.0 → 0.0 | 9.1 → 9.3 | 3.3× → 3.4× |
+| cq 373600 q30 | 5.2 | 0.1 → 0.1 | 21.4 → 21.7 | 4.1× → 4.1× |
+| cq 381000 q20 | 0.7 | 0.0 → 0.0 | 0.7 → 0.9 | 1.1× → 1.4× |
+| cq 381000 q30 | 1.1 | 0.0 → 0.0 | 1.7 → 1.6 | 1.5× → 1.4× |
+
+- **In total 111.8 → 97.3 s, 4.1× → 3.6× of the mesher.** The stop rule (at most 2.5×) is not met: the work goes on with grading
+  step 2, as decided.
+- **Where 373600 q30's delaunay time went.** The witness itself: 0.45 s to build, 0.9 s to certify, for 122721 vertices; S is 4367
+  of 245104 triangles. The pass on S took 24.6 s at first, almost all in `HiddenByGridUnsplittable`: `Behind` tested every
+  subsegment exactly, 14 ms per call. For a vertex it now asks the subsegment grid (21 → 3 s).
+- **What remains.** 2.9 million in-circle hits of S's triangles, nearly all excused by the merge zone; `ExcusedOffSegment` runs
+  first on each, by the order the counts depend on (3.2 s). The local test per edge is 1.9 s.
+- **An early version's certificate took 220 s:** its edge keys `(x << 32) | y` used `long`'s own hash, x ^ y, which collides for
+  every pair with the same xor. A mixing hash took it below a second.
+- **Verdicts unchanged:** the twelve Herne reports and the corpus verdicts (both modes) are those of master; one corpus run below the
+  judge limit now (water-huge3 M3@25, ok) only because the step-1 mesher makes fewer triangles there.
