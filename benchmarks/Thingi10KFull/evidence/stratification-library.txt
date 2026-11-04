@@ -1,0 +1,23 @@
+  Wiederherzustellende Projekte werden ermittelt...
+  "<publication-worktree>\tools\analyzers\G3ExactCodeAnalyzers\G3ExactCodeAnalyzers.csproj" wiederhergestellt (in 631 ms.).
+  "<publication-worktree>\geometry3Sharp_netstandard.csproj" wiederhergestellt (in 631 ms.).
+  G3ExactCodeAnalyzers -> <publication-worktree>\tools\analyzers\G3ExactCodeAnalyzers\bin\Release\netstandard2.0\G3ExactCodeAnalyzers.dll
+<publication-worktree>\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]
+  geometry3Sharp_netstandard -> <publication-worktree>\bin\Release\netstandard2.0\geometry3Sharp.dll
+<publication-worktree>\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+  geometry3Sharp_netstandard -> <publication-worktree>\bin\Release\net10.0\geometry3Sharp.dll
+
+Der Buildvorgang wurde erfolgreich ausgeführt.
+
+<publication-worktree>\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]
+<publication-worktree>\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+<publication-worktree>\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+    5 Warnung(en)
+    0 Fehler
+
+Verstrichene Zeit 00:00:22.73

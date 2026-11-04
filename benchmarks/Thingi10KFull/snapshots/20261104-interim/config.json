@@ -1,0 +1,154 @@
+{
+  "repository": "<repository-root>",
+  "commit": "cd7fb8abba0af09d5725b60c700dfec95234e7ad",
+  "tier": "S: execution and external reporting only",
+  "dataset_revision": "2d5d3b2f3cd3711028ad75b12788c13b25559ec6",
+  "expected_models": 10000,
+  "raw_bytes": 38849490179,
+  "mesh_face_limit": null,
+  "command": "<python> <run-root>\\run_full.py",
+  "workers": 2,
+  "sdk": "10.0.401",
+  "original_library_build_command": "dotnet build benchmarks\\MeshRepairBenchmark\\MeshRepairBenchmark.csproj -c Release --no-restore -v minimal",
+  "library_unchanged_sha256": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd",
+  "binary_sha256": {
+    "bin\\MeshRepairBenchmark\\MeshRepairBenchmark.dll": "0cf66b2a93261dbf23b8ecfdfc14cd7e3e5008461f067080bb52c05acabeab46",
+    "bin\\BooleanComparison\\BooleanComparison.dll": "b112cfa971b2adb4d26eb95a6bd2d3241eef8fc1375408d30fc42d7551160665",
+    "bin\\MeshRepairBenchmark\\geometry3Sharp.dll": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd",
+    "bin\\BooleanComparison\\geometry3Sharp.dll": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd"
+  },
+  "benchmark_source_sha256": {
+    "benchmarks\\BooleanComparison\\analyze.py": "105dd4c3767a383aa417c5448caea8ad969ca138aa4efda5fa2533c2a09b010d",
+    "benchmarks\\BooleanComparison\\BooleanComparison.csproj": "e4a86bbf4dcd15f86b7a6cf7172b413cf05433c7f889a4b6d1ab5825f626a8ca",
+    "benchmarks\\BooleanComparison\\compare.py": "4b91ce90c2b5d7e3ed838993f80ddf30c469aa7d42d6ed91e3044236d85fc6cf",
+    "benchmarks\\BooleanComparison\\EnvelopeBench.cs": "8c7559cca1d1e85db2e02f62783a3c6bbfd6d5a1c4898694ea0ecc74e84d7adb",
+    "benchmarks\\BooleanComparison\\IndirectBench.cs": "f77adeadf4c24804db93eaa24de13999fd09d16a5b5eb37e095209b0b830e3d6",
+    "benchmarks\\BooleanComparison\\Nary.cs": "8ad701dcdf021ac9d97c437936be27a44aec5c622296396299db89d634f14ed5",
+    "benchmarks\\BooleanComparison\\ObbRunner.cs": "5ad6c339e49f55eaf5d3b0f85acf08c827955a272c04f4ff5ef40cded2eec059",
+    "benchmarks\\BooleanComparison\\Profile.cs": "4b095e06a0b9b55df27f8d08ebd03216e0c3a3bcf732018f0c67c7a5eb850ec2",
+    "benchmarks\\BooleanComparison\\Program.cs": "a436f1a09d86679bbde193f1a91c8765611c0ddca51ed5504b1647fa89ce7303",
+    "benchmarks\\BooleanComparison\\Synthetic.cs": "76c39a92334c6ca02895b659240eb578119bb30b7cfd2df6d130153e5c38fd13",
+    "benchmarks\\MeshRepairBenchmark\\AnalysisBench.cs": "40c681b23a8dd20f96bc053540d1a9ebd21b14f8d36587d85ee0003f9d12f1f5",
+    "benchmarks\\MeshRepairBenchmark\\analyze.py": "42b2dd91a824b8eaa2efb1a850ac019cf737c39453e2517eea4acb2dc63e5f42",
+    "benchmarks\\MeshRepairBenchmark\\analyze_analysis.py": "73f6030fa6f2b78414cbc2b409198bcaa11f90e9f30f5cd34e0dd57d98da3d21",
+    "benchmarks\\MeshRepairBenchmark\\analyze_boolean.py": "e79cbf933848c1e8b7a39dc59762e25a5f5cf172c795c0f2197f0b0d4473ec8e",
+    "benchmarks\\MeshRepairBenchmark\\analyze_exact.py": "403af808f310c8c33e72fc1351f15d31871c5adb4db2ae4a91bfe03d947e67f7",
+    "benchmarks\\MeshRepairBenchmark\\analyze_fidelity.py": "ba451cfc4f440e86aca7aefcdea61b45fe2f9546361ec763a8d8cbf6509d4ffb",
+    "benchmarks\\MeshRepairBenchmark\\analyze_paths.py": "f7aa002237a4623ca9f859ca5d5b4684ee0e2397000c9669c83f2bc64745cdcf",
+    "benchmarks\\MeshRepairBenchmark\\analyze_phases.py": "1d73a5446615cfd426a0a798cb3327eb5fdb33477595aeaae920d74675e04f6a",
+    "benchmarks\\MeshRepairBenchmark\\analyze_quality.py": "61968b9b97ac513322217d80aa47e377c9d5932b1d3274074a49b95c4becb63b",
+    "benchmarks\\MeshRepairBenchmark\\analyze_stages.py": "b6477d61429f0f33ed53b34db686c7f6816b29a2d2841bb8a3bf5adbba76278c",
+    "benchmarks\\MeshRepairBenchmark\\analyze_steps.py": "91d45a106e1b43f0467e575cd4af61adc46f0046e68ab1a5b0442cc00640a249",
+    "benchmarks\\MeshRepairBenchmark\\analyze_wrap.py": "7606c0f888a87135e065921d313f5543ea080756922c2a47378dae784ecdc50c",
+    "benchmarks\\MeshRepairBenchmark\\compare_modes.py": "0128ceec0dc9a77a32f90c0258783e215007fa24f142569fb28e8d5a75aaf2ac",
+    "benchmarks\\MeshRepairBenchmark\\compare_runs.py": "7cfab23d20e8fef74bdddc9acfcec83585adbde3387111bd951ed6d51a77d728",
+    "benchmarks\\MeshRepairBenchmark\\criteria.py": "48e24be33ce7ca7ce78455dd5917eed8a5fc60923d918195d27daf583b001973",
+    "benchmarks\\MeshRepairBenchmark\\fetch_data.py": "d6b19269ccaf15da049e97aa330d94669bd4e8d08e104ed90ad8448dcf1f6055",
+    "benchmarks\\MeshRepairBenchmark\\fetch_objaverse.py": "0ede10eafbb71da710da2f468fe3fd254f5d4a04e90ec70b6d7659b1703da756",
+    "benchmarks\\MeshRepairBenchmark\\InstrumentedAutoRepair.cs": "cc1cee49be1ac852e24eeb4d7f4b035def0e842d988498246bbae71ba1c9bfdd",
+    "benchmarks\\MeshRepairBenchmark\\MeshRepairBenchmark.csproj": "6d177f72b033fb127efbadd9d345041a53a09db750be6e7ef1c92047cb551ab7",
+    "benchmarks\\MeshRepairBenchmark\\noise_floor.py": "8369c994425ae6bfece97d10fa1da523039c5ffdf10436189ae2f1986e8f51d0",
+    "benchmarks\\MeshRepairBenchmark\\paired_fidelity.py": "d41d88c3f438879a91e102d52e42d00533334ec7c68950a75479ecec97e6b639",
+    "benchmarks\\MeshRepairBenchmark\\Program.cs": "1d560c6282af2c694eb9bd66e0646d55948b9880b60f88401855c7ff23a04bfe",
+    "benchmarks\\MeshRepairBenchmark\\test_analysis.py": "fe0c093f7da248e396728e04cf968ea423c227fb7145bab9ef034e2fe3ea4a3a",
+    "benchmarks\\MeshRepairBenchmark\\wrap_quality_acceptance.py": "d7a6a6795a73040242991d78740ecdfc838d39f249053d18f45a97401db033cf",
+    "benchmarks\\Shared\\FidelityFields.cs": "87f04a8ef09dc57f954fe3f43fbaff4eaa9e8696a340d892389253b0c4f4fabe",
+    "benchmarks\\BooleanComparison\\data\\fetch.py": "5c334ea77540f995fc2089ba8bfdf22bff4dd4a17852cbc567f74570eee595ba",
+    "benchmarks\\BooleanComparison\\external\\manifold_bool.py": "135f41a6aeaeb0ff765df6af5789f4c80ab50935a3055b9b15d0cda03cd51e91",
+    "benchmarks\\BooleanComparison\\obb-runner\\build.py": "f40bacde956a54ec4c1d1d659bd2f7ec868be042707435e8b95d8a5721a3d355",
+    "benchmarks\\BooleanComparison\\perf\\hashes.py": "33a9b58f080f09c458f344b5d3f66a80f7a6923fee26b5de6885917f29c662b6",
+    "benchmarks\\BooleanComparison\\perf\\nreal.py": "ed8c78a38496f0135cfba645c680c164882764272918cb1f3c2a16f34c3a21cf",
+    "benchmarks\\BooleanComparison\\perf\\summary.py": "b81647bdca5a623f334eeb195c3acf5faadaab1a8ddbdc9c165ca0c33433db7d"
+  },
+  "runner_sha256": "6129fdf30cd018dfc23feb47afe2dc61138dcdfdddf7296e984ff486969a9595",
+  "snapshot_command": "git archive --format=zip --output=<external-root>\\benchmark-sources.zip cd7fb8abba0af09d5725b60c700dfec95234e7ad benchmarks\\BooleanComparison benchmarks\\MeshRepairBenchmark benchmarks\\Shared",
+  "build_commands": [
+    "dotnet build <run-root>\\sources\\benchmarks\\BooleanComparison\\BooleanComparison.csproj -c Release --no-restore -o <run-root>\\bin\\BooleanComparison -v minimal",
+    "dotnet build <run-root>\\sources\\benchmarks\\MeshRepairBenchmark\\MeshRepairBenchmark.csproj -c Release --no-restore -o <run-root>\\bin\\MeshRepairBenchmark -v minimal"
+  ],
+  "restore_note": "Fresh snapshots initially reported NETSDK1004; dotnet restore <project> --ignore-failed-sources then succeeded. No package references were added.",
+  "reporting_changes": "Only external benchmark drivers: replace project references with the frozen DLL and emit actual NotCleanReason and finite-coordinate checks. No algorithm/library changes; diagnostics are outside algorithm timers.",
+  "wrap": {
+    "project": "MeshRepairBenchmark",
+    "alpha_denominator": 100,
+    "offset_denominator": 1000,
+    "fidelity": "default",
+    "command": "BENCH_REPAIR=wrap dotnet <frozen MeshRepairBenchmark.dll> <mesh> std none rel",
+    "timeout_seconds_le_100000_faces": 120,
+    "timeout_seconds_larger_or_unknown": 900,
+    "not_clean_reason_self_intersection_face_limit": 300000
+  },
+  "boolean": {
+    "project": "BooleanComparison",
+    "method": "ours",
+    "operations": [
+      "union",
+      "intersection",
+      "difference"
+    ],
+    "driver": "Pinned compare.py run_one/evaluate reused by resumable run_full.py; export failures and eval exceptions retain individual operation results.",
+    "case": "A=model; B=copy rotated 20 degrees about normalized (1,1,0), translated by 0.25 bounds extent; unchanged export command",
+    "safe_rounding": "library default; BOOLCMP_SAFE_ROUNDING cleared",
+    "operation_timeout_seconds": 300,
+    "export_timeout_seconds": 1800,
+    "eval_timeout_seconds": 3600,
+    "self_intersection_result_face_limit": 400000
+  },
+  "csv_schema": {
+    "thingi_id": "Raw filename stem",
+    "status": "Validated outcome; algorithm status is separate",
+    "time_ms": "Algorithm-reported wrap_ms or BooleanComparison ms; per-model Boolean sum only if every operation has a measured time; null otherwise",
+    "wall_ms": "Monotonic elapsed wall time excluding download; model Boolean includes export, JIT/process starts, all operations and eval",
+    "reason": "Actual NotCleanReason, exception, timeout, or explicitly named failed/missing metric",
+    "quality_unchecked": "Skipped self-intersection checks are not successes; clean status requires finite/valid and checked results",
+    "boolean_empty": "A successfully computed empty Boolean result is legitimate; NotCleanReason=empty is retained but does not fail that result"
+  },
+  "data_policy": "Raw meshes and transient exported meshes are external to Git; original licenses retained in metadata. Transient A/B/results removed per case; no original meshes deleted.",
+  "download_validation": "New downloads checked by inventory size and available LFS SHA256; pre-existing downloads reused by size.",
+  "prior_run": {
+    "directory": "<external-root>\\run-20261103",
+    "state": "stopped_superseded",
+    "note": "Earlier exact rows used MeshRepairBenchmark and are not BooleanComparison measurements. Earlier wrap rows lacked NotCleanReason, so corrected wrap starts from scratch; original rows preserved."
+  },
+  "comparison_context": "User compares separately against ROADMAP section B and Phase 7b. Full corpus is not the previous 34-case/sample cohort; workers, time limits and unknown quality checks must be considered.",
+  "validation": {
+    "builds": "Both external drivers built successfully against the original identical library hash",
+    "runner_command": "<python> -m unittest test_runner -v",
+    "runner_result": "passed",
+    "smoke_command": "<python> smoke.py",
+    "smoke_result": "passed: generated tetrahedron wrap and three Boolean results closed/manifold/finite, self-intersections checked; forced-success mutation detected"
+  },
+  "resume_history": [
+    {
+      "timestamp": "2026-11-04T15:50:48.424700+01:00",
+      "failure": "PermissionError WinError 5 replacing progress.json; transient file-lock holder not identified",
+      "previous_runner_sha256": "d433c3c571f4b899c1bb46b0f583e120ebbe74048120e0aac7587f0c0b400d49",
+      "runner_sha256": "6129fdf30cd018dfc23feb47afe2dc61138dcdfdddf7296e984ff486969a9595",
+      "change": "Only atomic_json: bounded retries of Windows errors 5, 32 and 33; no algorithm, benchmark or timeout changes",
+      "state_before_resume": {
+        "state": "runner_failed",
+        "pid": 28528,
+        "updated_at": "2026-11-04T15:48:26+0100",
+        "expected_meshes": 10000,
+        "completed": {
+          "wrap": 748,
+          "boolean": 747
+        },
+        "download_failures": {
+          "wrap": 0,
+          "boolean": 0
+        },
+        "active_models": {
+          "110356.stl": "boolean"
+        }
+      },
+      "verified_jsonl_rows": {
+        "wrap": 748,
+        "boolean": 747
+      },
+      "validation_command": "<python> -m unittest test_runner -v",
+      "validation_result": "13 passed; new transient-lock and bounded-failure tests failed against the previous runner",
+      "launch_command": "<python> -u run_full.py (stdout/stderr appended to run.log)"
+    }
+  ]
+}

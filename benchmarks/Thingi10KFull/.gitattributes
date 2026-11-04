@@ -1,0 +1,9 @@
+# Preserve hashes and original whitespace in measured evidence and driver copies.
+snapshots/** -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+sources/** -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+run_full.py -text whitespace=cr-at-eol
+smoke.py -text whitespace=cr-at-eol
+test_runner.py -text whitespace=cr-at-eol
+reporting-changes.diff -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+evidence/** -text whitespace=cr-at-eol
+analysis/** -text whitespace=cr-at-eol

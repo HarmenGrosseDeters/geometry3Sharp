@@ -1,0 +1,45 @@
+  Wiederherzustellende Projekte werden ermittelt...
+
+  "<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj" wiederhergestellt (in 342 ms.).
+
+  "<publication-worktree>\tests\geometry3Sharp.Clipper2.Tests\geometry3Sharp.Clipper2.Tests.csproj" wiederhergestellt (in 366 ms.).
+
+  2 von 4 Projekten sind für die Wiederherstellung auf dem neuesten Stand.
+
+  G3ExactCodeAnalyzers -> <publication-worktree>\tools\analyzers\G3ExactCodeAnalyzers\bin\Release\netstandard2.0\G3ExactCodeAnalyzers.dll
+
+  geometry3Sharp_netstandard -> <publication-worktree>\bin\Release\netstandard2.0\geometry3Sharp.dll
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(82,31): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Status" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(95,21): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Ok" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(100,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.ToString()" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\ClipperFrame.cs(221,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "ClipperFrame.ToString()" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+  geometry3Sharp.Clipper2 -> <publication-worktree>\addons\geometry3Sharp.Clipper2\bin\Release\netstandard2.0\geometry3Sharp.Clipper2.dll
+
+  geometry3Sharp.Clipper2.Tests -> <publication-worktree>\tests\geometry3Sharp.Clipper2.Tests\bin\Release\net48\geometry3Sharp.Clipper2.Tests.dll
+
+
+
+Der Buildvorgang wurde erfolgreich ausgeführt.
+
+
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(82,31): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Status" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(95,21): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.Ok" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\Clipper2Polygons.cs(100,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "Clipper2Result.ToString()" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+<publication-worktree>\addons\geometry3Sharp.Clipper2\ClipperFrame.cs(221,32): warning CS1591: Der XML-Kommentar für den öffentlich sichtbaren Typ oder Member "ClipperFrame.ToString()" fehlt. [<publication-worktree>\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]
+
+    4 Warnung(en)
+
+    0 Fehler
+
+
+
+Verstrichene Zeit 00:00:02.46

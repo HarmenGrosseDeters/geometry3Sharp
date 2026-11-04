@@ -1,0 +1,57 @@
+python.exe : test_atomic_json_other_errors_are_not_retried
+(test_runner.RunnerTests.test_atomic_json_other_errors_are_not_retried) ... ok
+In Zeile:2 Zeichen:162
++ ... ification'; & 'C:\Python314\python.exe' -m unittest test_runner test_ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_atomic_jso...retried) ... ok:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+test_atomic_json_permanent_windows_lock_is_bounded
+(test_runner.RunnerTests.test_atomic_json_permanent_windows_lock_is_bounded) ... ok
+test_atomic_json_retries_transient_windows_replace_lock
+(test_runner.RunnerTests.test_atomic_json_retries_transient_windows_replace_lock) ... ok
+test_boolean_empty_is_valid_but_nonempty_unclean_is_failure
+(test_runner.RunnerTests.test_boolean_empty_is_valid_but_nonempty_unclean_is_failure) ... ok
+test_boolean_quality_unknown_is_not_success (test_runner.RunnerTests.test_boolean_quality_unknown_is_not_success) ...
+ok
+test_download_failure_and_timeout_never_get_invented_algorithm_times
+(test_runner.RunnerTests.test_download_failure_and_timeout_never_get_invented_algorithm_times) ... ok
+test_eval_failure_keeps_individual_boolean_results_and_times
+(test_runner.RunnerTests.test_eval_failure_keeps_individual_boolean_results_and_times) ... ok
+test_existing_download_with_wrong_size_is_not_accepted
+(test_runner.RunnerTests.test_existing_download_with_wrong_size_is_not_accepted) ... ok
+test_export_exception_is_reported_for_every_operation
+(test_runner.RunnerTests.test_export_exception_is_reported_for_every_operation) ... ok
+test_resume_recovers_final_partial_write_and_retries_download_failures
+(test_runner.RunnerTests.test_resume_recovers_final_partial_write_and_retries_download_failures) ... ok
+test_resume_rejects_non_final_corruption (test_runner.RunnerTests.test_resume_rejects_non_final_corruption) ... ok
+test_wrap_failure_reason_and_exception_are_preserved
+(test_runner.RunnerTests.test_wrap_failure_reason_and_exception_are_preserved) ... ok
+test_wrap_requires_actual_clean_finite_valid_checked_result
+(test_runner.RunnerTests.test_wrap_requires_actual_clean_finite_valid_checked_result) ... ok
+test_capture_is_read_only_consistent_and_preserves_unknown_times
+(test_snapshot.SnapshotTests.test_capture_is_read_only_consistent_and_preserves_unknown_times) ... ok
+test_complete_prefix_ignores_unterminated_tail
+(test_snapshot.SnapshotTests.test_complete_prefix_ignores_unterminated_tail) ... ok
+test_complete_prefix_rejects_corruption_duplicates_and_mixed_commits
+(test_snapshot.SnapshotTests.test_complete_prefix_rejects_corruption_duplicates_and_mixed_commits) ... ok
+test_report_preserves_source_and_separates_unknown_inputs
+(test_analysis.AnalysisTests.test_report_preserves_source_and_separates_unknown_inputs) ... ok
+test_timing_preserves_unknowns_and_uses_nearest_rank
+(test_analysis.AnalysisTests.test_timing_preserves_unknowns_and_uses_nearest_rank) ... ok
+test_unknown_self_intersections_are_not_certified_clean
+(test_analysis.AnalysisTests.test_unknown_self_intersections_are_not_certified_clean) ... ok
+test_inventory_rejects_missing_duplicate_paths_and_pagination_anomalies
+(test_prepare_dataset.PrepareDatasetTests.test_inventory_rejects_missing_duplicate_paths_and_pagination_anomalies) ...
+ok
+test_paginated_regeneration_is_exact_and_does_not_download_meshes
+(test_prepare_dataset.PrepareDatasetTests.test_paginated_regeneration_is_exact_and_does_not_download_meshes) ... ok
+test_projection_rejects_blob_mismatch_and_duplicate_ids
+(test_prepare_dataset.PrepareDatasetTests.test_projection_rejects_blob_mismatch_and_duplicate_ids) ... ok
+test_wrong_revision_existing_destination_and_git_checkout_refuse_before_network (test_prepare_dataset.PrepareDatasetTes
+ts.test_wrong_revision_existing_destination_and_git_checkout_refuse_before_network) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.114s
+
+OK

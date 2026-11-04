@@ -71,6 +71,9 @@ jobs:
           done
       - name: Test the benchmark analysis
         run: python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+      - name: Test the Thingi10K full-corpus reporting harness (offline)
+        working-directory: benchmarks/Thingi10KFull
+        run: python3 -m unittest test_runner test_snapshot test_analysis test_prepare_dataset -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

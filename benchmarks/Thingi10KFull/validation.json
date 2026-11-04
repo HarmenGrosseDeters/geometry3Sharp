@@ -1,0 +1,61 @@
+{
+  "validated_at": "2026-11-04T21:00:45.714951+01:00",
+  "python_command": "C:\\Python314\\python.exe -m unittest test_runner test_snapshot -v",
+  "python_result": "16 tests passed",
+  "python_evidence": "evidence/python-tests.log.txt",
+  "smoke_command": "C:\\Python314\\python.exe smoke.py",
+  "smoke_result": "procedural tetrahedron closed/manifold/finite and self-intersection checks passed; forced-success mutation detected",
+  "smoke_evidence": "evidence/harness-smoke.log.txt",
+  "snapshot_command": "C:\\Python314\\python.exe snapshot.py <measured-run-root> snapshots\\20261104-interim",
+  "snapshot_checks": "hashes match; model CSV 2864 records, operation CSV 5728 records; forced-empty snapshot mutation detected",
+  "snapshot_evidence": "evidence/snapshot-check.log.txt",
+  "dotnet": [
+    {
+      "command": "dotnet build geometry3Sharp_netstandard.csproj -c Release",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-0.log.txt"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-1.log.txt"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-2.log.txt"
+    },
+    {
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <validation-root>\\packages -p:Version=1.0.0-ci.1",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-3.log.txt"
+    },
+    {
+      "command": "dotnet build benchmarks\\Thingi10KFull\\sources\\benchmarks\\BooleanComparison\\BooleanComparison.csproj -c Release -o <validation-root>\\drivers\\BooleanComparison",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-4.log.txt"
+    },
+    {
+      "command": "dotnet build benchmarks\\Thingi10KFull\\sources\\benchmarks\\MeshRepairBenchmark\\MeshRepairBenchmark.csproj -c Release -o <validation-root>\\drivers\\MeshRepairBenchmark",
+      "exit_code": 0,
+      "evidence": "evidence/dotnet-5.log.txt"
+    }
+  ],
+  "not_claimed": [
+    "full .NET test suites",
+    "completed full corpus",
+    "performance improvement",
+    "independent ready-for-review assessment"
+  ],
+  "evidence_sha256": {
+    "evidence\\dotnet-0.log.txt": "6f1d92e98837af1ea3ce4202811a5f7472ac3eb57eeca7a2cd7eb2e541c384de",
+    "evidence\\dotnet-1.log.txt": "b5c3350cdcfd24ac62c56369d0a5130ed8bcf20153d6d0d2336e908fa4ff2e39",
+    "evidence\\dotnet-2.log.txt": "267c7a51e4ed198d82eb67d7e7a4e4b3661e3e6621f8e9979944b5bcab1e61dd",
+    "evidence\\dotnet-3.log.txt": "3896ee88837582ee9d4b3eb8a07b377e0870b3812a5077eec6bb869971e373cf",
+    "evidence\\dotnet-4.log.txt": "39ce7f02dd915327053c548cdc52ccbc856b39844231a5e85470773e18996822",
+    "evidence\\dotnet-5.log.txt": "e2553ca196aa2266f945ccff7e0b59c858df5b3ba8e9bbccdd6b0fbdf773e080",
+    "evidence\\harness-smoke.log.txt": "f517933544007ea2f8c984ec0c0734e0c453e72bb2177a25d90c7e9f3ff8474c",
+    "evidence\\python-tests.log.txt": "98b1946a7111f3df6981e4dfd844ddf01758a423de53ba2e558342e9a0b6b47b",
+    "evidence\\snapshot-check.log.txt": "295cf2a1522b35aa54290b510168302e93bf395e12e8fe8c6503fb2e2329ea5f"
+  }
+}
