@@ -96,6 +96,32 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// the bound in Score (a candidate that removes fewer bad triangles than the best score so far is refused without its fan) is
+        /// exact: with it switched off every mesh and every pick are the same, over the fuzz in both modes and on the grid (a bound
+        /// that also refused an equal score would lose the tie to the larger radius: such ties occur in these seeds)
+        /// </summary>
+        [Theory]
+        [InlineData(20.0, false, 0.0)]
+        [InlineData(30.0, true, 0.0)]
+        [InlineData(25.0, false, 0.25)]
+        [InlineData(30.0, false, 0.0)]
+        public void ScoreBound_LeavesEveryChoiceUnchanged(double angle, bool constrainedQuality, double snap)
+        {
+            for (int seed = 0; seed < 24; ++seed) {
+                var input = Fuzz(6400 + seed, angle, constrainedQuality, snap);
+                var withBound = new List<(double, double, bool, Vector2d)>();
+                var o = Run(input, picked: (f, r, other, p) => withBound.Add((f, r, other, p)));
+                var withoutBound = new List<(double, double, bool, Vector2d)>();
+                QualityMesh2.Refiner.ScoreBoundOffForTests = true;
+                Mesh2Output u;
+                try { u = Run(input, picked: (f, r, other, p) => withoutBound.Add((f, r, other, p))); }
+                finally { QualityMesh2.Refiner.ScoreBoundOffForTests = false; }
+                Assert.True(Same(o, u), "seed " + seed + ": the meshes differ");
+                Assert.Equal(withoutBound, withBound);
+            }
+        }
+
+        /// <summary>
         /// the floor: a chosen point is never nearer to the mesh than the default point (its insertion radius at least the default's),
         /// a choice is made only where the default point would be inserted (its radius is positive), points other than the default
         /// are chosen, and the chosen points are the points inserted (on the grid already rounded); on the grid as well

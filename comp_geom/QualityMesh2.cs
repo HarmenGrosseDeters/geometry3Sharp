@@ -185,6 +185,9 @@ namespace g3
             [ThreadStatic] internal static Action<double, double, bool, Vector2d> PickedForTests;
             /// <summary> tests only (per thread): every angle test the choice reuses is checked against a fresh one (throws) </summary>
             [ThreadStatic] internal static bool CheckScoresForTests;
+            /// <summary> tests only (per thread): the bound in <see cref="Score"/> off (every candidate's fan evaluated), to show that it
+            /// leaves the choice unchanged </summary>
+            [ThreadStatic] internal static bool ScoreBoundOffForTests;
 
             /// <summary>
             /// The queue of triangles to look at. Worst first: a binary heap keyed by the triangle's sin^2 of its smallest angle when queued
@@ -1233,7 +1236,7 @@ namespace g3
             /// (Ruppert 1995; Shewchuk 2002; Ungor 2004 for off-centres) holds as for the default point. When the default point itself
             /// does not count (it is blocked, encroaches or lies in a constraint's pixel), nothing is chosen: refinement goes on as without
             /// the choice (it splits the subsegment, or falls back to the circumcentre). Choosing among several points is the idea of
-            /// Erten and Ungor 2009 (locally optimal Steiner points), with step 1's score instead of their farthest point
+            /// Erten and Ungor 2007 (locally optimal Steiner points, SGP 2007), with step 1's score instead of their farthest point
             /// (MESHING2D_GRADING.md 4.3.1).
             /// </summary>
             bool BestCandidate(int t, Vector2d cc, bool off, Vector2d oc, out Vector2d picked)
@@ -1407,7 +1410,7 @@ namespace g3
                 // (a bound: the score is at most the triangles removed, so a candidate that removes fewer than the best score so far
                 // cannot win, whatever its fan; refused here without the fan's angles. The same winner: BestCandidate only takes a
                 // score above the best, or equal with a larger radius. The default point, scored first, meets int.MinValue)
-                if (destroyed < toBeat) return false;
+                if (destroyed < toBeat && !ScoreBoundOffForTests) return false;
                 double nearest = double.MaxValue;
                 foreach (int e in boundary) {
                     // the new triangle of p and the boundary edge, in the frame scaled by 2^-ex around p
