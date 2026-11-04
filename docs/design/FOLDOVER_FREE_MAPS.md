@@ -147,6 +147,8 @@ Full local CI and independent diff-only bounds review are required before implem
 
 Implementation detail settled within the approved design: after power-of-two surface range preconditioning,
 normalize the private mesh to unit total area. This removes residual scale dependence for non-power-of-two
-similarities. Returned Energy uses InitialEpsilon so retained candidates remain comparable; Converged is false
-if the returned best candidate differs from the converged iterate. The original map is returned without a
+similarities. Returned Energy uses InitialEpsilon so retained candidates remain comparable; the final iterate is
+returned when it has no more invalid triangles than any earlier one (the solver minimizes F(., epsilon) for a
+shrinking epsilon, so the energy at InitialEpsilon does not rank flip-free iterates; review of #374), and
+Converged is false if the returned map differs from the converged iterate. The original map is returned without a
 round trip when no better candidate was retained.

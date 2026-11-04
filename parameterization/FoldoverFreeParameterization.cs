@@ -127,7 +127,17 @@ namespace g3
                 if (epsilon == MinimumEpsilon && !accepted) { stop = "line search stalled at minimum epsilon"; break; }
                 epsilon = Math.Max(MinimumEpsilon, NextEpsilon(epsilon, minDet, energy, nextEnergy));
             }
-            for (int i = 0; i < x.Length; ++i) converged &= best[i] == x[i];
+            // The solver minimizes F(., epsilon) for a shrinking epsilon, so a flip-free final iterate is the
+            // solution even when an earlier iterate has a lower energy at InitialEpsilon; best only guards
+            // against ending with more invalid triangles than an earlier iterate (review of #374).
+            if (!bestIsStart || iterations > 0) {
+                int finalBad = BadCount(pm, x);
+                double finalEnergy = Evaluate(pm, x, InitialEpsilon, null, null, out _);
+                if (finalBad <= bestBad && MathUtil.IsFinite(finalEnergy) && !SameValues(best, x)) {
+                    Array.Copy(x, best, x.Length); bestBad = finalBad; bestEnergy = finalEnergy; bestIsStart = false;
+                }
+            }
+            converged &= SameValues(best, x);
             var uv = new Vector2d[Mesh.MaxVertexID];
             for (int i = 0; i < n; ++i) {
                 int vid = pm.ToVertex[i];
@@ -154,6 +164,12 @@ namespace g3
                 return Fail(ParameterizationStatus.SolverFailed, "distortion is not representable");
             }
             return Result;
+        }
+
+        static bool SameValues(double[] a, double[] b)
+        {
+            for (int i = 0; i < a.Length; ++i) if (a[i] != b[i]) return false;
+            return true;
         }
 
         static bool Positive(double x) { return x > 0 && MathUtil.IsFinite(x); }

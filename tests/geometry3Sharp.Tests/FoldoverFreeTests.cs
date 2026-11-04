@@ -70,7 +70,19 @@ namespace geometry3Sharp.Tests
                 $"after status={r.Status} iterations={r.Iterations} flips={r.Distortion?.FlippedTriangles} " +
                 $"degenerate={r.Distortion?.DegenerateUVTriangles} energy={r.Energy:R}; {r.Error}");
             Valid(m, uv, r);
+            Assert.True(r.Converged, "a flip-free final iterate is the converged solution: " + r.Error);
             Assert.True(UVOverlap.Compute(m, r.UV).IsInjective);
+        }
+
+        [Fact]
+        public void ValidStart_StaysValidAndConverges()
+        {
+            var m = Disc(); var uv = Start(m, false);
+            Assert.Equal(0, ParameterizationDistortion.Compute(m, uv).FlippedTriangles);
+            var r = new FoldoverFreeParameterization(m, uv).Compute();
+            Valid(m, uv, r);
+            Assert.True(r.Converged, r.Error);
+            Assert.True(r.Iterations > 0);
         }
 
         [Fact]

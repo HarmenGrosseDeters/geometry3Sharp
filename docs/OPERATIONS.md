@@ -406,8 +406,9 @@ Options: `MaxIterations` (200, zero retains the initial map), `InitialEpsilon` (
 (1e-12, positive and <= InitialEpsilon). The epsilon schedule is equation 6 of Garanzha et al.; no alternate
 optimizer or free-boundary mode. `Success` requires finite UVs, zero flipped/degenerate triangles and finite
 symmetric Dirichlet distortion; it does **not** mean global injectivity or optimal distortion. Use
-`UVOverlap.Compute(mesh, result.UV)` separately. `Converged` is false when the returned best candidate is not
-the converged iterate. `Energy` is the normalized shape/area objective evaluated at InitialEpsilon, not
+`UVOverlap.Compute(mesh, result.UV)` separately. The result is the final iterate when it has no more invalid
+triangles than any earlier one (otherwise the earlier iterate with the fewest); `Converged` is false when that is
+not the final, converged iterate. `Energy` is the normalized shape/area objective evaluated at InitialEpsilon, not
 symmetric Dirichlet; surface area is normalized to one and UVs use a translated power-of-two frame.
 
 Iteration exhaustion or stalling with invalid triangles returns `FlippedTriangles` with the best finite map

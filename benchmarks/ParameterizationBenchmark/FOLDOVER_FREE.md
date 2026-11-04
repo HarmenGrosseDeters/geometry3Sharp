@@ -20,10 +20,16 @@ FoldoverFree is the new path with the supplied boundary unchanged bit for bit.
 
 | Fixture/start | Flipped + degenerate before -> after | Symmetric Dirichlet: SLIM default / fixed-boundary result | Result/reference ratio | Global overlap pairs before -> after |
 |---|---:|---:|---:|---:|
-| Folded Tutte disc | 4 + 0 -> 0 + 0 | 4 / 5.2237076566121 | 1.305926914153025 | 54 -> 0 |
-| LSCM annulus, 8 sides/3 strips | 1 + 1 -> 0 + 0 | unavailable / 686.9691923981898 | unavailable | 5 -> 0 |
-| LSCM three-peak terrain, 30 x 30 cells | 19 + 0 -> 0 + 0 | 6.894915679752159 / 17.150550444535156 | 2.4874198962142553 | 2486 -> 1344 |
-| Cone torus cut (UVAtlasTests ordering) | 0 + 0 -> 0 + 0 | 4.005961599952599 / 4.061251309608658 | 1.0138018571263174 | 8 -> 8 |
+| Folded Tutte disc | 4 + 0 -> 0 + 0 | 4 / 5.223873291604668 | 1.305968322901167 | 54 -> 0 |
+| LSCM annulus, 8 sides/3 strips | 2 + 0 -> 0 + 0 | unavailable / 7.462999479962732 | unavailable | 10 -> 0 |
+| LSCM three-peak terrain, 30 x 30 cells | 19 + 0 -> 0 + 0 | 6.8949156797521605 / 16.262756504554 | 2.35865922948293 | 2486 -> 1413 |
+| Cone torus cut (UVAtlasTests ordering) | 0 + 0 -> 0 + 0 | 4.005953318212518 / 4.054945456080008 | 1.0122298324458134 | 8 -> 8 |
+
+Numbers after the review fix of 2026-11-04 (the final flip-free iterate is returned instead of the
+candidate with the lowest energy at InitialEpsilon; `Converged` is now true on all four), rerun on Linux;
+the LSCM starts differ slightly from the first (Windows) run (annulus start 2 + 0 flips instead of 1 + 1).
+The annulus result improved most (symmetric Dirichlet 686.97 -> 7.46): the earlier rule kept an early,
+near-degenerate candidate.
 
 **The <=10% quality target is NOT met on the three-peak case.** It is also not met on the folded disc reference
 comparison. SLIM's default has a free boundary, whereas this operation preserves the specified boundary;
