@@ -117,6 +117,7 @@ namespace g3
                     }
                     return t;
                 }
+                ++WalkSteps;
                 entry = H[moved];
                 t = entry / 3;
                 if (IsGhost(t)) return t;

@@ -38,10 +38,15 @@ namespace g3
 
         int[] mark, reject, startAt, stack, cavity, boundary;
         int stamp, hint = -1;
+
+        /// <summary> the triangle the next point location starts from (a live triangle near the point, eg the one that holds it): the
+        /// walk is then short. Point location by a walk ends at the same triangle whatever the start for a point strictly inside; on an
+        /// edge or vertex the triangle reached may differ, the insertion is the same </summary>
+        internal void LocateHint(int t) { if (t >= 0 && t < TriangleSlots) hint = t; }
         /// <summary> on a failure: a vertex where it was found (the point being inserted, or a vertex of the defect) </summary>
         internal int FailureVertex = -1;
         uint walkState = 2463534242;
-        /// <summary> triangles visited by the location walks of the insertion (a measure of the insertion order's locality) </summary>
+        /// <summary> triangles visited by the location walks (of the input points and of InsertPoint): a measure of locality </summary>
         internal long WalkSteps;
 
         /// <param name="x">coordinates in insertion order</param>

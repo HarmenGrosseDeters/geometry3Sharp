@@ -1508,7 +1508,12 @@ namespace g3
                 if (grid != null && ConstraintInPixel(at, c)) { if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
                 int before = k.VertexCount;
                 if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
+                // (the walk above found the triangle that holds c: the kernel's point location starts there instead of at the last
+                // insertion, which the worst-first order puts anywhere in the mesh; profiled: 85 steps per location on Herne)
+                k.LocateHint(at);
+                long walked = k.WalkSteps;
                 k.InsertPoint(c.x, c.y);
+                WalkStepsForTests += k.WalkSteps - walked; ++LocationsForTests;
                 if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
                 if (CountsForBenchmarks != null) { int slot = chosen ? 7 : off ? 4 : 3; if (slot < CountsForBenchmarks.Length) ++CountsForBenchmarks[slot]; }
@@ -1627,7 +1632,10 @@ namespace g3
                 // without its constraint the edge may not be Delaunay: restore that first, Lawson's insertion assumes it (as at crossings)
                 k.RestoreDelaunay(new[] { ((long)u << 32) | (uint)w });
                 int before = k.VertexCount;
+                { int fe = k.FindEdge(u, w); k.LocateHint(fe >= 0 ? fe / 3 : e / 3); }
+                long walked = k.WalkSteps;
                 int q = k.InsertPoint(p.x, p.y);
+                WalkStepsForTests += k.WalkSteps - walked; ++LocationsForTests;
                 bool reroute = k.VertexCount == before && q != u && q != w;
                 if (k.VertexCount > before) {
                     ++inserted;
@@ -1651,6 +1659,10 @@ namespace g3
                 Collect(lifted);
                 return null;
             }
+
+            /// <summary> tests only: point-location walk steps and locations of the refiner's insertions, summed over runs on this thread
+            /// (counted in every run: two additions per insertion) </summary>
+            [ThreadStatic] internal static long WalkStepsForTests, LocationsForTests;
 
             /// <summary> tests and benchmarks only: free vertices deleted before bisections (lenses), summed over runs on this thread
             /// (counted in every run: one addition per deletion) </summary>
