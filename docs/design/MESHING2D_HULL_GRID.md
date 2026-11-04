@@ -403,14 +403,17 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
   same at scale: boundary segments run almost collinear with the hull less than a pixel (1 cm) inside it, and a vertex of refinement
   in a pixel both cross pinches the hull chain and the segment's. #360's rule refuses reroutes onto another chain's edge, not this.
   A violation of the strict decision on Q17; the mesher's fix (refinement does not pinch two chains) comes next. Ratchet, exact in
-  both directions: 13 in 12 inputs on the fuzz (`RefinementPinches_Ratchet`; 12 in 11 since an input whose outer rings all collapse has an empty domain), and per Herne run in `herne_ratchet.py`:
+  both directions: 13 in 12 inputs on the fuzz (`RefinementPinches_Ratchet`; 12 in 11 since an input whose outer rings all collapse has an empty domain), and per Herne run in `herne_ratchet.py`. Every pinch
+  vertex measured is a split point of a subsegment, none a circumcentre or off-centre (fuzz, 2026-11-04). Lenses cut the pinches in the
+  constrained-quality mode (fuzz: 11 in 10 inputs with circles, 2 in 2 with lenses, with or without the deletion of (A); Herne cq q20
+  215/64/21 with circles, 85/44/11 with lenses (B), 92/44/11 with (A)):
 
 | Herne run | q20 | q30 |
 |---|---|---|
 | base 371800 | 215 | 217 |
 | base 373600 | 64 | 66 |
 | base 381000 | 21 | 21 |
-| cq 371800 | 85 | 217 |
+| cq 371800 | 85 (92 with lenses (A), #370: a temporary exception, to be brought back to 85 or below by the pinch fix (1)) | 217 |
 | cq 373600 | 44 | 66 |
 | cq 381000 | 11 | 21 |
 
