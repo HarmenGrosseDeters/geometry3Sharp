@@ -79,24 +79,40 @@ jobs:
             artifacts/
             test-results/
 
-  # net48 test run, which uses the netstandard2.0 build of the library
+  # net48 test run, which uses the netstandard2.0 build of the library. It runs in two shards with complementary
+  # filters (every test exactly once): the net48 run took 40-60 min in one job and hit timeout-minutes; the 2D mesher
+  # and envelope tests are about half of its time (net10.0 timings, 2026-11-04). The first shard keeps the check name
+  # `netstandard` and runs the Clipper2 and benchmark steps too.
   netstandard:
+    name: ${{ matrix.name }}
     runs-on: windows-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: netstandard
+            shard: a
+            filter: FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Envelope
+          - name: netstandard-b
+            shard: b
+            filter: FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Envelope
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --logger "trx;LogFileName=net48.trx" --results-directory test-results
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
       - name: Test the Clipper2 package (net48 / netstandard2.0)
+        if: matrix.shard == 'a'
         run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results
       - name: Benchmark reporting regression (MeshRepairBenchmark)
+        if: matrix.shard == 'a'
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: netstandard-results
+          name: ${{ matrix.name }}-results
           path: test-results/
