@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using g3;
 using gs;
@@ -45,6 +46,28 @@ namespace geometry3Sharp.Tests
                 Assert.True(failure == known.Pinned, $"{name} fails differently than pinned ('{known.Pinned}'): {failure}");
             } else
                 Assert.True(failure == "", name + ": " + failure);
+        }
+
+        [Theory]
+        [InlineData("de-DE", "basic")]
+        [InlineData("de-DE", "pro")]
+        [InlineData("de-DE", "creased")]
+        [InlineData("en-US", "basic")]
+        [InlineData("en-US", "pro")]
+        [InlineData("en-US", "creased")]
+        public void PinnedFailures_AreCultureIndependent(string cultureName, string variant)
+        {
+            var culture = CultureInfo.CurrentCulture;
+            var uiCulture = CultureInfo.CurrentUICulture;
+            try {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+                if (variant == "creased") CreasedPart_BoundsKept(false);
+                else FlatOpenFan_BoundaryFixed_NoFlippedTriangle(0, variant == "pro");
+            } finally {
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = uiCulture;
+            }
         }
 
         [Fact]
@@ -188,7 +211,7 @@ namespace geometry3Sharp.Tests
             int bad = m.TriangleIndices().Count(t => !(m.GetTriNormal(t).z > 0.999));
             if (bad > 0) p.Add($"{bad} triangles not facing +z");
             if (m.Vertices().Any(v => v.z != 0)) p.Add("a vertex left z = 0");
-            if (Math.Abs(Invariance.Area(m) - area0) > 1e-9 * area0) p.Add($"area {Invariance.Area(m):F4}, input {area0:F4}");
+            if (Math.Abs(Invariance.Area(m) - area0) > 1e-9 * area0) p.Add(FormattableString.Invariant($"area {Invariance.Area(m):F4}, input {area0:F4}"));
             foreach (int v in input.VertexIndices())
                 if (!m.IsVertex(v) || m.GetVertex(v) != input.GetVertex(v)) { p.Add($"boundary vertex {v} moved"); break; }
             Expect(nameof(FlatOpenFan_BoundaryFixed_NoFlippedTriangle) + $"_{minQuality}_{(pro ? "pro" : "basic")}", p);
@@ -559,8 +582,8 @@ namespace geometry3Sharp.Tests
                 if (d > 1e-6) p.Add($"distance to the input {d}");
                 if (Math.Abs(ResultChecks.Volume(m) - 3) > 1e-6) p.Add($"volume {ResultChecks.Volume(m)}");
             } else {
-                if (shift > 0.2) p.Add($"bounding box shifted by {shift:F3}");
-                if (d > 0.2) p.Add($"distance to the input {d:F3}");
+                if (shift > 0.2) p.Add(FormattableString.Invariant($"bounding box shifted by {shift:F3}"));
+                if (d > 0.2) p.Add(FormattableString.Invariant($"distance to the input {d:F3}"));
             }
             Expect(nameof(CreasedPart_BoundsKept) + (features ? "_features" : "_none"), p);
         }
