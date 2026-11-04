@@ -687,8 +687,15 @@ namespace Meshing2Acceptance
                         var rco = Oracle.Check(two, Two(2, 4, 1, 3), m3plain);
                         Must("reject: two chains sharing a link from a vertex of refinement as RefinementCoincidence", rco.Has(Violation.RefinementCoincidence), "report: " + rco);
                         var rpi = Oracle.Check(two, Two(2, 4, 3), m3plain);
-                        Must("list (known, not failing yet): two chains meeting in a vertex of refinement as RefinementPinch",
-                            rpi.KnownViolations.Any(k => k.Kind == Violation.RefinementPinch) && !rpi.Has(Violation.RefinementCoincidence), "report: " + rpi + " / " + rpi.ExcusedSummary());
+                        Must("reject: two chains meeting in a vertex of refinement as RefinementPinch",
+                            rpi.Has(Violation.RefinementPinch) && !rpi.Has(Violation.RefinementCoincidence) && rpi.KnownViolations.Count == 0, "report: " + rpi + " / " + rpi.ExcusedSummary());
+                        // the oracle's mirror of the mesher's pinch rule, no broader: a candidate split pixel is excluded only when it is no
+                        // hot pixel of the input's rounding and a subsegment of another chain ends there
+                        Must("grid split: a candidate where another chain's subsegment ends is excluded (pinch rule)", Oracle.PinchRuleExcludes(false, new[] { false }), "");
+                        Must("grid split: a candidate on a hot pixel of the input's rounding stays demanded", !Oracle.PinchRuleExcludes(true, new[] { false }), "");
+                        Must("grid split: a candidate where only the own chain's subsegments end stays demanded", !Oracle.PinchRuleExcludes(false, new[] { true, true }), "");
+                        Must("grid split: a candidate where no subsegment ends stays demanded", !Oracle.PinchRuleExcludes(false, new bool[0]), "");
+                        Must("grid split: own and another chain's subsegments at the candidate: excluded", Oracle.PinchRuleExcludes(false, new[] { true, false }), "");
                         // the M2 hull model keeps a snapped input point on the hull's boundary (a vertex of a boundary edge): the square with
                         // (5, 0) on its bottom edge, meshed without it, is rejected (review of #36, S1)
                         var sq = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 10, 10, 0, 5 }, Y = new[] { 0.0, 0, 10, 10, 0 } };

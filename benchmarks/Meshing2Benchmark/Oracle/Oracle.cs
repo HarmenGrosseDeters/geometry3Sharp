@@ -16,6 +16,16 @@ namespace Meshing2Acceptance
     public static class Oracle
     {
         /// <summary>
+        /// The mesher's pinch rule as the oracle applies it to a candidate split pixel q (MESHING2D_HULL_GRID.md section 7): q is no
+        /// split point when it is no hot pixel of the input's own rounding and a subsegment of another chain ends there (the piece routed
+        /// through it would pinch the two chains). A hot pixel of the input's rounding stays a split point (snap rounding routes chains
+        /// together there), and so does a pixel where only subsegments of the piece's own chain end. Given whether q is such a hot
+        /// pixel and, for each subsegment ending in q's pixel, whether it belongs to the piece's own chain
+        /// </summary>
+        public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
+            => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
+
+        /// <summary>
         /// The automatic tolerance a result may use: 2^-40 of the larger of the largest coordinate and the extent, about 5
         /// micrometres at UTM northings (spec O11: "about 5 um at UTM scale"; Q14).
         /// </summary>
@@ -515,6 +525,7 @@ namespace Meshing2Acceptance
             }
 
 
+
             /// <summary>
             /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
             /// grid if some pixel centre q, other than its ends, lies in the envelope of every input constraint the subsegment belongs to
@@ -605,6 +616,11 @@ namespace Meshing2Acceptance
                         // itself, as the mesher allows (restore pixels included: snapHot holds the oracle's own, RestorePixels)
                         if (!snapHot.Contains(PixelOf(q, snapPixel))
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
+                        // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
+                        // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, exactly: q no hot pixel of the input's rounding, and
+                        // a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its ends)
+                        if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
+                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], half) && InEnvelopeOf(s.a, s.b, v[g.B], half))))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];
@@ -2346,8 +2362,8 @@ namespace Meshing2Acceptance
             /// (its pixel no hot pixel of the input's own rounding) lies on at most one chain, so it has two subsegments. Images meet only at
             /// hot pixel centres, so a link the input's rounding already shares, split by refinement, keeps two. Three mean that the chains
             /// of two input or hull edges share a link from there on (RefinementCoincidence: the strip between them collapsed, the class
-            /// #360 fixed in the mesher); four or more, that they meet in the vertex (RefinementPinch: a known violation, listed, not
-            /// failing yet). Only with a snap tolerance, the identity rules and reported subsegments
+            /// #360 fixed in the mesher); four or more, that they meet in the vertex (RefinementPinch: a known violation until the mesher's
+            /// pinch rule, a failing rule since). Only with a snap tolerance, the identity rules and reported subsegments
             /// </summary>
             void Coincidences()
             {
@@ -2358,13 +2374,13 @@ namespace Meshing2Acceptance
                     if (!edges.ContainsKey(key)) continue;
                     foreach (int i in new[] { KeyA(key), KeyB(key) }) degree[i] = degree.TryGetValue(i, out int d) ? d + 1 : 1;
                 }
-                int coincidences = 0;
+                int coincidences = 0, pinches = 0;
                 foreach (var pair in degree.OrderBy(p => p.Key)) {
                     if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel))) continue;
                     if (pair.Value == 3) {
                         if (coincidences++ < 8) r.Add(Violation.RefinementCoincidence, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has 3 subsegments: two chains share a link from there, which the input's own rounding keeps apart");
-                    } else
-                        r.KnownViolations.Add(new ViolationRecord { Kind = Violation.RefinementPinch, Detail = "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has " + pair.Value + " subsegments: two chains meet there, which the input's own rounding keeps apart" });
+                    } else if (pinches++ < 8)
+                        r.Add(Violation.RefinementPinch, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has " + pair.Value + " subsegments: two chains meet there, which the input's own rounding keeps apart");
                 }
             }
 

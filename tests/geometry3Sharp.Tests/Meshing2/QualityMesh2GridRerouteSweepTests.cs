@@ -14,9 +14,12 @@ namespace geometry3Sharp.Tests
     public class QualityMesh2GridRerouteSweepTests
     {
         /// <summary>
-        /// the reduced cases do take the path of a split onto a vertex already there (case 30 no longer does: its target was a vertex of
-        /// a segment piece inside the hole, which the carve before refinement removes, T15; case 292 replaced it; 31 and 292 no longer do
-        /// since a grid split may not reroute a piece onto another chain's edge, Q17: cases 60 and 2384 replace them)
+        /// the reduced cases do take the path of a split onto a vertex already there, with the tag check after every operation (case 30 no
+        /// longer does: its target was a vertex of a segment piece inside the hole, which the carve before refinement removes, T15; case
+        /// 292 replaced it; 31 and 292 no longer do since a grid split may not reroute a piece onto another chain's edge, Q17: cases 60
+        /// and 2384 replace them). Since the pinch rule (a split point is never another chain's vertex of refinement) 60 and 2384 do not
+        /// reroute either: their target was such a vertex, a pinch. No reroute was left in 6000 random segments of this kind with the
+        /// rule, so the path is checked with the pinch rule off; with it on these cases do not reroute
         /// </summary>
         [Theory]
         [InlineData(60, 20.0)]
@@ -25,6 +28,10 @@ namespace geometry3Sharp.Tests
         {
             QualityMesh2.Refiner.ReroutesForTests = 0;
             QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle));
+            Assert.Equal(0, QualityMesh2.Refiner.ReroutesForTests);
+            QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+            try { QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle)); }
+            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
             Assert.True(QualityMesh2.Refiner.ReroutesForTests > 0, "the case no longer reroutes a piece through a vertex already there");
         }
 

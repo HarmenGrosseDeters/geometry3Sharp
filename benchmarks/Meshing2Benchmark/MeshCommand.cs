@@ -36,7 +36,8 @@ namespace Meshing2Acceptance
         /// for before/after measurements on the calling thread: G3_M2_OFFCENTRES (0 or 1) switches off-centres, G3_M2_CONFORMING (0 or 1)
         /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule,
         /// G3_M2_KEEPAPART (0 or 1) the refinement rule of #360 that keeps chains apart (0: the refinement before it);
-        /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
+        /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; G3_M2_PINCHFREE (0 or 1) the pinch rule (a split
+        /// point is never another chain's vertex of refinement); unset keeps the defaults. G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
         public static void ApplyRefinementVariant()
@@ -46,6 +47,7 @@ namespace Meshing2Acceptance
             QualityMesh2Candidate.ConformingForBenchmarks = Flag("G3_M2_CONFORMING");
             g3.QualityMesh2.Refiner.LensesForBenchmarks = Flag("G3_M2_LENSES");
             g3.QualityMesh2.Refiner.DeleteInCircleForBenchmarks = Flag("G3_M2_LENS_DELETION");
+            g3.QualityMesh2.Refiner.KeepPinchFreeForTests = Flag("G3_M2_PINCHFREE");
             g3.QualityMesh2.Refiner.KeepChainsApartForTests = Flag("G3_M2_KEEPAPART");
         }
 

@@ -15,6 +15,14 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2OracleCoincidenceTests
     {
+        /// <summary> the refinement without the pinch rule (a split may route a chain through another chain's vertex of refinement) </summary>
+        static Mesh2Output WithoutThePinchRule(Mesh2Input input)
+        {
+            QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+            try { return new QualityMesh2Candidate().Run(input); }
+            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
+        }
+
         static Mesh2Output WithoutTheChainRule(Mesh2Input input)
         {
             QualityMesh2.Refiner.KeepChainsApartForTests = false;
@@ -41,19 +49,20 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// a known violation (owner decision on Q17; the mesher's fix comes next): the spike of seed 527 has two edges whose links in the
-        /// input's rounding, (9, 8) - (13, 12) and (13, 12) - (10, 10), both cross pixel (12, 11); refinement puts a vertex there, and both
-        /// chains run through it, the tip then hanging on that point. Listed as RefinementPinch, the verdict still VALID
+        /// the owner's strict decision on Q17: the spike of seed 527 has two edges whose links in the input's rounding, (9, 8) - (13, 12)
+        /// and (13, 12) - (10, 10), both cross pixel (12, 11); refinement without the pinch rule puts a vertex there, and both chains run
+        /// through it, the tip then hanging on that point. Rejected as RefinementPinch (a known violation, listed only, until the mesher's
+        /// pinch rule; the mesher with the rule: QualityMesh2PinchFreeTests)
         /// </summary>
         [Fact]
-        public void PinchAtARefinementVertex_IsAKnownViolation()
+        public void PinchAtARefinementVertex_IsRejected()
         {
             var input = StarPolygonFuzz.Make(527);
-            var report = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
-            var pinch = Assert.Single(report.KnownViolations);
+            var report = Oracle.Check(input, WithoutThePinchRule(input), new OracleExpect { Milestone = Milestone.M3 });
+            var pinch = Assert.Single(report.Violations);
             Assert.Equal(Violation.RefinementPinch, pinch.Kind);
             Assert.Contains("(12, 11)", pinch.Detail);
+            Assert.Empty(report.KnownViolations);
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
@@ -69,7 +78,8 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// invariance: at the 2^k scales the pinch of seed 527 and the coincidence of seed 12 without the chain rule are judged the same,
+        /// invariance: at the 2^k scales the pinch of seed 527 without the pinch rule and the coincidence of seed 12 without the chain rule
+        /// are judged the same,
         /// violations and known violations alike (scaled); in every frame the new rules do not fire on seed 527's mesh
         /// </summary>
         [Theory]
@@ -78,15 +88,15 @@ namespace geometry3Sharp.Tests
         {
             var s = Similarity.ByName(name);
             var pinch = Moved(StarPolygonFuzz.Make(527), s);
-            var r527 = Oracle.Check(pinch, new QualityMesh2Candidate().Run(pinch), new OracleExpect { Milestone = Milestone.M3 });
+            var r527 = Oracle.Check(pinch, WithoutThePinchRule(pinch), new OracleExpect { Milestone = Milestone.M3 });
             // (its free point outside the ring meshes outside the domain in some frames: a class of its own, see
             // QualityMesh2KeepsChainsApartTests; the rules here must not fire in any frame)
             Assert.DoesNotContain(r527.Violations, v => v.Kind == Violation.RefinementCoincidence || v.Kind == Violation.ChainSkipsHotPixel);
             if (!s.IsExact) return;
-            Assert.True(r527.Ok, name + ": " + r527);
             var plain527 = StarPolygonFuzz.Make(527);
-            var p527 = Oracle.Check(plain527, new QualityMesh2Candidate().Run(plain527), new OracleExpect { Milestone = Milestone.M3 });
-            Assert.Equal(p527.KnownViolations.Count, r527.KnownViolations.Count);
+            var p527 = Oracle.Check(plain527, WithoutThePinchRule(plain527), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.Equal(new[] { Violation.RefinementPinch }, p527.Violations.Select(v => v.Kind));
+            Assert.Equal(p527.Violations.Select(v => v.Kind), r527.Violations.Select(v => v.Kind));
             var plain12 = StarPolygonFuzz.Make(12);
             var moved12 = Moved(plain12, s);
             var p12 = Oracle.Check(plain12, WithoutTheChainRule(plain12), new OracleExpect { Milestone = Milestone.M3 });
@@ -105,7 +115,8 @@ namespace geometry3Sharp.Tests
         public void SnappedAreaReport_ChangesNoVerdict(int seed)
         {
             var input = StarPolygonFuzz.Make(seed);
-            var o = new QualityMesh2Candidate().Run(input);
+            // (seed 527 meshed without the pinch rule: a known violation to carry through)
+            var o = seed == 527 ? WithoutThePinchRule(input) : new QualityMesh2Candidate().Run(input);
             var plain = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
             var withArea = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, ReportSnappedArea = true });
             Assert.Null(plain.MeshMinusSnappedArea);
@@ -119,7 +130,8 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// ratchet (coordinator 2026-11-03): the refinement pinches on seeds 0 to 2999 of <see cref="StarPolygonFuzz"/> at M3, exactly.
         /// More fails; fewer means the limit goes down with the change that removes them (13 in 12 inputs at the rule's introduction; 12 in
-        /// 11 since an input whose outer rings all collapse has an empty domain: one of those seeds pinched in its hull mesh)
+        /// 11 since an input whose outer rings all collapse has an empty domain; 0 since the mesher's pinch rule, when they became a
+        /// failing violation)
         /// </summary>
         [Fact]
         public void RefinementPinches_Ratchet()
@@ -128,10 +140,10 @@ namespace geometry3Sharp.Tests
             for (int seed = 0; seed < 3000; ++seed) {
                 var input = StarPolygonFuzz.Make(seed);
                 var report = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
-                int k = report.KnownViolations.Count(v => v.Kind == Violation.RefinementPinch);
+                int k = report.Violations.Count(v => v.Kind == Violation.RefinementPinch) + report.KnownViolations.Count(v => v.Kind == Violation.RefinementPinch);
                 if (k > 0) { ++inputs; pinches += k; }
             }
-            Assert.Equal((12, 11), (pinches, inputs));
+            Assert.Equal((0, 0), (pinches, inputs));
         }
 
         /// <summary>
