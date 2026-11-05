@@ -457,21 +457,36 @@ namespace Meshing2Acceptance
                     int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
                     return o1 * o2 < 0 && Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) <= 0;
                 }
-                if (Fast && skip >= 0) {
-                    // p is vertex skip (the global test): the segment from the centroid to p lies in the box of t's vertices and p, exact in
-                    // doubles on the fast path, and a subsegment that crosses it has a box that meets that box (the grid returns a
+                // p as an interval of doubles: exact for a vertex on the fast path, Pt.Bounds (containing the exact value) for a
+                // constructed point such as the circumcentre of the angle-bound exemptions (before, those scanned every subsegment
+                // exactly, about 7 triangles per second on a 400k-triangle output with 200k bad triangles)
+                double pxl = 0, pxh = 0, pyl = 0, pyh = 0;
+                bool pKnown = false;
+                if (Fast && skip >= 0) { pxl = pxh = o.VX[skip]; pyl = pyh = o.VY[skip]; pKnown = true; }
+                else if (Fast) pKnown = p.Bounds(false, out pxl, out pxh) && p.Bounds(true, out pyl, out pyh);
+                if (pKnown) {
+                    // the segment from the centroid to p lies in the box of t's vertices and p (the vertices exact in doubles on the fast
+                    // path, p inside its interval), and a subsegment that crosses it has a box that meets that box (the grid returns a
                     // superset of those, in ascending order). The answer is a boolean: the order of the visits does not change it
                     EnsureUnsplittableGrids();
-                    double xl = Math.Min(Math.Min(o.VX[t[0]], o.VX[t[1]]), Math.Min(o.VX[t[2]], o.VX[skip]));
-                    double xh = Math.Max(Math.Max(o.VX[t[0]], o.VX[t[1]]), Math.Max(o.VX[t[2]], o.VX[skip]));
-                    double yl = Math.Min(Math.Min(o.VY[t[0]], o.VY[t[1]]), Math.Min(o.VY[t[2]], o.VY[skip]));
-                    double yh = Math.Max(Math.Max(o.VY[t[0]], o.VY[t[1]]), Math.Max(o.VY[t[2]], o.VY[skip]));
+                    double xl = Math.Min(Math.Min(o.VX[t[0]], o.VX[t[1]]), Math.Min(o.VX[t[2]], pxl));
+                    double xh = Math.Max(Math.Max(o.VX[t[0]], o.VX[t[1]]), Math.Max(o.VX[t[2]], pxh));
+                    double yl = Math.Min(Math.Min(o.VY[t[0]], o.VY[t[1]]), Math.Min(o.VY[t[2]], pyl));
+                    double yh = Math.Max(Math.Max(o.VY[t[0]], o.VY[t[1]]), Math.Max(o.VY[t[2]], pyh));
+                    if (CheckFastPathForTests) {
+                        // the premise of the query: its box holds t's vertices and p exactly (an independent check of the box above)
+                        // (an infinite side, from a pad past the largest double, holds everything on that side)
+                        foreach (var q in new[] { a, b, c, p })
+                            if (!double.IsInfinity(xl) && q.Qx < Q.FromDouble(xl) || !double.IsInfinity(xh) && q.Qx > Q.FromDouble(xh)
+                                || !double.IsInfinity(yl) && q.Qy < Q.FromDouble(yl) || !double.IsInfinity(yh) && q.Qy > Q.FromDouble(yh))
+                                FastPathDiffers("the query box of a triangle and a point misses one of them");
+                    }
                     var near = unsplittableSubGrid.Query(xl, xh, yl, yh);
-                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(unsplittableSubBox, o.Subsegments.Count, xl, xh, yl, yh, near, "the subsegments near a triangle and a vertex");
+                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(unsplittableSubBox, o.Subsegments.Count, xl, xh, yl, yh, near, "the subsegments near a triangle and a point");
                     bool found = false;
                     foreach (int i in near) if (Crossed(o.Subsegments[i]) && unsplittable(o.Subsegments[i].A, o.Subsegments[i].B)) { found = true; break; }
                     if (CheckFastPathForTests && found != o.Subsegments.Any(s => Crossed(s) && unsplittable(s.A, s.B)))
-                        FastPathDiffers("a vertex hidden from a triangle by an unsplittable subsegment");
+                        FastPathDiffers("a point hidden from a triangle by an unsplittable subsegment");
                     return found;
                 }
                 foreach (var s in o.Subsegments)
