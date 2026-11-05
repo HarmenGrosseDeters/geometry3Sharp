@@ -475,16 +475,18 @@ namespace Meshing2Acceptance
                     double yh = Math.Max(Math.Max(o.VY[t[0]], o.VY[t[1]]), Math.Max(o.VY[t[2]], pyh));
                     if (CheckFastPathForTests) {
                         // the premise of the query: its box holds t's vertices and p exactly (an independent check of the box above)
-                        Q qxl = Q.FromDouble(xl), qxh = Q.FromDouble(xh), qyl = Q.FromDouble(yl), qyh = Q.FromDouble(yh);
+                        // (an infinite side, from a pad past the largest double, holds everything on that side)
                         foreach (var q in new[] { a, b, c, p })
-                            if (q.Qx < qxl || q.Qx > qxh || q.Qy < qyl || q.Qy > qyh) FastPathDiffers("the query box of a triangle and a point misses one of them");
+                            if (!double.IsInfinity(xl) && q.Qx < Q.FromDouble(xl) || !double.IsInfinity(xh) && q.Qx > Q.FromDouble(xh)
+                                || !double.IsInfinity(yl) && q.Qy < Q.FromDouble(yl) || !double.IsInfinity(yh) && q.Qy > Q.FromDouble(yh))
+                                FastPathDiffers("the query box of a triangle and a point misses one of them");
                     }
                     var near = unsplittableSubGrid.Query(xl, xh, yl, yh);
-                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(unsplittableSubBox, o.Subsegments.Count, xl, xh, yl, yh, near, "the subsegments near a triangle and a vertex");
+                    if (CheckFastPathForTests) BoxGrid.CheckSuperset(unsplittableSubBox, o.Subsegments.Count, xl, xh, yl, yh, near, "the subsegments near a triangle and a point");
                     bool found = false;
                     foreach (int i in near) if (Crossed(o.Subsegments[i]) && unsplittable(o.Subsegments[i].A, o.Subsegments[i].B)) { found = true; break; }
                     if (CheckFastPathForTests && found != o.Subsegments.Any(s => Crossed(s) && unsplittable(s.A, s.B)))
-                        FastPathDiffers("a vertex hidden from a triangle by an unsplittable subsegment");
+                        FastPathDiffers("a point hidden from a triangle by an unsplittable subsegment");
                     return found;
                 }
                 foreach (var s in o.Subsegments)
