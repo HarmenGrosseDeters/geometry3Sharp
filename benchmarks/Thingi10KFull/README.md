@@ -1,7 +1,103 @@
 # Thingi10K full-corpus run: interim publication
 
-Tier S: publish the measured harness and an immutable interim snapshot. No library,
-algorithm, timeout, API, mutation-workflow or running-measurement changes.
+The original interim publication was Tier S: an immutable snapshot and its reporting
+harness. The subsequent evaluation-pipeline change is Tier M: separate durable
+computation/evaluation scheduling and diagnostic phase timing. The measured library,
+Boolean/Wrap algorithm binaries, operation/evaluation timeouts, API, mutation workflow
+and historical snapshot remain unchanged. This changes scheduling, not an algorithm.
+
+## Durable evaluation pipeline (Tier M)
+
+[run_pipeline.py](run_pipeline.py) is a separate runner; [run_full.py](run_full.py)
+stays byte-identical for historical reproducibility. There is one Wrap producer,
+one Boolean producer and two evaluation workers. Slow evaluation therefore cannot
+occupy the Wrap producer. This is not a claimed library speedup: evaluation can
+still time out, and concurrent throughput requires its own before/after measurement.
+
+Boolean results and original operation times are flushed to a hashed external job
+manifest **before evaluation**. `results/computed.jsonl` records pending computations;
+only evaluated or explicitly failed/not-run records enter final `boolean.jsonl` and
+the legacy CSVs. Pending work is never counted as clean. Manifests retain input info,
+operation reports, frozen binary hashes and output-artifact sizes/SHA256s. Resume
+recovers a missing computed record from its manifest, skips final records and removes
+already-finalized artifacts only after final JSONL persistence. Incomplete publications
+and interrupted computation directories are retained externally for inspection and
+recomputation, not silently deleted. Corrupt/missing artifacts stop the runner.
+
+Backpressure pauses only Boolean production at 16 pending jobs or a 4 GiB queued-byte
+high-water mark. The latter is **not a hard peak-space bound**: one running Boolean
+computation can exceed it. Admission also requires space for not-yet-downloaded inputs
+plus an 8 GiB temporary-space reserve; it does not prove that an arbitrary model fits.
+Evaluation releases queued artifacts after the final record is durable. Wrap has no
+output queue, but its temporary working memory/space must still be available.
+
+The diagnostic [probe project](probe/EvaluationProbe.csproj) keeps the original friend
+assembly name in a separate directory. It references the **measured DLL**, never the
+publication library project. [prepare_probe.py](prepare_probe.py) verifies the frozen
+driver-source hash and generates instrumented source only at a new external path.
+The original driver handles export/Boolean computation; only `eval` is routed to the
+probe. The diagnostic `NotCleanReason` copy preserves the pinned order, thresholds,
+early returns and self-intersection cutoff. [probe_smoke.py](probe_smoke.py) compares
+all emitted metrics against the original evaluator on procedural soups, including
+clean, empty, open, inverted, degenerate, bowtie and self-intersecting cases at binary
+scales and translations. Neither self-intersection pass is removed.
+
+Phase events in `results/diagnostics/<file>/eval.phases.jsonl` contain operation,
+phase, PID, UTC timestamp, started/completed state and elapsed milliseconds. They
+separate soup reading, welding, topology, reconstruction, volume/area, intersection
+counting and individual cleanliness checks. An unfinished started event on timeout
+identifies the interrupted phase; it is not a fabricated completed timing. Events
+are flushed durably, so this instrumented evaluator has small additional logging work.
+
+From the publication harness directory, with explicit external paths:
+
+```powershell
+python prepare_probe.py D:\Thingi10K-probe\Program.cs --source-sha256 <frozen-Program.cs-SHA256>
+dotnet build probe\EvaluationProbe.csproj -c Release -p:ProbeSource=D:\Thingi10K-probe\Program.cs -p:FrozenLibrary=<measured-geometry3Sharp.dll> -o D:\Thingi10K-probe\bin
+python probe_smoke.py --original <original-BooleanComparison.dll> --probe D:\Thingi10K-probe\bin\BooleanComparison.dll --report D:\Thingi10K-probe\smoke.json
+python -m unittest test_runner test_snapshot test_analysis test_prepare_dataset test_pipeline -v
+python pipeline_mutations.py --report D:\Thingi10K-probe\mutations.json
+```
+
+Before activation, stop the legacy parent and its exact child PIDs, take an external
+backup of final results/configuration/diagnostics, and verify frozen hashes. Do not
+allow the old runner to clean in-flight scratch directories before they are secured.
+[adopt_legacy.py](adopt_legacy.py) accepts only jobs with matching export/operation
+commands, complete export info, successful finite operation timings and all output
+files. Legacy logs did not record exit codes: the adoption evidence explicitly says
+so. Incomplete jobs are kept outside the queue and recomputed. Full compute wall time
+for adopted jobs is unknown (`null`), not reconstructed from partial timings.
+
+```powershell
+python adopt_legacy.py --run-root <stopped-external-run-root> <complete-legacy-scratch-directory>
+```
+
+Install the new runner beside the unchanged legacy runner, and the probe assets into
+`bin/EvaluationProbe` under that external run root. Extend `config.json` with `pipeline`:
+version `1`, `runner_sha256`, `probe_sha256`, and `probe_files_sha256` (all deployed
+probe DLL/runtime/dependency files). Record generated-source/generator/project hashes,
+validation evidence and the migration backup/adoption list separately in the migration
+journal. Startup verifies frozen binaries/sources, the old runner, the new runner and
+probe assets, including the unchanged probe library reference. It refuses a second
+pipeline instance using an OS-level run lease; the lease does not protect against a
+separately started legacy runner.
+
+```powershell
+python <external-run-root>\run_pipeline.py
+```
+
+`progress.json` reports final counts, computed Boolean counts, pending jobs/bytes and
+active producers/evaluators. A `STOP` file under the external run root requests a
+cooperative stop after running operations/evaluations finish; pending artifacts survive.
+Remove it before resume. New model `wall_ms` is compute plus evaluation wall time,
+**excluding queue wait**; per-operation `ms` remains the original algorithm timing.
+Adopted model `wall_ms` stays unknown. The frozen snapshot below is never rewritten.
+
+The synchronization/backpressure design uses Python's standard-library
+[queue concepts](https://docs.python.org/3/library/queue.html), durable file flushes
+([os.fsync](https://docs.python.org/3/library/os.html#os.fsync)) and .NET
+[Stopwatch](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.stopwatch).
+No new third-party geometry implementation is used.
 
 ## Measurement and snapshot
 
@@ -210,5 +306,20 @@ procedural smoke, snapshot consistency/hashes, mutation checks, library builds f
 net10.0/netstandard2.0, net48 test-project builds, package API validation and both copied
 driver builds. [Analysis validation](analysis-validation.json) adds the input-grouping
 and metadata-regeneration tests, byte-identical reconstruction, mutation checks,
-and fresh publication builds/API pack. Full .NET test suites and independent
-ready-for-review assessment are not claimed by this draft publication.
+and fresh publication builds/API pack.
+
+[Pipeline validation](pipeline-validation.json) records the later Tier M change:
+38 offline tests, 42 original/probe metric-equal procedural cases, four detected
+runtime mutations, target builds and both API-validation packs, with commands and
+external-log hashes. The pipeline was activated after securing the stopped legacy
+runner's outputs: two complete jobs were adopted with unchanged operation timings,
+and the original final JSONL byte prefixes and frozen provenance were verified.
+The live process has separate Wrap/Boolean producers and two probe evaluators.
+Its first large-job phase logs place the ongoing work in `edge_topology`; these are
+unfinished phase observations, not completed timings or a speedup measurement.
+The recorded activation counts are a point-in-time observation, not a new corpus
+snapshot. The original interim snapshot and analysis stay unchanged.
+
+Direct checklist review was completed without subagents. Independent review remains
+outstanding; this PR stays a draft. Full .NET test suites and independent
+ready-for-review assessment are not claimed by this publication.

@@ -1,0 +1,151 @@
+{
+  "at": "2026-11-05T22:08:38.923996+01:00",
+  "tier": "M",
+  "measured_commit": "cd7fb8abba0af09d5725b60c700dfec95234e7ad",
+  "measured_library_sha256": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd",
+  "runner_sha256": "e2c998a17a1bdd763d46f92f99583c65330b584af283b380e099d0f96fcd3128",
+  "probe_sha256": "013153837f5e7cb60649ab90f85b6ec6cf2bbc97b9d63f6b395a939f97be9600",
+  "tests": {
+    "command": "python -m unittest test_runner test_snapshot test_analysis test_prepare_dataset test_pipeline -v",
+    "passed": 38,
+    "log_sha256": "fc65544819b6fcc7e648026aa3376916ed6146b31902b738dfbdc7f503a992c3"
+  },
+  "differential": {
+    "command": "python probe_smoke.py --original <frozen-BooleanComparison.dll> --probe <probe-BooleanComparison.dll> --report <external-report>",
+    "equal_cases": 42,
+    "report_sha256": "1af33b96351a1798b3ec8b5ddf9cf0ca55318f0929c9bdae06658b5684f1d544"
+  },
+  "mutations": {
+    "command": "python pipeline_mutations.py --report <external-report>",
+    "detected": 4,
+    "report_sha256": "1ffb732420fe43f9513b4b8b2726c5930aa20c349ed9f547b2e71667711b2a67"
+  },
+  "builds": [
+    {
+      "command": "dotnet build geometry3Sharp_netstandard.csproj -c Release --no-restore",
+      "exit_code": 0,
+      "log_sha256": "0074a5dc51198d8c0205db0a3132f8d1531055dbd4bacd7db24396f32f2257cb"
+    },
+    {
+      "command": "dotnet build addons\\geometry3Sharp.Clipper2\\geometry3Sharp.Clipper2.csproj -c Release --no-restore",
+      "exit_code": 0,
+      "log_sha256": "2b3422312930aa671464d69058e471de2446f97b4d099f9ac74d7924e32c5460"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true --no-restore",
+      "exit_code": 0,
+      "log_sha256": "08e1790990a523dfd50b10f7d4e54b14e24d2cb9f7291a98632377f0a943a784"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true --no-restore",
+      "exit_code": 0,
+      "log_sha256": "526da81e5c88d4d79ea30d8a5ee43ea88dec956d794249a056d3ec894d4fd495"
+    },
+    {
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <external-packages> -p:Version=1.0.0-ci.2 --no-restore",
+      "exit_code": 0,
+      "log_sha256": "d3e5adde22fcb0a782c3db8e5d25e934c21a9d7bf70bd110e383b80d0e78ed12"
+    },
+    {
+      "command": "dotnet pack addons\\geometry3Sharp.Clipper2\\geometry3Sharp.Clipper2.csproj -c Release -o <external-packages> -p:Version=1.0.0-ci.2 --no-restore",
+      "exit_code": 0,
+      "log_sha256": "14ea7e71e91d13594756401aa5205f73d953461f9dfc99cf590b816149a88fe1"
+    }
+  ],
+  "review": {
+    "direct_checklist_review": "completed; no blocking finding",
+    "independent_review": "outstanding; PR remains draft",
+    "subagents_used_for_this_continuation": false
+  },
+  "activation": {
+    "command": "python -u <external-run-root>\\run_pipeline.py",
+    "progress_query": "Get-Content <external-run-root>\\progress.json",
+    "progress": {
+      "state": "running",
+      "pid": 40092,
+      "updated_at": "2026-11-05T22:06:55+0100",
+      "expected_meshes": 10000,
+      "completed": {
+        "wrap": 3160,
+        "boolean": 3158
+      },
+      "boolean_computed": 3160,
+      "pending_evaluations": 2,
+      "pending_bytes": 503790973,
+      "download_failures": {
+        "wrap": 0,
+        "boolean": 0
+      },
+      "active_models": {
+        "eval:0": "226683.stl",
+        "eval:1": "226684.stl",
+        "wrap": "compute:226685.stl",
+        "boolean": "compute:226685.stl"
+      },
+      "pipeline_version": 1
+    },
+    "adopted_files": [
+      "226684.stl",
+      "226683.stl"
+    ],
+    "original_final_prefix_sha256_verified": {
+      "wrap": true,
+      "boolean": true
+    },
+    "frozen_provenance_verified": true,
+    "last_phase_events": {
+      "226684.stl": {
+        "pid": 1836,
+        "operation": "union",
+        "phase": "edge_topology",
+        "state": "started",
+        "wall_ms": null,
+        "at": "2026-11-05T21:06:56.4594158+00:00"
+      },
+      "226683.stl": {
+        "pid": 40620,
+        "operation": "union",
+        "phase": "edge_topology",
+        "state": "started",
+        "wall_ms": null,
+        "at": "2026-11-05T21:06:56.4363788+00:00"
+      }
+    },
+    "phase_query": "Get-Content <external-run-root>\\results\\diagnostics\\<file>\\eval.phases.jsonl -Tail 5",
+    "producer_progress_verified": {
+      "progress_query": "Get-Content <external-run-root>\\progress.json",
+      "progress": {
+        "state": "running",
+        "pid": 40092,
+        "updated_at": "2026-11-05T22:10:00+0100",
+        "expected_meshes": 10000,
+        "completed": {
+          "wrap": 3165,
+          "boolean": 3158
+        },
+        "boolean_computed": 3168,
+        "pending_evaluations": 10,
+        "pending_bytes": 746554406,
+        "download_failures": {
+          "wrap": 0,
+          "boolean": 0
+        },
+        "active_models": {
+          "eval:0": "226683.stl",
+          "eval:1": "226684.stl",
+          "wrap": "compute:226773.stl",
+          "boolean": "download:226954.stl"
+        },
+        "pipeline_version": 1
+      },
+      "wrap_advanced_while_original_evals_pending": true,
+      "boolean_computed_advanced_while_original_evals_pending": true
+    }
+  },
+  "limitations": [
+    "No algorithm/library speedup claimed.",
+    "Full corpus is still running.",
+    "Independent ready-for-review assessment and full .NET suites are not claimed.",
+    "Active phase events are unfinished observations, not completed timings."
+  ]
+}

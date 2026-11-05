@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>BooleanComparison</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\sources\benchmarks\BooleanComparison\*.cs" Exclude="..\sources\benchmarks\BooleanComparison\Program.cs" />
+    <Compile Include="$(ProbeSource)" />
+    <Reference Include="geometry3Sharp"><HintPath>$(FrozenLibrary)</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="ValidateProbeInputs" BeforeTargets="CoreCompile">
+    <Error Condition="'$(ProbeSource)' == '' Or !Exists('$(ProbeSource)')" Text="Generate a new external instrumented source with prepare_probe.py and set ProbeSource." />
+    <Error Condition="'$(FrozenLibrary)' == '' Or !Exists('$(FrozenLibrary)')" Text="Set FrozenLibrary to the measured geometry3Sharp.dll; do not rebuild the library for this probe." />
+  </Target>
+</Project>
