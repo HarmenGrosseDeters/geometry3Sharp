@@ -503,7 +503,18 @@ maintainer with users to support; that pays off only then.
 ## Later
 
 - Point clouds: normal orientation (Dipole 2021, iPSR 2022, GCNO 2023), screened Poisson reconstruction, fast winding numbers (Barill et al. 2018)
-- Feature-preserving offsets (Zint et al. 2023)
+- Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
+  Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
+  - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
+    does not fit;
+  - a convex hull per vertex, edge and triangle;
+  - the exact union of these hulls, classified by exact ray tests and the generalized winding number, then hole filling;
+  - result: mitered (sharp-edge) offsets inward and outward, per-triangle distances, about as many triangles as the input.
+  It complements alpha wrapping, it does not extend or replace it: it is watertight only for watertight,
+  self-intersection-free input (it relies on the inexact winding number otherwise), while `MeshAlphaWrap` guarantees a
+  closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
+  exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
+  Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
