@@ -1569,6 +1569,20 @@ namespace g3
                 return result;
             }
 
+            /// <summary> the exponent of a piece's length (<see cref="ScaleOf"/>) below which its split point must lie exactly on the
+            /// segment: a double near the piece is then at most 2^-1074 off, below 2^-48 of the piece, as with a relative rounding error </summary>
+            internal const int MinRoundedSplitExponent = -1026;
+
+            /// <summary> p lies exactly on segment ab (the piece's source), strictly between u and w (the piece's ends, on ab or rounded
+            /// next to it at a crossing) along the coordinate in which they differ most; comparisons and exact predicates only, no products
+            /// that could underflow </summary>
+            internal static bool ExactlyWithin(Vector2d a, Vector2d b, Vector2d u, Vector2d w, Vector2d p)
+            {
+                if (ExactPredicates.Orient2d(a, b, p) != 0) return false;
+                return Math.Abs(w.x - u.x) >= Math.Abs(w.y - u.y) ? p.x > Math.Min(u.x, w.x) && p.x < Math.Max(u.x, w.x)
+                    : p.y > Math.Min(u.y, w.y) && p.y < Math.Max(u.y, w.y);
+            }
+
             /// <summary>
             /// Splits the constrained edge e: at its midpoint, or, next to an input vertex, at the power of two from it closest to the
             /// middle (concentric shells). The point is computed on the first input segment of the piece, so repeated splits do not drift.
@@ -1605,6 +1619,12 @@ namespace g3
                     double tu = l2 > 0 ? ScaleB(pu - A, -es).Dot(dirs) / l2 : 0, tw = l2 > 0 ? ScaleB(pw - A, -es).Dot(dirs) / l2 : 0;
                     double tt = tu + (tw - tu) * fraction;
                     p = A + dir * tt;
+                    // a piece shorter than 2^-1026: its point rounds to the subnormal step 2^-1074, which is no longer small against the
+                    // piece (at 2^-1054 a step is 2^-20 of it, not 2^-53), so the rounded point lies off the segment by far more than a
+                    // relative error: outside the domain on the hull, off its source on a constraint (found with the reference comparison:
+                    // m1/subnormal-32 with an angle bound). Only a point exactly on the segment, strictly between the piece's ends, is used;
+                    // otherwise the piece is not split
+                    if (ex < MinRoundedSplitExponent && !ExactlyWithin(A, B, pu, pw, p)) { unsplittable.Add(Key(u, w)); return null; }
                 }
                 // (On the hull a point that rounds to the outside extends the triangulation's hull by a sliver, and Lawson's flips remove
                 // the old hull edge; a point moved inwards instead would leave a sliver at an unconstrained hull edge.)
