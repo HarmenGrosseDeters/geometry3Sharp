@@ -9,7 +9,8 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// The automatic tube has a floor of one subnormal step, 2^-1074 (decision D3 of 2026-11-05). Below about 2^-1034 the relative
     /// tube (2^-40 of the magnitude) is finer than any double can resolve: a crossing of two constraints, which the mesher must make,
-    /// has in general no double within it, so no mesh could pass (found with the reference comparison of m1/subnormal-32).
+    /// has in general no double within it, so no mesh could pass (found with this procedural input of three nearly concurrent
+    /// segments while fixing #388).
     /// </summary>
     public class Meshing2OracleSubnormalTubeTests
     {
@@ -35,6 +36,39 @@ namespace geometry3Sharp.Tests
             var output = CandidateRegistry.For(Milestone.M2).Run(input);
             var report = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M2 });
             Assert.True(report.Ok, "2^" + exponent + ": " + report);
+        }
+
+        [Theory]
+        [InlineData(2)]
+        [InlineData(4)]
+        [InlineData(64)]
+        public void ACrossingMovedBySteps_IsStillRejected(int steps)
+        {
+            // the floor admits the rounding of a crossing (half a step per coordinate), not a crossing moved by more than a step
+            var input = Crossings(-1074);
+            var output = CandidateRegistry.For(Milestone.M2).Run(input);
+            Assert.True(Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M2 }).Ok);
+            var inputVertices = new System.Collections.Generic.HashSet<int>(output.InputToVertex);
+            int crossing = Enumerable.Range(0, output.VX.Length).Single(v => !inputVertices.Contains(v));
+            output.VX[crossing] += steps * double.Epsilon;
+            output.ExactVertices = null;
+            var report = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Has(Violation.SteinerNotAllowed), steps + " steps: " + report);
+        }
+
+        [Fact]
+        public void O11_KeepsTheMeshersRelativeTolerance()
+        {
+            // the O11 rule models the mesher's tolerance, half the relative tube: no floor there, as the mesher's own has none
+            var tiny = Crossings(-1074); tiny.MinAngleDeg = 20;
+            var output = new QualityMesh2Candidate().Run(tiny);
+            var report = Oracle.Check(tiny, output, new OracleExpect { Milestone = Milestone.M3 });
+            var relative = new Q(1000003, BigInteger.One << (1074 + 40));
+            Assert.True(report.O11Tolerance2 == relative * relative / 4, report.O11Tolerance2.ToString());
+            var normal = Crossings(0); normal.MinAngleDeg = 20;
+            report = Oracle.Check(normal, new QualityMesh2Candidate().Run(normal), new OracleExpect { Milestone = Milestone.M3 });
+            var tube = Oracle.AutoTolerance(normal);
+            Assert.True(report.O11Tolerance2 == tube * tube / 4);
         }
 
         [Fact]

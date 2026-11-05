@@ -206,6 +206,9 @@ namespace Meshing2Acceptance
         /// circumcentre lies behind it. Findings to look at, as the merge zone's.
         /// </summary>
         public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
+        /// <summary> the squared tolerance the O11 rule gives the mesher (a quarter of the squared tube without the subnormal floor of
+        /// Oracle.AutoTolerance: the mesher's own tolerance has none); 0 at M1 </summary>
+        public Q O11Tolerance2;
         /// <summary>
         /// Q17 (O-H5): pieces of input segments and boundary edges whose chain is missing, and unused input points, on a part of the
         /// domain that snap rounding collapsed (no area left between the images of its boundary). Findings to look at, as the merge zone's.
