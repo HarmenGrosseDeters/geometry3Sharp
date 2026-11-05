@@ -1569,8 +1569,15 @@ namespace g3
                 return result;
             }
 
-            /// <summary> the exponent of a piece's length (<see cref="ScaleOf"/>) below which its split point must lie exactly on the
-            /// segment: a double near the piece is then at most 2^-1074 off, below 2^-48 of the piece, as with a relative rounding error </summary>
+            /// <summary>
+            /// The exponent below which a piece's split point must lie exactly on its source: the piece's larger coordinate difference
+            /// (<see cref="ScaleOf"/>) is below 2^-1026. The computed point A + dir * tt is off the line by its last two roundings, each at
+            /// most half a unit in the last place of the result: relative to the coordinates in the normal range, but at least half the
+            /// subnormal step 2^-1074 below it, whatever the coordinates. From 2^-1026 on that absolute part is at most 2^-49 of the piece,
+            /// so the error is as small against the piece as a relative rounding; below, at 2^-1054 say, it is 2^-21 of it and the point
+            /// lies visibly off the segment. (A piece below 2^-1026 between normal coordinates near 2^-1000, whose rounding is relative to
+            /// the coordinates, is refused too: conservative, the mesh stays valid, only its refinement there is weaker.)
+            /// </summary>
             internal const int MinRoundedSplitExponent = -1026;
 
             /// <summary> p lies exactly on segment ab (the piece's source), strictly between u and w (the piece's ends, on ab or rounded
@@ -1619,11 +1626,11 @@ namespace g3
                     double tu = l2 > 0 ? ScaleB(pu - A, -es).Dot(dirs) / l2 : 0, tw = l2 > 0 ? ScaleB(pw - A, -es).Dot(dirs) / l2 : 0;
                     double tt = tu + (tw - tu) * fraction;
                     p = A + dir * tt;
-                    // a piece shorter than 2^-1026: its point rounds to the subnormal step 2^-1074, which is no longer small against the
-                    // piece (at 2^-1054 a step is 2^-20 of it, not 2^-53), so the rounded point lies off the segment by far more than a
-                    // relative error: outside the domain on the hull, off its source on a constraint (found with the reference comparison:
-                    // m1/subnormal-32 with an angle bound). Only a point exactly on the segment, strictly between the piece's ends, is used;
-                    // otherwise the piece is not split
+                    // a piece whose larger coordinate difference is below 2^-1026 (MinRoundedSplitExponent): the rounding of its point
+                    // includes up to half the subnormal step 2^-1074, which is no longer small against the piece (2^-21 of it at 2^-1054), so
+                    // the point may lie off the segment by far more than a relative error: outside the domain on the hull, off its source on
+                    // a constraint (found with the reference comparison: m1/subnormal-32 with an angle bound). Only a point exactly on the
+                    // source, strictly between the piece's ends, is used; otherwise the piece is not split
                     if (ex < MinRoundedSplitExponent && !ExactlyWithin(A, B, pu, pw, p)) { unsplittable.Add(Key(u, w)); return null; }
                 }
                 // (On the hull a point that rounds to the outside extends the triangulation's hull by a sliver, and Lawson's flips remove
