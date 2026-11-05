@@ -283,7 +283,8 @@ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- oracl
 - `--input` and `--output` are the plain text formats above.
 - `--milestone`: M1 forbids constructed vertices and checks the plain Delaunay property, M2 the constrained one, M3 also the bounds of the options.
 - `--tube`: how far a chain of edges may run from its input segment. `0` means exactly on it; the default is 0 for M1 and otherwise
-  automatic (2^-40 of the largest coordinate, or the snap tolerance if larger).
+  automatic (2^-40 of the larger of the largest coordinate and the extent, at least one subnormal step 2^-1074 (D3), or the snap
+  tolerance if larger).
 - It prints one `VIOLATION <kind>: <detail>` per finding and then `VALID` or `INVALID`. Exit code 0 means valid, 1 invalid, 2 unreadable input, 3 the
   oracle's own self-check failed. `--row` writes the row of section 5, which is the easiest way to get a correct one.
 

@@ -25,11 +25,27 @@ namespace Meshing2Acceptance
         public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
             => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
 
+        /// <summary> the smallest positive double, 2^-1074: the step of the subnormal grid </summary>
+        static readonly Q SubnormalStep = new Q(1, BigInteger.One << 1074);
+
         /// <summary>
         /// The automatic tolerance a result may use: 2^-40 of the larger of the largest coordinate and the extent, about 5
-        /// micrometres at UTM northings (spec O11: "about 5 um at UTM scale"; Q14).
+        /// micrometres at UTM northings (spec O11: "about 5 um at UTM scale"; Q14), and never less than one step of the subnormal grid
+        /// (2^-1074, decision D3 of 2026-11-05): below about 2^-1034 the relative tolerance is finer than any double can resolve, and a
+        /// required construction (a crossing of two constraints) has in general no double within it (found with a procedural input of
+        /// three nearly concurrent segments at 2^-1074, while fixing #388). One step suffices for a correctly rounded construction: it
+        /// lies within half a step of the exact point in each coordinate, so within sqrt(2)/2 of a step; a construction rounded less
+        /// carefully, off by a step in each coordinate (sqrt(2) steps), would still fail.
         /// </summary>
         public static Q AutoTolerance(Mesh2Input input)
+        {
+            var relative = RelativeTolerance(input);
+            return input.Count == 0 ? relative : Q.Max(relative, SubnormalStep);
+        }
+
+        /// <summary> 2^-40 of the larger of the largest coordinate and the extent, without the floor of <see cref="AutoTolerance"/>: the
+        /// scale of the mesher's own tolerance (2^-41 of the same magnitude), which has no floor </summary>
+        internal static Q RelativeTolerance(Mesh2Input input)
         {
             Q max = Q.Zero;
             if (input.Count == 0) return max;
@@ -102,6 +118,9 @@ namespace Meshing2Acceptance
             Pt[] inPts, v;
             Domain domain;
             Q tube, tube2;
+            /// <summary> the squared tolerance the O11 rule gives the mesher (<see cref="OracleReport.O11Tolerance2"/>; a field, as the
+            /// witness's check mode swaps the report) </summary>
+            Q o11Tol2;
             int[] map;
             Dictionary<long, List<(int tri, int opposite, int a, int b)>> edges;
             HashSet<long> constraintEdges;
@@ -139,6 +158,10 @@ namespace Meshing2Acceptance
                 bool degenerate = domain.Area.Sign == 0;
                 tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
                 tube2 = tube * tube;
+                // the mesher's tolerance (O11 rule) is half of this one without the subnormal floor: the mesher's own has none
+                Q relativeTube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.RelativeTolerance(input), Q.FromDouble(input.SnapTolerance)));
+                o11Tol2 = relativeTube * relativeTube / 4;
+                r.O11Tolerance2 = o11Tol2;
                 if (!Indices()) return r;
                 if (!Identity()) return r;
                 Lap("indices, identity");
@@ -545,7 +568,7 @@ namespace Meshing2Acceptance
                 // (a hair more, to be safe) is one of the piece's own: the mesher makes such vertices vertices of its chain and merges the
                 // sources of the shared piece (InsertPiece, Near; second review: two constraints crossing at a tiny angle). A split point
                 // counts as refused only a hair inside the tolerance, as the mesher decides in rounded doubles (second review)
-                Q tol2 = tube2 / 4, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7), half2 = tol2 * new Q((BigInteger.One << 7) - BigInteger.One, BigInteger.One << 7);
+                Q tol2 = o11Tol2, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7), half2 = tol2 * new Q((BigInteger.One << 7) - BigInteger.One, BigInteger.One << 7);
                 var own = new List<(Pt a, Pt b)>();
                 var ownIds = new HashSet<int>();
                 for (int k = 0; k < sources.Count; ++k) {
@@ -581,7 +604,9 @@ namespace Meshing2Acceptance
                 return false;
             }
 
-            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines) </summary>
+            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines).
+            /// (With the tube, floor included: below about 2^-1034 the floored tube counts more lines as nearly coincident than the mesher's
+            /// tolerance would, so fewer pieces are excused, never more: strict, and harmless.) </summary>
             bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d)
             {
                 var near = new List<Pt>();
