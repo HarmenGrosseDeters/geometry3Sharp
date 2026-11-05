@@ -503,7 +503,18 @@ maintainer with users to support; that pays off only then.
 ## Later
 
 - Point clouds: normal orientation (Dipole 2021, iPSR 2022, GCNO 2023), screened Poisson reconstruction, fast winding numbers (Barill et al. 2018)
-- Feature-preserving offsets (Zint et al. 2023)
+- Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
+  Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
+  - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
+    does not fit;
+  - a convex hull per vertex, edge and triangle;
+  - the exact union of these hulls, classified by exact ray tests and the generalized winding number, then hole filling;
+  - result: mitered (sharp-edge) offsets inward and outward, per-triangle distances, about as many triangles as the input.
+  It complements alpha wrapping, it does not extend or replace it: it is watertight only for watertight,
+  self-intersection-free input (it relies on the inexact winding number otherwise), while `MeshAlphaWrap` guarantees a
+  closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
+  exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
+  Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
@@ -540,6 +551,34 @@ bit-for-bit determinism and invariance tests.
 | 8 | Continuous collision detection | Wang et al. 2021 *A Large Scale Benchmark and an Inclusion-Based Algorithm for Continuous Collision Detection* (Tight-Inclusion); Li et al. 2020 *IPC* | Tight-Inclusion: MIT | Conservative, provably correct CCD; Unity, robotics |
 | 9 | Simplification with intrinsic error metrics | Liu et al. 2023 *Surface Simplification using Intrinsic Error Metrics* | paper | On the intrinsic triangulation infrastructure |
 | 10 | Mesh from coarse / sparse SDFs | Sellán et al. 2023 *Reach for the Spheres*; 2024 *Reach for the Arcs* | paper | With the sparse SDF grids and TPMS items under Later |
+
+## RWTH Aachen papers (survey 2026-11-05)
+
+These are papers from the Aachen graphics group (Kobbelt; and Campen, Bommes, Botsch and Trettner while there) that fit
+the library and that the docs did not cite yet. EMBER, the mesh kernel, probabilistic quadrics, virtual source
+propagation, surface map homology and Botsch-Kobbelt degenerate faces are already in the docs.
+- **Sources:** web search and the arXiv API only. graphics.rwth-aachen.de and dblp are not reachable from the cloud
+  sessions, so the list may be incomplete.
+- **Licences:** a code licence named here is from a web search. Read the LICENSE file before using any code.
+
+Documented only, nothing planned yet.
+
+| Paper | Fit for us | Code |
+|---|---|---|
+| Nehring-Wirxel, Trettner, Kobbelt, *Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs*, Computer-Aided Design 135, 2021 (arXiv 2103.02486) | high for long chains of booleans (sweeps, milling simulation): a volumetric octree of BSPs over planes, fixed 256-bit integer arithmetic, up to 2.5 M mesh-plane cuts per second on one core. The EMBER group's predecessor; it is the chained-boolean case of EMBER idea 2 above. A patent check as for EMBER | none found |
+| Campen, Kobbelt, *Polygonal Boundary Evaluation of Minkowski Sums and Swept Volumes*, CGF 29(5) (SGP), 2010 | high next to `MeshOffset` ("Later"): exact 3D Minkowski sums, offsets and swept volumes along a rigid motion, manifold and watertight; computes only in cells that hold boundary. We have 2D Minkowski sums only (Clipper2 add-on) | none (the authors' web service is offline) |
+| Campen, Kobbelt, *Exact and Robust (Self-)Intersections for Polygonal Meshes*, CGF 29(2) (EG), 2010 | medium: an adaptive octree plus nested plane-based BSPs only in the cells with intersections, exact in fixed precision. Gives booleans and **outer hulls for mesh repair**: a candidate next to `MeshAutoRepair` and alpha wrap for "keep the outside, drop inner junk" | none found |
+| Bischoff, Pavic, Kobbelt, *Automatic Restoration of Polygon Models*, TOG 24(4), 2005; Bischoff, Kobbelt, *Structure Preserving CAD Model Repair*, EG 2005 | medium: octree-volumetric repair that guarantees a closed manifold within a tolerance ε to the input and closes holes up to a size ρ. The CAD variant repairs only the critical regions (gaps, overlaps) volumetrically and keeps the rest of the tessellation. A design check for the repair pipeline: local volumetric repair instead of a global wrap | none found |
+| Kobbelt, Botsch, Schwanecke, Seidel, *Feature Sensitive Surface Extraction from Volume Data* (Extended Marching Cubes), SIGGRAPH 2001 | medium: sharp features from a directed distance field plus normals inside the marching-cubes structure. Compare with our `DualContouring` (QEF, `Reducer` probabilistic quadrics) before deciding anything; possibly only a SOURCES note | none |
+| Lyon, Campen, Kobbelt, *Quad Layouts via Constrained T-Mesh Quantization*, CGF 40(2) (EG), 2021 | for quad remeshing ("Later"): a conforming quad layout without T-junctions and with bounded angle distortion, by an ILP | none found |
+| Cui, Gæde, Rotenberg, Kobbelt, Bærentzen, *Surface Reconstruction Using Rotation Systems*, TOG (SIGGRAPH Asia) 2024 (arXiv 2402.01893); follow-up *HRsR: Hierarchical Rotation System Reconstruction*, 2026 (arXiv 2606.07078) | medium for point clouds ("Later"): a mesh from points via a rotation system, with topology (genus) control; combinatorial rather than implicit | github.com/cuirq3/RsR, also in PyGEL; licence not checked |
+| Schmidt, Pieper, Kobbelt, *Surface Maps via Adaptive Triangulations*, CGF 42(2) (EG), 2023, Günter Enderle best paper | low to medium: bijective maps between surfaces of the same genus on an adaptively refined triangulation; next to the parametrization work | github.com/patr-schm/surface-maps-via-adaptive-triangulations; README says MIT, LICENSE not checked |
+| Speetzen, Kobbelt, *Freeform Shape Fabrication by Kerfing Stiff Materials*, CGF 43, 2024 | low: kerf patterns to bend sheet material into free-form shapes (fabrication) | not checked |
+
+Order if one is picked up:
+1. The Minkowski / swept volume paper together with the `MeshOffset` decision, because both are offsets on our exact boolean kernel.
+2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run.
+3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task.
 
 ## Award-winning papers (October 2026 survey)
 
