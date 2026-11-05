@@ -503,6 +503,19 @@ maintainer with users to support; that pays off only then.
 ## Later
 
 - Point clouds: normal orientation (Dipole 2021, iPSR 2022, GCNO 2023), screened Poisson reconstruction, fast winding numbers (Barill et al. 2018)
+- Conservative marching cubes (size S; noted 2026-11-05, paper only). Source: A. Jacobson, *A Sharp Conservative Offset
+  for Marching Cubes*, arXiv 2609.13430, 2026.
+  - The result: for a 1-Lipschitz function sampled on a grid of spacing h, the marching-cubes mesh of the level
+    sigma > sqrt(3)/2 h contains the true zero-level set, and sqrt(3)/2 h is sharp. It is proven via a convex lift of
+    the corner samples, even though the planar faces can lie on either side of the trilinear level set.
+  - For us: a `MarchingCubes` option, or a documented recipe, for a guaranteed enclosing mesh of an SDF (collision
+    hulls, cages, safety margins, a cheap conservative wrap or bound for alpha wrap and the envelope checks).
+  - Preconditions to check: the guarantee holds only for a true 1-Lipschitz f, so our approximate mesh SDFs (narrow
+    band, sweeping) need a margin or an exact distance at the samples; and only for the paper's marching-cubes face
+    rules (compare with `MarchingCubes` / `MarchingCubesPro`). It gives containment only, not manifoldness or freedom
+    from self-intersections.
+  - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
+    above the bound, plus a known-wrong case below it.
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
