@@ -116,3 +116,82 @@ reaches the Steiner limit (310 000 vertices; 10 000 points on a few lines). Two 
   test case if its geometry can be reduced, since the file itself is not committed.
 - The reference's 15 outputs the oracle rejects (self-crossing or self-touching rings, a segment inside a hole) are deviations of
   the reference from D5 and the ring semantics, not targets.
+
+## 6. Big run of 2026-11-05: master d9006aa against the reference
+
+The reference session ran 6000 cases on one machine (2026-11-04 20:36 to 2026-11-05 21:49 UTC, 3 cases in parallel), every output
+judged by our oracle of the same master:
+
+- **The 4869 cases of the run of 2026-11-03** (master f3d92da), as they are: section 9 of the golden format and every prepared public
+  input.
+- **1131 M3 variants:** every golden case and a stratified corpus sample, each at minimum angles of 20, 25 and 30 degrees with
+  `steiner_limit(200000)`, meshed in default mode and with `mode constrained`.
+- **Pairs:** our default mode against the reference in default mode; our constrained mode against the reference with conforming
+  Delaunay.
+- **Limits:** 600 s per mesher. The oracle had 600 s per call until 13:59 UTC and 120 s after (owner decision: the slow outputs are the
+  GEOS overlay variants at the Steiner limit, where the oracle took 89 % of the wall time).
+- **Restarts:** the container restarted four times; the cases in flight then were run again.
+
+**Cases as they are (4869).**
+
+- **Ours:** 4862 VALID, 6 NO-OUTPUT, 1 INVALID. The NO-OUTPUT cases are GEOS TestValid 37, 38, 39, 40, 44 and 49, whose inputs the
+  oracle calls invalid in the reference's output too. The INVALID case is f-17/b, CannotJudge for every producer.
+- **Against 2026-11-03,** 8 verdicts changed, all for the better:
+  - 7 BoundaryNotConstrained to VALID: TestOverlay-isochrone 49, 53, 54, 70 and TestOverlay-stmlf 1040, 1304, 1579;
+  - 1 ORACLE-TIMEOUT to VALID: TestOverlay-shapely-829/1.
+
+  None got worse, and no case has more than 10 % more triangles.
+
+| Pair | Both valid | Only ours valid | Only the reference valid | Neither |
+|---|---|---|---|---|
+| default mode, as they are | 4803 | 59 | 0 | 7 |
+| default mode, as they are, 2026-11-03 | 4661 | 193 | 0 | 15 |
+| default mode, angle variants | 542 | 500 | 1 | 88 |
+| constrained, angle variants | 577 | 468 | 1 | 85 |
+
+The reference's output is the same as on 2026-11-03 (same commit). 142 of its verdicts went from INVALID to VALID with the newer
+oracle, which accounts for most of the drop in "only ours valid".
+
+Ratios, ours / reference, over cases where both are VALID (5 % / median / 95 %; the time is the mesher alone, cases under 5 ms left
+out, and the times are load-dependent):
+
+| Set | Triangles | Time |
+|---|---|---|
+| default mode, as they are | 0.88 / 1.00 / 1.00 | 0.90 / 1.38 / 2.14 |
+| default mode, as they are, 2026-11-03 | 0.90 / 1.00 / 1.00 | 0.85 / 1.29 / 2.07 |
+| default mode, angle variants | 0.75 / 1.03 / 2.62 | 0.94 / 1.63 / 2.82 |
+| constrained, angle variants | 0.29 / 1.00 / 2.07 | 1.07 / 1.65 / 3.95 |
+
+**Flags.**
+
+- **m1/subnormal-32 at 20, 25 and 30 degrees, both modes: fixed by #388 (4d784f3a).**
+  - In this run the outputs were INVALID with BoundaryNotConstrained (10 to 26), SubsegmentUnsourced, TriangleOutsideDomain (3 to 12)
+    and AreaMismatch, while the reference had AngleBelowBound only (14 / 20 / 34).
+  - Re-run at 4d784f3a, mesher and oracle: AngleBelowBound only, 6 / 8 / 14 in default mode (73 / 94 / 116 triangles) and 5 / 7 / 14
+    constrained.
+- **Only the reference valid:**
+  - TestOverlay-stmlf/850 at 30 degrees, default mode: AngleBelowBound(1).
+  - TestOverlay-stmlf/1326 at 25 degrees, constrained: AngleBelowBound(1).
+- **AngleBelowBound where the reference fails as well:** issue-geos-434/1 and 17 TestOverlay-stmlf variants at 20 and 25 degrees,
+  mostly 1 to 8 angles. The worst are TestOverlay-stmlf/1529 and 1875 constrained, with up to 200.
+- **84 of our outputs ORACLE-TIMEOUT** (44 default, 40 constrained), all angle variants:
+  - f-12/b;
+  - GEOS TestBufferMitredJoin/2 and TestBufferExternal-2/92;
+  - GEOS overlay cases at the Steiner limit.
+
+  A sample is being re-judged with the faster oracle of e2a0bb99.
+- **Triangle-count outliers:** 170 outputs have more than 1.5 times the reference's triangle count, 75 of them where the reference has
+  at least 100 triangles. The largest:
+
+| Case | Mode | Ours | Reference | Ratio |
+|---|---|---|---|---|
+| TestOverlay-stmlf/1461, 30° | constrained | 390 342 | 27 818 | 14.0 |
+| ext/cdt/island, 30° | default | 8 879 | 929 | 9.6 |
+| TestOverlay-stmlf/1461, 25° | constrained | 197 163 | 22 907 | 8.6 |
+| TestOverlay-stmlf/1461, 20° | constrained | 136 960 | 20 131 | 6.8 |
+| TestOverlay-stmlf/1818, 30° | default | 2 910 | 582 | 5.0 |
+| ext/cdt/cdt, 30° | constrained | 20 699 | 4 426 | 4.7 |
+| safe-16595/17, 30° | constrained | 2 016 | 483 | 4.2 |
+| f-11/b, 30° | constrained | 1 464 | 452 | 3.2 |
+| f-11/a, 25° | default | 398 | 128 | 3.1 |
+| f-22/b, 30° | both | 331 | 109 / 110 | 3.0 |
