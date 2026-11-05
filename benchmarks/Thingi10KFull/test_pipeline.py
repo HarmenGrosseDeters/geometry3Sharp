@@ -311,6 +311,18 @@ class ProbePreparationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare_probe.instrument(source.replace('    static int Eval(string dir)', '    static int Changed(string dir)'))
 
+    def test_edge_hash_change_preserves_keys_direction_counts_and_frozen_driver(self):
+        source = prepare_probe.SOURCE.read_text(encoding='utf-8')
+        changed = prepare_probe.instrument(source)
+        self.assertIn('new Dictionary<long, int>(EdgeKeyComparer.Instance)', changed)
+        self.assertNotIn('new Dictionary<long, int>();', changed)
+        start = source.index('                int degenerate = 0;')
+        end = source.index('                DMesh3 mesh = new DMesh3();', start)
+        self.assertIn(source[start:end], changed)
+        with self.assertRaises(ValueError):
+            prepare_probe.instrument(source.replace('var edgeUse = new Dictionary<long, int>();',
+                                                     'var edgeUse = new Dictionary<long, int>(null);'))
+
     def test_prepare_requires_new_external_path_and_matching_source(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'probe.cs'

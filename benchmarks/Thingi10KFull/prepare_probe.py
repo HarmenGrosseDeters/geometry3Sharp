@@ -74,7 +74,7 @@ def instrument(source):
         ('                var ids = new Dictionary<Vector3d, int>();',
          '                Phase(op, "weld_vertices");\n                var ids = new Dictionary<Vector3d, int>();'),
         ('                var edgeUse = new Dictionary<long, int>();',
-         '                Phase(op, "edge_topology");\n                var edgeUse = new Dictionary<long, int>();'),
+         '                Phase(op, "edge_topology");\n                var edgeUse = new Dictionary<long, int>(EdgeKeyComparer.Instance);'),
         ('                DMesh3 mesh = new DMesh3();',
          '                Phase(op, "reconstruct_mesh");\n                DMesh3 mesh = new DMesh3();'),
         ('                double volume = 0;',

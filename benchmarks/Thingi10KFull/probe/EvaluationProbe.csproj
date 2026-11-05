@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="..\sources\benchmarks\BooleanComparison\*.cs" Exclude="..\sources\benchmarks\BooleanComparison\Program.cs" />
     <Compile Include="$(ProbeSource)" />
+    <Compile Include="EdgeKeyComparer.cs" />
     <Reference Include="geometry3Sharp"><HintPath>$(FrozenLibrary)</HintPath></Reference>
   </ItemGroup>
   <Target Name="ValidateProbeInputs" BeforeTargets="CoreCompile">

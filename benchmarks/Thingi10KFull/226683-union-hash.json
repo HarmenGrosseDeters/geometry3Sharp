@@ -1,0 +1,66 @@
+{
+  "command": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\benchmark\\BooleanComparison.dll D:\\work\\Thingi10K-full\\run-20261103-corrected\\pending-evaluation\\226683.stl\\ours_union.off D:\\work\\Thingi10K-full\\hash-validation-20261105\\226683-union-hash.json",
+  "input": "ours_union.off",
+  "input_sha256": "50c7d9a3beed008dd4ac379bc2d08285d7e569b2e98cacccf6a1d5e361d6d278",
+  "framework": ".NET 10.0.12",
+  "library_sha256": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd",
+  "samples": [
+    {
+      "edge_uses": 8192,
+      "original_ms": [
+        11.2022,
+        4.841,
+        5.4301
+      ],
+      "optimized_ms": [
+        2.1588,
+        0.5239,
+        0.5665
+      ],
+      "counts_equal": true
+    },
+    {
+      "edge_uses": 32768,
+      "original_ms": [
+        57.2362,
+        58.9029,
+        75.1223
+      ],
+      "optimized_ms": [
+        1.7838,
+        1.8412,
+        4.4782
+      ],
+      "counts_equal": true
+    },
+    {
+      "edge_uses": 131072,
+      "original_ms": [
+        1098.8047,
+        983.2782,
+        1027.6615
+      ],
+      "optimized_ms": [
+        17.8072,
+        4.8559,
+        9.6504
+      ],
+      "counts_equal": true
+    }
+  ],
+  "full_edge_uses": 6007824,
+  "full_optimized_ms": 949.3472,
+  "original_hashes": {
+    "unique_keys": 3003912,
+    "distinct_hashes": 17687,
+    "largest_hash_group": 497394
+  },
+  "optimized_hashes": {
+    "unique_keys": 3003912,
+    "distinct_hashes": 3002223,
+    "largest_hash_group": 3
+  },
+  "full_original_timing": "not run: bounded prefixes avoid the known long-running collision chain",
+  "wclosed": true,
+  "manifold": true
+}

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import run_full as legacy
 
@@ -23,6 +24,10 @@ def cases():
         tuple(0 if i == 0 else i + 3 for i in reversed(t)) for t in FACES]
     yield 'self_intersection', VERTICES + [(x + .2, y + .2, z + .2) for x, y, z in VERTICES], FACES + [
         tuple(i + 4 for i in t) for t in FACES]
+    points = [(x + 3 * i, y, z) for i in range(1024) for x, y, z in VERTICES]
+    closed = [tuple(v + 4 * i for v in face) for i in range(1024) for face in FACES]
+    yield 'correlated_clean', points, closed
+    yield 'correlated_open', points, [tuple(v + 4 * i for v in face) for i in range(1024) for face in FACES[:-1]]
 
 
 def main(original, probe, report):
@@ -60,12 +65,12 @@ def main(original, probe, report):
                         assert start['state'] == 'started' and end['state'] == 'completed', label
                         assert start['phase'] == end['phase'] and start['operation'] == end['operation'], label
                         assert end['wall_ms'] >= 0, label
-                    if name == 'clean':
+                    if name in ('clean', 'correlated_clean'):
                         for op in legacy.OPS:
                             assert after[0][op + '_not_clean_reason'] == '', label
                             assert after[0][op + '_finite'] and after[0][op + '_manifold_closed'], label
                     results.append({'case': label, 'equal': True, 'metrics': after, 'phase_events': len(events)})
-    evidence = {'command': 'python probe_smoke.py --original <frozen-dll> --probe <instrumented-dll> --report <external-json>',
+    evidence = {'command': subprocess.list2cmdline([sys.executable, *sys.argv]),
                 'commit': legacy.COMMIT, 'cases': results, 'passed': True}
     report.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
     print(f'Differential probe smoke: {len(results)} procedural cases passed; phase pairs complete.')

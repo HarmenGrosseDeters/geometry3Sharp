@@ -4,7 +4,8 @@ The original interim publication was Tier S: an immutable snapshot and its repor
 harness. The subsequent evaluation-pipeline change is Tier M: separate durable
 computation/evaluation scheduling and diagnostic phase timing. The measured library,
 Boolean/Wrap algorithm binaries, operation/evaluation timeouts, API, mutation workflow
-and historical snapshot remain unchanged. This changes scheduling, not an algorithm.
+and historical snapshot remain unchanged. The later edge-hash correction below changes
+only evaluator lookup behavior; no geometry algorithm or measured library is changed.
 
 ## Durable evaluation pipeline (Tier M)
 
@@ -48,6 +49,8 @@ separate soup reading, welding, topology, reconstruction, volume/area, intersect
 counting and individual cleanliness checks. An unfinished started event on timeout
 identifies the interrupted phase; it is not a fabricated completed timing. Events
 are flushed durably, so this instrumented evaluator has small additional logging work.
+Retries append to the same diagnostic file: group events by PID and attempt timestamps.
+An interrupted old attempt is not paired with completion events from the resumed probe.
 
 From the publication harness directory, with explicit external paths:
 
@@ -98,6 +101,77 @@ The synchronization/backpressure design uses Python's standard-library
 ([os.fsync](https://docs.python.org/3/library/os.html#os.fsync)) and .NET
 [Stopwatch](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.stopwatch).
 No new third-party geometry implementation is used.
+
+## Edge-hash correction (Tier M, evaluator only)
+
+The two adopted million-triangle jobs stalled in `edge_topology`, before geometric
+self-intersection checks. The pinned evaluator packs two vertex IDs into a `long`;
+.NET's `Int64.GetHashCode()` XORs the halves. On the actual retained union outputs,
+almost half a million distinct edges have the same hash. This is a hash-table
+collision chain, not a missing spatial index. Existing building blocks were checked:
+`Index2i.GetHashCode()` and `HashBuilder` already mix both indices; the self-intersection
+checker already uses `DMeshAABBTree3`. No new geometry algorithm is needed.
+
+The probe now uses [EdgeKeyComparer](probe/EdgeKeyComparer.cs), reusing the **measured
+library's** `Index2i` hash. Equality remains exact `long` equality, not hash equality.
+Packing, directed incidence counts, triangle order, all quality checks/cutoffs and
+floating-point computations are unchanged. The frozen sources, library and Boolean/Wrap
+algorithm binaries remain byte-identical. This is a local evaluator defect correction;
+no API or exact-arithmetic code changes. Independent review remains required before
+this Draft PR becomes ready; none is claimed from the author's direct review.
+
+[EdgeHashBenchmark](probe/edge-hash/EdgeHashBenchmark.csproj) reuses the frozen soup
+reader and welding rules. It compares the original and optimized incidence dictionaries
+on bounded prefixes, checking every key and count, then counts the full output with the
+optimized hash. Hash distributions count **distinct edges**, not repeated incidences.
+No full original timing is invented from its still-running phase or extrapolated from
+prefixes. Three interleaved runs per prefix retain their individual raw times; the
+machine was also running the corpus, so timings are observations under load.
+
+| Retained union | Largest identical-hash group, original / optimized | 131072 incidences, median original / optimized (ms) | Full optimized counting (ms) |
+|---|---:|---:|---:|
+| [226683](226683-union-hash.json) | 497394 / 3 | 1027.6615 / 9.6504 | 949.3472 |
+| [226684](226684-union-hash.json) | 493978 / 3 | 3805.8369 / 8.5539 | 2105.7762 |
+
+The raw JSON reports record input/library SHA256s, runtime, command and timings.
+These are isolated counting timings after reading, welding and packing, **not** a
+Boolean algorithm or end-to-end corpus speedup. The full optimized evaluator also
+completed retained job 226683 with closed/manifold/finite outputs for all operations;
+union/difference self-intersection checks remain explicitly unchecked above the
+original cutoff. That cannot certify those large outputs as self-intersection-free.
+
+Reproduce from this directory with the original retained OFF outputs outside Git:
+
+```powershell
+dotnet build probe\edge-hash\EdgeHashBenchmark.csproj -c Release -p:FrozenLibrary=D:\work\Thingi10K-full\run-20261103-corrected\bin\BooleanComparison\geometry3Sharp.dll -o D:\work\Thingi10K-full\hash-validation-20261105\benchmark
+dotnet D:\work\Thingi10K-full\hash-validation-20261105\benchmark\BooleanComparison.dll --self-test
+dotnet D:\work\Thingi10K-full\hash-validation-20261105\benchmark\BooleanComparison.dll D:\work\Thingi10K-full\run-20261103-corrected\pending-evaluation\226683.stl\ours_union.off D:\work\Thingi10K-full\hash-validation-20261105\226683-union-hash.json
+dotnet D:\work\Thingi10K-full\hash-validation-20261105\benchmark\BooleanComparison.dll D:\work\Thingi10K-full\run-20261103-corrected\pending-evaluation\226684.stl\ours_union.off D:\work\Thingi10K-full\hash-validation-20261105\226684-union-hash.json
+python hash_mutations.py --frozen-library <measured-geometry3Sharp.dll> --report <external-mutations.json>
+```
+
+The benchmark's `HashComparerSource` property defaults to the production comparer;
+[hash_mutations.py](hash_mutations.py) overrides it only with external temporary
+mutants. Regression checks reject the default XOR hash, equality by hash instead of
+key identity, and reverting the probe's dictionary constructor. The expanded
+[probe_smoke.py](probe_smoke.py) checks 54 original/optimized evaluations, including
+procedural closed/open soups with correlated vertex IDs at binary scales and
+translations; 39 offline tests cover generator selection and preserved counting code.
+[Hash validation](hash-validation.json) records the exact commands and evidence.
+
+For live replacement, create `STOP`, let the active Wrap computation finish, then
+stop the parent **before** its exact evaluation children, so interruption cannot be
+recorded as a final evaluation failure. Preserve queue manifests/artifacts and back up
+final JSONL, configuration, diagnostics and old probe assets externally. Install the
+validated probe only, update probe asset hashes and the migration journal, verify
+unchanged frozen binaries and JSONL byte prefixes, remove `STOP` and resume. Re-run
+pending evaluations without recomputing their Boolean operations. Archive interrupted
+phase logs before retrying; new final records identify their probe SHA256.
+
+Prior-art references: [.NET Int64 hash](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Int64.cs),
+[IEqualityComparer](https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.iequalitycomparer-1)
+and this library's existing [Index2i hash](../../math/IndexTypes.cs).
+No third-party implementation was ported.
 
 ## Measurement and snapshot
 
