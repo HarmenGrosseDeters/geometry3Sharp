@@ -468,6 +468,28 @@ namespace g3
                 return true;
             }
 
+            /// <summary>
+            /// splitting piece u-w at v (a vertex within the tolerance of it, not on it) leaves two pieces each strictly shorter than u-w:
+            /// the condition for a tolerance split to make progress. Without it, two vertices within the tolerance of each other's piece,
+            /// where refinement has made pieces about as short as the tolerance, split the piece at each other in turn for ever (the order
+            /// along a piece is not reliable in doubles at that scale; found with ext/cdt/island at 32 and 34 degrees, constrained mode:
+            /// NodingLimit "a segment split did not settle"). Squared lengths in scaled units: deterministic, so the length of the piece
+            /// being inserted strictly decreases along every chain of such splits. All three tolerance splits (the existing edge, the
+            /// start triangle, the walk) use it; the exact splits (a vertex on u-w) shorten anyway.
+            /// </summary>
+            bool Shortens(int v, int u, int w)
+            {
+                double uw = ScaledLen2(u, w);
+                // strictly: the termination argument needs the length to decrease (with <= a part could be as long as u-w)
+                return ScaledLen2(u, v) < uw && ScaledLen2(v, w) < uw;
+            }
+
+            double ScaledLen2(int a, int b)
+            {
+                double dx = Scaled(k.X[a] - k.X[b]), dy = Scaled(k.Y[a] - k.Y[b]);
+                return dx * dx + dy * dy;
+            }
+
             /// <summary> vertices v and u are within the tolerance of each other </summary>
             bool NearPoint(int v, int u)
             {
@@ -520,7 +542,7 @@ namespace g3
                             int apex = k.V[Next(Next(side))];
                             // (not one within the tolerance of an end: in a cluster of such points the order along the piece is not
                             // reliable in doubles, and splits could go back and forth)
-                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w)) { Split(apex, piece, pending); return null; }
+                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w) && Shortens(apex, u, w)) { Split(apex, piece, pending); return null; }
                         }
                         k.SetConstraint(existing, k.NewConstraint(piece.Sources));
                     }
@@ -545,8 +567,10 @@ namespace g3
                 if (h < 0) throw new InvalidOperationException("ConstrainedDelaunayMesh2: no triangle at a segment's end point");
                 {
                     int a = k.V[h], b = k.V[Next(h)];
-                    if (Near(a, u, w, piece.Sources)) { Split(a, piece, pending); return null; }
-                    if (Near(b, u, w, piece.Sources)) { Split(b, piece, pending); return null; }
+                    // (the tolerance splits here and in the walk shorten too, as in the existing-edge case: otherwise u-v and v-w could
+                    // bring back u-w by the same mutual nearness; the exact splits, collinear or ov == 0, need no such guard)
+                    if (Near(a, u, w, piece.Sources) && Shortens(a, u, w)) { Split(a, piece, pending); return null; }
+                    if (Near(b, u, w, piece.Sources) && Shortens(b, u, w)) { Split(b, piece, pending); return null; }
                 }
                 var crossed = new List<long>();
                 while (true) {
@@ -557,7 +581,7 @@ namespace g3
                     int v = k.V[Next(Next(g))];
                     if (v == w) break;
                     int ov = k.OrientV(u, w, v);
-                    if (ov == 0 || Near(v, u, w, piece.Sources)) { Split(v, piece, pending); return null; }
+                    if (ov == 0 || (Near(v, u, w, piece.Sources) && Shortens(v, u, w))) { Split(v, piece, pending); return null; }
                     h = ov > 0 ? Next(g) : Next(Next(g));
                 }
                 int edge = k.RecoverEdge(u, w, crossed);
