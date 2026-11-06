@@ -6,18 +6,13 @@
 - **What it exempts:** encroachment by a vertex (split cause 0), and only in the apex region of a small input angle.
 - **Research item:** Shewchuk's Terminator with a wider oracle excuse (ROADMAP).
 
-This note comes before the code; the PR follows it. Revised after the review of the first draft (B1 fixed by #396; B2 and B3 below).
+This note comes before the code; the PR follows it. Revised after two reviews: B1 fixed by #396; B2 (region), B3 (literature) and the second
+review's points (v restricted as in §6.2, exact pairing, §6.2 differences) below.
 
 ## 1. Diagnosis (measured, master 14d744f0)
 
-The large triangle-count outliers of the reference comparison come from a cascade of subsegment splits at small input angles:
-- Two subsegments meet at a small angle and split each other in turn, each split triggered by a vertex on the other. This is Shewchuk 2002 §6.2's
-  Figure 24 cycle. The concentric shells are meant to stop it ("incident subsegments of equal length do not encroach upon each other", p. 29), but
-  off-shell vertices (midpoints, circumcentre-born vertices, off-centres) restart it.
-- The splits shrink geometrically towards the apex. They only stop at the snap tolerance, about 2^-40 of the extent.
-- Without rings the domain is the convex hull, and its edges become constraints (D13), so hull edges count too. A hull edge that meets a ring
-  segment at a small angle is the most common source. Shewchuk 2002, Appendix A (Fig. 40, the guitar) describes the same effect: when the whole
-  convex hull is triangulated, "the boundary edges of the convex hull must be treated as segments, and spurious small angles and features may form".
+The large triangle-count outliers of the reference comparison come from a cascade of subsegment splits towards the apex of a small input angle. The
+splits shrink geometrically and only stop at the snap tolerance, about 2^-40 of the extent.
 
 | input | smallest input angles | depth of the cascade | input's closest features |
 |---|---|---|---|
@@ -27,19 +22,32 @@ The large triangle-count outliers of the reference comparison come from a cascad
 
 So the depth comes from the cascade, not from the input.
 
-**Splits by cause** (`G3_M2_COUNTS`, q30, constrained mode; 0 = encroached by a vertex, 1 = circumcentre behind the subsegment, 2 = circumcentre
-or off-centre would encroach):
+- **Hull edges count.** Without rings the domain is the convex hull, and its edges become constraints (D13). A hull edge that meets a ring segment
+  at a small angle is the most common source. Shewchuk 2002, Appendix A (Fig. 40, the guitar) describes the same effect: when the whole convex hull
+  is triangulated, "the boundary edges of the convex hull must be treated as segments, and spurious small angles and features may form".
+- **Which cycle.** It is not §6.2's Figure 24 cycle, the plain mutual encroachment of two subsegments.
+  - The mesher splits a subsegment with exactly one input end at the concentric shell closest to its middle (`SplitSegment`: a power of two from
+    the input vertex, within a third to two thirds of the piece). That is §6.2's rule.
+  - So the apex pieces of both sources have power-of-two lengths. After one equalising split they are equal, and "incident subsegments of equal
+    length do not encroach upon each other" (p. 29).
+  - The depth comes from §6.2's Figure 26 cycle, the figure eight "in which a segment vertex sires another segment vertex (via a small input
+    angle), which sires a free vertex (at the circumcenter of a skinny triangle), which sires another segment vertex" (p. 31).
+  - In our split causes, a circumcentre or off-centre of a skinny triangle at the apex (cause 1 or 2) halves an apex piece. The partner then follows
+    by vertex encroachment (cause 0), and the follow creates the next shorter free edge.
+
+**Splits by cause** (`G3_M2_COUNTS`, q30, constrained mode; 0 = encroached by a vertex, 1 = circumcentre behind the subsegment, 2 = circumcentre or
+off-centre would encroach). "Rule" is the rule of section 2.
 
 | input | rule | cause 0 | cause 1 | cause 2 | triangles |
 |---|---|---|---|---|---|
 | island | off | 960 | 0 | 1 140 | 8 879 |
-| island | on | 67 | 26 | 43 | 786 |
+| island | on | 106 | 150 | 389 | 2 971 |
 | cdt | off | 3 584 | 0 | 2 088 | 20 699 |
-| cdt | on | 551 | 1 012 | 2 208 | 14 273 |
+| cdt | on | 588 | 991 | 2 190 | 14 245 |
 
-- On island, cause 0 drives the cascade; with the rule the circumcentre splits fall as well.
-- On cdt, the cascade partly goes on through causes 1 and 2: cause 1 rises from 0 to 1 012. The rule does not cut those (section 2), so cdt stays
-  far above the reference (4 426).
+- The rule cuts the cause-0 leg, the partner's follow.
+- The circumcentre legs stay (causes 1 and 2; cause 1 rises from 0 to about 1 000 on cdt). So the cascade partly goes on, and cdt stays far above
+  the reference (4 426). The Terminator cuts that leg instead (§6.3), at the price of a wider oracle excuse (ROADMAP research item).
 
 ## 2. The rule
 
@@ -52,60 +60,81 @@ or off-centre would encroach):
 **Small pair.** Sources a and c form a small pair when both conditions hold:
 - **Angle:** sin² of the angle between their lines is below sin²θ − 2^-30 − 2^-40 (θ = `MinAngle`), computed in a common power-of-two scale. This
   is the oracle-consistent margin of #396 (B1).
-- **Meeting point:** their input segments meet on both of them, at the parameters t1, t2 ∈ [−10^-9, 1 + 10^-9] of the line intersection, in the
-  same scale.
-  - This covers a shared endpoint, a T-junction and a crossing, as the oracle's `SpansSmallInputAngle` does.
-  - The tolerance is wider than in `SpansSmallAngle`'s strict test (t ∈ {0} ∪ [10^-12, 1]). That test must never excuse a triangle the oracle
-    would not excuse, and at a shared endpoint it can miss the pair by rounding (t1 = 1 + ε).
-  - The rule excuses no triangle (section 4), so it can use the wider test.
-  - Measured on island q30: 4 210 → 786 triangles with the wide test, with the same region.
+  - Below about θ = 0.0018°, sin²θ < 2^-30 and nothing pairs.
+- **Meeting point:** their closed input segments meet, decided exactly (`MeetKind`: four `Orient2d` signs; equal endpoints for a shared endpoint).
+  This is the oracle's exact t ∈ [0, 1]. It covers a shared endpoint, a T-junction (an end on the other's interior) and a proper crossing.
 - **Not covered:**
-  - Collinear sources (cross = 0) never pair: their overlap is noded into shared subsegments, and there is no apex.
-  - An angle between rays is tested through |cross| plus a same-side test (below). At a crossing the supplement (180° − φ) never counts, since its
-    rays lie on opposite sides.
+  - Collinear sources (cross = 0 or all four signs 0) never pair: their overlap is noded into shared subsegments, and there is no apex.
   - O11 hull bends (a hull edge bent at a merged point) are not input angles.
+
+**Exact meeting test, measured.** The second draft used a window t ∈ [−10^-9, 1 + 10^-9] in doubles. The window is relative to each segment's
+length, so it could pair near T-junctions with a short segment. Measured with the exact test:
+- **Near misses** (pairs the window adds): 0 on island, cdt and stmlf/1461 at every angle.
+- **Shared endpoints:** almost all exemptions.
+- **T-junctions or crossings:** a few, only on stmlf (22–89).
+
+So the window was not the mechanism, and the exact test gives the same meshes. The gain over the second draft's "strict" figures came from the strict
+test of `SpansSmallAngle` (t ∈ {0} ∪ [10^-12, 1] in doubles), which misses shared endpoints when t rounds to 1 + ε. That test stays as it is for
+`SpansSmallAngle` (follow-up, section 7).
 
 The pairs are computed once per ordered pair of sources and cached (`PairOf`). The sources do not change during refinement.
 
-**Exemption.** In the constrained-quality mode, a subsegment s with ends u and w is **not** treated as encroached by a vertex v if, for some source
-a of s and some source c at v (`SourcesAt(v)`), with a ≠ c and (a, c) a small pair, one of these holds:
-- **(i) Shell subsegment.**
-  - An end of s, say u, is a vertex on c too (`SourcesAt(u)` contains c): s starts at the apex, or at a crossing vertex of a and c.
-  - v lies on s's side of u (exact sign of (v − u)·(w − u)).
-- **(ii) Matched radii.** v and an end of s lie at distances from the apex within a factor of 1.5 of each other (2.24 on squares), on the same side
-  of it. This is the test `SpansSmallAngle` uses (`NearSmallAngle`).
+**Exemption.** In the constrained-quality mode, a subsegment s with ends u and w is **not** treated as encroached by a vertex v if all of these hold:
+- **v is a refinement vertex on exactly one source c.** v was made by refinement (`v ≥ firstSteiner`, so it is not an input vertex and not a crossing
+  the triangulation made), and `SourcesAt(v)` is {c}, with no third source.
+- **The pair:** for some source a of s with a ≠ c, (a, c) is a small pair.
+- **(i) or (ii):**
+  - **(i) Shell subsegment:** an end of s, say u, is a vertex on c too (`SourcesAt(u)` contains c), so s starts at the apex or at the crossing of a
+    and c; and v lies on s's side of u (exact sign of (v − u)·(w − u)).
+  - **(ii) Radius matching:** v and an end of s lie at distances from the apex within a factor of 1.5 of each other (2.24 on squares), on the same
+    side of it (`NearSmallAngle`, the test `SpansSmallAngle` uses).
 
-A multi-source subsegment is exempt if any of its sources pairs. The cascade can come from any of the sources a subsegment lies on.
+A multi-source subsegment is exempt if any of its sources pairs.
 
-**Why the region (B2).** The first draft exempted a vertex on c at any distance. The region keeps the far features with Ruppert's normal treatment.
-- **(i) alone** misses the mutual encroachment of shell vertices with off-shell vertices inside an octave. Measured: island q30 4 210, cdt q30
-  20 435.
-- **(ii) alone** misses the shell subsegment encroached by a partner vertex at half its length: in the shell cascade the ratio is 2 > 1.5. Measured:
-  island q30 8 683, cdt q30 16 388 (strict pair test).
-- **Both together** gave the same mesh as the unrestricted rule on island, cdt and stmlf/1461 at q30 (island 786, cdt 14 273 with the wide pair
-  test; with the strict one 5 194, 16 384 and 389 428 for both). The restriction costs nothing measured, and it rules out the far case by
-  construction. A test pins the far case (section 6).
+**What (ii) is, honestly (second review).** (ii) matches radii; it does not measure closeness to the apex.
+- With shells, a piece's end radii differ by at most about a factor of 2.
+- An encroaching v projects into the piece, so v is within 1.5 of one end (√2 < 1.5).
+- So (ii) admits a partner vertex anywhere along the wedge, as long as the piece's end radii differ by at most 2.25.
+- (ii) fails only for a piece whose ends are further apart in radius, for example between two input vertices on a.
+
+The real limit is the condition on v, which mirrors §6.2's exceptions:
+- §6.2 does not apply its cure when the parent "is an input vertex or lies on a nonincident segment" (p. 32).
+- So an input vertex on c, c's far endpoint, a crossing vertex Y of c with a third segment, and any vertex with a third source still encroach, and
+  their subsegments are split.
+
+**Why both (i) and (ii)** (measured with the second draft's region probe):
+- (i) alone misses the off-shell partner vertices inside an octave (midpoints, circumcentre-born vertices): island q30 4 210, cdt q30 20 435.
+- (ii) alone misses the shell subsegment encroached by a partner vertex at half its length, a ratio of 2 > 1.5: island q30 8 683, cdt q30 16 388.
+  Those runs used the strict pair test and allowed input vertices as v.
+
+**The v condition costs island most of its gain** (decision for the coordinator before the code PR). With input vertices and multi-source vertices
+allowed as v, island q30 gives 786. With §6.2's exceptions it gives 2 971.
+- Most of the difference is c's far endpoint, an input vertex on two ring segments, encroaching a's long hull-edge piece.
+- §6.2 splits there: the split refines a to the local feature size |XY|·sin φ at that far endpoint.
+- cdt and stmlf barely change (section 6).
 
 **Threshold θ, not 60°.**
 - The oracle consistency (section 4) does not depend on the threshold, since the rule excuses no triangle. So 60° would also be oracle-safe; the real
-  limits are B1 for the pair's angle and B2 for the region.
+  limits are B1 for the pair's angle and the v condition and region.
 - θ is chosen because the oracle excuses the skinny triangles near an apex below θ only. Above θ, the triangles that an exempted split leaves would
   be split by causes 1 and 2 anyway.
 - The first draft measured nearly the same gain at 60° and at θ.
-
-**The rule is pairwise, not transitive.** A fan of 20° + 20° at θ = 30° pairs the neighbours, not the outer two (40°).
+- A class of angles below a threshold resembles the Terminator's subsegment cluster (§6.3, defined by 60° and transitive) more than §6.2, which has
+  no angle condition. Ours is not transitive: a fan of 20° + 20° at θ = 30° pairs the neighbours, not the outer two (40°).
 
 **Unchanged:**
-- encroachment by a free vertex, or by a vertex on a source that does not pair with s's, or outside the region;
+- encroachment by an input vertex, a crossing vertex, a vertex with several sources, a free vertex, a vertex on a source that does not pair with
+  s's, or outside the region;
 - **cause 1**, a circumcentre behind s;
 - **cause 2**, a circumcentre or off-centre that would encroach s (`EncroachedByPoint`, a separate test);
 - the seditious-edge triangle exemption (`SpansSmallAngle`);
 - the shells, the lenses, the grid rules;
 - the Conforming mode, bit for bit (`ApexExempt` returns false there).
 
-**Queued cause-2 entries.** When a circumcentre would encroach several subsegments, the first is split at once and the others are queued. A queued
-entry is re-checked with `Encroached()` when it is dequeued. If only exempt vertices encroach it by then, it is dropped silently. The triangle
-behind it is tried again after the first split, so it is not left behind (section 4).
+**Queued cause-2 entries (existing behaviour).** When a circumcentre would encroach several subsegments, the first is split at once and the others are
+queued. A queued entry is re-checked with `Encroached()` when it is dequeued, and dropped silently if nothing encroaches it by then. This is existing
+behaviour; with the rule, an entry encroached only by exempt vertices is dropped the same way. The triangle behind it is tried again after the first
+split, so it is not left behind (section 4).
 
 ## 3. Literature and termination
 
@@ -126,24 +155,29 @@ Logged in MESHING2D_PROVENANCE.md.
 
 §6.2 calls it "a sure-fire way to guarantee termination". The claim is stated, not proven, in the text.
 
-The exception "unless its parent is an input vertex or lies on a nonincident segment" limits the cure to encroachment by a vertex on an *incident*
-segment, one that shares an endpoint. Our pair condition is that limit, with two differences:
-- a pair also forms at a T-junction or a crossing (not incident in Shewchuk's sense);
-- the angle must be below θ (§6.2 has no angle condition; its cycle needs an angle of at most 60°, p. 29).
+**How the rule relates to §6.2.**
+- **The v condition mirrors §6.2's exceptions.** The exception "unless its parent is an input vertex or lies on a nonincident segment" keeps the cure
+  to vertices that refinement made on a segment incident to the encroached one. Our v condition is the same: a refinement vertex on exactly one
+  source c, which pairs with s's source.
+- **The differences:**
+  - A pair also forms at a T-junction or a proper crossing, which are not incident in Shewchuk's sense. v must still be a refinement vertex on c, so
+    the crossing vertex itself never exempts.
+  - The pair angle must be below θ. §6.2 has no angle condition; its Figure 24 cycle needs an angle of at most 60° (p. 29).
+  - Insertion radii are not compared. The geometry decides: the pair, the v condition, and (i) or (ii).
 
-**Match or approximation: an approximation.**
-- The rule does not compare insertion radii; it decides by geometry: the pair, the shell subsegment, matched radii.
-- In the cascade the two agree.
-  - The encroaching vertex v on c lies at about the radius of the new split point on a, at a distance of about r·sin φ from it.
-  - So the new vertex's insertion radius (at most its distance to v) is about r·sin φ. It is below v's own, which v got as a shell split of c,
-    about r/2.
-- Neither condition implies the other in general.
-  - The rule ignores the insertion radii. It exempts a split even where the new vertex would not shrink the radius, for example after an off-centre
-    on c put v unusually close to a.
-  - §6.2 refuses splits the rule makes: an incident segment at an angle between θ and 60°, or outside the region, whenever the new vertex would
-    have the smaller insertion radius.
-- So §6.2's termination argument does not carry over. **Termination is measured, not proven**, as for the whole refiner (MESHING2D_GRADING.md:
-  off-centres, petal candidates, the grid, lenses and lens deletion are not covered by any proof).
+**Match or approximation: an approximation.** The two agree in the cascade:
+- The encroaching v on c lies at about the radius of the new split point on a, at a distance of about r·sin φ from it.
+- So the new vertex's insertion radius (at most its distance to v) is about r·sin φ.
+- That is below v's own, which v got as a split of c, about r/2.
+
+Neither condition implies the other in general:
+- **The rule exempts splits §6.2 makes:** a new vertex that would not shrink the insertion radius, for example after an off-centre on c put v
+  unusually close to a.
+- **§6.2 refuses splits the rule makes:** an incident segment at an angle between θ and 60°, or a piece that fails (i) and (ii) (ends far apart in
+  radius), whenever the new vertex would have the smaller insertion radius. For non-incident segments both split.
+
+So §6.2's termination argument does not carry over. **Termination is measured, not proven**, as for the whole refiner (MESHING2D_GRADING.md:
+off-centres, petal candidates, the grid, lenses and lens deletion are not covered by any proof).
 
 **§6.2's caveats apply.**
 - The rule leaves encroached subsegments, can leave angles near 180° and other skinny triangles at the apex, and the mesh is not "truly Delaunay".
@@ -183,9 +217,18 @@ segment, one that shares an endpoint. Our pair condition is that limit, with two
 - still bad and therefore still split. Its circumcentre or off-centre is inserted, or splits the subsegment it would encroach or lies behind
   (causes 1 and 2, not exempted). A queued cause-2 entry that is dropped (section 2) does not change this: the triangle is tried again after the
   first split.
-- left by the existing exemptions, which are unchanged: locked or grid-unsplittable subsegments, the grid floor, and the Steiner limit (reported).
+- left by the existing exemptions, which are unchanged:
+  - a subsegment that is locked or `unsplittable`. Off the grid, `unsplittable` comes from a split point near another source (`NearOtherSource`,
+    O11; the oracle's merge zone), a piece below `MinRoundedSplitExponent`, or a split point that makes no progress (the oracle's precision limit,
+    `AtPrecisionLimit`). On the grid it comes from `GridSplitPoint`.
+  - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or the subsegment it would split is locked or
+    unsplittable;
+  - the grid floor;
+  - the Steiner limit (reported).
 
 So the rule cannot leave an unexcused bad triangle behind. No oracle change is needed.
+
+**Reported by the PR:** the exempt and unsplittable counts by reason, and the oracle's `MergeZoneExcused`, before and after.
 
 **Measured: no AngleBelowBound** on island, cdt or stmlf/1461 at q20–q35, nor in the first draft's corpus runs. If the PR's runs (Herne, the
 catalogue with the angle check on) show one, the rule gets narrower; the oracle does not get wider. Any oracle change goes to the coordinator first.
@@ -222,43 +265,62 @@ For each: verdicts, pinches 0, `SteinerLimitReached`, triangles and time.
 
 **Tests:**
 - a procedural ring with a hull edge at a small angle (island-like), whose triangle count must drop well below master's (fails on master);
-- the B1 window: a pair at θ − 6·10^-10 rad is not small (the exemption does not act), and the result is VALID;
-- **B2 far case:** a vertex of the partner far from the apex encroaching a subsegment of a away from the apex is still split;
-- a T-junction and a crossing at a small angle: exempt like an endpoint, VALID;
+- unit tests of the pair predicate: shared endpoint, near miss inside and outside the old window, T-junction, crossing, collinear, same origin on the
+  grid, an angle at θ − 6·10^-10 rad (not small, the B1 window);
+- **the v condition:** a partner vertex that is an input point on c, c's far endpoint, and a crossing vertex Y of c with a third segment (the
+  review's case: a from (0, 0) to (10, 0), c at 5°, e crossing c at radius 6 at 90°): each still splits the encroached piece of a;
+- **a far case for (ii):** a piece of a between two input vertices on a, whose end radii differ by more than 2.25, encroached by a refinement vertex
+  on c: still split;
 - an angle at or above θ: unchanged against master, bit for bit;
 - the grid case with a hull pair and merged chains: pinches 0, VALID;
-- fan, star and the 30° triangle with the angle check on;
+- a lens-mode case (θ ≤ 25.66°, with Chew's deletion) on a small-angle pair: VALID, settles;
+- fan, star and the 30° triangle with the angle check forced on, on master too (to show what master gives);
 - `SteinerLimitReached == false` asserted in every test;
 - mutants:
   - the exemption off;
   - (i) only, (ii) only;
   - the threshold at 60°;
   - the same-source check dropped;
-  - the strict pair test instead of the wide one;
-  - the same-side test dropped;
+  - the v condition dropped (input or multi-source vertices allowed);
+  - the exact meeting test replaced by the strict double test;
+  - the same-side test in (i) dropped. In (i) it is nearly equivalent; only a near-miss straddle at a crossing can kill it, and the PR says which
+    mutant survives;
 - invariance over `Similarity.All()` (2^k bit for bit);
 - determinism (repeated runs, parallel = serial);
 - the Conforming mode unchanged, bit for bit.
 
 **Intentional behaviour change:** the output of `QualityMesh2` with `Conforming = false` and `MinAngle > 0` changes.
 
-**Measured with a build of the rule on master 14d744f0** (constrained mode, all VALID, `steiner_limit_reached` 0):
+**Measured with a build of the rule on master 14d744f0** (constrained mode, all VALID, `steiner_limit_reached` 0). "§6.2 v" is the rule of section 2;
+"any v" also allows input and multi-source vertices as v (the second draft's behaviour, on which the owner approved (c)):
 
-| input | master | with the rule | reference |
+| input | master | rule, §6.2 v | rule, any v | reference |
+|---|---|---|---|---|
+| island q25 | 694 | 544 | 456 | |
+| island q30 | 8 879 | 2 971 | 786 | 929 |
+| island q35 | 36 971 | 23 577 | 17 561 | |
+| cdt q30 | 20 699 | 14 245 | 14 273 | 4 426 |
+| cdt q34 | 38 242 | 30 597 | 31 177 | |
+| stmlf/1461 q20 | 136 960 | 117 608 | 117 535 | |
+| stmlf/1461 q25 | 197 163 | 184 714 | 184 497 | |
+| stmlf/1461 q30 | 390 342 | 325 662 | 326 112 | 15 575 |
+
+Exemptions by meeting kind, §6.2 v, q30:
+
+| input | shared endpoint | T-junction or crossing | near miss |
 |---|---|---|---|
-| island q25 | 694 | 456 | |
-| island q30 | 8 879 | 786 | 929 |
-| island q35 | 36 971 | 17 561 | |
-| cdt q30 | 20 699 | 14 273 | 4 426 |
-| cdt q34 | 38 242 | 31 177 | |
-| stmlf/1461 q20 | 136 960 | 117 457 | |
-| stmlf/1461 q25 | 197 163 | 183 631 | |
-| stmlf/1461 q30 | 390 342 | 325 875 | 15 575 |
+| island | 824 | 0 | 0 |
+| cdt | 7 506 | 0 | 0 |
+| stmlf/1461 | 158 007 | 89 | 0 |
 
 ## 7. Left open
 
-- **`SpansSmallAngle`'s strict apex test misses shared endpoints by rounding** (t1 = 1 + ε). Those triangles are not excused by the mesher and are
-  refined further: safe, but more triangles. An exact shared-endpoint test would keep it oracle-consistent. Own follow-up, measured first.
+- **`SpansSmallAngle`** (own follow-up, not in this PR):
+  - Its strict apex test in doubles misses shared endpoints when t rounds to 1 + ε. Those triangles are not excused by the mesher and are refined
+    further: safe, but more triangles.
+  - It also accepts a computed t1 == 1 where the exact value is 1 + δ, and it picks the corner in doubles. Near-ties become likelier with the
+    near-180° triangles this rule leaves.
+  - An exact test (as `MeetKind`) would fix both and stay oracle-consistent; measured first.
 - The cascade through causes 1 and 2 (cdt): the Terminator, with a wider oracle excuse, is the ROADMAP research item.
 - The near-contact features of cdt and stmlf (a vertex very close to a segment it does not touch).
 - Lenses up to 28.6° (Rand, CCCG 2011), later.
