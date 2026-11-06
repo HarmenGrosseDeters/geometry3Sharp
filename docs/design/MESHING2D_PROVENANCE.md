@@ -22,6 +22,12 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 - [R95] J. Ruppert, *A Delaunay refinement algorithm for quality 2-dimensional mesh generation*, J. Algorithms 18(3), 1995.
 - [U04] A. Üngör, *Off-centers: a new type of Steiner points for computing size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004.
 - [S02] J. R. Shewchuk, *Delaunay refinement algorithms for triangular mesh generation*, CGTA 22, 2002: §3 (Ruppert, encroachment), §4.1 (concentric shells), §4 (small input angles). Diametral lenses: section 6.4 ("Terminator Chew", pp. 36-38) of the draft of May 21, 2001, read for the lens definition and its bound (owner allowed the host, 2026-11-02).
+- [S02-6] [S02] §6.2-6.3 (small input angles: concentric shells, the conservative cure of §6.2 for subsegments encroached by segment vertices,
+  the Terminator, Theorems 11 and 12): read by the coordinating session from the paper (people.eecs.berkeley.edu/~jrs/papers/2dj.pdf, pp. 27-38),
+  summary with the formulas relayed on 2026-11-06. The implementing session's own fetch failed (host not resolvable in its environment); no
+  other route was tried. Used for MESHING2D_SMALL_ANGLES.md (the rule is an approximation of the §6.2 cure, not the Terminator).
+- [MPW05] G. L. Miller, S. E. Pav, N. J. Walkington, *When and why Delaunay refinement algorithms work*, IJCGA 15, 2005: abstract only (the bound
+  arctan(sin φ / (2 − cos φ)) near a small input angle φ, which the oracle's `AtLeastShewchukBound` uses); the full text not read.
 - [Ch93] L. P. Chew, *Guaranteed-quality mesh generation for curved surfaces*, SoCG 1993: the deletion of free vertices in a subsegment's diametral circle before it is split, as [S02] §6.4 describes it (the paper itself not read; the rule built is the one [S02] states).
 - [CF26] `docs/research/CROSS_FIELD_GEOMETRY.md` (#368), idea 2 (keep the input-only embedding; a pinch of separate chains in a new common vertex fails it) and idea 5 (safe-grid candidate regions), read 2026-11-04 for the pinch rule. Its source, J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, was **not read**: its host is blocked in this session, and no other route to it was tried (coordinator 2026-11-04). The idea used comes from the #368 report, and the pinch rule built is our own.
 - [EU09] H. Erten, A. Üngör, *Quality triangulations with locally optimal Steiner points*, SIAM J. Sci. Comput. 31(3), 2009. The journal version, **not read** (paywalled). Read instead: [EU07], its conference version.
