@@ -11,7 +11,9 @@ This note comes before the code; the PR follows it. Revised after the review of 
 ## 1. Diagnosis (measured, master 14d744f0)
 
 The large triangle-count outliers of the reference comparison come from a cascade of subsegment splits at small input angles:
-- Two subsegments meet at a small angle and split each other in turn, each split triggered by a vertex on the other.
+- Two subsegments meet at a small angle and split each other in turn, each split triggered by a vertex on the other. This is Shewchuk 2002 §6.2's
+  Figure 24 cycle. The concentric shells are meant to stop it ("incident subsegments of equal length do not encroach upon each other", p. 29), but
+  off-shell vertices (midpoints, circumcentre-born vertices, off-centres) restart it.
 - The splits shrink geometrically towards the apex. They only stop at the snap tolerance, about 2^-40 of the extent.
 - Without rings the domain is the convex hull, and its edges become constraints (D13), so hull edges count too. A hull edge that meets a ring
   segment at a small angle is the most common source.
@@ -107,16 +109,26 @@ behind it is tried again after the first split, so it is not left behind (sectio
 ## 3. Literature and termination
 
 **Read.**
-- Shewchuk 2002, §6.2–6.3, read by the coordinator from the paper. The summary was relayed on 2026-11-06 with the formulas checked on the page images.
-- My own fetch of the paper (people.eecs.berkeley.edu) failed: the host does not resolve in this environment. It must be allowed for a direct
-  reading; no other route was tried.
+- Shewchuk 2002, §6.2–6.4 (pp. 29–36), read in full from the paper's text, which the owner supplied in the session on 2026-11-06 (some
+  symbols lost in the extraction). The coordinator's earlier summary of §6.2–6.3 agrees with it.
+- My own fetch of the paper (people.eecs.berkeley.edu) had failed: the host does not resolve in this environment. No other route was tried.
 - Miller, Pav and Walkington 2005: not read (abstract only, unverified).
 
 Logged in MESHING2D_PROVENANCE.md.
 
-**Which cure this is.** It is the conservative cure of §6.2, not the Terminator of §6.3. §6.2 says: "if a subsegment is encroached upon by a
-segment vertex, and the new vertex inserted in the encroached subsegment would have a smaller insertion radius than the encroaching vertex, do not
-split the encroached subsegment".
+**Which cure this is.** It is the conservative cure of §6.2, not the Terminator of §6.3. §6.2 (p. 32) gives it in two forms:
+- **The strategy:** "never insert a vertex whose insertion radius is smaller than the insertion radius of its most recently inserted ancestor (its
+  parent if the parent was inserted; its grandparent if the parent was rejected), unless its parent is an input vertex or lies on a nonincident
+  segment."
+- **"The precise rule":** "if a subsegment is encroached upon by a segment vertex, and the new vertex inserted in the encroached subsegment would
+  have a smaller insertion radius than the encroaching vertex, do not split the encroached subsegment."
+
+§6.2 calls it "a sure-fire way to guarantee termination". The claim is stated, not proven, in the text.
+
+The exception "unless its parent is an input vertex or lies on a nonincident segment" limits the cure to encroachment by a vertex on an *incident*
+segment, one that shares an endpoint. Our pair condition is that limit, with two differences:
+- a pair also forms at a T-junction or a crossing (not incident in Shewchuk's sense);
+- the angle must be below θ (§6.2 has no angle condition; its cycle needs an angle of at most 60°, p. 29).
 
 **Match or approximation: an approximation.**
 - The rule does not compare insertion radii; it decides by geometry: the pair, the shell subsegment, matched radii.
@@ -127,7 +139,8 @@ split the encroached subsegment".
 - Neither condition implies the other in general.
   - The rule ignores the insertion radii. It exempts a split even where the new vertex would not shrink the radius, for example after an off-centre
     on c put v unusually close to a.
-  - §6.2 refuses splits outside the region too, for example when two segments of different pairs are close.
+  - §6.2 refuses splits the rule makes: an incident segment at an angle between θ and 60°, or outside the region, whenever the new vertex would
+    have the smaller insertion radius.
 - So §6.2's termination argument does not carry over. **Termination is measured, not proven**, as for the whole refiner (MESHING2D_GRADING.md:
   off-centres, petal candidates, the grid, lenses and lens deletion are not covered by any proof).
 
@@ -137,8 +150,12 @@ split the encroached subsegment".
   (O3) and the area bound; it promises neither unencroached subsegments nor an upper angle bound.
 - An encroached subsegment does not violate the constrained Delaunay property.
 
-**§6.4** (the Terminator with Chew's lenses may fail to terminate or keep skinny triangles) is about the Terminator, not this rule. The
-constrained-quality mode uses lenses at θ ≤ 25.66°. This combination is measured, not covered (section 5).
+**§6.4** (p. 36) is about the Terminator with Chew's lenses, not this rule.
+- The problem it names: when a split is declined, deleting the free vertices in the diametral circle may never end (vertices eternally created and
+  deleted), and keeping them may leave arbitrarily skinny triangles.
+- Our lens deletion (MESHING2D_GRADING.md, lenses (A)) runs only before an actual bisection, so a declined split deletes nothing.
+- A skinny triangle left that way is still bad and is split by causes 1 and 2 (section 4).
+- The constrained-quality mode uses lenses at θ ≤ 25.66°. This combination is measured, not covered by a proof (section 5).
 
 **Guards.**
 - `SteinerLimit` and the step cap (`RefinementLimit`, 64·(limit + slots) + 100 000) stop a run that would not settle. A run is never a hang.
