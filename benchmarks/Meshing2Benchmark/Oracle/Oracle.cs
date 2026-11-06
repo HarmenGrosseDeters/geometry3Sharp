@@ -1735,29 +1735,17 @@ namespace Meshing2Acceptance
                 return ranks;
             }
 
-            /// <summary>Calls back for each pair of boxes whose closed ranges overlap, by a sweep over x.</summary>
+            /// <summary>Calls back for each pair of boxes whose closed ranges overlap (<see cref="BoxPairs.Overlaps"/>); in check mode the
+            /// pairs are compared with the plain sweep.</summary>
             static void OverlapPairs(int[][] boxesA, int[][] boxesB, bool same, Action<int, int> hit)
             {
-                // box = {xlo, xhi, ylo, yhi}
-                var events = new List<(int x, int kind, int id)>(boxesA.Length + boxesB.Length);
-                for (int i = 0; i < boxesA.Length; ++i) events.Add((boxesA[i][0], 0, i));
-                if (!same) for (int i = 0; i < boxesB.Length; ++i) events.Add((boxesB[i][0], 1, i));
-                events.Sort((p, q) => p.x != q.x ? p.x.CompareTo(q.x) : p.kind != q.kind ? p.kind.CompareTo(q.kind) : p.id.CompareTo(q.id));
-                var activeA = new List<int>(); var activeB = new List<int>();
-                foreach (var ev in events) {
-                    var mine = ev.kind == 0 ? boxesA[ev.id] : boxesB[ev.id];
-                    var others = same ? activeA : (ev.kind == 0 ? activeB : activeA);
-                    var otherBoxes = same || ev.kind == 1 ? boxesA : boxesB;
-                    for (int i = others.Count - 1; i >= 0; --i) {
-                        int id = others[i];
-                        var box = otherBoxes[id];
-                        if (box[1] < ev.x) { others[i] = others[others.Count - 1]; others.RemoveAt(others.Count - 1); continue; }
-                        if (box[3] >= mine[2] && box[2] <= mine[3]) {
-                            if (ev.kind == 0) hit(ev.id, id); else hit(id, ev.id);
-                        }
-                    }
-                    (ev.kind == 0 ? activeA : activeB).Add(ev.id);
+                if (CheckFastPathForTests) {
+                    var fast = new HashSet<(int, int)>(); var swept = new HashSet<(int, int)>();
+                    BoxPairs.Overlaps(boxesA, boxesB, same, (i, j) => { if (!fast.Add(same ? (Math.Min(i, j), Math.Max(i, j)) : (i, j))) FastPathDiffers("a box pair found twice"); });
+                    BoxPairs.OverlapsBySweep(boxesA, boxesB, same, (i, j) => swept.Add(same ? (Math.Min(i, j), Math.Max(i, j)) : (i, j)));
+                    if (!fast.SetEquals(swept)) FastPathDiffers("the overlapping box pairs");
                 }
+                BoxPairs.Overlaps(boxesA, boxesB, same, hit);
             }
 
             /// <summary>No used vertex touches a triangle other than at its own corner; no two edges cross.</summary>
@@ -1769,25 +1757,32 @@ namespace Meshing2Acceptance
                     t.Min(i => rx[i]), t.Max(i => rx[i]), t.Min(i => ry[i]), t.Max(i => ry[i]) }).ToArray();
                 var used = new HashSet<int>(o.Triangles.SelectMany(t => t)).OrderBy(i => i).ToArray();
                 var vertexBoxes = used.Select(i => new[] { rx[i], rx[i], ry[i], ry[i] }).ToArray();
-                int reports = 0;
+                // (the pairs come in no particular order: the violations are collected and the first 8 in index order reported)
+                var touching = new List<(int ti, int id)>();
                 OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
                     var t = o.Triangles[ti];
                     int id = used[vi];
                     if (id == t[0] || id == t[1] || id == t[2]) return;
-                    if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0 && reports++ < 8)
-                        r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
+                    if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0) touching.Add((ti, id));
                 });
+                touching.Sort();
+                foreach (var (ti, id) in touching.Take(8)) {
+                    var t = o.Triangles[ti];
+                    r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
+                }
                 var keys = edges.Keys.ToArray();
                 var edgeBoxes = keys.Select(k => new[] {
                     Math.Min(rx[KeyA(k)], rx[KeyB(k)]), Math.Max(rx[KeyA(k)], rx[KeyB(k)]),
                     Math.Min(ry[KeyA(k)], ry[KeyB(k)]), Math.Max(ry[KeyA(k)], ry[KeyB(k)]) }).ToArray();
-                reports = 0;
+                var crossing = new List<(long, long)>();
                 OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
                     int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
                     if (a == c || a == d || b == c || b == d) return;
-                    if (ProperCrossV(a, b, c, d) && reports++ < 8)
-                        r.Add(Violation.EdgesCross, "edges " + a + "-" + b + " and " + c + "-" + d + " cross");
+                    if (ProperCrossV(a, b, c, d)) crossing.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));
                 });
+                crossing.Sort();
+                foreach (var (k1, k2) in crossing.Take(8))
+                    r.Add(Violation.EdgesCross, "edges " + KeyA(k1) + "-" + KeyB(k1) + " and " + KeyA(k2) + "-" + KeyB(k2) + " cross");
                 // every used vertex that is a corner of two triangles with the same coordinates would pass the tests above
                 if (Fast) {
                     // the doubles are the exact vertices: equal doubles, equal points (0.0 and -0.0 made one)
