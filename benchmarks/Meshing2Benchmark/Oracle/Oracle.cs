@@ -3190,8 +3190,10 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// the angle of a triangle at corner q (between q-r and q-s) is at least arctan(sin phi / (2 - cos phi)), phi the input angle
-            /// at apex between apex-a and apex-b: the bound Shewchuk 2002 (section 6.3, the Terminator) proves for every angle of a
-            /// triangle near a small input angle phi. A triangle excused for its small angle at the apex must meet it at all three corners
+            /// at apex between apex-a and apex-b. Provenance (corrected 2026-11-06): this is the bound of Miller, Pav and Walkington
+            /// ("When and why Delaunay refinement algorithms work", IJCGA 2005) for every angle of a triangle near a small input angle phi,
+            /// as stated in their abstract; not yet checked against the full text. It is not Shewchuk's: Shewchuk 2002 (Theorem 12, the
+            /// Terminator) proves the weaker arcsin(sin(phi/2) / sqrt 2), which this check does not use. A triangle excused for its small angle at the apex must meet it at all three corners
             /// (at the apex too: a triangle of the apex with its two neighbours on the segments has the input angle there, and a needle
             /// inside the wedge is no forced angle). Exact: with u = a - apex, w = b - apex, tan bound = |u x w| / (2 |u| |w| - u.w), and for an acute angle at q,
             /// tan angle = cross / dot, so the angle is at least the bound iff 2 cross |u| |w| >= |u x w| dot + (u.w) cross, squared

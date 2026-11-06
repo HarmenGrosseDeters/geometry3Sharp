@@ -212,8 +212,9 @@ on the reference triangulation (Q9). Decisions and findings:
   (the Steiner limit), with it 649.
 - Points within the automatic tolerance of an earlier point are merged into it (O11, Q14), for M2 and M3 (F-3/c needed it: a point 2^-39 from a segment's end).
 - Oracle, small input angles (2026-11-03): a triangle whose small angle is forced by an input angle phi is excused only when its
-  other two angles are at least arctan(sin phi / (2 − cos phi)), the bound Shewchuk 2002 proves for every angle of a triangle near a
-  small input angle (page 2, section 6.3). Before, the whole triangle was excused. A probe over the corpus, the catalogue and the Herne
+  other two angles are at least arctan(sin phi / (2 − cos phi)), the bound Miller, Pav and Walkington (IJCGA 2005) state for every
+  angle of a triangle near a small input angle (from their abstract, not yet checked against the full text; corrected 2026-11-06:
+  it was credited to Shewchuk 2002, whose Theorem 12 gives the weaker arcsin(sin(phi/2) / √2)). Before, the whole triangle was excused. A probe over the corpus, the catalogue and the Herne
   q20 tiles found no triangle that this rule rejects and no other excuse covers (one on Herne lies at the grid floor).
 - Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
   free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
