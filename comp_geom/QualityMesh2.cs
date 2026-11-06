@@ -1077,9 +1077,12 @@ namespace g3
                         if (!(Math.Abs(cross) > 0) || !(l1 > 0) || !(l2 > 0)) continue;
                         double sin = Math.Abs(cross) / (l1 * l2);
                         // small means strictly below the bound by the oracle's slack 2^-30 on sin^2 (its AngleBound), and by 2^-40 more for
-                        // the rounding of sin^2 here (a few units of 2^-53): never small where the oracle would not excuse the triangle. A
-                        // relative 1e-9 (2.5e-10 at 30 degrees) was more lenient than the oracle's 9.3e-10, and triangles at an input angle
-                        // just below the bound were kept without the oracle's excuse (found by review of the small-angle design)
+                        // the rounding of sin^2 here (about 20 units of 2^-53 by the error analysis; 200k random pairs: at most 2.75): never
+                        // small where the oracle would not excuse the triangle. 2^-40 = 8192 units is a proven margin, which no mutation test
+                        // can pin. Known limit: a segment about 2^1000 times shorter than the other has a subnormal scaled direction, and the
+                        // bound no longer holds. A relative 1e-9 (2.5e-10 at 30 degrees) was more lenient than the oracle's 9.3e-10, and
+                        // triangles at an input angle just below the bound were kept without the oracle's excuse (found by review of the
+                        // small-angle design)
                         if (!(sin * sin < sin2Min - SmallAngleSlack)) continue;
                         // where the lines meet
                         double t1 = (ox * d2y - oy * d2x) / cross;
