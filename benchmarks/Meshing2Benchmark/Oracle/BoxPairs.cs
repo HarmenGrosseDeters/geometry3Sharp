@@ -11,7 +11,7 @@ namespace Meshing2Acceptance
     {
         /// <summary>
         /// Calls back for every overlapping pair, each once: (index in A, index in B), or, with <paramref name="same"/>, every
-        /// unordered pair of distinct boxes of A once. The pairs come in no particular order.
+        /// unordered pair of distinct boxes of A once. The order of the pairs is deterministic but not the index order.
         ///
         /// A sweep over x keeps the active boxes, those whose x range still reaches the sweep line, in two segment trees over y.
         /// The query is the y range [lo, hi] of the box that starts at the sweep line. A box overlaps it in y if and only if one of
@@ -23,7 +23,7 @@ namespace Meshing2Acceptance
         /// The two cases are disjoint. Within each case a box is found at most once, because its canonical nodes, and the
         /// canonical nodes of a query, are disjoint. A box whose x range ended before the sweep line is removed from a list when the
         /// scan meets it. So the time is O((n + pairs) log n), where the plain sweep needs O(n * active) when long boxes keep the
-        /// active list long.
+        /// active list long. Memory is O(n log n): each box is stored at O(log n) nodes of each tree.
         /// </summary>
         public static void Overlaps(int[][] boxesA, int[][] boxesB, bool same, Action<int, int> hit)
         {
