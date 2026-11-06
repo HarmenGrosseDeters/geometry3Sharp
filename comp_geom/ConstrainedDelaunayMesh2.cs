@@ -468,6 +468,26 @@ namespace g3
                 return true;
             }
 
+            /// <summary>
+            /// splitting piece u-w at v (a vertex within the tolerance of it, not on it) leaves two pieces each strictly shorter than u-w:
+            /// the condition for a tolerance split to make progress. Without it, two vertices within the tolerance of each other's piece,
+            /// where refinement has made pieces about as short as the tolerance, split the piece at each other in turn for ever (the order
+            /// along a piece is not reliable in doubles at that scale; found with ext/cdt/island at 32 and 34 degrees, constrained mode:
+            /// NodingLimit "a segment split did not settle"). Squared lengths in scaled units: deterministic, so the length of the piece
+            /// being inserted strictly decreases along every chain of such splits.
+            /// </summary>
+            bool Shortens(int v, int u, int w)
+            {
+                double uw = ScaledLen2(u, w);
+                return ScaledLen2(u, v) < uw && ScaledLen2(v, w) < uw;
+            }
+
+            double ScaledLen2(int a, int b)
+            {
+                double dx = Scaled(k.X[a] - k.X[b]), dy = Scaled(k.Y[a] - k.Y[b]);
+                return dx * dx + dy * dy;
+            }
+
             /// <summary> vertices v and u are within the tolerance of each other </summary>
             bool NearPoint(int v, int u)
             {
@@ -520,7 +540,7 @@ namespace g3
                             int apex = k.V[Next(Next(side))];
                             // (not one within the tolerance of an end: in a cluster of such points the order along the piece is not
                             // reliable in doubles, and splits could go back and forth)
-                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w)) { Split(apex, piece, pending); return null; }
+                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w) && Shortens(apex, u, w)) { Split(apex, piece, pending); return null; }
                         }
                         k.SetConstraint(existing, k.NewConstraint(piece.Sources));
                     }
