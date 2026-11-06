@@ -40,7 +40,7 @@ namespace Meshing2Acceptance
         /// is never another chain's vertex of refinement) as well; G3_M2_WORSTFIRST (0 or 1) bad triangles split worst first or in the order
         /// queued; G3_M2_BEST (0 or 1) the split point chosen among candidates or the off-centre / circumcentre; G3_M2_PETAL (0 or 1) the candidates
         /// in the petal of the shortest edge or step 1's on its bisector; unset keeps
-        /// the defaults. G3_M2_COUNTS (mesh command) prints what
+        /// the defaults. G3_M2_APEX_EXEMPT=0 turns the small-angle rule of the constrained mode off (MESHING2D_SMALL_ANGLES.md). G3_M2_COUNTS (mesh command) prints what
         /// refinement inserted and refused, by cause
         /// </summary>
         public static void ApplyRefinementVariant()
@@ -55,6 +55,7 @@ namespace Meshing2Acceptance
             SetRefinerSwitch("WorstFirstForBenchmarks", Flag("G3_M2_WORSTFIRST"));
             SetRefinerSwitch("BestCandidateForBenchmarks", Flag("G3_M2_BEST"));
             SetRefinerSwitch("PetalForBenchmarks", Flag("G3_M2_PETAL"));
+            SetRefinerSwitch("SmallAngleExemptionForTests", Flag("G3_M2_APEX_EXEMPT"));
         }
 
         static void SetRefinerSwitch(string name, bool? value)
@@ -135,7 +136,7 @@ namespace Meshing2Acceptance
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
-            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[8] : null;
+            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[16] : null;
             long deleted = 0;
             var thread = new System.Threading.Thread(() => {
                 try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }
@@ -151,7 +152,10 @@ namespace Meshing2Acceptance
                 Console.Error.WriteLine("refinement counts: " + counts[0] + " subsegments split as encroached, " + counts[1] + " for a point behind them, " + counts[2]
                     + " encroached by a point, " + counts[3] + " circumcentres, " + counts[4] + " off-centres, " + counts[5] + " grid-blocked triangles, " + counts[6]
                     + " subsegments unsplittable on the grid, " + deleted + " free vertices deleted before bisections (lenses), " + counts[7]
-                    + " points chosen on the bisector (grading)");
+                    + " points chosen on the bisector (grading); small-angle exemptions (constrained mode): " + counts[8] + " at a shared endpoint, " + counts[9]
+                    + " at a T-junction or crossing; triangles given up: " + counts[10] + " without a circumcentre, " + counts[11] + " behind a locked or unsplittable subsegment, "
+                    + counts[12] + " without a new vertex; subsegments left unsplit: " + counts[13] + " below the rounding floor, " + counts[14] + " without progress, "
+                    + counts[15] + " near another source");
             clock.Restart();
             var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
             double oracleMs = clock.Elapsed.TotalMilliseconds;
@@ -192,6 +196,8 @@ namespace Meshing2Acceptance
             yield return "time: mesh " + r.MeshMs.ToString("F0", CultureInfo.InvariantCulture) + " ms, oracle " + (r.Judged ? r.OracleMs.ToString("F0", CultureInfo.InvariantCulture) + " ms" : "not run");
             if (!r.Judged) { yield return "oracle: not run (--no-oracle), no golden comparison"; yield break; }
             yield return "oracle " + (r.Report.Ok ? "VALID" : "INVALID: " + r.Report);
+            string excused = r.Report.ExcusedSummary();
+            if (excused.Length > 0) yield return "oracle excused: " + excused;
             if (golden == null) {
                 yield return "golden: no recorded row for " + r.Case.Id;
             } else {

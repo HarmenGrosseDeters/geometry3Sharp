@@ -3509,7 +3509,7 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// The shortest edge of t spans a small input angle: its ends lie in the tubes of two input constraints that meet on both of
-            /// them at an angle below the bound, at distances from the apex within a factor of two, on the same side of it. Such a triangle
+            /// them at an angle below the bound, at distances from the apex within a factor of 1.5, on the same side of it. Such a triangle
             /// cannot be improved without refining towards the apex for ever (Shewchuk 2002, small input angles; plan, section 6). Found
             /// with M3 at inputs where several segments cross at small angles (F-4, F-39).
             /// </summary>
