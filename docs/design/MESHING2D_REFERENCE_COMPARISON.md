@@ -126,8 +126,12 @@ judged by our oracle of the same master:
   input.
 - **1131 M3 variants:** every golden case and a stratified corpus sample, each at minimum angles of 20, 25 and 30 degrees with
   `steiner_limit(200000)`, meshed in default mode and with `mode constrained`.
-- **Pairs:** our default mode against the reference in default mode; our constrained mode against the reference with conforming
-  Delaunay.
+- **Pairs, by triangulation type** (corrected 2026-11-06: the first version of this section paired by mode name, which crossed the
+  types). Our default is conforming Delaunay and `mode constrained` is constrained Delaunay; the reference's default output is
+  constrained Delaunay and its second mode conforming. For the angle variants the pairs are now conforming / conforming and
+  constrained / constrained; the reference's constrained output is judged against the input with `mode constrained`.
+- **The cases as they are stay crossed:** the run has only our conforming default and the reference's constrained default for them,
+  no conforming run of the reference, so their rows compare different triangulation types and cannot be matched without a re-run.
 - **Limits:** 600 s per mesher. The oracle had 600 s per call until 13:59 UTC and 120 s after (owner decision: the slow outputs are the
   GEOS overlay variants at the Steiner limit, where the oracle took 89 % of the wall time).
 - **Restarts:** the container restarted four times; the cases in flight then were run again.
@@ -144,10 +148,10 @@ judged by our oracle of the same master:
 
 | Pair | Both valid | Only ours valid | Only the reference valid | Neither |
 |---|---|---|---|---|
-| default mode, as they are | 4803 | 59 | 0 | 7 |
-| default mode, as they are, 2026-11-03 | 4661 | 193 | 0 | 15 |
-| default mode, angle variants | 542 | 500 | 1 | 88 |
-| constrained, angle variants | 577 | 468 | 1 | 85 |
+| as they are: ours conforming, reference constrained (crossed) | 4803 | 59 | 0 | 7 |
+| the same, 2026-11-03 | 4661 | 193 | 0 | 15 |
+| angle variants, conforming / conforming | 575 | 326 | 3 | 83 |
+| angle variants, constrained / constrained | 792 | 253 | 9 | 77 |
 
 The reference's output is the same as on 2026-11-03 (same commit). 142 of its verdicts went from INVALID to VALID with the newer
 oracle, which accounts for most of the drop in "only ours valid".
@@ -157,10 +161,10 @@ out, and the times are load-dependent):
 
 | Set | Triangles | Time |
 |---|---|---|
-| default mode, as they are | 0.88 / 1.00 / 1.00 | 0.90 / 1.38 / 2.14 |
-| default mode, as they are, 2026-11-03 | 0.90 / 1.00 / 1.00 | 0.85 / 1.29 / 2.07 |
-| default mode, angle variants | 0.75 / 1.03 / 2.62 | 0.94 / 1.63 / 2.82 |
-| constrained, angle variants | 0.29 / 1.00 / 2.07 | 1.07 / 1.65 / 3.95 |
+| as they are (crossed) | 0.88 / 1.00 / 1.00 | 0.90 / 1.38 / 2.14 |
+| the same, 2026-11-03 | 0.90 / 1.00 / 1.00 | 0.85 / 1.29 / 2.07 |
+| angle variants, conforming / conforming | 0.60 / 1.00 / 2.21 | 1.05 / 1.62 / 4.08 |
+| angle variants, constrained / constrained | 0.43 / 1.03 / 2.61 | 0.97 / 1.72 / 5.00 |
 
 **Flags.**
 
@@ -169,9 +173,10 @@ out, and the times are load-dependent):
     and AreaMismatch, while the reference had AngleBelowBound only (14 / 20 / 34).
   - Re-run at 4d784f3a, mesher and oracle: AngleBelowBound only, 6 / 8 / 14 in default mode (73 / 94 / 116 triangles) and 5 / 7 / 14
     constrained.
-- **Only the reference valid:**
-  - TestOverlay-stmlf/850 at 30 degrees, default mode: AngleBelowBound(1).
-  - TestOverlay-stmlf/1326 at 25 degrees, constrained: AngleBelowBound(1).
+- **Only the reference valid** (angle variants, matched pairs; 3 conforming, 9 constrained):
+  - conforming: TestOverlay-stmlf/1326 at 25° (AngleBelowBound(1)); TestOverlay-stmlf/1044 at 20° and 25° (ours ORACLE-TIMEOUT);
+  - constrained: TestOverlay-stmlf/1326 at 20° and 25°, TestOverlay-stmlf/850 at 25° and 30° (AngleBelowBound, 1 or 2 each);
+    stmlf-20061020/10 at 20°, TestOverlay-stmlf/473 at 20°, 638 at 20° and 25°, 1044 at 30° (ours ORACLE-TIMEOUT).
 - **AngleBelowBound where the reference fails as well:** issue-geos-434/1 and 17 TestOverlay-stmlf variants at 20 and 25 degrees,
   mostly 1 to 8 angles. The worst are TestOverlay-stmlf/1529 and 1875 constrained, with up to 200.
 - **84 of our outputs ORACLE-TIMEOUT** (44 default, 40 constrained), all angle variants:
@@ -179,19 +184,22 @@ out, and the times are load-dependent):
   - GEOS TestBufferMitredJoin/2 and TestBufferExternal-2/92;
   - GEOS overlay cases at the Steiner limit.
 
-  A sample is being re-judged with the faster oracle of e2a0bb99.
-- **Triangle-count outliers:** 170 outputs have more than 1.5 times the reference's triangle count, 75 of them where the reference has
-  at least 100 triangles. The largest:
+  Re-judged with the oracle of e2a0bb99 (1800 s), a sample of 12 of them is VALID in every case, 141 s to 1296 s each, 90 to 98 %
+  of it in the conformity phase; the other 72 were not re-judged.
+- **Triangle-count outliers:** 257 outputs have more than 1.5 times the paired reference output's triangle count (253 angle
+  variants, 4 crossed cases as they are), 185 of them where the reference has at least 100 triangles. The largest:
 
-| Case | Mode | Ours | Reference | Ratio |
+| Case | Pair | Ours | Reference | Ratio |
 |---|---|---|---|---|
-| TestOverlay-stmlf/1461, 30° | constrained | 390 342 | 27 818 | 14.0 |
-| ext/cdt/island, 30° | default | 8 879 | 929 | 9.6 |
-| TestOverlay-stmlf/1461, 25° | constrained | 197 163 | 22 907 | 8.6 |
-| TestOverlay-stmlf/1461, 20° | constrained | 136 960 | 20 131 | 6.8 |
-| TestOverlay-stmlf/1818, 30° | default | 2 910 | 582 | 5.0 |
-| ext/cdt/cdt, 30° | constrained | 20 699 | 4 426 | 4.7 |
-| safe-16595/17, 30° | constrained | 2 016 | 483 | 4.2 |
-| f-11/b, 30° | constrained | 1 464 | 452 | 3.2 |
-| f-11/a, 25° | default | 398 | 128 | 3.1 |
-| f-22/b, 30° | both | 331 | 109 / 110 | 3.0 |
+| TestOverlay-stmlf/1461, 30° | constrained | 390 342 | 15 575 | 25.1 |
+| TestOverlay-stmlf/1461, 20° | constrained | 136 960 | 6 993 | 19.6 |
+| TestOverlay-stmlf/1461, 25° | constrained | 197 163 | 10 141 | 19.4 |
+| TestOverlay-stmlf/1461, 30° | conforming | 390 342 | 27 818 | 14.0 |
+| TestOverlay-stmlf/1461, 25° | conforming | 244 848 | 22 907 | 10.7 |
+| ext/cdt/island, 30° | constrained | 8 879 | 929 | 9.6 |
+| TestOverlay-stmlf/1461, 20° | conforming | 159 985 | 20 131 | 8.0 |
+| ext/cdt/cdt, 30° | constrained | 20 699 | 3 613 | 5.7 |
+| TestOverlay-stmlf/1818, 30° | constrained | 2 910 | 582 | 5.0 |
+| safe-16595/17, 30° | constrained | 2 016 | 408 | 4.9 |
+| ext/cdt/cdt, 30° | conforming | 20 699 | 4 426 | 4.7 |
+| issue-geos-838/1, 30° | constrained | 75 920 | 17 857 | 4.3 |
