@@ -16,7 +16,8 @@ The large triangle-count outliers of the reference comparison come from a cascad
   off-shell vertices (midpoints, circumcentre-born vertices, off-centres) restart it.
 - The splits shrink geometrically towards the apex. They only stop at the snap tolerance, about 2^-40 of the extent.
 - Without rings the domain is the convex hull, and its edges become constraints (D13), so hull edges count too. A hull edge that meets a ring
-  segment at a small angle is the most common source.
+  segment at a small angle is the most common source. Shewchuk 2002, Appendix A (Fig. 40, the guitar) describes the same effect: when the whole
+  convex hull is triangulated, "the boundary edges of the convex hull must be treated as segments, and spurious small angles and features may form".
 
 | input | smallest input angles | depth of the cascade | input's closest features |
 |---|---|---|---|
@@ -109,7 +110,7 @@ behind it is tried again after the first split, so it is not left behind (sectio
 ## 3. Literature and termination
 
 **Read.**
-- Shewchuk 2002, §6.2–6.4 (pp. 29–36), read in full from the paper's text, which the owner supplied in the session on 2026-11-06 (some
+- Shewchuk 2002, §6.2–6.5, §7 and Appendix A (pp. 29–51), read in full from the paper's text, which the owner supplied in the session on 2026-11-06 (some
   symbols lost in the extraction). The coordinator's earlier summary of §6.2–6.3 agrees with it.
 - My own fetch of the paper (people.eecs.berkeley.edu) had failed: the host does not resolve in this environment. No other route was tried.
 - Miller, Pav and Walkington 2005: not read (abstract only, unverified).
@@ -153,7 +154,12 @@ segment, one that shares an endpoint. Our pair condition is that limit, with two
 **§6.4** (p. 36) is about the Terminator with Chew's lenses, not this rule.
 - The problem it names: when a split is declined, deleting the free vertices in the diametral circle may never end (vertices eternally created and
   deleted), and keeping them may leave arbitrarily skinny triangles.
-- Our lens deletion (MESHING2D_GRADING.md, lenses (A)) runs only before an actual bisection, so a declined split deletes nothing.
+- Our lens deletion (MESHING2D_GRADING.md, lenses (A)) runs only before an actual bisection, so a declined split deletes nothing. §6.4 prescribes
+  the same for the Terminator with lenses: the rejected circumcentre is not inserted, "but other vertices inside the diametral circle of s are not
+  deleted".
+- With lenses, equal-length subsegments of a cluster encroach each other only below a smaller angle than with circles (§6.4; the value is lost in
+  the extracted text). So with lenses (θ ≤ 25.66°) part of the cascade the rule targets does not arise in the first place; the measured gains at
+  q20 and q25 are smaller (island q25 694 → 456).
 - A skinny triangle left that way is still bad and is split by causes 1 and 2 (section 4).
 - The constrained-quality mode uses lenses at θ ≤ 25.66°. This combination is measured, not covered by a proof (section 5).
 

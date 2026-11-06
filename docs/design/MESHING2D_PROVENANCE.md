@@ -22,8 +22,9 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 - [R95] J. Ruppert, *A Delaunay refinement algorithm for quality 2-dimensional mesh generation*, J. Algorithms 18(3), 1995.
 - [U04] A. Üngör, *Off-centers: a new type of Steiner points for computing size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004.
 - [S02] J. R. Shewchuk, *Delaunay refinement algorithms for triangular mesh generation*, CGTA 22, 2002: §3 (Ruppert, encroachment), §4.1 (concentric shells), §4 (small input angles). Diametral lenses: section 6.4 ("Terminator Chew", pp. 36-38) of the draft of May 21, 2001, read for the lens definition and its bound (owner allowed the host, 2026-11-02).
-- [S02-6] [S02] §6.2-6.4 (small input angles: concentric shells, the conservative cure of §6.2 for subsegments encroached by segment vertices,
-  the Terminator, Theorems 11 and 12, Terminator Chew): read by the implementing session from the paper's text (pp. 29-36), supplied by the owner
+- [S02-6] [S02] §6.2-6.5, §7 and Appendix A (small input angles: concentric shells, the conservative cure of §6.2 for subsegments encroached by
+  segment vertices, the Terminator, Theorems 11 and 12, Terminator Chew, the pseudocode, the convex-hull caveat of Fig. 40): read by the
+  implementing session from the paper's text (pp. 29-51), supplied by the owner
   in the session on 2026-11-06; before that, the coordinating session's summary from the paper (people.eecs.berkeley.edu/~jrs/papers/2dj.pdf).
   The implementing session's own fetch had failed (host not resolvable in its environment); no other route was tried. Used for
   MESHING2D_SMALL_ANGLES.md (the rule is an approximation of the §6.2 cure, not the Terminator).
