@@ -1,0 +1,15 @@
+{
+
+  "snapshot_hashes": "passed",
+
+  "csv_records": {
+
+    "per_model.csv": 2864,
+
+    "per_operation.csv": 5728
+
+  },
+
+  "forced_empty_snapshot_mutation": "detected"
+
+}

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+bin/
+obj/
+/reference/
+/dataset/
+/scratch/
+/validation/
+/results/
+/config.json
+/progress.json
+/run.log
+/smoke.json

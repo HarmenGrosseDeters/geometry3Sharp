@@ -1,0 +1,37 @@
+{
+  "state": "interim",
+  "captured_at": "2026-11-04T20:56:12.435016+01:00",
+  "commit": "cd7fb8abba0af09d5725b60c700dfec95234e7ad",
+  "dataset_revision": "2d5d3b2f3cd3711028ad75b12788c13b25559ec6",
+  "expected_models_per_mode": 10000,
+  "completed_records": {
+    "wrap": 1432,
+    "boolean": 1432
+  },
+  "model_status_counts": {
+    "wrap": {
+      "ok": 1431,
+      "timeout": 1
+    },
+    "boolean": {
+      "mixed_or_failed": 199,
+      "unclean": 188,
+      "ok": 1009,
+      "evaluation_failed": 34,
+      "not_run_export_failed": 2
+    }
+  },
+  "capture_policy": "Independent bounded reads of live JSONL prefixes; only newline-terminated records; CSV rebuilt from these records; local paths redacted; no meshes or binaries",
+  "input_prefix_sha256_before_redaction": {
+    "wrap": "1d65c225627e8ab92cf44b06e0fcb92ee25a9409123027d62e41dedd7b3b2e41",
+    "boolean": "ba57cf10ca77652eb521dbe3ddd294fe91f17ad4c5c903668a0c1f91f5a86771"
+  },
+  "published_file_sha256": {
+    "config.json": "90e6a41cfd4d8b12109a8b7bf265e2fc97032ecdff69751d9c473fb3e565fe2e",
+    "results\\boolean.jsonl": "469a0f2857fe843c4150adbd6df36a9d2bc2a9d837003273ff659dafa5e00705",
+    "results\\per_model.csv": "6678953d499a95f7b705b78eeebeb85a80b60fe39f1212e346b5a0b85492a736",
+    "results\\per_operation.csv": "e462ea7092be56d25e977d8c7b0d68734f42369468d4a11bb6b98ad1bd6c9b15",
+    "results\\wrap.jsonl": "1d65c225627e8ab92cf44b06e0fcb92ee25a9409123027d62e41dedd7b3b2e41",
+    "smoke.json": "dd92f28764b36ccd32ec24311a25694c1d2a4a3628c205f3ec774e851070d344"
+  }
+}

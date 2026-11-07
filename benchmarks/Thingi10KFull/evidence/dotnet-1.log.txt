@@ -1,0 +1,61 @@
+  Wiederherzustellende Projekte werden ermittelt...
+
+  "<publication-worktree>\benchmarks\QuadtreeBenchmark\QuadtreeBenchmark.csproj" wiederhergestellt (in 326 ms.).
+
+  "<publication-worktree>\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" wiederhergestellt (in 326 ms.).
+
+  "<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj" wiederhergestellt (in 396 ms.).
+
+  2 von 5 Projekten sind für die Wiederherstellung auf dem neuesten Stand.
+
+  G3ExactCodeAnalyzers -> <publication-worktree>\tools\analyzers\G3ExactCodeAnalyzers\bin\Release\netstandard2.0\G3ExactCodeAnalyzers.dll
+
+  geometry3Sharp_netstandard -> <publication-worktree>\bin\Release\netstandard2.0\geometry3Sharp.dll
+
+  QuadtreeBenchmark -> <publication-worktree>\benchmarks\QuadtreeBenchmark\bin\Release\net48\QuadtreeBenchmark.exe
+
+  Meshing2Oracle -> <publication-worktree>\benchmarks\Meshing2Benchmark\Oracle\bin\Release\netstandard2.0\Meshing2Oracle.dll
+
+<publication-worktree>\tests\geometry3Sharp.Tests\RobustnessSweepTests.cs(430,17): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\DMesh3PropertyTests.cs(166,28): warning xUnit1013: Public method 'CheckTopology' on test class 'DMesh3PropertyTests' should be marked as a Theory. Reduce the visibility of the method, or add a Theory attribute to the method. (https://xunit.net/xunit.analyzers/rules/xUnit1013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+  geometry3Sharp.Tests -> <publication-worktree>\tests\geometry3Sharp.Tests\bin\Release\net48\geometry3Sharp.Tests.dll
+
+
+
+Der Buildvorgang wurde erfolgreich ausgeführt.
+
+
+
+<publication-worktree>\tests\geometry3Sharp.Tests\RobustnessSweepTests.cs(430,17): warning CS0162: Unerreichbarer Code wurde entdeckt. [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\DMesh3PropertyTests.cs(166,28): warning xUnit1013: Public method 'CheckTopology' on test class 'DMesh3PropertyTests' should be marked as a Theory. Reduce the visibility of the method, or add a Theory attribute to the method. (https://xunit.net/xunit.analyzers/rules/xUnit1013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+<publication-worktree>\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [<publication-worktree>\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+
+    7 Warnung(en)
+
+    0 Fehler
+
+
+
+Verstrichene Zeit 00:00:15.63

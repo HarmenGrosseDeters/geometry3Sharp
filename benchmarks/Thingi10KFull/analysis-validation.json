@@ -1,0 +1,50 @@
+{
+  "scope": "reporting and pinned metadata reconstruction only; live run and immutable source snapshot unchanged",
+  "tests": {
+    "command": "python -m unittest test_runner test_snapshot test_analysis test_prepare_dataset -v",
+    "passed": 23
+  },
+  "analysis": {
+    "command": "python analyze.py snapshots\\20261104-interim <validation-root>\\analysis-recheck",
+    "byte_identical_to_committed_report": true,
+    "all_102_evaluation_failures_are_timeouts": true
+  },
+  "metadata": {
+    "command": "python prepare_dataset.py <validation-parent>\\regenerated-metadata-20261104",
+    "byte_identical_to_original_publication": true,
+    "sha256": {
+      "inventory.json": "fbf3a0e3ac83ad8809da08855ea6882fb6b2d279aa7762c32b316204178fc029",
+      "geometry_data.csv": "48083b3c78cf673610897c821f1b798f91034f0595fb11f9a24c7deec5edbfb3"
+    }
+  },
+  "mutations": {
+    "unknown_selfint_as_zero": "detected",
+    "overwrite_guard_removed": "detected"
+  },
+  "builds": [
+    {
+      "command": "dotnet build geometry3Sharp_netstandard.csproj -c Release",
+      "exit_code": 0
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0
+    },
+    {
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <validation-root>\\packages -p:Version=1.0.0-ci.1",
+      "exit_code": 0
+    }
+  ],
+  "evidence_sha256": {
+    "evidence/stratification-tests.txt": "4d7989517a76cc27b8dfe1ff1d8fc41ef60788fa6394e048e86684faf6588a79",
+    "evidence/stratification-analysis.txt": "b08a68c4c6cfaf8279db3c6385de84a8d58212b940838e9fab3f72752f202e81",
+    "evidence/stratification-library.txt": "6a44cdc5b48abe94df2b30750682dd3a53c5ada42223935db80ed48b58471949",
+    "evidence/stratification-net48.txt": "514df7f6dc0d33786054756fd18f8640a0c3351095891274063e41fd2cd9f690",
+    "evidence/stratification-clipper-net48.txt": "5b20de389d0a3897c242b4a736458a769b3aea1fa5702e3f8c27a01bc8a2fe80",
+    "evidence/stratification-pack.txt": "73d5bda57935a11a2f8a9c0681d1a1ad928786de6179513a1e528b18a0309224"
+  }
+}

@@ -1,0 +1,60 @@
+--- benchmarks\BooleanComparison\BooleanComparison.csproj@cd7fb8abba0af09d5725b60c700dfec95234e7ad
++++ benchmarks\BooleanComparison\BooleanComparison.csproj+reporting
+@@ -7,7 +7,7 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
++    <Reference Include="geometry3Sharp"><HintPath>..\..\..\reference\geometry3Sharp.dll</HintPath></Reference>
+   </ItemGroup>
+ 
+ </Project>
+--- benchmarks\BooleanComparison\Program.cs@cd7fb8abba0af09d5725b60c700dfec95234e7ad
++++ benchmarks\BooleanComparison\Program.cs+reporting
+@@ -343,6 +343,14 @@
+                 r[op + "_zero_area"] = zeroArea;
+                 r[op + "_selfint"] = mesh.TriangleCount <= 400000 ? MeshRepairMetrics.SelfIntersections(mesh) : -1;
+                 r[op + "_volume"] = volume;
++                r[op + "_finite"] = ids.Keys.All(p => double.IsFinite(p.x) && double.IsFinite(p.y) && double.IsFinite(p.z));
++                bool checkSelfIntersections = mesh.TriangleCount <= 400000;
++                r[op + "_not_clean_self_intersections_checked"] = checkSelfIntersections;
++                try {
++                    r[op + "_not_clean_reason"] = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections);
++                } catch (Exception diagnosticError) {
++                    r[op + "_not_clean_exception"] = diagnosticError.GetType().Name + ": " + diagnosticError.Message;
++                }
+             }
+             r["all_results"] = all;
+             if (all && expected != null) {
+--- benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj@cd7fb8abba0af09d5725b60c700dfec95234e7ad
++++ benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj+reporting
+@@ -7,7 +7,7 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
++    <Reference Include="geometry3Sharp"><HintPath>..\..\..\reference\geometry3Sharp.dll</HintPath></Reference>
+     <Compile Include="..\Shared\FidelityFields.cs" Link="FidelityFields.cs" />
+   </ItemGroup>
+ 
+--- benchmarks\MeshRepairBenchmark\Program.cs@cd7fb8abba0af09d5725b60c700dfec95234e7ad
++++ benchmarks\MeshRepairBenchmark\Program.cs+reporting
+@@ -321,6 +321,18 @@
+             bool valid = true;
+             try { valid = result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
+             r["after_valid"] = valid;
++            if (repairMode == "wrap") {
++                stage = "not_clean_reason";
++                var diagnostic = Stopwatch.StartNew();
++                bool checkSelfIntersections = result.TriangleCount <= 300000;
++                r["not_clean_self_intersections_checked"] = checkSelfIntersections;
++                r["after_finite"] = result.VertexIndices().All(id => {
++                    Vector3d p = result.GetVertex(id);
++                    return double.IsFinite(p.x) && double.IsFinite(p.y) && double.IsFinite(p.z);
++                });
++                r["not_clean_reason"] = MeshRobustRepair.NotCleanReason(result, checkSelfIntersections);
++                r["not_clean_reason_ms"] = diagnostic.ElapsedMilliseconds;
++            }
+             r["status"] = result.TriangleCount == 0 ? "emptied"
+                         : result.IsClosed() ? "closed" : "not_closed";
+         } catch (Exception e) {

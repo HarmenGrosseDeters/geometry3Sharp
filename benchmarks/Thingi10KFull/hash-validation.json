@@ -1,0 +1,358 @@
+{
+  "tier": "M: evaluator and harness only",
+  "measured_commit": "cd7fb8abba0af09d5725b60c700dfec95234e7ad",
+  "publication_parent_commit": "2580b62f6065228d88faf8f8a79abeffe770fc99",
+  "library_sha256": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd",
+  "original_probe_sha256": "013153837f5e7cb60649ab90f85b6ec6cf2bbc97b9d63f6b395a939f97be9600",
+  "optimized_probe_sha256": "b1ff2041d1c4d67c0326c12a34a966b37e649a85abe05b7e0d7ded70b3b00fec",
+  "probe_files_sha256": {
+    "BooleanComparison.deps.json": "b38cca35ee34e8e3a969adda507d8b69ba9675606ac225be41e3e090d36cbac2",
+    "BooleanComparison.dll": "b1ff2041d1c4d67c0326c12a34a966b37e649a85abe05b7e0d7ded70b3b00fec",
+    "BooleanComparison.exe": "69062f6bfe3a1678c8b9abf4ec4d84c134403f47e435c3b1d0acfa2fa39eb64b",
+    "BooleanComparison.pdb": "7832a3820f205e169ec5b533f2fe900949f80e6bec899104593b4003410a993c",
+    "BooleanComparison.runtimeconfig.json": "c230a317a54dd960bcbeb5f347f52e18dc665a26f7efda2159fced9a5ac7e097",
+    "geometry3Sharp.dll": "04625417316cfc4d376bee14d71ccc07e84b9b73474f43d68b52a8865fdacefd"
+  },
+  "source_sha256": {
+    "prepare_probe.py": "91c36c2b950dd6776bf17a477a86470e7475cf969efadccb10897ce9aab2ce47",
+    "probe\\EdgeKeyComparer.cs": "c64571b631d8fd32bce3922897ce9f8655295f4f27664ff23cdcd7656fd2bd94",
+    "probe\\EvaluationProbe.csproj": "34b6f0e2cdcb1502e1bc278b7326d82228fc4eb13589e33496523fd4f7e409d7",
+    "probe\\edge-hash\\Program.cs": "7b6284cd31e6f71289121fff6a236156baa5c0d43e2bec39397f789edefb37f5",
+    "probe\\edge-hash\\EdgeHashBenchmark.csproj": "a13cf5ca8bdb80333151f25b72580ece233e928aa7959aea64a1782b89b4c9cc",
+    "hash_mutations.py": "48322134d3656bbb4f41ea696a432bf84052c17725b87f3899a763f80c921b8d",
+    "test_pipeline.py": "9542a554239e2658c3651ba675d766fd1d00356d6eecb206516d3b26e193263d",
+    "probe_smoke.py": "3686c0dccdad393fff20070aa5a9a9cb45c1066ec1edcece3eb179d8d313daa0"
+  },
+  "benchmark_reports": [
+    {
+      "file": "226683-union-hash.json",
+      "sha256": "6bba1d8061c53d9ec763129cd532ef8db86ef9c6f3adc14cc66c00fbc7a5a40e"
+    },
+    {
+      "file": "226684-union-hash.json",
+      "sha256": "d01810569f58ace4dd3420fbc936cf946ae5a1ff3c7d15fd557b4724567fc3fa"
+    }
+  ],
+  "limits": [
+    "Identical bounded prefixes compare before/after; no full original count was rerun",
+    "Machine also ran the corpus; no universal or algorithm speedup is claimed",
+    "Packed keys, incidence arithmetic, geometry, quality checks and cutoffs are unchanged",
+    "Union/difference self-intersections of retained large jobs remain explicitly unchecked"
+  ],
+  "offline_tests": {
+    "command": "C:\\Python314\\python.exe -m unittest test_runner test_snapshot test_analysis test_prepare_dataset test_pipeline -v",
+    "working_directory": "D:\\work\\Thingi10K-full\\publication-worktree\\benchmarks\\Thingi10KFull",
+    "tests": 39,
+    "passed": true,
+    "output_tail": "----------------------------------------------------------------------\nRan 39 tests in 2.463s\n\nOK",
+    "log_sha256": "9d34798b312714df8f860381ccf7e85a6b0d88fa372d7871d3030d456d513225"
+  },
+  "compiled_self_test": {
+    "command": "dotnet D:\\work\\Thingi10K-full\\hash-validation-20261105\\benchmark\\BooleanComparison.dll --self-test",
+    "result": {
+      "self_test": "passed",
+      "correlated_keys": 65536,
+      "mixed_hashes": 65533,
+      "equality_collision_checked": true,
+      "repeated_counts_equal": true
+    }
+  },
+  "differential_smoke": {
+    "command": "C:\\Python314\\python.exe probe_smoke.py --original D:\\work\\Thingi10K-full\\run-20261103-corrected\\bin\\BooleanComparison\\BooleanComparison.dll --probe D:\\work\\Thingi10K-full\\hash-validation-20261105\\probe\\BooleanComparison.dll --report D:\\work\\Thingi10K-full\\hash-validation-20261105\\probe-smoke.json",
+    "cases": 54,
+    "passed": true,
+    "all_json_metrics_equal": true,
+    "phase_pairs_complete": true,
+    "raw_report_sha256": "e480f0e8ff26e0599c5cb0f3d8d4128e39b8a2433ca5d5fc08df0ef4c0f7c67e"
+  },
+  "mutations": {
+    "command": "C:\\Python314\\python.exe hash_mutations.py --frozen-library D:\\work\\Thingi10K-full\\run-20261103-corrected\\bin\\BooleanComparison\\geometry3Sharp.dll --report D:\\work\\Thingi10K-full\\hash-validation-20261105\\mutations.json",
+    "passed": true,
+    "cases": [
+      {
+        "mutation": "default_xor_hash",
+        "build_command": "dotnet build D:\\work\\Thingi10K-full\\publication-worktree\\benchmarks\\Thingi10KFull\\probe\\edge-hash\\EdgeHashBenchmark.csproj -c Release --no-restore -p:FrozenLibrary=D:\\work\\Thingi10K-full\\run-20261103-corrected\\bin\\BooleanComparison\\geometry3Sharp.dll -p:HashComparerSource=C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\default_xor_hash\\EdgeKeyComparer.cs -o C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\default_xor_hash\\bin",
+        "test_command": "dotnet C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\default_xor_hash\\bin\\BooleanComparison.dll --self-test",
+        "detected": true,
+        "exit_code": 3762504530,
+        "failure": "Unhandled exception. System.InvalidOperationException: Correlated keys still collapse"
+      },
+      {
+        "mutation": "hash_as_identity",
+        "build_command": "dotnet build D:\\work\\Thingi10K-full\\publication-worktree\\benchmarks\\Thingi10KFull\\probe\\edge-hash\\EdgeHashBenchmark.csproj -c Release --no-restore -p:FrozenLibrary=D:\\work\\Thingi10K-full\\run-20261103-corrected\\bin\\BooleanComparison\\geometry3Sharp.dll -p:HashComparerSource=C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\hash_as_identity\\EdgeKeyComparer.cs -o C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\hash_as_identity\\bin",
+        "test_command": "dotnet C:\\Users\\Harmen\\AppData\\Local\\Temp\\thingi_hash_mutation_2g8cram_\\hash_as_identity\\bin\\BooleanComparison.dll --self-test",
+        "detected": true,
+        "exit_code": 3762504530,
+        "failure": "Unhandled exception. System.InvalidOperationException: Hash collisions must not define equality"
+      },
+      {
+        "mutation": "probe_default_comparer",
+        "detected": true,
+        "failure": "FAIL: test_edge_hash_change_preserves_keys_direction_counts_and_frozen_driver (test_pipeline.ProbePreparationTests.test_edge_hash_change_preserves_keys_direction_counts_and_frozen_driver)"
+      }
+    ],
+    "raw_report_sha256": "e74547934c67374886995aec3b07b6e612360b68648ca0c5911b94ba348a1faf"
+  },
+  "builds_and_api_packs": [
+    {
+      "command": "dotnet build geometry3Sharp_netstandard.csproj -c Release --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\1.log",
+      "log_sha256": "1948da259d335412c1bc30335f2813b15ed3d779fcc4b924ecdeb42ed9d4b316"
+    },
+    {
+      "command": "dotnet build addons\\geometry3Sharp.Clipper2\\geometry3Sharp.Clipper2.csproj -c Release --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\2.log",
+      "log_sha256": "f2b709bc316f4dd6e7326c6c626cc76be319a6542982a961750d955b464fb8a5"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\3.log",
+      "log_sha256": "3dba9a1fdc28c72084451f3b0eaf3c31c5e17b300c35d09c23e293da235e7a98"
+    },
+    {
+      "command": "dotnet build tests\\geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\4.log",
+      "log_sha256": "3ad542825422c783de414a4d08023a22463d71a26140bb123211ceebf0f965bb"
+    },
+    {
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o D:\\work\\Thingi10K-full\\hash-validation-20261105\\packages -p:Version=1.0.0-ci.3 --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\5.log",
+      "log_sha256": "04a13ea80072b40d6cdb1ae59f3c70f327f513021d8d5d617ed92c9ce1ed6fab"
+    },
+    {
+      "command": "dotnet pack addons\\geometry3Sharp.Clipper2\\geometry3Sharp.Clipper2.csproj -c Release -o D:\\work\\Thingi10K-full\\hash-validation-20261105\\packages -p:Version=1.0.0-ci.3 --no-restore",
+      "exit_code": 0,
+      "log": "D:\\work\\Thingi10K-full\\hash-validation-20261105\\builds\\6.log",
+      "log_sha256": "e2b24a0d4a424c72cba986879abdc8031f6ab9b85b0845a6ecc901abcfe25758"
+    }
+  ],
+  "performance_recipe_checklist": {
+    "scope": "Frozen edge_topology block and EdgeKeyComparer only; benchmark/cold code excluded",
+    "command": "PowerShell regex recipe counts over the frozen block plus EdgeKeyComparer.cs",
+    "recipes": [
+      {
+        "recipe": "critical_indexof",
+        "hits": 0
+      },
+      {
+        "recipe": "critical_substring",
+        "hits": 0
+      },
+      {
+        "recipe": "critical_prefix",
+        "hits": 0
+      },
+      {
+        "recipe": "critical_contains",
+        "hits": 0
+      },
+      {
+        "recipe": "sync_wait",
+        "hits": 0
+      },
+      {
+        "recipe": "value_task",
+        "hits": 0
+      },
+      {
+        "recipe": "stackalloc",
+        "hits": 0
+      },
+      {
+        "recipe": "boxing",
+        "hits": 0
+      },
+      {
+        "recipe": "regex",
+        "hits": 0
+      },
+      {
+        "recipe": "containskey",
+        "hits": 0
+      },
+      {
+        "recipe": "json_options",
+        "hits": 0
+      },
+      {
+        "recipe": "http_client",
+        "hits": 0
+      },
+      {
+        "recipe": "params",
+        "hits": 0
+      },
+      {
+        "recipe": "array_pool",
+        "hits": 0
+      },
+      {
+        "recipe": "lower_upper",
+        "hits": 0
+      },
+      {
+        "recipe": "replace",
+        "hits": 0
+      },
+      {
+        "recipe": "memory_span",
+        "hits": 0
+      },
+      {
+        "recipe": "static_dictionary",
+        "hits": 0
+      },
+      {
+        "recipe": "static_frozen",
+        "hits": 0
+      },
+      {
+        "recipe": "list_allocations",
+        "hits": 1
+      },
+      {
+        "recipe": "dictionary_allocations",
+        "hits": 1
+      },
+      {
+        "recipe": "culture_comparer",
+        "hits": 0
+      },
+      {
+        "recipe": "linq_chains",
+        "hits": 0
+      },
+      {
+        "recipe": "linq_all_any",
+        "hits": 2
+      },
+      {
+        "recipe": "unsealed_classes",
+        "hits": 0
+      },
+      {
+        "recipe": "sealed_classes",
+        "hits": 1
+      },
+      {
+        "recipe": "equatable",
+        "hits": 0
+      }
+    ],
+    "classification": "Critical measured hash pathology: a packed long uses the default XOR hash; reuse Index2i hashing. Mutable Dictionary and post-count All checks retained; no unrelated micro-optimizations."
+  },
+  "direct_review": {
+    "checklist": "docs/REVIEW_CHECKLIST.md",
+    "scope": "All changed code, exact equality, unchanged counting/checks, safe recovery and documentation",
+    "independent": false,
+    "ready_or_merge_gate": "Independent review outstanding; keep Draft"
+  },
+  "live_deployment": {
+    "verification_command": "C:\\Python314\\python.exe D:\\work\\Thingi10K-full\\hash-migration-20261105\\verify.py",
+    "verified_at": "2026-11-05T21:43:04.607554+00:00",
+    "migration_journal_sha256": "da2b21148b592c20716357c82ee3e1f34f32c4f85464430037be4327e0f0d5f3",
+    "frozen_hashes_unchanged": true,
+    "final_jsonl_byte_prefixes_unchanged": true,
+    "jsonl_prefixes": {
+      "boolean.jsonl": {
+        "bytes": 13962590,
+        "sha256": "bc7531f176d8e399e28ccab91cf04b9fc8c962d9ccd4d2b95c85416b0e538d96"
+      },
+      "computed.jsonl": {
+        "bytes": 53951,
+        "sha256": "ad14f5c8934544386f76b71745c043fdce9d87c13d2ec4951a32d613c1acf319"
+      },
+      "wrap.jsonl": {
+        "bytes": 22838800,
+        "sha256": "173fca5c22133207d6bb11b8c6a225c35411c000bfe3de2fa45ce90519b50115"
+      }
+    },
+    "original_pending_jobs_finalized": 16,
+    "retained_operation_ms_unchanged": true,
+    "retained": {
+      "226683.stl": {
+        "eval_wall_ms": 14517,
+        "operations": [
+          {
+            "operation": "union",
+            "time_ms": 22308,
+            "status": "quality_unchecked",
+            "reason": "Self-intersection check skipped above 400000 result triangles"
+          },
+          {
+            "operation": "intersection",
+            "time_ms": 10340,
+            "status": "ok",
+            "reason": ""
+          },
+          {
+            "operation": "difference",
+            "time_ms": 14759,
+            "status": "quality_unchecked",
+            "reason": "Self-intersection check skipped above 400000 result triangles"
+          }
+        ],
+        "edge_topology_ms": {
+          "union": 1468,
+          "intersection": 1,
+          "difference": 913
+        }
+      },
+      "226684.stl": {
+        "eval_wall_ms": 14575,
+        "operations": [
+          {
+            "operation": "union",
+            "time_ms": 20402,
+            "status": "quality_unchecked",
+            "reason": "Self-intersection check skipped above 400000 result triangles"
+          },
+          {
+            "operation": "intersection",
+            "time_ms": 10317,
+            "status": "ok",
+            "reason": ""
+          },
+          {
+            "operation": "difference",
+            "time_ms": 10913,
+            "status": "quality_unchecked",
+            "reason": "Self-intersection check skipped above 400000 result triangles"
+          }
+        ],
+        "edge_topology_ms": {
+          "union": 1447,
+          "intersection": 1,
+          "difference": 926
+        }
+      }
+    },
+    "progress_after": {
+      "state": "running",
+      "pid": 1624,
+      "updated_at": "2026-11-05T22:43:02+0100",
+      "expected_meshes": 10000,
+      "completed": {
+        "wrap": 3328,
+        "boolean": 3184
+      },
+      "boolean_computed": 3184,
+      "pending_evaluations": 0,
+      "pending_bytes": 0,
+      "download_failures": {
+        "wrap": 0,
+        "boolean": 0
+      },
+      "active_models": {
+        "boolean": "compute:229603.stl",
+        "wrap": "compute:242224.stl"
+      },
+      "pipeline_version": 1
+    }
+  }
+}

@@ -486,6 +486,22 @@ The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, 
 | Incidences and pinches missed by snap rounding in practice | J. Hershberger, *Snap Rounding: A Cautionary Tale*, SoCG 2025, [paper](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SoCG.2025.57) | paper only; background for the Q17 pinch fix |
 | Certified convex free regions | R. Deits, R. Tedrake, *Computing Large Convex Regions of Obstacle-Free Space Through Semidefinite Programming*, WAFR 2014, [paper](https://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf) | paper only |
 
+## Thingi10K evaluator edge hashing
+
+The external [Thingi10K probe](../benchmarks/Thingi10KFull/README.md#edge-hash-correction-tier-m-evaluator-only)
+reuses the measured library's existing `Index2i.GetHashCode()` for packed vertex-ID
+pairs and keeps exact `long` equality. The original key packing, directed incidence
+counts and quality checks are retained. Existing `HashBuilder` was also checked;
+no new hash implementation or third-party code was ported.
+
+The default-hash pathology was checked against .NET's
+[Int64.GetHashCode](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Int64.cs)
+(MIT) and the
+[IEqualityComparer contract](https://learn.microsoft.com/en-us/dotnet/api/system.collections.generic.iequalitycomparer-1).
+Only .NET runtime hash code and public documentation were inspected externally.
+The benchmark records real retained-output hash distributions and bounded identical
+before/after incidence counts; no mesh files are included in the repository.
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |

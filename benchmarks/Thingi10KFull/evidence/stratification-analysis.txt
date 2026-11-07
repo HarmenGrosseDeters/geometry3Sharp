@@ -1,0 +1,145 @@
+{
+  "measured_commit": "cd7fb8abba0af09d5725b60c700dfec95234e7ad",
+  "source_jsonl_sha256": {
+    "wrap": "1d65c225627e8ab92cf44b06e0fcb92ee25a9409123027d62e41dedd7b3b2e41",
+    "boolean": "469a0f2857fe843c4150adbd6df36a9d2bc2a9d837003273ff659dafa5e00705"
+  },
+  "classification": "closed must be true and selfint exactly zero; negative/missing counts are unknown",
+  "percentile_method": "nearest rank: ceil(0.95 * timed_count)",
+  "boolean": {
+    "models": 1432,
+    "operations": 4296,
+    "groups": {
+      "closed_no_self_intersections": {
+        "models": 769,
+        "operations": 2307,
+        "statuses": {
+          "ok": 2291,
+          "unclean": 14,
+          "quality_unchecked": 2
+        },
+        "non_ok_reasons": {
+          "degenerate triangles": 12,
+          "Self-intersection check skipped above 400000 result triangles": 2,
+          "bowties": 2
+        }
+      },
+      "closed_self_intersecting": {
+        "models": 409,
+        "operations": 1227,
+        "statuses": {
+          "ok": 865,
+          "unclean": 361,
+          "quality_unchecked": 1
+        },
+        "non_ok_reasons": {
+          "not closed": 174,
+          "bowties": 158,
+          "degenerate triangles": 23,
+          "inside-out components": 2,
+          "self-intersections": 2,
+          "Self-intersection check skipped above 400000 result triangles": 1,
+          "BooleanComparison eval: degenerate=6": 2
+        }
+      },
+      "closed_self_intersections_unknown": {
+        "models": 15,
+        "operations": 45,
+        "statuses": {
+          "evaluation_failed": 18,
+          "unclean": 15,
+          "quality_unchecked": 4,
+          "ok": 8
+        },
+        "non_ok_reasons": {
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_ni7u62gp']' timed out after 3600 seconds": 3,
+          "not closed": 6,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_eyl75y2s']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_lt013419']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_n0bnfoxs']' timed out after 3600 seconds": 3,
+          "Self-intersection check skipped above 400000 result triangles": 4,
+          "bowties": 8,
+          "degenerate triangles": 1,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_rg5sjtpn']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_leo27a65']' timed out after 3600 seconds": 3
+        }
+      },
+      "open_or_weakly_closed": {
+        "models": 237,
+        "operations": 711,
+        "statuses": {
+          "unclean": 499,
+          "ok": 128,
+          "evaluation_failed": 84
+        },
+        "non_ok_reasons": {
+          "not closed": 490,
+          "BooleanComparison eval: degenerate=6": 1,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_2667783m']' timed out after 3600 seconds": 3,
+          "degenerate triangles": 1,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_ddp752gw']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_97ao25wc']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_eozb9bzb']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_m8xd58nh']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_08u0z71c']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_b4sjhe5k']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_lu0u2e_d']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_ao1a3j8x']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_dks3zmsc']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_yzieg3k9']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_yrdrnro1']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_pwgx4j05']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_n_9xe_zt']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_6mauayql']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_q455xxi8']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_in5m9e_3']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp__r5a16rh']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_60ey85_i']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_y9q0bdbg']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_irch2d1e']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_cvwd0fh5']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_qafnm_lh']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_kao47g8v']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_p0ocawbt']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_8vco7x_o']' timed out after 3600 seconds": 3,
+          "bowties": 6,
+          "self-intersections": 1,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_vrwdwcuv']' timed out after 3600 seconds": 3,
+          "TimeoutExpired: Command '['dotnet', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\bin\\\\BooleanComparison\\\\BooleanComparison.dll', 'eval', 'D:\\\\work\\\\Thingi10K-full\\\\run-20261103-corrected\\\\scratch\\\\boolcmp_7nu6bpm5']' timed out after 3600 seconds": 3
+        }
+      },
+      "input_unknown": {
+        "models": 2,
+        "operations": 6,
+        "statuses": {
+          "not_run_export_failed": 6
+        },
+        "non_ok_reasons": {
+          "Export: RuntimeError: Export exit 3762504530: Unhandled exception. System.AggregateException: One or more errors occurred. (ExactTriangulation2: Delaunay flips do not terminate) (ExactTriangulation2: Delaunay flips do not terminate) (ExactTriangulation2: Delaunay flips do not terminate)\n ---> System.InvalidOperationException: ExactTriangulation2: Delaunay flips do not terminate\n   at g3.ExactTriangulation2.MakeDelaunay()\n   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.triangulate(Int32 ti, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.<>c__DisplayClass102_0.<Compute>b__1(Int32 ti)\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n   at System.Threading.Tasks.TaskReplicator.Replica.Execute()\n   --- End of inner exception stack trace ---\n   at System.Threading.Tasks.TaskReplicator.Run[TState](ReplicatableUserAction`1 action, ParallelOptions options, Boolean stopOnFirstFailure)\n   at System.Threading.Tasks.Parallel.ForWorker[TLocal,TInt](TInt fromInclusive, TInt toExclusive, ParallelOptions parallelOptions, Action`1 body, Action`2 bodyWithState, Func`4 bodyWithLocal, Func`1 localInit, Action`1 localFinally)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.ForWorker[TLocal,TInt](TInt fromInclusive, TInt toExclusive, ParallelOptions parallelOptions, Action`1 body, Action`2 bodyWithState, Func`4 bodyWithLocal, Func`1 localInit, Action`1 localFinally)\n   at System.Threading.Tasks.Parallel.For(Int32 fromInclusive, Int32 toExclusive, Action`1 body)\n   at g3.gParallel.ForRange(Int32 count, Action`1 body)\n   at g3.ExactMeshArrangement.Compute()\n   at g3.ExactMeshBoolean.Compute()\n   at g3.ExactMeshBoolean.Resolve(DMesh3 mesh, Boolean safeRounding)\n   at g3.ExactMeshBoolean.Resolve(DMesh3 mesh)\n   at Program.WriteCase(DMesh3 a, DMesh3 b, String dir, String name, Dictionary`2 extra) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 155\n   at Program.Export(String meshFile, String dir) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 85\n   at Program.Main(String[] args) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 45\n ---> (Inner Exception #1) System.InvalidOperationException: ExactTriangulation2: Delaunay flips do not terminate\n   at g3.ExactTriangulation2.MakeDelaunay()\n   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.triangulate(Int32 ti, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.<>c__DisplayClass102_0.<Compute>b__1(Int32 ti)\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n   at System.Threading.Tasks.TaskReplicator.Replica.Execute()<---\n\n ---> (Inner Exception #2) System.InvalidOperationException: ExactTriangulation2: Delaunay flips do not terminate\n   at g3.ExactTriangulation2.MakeDelaunay()\n   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.triangulate(Int32 ti, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.<>c__DisplayClass102_0.<Compute>b__1(Int32 ti)\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n   at System.Threading.Tasks.TaskReplicator.Replica.Execute()<---": 3,
+          "Export: RuntimeError: Export exit 3762504530: Unhandled exception. System.AggregateException: One or more errors occurred. (ExactTriangulation2: Delaunay flips do not terminate) (ExactTriangulation2: Delaunay flips do not terminate)\n ---> System.InvalidOperationException: ExactTriangulation2: Delaunay flips do not terminate\n   at g3.ExactTriangulation2.MakeDelaunay()\n   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.triangulate(Int32 ti, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.<>c__DisplayClass102_0.<Compute>b__1(Int32 ti)\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n   at System.Threading.Tasks.TaskReplicator.Replica.Execute()\n   --- End of inner exception stack trace ---\n   at System.Threading.Tasks.TaskReplicator.Run[TState](ReplicatableUserAction`1 action, ParallelOptions options, Boolean stopOnFirstFailure)\n   at System.Threading.Tasks.Parallel.ForWorker[TLocal,TInt](TInt fromInclusive, TInt toExclusive, ParallelOptions parallelOptions, Action`1 body, Action`2 bodyWithState, Func`4 bodyWithLocal, Func`1 localInit, Action`1 localFinally)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.ForWorker[TLocal,TInt](TInt fromInclusive, TInt toExclusive, ParallelOptions parallelOptions, Action`1 body, Action`2 bodyWithState, Func`4 bodyWithLocal, Func`1 localInit, Action`1 localFinally)\n   at System.Threading.Tasks.Parallel.For(Int32 fromInclusive, Int32 toExclusive, Action`1 body)\n   at g3.gParallel.ForRange(Int32 count, Action`1 body)\n   at g3.ExactMeshArrangement.Compute()\n   at g3.ExactMeshBoolean.Compute()\n   at g3.ExactMeshBoolean.Resolve(DMesh3 mesh, Boolean safeRounding)\n   at g3.ExactMeshBoolean.Resolve(DMesh3 mesh)\n   at Program.WriteCase(DMesh3 a, DMesh3 b, String dir, String name, Dictionary`2 extra) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 155\n   at Program.Export(String meshFile, String dir) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 85\n   at Program.Main(String[] args) in <run-root>\\sources\\benchmarks\\BooleanComparison\\Program.cs:line 45\n ---> (Inner Exception #1) System.InvalidOperationException: ExactTriangulation2: Delaunay flips do not terminate\n   at g3.ExactTriangulation2.MakeDelaunay()\n   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.triangulate(Int32 ti, List`1& output, List`1& constraints)\n   at g3.ExactMeshArrangement.<>c__DisplayClass102_0.<Compute>b__1(Int32 ti)\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n--- End of stack trace from previous location ---\n   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)\n   at System.Threading.Tasks.TaskReplicator.Replica.Execute()<---": 3
+        }
+      }
+    },
+    "timing": {
+      "timed_count": 4290,
+      "median_seconds": 0.1625,
+      "p95_seconds": 5.587,
+      "max_seconds": 70.096
+    },
+    "candidate_operations": 29,
+    "empty_operations": 49
+  },
+  "wrap": {
+    "models": 1432,
+    "statuses": {
+      "ok": 1431,
+      "timeout": 1
+    },
+    "timing": {
+      "timed_count": 1431,
+      "median_seconds": 1.151,
+      "p95_seconds": 3.553,
+      "max_seconds": 19.557
+    }
+  }
+}
