@@ -74,6 +74,68 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // Each relation is constructive, with positive bounded dimensions. Shrinking
+        // coordinates, dimensions, gap, axis or frame cannot leave the chosen family.
+        static Gen<(IntBox, IntBox)> GenDirectedFamily(string family) =>
+            Gen.Select(GenBox(2), Gen.Int[1, 2], Gen.Int[0, 2], (box, gap, axis) => {
+                int[] lo = { box.X0, box.Y0, box.Z0 }, hi = { box.X1, box.Y1, box.Z1 };
+                int[] blo = (int[])lo.Clone(), bhi = (int[])hi.Clone();
+                switch (family) {
+                    case "disjoint":
+                        blo[axis] = hi[axis] + gap;
+                        bhi[axis] = blo[axis] + hi[axis] - lo[axis];
+                        break;
+                    case "identical": break;
+                    case "strict_nested":
+                        for (int j = 0; j < 3; j++) { lo[j]--; hi[j]++; }
+                        break;
+                    case "overlapping":
+                    case "coplanar_overlap":
+                        for (int j = 0; j < 3; j++) {
+                            int width = hi[j] - lo[j];
+                            hi[j] += width;
+                            blo[j] += family == "coplanar_overlap" && j == axis ? 0 : width;
+                            bhi[j] = blo[j] + 2 * width;
+                        }
+                        break;
+                    case "face_touching":
+                    case "edge_touching":
+                    case "vertex_touching":
+                        int dimensions = family == "face_touching" ? 1 : family == "edge_touching" ? 2 : 3;
+                        for (int j = 0; j < dimensions; j++) {
+                            int a = (axis + j) % 3;
+                            blo[a] = hi[a]; bhi[a] = hi[a] + hi[a] - lo[a];
+                        }
+                        break;
+                    default: throw new ArgumentException(family);
+                }
+                return (new IntBox(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]),
+                        new IntBox(blo[0], blo[1], blo[2], bhi[0], bhi[1], bhi[2]));
+            });
+
+        // Independent interval predicates, used on initial cases and every shrink.
+        static string DirectedFamilyReason(string family, BoxCase c)
+        {
+            int[] overlap = Enumerable.Range(0, 3).Select(j => Math.Min(c.A.Hi(j), c.B.Hi(j)) - Math.Max(c.A.Lo(j), c.B.Lo(j))).ToArray();
+            bool identical = Enumerable.Range(0, 3).All(j => c.A.Lo(j) == c.B.Lo(j) && c.A.Hi(j) == c.B.Hi(j));
+            bool containsA = Enumerable.Range(0, 3).All(j => c.A.Lo(j) <= c.B.Lo(j) && c.A.Hi(j) >= c.B.Hi(j));
+            bool containsB = Enumerable.Range(0, 3).All(j => c.B.Lo(j) <= c.A.Lo(j) && c.B.Hi(j) >= c.A.Hi(j));
+            bool valid;
+            switch (family) {
+                case "disjoint": valid = overlap.Any(x => x < 0); break;
+                case "identical": valid = identical; break;
+                case "strict_nested": valid = Enumerable.Range(0, 3).All(j => c.A.Lo(j) < c.B.Lo(j) && c.A.Hi(j) > c.B.Hi(j)); break;
+                case "overlapping": valid = overlap.All(x => x > 0) && !containsA && !containsB; break;
+                case "coplanar_overlap": valid = overlap.All(x => x > 0) && !containsA && !containsB &&
+                    Enumerable.Range(0, 3).Any(j => c.A.Lo(j) == c.B.Lo(j) && c.A.Hi(j) == c.B.Hi(j)); break;
+                default:
+                    int count = family == "face_touching" ? 1 : family == "edge_touching" ? 2 : family == "vertex_touching" ? 3 : -1;
+                    valid = count >= 0 && overlap.All(x => x >= 0) && overlap.Count(x => x == 0) == count;
+                    break;
+            }
+            return valid ? "" : "generator left " + family + ": " + c;
+        }
+
         static IntBox Snap(IntBox a, IntBox b, int axis, bool atEnd)
         {
             int[] lo = { b.X0, b.Y0, b.Z0 }, hi = { b.X1, b.Y1, b.Z1 };
@@ -209,6 +271,65 @@ namespace geometry3Sharp.Tests
         [InlineData("nested", 4u, 300)]
         public void Boxes(string family, uint campaign, int samples) =>
             Campaign("Boxes(" + family + ")", GenCase(GenFamily(family)), BoxProperties, samples, campaign);
+
+        [Theory]
+        [InlineData("disjoint", 11u)]
+        [InlineData("identical", 12u)]
+        [InlineData("strict_nested", 13u)]
+        [InlineData("overlapping", 14u)]
+        [InlineData("coplanar_overlap", 15u)]
+        [InlineData("face_touching", 16u)]
+        [InlineData("edge_touching", 17u)]
+        [InlineData("vertex_touching", 18u)]
+        public void DirectedBoxes(string family, uint campaign) =>
+            Campaign("DirectedBoxes(" + family + ")", GenCase(GenDirectedFamily(family)),
+                c => First(() => DirectedFamilyReason(family, c), () => BoxProperties(c)), 32, campaign);
+
+        [Theory]
+        [InlineData("disjoint")]
+        [InlineData("identical")]
+        [InlineData("strict_nested")]
+        [InlineData("overlapping")]
+        [InlineData("coplanar_overlap")]
+        [InlineData("face_touching")]
+        [InlineData("edge_touching")]
+        [InlineData("vertex_touching")]
+        public void DirectedFamilyCheck_RejectsWrongRelations(string family)
+        {
+            var a = new IntBox(0, 0, 0, 1, 1, 1);
+            var b = family == "identical" ? new IntBox(2, 0, 0, 3, 1, 1) : a;
+            Assert.NotEqual("", DirectedFamilyReason(family, new BoxCase(a, b)));
+        }
+
+        [Theory]
+        [InlineData("disjoint")]
+        [InlineData("face_touching")]
+        public void DirectedCampaign_ShrinksAndReplaysWithinItsFamily(string family)
+        {
+            var gen = GenCase(GenDirectedFamily(family));
+            var visited = new List<BoxCase>();
+            string WrongOperation(BoxCase c)
+            {
+                Assert.Equal("", DirectedFamilyReason(family, c));
+                visited.Add(c);
+                DMesh3 wrong = BooleanOracle.Run(c.MeshA(), c.MeshB(), Ops.Difference, out string error);
+                Assert.Equal("", error);
+                return BooleanOracle.CheckBoxResult(wrong, c, Ops.Union);
+            }
+            var failure = Assert.Throws<Xunit.Sdk.XunitException>(() =>
+                Campaign("DirectedFault(" + family + ")", gen, WrongOperation, 1, 31u));
+            log.WriteLine(failure.Message);
+            string shrink = failure.Message.Substring(failure.Message.IndexOf("Shrunk (", StringComparison.Ordinal));
+            Match match = Regex.Match(shrink, "Set seed: \"([^\"]+)\".*\\((\\d+) shrinks");
+            Assert.True(match.Success, failure.Message);
+            Assert.True(int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) > 0, failure.Message);
+            BoxCase replay = null;
+            gen.Sample(c => replay = c, seed: match.Groups[1].Value, iter: 1, threads: 1);
+            Assert.Contains(replay.ToString(), shrink);
+            Assert.NotEqual(visited[0].ToString(), replay.ToString());
+            Assert.Equal("", DirectedFamilyReason(family, replay));
+            Assert.NotEqual("", WrongOperation(replay));
+        }
 
         /// <summary>
         /// One representation change (triangle order, vertex ids, corner rotation, subdivision, slivers) of A, B or

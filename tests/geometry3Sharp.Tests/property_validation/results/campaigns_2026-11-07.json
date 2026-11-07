@@ -1,0 +1,1012 @@
+{
+  "baseline_commit": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+  "sdk": "10.0.403",
+  "cscheck": "4.9.1",
+  "baseline_command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --no-restore --filter FullyQualifiedName~ExactBooleanProperty|FullyQualifiedName~ExactBooleanMetamorphic --logger trx;LogFileName=boolean-properties-base.trx --results-directory /tmp/boolean-properties-base",
+  "baseline_property_sources": "Unchanged master property/oracle files; compiled suite also contains unselected Z3 native tests. Filter above selects only the pre-existing Boolean tests.",
+  "final_command": [
+    "/workspace/dotnet/dotnet",
+    "test",
+    "tests/geometry3Sharp.Tests",
+    "-c",
+    "Release",
+    "-f",
+    "net10.0",
+    "--no-restore",
+    "--filter",
+    "FullyQualifiedName~ExactBooleanProperty|FullyQualifiedName~ExactBooleanMetamorphic",
+    "--logger",
+    "trx;LogFileName=boolean-properties-after.trx",
+    "--results-directory",
+    "/tmp/boolean-properties-final"
+  ],
+  "runs": {
+    "baseline": {
+      "counters": {
+        "total": "67",
+        "executed": "67",
+        "passed": "67",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "times": {
+        "creation": "2026-11-07T18:06:31.9850984+00:00",
+        "queuing": "2026-11-07T18:06:31.9850985+00:00",
+        "start": "2026-11-07T18:06:26.2084642+00:00",
+        "finish": "2026-11-07T18:06:48.5941010+00:00"
+      },
+      "tests": [
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"general\", campaign: 1, samples: 400)",
+          "outcome": "Passed",
+          "duration": "00:00:02.1802837",
+          "output": "Boxes(general): CsCheck campaign 1, 400 samples\nBoxes(general): passed in 2179 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Campaign_FindsShrinksAndReplaysAFaultyResult",
+          "outcome": "Passed",
+          "duration": "00:00:00.1107975",
+          "output": "faulty union: CsCheck campaign 7, 40 samples\nfaulty union fails for seed 0000000000f7 (campaign 7):\n  A=[0,4]x[3,4]x[3,4] B=[0,3]x[1,2]x[0,3] scale=2^6 t=(0,0,0)\n  Set seed: \"0000000000f7\" or -e CsCheck_Seed=0000000000f7 to reproduce (0 shrinks, 0 skipped, 1 total).\nA=[0,4]x[3,4]x[3,4] B=[0,3]x[1,2]x[0,3] scale=2^6 t=(0,0,0)\nnot closed\nShrunk (400 tries, not necessarily minimal): Set seed: \"7haLj4KO7Gk1\" or -e CsCheck_Seed=7haLj4KO7Gk1 to reproduce (8 shrinks, 391 skipped, 400 total).\nA=[1,2]x[2,3]x[0,1] B=[3,4]x[2,4]x[0,4] scale=2^0 t=(0,0,0)\nnot closed\nReplay: G3_PROPERTY_CAMPAIGN=\"faulty union\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.faulty union\""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.3538980",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0095513",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.ReusedInstance_AndRepeatedRuns_GiveTheSameResult",
+          "outcome": "Passed",
+          "duration": "00:00:00.0173742",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes_RepresentationInvariance",
+          "outcome": "Passed",
+          "duration": "00:00:06.5767737",
+          "output": "Boxes_RepresentationInvariance: CsCheck campaign 5, 400 samples\nBoxes_RepresentationInvariance: passed in 6575 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Resolve_RepairsTheDegenerateInputTriangle_WithinItsDisplacementBound",
+          "outcome": "Passed",
+          "duration": "00:00:00.0086195",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"sliver\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0940604",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0105625",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.SafeRounding_ContractsTheSmallPieces_WithinItsDisplacementBound",
+          "outcome": "Passed",
+          "duration": "00:00:00.4771740",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0166055",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0909716",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0200264",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"rotated, scale 1e-3, utm\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0155365",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"nested\", campaign: 4, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:02.2065546",
+          "output": "Boxes(nested): CsCheck campaign 4, 300 samples\nBoxes(nested): passed in 2206 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.BoxOracle_AcceptsHandBuiltResults_AndRejectsWrongOnes",
+          "outcome": "Passed",
+          "duration": "00:00:00.0097532",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1729219",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 2^10\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0110977",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0344954",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0158564",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0377786",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0799314",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6213215",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0539974",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.9854626",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0372103",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6062315",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.3847288",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"coplanar\", campaign: 2, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:03.4275768",
+          "output": "Boxes(coplanar): CsCheck campaign 2, 300 samples\nBoxes(coplanar): passed in 3425 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0150063",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6339429",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"touching\", campaign: 3, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:01.3993872",
+          "output": "Boxes(touching): CsCheck campaign 3, 300 samples\nBoxes(touching): passed in 1399 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"identity\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0213151",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0271897",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0576824",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.RepresentationChanges_KeepTheSurface_AndChangeTheRepresentation",
+          "outcome": "Passed",
+          "duration": "00:00:00.0133286",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"rotated\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0239749",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:01.6341699",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 1e3\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0189006",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0156566",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Reproduction1_IsCleanAndExact_WithoutSafeRounding",
+          "outcome": "Passed",
+          "duration": "00:00:00.0114531",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"coplanar faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1894090",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0227397",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"shared edge\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0854311",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.4258714",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.8615620",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0124634",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Campaign_IsReproducible",
+          "outcome": "Passed",
+          "duration": "00:00:00.0085132",
+          "output": "first: CsCheck campaign 3, 20 samples\nfirst: passed in 0 ms\nsecond: CsCheck campaign 3, 20 samples\nsecond: passed in 0 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0277767",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0258970",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 2^-10\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0112975",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 1e-3\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0138179",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0106169",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0394684",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Reproduction1b_IsExact_WithoutSafeRounding",
+          "outcome": "Passed",
+          "duration": "00:00:00.0031932",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Dyadic_IsExact",
+          "outcome": "Passed",
+          "duration": "00:00:00.0025362",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Tetrahedra",
+          "outcome": "Passed",
+          "duration": "00:00:01.6912822",
+          "output": "Tetrahedra: CsCheck campaign 6, 600 samples\nTetrahedra: passed in 1690 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0153013",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0103039",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.SameSolid_IgnoresTriangulation_AndRejectsOtherSolids",
+          "outcome": "Passed",
+          "duration": "00:00:00.0012773",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6751639",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.5158205",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"utm\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0197692",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0340675",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6146829",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1457398",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"shared vertex\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1167665",
+          "output": ""
+        }
+      ]
+    },
+    "final": {
+      "counters": {
+        "total": "88",
+        "executed": "88",
+        "passed": "88",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "times": {
+        "creation": "2026-11-07T18:13:28.2343429+00:00",
+        "queuing": "2026-11-07T18:13:28.2343430+00:00",
+        "start": "2026-11-07T18:13:19.6102016+00:00",
+        "finish": "2026-11-07T18:13:50.1069342+00:00"
+      },
+      "tests": [
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"shared edge\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2779788",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0002250",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0170096",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2324871",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0383900",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0163626",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:01.0564659",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"edge_touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000106",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0489918",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.BoxOracle_AcceptsHandBuiltResults_AndRejectsWrongOnes",
+          "outcome": "Passed",
+          "duration": "00:00:00.0143712",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1492303",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0208649",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0262630",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Dyadic_IsExact",
+          "outcome": "Passed",
+          "duration": "00:00:00.0123144",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.5110855",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Reproduction1b_IsExact_WithoutSafeRounding",
+          "outcome": "Passed",
+          "duration": "00:00:00.0021128",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.EmptyResult_StillRequiresFiniteCoordinates(invalid: NaN)",
+          "outcome": "Passed",
+          "duration": "00:00:00.0031524",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.SafeRounding_ContractsTheSmallPieces_WithinItsDisplacementBound",
+          "outcome": "Passed",
+          "duration": "00:00:00.5053957",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"rotated\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0257218",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Campaign_IsReproducible",
+          "outcome": "Passed",
+          "duration": "00:00:00.0102431",
+          "output": "first: CsCheck campaign 3, 20 samples\nfirst: passed in 0 ms\nsecond: CsCheck campaign 3, 20 samples\nsecond: passed in 0 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"sliver\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2870172",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"rotated, scale 1e-3, utm\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0544739",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.8813515",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedCampaign_ShrinksAndReplaysWithinItsFamily(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0080441",
+          "output": "DirectedFault(disjoint): CsCheck campaign 31, 1 samples\nDirectedFault(disjoint) fails for seed 0000000000-v (campaign 31):\n  A=[0,2]x[0,1]x[1,2] B=[4,6]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)\n  Set seed: \"0000000000-v\" or -e CsCheck_Seed=0000000000-v to reproduce (0 shrinks, 0 skipped, 1 total).\nA=[0,2]x[0,1]x[1,2] B=[4,6]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)\nvolume 9.5367431640625E-07, expected 1.9073486328125E-06\nShrunk (400 tries, not necessarily minimal): Set seed: \"56gv4DEPl3T1\" or -e CsCheck_Seed=56gv4DEPl3T1 to reproduce (2 shrinks, 397 skipped, 400 total).\nA=[1,2]x[1,2]x[1,2] B=[1,2]x[3,4]x[1,2] scale=2^6 t=(0,0,0)\nvolume 262144, expected 524288\nReplay: G3_PROPERTY_CAMPAIGN=\"DirectedFault(disjoint)\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.DirectedFault\""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"disjoint\", campaign: 11)",
+          "outcome": "Passed",
+          "duration": "00:00:00.3072041",
+          "output": "DirectedBoxes(disjoint): CsCheck campaign 11, 32 samples\nDirectedBoxes(disjoint): passed in 307 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0234168",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0534231",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Tetrahedra",
+          "outcome": "Passed",
+          "duration": "00:00:01.9395846",
+          "output": "Tetrahedra: CsCheck campaign 6, 600 samples\nTetrahedra: passed in 1938 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"vertex_touching\", campaign: 18)",
+          "outcome": "Passed",
+          "duration": "00:00:00.6488330",
+          "output": "DirectedBoxes(vertex_touching): CsCheck campaign 18, 32 samples\nDirectedBoxes(vertex_touching): passed in 648 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000044",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.7327766",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Campaign_FindsShrinksAndReplaysAFaultyResult",
+          "outcome": "Passed",
+          "duration": "00:00:00.0631227",
+          "output": "faulty union: CsCheck campaign 7, 40 samples\nfaulty union fails for seed 0000000000f7 (campaign 7):\n  A=[0,4]x[3,4]x[3,4] B=[0,3]x[1,2]x[0,3] scale=2^6 t=(0,0,0)\n  Set seed: \"0000000000f7\" or -e CsCheck_Seed=0000000000f7 to reproduce (0 shrinks, 0 skipped, 1 total).\nA=[0,4]x[3,4]x[3,4] B=[0,3]x[1,2]x[0,3] scale=2^6 t=(0,0,0)\nnot closed\nShrunk (400 tries, not necessarily minimal): Set seed: \"egazXFBHrr_1\" or -e CsCheck_Seed=egazXFBHrr_1 to reproduce (6 shrinks, 393 skipped, 400 total).\nA=[2,4]x[3,4]x[0,1] B=[0,3]x[0,2]x[0,3] scale=2^-6 t=(-127.3125,695.75,140.3125)\nnot closed\nReplay: G3_PROPERTY_CAMPAIGN=\"faulty union\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.faulty union\""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes_RepresentationInvariance",
+          "outcome": "Passed",
+          "duration": "00:00:04.6811746",
+          "output": "Boxes_RepresentationInvariance: CsCheck campaign 5, 400 samples\nBoxes_RepresentationInvariance: passed in 4680 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"shared vertex\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2495289",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:01.6456470",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.RepresentationChanges_KeepTheSurface_AndChangeTheRepresentation",
+          "outcome": "Passed",
+          "duration": "00:00:00.0221998",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 1e-3\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0328129",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Resolve_RepairsTheDegenerateInputTriangle_WithinItsDisplacementBound",
+          "outcome": "Passed",
+          "duration": "00:00:00.0027177",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0171663",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedCampaign_ShrinksAndReplaysWithinItsFamily(family: \"face_touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0115700",
+          "output": "DirectedFault(face_touching): CsCheck campaign 31, 1 samples\nDirectedFault(face_touching) fails for seed 0000000000-v (campaign 31):\n  A=[0,2]x[0,1]x[1,2] B=[2,4]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)\n  Set seed: \"0000000000-v\" or -e CsCheck_Seed=0000000000-v to reproduce (0 shrinks, 0 skipped, 1 total).\nA=[0,2]x[0,1]x[1,2] B=[2,4]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)\nvolume 9.5367431640625E-07, expected 1.9073486328125E-06\nShrunk (400 tries, not necessarily minimal): Set seed: \"aAfa5JNMAVJ1\" or -e CsCheck_Seed=aAfa5JNMAVJ1 to reproduce (1 shrinks, 398 skipped, 400 total).\nA=[0,1]x[1,2]x[0,1] B=[0,1]x[2,3]x[0,1] scale=2^6 t=(125.125,-31.375,484.4375)\nvolume 262144, expected 524288\nReplay: G3_PROPERTY_CAMPAIGN=\"DirectedFault(face_touching)\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.DirectedFault\""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"nested\", campaign: 4, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:02.1618769",
+          "output": "Boxes(nested): CsCheck campaign 4, 300 samples\nBoxes(nested): passed in 2161 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"coplanar faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2132097",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0575479",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0442191",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0661169",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"vertex touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:01.4322887",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"touching\", campaign: 3, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:01.2902910",
+          "output": "Boxes(touching): CsCheck campaign 3, 300 samples\nBoxes(touching): passed in 1290 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"overlapping\", campaign: 14)",
+          "outcome": "Passed",
+          "duration": "00:00:00.8001031",
+          "output": "DirectedBoxes(overlapping): CsCheck campaign 14, 32 samples\nDirectedBoxes(overlapping): passed in 800 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"edge touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.9201056",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.8325119",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"identical\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.6227679",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"identity\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0132519",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.7024513",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"face_touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000040",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"face touching, partial\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.5538658",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"coplanar\", campaign: 2, samples: 300)",
+          "outcome": "Passed",
+          "duration": "00:00:02.0561033",
+          "output": "Boxes(coplanar): CsCheck campaign 2, 300 samples\nBoxes(coplanar): passed in 2055 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 1e3\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0183576",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.EmptyResult_StillRequiresFiniteCoordinates(invalid: Infinity)",
+          "outcome": "Passed",
+          "duration": "00:00:00.0004770",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 2^10\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0374920",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0302584",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"strict_nested\", campaign: 13)",
+          "outcome": "Passed",
+          "duration": "00:00:04.5876173",
+          "output": "DirectedBoxes(strict_nested): CsCheck campaign 13, 32 samples\nDirectedBoxes(strict_nested): passed in 4574 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"vertex_touching\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000046",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1993757",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0206106",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0094987",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"coplanar_overlap\", campaign: 15)",
+          "outcome": "Passed",
+          "duration": "00:00:00.8945211",
+          "output": "DirectedBoxes(coplanar_overlap): CsCheck campaign 15, 32 samples\nDirectedBoxes(coplanar_overlap): passed in 894 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.SameSolid_IgnoresTriangulation_AndRejectsOtherSolids",
+          "outcome": "Passed",
+          "duration": "00:00:00.0038175",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.Boxes(family: \"general\", campaign: 1, samples: 400)",
+          "outcome": "Passed",
+          "duration": "00:00:01.9623657",
+          "output": "Boxes(general): CsCheck campaign 1, 400 samples\nBoxes(general): passed in 1961 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0267993",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_RepresentationInvariance(family: \"disjoint\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.4876960",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"cross\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0603092",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"face_touching\", campaign: 16)",
+          "outcome": "Passed",
+          "duration": "00:00:00.4871338",
+          "output": "DirectedBoxes(face_touching): CsCheck campaign 16, 32 samples\nDirectedBoxes(face_touching): passed in 487 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_MatchAnalyticReference(family: \"face touching, equal faces\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0446987",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0003498",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.ReusedInstance_AndRepeatedRuns_GiveTheSameResult",
+          "outcome": "Passed",
+          "duration": "00:00:00.0406771",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"scale 2^-10\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0141409",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyFindings.Reproduction1_IsCleanAndExact_WithoutSafeRounding",
+          "outcome": "Passed",
+          "duration": "00:00:00.0040486",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"edge_touching\", campaign: 17)",
+          "outcome": "Passed",
+          "duration": "00:00:00.3986989",
+          "output": "DirectedBoxes(edge_touching): CsCheck campaign 17, 32 samples\nDirectedBoxes(edge_touching): passed in 398 ms"
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"coplanar_overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0035334",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.EmptyResult_StillRequiresFiniteCoordinates(invalid: -Infinity)",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000620",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.2138103",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"coplanar overlap\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1788702",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested, in a corner\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0669053",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedFamilyCheck_RejectsWrongRelations(family: \"strict_nested\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0000043",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Partition_Similarities(name: \"utm\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0148556",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Tetrahedra_MetamorphicRelations(family: \"overlapping\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.1289636",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanMetamorphicTests.Boxes_InclusionExclusion_PartitionAndCommutativity(family: \"nested, on the wall\")",
+          "outcome": "Passed",
+          "duration": "00:00:00.0854633",
+          "output": ""
+        },
+        {
+          "name": "geometry3Sharp.Tests.ExactBooleanPropertyTests.DirectedBoxes(family: \"identical\", campaign: 12)",
+          "outcome": "Passed",
+          "duration": "00:00:00.5199492",
+          "output": "DirectedBoxes(identical): CsCheck campaign 12, 32 samples\nDirectedBoxes(identical): passed in 519 ms"
+        }
+      ]
+    }
+  },
+  "baseline_console_output": "Test run for /workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)\nA total of 1 test files matched the specified pattern.\nResults File: /tmp/boolean-properties-base/boolean-properties-base.trx\n\nPassed!  - Failed:     0, Passed:    67, Skipped:     0, Total:    67, Duration: 18 s - geometry3Sharp.Tests.dll (net10.0)\n"
+}

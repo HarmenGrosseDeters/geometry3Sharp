@@ -149,3 +149,31 @@ dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter "FullyQualif
 Before any push, run every local CI step in `CLAUDE.md`, including both suites, package/API validation and smoke
 test, net48 build and all benchmark builds. Record unrelated baseline failures separately; never label a red
 run as passing. No test execution or dependency installation is needed for this planning-only change.
+
+## Coverage follow-up (2026-11-07)
+
+The original fixed corpus covered the named geometric relations, but its generated
+campaigns mixed several of them: `general`, `coplanar`, `touching`, and `nested`.
+Rare disjoint/identical/strictly nested or individual contact dimensions were not
+guaranteed their own generated coverage. The test-only follow-up adds eight
+constructive campaigns in `ExactBooleanPropertyTests.DirectedBoxes`:
+`disjoint`, `identical`, `strict_nested`, `overlapping`, `coplanar_overlap`,
+`face_touching`, `edge_touching`, `vertex_touching`.
+
+Each runs 32 cases by default (256 additional cases, existing seeds/counts unchanged).
+An independent interval classifier checks the relation before every execution and
+every shrink. Positive bounded dimensions and constructive placement retain the
+relation during shrinking. Negative relation controls prevent a vacuous classifier.
+Two controlled wrong-operation campaigns prove family-preserving shrinking and
+replay via `Gen.Sample` of the emitted minimized seed; no production mutation is
+needed. The existing analytic oracle checks all operations, partition reconstruction,
+inclusion-exclusion and commutativity in each directed campaign.
+
+The follow-up also corrects a test-oracle gap: finite/valid checks now precede its
+empty-result shortcuts. An empty mesh with a NaN or infinite isolated vertex is
+not accepted as a valid empty Boolean. These are hand-built test-oracle faults,
+not defects found in the production Boolean implementation.
+
+Commands, captured results and controlled helper mutations are in
+[the validation notes](../../tests/geometry3Sharp.Tests/property_validation/README.md).
+No production, dependency, CI or mutation-tooling change is part of this follow-up.
