@@ -225,7 +225,8 @@ namespace g3
 
         // for tests: Apply on this thread checks the incremental intersecting pairs against a full search, and the
         // canonical ids against the dictionary (InvalidOperationException if they differ), and proposes the moves past
-        // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift)
+        // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift), and compares every
+        // decision of the projection filter in intersects with the exact test
         [ThreadStatic] internal static bool CheckOnThisThread;
         bool check;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
@@ -234,6 +235,9 @@ namespace g3
         internal long MovesPastTheLimit;
         // for tests: such moves are not counted in SmallestRejectedDrift (to show that they set it)
         internal bool SkipMovesPastTheLimit;
+        // for tests (with CheckOnThisThread): the pair tests of the last Apply, and those the projection filter decided
+        // (each compared with the exact test)
+        internal long PairTestsChecked, FilterDecisions;
         // applied edits so far (a version of the mesh)
         long version;
         // vertices of applied edits
@@ -299,6 +303,7 @@ namespace g3
             check = CheckOnThisThread;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
             MovesPastTheLimit = 0;
+            PairTestsChecked = FilterDecisions = 0;
 
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
@@ -495,10 +500,28 @@ namespace g3
             return new Index3i(canonical(t.a), canonical(t.b), canonical(t.c));
         }
 
-        // do the non-degenerate triangles t and u intersect beyond what they share (MeshRepairMetrics)
+        // do the non-degenerate triangles t and u intersect beyond what they share (MeshRepairMetrics). The projection
+        // filter TriangleTriangleFilter decides first where an axis-plane projection settles the pair with exact Orient2d
+        // only (coplanar neighbours, caps and walls of CAD parts touching at a rim, whose Orient3d is exactly 0 and slow
+        // in its exact stage), else the exact test decides: the same answer either way, so the repair is unchanged bit
+        // for bit. (A vertex id shared by both triangles means the same position, as the filter requires: the canonical
+        // ids are equal exactly at equal positions)
+        [MethodImpl(JitHints.Optimize)]
         bool intersects(Index3i t, ref Triangle3d T, Index3i u, ref Triangle3d U)
         {
-            return ExactTriangleIntersection.IntersectsBeyondShared(canonical(t), ref T, canonical(u), ref U);
+            Index3i ct = canonical(t), cu = canonical(u);
+            if (check) {
+                int decision = TriangleTriangleFilter.BeyondShared(ct, ref T, cu, ref U);
+                bool exact = ExactTriangleIntersection.IntersectsBeyondShared(ct, ref T, cu, ref U);
+                if (decision != TriangleTriangleFilter.Undecided) {
+                    if (exact != (decision == TriangleTriangleFilter.Intersecting))
+                        throw new InvalidOperationException("MeshRoundingRepair: the projection filter differs from the exact test");
+                    System.Threading.Interlocked.Increment(ref FilterDecisions);
+                }
+                System.Threading.Interlocked.Increment(ref PairTestsChecked);
+                return exact;
+            }
+            return TriangleTriangleFilter.IntersectsBeyondShared(ct, ref T, cu, ref U);
         }
 
         bool intersects(int ta, int tb)
