@@ -3197,10 +3197,20 @@ namespace Meshing2Acceptance
             /// tan angle = cross / dot, so the angle is at least the bound iff 2 cross |u| |w| >= |u x w| dot + (u.w) cross, squared
             /// when the right side is positive
             /// </summary>
+            static readonly bool ProbeArcsinBound = System.Environment.GetEnvironmentVariable("G3_ORACLE_ARCSIN_BOUND") == "1";
             internal static bool AtLeastShewchukBound(Pt q, Pt r, Pt s, Pt apex, Pt a, Pt b)
             {
                 Q dot = Dot(q, r, s);
                 if (dot.Sign <= 0) return true;   // a right or obtuse angle is above any bound below 60 degrees
+                if (ProbeArcsinBound) {
+                    // PROBE: Shewchuk 2002 Thm 12, angle >= arcsin(sin(phi/2)/sqrt2): sin^2 angle >= (1 - cos phi)/4
+                    // <=> |u||w| (1 - 4 sin^2) <= u.w
+                    Q c = Q.Abs(Exact.Area2(q, r, s));
+                    Q sin2 = c * c / (Exact.Len2(q, r) * Exact.Len2(q, s));
+                    Q l = 1 - 4 * sin2, wd = Dot(apex, a, b);
+                    if (l.Sign <= 0) return wd.Sign >= 0 || l * l * Exact.Len2(apex, a) * Exact.Len2(apex, b) >= wd * wd;
+                    return wd.Sign > 0 && l * l * Exact.Len2(apex, a) * Exact.Len2(apex, b) <= wd * wd;
+                }
                 Q cross = Q.Abs(Exact.Area2(q, r, s));
                 Q wedgeCross = Q.Abs(Exact.Area2(apex, a, b)), wedgeDot = Dot(apex, a, b);
                 Q right = wedgeCross * dot + wedgeDot * cross;

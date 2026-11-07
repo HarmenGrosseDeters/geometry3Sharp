@@ -55,6 +55,9 @@ namespace Meshing2Acceptance
             SetRefinerSwitch("WorstFirstForBenchmarks", Flag("G3_M2_WORSTFIRST"));
             SetRefinerSwitch("BestCandidateForBenchmarks", Flag("G3_M2_BEST"));
             SetRefinerSwitch("PetalForBenchmarks", Flag("G3_M2_PETAL"));
+            SetRefinerSwitch("ClusterRuleForBenchmarks", Flag("G3_M2_CLUSTER"));
+            SetRefinerSwitch("ClusterAtBoundForBenchmarks", Flag("G3_M2_CLUSTER_AT_BOUND"));
+            SetRefinerSwitch("TerminatorForBenchmarks", Flag("G3_M2_TERMINATOR"));
             // G3_M2_COARSEN (probe): a coarsening pass after refinement, by mode (0 off)
             var coarsen = Environment.GetEnvironmentVariable("G3_M2_COARSEN");
             typeof(g3.QualityMesh2.Refiner).GetField("CoarsenForBenchmarks", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
@@ -142,7 +145,11 @@ namespace Meshing2Acceptance
             long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[8] : null;
             long deleted = 0;
             var thread = new System.Threading.Thread(() => {
-                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests;
+                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts ?? (Environment.GetEnvironmentVariable("G3_M2_SPLITLOG") != null ? new long[8] : null);
+                    var splitLog = Environment.GetEnvironmentVariable("G3_M2_SPLITLOG"); var logField = typeof(g3.QualityMesh2.Refiner).GetField("SplitLogForBenchmarks", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                    if (splitLog != null) logField?.SetValue(null, new System.Collections.Generic.List<string>());
+                    output = candidate.Run(c.Input);
+                    if (splitLog != null) System.IO.File.WriteAllLines(splitLog, (System.Collections.Generic.List<string>)logField.GetValue(null)); deleted = g3.QualityMesh2.Refiner.DeletedForTests;
                     if (Environment.GetEnvironmentVariable("G3_M2_COARSEN") != null) { var R = typeof(g3.QualityMesh2.Refiner); var F = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic; Console.Error.WriteLine("coarsen: tried " + R.GetField("CoarsenTriedForBenchmarks", F)?.GetValue(null) + ", deleted " + R.GetField("CoarsenDeletedForBenchmarks", F)?.GetValue(null) + ", refused " + R.GetField("CoarsenRefusedForBenchmarks", F)?.GetValue(null)); } }
                 catch (Exception e) { error = e; }
                 finally { g3.QualityMesh2.Refiner.CountsForBenchmarks = null; }
