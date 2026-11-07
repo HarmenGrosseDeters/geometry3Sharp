@@ -126,19 +126,18 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Cases))]
         public void Similarities_SameResult(string name, Ops op)
         {
-            // 2^k scales give the same result bit for bit (and the same filter decisions). Every similarity without a
-            // rotation gives a clean result; rotated, the planes are no longer axis planes and the rounding of the
-            // crossings leaves slivers, one of which the repair keeps on "steps" difference (the same with and without
-            // the filter, whose decisions are checked here: a SafeRounding limit, not a filter case), so there the
-            // result is checked for being closed and finite
+            // 2^k scales give the same result bit for bit (and the same filter decisions), and every similarity gives a
+            // clean result but one: rotated, the planes are no longer axis planes, and on "steps" difference the
+            // rounding of the crossings leaves a cap the repair keeps (the same with and without the filter, whose
+            // decisions are checked here: a SafeRounding limit, not a filter case; Exact Boolean 2.0 finding D1), so
+            // there the result is checked for being closed and finite
             (DMesh3 a, DMesh3 b) = Inputs(name);
             ExactMeshBoolean b0 = Run(a, b, op, check: true);
             foreach (Similarity sim in Similarity.All()) {
                 ExactMeshBoolean bs = Run(Invariance.Transformed(a, sim), Invariance.Transformed(b, sim), op, check: true);
-                if (sim.Name.Contains("rotated")) {
+                if (sim.Name.Contains("rotated") && name == "steps" && op == Ops.Difference)
                     Assert.True(bs.Result.IsClosed() && Invariance.AllFinite(bs.Result), $"{name} {op} {sim}");
-                    Assert.Equal(bs.Rounding.RemainingIntersections == 0 && bs.Rounding.RemainingDegenerate == 0, bs.RoundingClean);
-                } else
+                else
                     AssertClean(bs, $"{name} {op} {sim}");
                 if (sim.IsExact) {
                     Assert.True(Invariance.Difference(b0.Result, Invariance.MappedBack(bs.Result, sim)) == "", sim.ToString());
@@ -147,6 +146,8 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // (the boxes are small, so most of these runs stay on one thread; MeshRoundingRepairIncrementalTests'
+        // SerialEqualsParallel_BitIdentical runs the larger degenerate families, through the filter as well)
         [Theory]
         [MemberData(nameof(Cases))]
         public void SerialEqualsParallel_Repeated(string name, Ops op)
