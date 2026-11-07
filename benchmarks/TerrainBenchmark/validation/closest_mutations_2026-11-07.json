@@ -1,0 +1,51 @@
+{
+  "command": [
+    "/workspace/dotnet/dotnet",
+    "test",
+    "tests/geometry3Sharp.Tests",
+    "-c",
+    "Release",
+    "-f",
+    "net10.0",
+    "--no-restore",
+    "--filter",
+    "FullyQualifiedName~TerrainDistanceMetric"
+  ],
+  "results": [
+    {
+      "mutation": "vertical_instead_of_3d",
+      "exit_code": 1,
+      "summary": [
+        "Failed!  - Failed:     3, Passed:     6, Skipped:     0, Total:     9, Duration: 113 ms - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    },
+    {
+      "mutation": "zero_horizontal",
+      "exit_code": 1,
+      "summary": [
+        "Failed!  - Failed:     3, Passed:     6, Skipped:     0, Total:     9, Duration: 81 ms - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    },
+    {
+      "mutation": "mixed_correspondence",
+      "exit_code": 1,
+      "summary": [
+        "Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 94 ms - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    },
+    {
+      "mutation": "capped_search",
+      "exit_code": 1,
+      "summary": [
+        "Failed!  - Failed:     8, Passed:     1, Skipped:     0, Total:     9, Duration: 99 ms - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    },
+    {
+      "mutation": "restored",
+      "exit_code": 0,
+      "summary": [
+        "Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 159 ms - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    }
+  ]
+}
