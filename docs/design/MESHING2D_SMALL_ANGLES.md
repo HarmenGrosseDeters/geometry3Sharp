@@ -263,55 +263,68 @@ comment only.
 
 For each: verdicts, pinches 0, `SteinerLimitReached`, triangles and time.
 
-**Tests:**
-- a procedural ring with a hull edge at a small angle (island-like), whose triangle count must drop well below master's (fails on master);
-- unit tests of the pair predicate: shared endpoint, near miss inside and outside the old window, T-junction, crossing, collinear, same origin on the
-  grid, an angle at θ − 6·10^-10 rad (not small, the B1 window);
-- **the v condition:** a partner vertex that is an input point on c, c's far endpoint, and a crossing vertex Y of c with a third segment (the
-  review's case: a from (0, 0) to (10, 0), c at 5°, e crossing c at radius 6 at 90°): each still splits the encroached piece of a;
-- **a far case for (ii):** a piece of a between two input vertices on a, whose end radii differ by more than 2.25, encroached by a refinement vertex
-  on c: still split;
-- an angle at or above θ: unchanged against master, bit for bit;
-- the grid case with a hull pair and merged chains: pinches 0, VALID;
-- a lens-mode case (θ ≤ 25.66°, with Chew's deletion) on a small-angle pair: VALID, settles;
-- fan, star and the 30° triangle with the angle check forced on, on master too (to show what master gives);
-- `SteinerLimitReached == false` asserted in every test;
-- mutants:
-  - the exemption off;
-  - (i) only, (ii) only;
-  - the threshold at 60°;
-  - the same-source check dropped;
-  - the v condition dropped (input or multi-source vertices allowed);
-  - the exact meeting test replaced by the strict double test;
-  - the same-side test in (i) dropped. In (i) it is nearly equivalent; only a near-miss straddle at a crossing can kill it, and the PR says which
-    mutant survives;
-- invariance over `Similarity.All()` (2^k bit for bit);
-- determinism (repeated runs, parallel = serial);
-- the Conforming mode unchanged, bit for bit.
+**Tests** (`QualityMesh2SmallAngleRuleTests`, public API, fail on master; `QualityMesh2ApexExemptionTests`, the refiner's decision log):
+- the hull wedge (a segment at 2.6° and 1° to a hull edge, at 20° with lenses and 30°): valid, at most 30 triangles (master 59 to 430); on a
+  2^-8 grid at most 40 (master 57 and 178);
+- the wedge under `Similarity.All()` (2^k bit for bit), at 2^-500 and 2^200 bit for bit, and deterministic (repeated, parallel = serial, one
+  mesher reused);
+- the catalogue's small-angle rows F-38/a-e in constrained mode with the angle check forced on: valid (master is valid too); F-38/d at most 5 000
+  triangles (master 22 384);
+- the v condition: an input point on c, c's far endpoint (on two sources), and an input vertex Y where a third segment ends on c each encroach a
+  subsegment of a and never exempt it. A proper crossing of c with a third segment cannot be isolated (the third segment's end on a's side
+  encroaches a anyway); its vertex is excluded by the same `firstSteiner` check;
+- the far case for (ii): a refinement vertex on c encroaching a's piece between two input vertices (radii 2 and 16) is split;
+- the shell rule (i): an exempt shell subsegment whose far end is more than 1.5 times the vertex's distance from the apex;
+- both sources ending at the apex, where the double test rounds t to 1 + 2^-52: paired by the exact test;
+- angles at θ, 31°, 40° and θ − 6·10^-10 rad: no exemption, the mesh of master bit for bit;
+- the conforming mode: no exemption, the mesh of master bit for bit;
+- `MeetKind`: shared endpoint (both orders), T-junction, small-angle crossing, a near miss 2^-30 off a long segment, just past an end, collinear;
+- `SteinerLimitReached == false` asserted in every test.
 
 **Intentional behaviour change:** the output of `QualityMesh2` with `Conforming = false` and `MinAngle > 0` changes.
 
-**Measured with a build of the rule on master 14d744f0** (constrained mode, all VALID, `steiner_limit_reached` 0). "§6.2 v" is the rule of section 2;
-"any v" also allows input and multi-source vertices as v (the second draft's behaviour, on which the owner approved (c)):
+**Measured with the rule as implemented** (master 14d744f0 plus the rule; constrained mode; all VALID, `steiner_limit_reached` 0; "off" is
+`G3_M2_APEX_EXEMPT=0`, the master behaviour; "any v" also allowed input and multi-source vertices, the figure the owner approved (c) on, before the
+§6.2 v condition was confirmed):
 
-| input | master | rule, §6.2 v | rule, any v | reference |
+| input | off | rule | any v | reference |
 |---|---|---|---|---|
+| island q20 | 511 | 366 | | |
 | island q25 | 694 | 544 | 456 | |
 | island q30 | 8 879 | 2 971 | 786 | 929 |
-| island q35 | 36 971 | 23 577 | 17 561 | |
+| cdt q20 | 7 619 | 5 692 | | |
+| cdt q25 | 9 478 | 8 293 | | |
 | cdt q30 | 20 699 | 14 245 | 14 273 | 4 426 |
-| cdt q34 | 38 242 | 30 597 | 31 177 | |
 | stmlf/1461 q20 | 136 960 | 117 608 | 117 535 | |
 | stmlf/1461 q25 | 197 163 | 184 714 | 184 497 | |
 | stmlf/1461 q30 | 390 342 | 325 662 | 326 112 | 15 575 |
 
-Exemptions by meeting kind, §6.2 v, q30:
+Mesh time falls with the triangle count (island q30 392 → 239 ms, stmlf q30 5 887 → 4 407 ms). The oracle's merge-zone excuses stay about the
+same (stmlf q30 16 → 18, q25 13 → 8; island and cdt 1–2 either way).
 
-| input | shared endpoint | T-junction or crossing | near miss |
+**Herne cq** (the three tiles, snap 0.01 m, all VALID before and after, no Steiner limit):
+
+| tile | q20 off → rule | q30 off → rule | mesh time q30 |
 |---|---|---|---|
-| island | 824 | 0 | 0 |
-| cdt | 7 506 | 0 | 0 |
-| stmlf/1461 | 158 007 | 89 | 0 |
+| 371800 5710600 | 11 386 → 7 506 | 39 606 → 24 433 | 1 493 → 1 600 ms |
+| 373600 5709000 | 59 978 → 57 113 | 164 641 → 154 284 | 4 133 → 4 109 ms |
+| 381000 5710400 | 3 463 → 3 053 | 10 392 → 8 315 | 824 → 811 ms |
+
+**Corpus** (84 inputs, constrained mode): 20° 426 762 → 299 978 triangles (−29.7 %), 30° 552 429 → 539 537 (−2.3 %); the median run is
+unchanged; no verdict worse.
+
+**Catalogue rows in constrained mode** (`rows --mode constrained`): all "ok" before and after; 12 rows change, all with fewer triangles: F-4/a-c,
+F-5 (6 075 → 3 269), F-12/b, F-22/a (40 008 → 386), F-26, F-27, F-38/d (22 384 → 3 165), F-39, F-42 (23 934 → 18 245). The golden rows have no
+constrained-mode row and are unchanged (M1 28, M2 33, M3 52 rows, 0 differences).
+
+**Exemptions by meeting kind** (q30): island 824 at shared endpoints; cdt 7 506; stmlf/1461 158 007, and 89 at T-junctions or crossings; Herne
+q30 has T-junction or crossing exemptions on the grid (1 004 on 371800). No near misses exist with the exact test.
+
+**Mutants** (the two test classes, `QualityMesh2ApexExemptionTests` and `QualityMesh2SmallAngleRuleTests`): killed: the exemption off, (i) only,
+(ii) only, the threshold at 60°, the v condition dropped, input vertices allowed, the strict double meeting test, the conforming check dropped,
+and three in `MeetKind`. Surviving: the same-source check (equivalent: a pair (a, a) has cross = 0 and is never small), the same-side test in (i)
+(equivalent under encroachment: a vertex in the diametral circle or lens of u-w has (v − u)·(w − u) > 0), and the single-source check alone
+(it matters only for refinement vertices on two sources, overlapping or merged grid chains; the input-vertex check kills the combined mutant).
 
 ## 7. Left open
 
