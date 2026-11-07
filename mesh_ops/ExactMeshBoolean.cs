@@ -31,7 +31,10 @@ namespace g3
     /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
     /// cannot be oriented are left as they are. Where solids touch along an edge, the result is
     /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
-    /// into manifold pairs with copies of its vertices (NonManifoldEdges). Degenerate (zero-area) input
+    /// into manifold pairs with copies of its vertices (NonManifoldEdges); Contacts counts the positions with two or more
+    /// vertices, so that a caller that welds (eg writes STL) knows. Two different exact points that round to one double
+    /// would be such a contact as well, one the exact solid does not have: SafeRounding separates them (see
+    /// MeshRoundingRepair.InitialFalseContacts) and RoundingClean requires that none is left. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
     /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
     /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the
@@ -194,11 +197,21 @@ namespace g3
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary>
-        /// SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check; contacts
-        /// at duplicated vertices, where solids touch, are not intersections). False with Status Success means that
-        /// defects remain (Rounding.RemainingIntersections, RemainingDegenerate).
+        /// SafeRounding ran and its result has no self-intersections, no degenerate triangles and no contacts made by the
+        /// rounding (exact check; contacts at duplicated vertices of one exact point, where solids touch, are not
+        /// intersections; vertices of different exact points that the rounding put at one position are, until the repair
+        /// separates them). False with Status Success means that defects remain (Rounding.RemainingIntersections,
+        /// RemainingDegenerate, RemainingFalseContacts).
         /// </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
+
+        /// <summary>
+        /// positions in Result where two or more vertices lie: where the solid touches itself (at a point, or along an edge
+        /// split into manifold pairs, see the class comment), plus contacts the rounding made and SafeRounding left
+        /// (Rounding.RemainingFalseContacts). Result is manifold with its duplicated vertices; welded by position (eg
+        /// written to STL and read back) it is not manifold there. 0 for a result without contacts
+        /// </summary>
+        public int Contacts;
         /// <summary>
         /// compute ResultExactVertices: the exact coordinates of the result's vertices, before they are rounded
         /// </summary>
@@ -315,7 +328,7 @@ namespace g3
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
-            ReorientedTriangles = 0;
+            ReorientedTriangles = Contacts = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
@@ -388,8 +401,10 @@ namespace g3
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
+                int[] pointId = resultPointId;
                 Rounding = new MeshRoundingRepair(Result) {
                     SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
+                    PointIdF = (v) => v < pointId.Length ? pointId[v] : -1,
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
                     MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
                 };
@@ -401,16 +416,20 @@ namespace g3
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
                 Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
+                Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
-                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift);
+                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
+                        Rounding.RemainingFalseContacts);
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
                 }
             }
+            Contacts = count_contacts(Result);
+            Counts["contacts"] = Contacts;
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1491,6 +1510,23 @@ namespace g3
             resultFixed = new bool[vertexPoint.Count];
             for (int vid = 0; vid < vertexPoint.Count; ++vid)
                 resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints[vertexPoint[vid]];
+            // the exact point of each vertex, as an id: the arrangement's point id (equal exact points have one id), and
+            // for a split vertex the midpoint of its edge, one id per edge beyond the point ids (copies at one edge share
+            // it). Vertices at one double position with different ids are a contact the rounding made (SafeRounding)
+            resultPointId = new int[vertexPoint.Count];
+            var midpointId = new Dictionary<Index2i, int>();
+            for (int vid = 0; vid < vertexPoint.Count; ++vid) {
+                if (vertexPoint[vid] >= 0) {
+                    resultPointId[vid] = vertexPoint[vid];
+                } else {
+                    Index2i uv = splitPoints[-2 - vertexPoint[vid]];
+                    var key = new Index2i(Math.Min(uv.a, uv.b), Math.Max(uv.a, uv.b));
+                    int id;
+                    if (midpointId.TryGetValue(key, out id) == false)
+                        midpointId[key] = id = arr.PointCount + midpointId.Count;
+                    resultPointId[vid] = id;
+                }
+            }
             ResultExactVertices = null;
             if (ComputeExactVertices) {
                 var exact = new ExactPoint3[vertexPoint.Count];
@@ -1508,8 +1544,29 @@ namespace g3
             return result;
         }
 
-        // per vertex of the last assembled result: is it an input vertex
+        // positions with two or more vertices (Contacts)
+        static int count_contacts(DMesh3 mesh)
+        {
+            var seen = new Dictionary<Vector3d, int>();
+            int contacts = 0;
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                // (-0.0 and 0.0 are one position)
+                if (p.x == 0) p.x = 0;
+                if (p.y == 0) p.y = 0;
+                if (p.z == 0) p.z = 0;
+                int n;
+                seen.TryGetValue(p, out n);
+                if (n == 1)
+                    contacts++;
+                seen[p] = n + 1;
+            }
+            return contacts;
+        }
+
+        // per vertex of the last assembled result: is it an input vertex; the id of its exact point
         bool[] resultFixed;
+        int[] resultPointId;
 
         [MethodImpl(JitHints.Optimize)]
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
