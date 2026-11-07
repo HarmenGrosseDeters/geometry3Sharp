@@ -236,8 +236,10 @@ namespace g3
         // for tests: such moves are not counted in SmallestRejectedDrift (to show that they set it)
         internal bool SkipMovesPastTheLimit;
         // for tests (with CheckOnThisThread): the pair tests of the last Apply, and those the projection filter decided
-        // (each compared with the exact test)
+        // (each compared with the exact test), and the threads they ran on
         internal long PairTestsChecked, FilterDecisions;
+        System.Collections.Concurrent.ConcurrentDictionary<int, bool> checkedThreads = new System.Collections.Concurrent.ConcurrentDictionary<int, bool>();
+        internal int CheckedThreads { get { return checkedThreads.Count; } }
         // applied edits so far (a version of the mesh)
         long version;
         // vertices of applied edits
@@ -304,6 +306,7 @@ namespace g3
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
             MovesPastTheLimit = 0;
             PairTestsChecked = FilterDecisions = 0;
+            checkedThreads.Clear();
 
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
@@ -501,10 +504,11 @@ namespace g3
         }
 
         // do the non-degenerate triangles t and u intersect beyond what they share (MeshRepairMetrics). The projection
-        // filter TriangleTriangleFilter decides first where an axis-plane projection settles the pair with exact Orient2d
-        // only (coplanar neighbours, caps and walls of CAD parts touching at a rim, whose Orient3d is exactly 0 and slow
-        // in its exact stage), else the exact test decides: the same answer either way, so the repair is unchanged bit
-        // for bit. (A vertex id shared by both triangles means the same position, as the filter requires: the canonical
+        // filter TriangleTriangleFilter decides first where a projection settles the pair with exact Orient2d and
+        // comparisons only (along a common axis plane, along the dominant axis of the first triangle's normal, or with one
+        // triangle in an axis plane: coplanar neighbours, caps and walls of CAD parts touching at a rim, whose Orient3d is
+        // exactly 0 and slow in its exact stage), else the exact test decides: the same answer either way, so the repair
+        // is unchanged bit for bit. (A vertex id shared by both triangles means the same position, as the filter requires: the canonical
         // ids are equal exactly at equal positions)
         [MethodImpl(JitHints.Optimize)]
         bool intersects(Index3i t, ref Triangle3d T, Index3i u, ref Triangle3d U)
@@ -519,6 +523,7 @@ namespace g3
                     System.Threading.Interlocked.Increment(ref FilterDecisions);
                 }
                 System.Threading.Interlocked.Increment(ref PairTestsChecked);
+                checkedThreads.TryAdd(Environment.CurrentManagedThreadId, true);
                 return exact;
             }
             return TriangleTriangleFilter.IntersectsBeyondShared(ct, ref T, cu, ref U);

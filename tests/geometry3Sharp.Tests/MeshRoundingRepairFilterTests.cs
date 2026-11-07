@@ -122,6 +122,111 @@ namespace geometry3Sharp.Tests
             Assert.True(decided > 0, $"the filter decided none of {tests} pair tests");
         }
 
+        // pairs where the filter's closed tests meet the exact test's strict ones (review of the projection filter):
+        // corner ids 0 1 2 for A and 0 3 4 for B (s = 0 shared), or 5 6 7 for B (nothing shared)
+        public static IEnumerable<object[]> BoundaryPairs()
+        {
+            double h = 0.375;
+            Vector3d s = new Vector3d(0, 0, h), p = new Vector3d(1, 0, h), q = new Vector3d(0, 1, h);
+            double tiny = Math.Pow(2, -60);
+            // a side of B along the side s-p of A, coplanar in z = h: inside the segment and beyond it, B on the other
+            // side of the line (meets A only on the shared side's segment) or on the same side (overlaps)
+            foreach (double ux in new[] { 0.5, 2.0 })
+                foreach (double wy in new[] { -1.0, 0.5 })
+                    yield return new object[] { $"along {ux} {wy}", s, p, q, s, new Vector3d(ux, 0, h), new Vector3d(0.3, wy, h), true };
+            // a wall sharing s with the cap A in z = h: its corner u exactly at z = h along s-p, just outside the corner
+            // (y = -2^-60), inside it, and w above the plane
+            foreach (double uy in new[] { 0.0, -tiny, 0.25 })
+                yield return new object[] { $"wall {uy}", s, p, q, s, new Vector3d(0.5, uy, h), new Vector3d(0.2, 0.1, h + 0.5), true };
+            // mixed exponents: 2^-1074 next to 1e300, coplanar in z = 0 and just off it
+            Vector3d o = Vector3d.Zero, big1 = new Vector3d(1e300, 0, 0), big2 = new Vector3d(0, 1e300, 0);
+            double sub = double.Epsilon;
+            yield return new object[] { "mixed coplanar", o, big1, big2, new Vector3d(sub, sub, 0), new Vector3d(1e300, 1e300, 0), new Vector3d(sub, 1e300, 0), false };
+            yield return new object[] { "mixed above", o, big1, big2, new Vector3d(sub, sub, sub), new Vector3d(1e300, sub, sub), new Vector3d(sub, 1e300, sub), false };
+            yield return new object[] { "mixed shared", o, big1, big2, o, new Vector3d(sub, 0, 0), new Vector3d(sub, sub, 1e300), true };
+        }
+
+        [Theory]
+        [MemberData(nameof(BoundaryPairs))]
+        public void BoundaryPairs_FilterAgreesWithExactTest(string name, Vector3d a0, Vector3d a1, Vector3d a2,
+            Vector3d b0, Vector3d b1, Vector3d b2, bool shareFirst)
+        {
+            var A = new Triangle3d(a0, a1, a2);
+            var B = new Triangle3d(b0, b1, b2);
+            Index3i ia = new Index3i(0, 1, 2), ib = shareFirst ? new Index3i(0, 3, 4) : new Index3i(5, 6, 7);
+            foreach (bool swap in new[] { false, true }) {
+                Triangle3d P = swap ? B : A, Q = swap ? A : B;
+                Index3i ip = swap ? ib : ia, iq = swap ? ia : ib;
+                bool exact = ExactTriangleIntersection.IntersectsBeyondShared(ip, ref P, iq, ref Q);
+                int decision = TriangleTriangleFilter.BeyondShared(ip, ref P, iq, ref Q);
+                Assert.True(decision == TriangleTriangleFilter.Undecided || (decision == TriangleTriangleFilter.Intersecting) == exact,
+                    $"{name} swap {swap}: filter {decision}, exact {exact}");
+                Assert.Equal(exact, TriangleTriangleFilter.IntersectsBeyondShared(ip, ref P, iq, ref Q));
+            }
+            // and through the repair's pair test, where their boxes meet (the check throws if the filter differs from
+            // the exact test there): the two triangles as one mesh, the shared corner welded where it is shared
+            var m = new DMesh3();
+            int v0 = m.AppendVertex(a0), v1 = m.AppendVertex(a1), v2 = m.AppendVertex(a2);
+            int w0 = shareFirst ? v0 : m.AppendVertex(b0), w1 = m.AppendVertex(b1), w2 = m.AppendVertex(b2);
+            m.AppendTriangle(v0, v1, v2);
+            m.AppendTriangle(w0, w1, w2);
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                var r = new MeshRoundingRepair(m) { RemoveTinyComponents = false };
+                r.Apply();
+                // (the cases at h meet in z = h, so the pair is tested; the mixed ones have boxes that touch or not)
+                if (name.StartsWith("mixed") == false)
+                    Assert.True(r.PairTestsChecked > 0, name);
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+        }
+
+        [Fact]
+        public void BoundaryPairs_FilterDecidesMost()
+        {
+            // the cases are where the filter answers (else they would test only the exact test)
+            int decided = 0, total = 0;
+            foreach (object[] c in BoundaryPairs()) {
+                var P = new Triangle3d((Vector3d)c[1], (Vector3d)c[2], (Vector3d)c[3]);
+                var Q = new Triangle3d((Vector3d)c[4], (Vector3d)c[5], (Vector3d)c[6]);
+                Index3i ip = new Index3i(0, 1, 2), iq = (bool)c[7] ? new Index3i(0, 3, 4) : new Index3i(5, 6, 7);
+                total++;
+                if (TriangleTriangleFilter.BeyondShared(ip, ref P, iq, ref Q) != TriangleTriangleFilter.Undecided)
+                    decided++;
+            }
+            Assert.True(2 * decided > total, $"the filter decided {decided} of {total}");
+        }
+
+        // boxes with 24 vertices along each edge (6348 triangles each), B turned about z on the planes of A: enough
+        // triangles for the parallel searches to run on several threads
+        static (DMesh3, DMesh3) GridInputs()
+        {
+            DMesh3 a = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), EdgeVertices = 24 }.Generate().MakeDMesh();
+            DMesh3 b = new GridBox3Generator() { Box = new Box3d(new Vector3d(0.7, 0.2, 0), new Vector3d(0.8, 0.5, 0.4)), EdgeVertices = 24 }.Generate().MakeDMesh();
+            MeshTransforms.Rotate(b, new Vector3d(0.7, 0.2, 0), Quaterniond.AxisAngleD(Vector3d.AxisZ, 17));
+            foreach (int v in b.VertexIndices()) {
+                Vector3d pt = b.GetVertex(v);
+                if (Math.Abs(pt.z) > 0.399) b.SetVertex(v, new Vector3d(pt.x, pt.y, pt.z > 0 ? 0.4 : -0.4));
+            }
+            return (a, b);
+        }
+
+        [Fact]
+        public void Grid_SerialEqualsParallel_OnSeveralThreads()
+        {
+            (DMesh3 a, DMesh3 b) = GridInputs();
+            ExactMeshBoolean checkedRun = Run(a, b, Ops.Union, check: true);
+            AssertClean(checkedRun, "grid union");
+            Assert.True(2 * checkedRun.Rounding.FilterDecisions > checkedRun.Rounding.PairTestsChecked, "the filter decided few pairs");
+            if (Environment.ProcessorCount > 1)
+                Assert.True(checkedRun.Rounding.CheckedThreads > 1, "the pair tests ran on one thread only");
+            string serial = Print(Run(a, b, Ops.Union, serial: true).Result);
+            Assert.Equal(serial, Print(checkedRun.Result));
+            for (int run = 0; run < 3; ++run)
+                Assert.True(serial == Print(Run(a, b, Ops.Union).Result), $"parallel run {run} differs from the serial run");
+        }
+
         [Theory]
         [MemberData(nameof(Cases))]
         public void Similarities_SameResult(string name, Ops op)
