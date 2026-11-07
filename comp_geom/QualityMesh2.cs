@@ -426,6 +426,7 @@ namespace g3
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
+                if (CoarsenForBenchmarks > 0) Coarsen();
                 k.Dirty = null;
                 // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
                 // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
@@ -455,6 +456,79 @@ namespace g3
                 var bad = k.NonDelaunayEdges();
                 if (bad.Count > 0) k.RestoreDelaunay(bad);
                 return null;
+            }
+
+            /// <summary> benchmarks only (probe): after refinement, delete free Steiner vertices one at a time while no rewritten triangle
+            /// is bad (greedy, latest first, repeated until a pass deletes nothing); 0 or null off. Counts per thread. </summary>
+            [ThreadStatic] internal static int? CoarsenForBenchmarks;
+            /// <summary> benchmarks only: one line per segment split (cause, first source, log2 source/piece length, shell, input ends) </summary>
+            [ThreadStatic] internal static List<string> SplitLogForBenchmarks;
+            [ThreadStatic] internal static long CoarsenTriedForBenchmarks, CoarsenDeletedForBenchmarks, CoarsenRefusedForBenchmarks;
+
+            void Coarsen()
+            {
+                var dirty = new List<int>();
+                for (int pass = 0; pass < 8; ++pass) {
+                    int deleted = 0;
+                    for (int v = k.VertexCount - 1; v >= firstSteiner; --v) {
+                        if (TryDelete(v, dirty)) { ++deleted; ++CoarsenDeletedForBenchmarks; }
+                    }
+                    if (deleted == 0) break;
+                }
+                k.Dirty = new List<int>();
+            }
+
+            /// <summary> no rewritten triangle is bad; conforming (O2): every edge of them locally Delaunay, constrained ones too </summary>
+            bool CoarsenAcceptable(List<int> dirty)
+            {
+                foreach (int t in dirty) {
+                    if (t >= k.TriangleSlots || k.IsGhost(t)) continue;
+                    if (InDomain(t) && Bad(t)) return false;
+                    if (!options.Conforming) continue;
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j, f = k.H[e];
+                        if (k.Seg[e] < 0 || k.IsGhost(f / 3)) continue;
+                        int opp = k.V[3 * (f / 3) + (f % 3 + 2) % 3];
+                        if (ExactPredicates.InCircle(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), k.Point(opp)) > 0) return false;
+                    }
+                }
+                return true;
+            }
+
+            bool TryDelete(int v, List<int> dirty)
+            {
+                double x = k.X[v], y = k.Y[v];
+                // mode 2: a vertex between two pieces of the same sources (a split undone)
+                int e1 = -1, e2 = -1, constrained = 0;
+                foreach (int e in k.Star(v)) if (k.Seg[e] >= 0) { if (constrained == 0) e1 = e; else e2 = e; ++constrained; }
+                if (constrained != 0 && (CoarsenForBenchmarks < 2 || constrained != 2)) return false;
+                List<int> src = null; int u = -1, w = -1;
+                if (constrained == 2) {
+                    var s1 = k.Sources[k.Seg[e1]]; var s2 = k.Sources[k.Seg[e2]];
+                    if (s1.Count != s2.Count || s1.Any(z => !s2.Contains(z))) return false;
+                    src = new List<int>(s1); u = k.V[Next(e1)]; w = k.V[Next(e2)];
+                    int seg1 = k.Seg[e1], seg2 = k.Seg[e2];
+                    k.Unconstrain(e1); k.Unconstrain(e2);
+                    dirty.Clear(); k.Dirty = dirty;
+                    if (!k.DeleteVertex(v)) { k.SetConstraint(e1, seg1); k.SetConstraint(e2, seg2); ++CoarsenRefusedForBenchmarks; return false; }
+                    int uw = k.FindEdge(u, w);
+                    if (uw >= 0) k.SetConstraint(uw, k.NewConstraint(src));
+                    ++CoarsenTriedForBenchmarks;
+                    if (uw >= 0 && CoarsenAcceptable(dirty)) return true;
+                    if (uw >= 0) k.Unconstrain(uw);
+                    int q = k.InsertPoint(x, y);
+                    var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
+                    pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = src });
+                    pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(src) });
+                    while (pending.Count > 0) b.InsertPiece(pending.Pop(), pending);
+                    return false;
+                }
+                dirty.Clear(); k.Dirty = dirty;
+                if (!k.DeleteVertex(v)) { ++CoarsenRefusedForBenchmarks; return false; }
+                ++CoarsenTriedForBenchmarks;
+                if (CoarsenAcceptable(dirty)) return true;
+                k.InsertPoint(x, y);
+                return false;
             }
 
             bool HasRegionArea()
@@ -653,8 +727,33 @@ namespace g3
                     // encroaches too
                     if (options.Conforming ? k.IsGhost(t) : !InDomain(t)) continue;
                     int apex = k.V[Next(Next(h))];
-                    if (EncroachesOn(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex))) return true;
+                    if (EncroachesOn(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex))) {
+                        if (ClusterRuleForBenchmarks == true && k.Seg[e] >= 0 && SameCluster(k.Sources[k.Seg[e]], apex)) continue;
+                        return true;
+                    }
                 }
+                return false;
+            }
+
+            /// <summary> benchmarks only (probe): a subsegment is not split for a vertex on another source that meets one of its own at an
+            /// input angle below 60 degrees (both end at the same point) </summary>
+            [ThreadStatic] internal static bool? ClusterRuleForBenchmarks, ClusterAtBoundForBenchmarks;
+
+            bool SameCluster(List<int> own, int v)
+            {
+                foreach (int c in SourcesAt(v))
+                    foreach (int a in own) {
+                        if (a == c) continue;
+                        var s1 = b.sources[a]; var s2 = b.sources[c];
+                        Vector2d? x = null;
+                        if (s1.AX == s2.AX && s1.AY == s2.AY || s1.AX == s2.BX && s1.AY == s2.BY) x = new Vector2d(s1.AX, s1.AY);
+                        else if (s1.BX == s2.AX && s1.BY == s2.AY || s1.BX == s2.BX && s1.BY == s2.BY) x = new Vector2d(s1.BX, s1.BY);
+                        if (x == null) continue;
+                        var o1 = (s1.AX == x.Value.x && s1.AY == x.Value.y ? new Vector2d(s1.BX, s1.BY) : new Vector2d(s1.AX, s1.AY)) - x.Value;
+                        var o2 = (s2.AX == x.Value.x && s2.AY == x.Value.y ? new Vector2d(s2.BX, s2.BY) : new Vector2d(s2.AX, s2.AY)) - x.Value;
+                        double cos = o1.Dot(o2) / (o1.Length * o2.Length);
+                        if (cos > (ClusterAtBoundForBenchmarks == true ? Math.Sqrt(1 - sin2Min) : 0.5)) return true;
+                    }
                 return false;
             }
 
@@ -1493,6 +1592,7 @@ namespace g3
                 if (blocked >= 0) {
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
+                    if (TerminatorForBenchmarks == true && TerminatorDeclines(blocked, t)) { exempt.Add(TriangleKey(t)); ++TerminatorDeclinedForBenchmarks; return null; }
                     splitCause = 1;
                     // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
                     // encroachment split (found by lenses on the earcut water corpus input)
@@ -1501,6 +1601,12 @@ namespace g3
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
                 var encroached = EncroachedByPoint(at, c);
+                if (TerminatorForBenchmarks == true && encroached.Count > 0) {
+                    int before0 = encroached.Count;
+                    encroached = encroached.Where(e => !TerminatorDeclines(e, t)).ToList();
+                    TerminatorDeclinedForBenchmarks += before0 - encroached.Count;
+                    if (encroached.Count == 0) { exempt.Add(TriangleKey(t)); return null; }
+                }
                 if (encroached.Count > 0) {
                     // split one now (the others go to the queue, to be split if still encroached), then try t again
                     int first = encroached[0];
@@ -1531,6 +1637,79 @@ namespace g3
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
                 Collect();
                 return null;
+            }
+
+            /// <summary> benchmarks only (probe): Shewchuk 2002 section 6.3, the Terminator, on splits caused by a circumcentre (causes 1
+            /// and 2) </summary>
+            [ThreadStatic] internal static bool? TerminatorForBenchmarks;
+            [ThreadStatic] internal static long TerminatorDeclinedForBenchmarks;
+
+            /// <summary> the insertion radius of v: its shortest edge now (a proxy for the length right after its insertion; refinement
+            /// only shortens edges at a vertex, so this is at most that) </summary>
+            double InsertionRadius(int v)
+            {
+                double best = double.MaxValue;
+                foreach (int e in k.Star(v)) {
+                    int w = k.V[Next(e)];
+                    if (w == k.Infinite) continue;
+                    best = Math.Min(best, (k.Point(w) - k.Point(v)).Length);
+                }
+                return best;
+            }
+
+            /// <summary> the cluster at input vertex x of the constrained half-edge leaving x along s: the constrained edges at x linked to it,
+            /// transitively, by angular gaps of at most 60 degrees with the domain in between; null if s's edge is alone. phiMin: the smallest
+            /// linked gap; shortest: the shortest member </summary>
+            List<int> ClusterAt(int x, int sOut, out double phiMin, out double shortest)
+            {
+                phiMin = Math.PI; shortest = double.MaxValue;
+                if (x >= firstSteiner || x == k.Infinite) return null;
+                var star = k.Star(x).ToList();
+                var cons = new List<int>(); var gapOk = new List<bool>(); var gapAngle = new List<double>();
+                for (int i = 0; i < star.Count; ++i) if (k.Seg[star[i]] >= 0) cons.Add(i);
+                if (cons.Count < 2) return null;
+                var P = k.Point(x);
+                for (int ci = 0; ci < cons.Count; ++ci) {
+                    int i0 = cons[ci], i1 = cons[(ci + 1) % cons.Count];
+                    bool inDomain = true;
+                    for (int j = i0; j != i1; j = (j + 1) % star.Count) { int tt = star[j] / 3; if (k.IsGhost(tt) || !InDomain(tt)) { inDomain = false; break; } }
+                    var d0 = k.Point(k.V[Next(star[i0])]) - P; var d1 = k.Point(k.V[Next(star[i1])]) - P;
+                    double ang = Math.Atan2(d0.x * d1.y - d0.y * d1.x, d0.Dot(d1)); if (ang < 0) ang += 2 * Math.PI;
+                    gapAngle.Add(ang); gapOk.Add(inDomain && ang <= Math.PI / 3 + 1e-12);
+                }
+                int start = cons.FindIndex(i => star[i] == sOut);
+                if (start < 0) return null;
+                var members = new HashSet<int> { start };
+                for (int ci = start; gapOk[ci] && members.Count < cons.Count; ci = (ci + 1) % cons.Count) { members.Add((ci + 1) % cons.Count); phiMin = Math.Min(phiMin, gapAngle[ci]); }
+                for (int ci = (start - 1 + cons.Count) % cons.Count; gapOk[ci] && members.Count < cons.Count; ci = (ci - 1 + cons.Count) % cons.Count) { members.Add(ci); phiMin = Math.Min(phiMin, gapAngle[ci]); }
+                if (members.Count < 2) return null;
+                var result = new List<int>();
+                foreach (int ci in members) { int e = star[cons[ci]]; result.Add(e); shortest = Math.Min(shortest, (k.Point(k.V[Next(e)]) - P).Length); }
+                return result;
+            }
+
+            /// <summary> the Terminator declines to split subsegment s (half-edge) for t's circumcentre </summary>
+            bool TerminatorDeclines(int s, int t)
+            {
+                int u = k.V[s], w = k.V[Next(s)];
+                int su = s, sw = k.H[s];   // the half-edges leaving u and w along s
+                var cu = ClusterAt(u, su, out double phiU, out double shortU);
+                var cw = ClusterAt(w, sw, out double phiW, out double shortW);
+                if ((cu == null) == (cw == null)) return false;            // neither or both (D)
+                double phiMin = cu != null ? phiU : phiW, shortest = cu != null ? shortU : shortW;
+                double len = (k.Point(w) - k.Point(u)).Length;
+                if (shortest < len * (1 - 1e-12)) return false;            // E: a shorter subsegment in the cluster
+                double lg = Math.Log(len, 2);
+                if (Math.Abs(lg - Math.Round(lg)) > 1e-9) return false;    // C: |s| not a power of two
+                double rMin = len * Math.Sin(phiMin / 2);
+                // g: the parent of t's circumcentre, the most recently inserted end of t's shortest edge
+                int a = k.V[3 * t], bb = k.V[3 * t + 1], cc = k.V[3 * t + 2];
+                double lab = (k.Point(a) - k.Point(bb)).LengthSquared, lbc = (k.Point(bb) - k.Point(cc)).LengthSquared, lca = (k.Point(cc) - k.Point(a)).LengthSquared;
+                int p, q;
+                if (lab <= lbc && lab <= lca) { p = a; q = bb; } else if (lbc <= lca) { p = bb; q = cc; } else { p = cc; q = a; }
+                int g = Math.Max(p, q);
+                double rG = InsertionRadius(g);
+                return !(rMin >= rG);                                        // A
             }
 
             /// <summary> visibility walk from t to the triangle containing c; blocked is the first constrained edge crossed, or -1 </summary>
@@ -1626,6 +1805,10 @@ namespace g3
                 }
                 Vector2d p;
                 var s = b.sources[src[0]];
+                if (SplitLogForBenchmarks != null) {
+                    double sl = Math.Sqrt((s.BX - s.AX) * (s.BX - s.AX) + (s.BY - s.AY) * (s.BY - s.AY)), pl = Math.Sqrt(duw.x * duw.x + duw.y * duw.y);
+                    SplitLogForBenchmarks.Add(splitCause + " " + src[0] + " " + (pl > 0 ? Math.Log(sl / pl, 2) : 0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " " + (fraction != 0.5 ? 1 : 0) + " " + (uInput ? 1 : 0) + (wInput ? 1 : 0) + " " + ((pu.x + pw.x) / 2).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " " + ((pu.y + pw.y) / 2).ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+                }
                 if (grid != null) {
                     if (!GridSplitPoint(e, pu, pw, src, fraction, out p)) { unsplittable.Add(Key(u, w)); ++GridUnsplittable; return null; }
                 }
