@@ -492,3 +492,13 @@ The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, 
 | Fork | Taken over |
 |---|---|
 | [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
+
+## SMT verification pilot (test/tool only)
+
+`tools/Z3Pilot` uses `z3-solver` 4.15.4.0 (Z3 4.15.4, MIT), only as a pinned
+Python verification-tool dependency. Its native library is not distributed with
+geometry3Sharp and no library/NuGet dependency is added. Modeling uses the
+[SMT-LIB FloatingPoint specification](https://smt-lib.org/theories-FloatingPoint.shtml)
+and [Z3's public Python API](https://z3prover.github.io/api/html/namespacez3py.html).
+The [pilot README](../tools/Z3Pilot/README.md) states proof scope, mathematical
+bridges, native replay and the UNKNOWN limitation of the monolithic attempt.

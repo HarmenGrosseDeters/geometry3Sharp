@@ -1,0 +1,100 @@
+{
+  "baseline": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+  "sdk": "10.0.403",
+  "commands": [
+    {
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~SnapGridPixelFilterTests|FullyQualifiedName~Meshing2OracleZoneFilterTests",
+      "exit_code": 0,
+      "output_tail": [
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs(90,28): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs(90,53): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs(115,28): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs(333,36): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs(366,28): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net10.0]",
+        "  geometry3Sharp.Tests -> /workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll",
+        "Test run for /workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)",
+        "A total of 1 test files matched the specified pattern.",
+        "",
+        "Passed!  - Failed:     0, Passed:     8, Skipped:     0, Total:     8, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)"
+      ]
+    },
+    {
+      "command": "dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0,
+      "output_tail": [
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/RobustnessSweepTests.cs(430,17): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/DMesh3PropertyTests.cs(166,28): warning xUnit1013: Public method 'CheckTopology' on test class 'DMesh3PropertyTests' should be marked as a Theory. Reduce the visibility of the method, or add a Theory attribute to the method. (https://xunit.net/xunit.analyzers/rules/xUnit1013) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [/workspace/geometry3Sharp-z3/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]",
+        "    8 Warning(s)",
+        "    0 Error(s)",
+        "",
+        "Time Elapsed 00:00:45.70"
+      ]
+    },
+    {
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o /workspace/z3-packages -p:Version=1.0.0-ci.1",
+      "exit_code": 0,
+      "output_tail": [
+        "  Restored /workspace/geometry3Sharp-z3/tools/analyzers/G3ExactCodeAnalyzers/G3ExactCodeAnalyzers.csproj (in 412 ms).",
+        "  Restored /workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj (in 409 ms).",
+        "  G3ExactCodeAnalyzers -> /workspace/geometry3Sharp-z3/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.dll",
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]",
+        "  geometry3Sharp_netstandard -> /workspace/geometry3Sharp-z3/bin/Release/netstandard2.0/geometry3Sharp.dll",
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshStitchLoops.cs(37,16): warning CS8981: The type name 'span' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/solvers/PackedSparseMatrix.cs(23,23): warning CS8981: The type name 'nonzero' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/solvers/SparseMatrix.cs(304,16): warning CS8981: The type name 'mval' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]",
+        "  geometry3Sharp_netstandard -> /workspace/geometry3Sharp-z3/bin/Release/net10.0/geometry3Sharp.dll",
+        "  Successfully created package '/workspace/z3-packages/geometry3Sharp.1.0.0-ci.1.nupkg'.",
+        "  Successfully created package '/workspace/z3-packages/geometry3Sharp.1.0.0-ci.1.snupkg'."
+      ]
+    },
+    {
+      "command": "dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true",
+      "exit_code": 0,
+      "output_tail": [
+        "",
+        "Build succeeded.",
+        "",
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(82,31): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Status' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(95,21): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Ok' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(100,32): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/ClipperFrame.cs(221,32): warning CS1591: Missing XML comment for publicly visible type or member 'ClipperFrame.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "    5 Warning(s)",
+        "    0 Error(s)",
+        "",
+        "Time Elapsed 00:00:22.40"
+      ]
+    },
+    {
+      "command": "dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o /workspace/z3-packages -p:Version=1.0.0-ci.1",
+      "exit_code": 0,
+      "output_tail": [
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(95,21): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Ok' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(100,32): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/ClipperFrame.cs(221,32): warning CS1591: Missing XML comment for publicly visible type or member 'ClipperFrame.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]",
+        "  geometry3Sharp.Clipper2 -> /workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/bin/Release/net10.0/geometry3Sharp.Clipper2.dll",
+        "/workspace/geometry3Sharp-z3/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-z3/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]",
+        "  geometry3Sharp_netstandard -> /workspace/geometry3Sharp-z3/bin/Release/netstandard2.0/geometry3Sharp.dll",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(82,31): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Status' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(95,21): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Ok' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(100,32): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/ClipperFrame.cs(221,32): warning CS1591: Missing XML comment for publicly visible type or member 'ClipperFrame.ToString()' [/workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=netstandard2.0]",
+        "  geometry3Sharp.Clipper2 -> /workspace/geometry3Sharp-z3/addons/geometry3Sharp.Clipper2/bin/Release/netstandard2.0/geometry3Sharp.Clipper2.dll",
+        "  Successfully created package '/workspace/z3-packages/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg'."
+      ]
+    }
+  ],
+  "python_command": "python -m unittest discover -s tools/Z3Pilot -p test_*.py -v",
+  "python_output": "test_all_obligations_and_exact_witness_replay (test_pilot.PilotTests.test_all_obligations_and_exact_witness_replay) ... ok\ntest_direct_counterexample_is_fatal (test_pilot.PilotTests.test_direct_counterexample_is_fatal) ... ok\ntest_source_drift_is_rejected (test_pilot.PilotTests.test_source_drift_is_rejected) ... ok\ntest_unknown_is_not_success (test_pilot.PilotTests.test_unknown_is_not_success) ... ok\ntest_vacuous_obligation_is_not_success (test_pilot.PilotTests.test_vacuous_obligation_is_not_success) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 8.972s\n\nOK\n",
+  "review": "Independent REVIEW_CHECKLIST review and recheck completed. Direct-SAT silent success fixed, unreachable-assumption safeguards added. No remaining blocking findings.",
+  "limits": "No full unrelated .NET suite or net48 execution locally. Remote CI pending."
+}

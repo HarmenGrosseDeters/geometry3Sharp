@@ -19,6 +19,30 @@ namespace geometry3Sharp.Tests
 
         static bool Same(double v, double scaled, double f) => !double.IsInfinity(scaled) && (v == 0 || Math.Abs(scaled) >= 2.2250738585072014E-308) && scaled / f == v;
 
+        /// <summary>Z3Pilot proves that the final +1e-300 in DistanceQueryBox
+        /// changes no binary64 result: Q.Bounds already pads d2hi by 1e-300.
+        /// Replay the equivalent survivor from #376 through the native code.</summary>
+        [Fact]
+        public void SmtEquivalentSurvivor_FinalAbsoluteReachPadChangesNoBits()
+        {
+            foreach (int exponent in new[] { -1000, -500, 0, 500, 1000 }) {
+                Q distance2 = Q.FromDouble(Math.Pow(2, exponent));
+                foreach (Q d2 in new[] { Q.Zero, distance2, distance2 / new Q(3, 1) }) {
+                    Pt p = Pt.FromDoubles(632117.25, 5712043.5);
+                    Assert.True(Oracle.DistanceQueryBox(p, d2, out double xl, out double xh, out double yl, out double yh));
+                    Assert.True(d2.Bounds(out _, out double hi));
+                    Assert.True(p.Bounds(false, out double pxl, out double pxh));
+                    Assert.True(p.Bounds(true, out double pyl, out double pyh));
+                    // The actual survivor: omit only the final +1e-300.
+                    double reach = Math.Sqrt(Math.Max(0, hi)) * (1 + 1e-12);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(pxl-reach), BitConverter.DoubleToInt64Bits(xl));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(pxh+reach), BitConverter.DoubleToInt64Bits(xh));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(pyl-reach), BitConverter.DoubleToInt64Bits(yl));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(pyh+reach), BitConverter.DoubleToInt64Bits(yh));
+                }
+            }
+        }
+
         [Fact]
         public void NearTheRadius_AgreesWithTheExactDistance_BothWays_InEveryFrame()
         {

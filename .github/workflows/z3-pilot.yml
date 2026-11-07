@@ -1,0 +1,27 @@
+name: Z3 pilot
+on:
+  pull_request:
+    paths:
+      - 'tools/Z3Pilot/**'
+      - 'comp_geom/SnapRounding2.cs'
+      - 'benchmarks/Meshing2Benchmark/Oracle/Oracle.cs'
+      - 'benchmarks/Meshing2Benchmark/Oracle/Exact.cs'
+      - '.github/workflows/z3-pilot.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r tools/Z3Pilot/requirements.txt
+      - run: python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v
+      - run: python tools/Z3Pilot/pilot.py --timeout-ms 30000 --out z3-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z3-pilot
+          path: z3-report.json
