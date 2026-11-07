@@ -60,6 +60,28 @@ namespace geometry3Sharp.Tests
 
         static readonly Vector2d At = new Vector2d(8, 0.5);
 
+        /// <summary>
+        /// a near miss: c = (0.5, 0.05)-(16, 1.05) runs at about 3.7 degrees to a = A-B, but stops short of it; the lines meet at
+        /// (-0.275, 0), outside a. The closed segments do not meet (PairOf's exact MeetKind is 0), so no refinement vertex on c exempts a
+        /// subsegment of a: this is a nonincident feature in the sense of Shewchuk 2002 section 6.2, and a near contact is its own open
+        /// question (MESHING2D_SMALL_ANGLES.md section 7). Kills "pair whenever the lines meet at a small angle".
+        /// </summary>
+        [Fact]
+        public void NearMiss_DoesNotExempt()
+        {
+            var input = Generators.Literal(0, 0, 10, 0, 8, 6, 0.5, 0.05, 16, 1.05);
+            input.Segments.Add(new SegmentInput(0, 1));
+            input.Segments.Add(new SegmentInput(3, 4));
+            input.MinAngleDeg = 30;
+            input.ConstrainedQuality = true;
+            var log = Log(input, out _);
+            // c's refinement vertices (strictly between its ends, not input points) that encroach a subsegment of a
+            bool OnC(Vector2d p) => p.x > 0.5 && p.x < 16 && Math.Abs((p.x - 0.5) * 1.0 - (p.y - 0.05) * 15.5) < 1e-9 * 16;
+            var byC = log.Where(l => OnC(l.V) && OnA(l.U) && OnA(l.W)).ToList();
+            Assert.NotEmpty(byC);
+            Assert.All(byC, l => Assert.False(l.Exempt, l.U + " - " + l.W + " by " + l.V));
+        }
+
         static bool OnA(Vector2d p) => p.y == 0;
 
         /// <summary> an input point on c, c's far endpoint, an input vertex with a third source: each encroaches a subsegment of a (at
