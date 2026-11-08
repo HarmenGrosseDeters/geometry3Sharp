@@ -158,9 +158,11 @@ namespace g3
         public bool AllowOpenMeshes = true;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
-        /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
+        /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
+        /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents;
+        /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
         /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
         /// are moved apart by a few units in the last place where that adds no defect (Rounding.InitialFalseContacts,
@@ -180,7 +182,8 @@ namespace g3
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
-        /// farthest the surface moves, relative to the bounding box diagonal. (A larger value also switches off sooner
+        /// farthest the surface moves, relative to the diagonal of the largest connected component (not of the
+        /// bounding box of all: a small part far away does not widen it). (A larger value also switches off sooner
         /// what applies where the coordinates are coarse: there the ulp term must exceed this one)
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;
@@ -423,12 +426,15 @@ namespace g3
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
                 Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
                 Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
+                Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
+                Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity){9}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
                         Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
-                        Rounding.RemainingFalseContacts);
+                        Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
+                        Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "");
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;

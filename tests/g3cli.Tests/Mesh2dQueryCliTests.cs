@@ -602,10 +602,20 @@ namespace g3cli.Tests
             Assert.True(D(r["boolean"]["rounding"]["max_length"]) < bound);
 
             // an absolute tolerance sets the bound
-            (exit, r) = Run("resolve", input, m.Path_("utm_abs.g3mesh"), "--rounding-ulp-factor", "0", "--rounding-absolute-tolerance", "1e-3");
+            (exit, r) = Run("resolve", input, m.Path_("utm_abs.g3mesh"), "--rounding-ulp-factor", "0", "--rounding-absolute-tolerance", "1e-5");
             AssertOk(exit, r);
-            Assert.Equal(1e-3, D(r["boolean"]["rounding"]["max_length"]));
+            Assert.Equal(1e-5, D(r["boolean"]["rounding"]["max_length"]));
             Assert.True(B(r["boolean"]["rounding_clean"]));
+            Assert.Equal(0, D(r["boolean"]["rounding"]["scale_disparity"]));
+            Assert.False(B(r["boolean"]["rounding"]["scale_not_finite"]));
+            // a tolerance as large as the model (radius 1e-3): the bound would take the whole sphere as thin and
+            // remove it (before: an empty result, reported clean); it holds real volume, so it is kept, not clean
+            (exit, r) = Run("resolve", input, m.Path_("utm_abs_large.g3mesh"), "--rounding-ulp-factor", "0", "--rounding-absolute-tolerance", "1e-3");
+            AssertOk(exit, r);
+            Assert.False(B(r["boolean"]["rounding_clean"]));
+            Assert.Equal(1, D(r["boolean"]["rounding"]["scale_disparity"]));
+            Assert.Equal(1, I(r["mesh"]["components"]));
+            Assert.True(B(r["mesh"]["closed"]), r["mesh"].ToJsonString());
 
             // the effort budget: at a tiny one the repair stops at the limit and writes the result with its defects
             (exit, r) = Run("resolve", input, m.Path_("utm_budget.g3mesh"), "--rounding-max-pair-tests", "10");

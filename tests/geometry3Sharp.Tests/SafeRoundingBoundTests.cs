@@ -540,8 +540,11 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(far, a, b);
             int before = m.TriangleCount;
             var r = new MeshRoundingRepair(m);
-            r.Apply();
+            // (not clean: the needles stay, and the area test cannot see them; before, the sphere was removed as tiny)
+            Assert.False(r.Apply());
             Assert.Equal(0, r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(before, m.TriangleCount);
             Assert.True(double.IsNaN(r.MaxLength));
         }
     }
