@@ -28,6 +28,12 @@ namespace gs
     /// are put together in region order. So the result is the same for every MaxThreads (1 is the serial reference) and
     /// every run. It is not the result of one serial Reducer run: the collapses happen in another order, and every round
     /// evaluates the edges again that a guard refused before (T1, 100 meshes: 3 % fewer triangles at the median).
+    ///
+    /// Differences to one Reducer run, for a caller that has used that: CancelF is called from the regions' threads at
+    /// the same time (it must be thread-safe); an exception in a region surfaces as AggregateException; the regions run
+    /// with PreserveBoundaryShape = false (an open mesh loses boundary vertices; the wrap is closed); the result has no
+    /// vertex normals, colours, UVs or triangle groups. If the slabs cannot be kept apart (the gap is lost in the rounding
+    /// of the coordinates, or GapEdgeLengths is 0), the partition is not used: one serial Reducer run (SerialFallbacks).
     /// </summary>
     internal class PartitionedReduction
     {
@@ -50,6 +56,8 @@ namespace gs
         // counts of the last run
         public int RegionTriangles, FrozenTriangles;
         public long RegionCollapses, LastCollapses, SetupMs, RegionMs, StitchMs, LastMs;
+        /// <summary> runs that fell back to one serial Reducer run (the slabs could not be kept apart) </summary>
+        public int SerialFallbacks;
 
         /// <summary> a Reducer with given vertex quadrics (relative to origin) and a box for the new positions </summary>
         class SeededReducer : Reducer
@@ -140,6 +148,13 @@ namespace gs
                 double f = shifted ? (k - 0.5) / (K - 1) : (double)k / K;
                 cut[k] = coords[(int)(f * (coords.Count - 1))];
             }
+            // (the shrunk slabs must be disjoint: a vertex free in two regions would be put in twice, a crack. With the
+            // gap lost in the rounding of the coordinates, or no gap, the caller runs serially)
+            for (int k = 1; k < K; ++k)
+                if (!(cut[k] - 0.5 * gap < cut[k] && cut[k] < cut[k] + 0.5 * gap)) {
+                    resQuadrics = null; resNormals = null; resLengths = null;
+                    return null;
+                }
             var boxes = new AxisAlignedBox3d[K];
             for (int k = 0; k < K; ++k) {
                 AxisAlignedBox3d b = bounds;
@@ -192,7 +207,9 @@ namespace gs
                     if (!own && !(owner[t] < 0 && overlaps(ref triBox[t], ref boxes[k]))) continue;
                     Index3i tv = m.GetTriangle(t);
                     int st = sub.AppendTriangle(vid(tv.a), vid(tv.b), vid(tv.c));
-                    if (st < 0) continue;       // (a non-manifold append: leave it out, it is frozen anyway)
+                    // (a subset of the triangles of a valid DMesh3 is always appended; a refused one would be lost, or leave
+                    // the corners of a frozen triangle free)
+                    if (st < 0) throw new InvalidOperationException("PartitionedReduction: region triangle refused");
                     if (!own) frozenSub.Add(st);
                 }
                 var cons = new MeshConstraints();
@@ -244,7 +261,8 @@ namespace gs
             for (int t = 0; t < NT; ++t) {
                 if (!m.IsTriangle(t) || owner[t] >= 0) continue;
                 Index3i tv = m.GetTriangle(t);
-                res.AppendTriangle(gvid(tv.a), gvid(tv.b), gvid(tv.c));
+                if (res.AppendTriangle(gvid(tv.a), gvid(tv.b), gvid(tv.c)) < 0)
+                    throw new InvalidOperationException("PartitionedReduction: frozen triangle refused");
             }
             for (int k = 0; k < K; ++k) {
                 DMesh3 sub = results[k];
@@ -274,7 +292,8 @@ namespace gs
                 foreach (int st in sub.TriangleIndices()) {
                     if (subFrozenTris[k].Contains(st)) continue;
                     Index3i tv = sub.GetTriangle(st);
-                    res.AppendTriangle(svid(tv.a), svid(tv.b), svid(tv.c));
+                    if (res.AppendTriangle(svid(tv.a), svid(tv.b), svid(tv.c)) < 0)
+                        throw new InvalidOperationException("PartitionedReduction: region triangle refused in the stitch");
                 }
             }
 
@@ -292,14 +311,24 @@ namespace gs
             Vector3d origin;
             QuadricError[] q = SeededReducer.Compute(m, Configure, out origin);
 
-            RegionTriangles = FrozenTriangles = 0; RegionCollapses = 0;
+            RegionTriangles = FrozenTriangles = 0; RegionCollapses = 0; SerialFallbacks = 0;
             SetupMs = sw.ElapsedMilliseconds; sw.Restart();
             DMesh3 res = m;
             QuadricError[] resQ = q;
             Vector3d[] rn; double[] rl;
             Reducer.ComputeReferenceNormals(m, out rn, out rl);
-            for (int r = 0; r < Rounds; ++r) {
-                res = round(res, resQ, rn, rl, origin, maxError, r % 2 == 1, out resQ, out rn, out rl);
+            // (an empty mesh has no partition)
+            for (int r = 0; r < Rounds && m.TriangleCount > 0; ++r) {
+                QuadricError[] nq; Vector3d[] nn; double[] nl;
+                DMesh3 next = round(res, resQ, rn, rl, origin, maxError, r % 2 == 1, out nq, out nn, out nl);
+                if (next == null) {
+                    // (the slabs cannot be kept apart: one serial run on the input)
+                    SerialFallbacks++;
+                    res = m; resQ = q;
+                    Reducer.ComputeReferenceNormals(m, out rn, out rl);
+                    break;
+                }
+                res = next; resQ = nq; rn = nn; rl = nl;
                 if (CancelF()) return new DMesh3(res, true);
             }
             RegionMs = sw.ElapsedMilliseconds; sw.Restart();

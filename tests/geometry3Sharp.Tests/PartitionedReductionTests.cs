@@ -159,5 +159,94 @@ namespace geometry3Sharp.Tests
             else
                 Assert.True(Math.Abs(r.TriangleCount - reference.TriangleCount) <= 0.1 * reference.TriangleCount);
         }
+
+        // an open noisy sheet over two long triangles (z = -h) that span every slab: they are frozen in every round and
+        // share no vertex with a region, so a region sees them only through the box overlap. Collapses of the sheet within
+        // the error would cross them; the result must have no self-intersection
+        internal static DMesh3 SheetOverObstacle(int seed, double h)
+        {
+            var m = new DMesh3();
+            var rnd = new Random(seed);
+            int nx = 80, ny = 8;
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i)
+                    m.AppendVertex(new Vector3d(0.5 * i, 0.5 * j, 0.2 * rnd.NextDouble()));
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    int a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, d = c + 1;
+                    m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c);
+                }
+            int p0 = m.AppendVertex(new Vector3d(-1, -1, -h)), p1 = m.AppendVertex(new Vector3d(0.5 * nx + 1, -1, -h));
+            int p2 = m.AppendVertex(new Vector3d(0.5 * nx + 1, 0.5 * ny + 1, -h)), p3 = m.AppendVertex(new Vector3d(-1, 0.5 * ny + 1, -h));
+            m.AppendTriangle(p0, p1, p2); m.AppendTriangle(p0, p2, p3);
+            return m;
+        }
+
+        [Theory]
+        [InlineData(1, 0.01)]
+        [InlineData(2, 0.005)]
+        [InlineData(3, 0.002)]
+        public void FrozenObstacle_WithoutSharedVertex_IsSeen(int seed, double h)
+        {
+            DMesh3 input = SheetOverObstacle(seed, h);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(input));
+            var pr = new PartitionedReduction() { Configure = Configure };
+            DMesh3 r = pr.Reduce(input, 0.3 * 0.3);
+            Assert.True(pr.FrozenTriangles > 0 && pr.RegionCollapses > 0, $"{pr.FrozenTriangles} frozen, {pr.RegionCollapses} collapses");
+            Assert.True(r.TriangleCount < input.TriangleCount / 2, $"{r.TriangleCount}");
+            Assert.True(r.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r));
+            // (the same without the obstacle crosses z = -h: else the test shows nothing)
+            DMesh3 bare = new DMesh3(input);
+            bare.RemoveTriangle(bare.MaxTriangleID - 1); bare.RemoveTriangle(bare.MaxTriangleID - 2);
+            DMesh3 rb = new PartitionedReduction() { Configure = Configure }.Reduce(bare, 0.3 * 0.3);
+            Assert.True(rb.VertexIndices().Any(v => rb.GetVertex(v).z < -h), "the sheet does not reach the obstacle");
+        }
+
+        // a box refined on its faces, long along x: many vertices share the x of the end faces, so quantile cuts coincide
+        // (inverted slabs that own nothing). Clean and the same for every thread count
+        [Fact]
+        public void CoincidingCuts_CleanAndDeterministic()
+        {
+            var gen = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(4, 0.5, 0.5)), EdgeVertices = 24 };
+            DMesh3 box = gen.Generate().MakeDMesh();
+            MeshTransforms.Translate(box, new Vector3d(0.25, 0.125, 0.0625));
+            DMesh3 reference = null;
+            foreach (int threads in new[] { 1, 4, 8 }) {
+                var pr = new PartitionedReduction() { MaxThreads = threads, Configure = Configure };
+                DMesh3 r = pr.Reduce(box, 1e-6);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r, true));
+                Assert.True(r.TriangleCount < box.TriangleCount / 4, $"{r.TriangleCount}");
+                if (reference == null) reference = r;
+                else Assert.Equal("", Invariance.Difference(reference, r));
+            }
+        }
+
+        // the slabs cannot be kept apart (no gap): one serial run, the same as Slabs 1 without rounds
+        [Fact]
+        public void NoGap_FallsBackToSerial()
+        {
+            MeshAlphaWrap w = Wrap(173, 40);
+            double tol = 0.5 * w.UsedOffset;
+            var pr = new PartitionedReduction() { Configure = Configure, GapEdgeLengths = 0 };
+            DMesh3 r = pr.Reduce(w.Result, tol * tol);
+            Assert.Equal(1, pr.SerialFallbacks);
+            DMesh3 serial = new PartitionedReduction() { Slabs = 1, Rounds = 0, Configure = Configure }.Reduce(w.Result, tol * tol);
+            Assert.Equal("", Invariance.Difference(serial, r));
+            var ok = new PartitionedReduction() { Configure = Configure };
+            ok.Reduce(w.Result, tol * tol);
+            Assert.Equal(0, ok.SerialFallbacks);
+        }
+
+        // an empty mesh: no exception; SimplifyWithin answers as the serial path
+        [Fact]
+        public void EmptyMesh()
+        {
+            Assert.Equal(0, new PartitionedReduction() { Configure = Configure }.Reduce(new DMesh3(), 1).TriangleCount);
+            int sub;
+            DMesh3 part = MeshRobustRepair.SimplifyWithin(new DMesh3(), 1, 1, true, () => false, out sub, MeshRobustRepair.WrapSimplifySlabs, 0);
+            DMesh3 serial = MeshRobustRepair.SimplifyWithin(new DMesh3(), 1, 1, true, () => false, out sub, 0, 0);
+            Assert.Equal(serial == null, part == null);
+        }
     }
 }
