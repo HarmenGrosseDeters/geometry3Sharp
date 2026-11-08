@@ -30,5 +30,6 @@
     "--row",
     "<row.json>"
   ],
-  "concurrent_activity": "Local validation builds were active; duration is diagnostic only."
+  "concurrent_activity": "Local validation builds were active; duration is diagnostic only.",
+  "row_sha256_encoding": "UTF-8 bytes of Python json.dumps(row, sort_keys=True, ensure_ascii=True), default separators, no trailing newline"
 }
