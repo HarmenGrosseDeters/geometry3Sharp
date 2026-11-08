@@ -7,6 +7,7 @@ sdk=${G3_DOTNET:-dotnet}
 driver="$PWD/benchmarks/OracleSourcePilot"
 unset G3_ORACLE_SOURCE_INDEX G3_ORACLE_TIMING G3_ORACLE_POINT_INDEX G3_ORACLE_EDGE_INDEX
 test "$(git -C "$G3_SOURCES_BEFORE" rev-parse HEAD)" = 941d94730646c890091b9b4c3db7582ae17be6e0
+test "$(git -C "$G3_SOURCES_AFTER" rev-parse HEAD)" = 3ad04065aabc0c7ec05ce2a162e2b23eb513dc81
 git -C "$G3_SOURCES_BEFORE" diff --exit-code -- benchmarks/Meshing2Benchmark/Oracle
 test -z "$(git -C "$G3_SOURCES_BEFORE" ls-files --others --exclude-standard -- benchmarks/Meshing2Benchmark/Oracle)"
 

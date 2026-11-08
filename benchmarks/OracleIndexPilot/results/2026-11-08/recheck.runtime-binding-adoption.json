@@ -1,0 +1,17 @@
+{
+  "durable_records": 1,
+  "records_sha256": "fe4a32b4b9504f88ee696247747cc4ce093683cdcfe24e803e093d2df2b66b21",
+  "metadata_before_sha256": "0f1e1dd6d3ba5a14e46c3a4de0c7de6c325bd0b92e0289d0c45ca3e6b4aeed9b",
+  "controller_before_sha256": "9b709e05cf6cfd6ff4f41ac600ec2f0fb940b26a1196e58388c4735b35b52cbc",
+  "controller_after_sha256": "88c13a550f01ba9f7fe413f9a574380cae974857e7d65a2313d756242d19e3f1",
+  "all_previously_bound_binaries_unchanged": true,
+  "nts_verified_against_release_package_and_frozen_component": {
+    "<baseline-benchmark>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<benchmark>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<nuget>/nettopologysuite/2.6.0/lib/netstandard2.1/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<pilot>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858"
+  },
+  "runtime_asset": "NetTopologySuite 2.6.0 netstandard2.1 selected by net10.0",
+  "inflight_attempt_discarded": true,
+  "reason": "Read-only review hardening: bind runtime DLLs, dependency manifests and runtime configuration on resume and completion. Stage commands, binary contents and geometric rules are unchanged."
+}

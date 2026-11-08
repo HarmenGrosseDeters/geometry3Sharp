@@ -1,0 +1,38 @@
+{
+  "native_tests": 663,
+  "point_component_checks": 312,
+  "edge_component_checks": 442,
+  "controller_tests": 10,
+  "default_oracle_selfchecks": 408,
+  "sweep_oracle_selfchecks": 408,
+  "selection_mutants_killed": 3,
+  "builds": [
+    "net10.0",
+    "netstandard2.0",
+    "geometry3Sharp.Tests net48",
+    "geometry3Sharp.Clipper2.Tests net48"
+  ],
+  "api_validating_packs": [
+    "geometry3Sharp",
+    "geometry3Sharp.Clipper2"
+  ],
+  "source_sha256": {
+    "benchmarks/Meshing2Benchmark/Oracle/Oracle.cs": "77199251b4b17a3202c0cb2addf9161057612c3ed459c41e1105f793b026667f",
+    "benchmarks/Meshing2Benchmark/Oracle/SelfCheck.cs": "4ae7d0375b20db1c116287120cff176643bb818d88d16dc151292b0ef7388ec4",
+    "benchmarks/OracleIndexPilot/recheck.py": "8c3a4561017025b977893004f59abec15429be2aa10f67c89943357ec6051b40",
+    "benchmarks/OracleIndexPilot/test_recheck.py": "a0ace690fa611d5e66513cfd94fdb8b021dc8e83c5a1905aa80ad365df1009d8",
+    ".github/workflows/oracle-index-pilot.yml": "268f173150ef708ee62a960a6cdea21aa6faf573386529e22add4ef0c77bce94"
+  },
+  "log_sha256": {
+    "core-build": "f44bad67eb782a2a1eda4ef2253a6ab4afb4e2693d575ab2c30c046b8820037a",
+    "net48": "92b30d91e93f49a81047f0b3638472fc15aafc872ae5b740220807c91d66d6b9",
+    "clipper-net48": "02411148648b1fbc5d93980b23c6b4b814d00f7973a773469f588dff89d8fe26",
+    "pack": "14e170267e782c6a8ffc5f82605d7f83a81754d7944da4ef8dbcc35fc219085d",
+    "clipper-pack": "12df679c2542e7d36843b5718fe8a161532b03efbe68330d925b44ea14dc0f03",
+    "tests": "5f81905090ff54a6d21b06fbd494e63cb16517f4f23073c51e57a85fe8211de3",
+    "selftest": "f091a81366133ed9196b48190b2097c359e7b873a4a4186dd5cf8280cdc34cb8",
+    "python": "af210ddd2650fedf0a70a8aca5b440cb62580709ab0c5c05f5656fa9826d20ff",
+    "integrated": "17946f35a8ee1c6ae99ea433606ccda8ce129a19fe621c08e171121145b70b97",
+    "sweep": "17946f35a8ee1c6ae99ea433606ccda8ce129a19fe621c08e171121145b70b97"
+  }
+}

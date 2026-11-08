@@ -65,7 +65,8 @@ namespace Meshing2Acceptance
         public static OracleReport Check(Mesh2Input input, Mesh2Output o, OracleExpect e)
         {
             if (ForceReference && !e.Reference) e = e.WithReference();
-            return new Run(input, o, e).Execute();
+            var (point, edge) = IndexSettings();
+            return new Run(input, o, e) { PointIndex = point, EdgeIndex = edge }.Execute();
         }
 
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
@@ -79,6 +80,33 @@ namespace Meshing2Acceptance
         [ThreadStatic] public static bool CheckFastPathForTests;
 
         internal static void FastPathDiffers(string what) => throw new InvalidOperationException("fast path differs: " + what);
+
+        // Binary64 outputs use certified geometric pruning by default. Keep the sweep for A/B diagnosis;
+        // exact-coordinate/reference runs always retain their existing independent sweep.
+        internal static bool UseConformityIndex(bool fast, string configured, string indexedName)
+            => fast && IndexSetting("the oracle index", configured, indexedName) != "sweep";
+
+        /// <summary>The environment variable that selects the point/triangle search: strtree (the default) or sweep.</summary>
+        public const string PointIndexVariable = "G3_ORACLE_POINT_INDEX";
+        /// <summary>The environment variable that selects the edge crossing search: strtree-hulls (the default) or sweep.</summary>
+        public const string EdgeIndexVariable = "G3_ORACLE_EDGE_INDEX";
+
+        /// <summary>A conformity index setting, normalized: unset, empty or blank is the default (the indexed name); case and surrounding
+        /// blanks do not matter; anything but the indexed name or sweep throws with the variable, the value and the accepted values.</summary>
+        internal static string IndexSetting(string variable, string value, string indexedName)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return indexedName;
+            string v = value.Trim().ToLowerInvariant();
+            if (v != indexedName && v != "sweep")
+                throw new InvalidOperationException(variable + "='" + value + "' is not a conformity index: use " + indexedName + " (the default) or sweep");
+            return v;
+        }
+
+        /// <summary>Reads and checks both index variables (Oracle.Check does so before any work, the command line at its start), so a
+        /// wrong value fails at once with a clear message instead of in the middle of a long judgment.</summary>
+        public static (string point, string edge) IndexSettings() => (
+            IndexSetting(PointIndexVariable, Environment.GetEnvironmentVariable(PointIndexVariable), "strtree"),
+            IndexSetting(EdgeIndexVariable, Environment.GetEnvironmentVariable(EdgeIndexVariable), "strtree-hulls"));
 
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
@@ -137,6 +165,8 @@ namespace Meshing2Acceptance
                 SourceWorkForTests = 0;
                 SourceGridWorkForTests = 0;
             }
+            /// <summary> the conformity searches (see Oracle.IndexSettings), read once before the run </summary>
+            public string PointIndex, EdgeIndex;
 
             static long Key(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
             static int KeyA(long k) => (int)(k >> 32);
@@ -188,7 +218,7 @@ namespace Meshing2Acceptance
                 EdgesAndNeighbours(); Lap("edges");
                 Sources(); Lap("sources");
                 Filters(); Lap("filters");
-                Conformity(); Lap("conformity");
+                Conformity(); Lap("conformity: remaining");
                 Crossings();
                 InventedVertices(); Lap("crossings, invented");
                 Segments(); Lap("segments");   // before Coverage: it measures how far the geometry moved
@@ -1764,31 +1794,54 @@ namespace Meshing2Acceptance
                 var used = new HashSet<int>(o.Triangles.SelectMany(t => t)).OrderBy(i => i).ToArray();
                 var vertexBoxes = used.Select(i => new[] { rx[i], rx[i], ry[i], ry[i] }).ToArray();
                 // (the pairs come in no particular order: the violations are collected and the first 8 in index order reported)
-                var touching = new List<(int ti, int id)>();
-                OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
-                    var t = o.Triangles[ti];
-                    int id = used[vi];
-                    if (id == t[0] || id == t[1] || id == t[2]) return;
-                    if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0) touching.Add((ti, id));
-                });
-                touching.Sort();
+                List<(int ti, int id)> SweptTouches()
+                {
+                    var swept = new List<(int ti, int id)>();
+                    OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
+                        var t = o.Triangles[ti];
+                        int id = used[vi];
+                        if (id == t[0] || id == t[1] || id == t[2]) return;
+                        if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0) swept.Add((ti, id));
+                    });
+                    swept.Sort();
+                    return swept;
+                }
+                List<(int ti, int id)> touching;
+                if (UseConformityIndex(Fast, PointIndex, "strtree")) {
+                    touching = new List<(int ti, int id)>(new StrtreePointSearch(o).FindTouches());
+                    touching.Sort();
+                    // (the STRtree's pruning against the sweep, pair for pair: the oracle's tests reach it through the fast path checks)
+                    if (CheckFastPathForTests && !touching.SequenceEqual(SweptTouches())) FastPathDiffers("the vertices touching a triangle (STRtree)");
+                } else touching = SweptTouches();
                 foreach (var (ti, id) in touching.Take(8)) {
                     var t = o.Triangles[ti];
                     r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
                 }
+                Lap("conformity: point-triangle");
                 var keys = edges.Keys.ToArray();
                 var edgeBoxes = keys.Select(k => new[] {
                     Math.Min(rx[KeyA(k)], rx[KeyB(k)]), Math.Max(rx[KeyA(k)], rx[KeyB(k)]),
                     Math.Min(ry[KeyA(k)], ry[KeyB(k)]), Math.Max(ry[KeyA(k)], ry[KeyB(k)]) }).ToArray();
-                var crossing = new List<(long, long)>();
-                OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
-                    int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
-                    if (a == c || a == d || b == c || b == d) return;
-                    if (ProperCrossV(a, b, c, d)) crossing.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));
-                });
-                crossing.Sort();
+                List<(long, long)> SweptCrossings()
+                {
+                    var swept = new List<(long, long)>();
+                    OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
+                        int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
+                        if (a == c || a == d || b == c || b == d) return;
+                        if (ProperCrossV(a, b, c, d)) swept.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));
+                    });
+                    swept.Sort();
+                    return swept;
+                }
+                List<(long, long)> crossing;
+                if (UseConformityIndex(Fast, EdgeIndex, "strtree-hulls")) {
+                    crossing = new List<(long, long)>(new StrtreeEdgeSearch(o, keys).FindCrossings());
+                    crossing.Sort();
+                    if (CheckFastPathForTests && !crossing.SequenceEqual(SweptCrossings())) FastPathDiffers("the crossing edge pairs (STRtree hulls)");
+                } else crossing = SweptCrossings();
                 foreach (var (k1, k2) in crossing.Take(8))
                     r.Add(Violation.EdgesCross, "edges " + KeyA(k1) + "-" + KeyB(k1) + " and " + KeyA(k2) + "-" + KeyB(k2) + " cross");
+                Lap("conformity: edge-crossings");
                 // every used vertex that is a corner of two triangles with the same coordinates would pass the tests above
                 if (Fast) {
                     // the doubles are the exact vertices: equal doubles, equal points (0.0 and -0.0 made one)

@@ -57,6 +57,9 @@ namespace Meshing2Acceptance
             string oracleMode = Arg(args, "--oracle");
             if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
             Oracle.ForceReference = oracleMode == "reference";
+            // the oracle's index variables (G3_ORACLE_POINT_INDEX, G3_ORACLE_EDGE_INDEX): a wrong value stops here, before any work
+            try { Oracle.IndexSettings(); }
+            catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
             // mesh --no-oracle times the mesher alone: nothing is judged, so the self-check is not needed either
             if (args[0] == "mesh" && Has(args, "--no-oracle")) return Mesh(args);
             var items = SelfCheck.Run();
@@ -248,6 +251,7 @@ namespace Meshing2Acceptance
             var output = TextFormat.ReadOutput(File.ReadAllText(outputPath), out string producer);
             var e = MeshCommand.OracleExpectation(MilestoneArg(args, Milestone.M1), Arg(args, "--tube"), Arg(args, "--stated-area"), Arg(args, "--stated-area-tolerance"));
             e.ReportSnappedArea = Has(args, "--snapped-area");
+            if (Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null) Console.Error.WriteLine("ORACLE-JUDGE-BEGIN");
             var report = Oracle.Check(input, output, e);
             foreach (var v in report.Violations) Console.WriteLine("VIOLATION " + v);
             Console.WriteLine((report.Ok ? "VALID" : "INVALID") + " " + producer + ": " + output.Triangles.Length + " triangles, unique " + report.Unique.ToString().ToLowerInvariant()

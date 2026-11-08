@@ -42,5 +42,7 @@
     "Oracle.cs"
   ],
   "pilot_source_sha256": "35601d8d95c89b7a916bc49379df55fb6a3b9ddd3579436ec2f5add2867bd745",
-  "mutations_restored_source_bytes": true
+  "mutations_restored_source_bytes": true,
+  "indexed_measurement_commit": "3ad04065aabc0c7ec05ce2a162e2b23eb513dc81",
+  "scope": "Frozen pre-master-integration measurements; hashes identify the measured source tree, not later unrelated conformity additions."
 }

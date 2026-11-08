@@ -63,10 +63,23 @@ in the tool project.
     from self-intersections.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
-  - Status 2026-11-08: #423 adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
+  - Status 2026-11-08: #423 (merged) adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
     enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
     relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
     check that gap for SDFs, and the code does not check it).
+  - Found in the #423 review (pre-existing, also in legacy modes, low priority): `MarchingCubesPro.GenerateContinuation`
+    runs past `done_cells` at the upper grid edge or with seeds outside the bounds (`IndexOutOfRangeException`, in
+    parallel an `AggregateException`, or a silent wrap into the next row), because `GridBounds.Contains` is inclusive.
+    Also silent: `done_cells` is sized nx*ny*nz, so cell (n, j, k) shares an index with (0, j+1, k) and a whole
+    component can be skipped without an exception (repro in the #423 review: bounds 0..2.5, h 1, spheres r 0.3 at
+    nodes (4,1,1) and (1,2,1), seeds in cells (3,0,0) and (0,1,0)). Fix: size `done_cells` (n+1)^3 or make the
+    neighbour test exclusive; changes legacy behaviour, so note it in UPSTREAM_CHANGES. Own bugfix PR with a test.
+- 2D wrap (idea only, owner 2026-11-08; not scheduled). Clipper2 has no alpha wrap, but the Clipper2 addon can
+  already do a morphological closing: `Offset` / `OffsetPolyLines` by r + offset, `Union`, `Offset` by -r, then
+  `Simplify` (simple, non-self-intersecting polygons; gaps narrower than about 2r are closed). A small step would be
+  a documented recipe or a `Clipper2Polygons.Close(...)` helper with tests. A real 2D alpha wrap (after Portaneri et
+  al. 2022, cf. CGAL's 2026 2D package as a black box only) only if a use case needs coarse, low-vertex outlines or
+  large point sets as input (concave-hull style).
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one

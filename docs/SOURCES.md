@@ -41,6 +41,41 @@ its JTS-derived content is available under the permissive BSD-style Eclipse Dist
 Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
 benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
 
+`benchmarks/OracleIndexPilot` also uses the public NetTopologySuite 2.6.0 STRtree
+API (BSD-3-Clause, same release license above), as an isolated test/benchmark
+dependency. NTS builds a point hierarchy; our traversal uses the existing oracle's
+unchanged orientation filter/exact fallback and the affine maximum of orientation
+over a closed rectangle to prune strictly exterior subtrees. No NTS geometric
+verdict is used and no implementation is read or ported. The oracle's default
+conformity searches (binary64 outputs; `G3_ORACLE_POINT_INDEX` / `G3_ORACLE_EDGE_INDEX`
+`=sweep` restore the sweeps) add NTS to the independent test-oracle project, never to
+the library; the compiler still enforces the oracle's lack of a geometry3Sharp reference.
+The proof, controls and measurements are documented
+in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
+
+The second isolated variant uses exact endpoint convex hulls on STRtree nodes for
+proper edge-crossing queries. The monotone-chain hull is own code from the standard
+concept of A. M. Andrew, *Another efficient algorithm for convex hulls in two
+dimensions*, IPL 9(5), 1979, [doi:10.1016/0020-0190(79)90072-3](https://doi.org/10.1016/0020-0190(79)90072-3).
+Hierarchical geometric separation was considered from Gottschalk, Lin and Manocha,
+*OBBTree*, SIGGRAPH 1996; Bentley and Ottmann, *Algorithms for Reporting and Counting
+Geometric Intersections*, IEEE TC 1979, is the sweep alternative. Publication
+metadata/abstracts were consulted; no implementation code was read or copied.
+The two closed-half-plane certificates and the degenerate-hull handling are
+derived in the pilot comments/README and reviewed against the unchanged exact
+ProperCross predicate. A node keeps its exact hull only up to 16 vertices and
+otherwise tests the corners of its closed box (a containing polygon), so the test per
+node is bounded (own construction after the #411 review found O(E·h) work on convex
+boundaries). The point/triangle and duplicate checks remain in force.
+
+The large pilot mesh is generated externally from a GEOS XML test fixture at
+commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output
+hashes are recorded in the pilot's numeric provenance. Upstream's pinned
+[COPYING](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING)
+is LGPL-2.1; no separate permissive fixture license is assumed. Fixtures and
+generated geometries/meshes are not committed. Only external data is used;
+GEOS implementation code is not consulted or ported.
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.
@@ -522,3 +557,8 @@ Pilot 2 (`tools/Z3Pilot/filter_rules.py`, the error-bound rules of `tools/Predic
 model of floating-point arithmetic and its variant `fl(s) = s / (1 + d)` from N. J. Higham, *Accuracy and Stability
 of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2, and the form of the filter bounds (`|e~ - e| <= c m~`) of
 J. R. Shewchuk 1997 (see above); results only, no code.
+
+- Alec Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
+  [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
+  3.1. Paper-only mathematical source for the `LinearEdges` adapter and
+  `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.

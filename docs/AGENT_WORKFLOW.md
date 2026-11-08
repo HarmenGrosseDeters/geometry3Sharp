@@ -142,6 +142,14 @@ from secret tests, which a public repository cannot keep.
   targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
+- Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
+  for progress; several items go in one message. A session with nothing to do while its PRs wait pauses (no
+  check-ins, no polling) until the coordinator messages it.
+- Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
+  integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
+  the PRs merge one by one with normal CI only. Survivors are attributed by line to the PR that changed it. A gate
+  whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
+  thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
 - Medium sessions on a mid-size model (Sonnet, owner 2026-11-08) take bounded, well-specified tasks (benchmark
   classes, gates, small fixes). They escalate hard or risky decisions (correctness arguments, error bounds, licences,
@@ -177,4 +185,16 @@ from secret tests, which a public repository cannot keep.
   - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
     coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
   - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+  - Standing cost rules (owner 2026-11-08, for all future work):
+    - Model by task: long runs on a Haiku runner, bounded medium tasks on Sonnet, design, exact code and their
+      reviews on the large model.
+    - Reviews: the first review is a fresh agent on the full diff; re-reviews of fixes resume that reviewer with the
+      delta only.
+    - Mutation gate: no push while a full mutation run is in flight on the PR (it cancels it); queued PRs on the same
+      shards share one combined gate; a thresholds-only commit is gated on the run that measured the same code
+      (see the merge-queue rule above).
+    - Waiting is free, polling is not: sessions with nothing on the critical path pause until messaged; check-ins
+      follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
+    - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
+      valid result for the owner).
 

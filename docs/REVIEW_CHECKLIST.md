@@ -160,6 +160,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   boxes and clusters beside outliers; bound extra enumeration and keep an exact scan fallback.
 - Reproduction commands must fail on unequal required reports/fingerprints. Saving hashes or relying on a one-off
   manual comparison is not an acceptance gate; verify completed records again after resuming a campaign.
+- Pair enumeration callbacks may emit either index order. Normalize unordered pairs before deduplicating;
+  a `j <= i` guard is safe only when the caller guarantees the selected query is the lower index. Compare the
+  complete pair set with exhaustive enumeration, including nonempty hits (oracle edge-index review).
 
 ## 10a. The oracle itself
 

@@ -1,0 +1,29 @@
+{
+  "baseline_production_commit": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+  "baseline_results_sha256": "c05a8b85ea453ca36130618ef0b1018f39b9ef6e06a589b56f09db52d1fb1c6d",
+  "results_jsonl_sha256": "9a991c83a7578f0b83d894921be162d20abd143f770020a866ce5c0c319ad650",
+  "chunks": [
+    {
+      "path": "recheck-results-01.jsonl",
+      "sha256": "a9e62a8e20fd6d5a7f89347689f576c5851f2c2a698ee330d76e779288edaab7",
+      "records": 8
+    },
+    {
+      "path": "recheck-results-02.jsonl",
+      "sha256": "7a854e915c0a77ce54c21095b4b675284d15619a6e2e5d5bf71f410d8d5aa834",
+      "records": 8
+    },
+    {
+      "path": "recheck-results-03.jsonl",
+      "sha256": "6954ea9f0c739bdf4deb5c83cfab71c4c8d0d7511b7d48091f09272b81f1bc8a",
+      "records": 8
+    }
+  ],
+  "source_sha256": {
+    "benchmarks/Meshing2Benchmark/Oracle/Oracle.cs": "1bd94e0ada2f11ae2829d3b39fac80308cb860bea1b8dd70d489dede138bc442",
+    "benchmarks/Meshing2Benchmark/Oracle/StrtreePointSearch.cs": "4658ca23af18a7e0b6cc69f7a729b3a3ddb55aec17a6642c5133855bd4d92eb7",
+    "benchmarks/Meshing2Benchmark/Program.cs": "108f6ef3a8f7696fb64ab8daaaeb65d2598eb0f7dcd48f22f0b41610fe3a18eb",
+    "benchmarks/OracleIndexPilot/Program.cs": "760e817460c075bceb24b67a8320ad6f0018576e92a8e5bce8200718900d9184",
+    "benchmarks/OracleIndexPilot/recheck.py": "88c13a550f01ba9f7fe413f9a574380cae974857e7d65a2313d756242d19e3f1"
+  }
+}

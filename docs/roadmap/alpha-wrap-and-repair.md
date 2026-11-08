@@ -27,7 +27,20 @@ Part of the [roadmap](../ROADMAP.md).
 - 0 triangles < 0.5° and 0 > 170° per mesh in the final output; the pinch caps (102793, 118678, 1505037) gone;
   **p01 (owner 2026-11-08):** the raw wrap reaches CGAL's p01 (the ~2° gap of #317; behaviour numbers only, CGAL code
   is never read); the final simplified output has p01 >= 10° as the median over the 800 sample (floor confirmed
-  after the full-800 data);
+  after the full-800 data); the CGAL comparison for the raw target runs on the 100 meshes of the T1 list only
+  (median comparison), as a fixed reference that later runs do not repeat (owner 2026-11-08). Q1 (A+B+C, quality
+  pass off, 800): final p01 median 11.53° (min 10.79°, master 7.62°), 0 triangles < 0.5° or > 170°, raw p01 median
+  20.11°, F-score / IoU medians not worse, triangles +16.5 %; hd_back mixed per mesh (79-81 worse > 5 %, 124-126 better, medians equal), caused by B's Φ gating (paper
+  Definition 2; CGAL shows equal or larger input→result distances on the probed meshes), accepted as paper behaviour
+  (owner 2026-11-08; the circumradius gates would cost the raw p01 gain); T2 (100 T1 meshes, warm): 4a (#417)
+  identical, wrap.manifold 32 → 7 s; 4b (local pinch trials) 94/100 identical, 6 marginal changes, pinch 159 → 68 s;
+  speed budget passed by 24 → 27 → 35 of 100 (median 1.14 → 1.06× budget). Owner 2026-11-08: 4b becomes a PR,
+  default on; parallel reducer option (A) is built as a deterministic prototype behind a switch, PR decision from
+  its T1 measurement; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
+  19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0); sharp features (owner 2026-11-08): option 1, the Reducer's feature
+  quadrics (FeatureAngle sweep 30/45/60° on T1 with full fidelity) runs in a Sonnet session now, PR only on a
+  fidelity gain within the floors; option 3, crease-aware Steiner points in the raw wrap (convex creases exact), is a
+  2.x item for the Alpha Wrap session after (A); concave corner recovery is research, not in 2.0;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.

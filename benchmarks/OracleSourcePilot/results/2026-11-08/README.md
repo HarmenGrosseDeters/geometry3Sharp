@@ -121,3 +121,11 @@ tests and complete dataset acceptance. Its initial missing-acceptance-gate findi
 is fixed and recorded in the review checklist. No blocking findings remain.
 Details and hashed local evidence are in `validation.json`, `review.json` and
 `acceptance.json`.
+
+Master integration after #411 merged: the frozen timing records above remain bound
+to feature commit `3ad04065` on `941d9473`; they are not relabelled as new timings.
+The source coverage implementation is unchanged. Combining the source constructor
+with the conformity index fields preserves both controls, and both checklist
+additions are retained. The combined 60k full-check smoke is VALID and produces the
+same complete report SHA-256 as above. Post-integration checks are recorded in
+`master-integration.json`.
