@@ -37,6 +37,9 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 
 **WP2 triage of the 81 unclean ops:** B1 47 (input bowties), D2 11 (input degenerate), B2 3 (M3, fixed in #398), D1 20 (SafeRounding's additive drift budget exhausted in clusters; probe of tighter drift accounting next). The 80 empty unions are inside-out inputs (legitimate).
 
+**D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
+with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
+
 **PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
 
 #### Other open items
