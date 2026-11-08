@@ -231,9 +231,23 @@ namespace g3
         // per vertex: the smallest id at its position (in atPosition; kept with it by position_add, position_remove)
         int[] canonId;
         // spatial index over the triangles at the last build; triangles changed since are in dirty, with an index
-        // of their own (rebuilt when they change, it is small)
+        // of their own (dirtyTree, rebuilt after 256 more changes, see pending)
         TriangleBoxTree tree, dirtyTree;
         List<int> treeTids, dirtyTids;
+        // the triangles changed since dirtyTree was built (searched linearly; their boxes in dirtyTree are stale): the
+        // tree of the changed triangles is rebuilt when more than 256 of them are pending, not after every edit (the
+        // changed triangles stay below max(1024, n / 16) until the main tree is rebuilt, so the rebuilds of the small
+        // tree cost about n^2 / 2^17 box operations per main rebuild of n log n)
+        readonly List<int> pending = new List<int>();
+        readonly HashSet<int> pendingSet = new HashSet<int>();
+        // the box tree's hits of a query in near (reused)
+        readonly List<int> hits = new List<int>();
+        // for tests: the queries of near compared with a scan (CheckOnThisThread)
+        internal long NearChecks;
+        // for tests: the builds of the tree of the changed triangles in the last Apply
+        internal int DirtyTreeBuilds;
+        // for tests: the most triangles near scanned linearly in one query (the rebuild threshold, 256)
+        internal int MaxPendingScanned;
         HashSet<int> dirty = new HashSet<int>();
         // the intersecting pairs of the last intersecting_pairs, and the triangles changed or removed since (null:
         // not computed for the current mesh)
@@ -348,6 +362,9 @@ namespace g3
             rebuild_tree();
             lastPairs = null;
             check = CheckOnThisThread;
+            NearChecks = 0;
+            DirtyTreeBuilds = 0;
+            MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
             MovesPastTheLimit = 0;
             PairTestsChecked = FilterDecisions = 0;
@@ -613,6 +630,8 @@ namespace g3
             tree = new TriangleBoxTree(boxes);
             dirty.Clear();
             dirtyTree = null;
+            pending.Clear();
+            pendingSet.Clear();
             version++;
         }
 
@@ -622,7 +641,8 @@ namespace g3
                 exactAtStart[tid] = new Index3i(-1, -1, -1);
             dirty.Add(tid);
             pairsStale.Add(tid);
-            dirtyTree = null;
+            if (dirtyTree != null && pendingSet.Add(tid))
+                pending.Add(tid);
             version++;
             if (Mesh.IsTriangle(tid)) {
                 Index3i tv = Mesh.GetTriangle(tid);
@@ -638,28 +658,78 @@ namespace g3
         void near(AxisAlignedBox3d query, List<int> result)
         {
             result.Clear();
-            tree.Query(query, (i) => {
+            // (the list overload: no list and no closure per query)
+            hits.Clear();
+            tree.Query(query, hits);
+            foreach (int i in hits) {
                 int t = treeTids[i];
                 if (dirty.Contains(t) == false && Mesh.IsTriangle(t))
                     result.Add(t);
-            });
+            }
             if (dirty.Count == 0)
                 return;
-            if (dirtyTree == null) {
+            int save = movedV;
+            movedV = -1;
+            if (dirtyTree == null || pending.Count > 256) {
                 dirtyTids = new List<int>();
                 var boxes = new List<AxisAlignedBox3d>();
-                int save = movedV;
-                movedV = -1;
                 foreach (int t in dirty) {
                     if (Mesh.IsTriangle(t) == false)
                         continue;
                     dirtyTids.Add(t);
                     boxes.Add(box(Mesh.GetTriangle(t)));
                 }
-                movedV = save;
                 dirtyTree = new TriangleBoxTree(boxes);
+                DirtyTreeBuilds++;
+                pending.Clear();
+                pendingSet.Clear();
             }
-            dirtyTree.Query(query, (i) => result.Add(dirtyTids[i]));
+            // (a triangle in the tree that changed since is in pending, with its current box; one removed since is skipped)
+            hits.Clear();
+            dirtyTree.Query(query, hits);
+            foreach (int i in hits) {
+                int t = dirtyTids[i];
+                if (pendingSet.Contains(t) == false && Mesh.IsTriangle(t))
+                    result.Add(t);
+            }
+            if (pending.Count > MaxPendingScanned)
+                MaxPendingScanned = pending.Count;
+            foreach (int t in pending)
+                if (Mesh.IsTriangle(t) && closed_overlap(box(Mesh.GetTriangle(t)), query))
+                    result.Add(t);
+            if (check)
+                check_near(query, result);
+            movedV = save;
+        }
+
+        // (CheckOnThisThread) the result of near is the set of current triangles whose current box overlaps query, each
+        // once: compared with a scan of all triangles
+        void check_near(AxisAlignedBox3d query, List<int> result)
+        {
+            // (the boxes of the current geometry, from the mesh itself: not through pos, so that a proposed position
+            // that leaked into near would show)
+            var expected = new List<int>();
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                var b = new AxisAlignedBox3d(Mesh.GetVertex(tv.a));
+                b.Contain(Mesh.GetVertex(tv.b)); b.Contain(Mesh.GetVertex(tv.c));
+                if (closed_overlap(b, query))
+                    expected.Add(t);
+            }
+            var got = new List<int>(result);
+            got.Sort();
+            bool same = got.Count == expected.Count;
+            for (int i = 0; same && i < got.Count; ++i)
+                same = got[i] == expected[i];
+            if (same == false)
+                throw new InvalidOperationException($"MeshRoundingRepair: near found {got.Count} triangles, a scan {expected.Count}");
+            NearChecks++;
+        }
+
+        // the closed boxes overlap (as TriangleBoxTree.Query tests; AxisAlignedBox3d.Intersects excludes touching boxes)
+        static bool closed_overlap(AxisAlignedBox3d a, AxisAlignedBox3d b)
+        {
+            return !(a.Max.x < b.Min.x || a.Min.x > b.Max.x || a.Max.y < b.Min.y || a.Min.y > b.Max.y || a.Max.z < b.Min.z || a.Min.z > b.Max.z);
         }
 
         void remove_triangle(int tid, bool removeIsolatedVertices = false)
