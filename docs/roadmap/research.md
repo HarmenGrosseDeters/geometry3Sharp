@@ -13,6 +13,61 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
+  each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
+  alongside):**
+  1. Batch ray / point queries (`IntersectBatch`, `IsInsideBatch`; owner idea 2026-11-02), M. Stage 1 done
+     (2026-11-08, branch claude/batch-queries-stage1, docs/design/BATCH_QUERIES.md): batching over the existing
+     `DMeshAABBTree3` gives 2.2-5.2x (rays) / 3.6-5.3x (inside) on 4 cores, bit-identical to the single calls; an own
+     BVH at most ~1.3x more, SIMD 1.05-1.3x. Owner 2026-11-08: stage 2 = that batching only (new file
+     `spatial/MeshBatchQueries.cs`), nearest + any-hit in the first PR, plus a batched nearest-point / distance query (`NearestPointBatch`, same
+     pattern, bit-identical); after the boolean queue and Lévy phase 2. Internal callers are switched only where the
+     spatial-structure profile shows serial loops over single queries that pay (repair volume check, MaxDeviation /
+     IsWithin, fidelity metrics, deviation maps).
+  2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
+     provably correct; Unity, robotics, simulation; nothing comparable in .NET.
+     Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
+     is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
+     first, then 2-3 days with an Opus-level review of the bounds.
+  3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
+     alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
+     predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
+     tetrahedrization much easier than for raw input (fTetWild's problem). Missing: a tetrahedrization bound to a given
+     clean surface, 3D Delaunay refinement with a radius-edge bound, sliver removal / exudation. It reuses the Meshing2D
+     work: the Delaunay-refinement theory (Ruppert, Shewchuk, Cheng-Dey-Shewchuk 2012, which covers 3D), the
+     small-angle handling (in 3D: small dihedral angles, protecting balls), exact-authoritative coordinates with
+     rounding to doubles, the independent exact oracle and golden / fuzz infrastructure, and the clean-room provenance
+     process. Licences: TetGen AGPL, the CDT of Diazzi et al. GPL / LGPL, fTetWild MPL: paper only. Stage 1 on the large
+     model (prior art, what `Delaunay3` lacks, an upper bound on reachable quality, a design note with the
+     termination argument); Sonnet only for bounded parts.
+  4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+     guarantee; additive manufacturing showcase.
+  5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
+     sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
+     orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
+     and the batch queries (priority 1) are the building blocks.
+  6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  Then: quad remeshing (L, licences to check), feature-preserving offsets
+  (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
+  Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
+- **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
+  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 5).
+  - Meshing2D ↔ terrain: a TIN with breaklines is constrained quality meshing in 2.5D; the terrain restart (DGM
+    reader) designs with `QualityMesh2`, its oracle and golden tests.
+  - Exact booleans ↔ tetrahedral meshing ↔ practical 3D snap rounding: exact and implicit points, then doubles
+    without inverted tets; SafeRounding, the D1 rule and Z3 as a rule checker serve all three.
+  - Conservative marching cubes ↔ TPMS ↔ alpha wrap: lattices with a guaranteed enclosure; infill by intersecting
+    implicitly before marching cubes (cheaper than an exact boolean after); a cheap conservative bound for the
+    wrap's envelope checks.
+  - Batch queries ↔ fidelity metrics, wrap certification, point clouds, terrain height / ray queries, tet labelling,
+    CCD broad phase: priority 1 is the base for the others.
+  - Polyhedral envelope ↔ Reducer / Remesher ↔ tetrahedral meshing: too slow for the remeshers, but surface
+    preservation on a clean wrap surface may fit (fTetWild preserves the surface by an envelope).
+  - QA generators and the oracle pattern ↔ all modules: one CsCheck generator of multi-component, scale-disparate
+    inputs serves boolean, repair, wrap and later tets.
+  - CLI / MCP ↔ everything: batch raycast, inside test, wrap and later tet meshing form the chain agents need for
+    simulation and manufacturing.
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.

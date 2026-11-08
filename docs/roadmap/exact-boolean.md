@@ -40,7 +40,16 @@ solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evalua
 corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
 dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
 layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
-where the profiles spend the time (owner 2026-11-08).
+where the profiles spend the time (owner 2026-11-08). It also lists the library's serial loops over single tree
+queries (nearest point, rays, inside tests: repair volume check, MaxDeviation / IsWithin, fidelity metrics,
+deviation maps) with an upper bound each for switching them to the batch queries (research.md, priority 1).
+It also measures the memory layout of the meshes as a lever (owner 2026-11-08): the original order vs a compacted
+and spatially reordered mesh (vertices and triangles in Morton / Hilbert order; free-ID holes removed after many
+edits), on the boolean set and the T1 wrap / repair meshes. Many algorithms break ties by ID, so reordering is either
+internal with a map back where the result does not depend on the order, or a user option whose result holds for the
+reordered input; the owner decides from the upper bound. Smaller candidates in the same profile: GC / allocations
+(about 7 % of the Reducer; `ArrayPool` for the boolean is an open owner decision) and per-vertex small
+`HashSet<int>` / `List<int>` in hot loops.
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
