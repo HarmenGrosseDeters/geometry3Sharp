@@ -561,11 +561,10 @@ horizontal component, mix correspondences, and cap the search. Each must fail th
 actual linked-helper tests before the restored implementation is accepted.
 
 Measured on 2026-11-07, .NET SDK 10.0.403, baseline `a482d490`, using the
-`verify_closest.py` command above after the builds completed. Raw rows with exact
-commands, grid checksums, local/UTM placement and every old/new field:
-[flat](validation/closest_flat_2026-11-07.json),
-[slope](validation/closest_slope_2026-11-07.json),
-[ridge](validation/closest_ridge_2026-11-07.json).
+`verify_closest.py` command above after the builds completed. [Compact summary](validation/closest_runs_2026-11-07.json)
+(written by the script; command template, grid checksums, local/UTM placement, the pre-existing
+non-timing fields once per case and every new field per sample count; machine paths and
+run-to-run timings other than the two closest-point phase times are not kept).
 The 48 synthetic rows cover 24×24 flat, sloping and ridge grids, both operations,
 both placements, and 1k/10k/50k samples. All pre-existing non-timing fields match
 base exactly; the new distance fields are absent on base. Terrain algorithms and
@@ -596,6 +595,5 @@ with dh=dv=1 at its known correspondence.
 and Clipper2 packs, and both package smoke tests pass. Existing compiler warnings
 remain. [Controlled mutation output](validation/closest_mutations_2026-11-07.json):
 vertical-instead-of-3D fails 3 tests, zero-horizontal 3, mixed-correspondence 2,
-capped-search 8; restored implementation passes all 9. Independent review completed,
-including a recheck of its fixed stale-statistics finding. The full unrelated .NET
+capped-search 8; restored implementation passes all 9. The full unrelated .NET
 test suite and net48 execution were not run locally; CI runs those suites.
