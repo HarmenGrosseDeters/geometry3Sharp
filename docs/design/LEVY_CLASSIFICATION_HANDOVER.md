@@ -1,5 +1,7 @@
 # Classification by propagation (Exact Boolean 2.0): phase-1 hand-over
 
+Superseded by [LEVY_CLASSIFICATION.md](LEVY_CLASSIFICATION.md) (phase 1 done 2026-11-08).
+
 Status 2026-11-08: paused by the owner after reading only; no runs, no profile, no library code. This note saves the
 next session the reading.
 
