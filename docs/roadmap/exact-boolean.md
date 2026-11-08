@@ -56,6 +56,11 @@ size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
 runner's data branch.
 
+**Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
+#425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
+the PRs merge one by one with normal CI. Open library items after the queue: L3 work-unit budget, the
+ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5 s (1517923, 519507).
+
 **PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
 
 #### Other open items

@@ -142,6 +142,14 @@ from secret tests, which a public repository cannot keep.
   targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
+- Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
+  for progress; several items go in one message. A session with nothing to do while its PRs wait pauses (no
+  check-ins, no polling) until the coordinator messages it.
+- Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
+  integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
+  the PRs merge one by one with normal CI only. Survivors are attributed by line to the PR that changed it. A gate
+  whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
+  thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
 - Medium sessions on a mid-size model (Sonnet, owner 2026-11-08) take bounded, well-specified tasks (benchmark
   classes, gates, small fixes). They escalate hard or risky decisions (correctness arguments, error bounds, licences,
