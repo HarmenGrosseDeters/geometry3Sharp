@@ -13,6 +13,13 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Mutation-run cost analysis** (owner 2026-11-08, a Sonnet session after #403's split has run, analysis only):
+  from the Stryker reports and logs, measure the time cost of timeout mutants (31-43 % of mutants on the arrangement
+  shards; timeout factor), the slow covering tests per shard (which add time without killing a mutant exclusively),
+  mutators that only produce equivalent or worthless mutants (strings, statistics counters), and how to key each
+  shard's cache only on its own configuration (today every `mutation.yml` change reruns all shards in full); also
+  dynamic shard splitting by measured time. Output: levers with expected savings; changes only after the owner's
+  decision, since every gate depends on this tooling.
 - **Release:** no public package until the library "just works"; package ID and publishing open (the nuget.org ID
   `geometry3Sharp` belongs to upstream).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
