@@ -29,12 +29,23 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
-  3. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+  3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
+     alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
+     predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
+     tetrahedrization much easier than for raw input (fTetWild's problem). Missing: a tetrahedrization bound to a given
+     clean surface, 3D Delaunay refinement with a radius-edge bound, sliver removal / exudation. It reuses the Meshing2D
+     work: the Delaunay-refinement theory (Ruppert, Shewchuk, Cheng-Dey-Shewchuk 2012, which covers 3D), the
+     small-angle handling (in 3D: small dihedral angles, protecting balls), exact-authoritative coordinates with
+     rounding to doubles, the independent exact oracle and golden / fuzz infrastructure, and the clean-room provenance
+     process. Licences: TetGen AGPL, the CDT of Diazzi et al. GPL / LGPL, fTetWild MPL: paper only. Stage 1 on the large
+     model (prior art, what `Delaunay3` lacks, an upper bound on reachable quality, a design note with the
+     termination argument); Sonnet only for bounded parts.
+  4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
-  4. Point clouds in stages: normal orientation first (fast winding numbers exist), then screened Poisson, L.
-  5. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-  6. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
-  Then: quad remeshing (L, licences to check), tetrahedral meshing (#4, L+, paper only), feature-preserving offsets
+  5. Point clouds in stages: normal orientation first (fast winding numbers exist), then screened Poisson, L.
+  6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
