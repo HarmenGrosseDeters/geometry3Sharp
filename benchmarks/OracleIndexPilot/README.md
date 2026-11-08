@@ -204,3 +204,10 @@ dotnet run --project benchmarks/OracleIndexPilot -c Release -- comb-input 8000 3
 Input hashes (SHA-256): lens 60 000 `a934309c…5633ea`, its mesh `a639e9b0…83b2`;
 comb 8000×3 `82991bf9…daeb33`, mesh `02fc831b…413d`; comb 400×100 `7c08535f…94db`,
 mesh `0417c71c…7edf`; comb 1000×60 `cd71a68f…c72b`, mesh `bd44d215…9927`.
+
+The [cached-mesh follow-up](results/2026-11-08-hull-limit/README.md) now covers all
+18 former timeouts above, with three paired full-query runs per case. Query/hit
+fingerprints and leaf candidates agree in every pair. A blanket no-slowdown claim
+is not established: the 1044 cases have 8–11% higher component medians at the
+current head. On a separate same-code control the hull limit improves the new
+implementation; the remaining old-to-current difference is recorded separately.
