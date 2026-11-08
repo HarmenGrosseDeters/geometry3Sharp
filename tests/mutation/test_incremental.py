@@ -163,6 +163,38 @@ class PlanAndMerge(unittest.TestCase):
     def test_plan_without_the_file_in_the_baseline_runs_in_full(self):
         self.assertIsNone(inc.plan(self.config, report(OLD, [], key="/w/repo/Other.cs"), self.root))
 
+    def test_plan_with_a_baseline_without_counted_mutants_runs_in_full(self):
+        # (only ignored or compile-error mutants: nothing to combine a score from)
+        self.assertIsNone(inc.plan(self.config, report(OLD, [mutant(2, "Ignored"), mutant(3, "CompileError")]), self.root))
+        self.assertIsNone(inc.plan(self.config, report(OLD, []), self.root))
+        self.assertIsNotNone(inc.plan(self.config, report(OLD, [mutant(2, "Survived")]), self.root))
+        self.assertIsNotNone(inc.plan(self.config, report(OLD, [mutant(2, "NoCoverage")]), self.root))
+
+    def test_plan_and_merge_read_only_these_baseline_fields(self):
+        # What a stored baseline must hold for plan and merge: per file `source` and `mutants` with `status` and the
+        # `location` lines. If this fails after a change, plan or merge reads another field: old baselines in the cache lack
+        # it, so bump tests/mutation/BASELINE_FORMAT (README, Baseline).
+        minimal = {"files": {"A.cs": {"source": OLD, "mutants": [
+            {"status": "Killed", "location": {"start": {"line": 3}, "end": {"line": 3}}},
+            {"status": "Survived", "location": {"start": {"line": 4}, "end": {"line": 4}}}]}}}
+        mutate, files = inc.plan(self.config, minimal, self.root)
+        self.assertEqual(2, len(mutate))
+        run = {"files": {"A.cs": {"mutants": [{"status": "Killed"}]}}}
+        c = inc.merge(self.config, minimal, run, self.root)
+        self.assertEqual({"run": (1, 0), "baseline": (0, 1), "replaced": 1}, c)
+
+    def test_merge_without_any_counted_mutant_fails(self):
+        cfg = self.write("cfg.json", {"stryker-config": self.config})
+        # every baseline mutant is on the changed line and the run found none that counts
+        bl = self.write("bl.json", report(OLD, [mutant(3, "Killed")]))
+        run = self.write("run.json", report(NEW, [mutant(3, "Ignored")]))
+        code, out = self.cli("merge", cfg, bl, run)
+        self.assertEqual(1, code, out)
+        self.assertIn("no mutant counts", out)
+        # (and the same with a baseline that has some left over: passes)
+        bl = self.write("bl2.json", report(OLD, [mutant(3, "Killed"), mutant(2, "Killed")]))
+        self.assertEqual(0, self.cli("merge", cfg, bl, run)[0])
+
     def test_merge_counts_a_deletion_once(self):
         with open(os.path.join(self.root, "A.cs"), "w") as f:
             f.write(OLD.replace("    int g(int a) { return a - 1; }\n", ""))

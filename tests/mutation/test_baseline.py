@@ -33,20 +33,33 @@ REPORT = {"schemaVersion": "2", "thresholds": {"high": 80, "low": 60}, "projectR
 
 
 # The cache key of a baseline holds BASELINE_FORMAT (a file) instead of the hashes of this script and incremental.py:
-# an edit of a comment, of this file or of an unrelated function then keeps every shard's baseline. The functions below decide
-# what a stored baseline looks like and how incremental.py reads it. When one of them changes (this test fails),
-# decide: does an OLD baseline still give the same results through the new code? If not (layout, keys, how mutants are
-# matched, counted or scored), bump BASELINE_FORMAT, so that every shard runs in full once and stores a new baseline
-# (the next weekly or dispatched run on master seeds them); if so, only update the fingerprint.
-FORMAT_FUNCTIONS = (baseline.relative_key, baseline.strip, incremental.parse_mutate, incremental.baseline_file,
-                    incremental.touches, incremental.counted, incremental.score, incremental.plan, incremental.merge)
-FORMAT_FINGERPRINT = "a7da7b708a6ec1bf"
+# an edit of a comment, of this file or of an unrelated function then keeps every shard's baseline.
+# The FORMAT of a baseline is what baseline.py stores (relative_key, strip: which files, under which keys, with which
+# fields of Stryker's report) and how incremental.py finds its file in it (baseline_file). When one of these changes
+# (this test fails, comments and docstrings do not count), decide: does an OLD baseline still give the same results
+# through the new code? If not, bump BASELINE_FORMAT, so that every shard runs in full once and stores a new baseline
+# (the next weekly or dispatched run on master seeds them); if so, only update the fingerprint. The fields plan and merge
+# READ are pinned by test_incremental.test_plan_and_merge_read_only_these_baseline_fields (a new field read fails it).
+# Changes of the matching, counting or scoring logic (changes, spans_of, touches, MIN_UNCHANGED, COUNTED, score)
+# interpret old and new baselines alike: no bump, but a change to incremental.py runs the fixed shard in full
+# (select_shards.SCRIPTS).
+FORMAT_FUNCTIONS = (baseline.relative_key, baseline.strip, incremental.baseline_file)
+FORMAT_FINGERPRINT = "4d27a042442e800c"
+
+
+def without_docstrings(tree):
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)) and node.body \
+                and isinstance(node.body[0], ast.Expr) and isinstance(getattr(node.body[0], "value", None), ast.Constant) \
+                and isinstance(node.body[0].value.value, str):
+            node.body = node.body[1:] or [ast.Pass()]
+    return tree
 
 
 def format_fingerprint():
     h = hashlib.sha256()
     for f in FORMAT_FUNCTIONS:
-        h.update(ast.dump(ast.parse(textwrap.dedent(inspect.getsource(f)))).encode())
+        h.update(ast.dump(without_docstrings(ast.parse(textwrap.dedent(inspect.getsource(f))))).encode())
     return h.hexdigest()[:16]
 
 
