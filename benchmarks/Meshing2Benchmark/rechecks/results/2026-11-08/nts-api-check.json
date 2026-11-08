@@ -1,0 +1,10 @@
+{
+  "package": "NetTopologySuite",
+  "version": "2.6.0",
+  "command": "DOTNET_CLI_HOME=/workspace/dotnet-user NUGET_PACKAGES=/workspace/nuget /workspace/dotnet/dotnet run --project /tmp/nts-api-check -c Release",
+  "exit_code": 0,
+  "output": "NTS 2.6.0 STRtree: public Root, ChildBoundables and Bounds compile and run; 2 procedural items checked.\n",
+  "project": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>\n  <ItemGroup><PackageReference Include=\"NetTopologySuite\" Version=\"2.6.0\" /></ItemGroup>\n</Project>\n",
+  "source": "using System;\nusing NetTopologySuite.Geometries;\nusing NetTopologySuite.Index.Strtree;\n\nvar tree = new STRtree<int>();\ntree.Insert(new Envelope(0, 0, 0, 0), 0);\ntree.Insert(new Envelope(1, 1, 1, 1), 1);\ntree.Build();\nvar root = tree.Root;\nif (root.ChildBoundables.Count != 2) throw new Exception(\"Unexpected child count\");\nforeach (var child in root.ChildBoundables) {\n    Envelope bounds = child.Bounds;\n    if (bounds.IsNull) throw new Exception(\"Missing bounds\");\n}\nConsole.WriteLine(\"NTS 2.6.0 STRtree: public Root, ChildBoundables and Bounds compile and run; 2 procedural items checked.\");\n",
+  "scope": "Public API feasibility only, using two procedural items. No index-speed or geometric-correctness claim."
+}

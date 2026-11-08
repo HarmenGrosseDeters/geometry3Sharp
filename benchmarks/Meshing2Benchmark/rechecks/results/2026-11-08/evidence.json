@@ -1,0 +1,56 @@
+{
+  "production_commit": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+  "results_jsonl_sha256": "c05a8b85ea453ca36130618ef0b1018f39b9ef6e06a589b56f09db52d1fb1c6d",
+  "chunks": [
+    {
+      "path": "results-01.jsonl",
+      "sha256": "cab7e9799d00305008aaadc02abd524dea8677cef5456d2180c37fd4a483a71a",
+      "records": 20
+    },
+    {
+      "path": "results-02.jsonl",
+      "sha256": "e3e9c81954e6b2afdfbb2480b8f9a7f093473298c10334f6ae37b6ba6746a053",
+      "records": 20
+    },
+    {
+      "path": "results-03.jsonl",
+      "sha256": "1afb29f951e495830b33dec16e7f5025d37db12e6d53ec734c54e6612c396ff7",
+      "records": 20
+    },
+    {
+      "path": "results-04.jsonl",
+      "sha256": "07c855a6e6e46839fbcc7953ad3776017d52b3a74b26bdfded622aaf47063af5",
+      "records": 20
+    },
+    {
+      "path": "results-05.jsonl",
+      "sha256": "3960de16cfd70427e287fdcedff5a53c148d4c8fb229a38cd35d7ac4d9b88c4d",
+      "records": 20
+    },
+    {
+      "path": "results-06.jsonl",
+      "sha256": "eb8c5faa434c4b8f680a91684fe520d8205da129fa12b6eca8918b049e0bcca8",
+      "records": 20
+    },
+    {
+      "path": "results-07.jsonl",
+      "sha256": "9741ce9cd413e86aa5b470dcc2015a5f25d6ad8092e1a2b6db47043405d0088d",
+      "records": 20
+    },
+    {
+      "path": "results-08.jsonl",
+      "sha256": "595630d0a26782b408161b2f42f28a1e7cb4d9f74518fbe69bd307e7ee5fd82f",
+      "records": 20
+    },
+    {
+      "path": "results-09.jsonl",
+      "sha256": "03be111cec34874c2ace18289263e3e74ecdafe1ba0539ce9c33dceaa1fdedb4",
+      "records": 3
+    }
+  ],
+  "tool_sha256": {
+    "run.py": "5c51178683ba0564aed156ac2b1c34b6bef3fbddbadddca25f615c8e0779a789",
+    "prepare.py": "7a6de603689af5d768fff9acd2b2ba4f94a103fdef70f5c7495710377cd6a8d3",
+    "count_boxes.py": "ac1bd40fd1969603e99e272ba455484fd0171faaaf28dd7fa9347eb5c59baa6f"
+  }
+}

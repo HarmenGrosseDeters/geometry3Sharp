@@ -1,0 +1,71 @@
+[
+  {
+    "name": "missing-mode",
+    "command": [
+      "/workspace/dotnet/dotnet",
+      "/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "golden",
+      "check",
+      "--milestone",
+      "M3",
+      "--mode"
+    ],
+    "expected": 2,
+    "actual": 2,
+    "diagnostic_present": true
+  },
+  {
+    "name": "unknown-mode",
+    "command": [
+      "/workspace/dotnet/dotnet",
+      "/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "golden",
+      "check",
+      "--milestone",
+      "M3",
+      "--mode",
+      "wrong"
+    ],
+    "expected": 2,
+    "actual": 2,
+    "diagnostic_present": true
+  },
+  {
+    "name": "wrong-milestone",
+    "command": [
+      "/workspace/dotnet/dotnet",
+      "/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "golden",
+      "check",
+      "--milestone",
+      "M2",
+      "--mode",
+      "constrained"
+    ],
+    "expected": 2,
+    "actual": 2,
+    "diagnostic_present": true
+  },
+  {
+    "name": "ci-clean",
+    "command": [
+      "/workspace/dotnet/dotnet",
+      "/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "ci"
+    ],
+    "expected": 0,
+    "actual": 0,
+    "diagnostic_present": true
+  },
+  {
+    "name": "ci-constrained-row-mutated",
+    "command": [
+      "/workspace/dotnet/dotnet",
+      "/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "ci"
+    ],
+    "expected": 1,
+    "actual": 1,
+    "diagnostic_present": true
+  }
+]
