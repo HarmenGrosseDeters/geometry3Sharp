@@ -72,7 +72,7 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
   checks and record them in the design note or PR:
   1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
-     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in ROADMAP.md, OPERATIONS.md).
+     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in [roadmap/hotspots.md](roadmap/hotspots.md), OPERATIONS.md).
      Today's examples: the boolean's kernel B and the self-intersection filter hit the same exact-`Orient3d` hotspot,
      and the envelope reused the indirect predicates.
   2. **The literature:** papers, standards and documentation on the problem (e.g. the normal-cone culling for
@@ -104,11 +104,12 @@ from secret tests, which a public repository cannot keep.
 ## 6. Context and sessions
 
 - One session per PR-sized topic. Prefer fresh sessions over long ones. One large session at a time.
-- The plan lives in the repository ([ROADMAP.md](ROADMAP.md)), not in chat. Results live in PRs and READMEs.
+- The plan lives in the repository ([ROADMAP.md](ROADMAP.md), details in [roadmap/](roadmap/)), not in chat. Results live in PRs and READMEs.
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
 - A bugfix must not run into a fundamental problem that a planned concept will solve (owner 2026-11-02). Before
-  fixing, check [ROADMAP.md](ROADMAP.md) (Phase 5, Shared hotspots, Open tasks) for a concept that covers the same
+  fixing, check the roadmap ([Phase 5](roadmap/research.md#phase-5-candidates-from-recent-research), [shared hotspots and open
+  tasks](roadmap/hotspots.md)) for a concept that covers the same
   cause, eg inside / outside of broken inputs (Phase 5 #5), exact predicates and symbolic perturbation, scale-relative
   tolerances, envelope / `IsWithin` fidelity. If one exists: make the smallest fix that is correct on its own and
   compatible with that concept (no second, competing mechanism), say so in the PR, and leave the general solution to
