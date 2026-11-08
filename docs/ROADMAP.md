@@ -52,9 +52,11 @@ Status on 2026-11-08.
   selfint = 0 cohort; the rounding projection filter (#397) and the rounding-created contacts fix (#398, M3) are in
   review, gated by the split rounding mutation shard (#403); then L1 (rounding search only from cut triangles), D1
   (drift budget), L3. No architecture rewrite (assessment 2026-11-07). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
-  are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
-  oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
+- **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle (#411, #427),
+  grading and run A are done; the small-angle rule for cq / constrained mode merged in #394. Running (owner
+  2026-11-08): a Sonnet session with the #390 docs correction, the corner choice, lenses to 28.6° and the small-angle
+  rule for the default mode (O2 unchanged). Coarsening waits for a runner re-measurement; off-centers are a later
+  candidate. [meshing2d.md](roadmap/meshing2d.md#open)
 - **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
   session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
   #411 (owner's oracle speed-up, certified STRtree pruning as the oracle default) merged 2026-11-08; next (owner 2026-11-08, no dependency on the
@@ -70,8 +72,6 @@ Status on 2026-11-08.
 
 ## Open decisions (owner)
 
-- **Meshing2D, default mode near small angles:** a spec decision on O2 near small angles (owner 2026-11-06: needed
-  before the small-angle rule can apply to the conforming mode). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Meshing2D, Terminator:** a region-based oracle excuse would lower the guarantee near small input angles (a spec
   change; research item, not scheduled). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Exact booleans, second kernel:** EMBER levers 1 (quantized 26-bit inputs) and 5 (a new architecture) only as a
