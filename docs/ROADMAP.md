@@ -59,7 +59,8 @@ Status on 2026-11-08.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
   wrap pipeline keeps its guarantees and fidelity, has 0 triangles < 0.5° or > 170°, no pinch caps, a p01 angle at the
-  level of CGAL's alpha wrap, and at most 5 s per mesh on the 4-core cloud machine. Session
+  level of CGAL's alpha wrap (raw wrap; final output p01 >= 10°), and at most max(5 s, 50 µs per raw-wrap triangle) per
+  mesh in a warm process on the 4-core cloud machine. Session
   session_01AaGT5CSm6ZjSih3jZRg7HJ, WP1 (baseline, profile, upper bounds) first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 
 ## Open decisions (owner)
