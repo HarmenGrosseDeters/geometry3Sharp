@@ -24,12 +24,21 @@ Part of the [roadmap](../ROADMAP.md).
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
 - guarantees (closed, manifold, free of self-intersections, offset band) and fidelity (F-score, Hausdorff, band) not
   worse than master;
-- 0 triangles < 0.5° and 0 > 170°; the pinch caps (102793, 118678, 1505037) gone; p01 min angle at least at the
-  level of CGAL's alpha wrap (behaviour numbers only, CGAL code is never read);
+- 0 triangles < 0.5° and 0 > 170° per mesh in the final output; the pinch caps (102793, 118678, 1505037) gone;
+  **p01 (owner 2026-11-08):** the raw wrap reaches CGAL's p01 (the ~2° gap of #317; behaviour numbers only, CGAL code
+  is never read); the final simplified output has p01 >= 10° as the median over the 800 sample (floor confirmed
+  after the full-800 data);
 - at most 5 s wall time per mesh on the 4-core cloud machine.
 A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
 phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
-(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08).
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`).
+
+**WP1 interim (2026-11-08, 55 meshes, serial):** pipeline median 10.8 s, p90 19.4, max 34.4; > 5 s on 53 of 55 (the
+target needs about 2.2x at the median, 6-7x at the tail). Shares: simplify 39 % (Reducer 29 %), quality pass 27 %, raw
+wrap 34 % (carve loop 23 %). Quality: the raw wrap is good (p01 median 17.3°); the bad angles come from the
+simplification (976 triangles > 170° on 52 of 55; p01 median 7.8°), whose Reducer guard `MinCollapseTriangleQuality`
+0.05 allows caps up to about 175°. Upper bound on 12 meshes: guard 0.3 gives 0 triangles > 170°, p01 median 10.8°,
++4 % triangles, 0.92x time, guarantees and band unchanged (F-score pending).
 
 #### Other open items
 

@@ -203,3 +203,40 @@ out, and the times are load-dependent):
 | safe-16595/17, 30° | constrained | 2 016 | 408 | 4.9 |
 | ext/cdt/cdt, 30° | conforming | 20 699 | 4 426 | 4.7 |
 | issue-geos-838/1, 30° | constrained | 75 920 | 17 857 | 4.3 |
+
+## 7. Targeted QA recheck, 2026-11-08
+
+After #392 and #394–#396, a new run re-meshes the same historical inputs on
+`a482d490`: all 79 AngleBelowBound operations and all 84 oracle-timeout operations.
+It does not re-judge the old meshes or rerun reference producers. Matched pairs
+follow #393; all base hashes and 79 available historical variant hashes match.
+
+| Historical class | Mode | Operations | VALID | INVALID | Oracle timeout | Mesh timeout | Errors | VALID at Steiner limit |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| AngleBelowBound | conforming | 39 | 0 | 39 | 0 | 0 | 0 | 0 |
+| AngleBelowBound | constrained | 40 | 2 | 38 | 0 | 0 | 0 | 0 |
+| Oracle timeout | conforming | 44 | 24 | 0 | 20 | 0 | 0 | 24 |
+| Oracle timeout | constrained | 40 | 31 | 4 | 4 | 1 | 0 | 9 |
+
+The angle group has 77 remaining INVALID outputs and two now VALID; six of the
+77 also violate local/global Delaunay. Among the twelve historical reference-only
+valid operations, five are now valid (two at the Steiner limit), five still have
+angle violations and two time out. These remain explicit findings, not relaxed
+oracle rules or new failing golden baselines.
+
+Among the historical timeouts, 4 current outputs are now judged
+INVALID; their case IDs and violations are listed in the complete report. An
+old timeout has no valid verdict to regress from, so this is a newly resolved
+failure finding, not proof that a previously valid output got worse.
+
+One current timeout is measured inside Conformity before Delaunay/quality:
+301453 triangles, about 9 billion point/triangle and 22 billion edge-pair
+bounding-box candidates after shared-corner exclusions. These are candidate
+overlaps, not actual intersections. The finer subphase remains unprofiled.
+
+See the [complete report, per-operation evidence and commands](../../benchmarks/Meshing2Benchmark/rechecks/results/2026-11-08/README.md).
+This targeted bounded run is not a whole-corpus no-regression or performance
+claim; the changed stage budgets, reached Steiner limits and single-run resource
+contention are documented there. The acceptance batch returns 1 for its recorded
+unresolved findings. Separate CI coverage adds 52 constrained M3 golden rows
+under the unchanged independent oracle; the previous mode baselines are preserved.

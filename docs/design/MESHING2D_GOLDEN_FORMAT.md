@@ -80,6 +80,7 @@ A description is a list of steps, read from the left. A point is numbered at its
 | `region_ring(label max_area x y ...)` | a region by ring; `-` for no area limit |
 | `min_angle(d)`, `max_area(a)`, `steiner_limit(n)`, `snap(t)` | options: minimum angle in degrees, largest triangle area, cap on inserted points, snap tolerance in coordinate units (default 0, automatic); an explicit tolerance is the pixel width of the snap grid, anchored at the origin with half-open pixels (decision D14) |
 | `no_noding`, `conforming` | options: crossing segments must fail with a status; empty circumcircles also across segments |
+| `mode(constrained)` | M3 constrained-quality mode (`Conforming = false`); canonical input text adds `mode constrained`. These inputs have separate hashes and golden rows. |
 
 Without an outer ring the domain is the convex hull of the points. A hole does not fill back what another hole removed, and overlapping
 outer rings unite. Decisions on these semantics are open ([MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md)); the

@@ -1,0 +1,39 @@
+{
+  "command": [
+    "<dotnet>",
+    "<benchmark>",
+    "oracle",
+    "--input",
+    "<work>/meshing-oracle-profile.input.txt",
+    "--output",
+    "<work>/meshing-oracle-profile.mesh.txt",
+    "--milestone",
+    "M3",
+    "--case",
+    "ext/geos/robust/overlay/TestOverlay-stmlf/1044/q30"
+  ],
+  "timeout": 120,
+  "case": "ext/geos/robust/overlay/TestOverlay-stmlf/1044/q30",
+  "mode": "conforming",
+  "input_sha256": "0a3aef6881e20b6c9f06bf51e8dcfda12e768d93f5c80785085cd8ec34764223",
+  "output_sha256": "56de8a1b8f6969f2fba35e9950b7bee0a6b746da18df0a00a694f464bacc6521",
+  "vertices": 200045,
+  "triangles": 301453,
+  "steiner_limit_reached": true,
+  "environment_override": {
+    "G3_ORACLE_TIMING": "1"
+  },
+  "completed_phases": [
+    "ORACLE input 0.1 ms",
+    "ORACLE vertices 422.3 ms",
+    "ORACLE domain 2.0 ms",
+    "ORACLE indices, identity 1718.9 ms",
+    "ORACLE orientation 288.7 ms",
+    "ORACLE edges 155.7 ms",
+    "ORACLE sources 28.6 ms",
+    "ORACLE filters 36.6 ms"
+  ],
+  "active_phase_at_timeout": "conformity",
+  "delaunay_and_quality_reached": false,
+  "limitations": "One diagnostic run, concurrently with the sequential reference recheck under a two-CPU quota. Not a speed comparison or a finer profile inside Conformity. No verdict obtained."
+}

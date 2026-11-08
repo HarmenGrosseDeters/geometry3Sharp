@@ -1,6 +1,7 @@
 # Honest terrain distance metrics
 
-Status: planned, not implemented. Corresponds to the owner's **C2(A) / task 5**. The owner confirmed that
+Status: implemented in TerrainBenchmark; validation and a compact summary of the synthetic evidence are documented in
+[the benchmark README](../../benchmarks/TerrainBenchmark/README.md#directed-closest-point-terrain-errors-tdc-gtin). Corresponds to the owner's **C2(A) / task 5**. The owner confirmed that
 "normal distance" means the shortest 3D distance to the reference surface, with horizontal and vertical
 components of the **same closest-point displacement**, not a ray along a reference normal.
 
