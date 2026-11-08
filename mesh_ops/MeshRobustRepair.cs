@@ -541,19 +541,31 @@ namespace gs
 
         /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
         /// AlphaWrapQualityPass is tested on) </summary>
+        /// <summary> (prototype, option A) the wrap simplification on this many slabs in parallel (0: serial), and its threads </summary>
+        internal static int SimplifyPartitions = 0, SimplifyThreads = 0, SimplifyRounds = 2;
+
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, Dictionary<string, long> phases = null)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
             DMesh3 m = new DMesh3(mesh);
-            Reducer reducer = new Reducer(m) {
-                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minQuality, CollapseQualityAgainstWorst = qualityAgainstWorst,
-                EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            Action<Reducer> configure = (r) => {
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
-            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
-            m = new DMesh3(m, true);
+            if (SimplifyPartitions > 0) {
+                var pr = new PartitionedReduction() { Slabs = SimplifyPartitions, MaxThreads = SimplifyThreads, Rounds = SimplifyRounds, Configure = configure };
+                m = pr.Reduce(m, quadricDistance * quadricDistance);
+                if (phases != null) { phases["parts.region_tris"] = pr.RegionTriangles; phases["parts.frozen_tris"] = pr.FrozenTriangles; phases["parts.region_collapses"] = pr.RegionCollapses;
+                    phases["parts.last_collapses"] = pr.LastCollapses; phases["parts.setup_ms"] = pr.SetupMs; phases["parts.region_ms"] = pr.RegionMs; phases["parts.stitch_ms"] = pr.StitchMs; phases["parts.last_ms"] = pr.LastMs; }
+            } else {
+                Reducer reducer = new Reducer(m);
+                configure(reducer);
+                reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+                m = new DMesh3(m, true);
+            }
             lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;

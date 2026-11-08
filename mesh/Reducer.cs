@@ -634,16 +634,35 @@ namespace g3
                 refNormals = null; refLengths = null;
                 return;
             }
-            refNormals = new Vector3d[mesh.MaxVertexID];
-            refLengths = new double[mesh.MaxVertexID];
+            if (SeedReferenceNormals != null) {
+                refNormals = new Vector3d[mesh.MaxVertexID];
+                refLengths = new double[mesh.MaxVertexID];
+                Array.Copy(SeedReferenceNormals, refNormals, Math.Min(refNormals.Length, SeedReferenceNormals.Length));
+                Array.Copy(SeedReferenceLengths, refLengths, Math.Min(refLengths.Length, SeedReferenceLengths.Length));
+                return;
+            }
+            ComputeReferenceNormals(mesh, out refNormals, out refLengths);
+        }
+
+        /// <summary> (prototype, option A) PreventFoldOver: given reference normals and lengths per vertex instead of the mesh's </summary>
+        internal Vector3d[] SeedReferenceNormals;
+        internal double[] SeedReferenceLengths;
+        internal Vector3d[] ReferenceNormals { get { return refNormals; } }
+        internal double[] ReferenceLengths { get { return refLengths; } }
+
+        // the reference normals of PreventFoldOver: per vertex, the sum of the cross products of its triangles and of their lengths
+        internal static void ComputeReferenceNormals(DMesh3 mesh, out Vector3d[] normals, out double[] lengths)
+        {
+            normals = new Vector3d[mesh.MaxVertexID];
+            lengths = new double[mesh.MaxVertexID];
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             foreach (int t in mesh.TriangleIndices()) {
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
                 Vector3d n = (b - a).Cross(c - a);
                 double l = length(n);
                 Index3i tv = mesh.GetTriangle(t);
-                refNormals[tv.a] += n; refNormals[tv.b] += n; refNormals[tv.c] += n;
-                refLengths[tv.a] += l; refLengths[tv.b] += l; refLengths[tv.c] += l;
+                normals[tv.a] += n; normals[tv.b] += n; normals[tv.c] += n;
+                lengths[tv.a] += l; lengths[tv.b] += l; lengths[tv.c] += l;
             }
         }
 

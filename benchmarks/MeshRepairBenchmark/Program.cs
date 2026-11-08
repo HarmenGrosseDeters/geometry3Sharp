@@ -567,6 +567,9 @@ class Program
             return raw ?? new DMesh3();
         }
         DMesh3 result = raw;
+        MeshRobustRepair.SimplifyPartitions = int.Parse(Environment.GetEnvironmentVariable("BENCH_SIMPLIFY_PARTS") ?? "0");
+        MeshRobustRepair.SimplifyThreads = int.Parse(Environment.GetEnvironmentVariable("BENCH_SIMPLIFY_THREADS") ?? "0");
+        MeshRobustRepair.SimplifyRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_SIMPLIFY_ROUNDS") ?? "2");
         if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
             var sp = new System.Collections.Generic.Dictionary<string, long>();
             long t0 = sw.ElapsedMilliseconds;
