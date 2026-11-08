@@ -369,6 +369,76 @@ class RunStryker(unittest.TestCase):
         self.assertEqual(["stryker --log-to-file --config-file incremental-run.json --break-at 0"], args)
         self.assertNotIn("Score of the shard", out)
 
+    def run_fake(self, body, env_extra, timeout=60):
+        """run_stryker.sh in full mode with a fake dotnet that runs `body` (a bash script)"""
+        with tempfile.TemporaryDirectory() as d:
+            work = os.path.join(d, "repo", "tests", "mutation")
+            os.makedirs(work)
+            with open(os.path.join(work, "stryker-x.json"), "w") as f:
+                json.dump({"stryker-config": {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}}, f)
+            bindir = os.path.join(d, "bin")
+            os.makedirs(bindir)
+            with open(os.path.join(bindir, "dotnet"), "w") as f:
+                f.write("#!/usr/bin/env bash\n" + body)
+            os.chmod(os.path.join(bindir, "dotnet"), 0o755)
+            env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE="full",
+                       GITHUB_STEP_SUMMARY=os.path.join(d, "summary"), PROGRESS_SECONDS="1", **env_extra)
+            env.pop("GITHUB_OUTPUT", None)
+            t0 = __import__("time").time()
+            p = subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), "stryker-x.json"], cwd=work, env=env,
+                               capture_output=True, text=True, timeout=timeout)
+            marker = os.path.join(work, "StrykerOutput", "stopped-early")
+            summary = ""
+            if os.path.isfile(os.path.join(d, "summary")):
+                with open(os.path.join(d, "summary")) as f:
+                    summary = f.read()
+            return p.returncode, p.stdout, os.path.isfile(marker), summary, __import__("time").time() - t0
+
+    # a fake Stryker that finishes its coverage pass at once (1000 mutants to test) and then starts 2 test runs per second
+    FAKE_RUNS = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                 'echo "[INF] 1000    total mutants will be tested" > $L/log-1.txt\n'
+                 'for i in $(seq 1 %d); do touch "$L/Runner $i-log.host.$i.txt"; sleep 0.5; done\n')
+
+    def test_a_run_projected_far_over_the_limit_is_stopped_early(self):
+        code, out, marker, summary, elapsed = self.run_fake(self.FAKE_RUNS % 200, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "2"})
+        self.assertEqual((3, True), (code, marker), out)
+        self.assertIn("stopped early", out)
+        self.assertIn("::error::", out)
+        self.assertIn("projected total:", out)
+        self.assertIn("Mutation run stopped early", summary)
+        self.assertLess(elapsed, 40)                      # (not the 100 s the fake would run)
+
+    def test_a_run_within_the_limit_or_with_the_stop_switched_off_is_not_stopped(self):
+        body = self.FAKE_RUNS % 12                        # (about 6 s)
+        for extra in ({"G3_LIMIT_SECONDS": "21000", "G3_MIN_RUNS": "2"},                     # the projection fits the limit x 1.15? no: 1000 runs at 2/s is 500 s
+                      {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "2", "G3_NO_EARLY_STOP": "1"},    # switched off
+                      {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "1000"}):                          # too few runs to project
+            code, out, marker, summary, elapsed = self.run_fake(body, extra)
+            self.assertEqual((0, False), (code, marker), (extra, out))
+            self.assertNotIn("stopped early", out)
+        # the projection is printed once it can be made (the first case, 2 runs per second against 1000 mutants)
+        code, out, marker, _, _ = self.run_fake(body, {"G3_LIMIT_SECONDS": "21000", "G3_MIN_RUNS": "2"})
+        self.assertRegex(out, r"projected total: \d+ min \(limit 350 min\)")
+
+    def test_the_projection_needs_two_ticks_the_time_so_far_and_only_the_runs_after_the_coverage_pass(self):
+        # one tick over the limit is not enough: the fake ends after about 2.6 s, before the third tick
+        code, out, marker, _, _ = self.run_fake(self.FAKE_RUNS % 5, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "1"})
+        self.assertEqual((0, False), (code, marker), out)
+        # the projection is the time so far plus the runs left at the measured rate: 8 mutants at 2 runs per second
+        # and a hung Stryker afterwards: at the second tick 2 s + 2 s = 4 s, over the limit of 3 s x 1.15
+        body = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                'echo "[INF] 8    total mutants will be tested" > $L/log-1.txt\n'
+                'for i in $(seq 1 8); do touch "$L/Runner $i-log.host.$i.txt"; sleep 0.5; done\nsleep 20\n')
+        code, out, marker, _, elapsed = self.run_fake(body, {"G3_LIMIT_SECONDS": "3", "G3_MIN_RUNS": "2"})
+        self.assertEqual((3, True), (code, marker), out)
+        self.assertLess(elapsed, 15)
+        # 50 test runs of the coverage pass are not mutants: nothing started after the first tick, nothing to project
+        body = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                'for i in $(seq 1 50); do touch "$L/Runner $i-log.host.$i.txt"; done\n'
+                'echo "[INF] 1000    total mutants will be tested" > $L/log-1.txt\nsleep 6\n')
+        code, out, marker, _, _ = self.run_fake(body, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "10"})
+        self.assertEqual((0, False), (code, marker), out)
+
     def test_unknown_mode_fails(self):
         self.assertNotEqual(0, self.run_script("nonsense", False)[0])
 
