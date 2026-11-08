@@ -6,9 +6,8 @@ Time-boxed (about 40 min). Papers were read in full text where reachable. Code w
 other excluded code was opened.
 
 Access notes: `www.cs.toronto.edu`, `www.cs.columbia.edu`, `alecjacobson.com` and `www.graphics.rwth-aachen.de` do not
-resolve in this sandbox (blocked by the network allowlist); a direct download of the EMBER PDF from RWTH returned 403.
-The EMBER section (5) is therefore based on search-engine excerpts of the paper and on Lévy's description of EMBER,
-plus my own recollection of the paper. Treat it as **unverified** until someone reads the PDF.
+resolve in this sandbox (blocked by the network allowlist). The EMBER PDF was supplied by the owner and section 5 was
+written from the full paper.
 
 Our current design, for reference: exact arrangement, pieces, patches (connected across non-constraint edges), then one
 exact ray per (patch, candidate closed mesh) → winding number; for open meshes a fast GWN (Barill 2018) per patch,
@@ -239,32 +238,50 @@ arXiv:2205.14151 (2022-05-26), <https://arxiv.org/abs/2205.14151>. Code not read
 
 ---
 
-## 5. Trettner, Nehring-Wirxel, Kobbelt 2022, EMBER (paper not accessible here; unverified)
+## 5. Trettner, Nehring-Wirxel, Kobbelt 2022, EMBER (paper read in full, PDF supplied by the owner)
 
 Citation: Philip Trettner, Julius Nehring-Wirxel, Leif Kobbelt. *EMBER: Exact Mesh Booleans via Efficient & Robust
 Local Arrangements.* ACM TOG 41(4), Article 39, July 2022, DOI
-[10.1145/3528223.3530181](https://doi.org/10.1145/3528223.3530181). PDF (blocked here):
+[10.1145/3528223.3530181](https://doi.org/10.1145/3528223.3530181),
 <https://www.graphics.rwth-aachen.de/media/papers/339/ember_exact_mesh_booleans_via_efficient_and_robust_local_arrangements.pdf>.
+Paper only (no code is public; productised as Solidean by Shaped Code GmbH).
 
-- Exactness via a plane-based representation with homogeneous integer coordinates (input converted to integers;
-  lossy for float input). Adaptive recursive subdivision of the bounding box instead of a global arrangement or a
-  global acceleration structure.
-- Classification idea (from search excerpts of the paper): "these winding numbers can be computed locally for each
-  leaf node since we propagate reference points with known winding numbers through the recursive [subdivision]";
-  each sub-box gets "a reference point with known WNV" (winding number vector) and "we can always trace segments to
-  this local reference to classify". My recollection, to be verified: the root reference point lies outside all
-  inputs (WNV = 0); a child's reference point gets its WNV by tracing a segment from the parent's reference point and
-  adding the signed crossings with the (few) polygons in the parent cell; in a leaf, each face of the local
-  arrangement is classified by a segment from the leaf's reference point; the boolean is a predicate on the WNV
-  (Zhou-style), so self-intersecting closed inputs are supported, open inputs are not (closed / PWN inputs assumed).
-- Timings: orders of magnitude faster than QuickCSG on Thingi10K (abstract); Lévy reports ≤ 4.5 ms for 20rods-20rods.
-- Productised as Solidean (commercial SDK by Shaped Code, Trettner's company); no binary or source of EMBER is
-  public ("contact the authors").
-- **Patents**: web searches for Trettner / Kobbelt / Nehring-Wirxel / RWTH / Shaped Code / Solidean with "patent"
-  found no patent or application. I could not query Google Patents, Espacenet or DPMA directly; applications publish
-  about 18 months after filing, so this is "no indication found", not clearance. One unrelated hit to keep in mind:
-  US 8,854,367 "Computing of a resulting closed triangulated polyhedral surface from a first and a second modeled
-  objects" (Dassault-style CAD booleans) appeared in a search; not analysed.
+- **Representation** (Sec. 3): plane-based geometry with fixed-width homogeneous integer coordinates (Nehring-Wirxel et
+  al. 2021); input quantized to 26-bit integers (lossy for float input: about 15 nm on a 1 m scene). A segment between
+  two homogeneous points is in general not representable, so a classification path is built from at most three
+  segments by swapping one defining plane at a time (Sec. 3.2, 4.4, Fig. 9).
+- **Input** (Sec. 3.4): the inputs must induce a piecewise-constant integer generalized winding number (PWN, as Zhou
+  2016): self-intersecting, non-manifold and degenerate closed inputs are fine; **open inputs are not supported**.
+- **Winding number transition vectors** (Sec. 3.4): each input polygon t carries Δw_t (unit vector of its mesh); a
+  segment trace from x to y gives w_y = w_x + Σ_{t∈T} sign<n_t, x−y> Δw_t; for a target y on a surface, the polygons
+  containing y are removed from T and give w_F / w_B depending on the side the segment arrives from.
+- **Classification by local reference points** (Sec. 4.1, 4.2.2, Fig. 4): an adaptive kd-type recursive subdivision of
+  the scene box (split at the centre of gravity along the axis of largest variance, Sec. 4.5.3; leaves below about 25
+  polygons). Every subproblem carries a reference point x_ref with known winding vector; when x_ref falls outside a
+  child box, a new one is made by projecting the old one onto the child's box and tracing a (usually axis-aligned)
+  segment from the old one, testing only the polygons of the parent subproblem. The root's reference point is outside
+  all inputs (w = 0).
+- **Leaf** (Sec. 4.3, 4.4, Fig. 5): per polygon a local BSP of the intersection segments (no retriangulation; overlap
+  regions are disabled for all but the lowest-index polygon); every leaf polygon is classified by a path from x_ref to
+  an interior point (fast path: rounded centroid plus an axis-aligned line, at most 3 segments, clipped to the box),
+  testing only the leaf's polygons. Cost per classification is therefore O(leaf size), not O(sqrt(n)) like a global ray.
+- **Early outs** (Sec. 4.5.1, 4.5.2, Fig. 11, 12): if a subproblem holds a single WNTV class marked self-intersection
+  free and without nested components, one classification serves all its polygons; a subproblem whose reachable
+  winding vectors can only map to (OUT, OUT) or (IN, IN) under the operator is discarded without subdivision. Ablation
+  (Fig. 17): the two largest gains are the classify fast path and the subdivision early out.
+- **Profile** (Sec. 5.2, Fig. 16): leaves take about twice the subdivision time; within leaves, classification
+  (segment traces) costs about twice as much as intersection plus local BSP. Updating the reference winding vector
+  "barely shows up". Timings: 1000 Thingi10K pairs (1k-100k faces, solid, manifold, self-intersection free), geometric
+  mean 1.6 ms per boolean on 8 cores (i9-9900K), Mesh Arrangements 8.6 s, QuickCSG about 18 ms.
+- **Relevance for us**: EMBER's classification is a property of its spatial subdivision (local reference points per
+  cell), not a step that can be grafted onto a global arrangement; our analogue would be to classify each patch by a
+  short segment to a nearby point of known winding instead of a ray to the far box corner. Like Lévy and Zhou it does
+  not handle open inputs.
+- **Patents**: the paper names none. Web searches for Trettner / Kobbelt / Nehring-Wirxel / RWTH / Shaped Code /
+  Solidean with "patent" found no patent or application; Google Patents, Espacenet and DPMA were not queried directly,
+  and applications publish about 18 months after filing, so this is "no indication found", not clearance. Before any
+  EMBER-specific mechanism (local reference points in a subdivision) is built, the owner should have a proper patent
+  search done. One unrelated hit: US 8,854,367 (CAD booleans of closed triangulated surfaces), not analysed.
 
 ---
 
@@ -356,6 +373,6 @@ The Manifold Authors. Licensed under the Apache License, Version 2.0".
 | Lévy 2025 / Geogram | connected component of the 3-map | 1 per component (0 if one component); vertical SoS segment in code, random directions in paper | flood fill, XOR operand bits across α3 | parity, ≤ 32 operands | no (hemmed into zero-thickness shell) | even-odd only |
 | Zhou 2016 | connected component | none; max-x vertex + convex-hull edge sort; point location for nesting | BFS on cell-patch graph, ±1 per patch | winding vector, arbitrary f(w) | no (PWN required) | yes (PWN) |
 | Cherchi 2022 | patch | 1 per (patch, input mesh), first hit | none | inside/outside | no | no |
-| EMBER 2022 (unverified) | octree node reference point | segments parent → child → faces | hierarchical | winding vector | no | yes (closed) |
+| EMBER 2022 | reference point per kd-subdivision cell (root outside, w = 0) | short segment traces (≤ 3 segments) per child cell and per leaf polygon, against local polygons only | hierarchical | winding vector, arbitrary f(w) | no (PWN required) | yes (PWN) |
 | Manifold | connected piece of P not cut by Q (vertex sets) | 1 vertical per piece, signed count | union-find flood fill | winding number | no (manifold) | — |
 | Ours | patch | 1 per (patch, closed candidate) | none | winding ≥ 1 | GWN per patch (Barill), threshold 1/2 | yes |
