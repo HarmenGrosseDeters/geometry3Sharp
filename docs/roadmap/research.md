@@ -35,7 +35,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 **Pilot 2, exact booleans (owner 2026-11-08, started after #400):** Z3 as a proof checker for small lemmas, never in
 the library and never at run time. (1) D1 first: the Boolean 2.0 session states its tighter drift-accounting rule for
-SafeRounding as a precise lemma (assumptions, claim: no new intersection or degeneracy); Z3 (nonlinear real
+SafeRounding as a precise lemma (assumptions; claim: the Hausdorff invariant H(S, S0) <= MaxDrift is kept, while freedom from new intersections and degeneracy comes from the exact checks in improves()); lemma written in docs/design/ROUNDING_DRIFT_APEX.md (claude/d1-drift-lemma), Z3 check started 2026-11-08; Z3 (nonlinear real
 arithmetic, with rounding modelled as (1 + δ), |δ| <= u) proves it or returns a counterexample, which becomes a
 procedural test; D1 is built only after that. (2) The error-bound rules of the predicate generator (the per-operation
 rules from which the static filter bounds are derived), one lemma per rule, as a mechanical second check next to the
