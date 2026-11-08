@@ -1,5 +1,9 @@
 # Isolated STRtree pilot and timeout recheck, 2026-11-08
 
+This report describes the point-only pilot preserved in commit `4fd98250`.
+The later edge-hull variant is a separate experiment; its results do not replace
+the frozen binaries, source hashes or judgments recorded here.
+
 The [baseline QA draft #402](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/402)
 records 163 operations on a482d490, with 24 current oracle timeouts. This follow-up
 re-judges exactly those 24 outputs, regenerated with the frozen baseline mesher

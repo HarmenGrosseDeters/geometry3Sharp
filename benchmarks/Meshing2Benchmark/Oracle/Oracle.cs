@@ -1779,7 +1779,10 @@ namespace Meshing2Acceptance
                     Math.Min(rx[KeyA(k)], rx[KeyB(k)]), Math.Max(rx[KeyA(k)], rx[KeyB(k)]),
                     Math.Min(ry[KeyA(k)], ry[KeyB(k)]), Math.Max(ry[KeyA(k)], ry[KeyB(k)]) }).ToArray();
                 var crossing = new List<(long, long)>();
-                OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
+                string edgeIndex = Environment.GetEnvironmentVariable("G3_ORACLE_EDGE_INDEX");
+                if (edgeIndex != null && edgeIndex != "strtree-hulls") throw new InvalidOperationException("G3_ORACLE_EDGE_INDEX accepts strtree-hulls only");
+                if (Fast && edgeIndex == "strtree-hulls") crossing.AddRange(new StrtreeEdgeSearch(o, keys).FindCrossings());
+                else OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
                     int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
                     if (a == c || a == d || b == c || b == d) return;
                     if (ProperCrossV(a, b, c, d)) crossing.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));

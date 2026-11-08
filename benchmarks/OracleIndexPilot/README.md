@@ -1,4 +1,4 @@
-# STRtree point/triangle oracle pilot
+# Certified STRtree oracle index pilot
 
 Tier M, isolated benchmark experiment requested by the owner. Compare the current
 oracle's BoxPairs sweep, plain NetTopologySuite 2.6.0 STRtree queries, and traversal
@@ -6,10 +6,10 @@ of the same STRtree with certified triangle half-plane pruning. The owner then
 requested re-judging current timeouts: this branch also provides an opt-in full
 oracle variant. Mesher, core exact arithmetic and quality contracts are unchanged.
 
-The component measurement covers the used-point/triangle part of Conformity. Edge crossings,
-duplicate coordinates, domain/unused-point checks and all subsequent oracle
-phases remain outside this experiment. A fast component is not a full oracle
-speedup or a validity verdict for the mesh.
+Separate component measurements cover used-point/triangle and proper edge-crossing
+search in Conformity. The full oracle variant can enable either index independently.
+Duplicate coordinates, domain/unused-point checks and subsequent oracle phases
+retain their rules. A component timing alone is not a validity verdict.
 
 NTS supplies the packed point hierarchy through its public Root/ChildBoundables
 API. An orientation is affine in the query point. Its maximum on a node's closed
@@ -79,11 +79,46 @@ timing lines are dropped from the stored per-case diagnostic, while its pass
 summary is retained. Point/triangle, edge-crossing and remaining conformity
 times are separate. Full-oracle validity still requires all subsequent checks.
 
-## Candidate follow-up for the edge phase
+## Hull index for the edge phase (second isolated variant)
 
-A plain edge-envelope index retains the same large AABB candidate set. A next
-experiment could augment STRtree nodes with exact convex hulls of their segment
-endpoints and reject groups by certified separation before the unchanged
-ProperCrossV leaf test. This needs its own exact differential, contact/collinearity
-and mutation checks. A robust exact intersection sweep is the larger alternative.
-Neither edge optimization is implemented in the current point-search pilot.
+A plain edge-envelope index retains the same large AABB candidate set. The second
+variant augments STRtree nodes with exact convex hulls of descendant endpoints,
+built bottom-up by a standard monotone chain. Hulls of child hulls suffice because
+their convex hull equals the hull of all original endpoints.
+
+Every descendant segment lies in its node hull. Two certificates exclude proper
+crossings: all hull vertices lie on one closed side of the query's supporting
+line; or both query endpoints lie in the closed exterior half-plane of a CCW
+hull edge. Hulls of size one/two are handled by the same separation arguments.
+Zero is deliberately permitted here because ProperCross requires strict opposite
+orientation signs. Point/triangle and duplicate-coordinate checks continue to
+handle boundary contacts and overlaps. The leaf crossing predicate is unchanged.
+
+`G3_ORACLE_EDGE_INDEX=strtree-hulls` enables this path for binary64 outputs;
+default and exact-reference paths retain their previous edge sweep. Component
+commands are `edge-boxes`, `edge-nts`, `edge-hulls`; `edge-selftest` compares against
+exact all-pairs evaluation, including shared endpoints, collinearity, T contacts,
+degenerate edges, real line/hull pruning, extreme scales, reuse and parallelism.
+The existing sweep's unordered callback pairs are normalized only in its full
+comparison path; query-based paths use increasing edge IDs for deduplication.
+
+Literature considered: A. M. Andrew, *Another efficient algorithm for convex
+hulls in two dimensions*, IPL 9(5), 1979,
+[doi:10.1016/0020-0190(79)90072-3](https://doi.org/10.1016/0020-0190(79)90072-3)
+(monotone-chain concept); Gottschalk, Lin and Manocha, *OBBTree*, SIGGRAPH 1996
+(hierarchical geometric separation); Bentley and Ottmann, *Algorithms for
+Reporting and Counting Geometric Intersections*, IEEE TC 1979 (the exact-sweep
+alternative). Publication metadata/abstracts and public NTS APIs were consulted;
+the hull, traversal and certificates are own implementations using the oracle's
+existing certified orientation filter and exact fallback. No external code read.
+
+
+Enable both full-oracle indexes with `G3_ORACLE_POINT_INDEX=strtree` and
+`G3_ORACLE_EDGE_INDEX=strtree-hulls`. `recheck_edges.py` uses the same bounded,
+hash-bound controller contract as `recheck.py`; supply original baseline records
+selected by the point-only campaign's remaining timeouts. Both controllers have
+procedural regression tests. Edge components accept the same mesh path and optional
+query count as point components; omit the count for all unique edges. Shared
+parsing/exact-point/unique-edge preparation is excluded, while mode-specific
+index, rank, box and hull preparation is included. Result pairs are sorted and
+fingerprinted. See [edge results and full-oracle recheck](results/2026-11-08-edge/README.md).

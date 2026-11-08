@@ -67,9 +67,16 @@ static class Program
     }
     static int Main(string[] args)
     {
-        if (args.Length==1 && args[0]=="selftest") { SelfTest(); return 0; }
+        if (args.Length==1 && args[0]=="selftest") { SelfTest(); EdgeSelfTest.Run(); return 0; }
+        if (args.Length==1 && args[0]=="edge-selftest") { EdgeSelfTest.Run(); return 0; }
         if (args.Length<2 || args.Length>3) { Console.Error.WriteLine("OracleIndexPilot <boxes|nts|pruned> <mesh2-output> [query-count; default all]"); return 2; }
         var mesh=TextFormat.ReadOutput(File.ReadAllText(args[1]),out _);
+        if (args[0].StartsWith("edge-",StringComparison.Ordinal)) {
+            var keys=mesh.Triangles.SelectMany(t=>new[]{StrtreeEdgeSearch.Key(t[0],t[1]),StrtreeEdgeSearch.Key(t[1],t[2]),StrtreeEdgeSearch.Key(t[2],t[0])}).ToArray();
+            var edges=new StrtreeEdgeSearch(mesh,keys);
+            Console.WriteLine(JsonSerializer.Serialize(edges.Run(args[0].Substring(5),args.Length==3?int.Parse(args[2]):0)));
+            return 0;
+        }
         var search=new StrtreePointSearch(mesh);
         Console.WriteLine(JsonSerializer.Serialize(new { phase="start",mode=args[0],vertices=mesh.VertexCount,triangles=mesh.Triangles.Length }));
         Console.WriteLine(JsonSerializer.Serialize(search.Run(args[0],args.Length==3?int.Parse(args[2]):0)));

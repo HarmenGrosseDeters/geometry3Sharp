@@ -36,6 +36,18 @@ the compiler still enforces the oracle's lack of a geometry3Sharp reference.
 The proof, controls and measurements are documented
 in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
 
+The second isolated variant uses exact endpoint convex hulls on STRtree nodes for
+proper edge-crossing queries. The monotone-chain hull is own code from the standard
+concept of A. M. Andrew, *Another efficient algorithm for convex hulls in two
+dimensions*, IPL 9(5), 1979, [doi:10.1016/0020-0190(79)90072-3](https://doi.org/10.1016/0020-0190(79)90072-3).
+Hierarchical geometric separation was considered from Gottschalk, Lin and Manocha,
+*OBBTree*, SIGGRAPH 1996; Bentley and Ottmann, *Algorithms for Reporting and Counting
+Geometric Intersections*, IEEE TC 1979, is the sweep alternative. Publication
+metadata/abstracts were consulted; no implementation code was read or copied.
+The two closed-half-plane certificates and the degenerate-hull handling are
+derived in the pilot comments/README and reviewed against the unchanged exact
+ProperCross predicate. The point/triangle and duplicate checks remain in force.
+
 The large pilot mesh is generated externally from a GEOS XML test fixture at
 commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output
 hashes are recorded in the pilot's numeric provenance. Upstream's pinned

@@ -20,5 +20,6 @@ jobs:
       - name: Integrated oracle opt-in self-check
         env:
           G3_ORACLE_POINT_INDEX: strtree
+          G3_ORACLE_EDGE_INDEX: strtree-hulls
         run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- selfcheck
       - run: python3 -m unittest discover -s benchmarks/OracleIndexPilot -p 'test_*.py' -v
