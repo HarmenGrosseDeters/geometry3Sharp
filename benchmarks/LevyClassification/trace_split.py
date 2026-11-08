@@ -20,7 +20,7 @@ PARTS = [('rays', ('front_winding',)), ('gwn', ('front_generalized_winding', 'wi
          ('stack', ('coplanar_stack',)), ('patch_setup', ('patch_winding',))]
 
 
-WAIT = ('Wait(', 'WaitOne', 'SpinWait', 'Semaphore', 'WaitCore', 'Sleep(', 'Join(')
+WAIT = ('Wait(', 'WaitOne', 'SpinWait', 'Semaphore', 'WaitCore', 'Sleep(', 'Join(', 'Enter_Slowpath')  # Enter_Slowpath: spinning on a contended lock
 
 
 def stacks(prof):

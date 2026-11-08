@@ -42,28 +42,34 @@ benchmarks/LevyClassification/analyze.py <work dir>/out[_sample_random]`; rows a
 
 ### 2.1 Where the classification time goes (traces)
 
-`trace.sh` + `trace_split.py` (dotnet-trace thread-time samples, waits dropped, CPU time on all threads), 12 ops of
-the levers build, `results/trace_split_levers.jsonl`. Shares of the classification CPU time:
+`trace.sh` + `trace_split.py` (dotnet-trace thread-time samples; waits and spinning on contended locks
+(`Monitor.Enter_Slowpath`) dropped; time on all threads), 12 ops of the levers build,
+`results/trace_split_levers.jsonl`. Shares of the classification time:
 
 | kind | examples | exact rays | per-patch setup | `AddPoint` of centroids (across parts) | fast winding build / eval | rest |
 |---|---|---|---|---|---|---|
-| closed, many patches (6e4-2.3e5) | 1087134, 107543, 105693, 111170, 113685 | 33-60 % | 27-37 % | 29-57 % | - | 5-21 % |
-| open, many patches (3e4-1.8e5) | 113906, 107554 | - | 16-56 % | 13-56 % | 1-2 % / 30-81 % | 1-11 % |
-| open, huge, few patches (1e2-2e3) | 112798, 1005586 | - | 1-5 % | 0-3 % | **69-82 %** / 1-5 % | 17-21 % |
-| huge, almost no patches | 120628, 103354 | 2-18 % | 5 % | 1-2 % | - | 77-93 % (per piece) |
+| closed, many patches (6e4-2.3e5) | 1087134, 107543, 105693, 111170, 113685 | 68-86 % | 7-15 % | 2-4 % | - | 4-21 % |
+| open, many patches (3e4-1.8e5) | 113906, 107554 | - | 5-17 % | 1-3 % | 1-3 % / 66-92 % | 2-13 % |
+| open, huge, few patches (1e2-2e3) | 112798, 1005586 | - | 1-3 % | 0-2 % | **70-82 %** / 1-5 % | 17-21 % |
+| huge, almost no patches | 120628, 103354 | 2-16 % | 4-5 % | 1 % | - | 80-93 % (per piece) |
+
+Correction (2026-11-08): a first version of `trace_split.py` counted spinning on contended locks as work. It gave
+`AddPoint` 29-57 % of the classification of patch-heavy ops; 93 % of those samples were `Monitor.Enter_Slowpath`.
+The A/B of the local-centroid prototype (4.1, item 1) measured the real gain, which is much smaller. Shares from
+thread-time samples are estimates; only A/B timings count.
 
 Two findings outside the Lévy question:
 - `ExactMeshArrangement.AddPoint` of the exact centroid (`ExactMeshBoolean.centroid`, called per patch in
-  `patch_winding` and per piece with a coplanar stack in `coplanar_stack`) hashes a large rational point under a lock.
-  Nothing downstream needs the point in the arrangement: `patch_winding` reads its exact value back at once,
-  `coplanar_stack` passes its id to `arr.Orient`.
+  `patch_winding` and per piece with a coplanar stack in `coplanar_stack`) takes a lock of the sharded point index,
+  which is contended on patch-heavy ops. Nothing downstream needs the point in the arrangement: `patch_winding` reads
+  its exact value back at once, `coplanar_stack` passes its id to `arr.Orient`.
 - The fast-winding cache of an open mesh (`DMeshAABBTree3.build_fast_winding_cache`) is built serially, once per open
   mesh, before the parallel patch loop; it unions HashSets of all triangles below every node (O(n log n)).
 
 ## 3. Upper bound of Lévy-style propagation
 
 Propagation replaces the exact rays and the per-patch setup (centroid, candidate query) of closed meshes, about 85-95 %
-of the classification on closed many-patch ops, i.e. at most the classification share: about 10-25 % of the
+of the classification on closed many-patch ops (trace estimate), i.e. at most the classification share: about 10-25 % of the
 Compute time, on the closed self-intersecting and unknown ops with many patches. It does not apply to open operands:
 their generalized winding number is not integer-consistent across patches (the jumps are exact, the value inside a
 cell is not constant), which the literature confirms (Zhou 2016 calls robust open handling "elusive"; Lévy, Zhou and
@@ -82,20 +88,35 @@ exactly.
 
 ## 4. Recommendation
 
-### 4.1 Phase 2 (one PR after the merge queue clears, on master)
+### 4.1 Phase 2 (one PR after the merge queue clears, on master): ways 1 and 2; the local centroids only optionally
 
-1. **Local exact centroids instead of `AddPoint`.** `patch_winding` uses the `ExactPoint3` directly;
-   `coplanar_stack` gets an `Orient` variant of `ExactMeshArrangement` that takes a local exact point (with its double
-   approximation for the filter) instead of a point id. A centroid that coincides with an existing point gives
-   orientation 0 in the exact test as the id comparison does today, so the result is unchanged.
-   - Expected: bit-identical results; about 30-55 % of the classification time on patch-heavy ops (the `AddPoint`
-     share above).
-   - `Counts["points"]` gets smaller (it counts the centroids today); a diagnostic counter, stated in the PR.
-   - Exact code (`mesh_ops/ExactMesh*`): tier L, full exact review with docs/REVIEW_CHECKLIST.md, the mutation shard of
-     the touched files must stay above its threshold.
-   - Acceptance: result hashes identical to master on both samples (`job.sh` with both sample files, the probe writes
-     `hash`), the boolean test suites, the invariance test over `Similarity.All()` unchanged, a test pinning
-     `coplanar_stack` with coincident and coplanar overlapping triangles.
+1. **Local exact centroids instead of `AddPoint`: measured, small gain; low priority.** `patch_winding` uses the
+   `ExactPoint3` directly; `coplanar_stack` gets an `Orient` variant of `ExactMeshArrangement` that takes a local exact
+   point and its double approximation (same filter and error bound as `AddPoint` stores) instead of a point id. A
+   centroid that coincides with an existing point gives orientation 0 in the exact test, as the id comparison does
+   today.
+   - Prototype ([prototype/addpoint_local_centroid.diff](../../benchmarks/LevyClassification/prototype/addpoint_local_centroid.diff),
+     not library code), `prototype/addpoint_job.sh`, `results/proto_addpoint.jsonl`: result hashes **equal on all
+     171 ops** of both samples (57 models x 3 ops); `Counts["points"]` unchanged (it is taken before the
+     classification). Classification time over all 171 ops -2.1 % (254.8 -> 249.5 s), Compute -1.3 %. On the
+     patch-heavy ops, two rounds:
+
+     | model | op | patches | classification ms base r1 / r2 | local centroid r1 / r2 |
+     |---|---|---|---|---|
+     | 1087134 | intersection | 227906 | 10874 / 11428 | 10439 / 10688 |
+     | 107543 | intersection | 161025 | 4243 / 4330 | 3362 / 3748 |
+     | 107554 | difference | 177704 | 5139 / 5532 | 4445 / 4768 |
+     | 113906 | intersection | 34168 | 5900 / 5661 | 4895 / 5139 |
+     | 111170 | intersection | 57487 | 2088 / 2785 | 1736 / 2224 |
+     | 105693 | intersection | 60850 | 2724 / 2879 | 2509 / 2681 |
+     | 113685 | intersection | 58254 | 2210 / 2742 | 2079 / 2268 |
+
+     That is -4 to -20 % of the classification on these ops, below 1 s each; under 1 % of their Compute time.
+   - It touches exact code (`mesh_ops/ExactMesh*`: tier L, full exact review, the mutation shard of the touched
+     files). For this gain the cost is hard to justify on its own; it can ride along with a later change of the same
+     functions (e.g. propagation, if reopened), or be dropped. Acceptance if built: hashes equal on both samples
+     (`job.sh` with both sample files, the probe writes `hash`), the boolean suites, invariance over
+     `Similarity.All()`, a test pinning `coplanar_stack` with coincident and coplanar overlapping triangles.
 2. **Fast-winding tree, ways 1 and 2.** Way 1: build the trees of all open meshes concurrently in `classify` (a member
    already on the `ExactCodeAllowList`; each tree is independent; the dictionary is filled serially afterwards).
    Way 2: in `build_fast_winding_cache` build the two child subtrees concurrently in the top levels (each subtree
