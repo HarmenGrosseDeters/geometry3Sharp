@@ -129,3 +129,11 @@ with the conformity index fields preserves both controls, and both checklist
 additions are retained. The combined 60k full-check smoke is VALID and produces the
 same complete report SHA-256 as above. Post-integration checks are recorded in
 `master-integration.json`.
+
+The integrated merge `893151b8` passes 30 source/conformity tests and all target,
+net48 and API package checks. Default and source-scan command-line CI each pass
+412 self-checks and the same 28/33/52/52 golden rows with zero differences. The
+fresh integrated build also completes the original 60k full check as VALID,
+59,998 triangles, with the same complete report hash. No integration timing is
+claimed. Independent resolution-only review found no issues; the previous feature
+head passed GitHub CI, New tests on base and Z3 pilot.

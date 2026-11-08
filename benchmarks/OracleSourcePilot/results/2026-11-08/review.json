@@ -33,5 +33,17 @@
     "cmp <review-work>/before.report.json <review-work>/after.report.json",
     "python3 -m unittest discover -s benchmarks/OracleSourcePilot -p test_*.py -v",
     "python3 benchmarks/OracleSourcePilot/verify_results.py --runs <runs> --boundary <control>"
-  ]
+  ],
+  "master_resolution_review": {
+    "merge_commit": "893151b8419a7497d34adc7019a1f955e356a9a4",
+    "scope": "Resolution-only independent read-only delta review; no builds or timing claims.",
+    "open_blocking_findings": 0,
+    "verified": [
+      "source-mode constructor selection and both counter resets",
+      "conformity point/edge fields and initialization",
+      "both CLI validations and all checklist additions",
+      "complete Oracle source directory identical to combined smoke commit ecf8a9ba7a8b1fe28090103d6dd2390686a819da",
+      "timing records explicitly bound to frozen 3ad04065 measurements"
+    ]
+  }
 }
