@@ -74,6 +74,12 @@ in the tool project.
     component can be skipped without an exception (repro in the #423 review: bounds 0..2.5, h 1, spheres r 0.3 at
     nodes (4,1,1) and (1,2,1), seeds in cells (3,0,0) and (0,1,0)). Fix: size `done_cells` (n+1)^3 or make the
     neighbour test exclusive; changes legacy behaviour, so note it in UPSTREAM_CHANGES. Own bugfix PR with a test.
+- 2D wrap (idea only, owner 2026-11-08; not scheduled). Clipper2 has no alpha wrap, but the Clipper2 addon can
+  already do a morphological closing: `Offset` / `OffsetPolyLines` by r + offset, `Union`, `Offset` by -r, then
+  `Simplify` (simple, non-self-intersecting polygons; gaps narrower than about 2r are closed). A small step would be
+  a documented recipe or a `Clipper2Polygons.Close(...)` helper with tests. A real 2D alpha wrap (after Portaneri et
+  al. 2022, cf. CGAL's 2026 2D package as a black box only) only if a use case needs coarse, low-vertex outlines or
+  large point sets as input (concave-hull style).
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
