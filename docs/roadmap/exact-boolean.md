@@ -100,6 +100,8 @@ ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5
   other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
   `WindingContouring`, `DualContouring`'s cell dictionaries) with a dense-key measurement before changing any;
   taken by the owner locally (2026-11-08).
+  Audit implementation and measurements: [LongHashAudit](../../benchmarks/LongHashAudit/README.md); packed tables
+  use the existing comparer, linear indices and scalar-only `containerOf` keep the default hash.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under
