@@ -51,6 +51,8 @@ namespace Meshing2Acceptance
         static int Main(string[] args)
         {
             if (args.Length == 0) { Console.Error.WriteLine(Usage); return 2; }
+            try { Oracle.ValidateSourceIndexSettings(); }
+            catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
             // --oracle reference: every check (the self-check too) on the exact reference path, for audits
             string oracleMode = Arg(args, "--oracle");
             if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }

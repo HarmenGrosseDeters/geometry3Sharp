@@ -158,7 +158,13 @@ namespace Meshing2Acceptance
             int aliases;                       // merged input slots (identity rules): vertices in the list that are no vertices of the mesh
             List<Pt> effectiveSeeds = new List<Pt>();
 
-            public Run(Mesh2Input input, Mesh2Output o, OracleExpect e) { this.input = input; this.o = o; this.e = e; }
+            public Run(Mesh2Input input, Mesh2Output o, OracleExpect e)
+            {
+                this.input = input; this.o = o; this.e = e;
+                indexSourceCoverage = SourceIndexSetting() != "scan";
+                SourceWorkForTests = 0;
+                SourceGridWorkForTests = 0;
+            }
             /// <summary> the conformity searches (see Oracle.IndexSettings), read once before the run </summary>
             public string PointIndex, EdgeIndex;
 
@@ -1896,10 +1902,7 @@ namespace Meshing2Acceptance
                 int n = v.Length;
                 vxl = new double[n]; vxh = new double[n]; vyl = new double[n]; vyh = new double[n]; vKnown = new bool[n];
                 for (int i = 0; i < n; ++i) vKnown[i] = v[i].Bounds(false, out vxl[i], out vxh[i]) && v[i].Bounds(true, out vyl[i], out vyh[i]);
-                double reach = double.NaN;
-                if (tube2.Bounds(out _, out double t2hi)) reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300;
-                sBox = new double[4 * sources.Count];
-                for (int k = 0; k < sources.Count; ++k) SegmentBox(sources[k].a, sources[k].b, reach, sBox, 4 * k);
+                EnsureSourceBoxes();
                 // the ends of each source in doubles where they are doubles exactly (NaN otherwise), and the tube squared from above
                 sEnds = new double[4 * sources.Count];
                 for (int k = 0; k < sources.Count; ++k) {
@@ -2048,6 +2051,37 @@ namespace Meshing2Acceptance
                     }
                 }
 
+                /// <summary>Coverage only: null means restart with the exact scan.
+                /// Counts copied/marked unknowns, cell visits and bucket entries,
+                /// so candidate materialization cannot add unbounded work to a
+                /// scan that would have stopped early. Never returns a partial list.
+                /// The ordinary Query below is unchanged for other callers.</summary>
+                public List<int> QueryBounded(double xl, double xh, double yl, double yh, int maxWork, out int work)
+                {
+                    work = 1;
+                    if (unknown.Count > maxWork) return null;
+                    var result = new List<int>(unknown);
+                    work += unknown.Count;
+                    if (work > maxWork) return null;
+                    if (++round == int.MaxValue) { Array.Clear(stamp, 0, stamp.Length); round = 1; }
+                    foreach (int i in unknown) {
+                        if (++work > maxWork) return null;
+                        stamp[i] = round;
+                    }
+                    Cells(xl, xh, yl, yh, out int i0, out int i1, out int j0, out int j1);
+                    for (int ci = i0; ci <= i1; ++ci)
+                        for (int cj = j0; cj <= j1; ++cj) {
+                            if (++work > maxWork) return null;
+                            if (cells.TryGetValue((long)ci * ny + cj, out var list))
+                                foreach (int i in list) {
+                                    if (++work > maxWork) return null;
+                                    if (stamp[i] != round) { stamp[i] = round; result.Add(i); }
+                                }
+                        }
+                    result.Sort();
+                    return result;
+                }
+
                 public List<int> Query(double xl, double xh, double yl, double yh)
                 {
                     var result = new List<int>(unknown);
@@ -2158,7 +2192,7 @@ namespace Meshing2Acceptance
                     if (o.IdentityRules && o.NeighboursReported && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no subsegments (spec R4)");
                     constraintEdges = new HashSet<long>(EdgeKeys.Instance);
                     foreach (var key in edges.Keys)
-                        if (sources.Any(s => WithinTube(s, v[KeyA(key)]) && WithinTube(s, v[KeyB(key)]))) constraintEdges.Add(key);
+                        if (SourceCovers(KeyA(key), KeyB(key))) constraintEdges.Add(key);
                 }
             }
 
@@ -2371,7 +2405,6 @@ namespace Meshing2Acceptance
                 return found.Select(k => domainEdges[k]).ToList();
             }
 
-            bool SourceCovers(int a, int b) => sources.Any(s => WithinTube(s, v[a]) && WithinTube(s, v[b]));
 
             /// <summary>In the closure of the domain's interior: a boundary point of two touching holes is not, although it is on rings.</summary>
             List<(Pt a, Pt b)> closureEdges;
