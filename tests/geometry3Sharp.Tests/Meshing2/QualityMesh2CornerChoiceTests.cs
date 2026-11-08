@@ -73,5 +73,24 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(want, QualityMesh2.Refiner.ShortestEdgeCorner(t[0] * s, t[1] * s, t[2] * s));
             }
         }
+
+        [Theory]
+        [InlineData(1e-150)] [InlineData(1e75)] [InlineData(1e-160)] [InlineData(1e-310)] [InlineData(1e160)]
+        public void ShortestEdgeCorner_OutOfFilterRange_IsExact(double s)
+        {
+            // the triangle of the first test at a scale where the squared lengths under or overflow (or are subnormal)
+            var a = new Vector2d(0, 0); var b = new Vector2d(s, 0); var c = new Vector2d(2 * s, s * Eps);
+            Assert.Equal(2, QualityMesh2.Refiner.ShortestEdgeCorner(a, b, c));
+            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(c, b, a));
+        }
+
+        [Fact]
+        public void ShortestEdgeCorner_CoincidentVertices_DoNotThrow()
+        {
+            var p = new Vector2d(3, 4);
+            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(p, p, p));
+            // b = c: the edge bc has length 0 and is the shortest, opposite corner 0
+            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(0, 0), p, p));
+        }
     }
 }
