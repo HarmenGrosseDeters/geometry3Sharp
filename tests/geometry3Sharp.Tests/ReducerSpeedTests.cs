@@ -129,6 +129,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(b, a));
         }
 
+        // a subclass that removes a triangle next to every k-th collapse (in OnEdgeCollapse, while the states are
+        // live): it makes new bowtie vertices that the states must not hide (the mesh's ShapeTimestamp)
+        class TriangleRemovingReducer : Reducer
+        {
+            readonly int every;
+            int collapses;
+            public TriangleRemovingReducer(DMesh3 m, int every) : base(m) { this.every = every; }
+            protected override void OnEdgeCollapse(int edgeID, int va, int vb, DMesh3.EdgeCollapseInfo collapseInfo)
+            {
+                if (++collapses % every != 0)
+                    return;
+                // the first triangle of the kept vertex's first neighbour that does not contain the kept vertex
+                foreach (int v in mesh.VtxVerticesItr(va)) {
+                    foreach (int t in mesh.VtxTrianglesItr(v)) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        if (tv.a == va || tv.b == va || tv.c == va) continue;
+                        mesh.RemoveTriangle(t, true, false);
+                        return;
+                    }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(3, 5)]
+        [InlineData(5, 3)]
+        [InlineData(9, 2)]
+        public void SubclassChangesTheMeshDuringTheReduction_SameAsTheReference(int seed, int every)
+        {
+            DMesh3 input = HolyPlate(24, seed, 0.1);
+            DMesh3 a = new DMesh3(input), b = new DMesh3(input);
+            new TriangleRemovingReducer(a, every) { PreventSelfIntersections = true, PreserveBoundaryShape = false }.ReduceToTriangleCount(input.TriangleCount / 3);
+            new TriangleRemovingReducer(b, every) { PreventSelfIntersections = true, PreserveBoundaryShape = false, CacheBowtieStates = false }
+                .ReduceToTriangleCount(input.TriangleCount / 3);
+            Assert.Equal("", Invariance.Difference(b, a));
+            Assert.True(a.TriangleCount < input.TriangleCount / 2);
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameReductionAsTheReference_UnderSimilarity(string name)

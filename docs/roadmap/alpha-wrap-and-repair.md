@@ -53,7 +53,8 @@ our manifold extension (large outside cells), not a bug; lever: a two-sided mani
 0.3 + needle handling; B Phi + refinement; C two-sided manifold step (prototype, stop rule); WP3 constant factors.
 
 **Serial Reducer profile (2026-11-08, owner request before any parallel reducer).** `SimplifyWithin` on 5 raw wraps
-(26k-327k triangles; bench/alpha-wrap-2-ABC, warm, alone): 56-70 µs per collapse; the reduction is about 33 % of the
+(26k-327k triangles: Thingi10K 789071, 102793, 100331, 497978, 65584; the `wrappipe` mode of MeshRepairBenchmark from
+#404 on the unmerged bench branch with A, B and C, plus temporary timers that were not committed; warm, alone): 56-70 µs per collapse; the reduction is about 33 % of the
 pipeline. Two methods: timers per section with counters, and ablations (one component off; the self-intersection check
 refused no collapse on these wraps, so every ablation gave the same mesh, hashes checked). Shares of the reduction:
 
@@ -80,7 +81,8 @@ or another QEM code could be verified (GitHub returned 504), so none is quoted.
 | 7 early-out of the self-intersection query | 0 % (no hits) | n/a |
 | 8 repeated certification | n/a: no per-collapse certification in this path; the final certify (5-10 % of the simplification) runs once | n/a |
 
-Levers 2 + 3 + cells of 3 edge lengths: the reduction 0.87-0.91x on the 4 larger wraps (102793 0.87, 100331 0.91,
+Levers 2 + 3 + cells of 3 edge lengths (same setup, old and new binary alternating, median of 4 runs each; the
+output hashes compared): the reduction 0.87-0.91x on the 4 larger wraps (102793 0.87, 100331 0.91,
 497978 0.88, 65584 0.89), allocations -30 %, the same meshes bit for bit. Cells of 4.5 and 6 edge lengths are not
 better; 0.75 is 1.09-1.22x.
 

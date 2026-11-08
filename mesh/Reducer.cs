@@ -215,6 +215,7 @@ namespace g3
 
             begin_collapse();
             bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
             try {
             while (EdgeQueue.Count > 0) {
 
@@ -366,6 +367,7 @@ namespace g3
             int N = mesh.MaxEdgeID;
             int num_last_pass = 0;
             bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
             try {
             for (int ri = 0; ri < nRounds; ++ri) {
                 num_last_pass = 0;
@@ -1166,13 +1168,22 @@ namespace g3
         // neighbours (the triangles that had a or b, whose other corners are now all neighbours of the kept
         // vertex), so forget_bowtie_states resets exactly those; the answers are those of IsBowtieVertex. (In
         // practice DMesh3.CollapseEdge's neighbourhood test refuses the collapses that would change a state; the
-        // resets do not rely on it.) null outside DoReduce and FastCollapsePass: the mesh can change in between
+        // resets do not rely on it.) null outside DoReduce and FastCollapsePass: the mesh can change in between.
+        // bowtieStamp is the mesh's ShapeTimestamp after the last reset: any other edit while the states are live (eg a
+        // subclass that changes the mesh in OnEdgeCollapse) differs from it, and then all states are forgotten
         sbyte[] bowtieState;
+        int bowtieStamp;
 
         bool is_bowtie(int vid)
         {
             if (bowtieState == null || CacheBowtieStates == false || vid < 0 || vid >= bowtieState.Length)
                 return mesh.IsBowtieVertex(vid);
+            // (CollapseEdge asks this before every collapse, with no edit in between, so an edit by someone else is seen
+            // before forget_bowtie_states records the stamp after the collapse)
+            if (mesh.ShapeTimestamp != bowtieStamp) {
+                Array.Clear(bowtieState, 0, bowtieState.Length);
+                bowtieStamp = mesh.ShapeTimestamp;
+            }
             sbyte state = bowtieState[vid];
             if (state == 0) {
                 state = mesh.IsBowtieVertex(vid) ? (sbyte)2 : (sbyte)1;
@@ -1189,6 +1200,7 @@ namespace g3
             forget_bowtie_state(vRemoved);
             foreach (int v in mesh.VtxVerticesItr(vKeep))
                 forget_bowtie_state(v);
+            bowtieStamp = mesh.ShapeTimestamp;
         }
 
         void forget_bowtie_state(int vid)
