@@ -60,10 +60,14 @@ of `R` and `A`, `S' = (S \ R) ∪ A`, and `d'` as in §2. Then `I(S', d')` holds
 Without an apex the lemma is today's (every vertex of `A` gets `M + δ`, so `D'(T') = M + δ` for every `T' ∈ A`).
 
 **In doubles.** The code computes `δ̂` and `M̂ + δ̂` in binary64. Model: `δ <= δ̂ + ε` with `ε` the absolute error of
-the distance computation (a few ulps of the largest coordinate, as the theorem states today), and `fl(M̂ + δ̂) =
-(M̂ + δ̂)(1 + η)`, `|η| <= u = 2^-53`. Claim: the true drifts satisfy `d <= d̂ (1 + u)^k + k ε` after `k` edits on a
-chain, so `H(S, S0) <= MaxDrift (1 + u)^k + k ε` (today's caveat, unchanged in form; the apex rule makes `k` the
-length of a chain of edits through one vertex, not through a cluster).
+the distance computation (a few ulps of the largest coordinate, as the theorem states today), and the stored sum in the
+form of Higham (2.5): `M̂ + δ̂ = fl(M̂ + δ̂)(1 + η)`, `|η| <= u = 2^-53` (round to nearest), so the true sum is at most
+`fl(M̂ + δ̂)(1 + u)`. Claim: the true drifts satisfy `d <= d̂ (1 + u)^k + k ε (1 + u)^k` after a chain of `k` edits,
+so `H(S, S0) <= (MaxDrift + k ε)(1 + u)^k` (today's caveat, unchanged in form; the apex rule makes `k` the length of a
+chain of edits through one vertex, not through a cluster). With the other model, Higham (2.4), `fl(s) = s (1 + η)`,
+the bound would need `(1 - u)^-k` instead: Z3 found the witness `M̂ = 1`, `δ = δ̂ = ε = 0`, stored `1 - u`, where
+`(1 - u)(1 + u) < 1` (Z3 pilot 2 step 1, 2026-11-08). The acceptance test compares the stored `fl(M̂ + δ̂)` with
+`maxLength`, so the guarantee reads `H <= maxLength (1 + u)^k + ...`, as today up to the rounding caveat.
 
 ## 4. What Z3 is asked to check (pilot 2, step 1)
 
@@ -81,8 +85,8 @@ valence 3, a flip.
 - Mutants (SAT, counterexamples): charging a vertex that is **not** in every added triangle (eg `a` instead of `b`
   in a contraction, or a vertex of only one added triangle in a flip); charging `M` without `δ`; `M` over `A` only
   (dropping the removed triangles' vertices).
-- The rounding model of §3 (`δ <= δ̂ + ε`, `(1 + η)`, `|η| <= u`) for the bound `d <= d̂ (1 + u)^k + k ε` over a chain
-  of `k` edits (an induction step: one edit, `k -> k + 1`).
+- The rounding model of §3 (`δ <= δ̂ + ε`, Higham (2.5): `s = fl(s)(1 + η)`, `|η| <= u`) for the bound
+  `d <= (d̂ + k ε)(1 + u)^k` over a chain of `k` edits (an induction step: one edit, `k -> k + 1`).
 
 Not checked by Z3: the per-edit bounds (E1), (E2) themselves (SAFE_ROUNDING.md §1, reviewed); that the code's apex is
 in every added triangle (a test asserts it in check mode, §6).
