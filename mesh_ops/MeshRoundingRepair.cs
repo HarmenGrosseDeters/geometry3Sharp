@@ -57,10 +57,11 @@ namespace g3
     /// no edit moves a vertex onto a position where other vertices are (which would make a new, uncounted
     /// contact), and a contraction keeps the contact points as they are (the kept vertex at its own position). Where the
     /// caller knows the exact point of each vertex (ExactMeshBoolean), vertices of different exact points that the
-    /// rounding put at one position are not a contact of the solid but a defect: after the passes, one of their vertices
-    /// is moved off the position (towards its neighbours or along its normal, a few units in the last place first),
-    /// checked like every edit, so that it then meets the other sheet nowhere (InitialFalseContacts,
-    /// RemainingFalseContacts; IsClean requires none left).
+    /// rounding put at one position are not a contact of the solid but a defect: after the passes, the vertices of the
+    /// other points are moved off the position, one at a time (towards its neighbours or along its normal, a few units in
+    /// the last place first), checked like every edit, so that they then meet the other sheet nowhere; the point with the
+    /// most vertices there stays, and a point with several vertices there is not moved apart, so a contact of one exact
+    /// point is kept (InitialFalseContacts, RemainingFalseContacts; IsClean requires none left).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -352,7 +353,7 @@ namespace g3
             }
             RemainingIntersections = pairs.Count;
             RemainingDegenerate = bad.Count;
-            List<List<int>> contactsLeft = InitialFalseContacts > 0 ? false_contacts() : null;
+            List<List<int>> contactsLeft = PointIdF != null && atPosition != null ? false_contacts() : null;
             RemainingFalseContacts = contactsLeft != null ? contactsLeft.Count : 0;
             int at = bad.Count > 0 ? bad[0] : pairs.Count > 0 ? pairs[0].a : -1;
             if (at >= 0 && Mesh.IsTriangle(at))
@@ -1506,9 +1507,25 @@ namespace g3
             for (bool again = true; again && EvaluationLimitReached == false; ) {
                 again = false;
                 foreach (List<int> g in false_contacts()) {
+                    // the exact point with the most vertices here stays (where the solid touches itself, its vertices
+                    // must keep sharing the position; ties: the point of the smallest vertex); of the others only a
+                    // point with a single vertex here is moved, so no contact of one exact point is broken up (a point
+                    // with several vertices here stays, and the position is counted as left)
+                    var count = new Dictionary<int, int>();
+                    foreach (int v in g) {
+                        int c;
+                        count.TryGetValue(PointIdF(v), out c);
+                        count[PointIdF(v)] = c + 1;
+                    }
+                    int keep = PointIdF(g[0]);
+                    foreach (int v in g)
+                        if (count[PointIdF(v)] > count[keep]) keep = PointIdF(v);
+                    var movable = new List<int>();
+                    foreach (int v in g)
+                        if (PointIdF(v) != keep && count[PointIdF(v)] == 1) movable.Add(v);
                     var order = new List<int>();
-                    foreach (int v in g) if (FixedVertexF == null || FixedVertexF(v) == false) order.Add(v);
-                    foreach (int v in g) if (FixedVertexF != null && FixedVertexF(v)) order.Add(v);
+                    foreach (int v in movable) if (FixedVertexF == null || FixedVertexF(v) == false) order.Add(v);
+                    foreach (int v in movable) if (FixedVertexF != null && FixedVertexF(v)) order.Add(v);
                     foreach (int v in order) {
                         if (Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v) || Mesh.GetVtxEdgeCount(v) == 0)
                             continue;
