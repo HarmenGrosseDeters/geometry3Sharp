@@ -174,5 +174,47 @@ namespace geometry3Sharp.Tests
             double after = MinQuality(simp);
             Assert.True(after > 1.05 * before, $"{after} (wrap {before})");
         }
+
+        class OneCollapse : Reducer
+        {
+            public OneCollapse(DMesh3 m) : base(m) { }
+            public bool Collapse(int a, int b, Vector3d p)
+            {
+                int k;
+                return CollapseEdge(mesh.FindEdge(a, b), p, out k) == ProcessResult.Ok_Collapsed;
+            }
+        }
+
+        // a 6 x 6 grid of unit squares (vertex j * 7 + i at (i, j)) with vertex 8 moved to 0.02 from vertex 0: needles
+        static DMesh3 GridWithNeedles()
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= 6; ++j) for (int i = 0; i <= 6; ++i) m.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < 6; ++j)
+                for (int i = 0; i < 6; ++i) {
+                    int a = j * 7 + i, b = a + 1, c = a + 7, d = c + 1;
+                    if ((i + j) % 2 == 0) { m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c); } else { m.AppendTriangle(a, b, c); m.AppendTriangle(b, d, c); }
+                }
+            m.SetVertex(8, new Vector3d(0, 0, 0) + 0.02 * new Vector3d(1, 1, 0).Normalized);
+            return m;
+        }
+
+        // the exception of CollapseQualityAgainstWorst holds only for a collapse that removes the worst triangle around
+        // its edge: then it may make triangles below the guard (better than the removed one); a collapse next to the
+        // needles that would make such triangles without removing them is refused, as without the option (allowing it
+        // whenever the new triangles beat the worst one around would spread triangles below the guard: 406 of about 8000
+        // collapses on such grids differ)
+        [Fact]
+        public void Reducer_QualityAgainstWorst_OnlyWhenTheWorstIsRemoved()
+        {
+            Func<bool, int, int, Vector3d, bool> collapse = (worst, a, b, p) =>
+                new OneCollapse(GridWithNeedles()) { MinCollapseTriangleQuality = 0.3, CollapseQualityAgainstWorst = worst }.Collapse(a, b, p);
+            // edge 2-10 onto vertex 10: a needle at vertex 8 is in the one-ring of 2 but not one of the edge's triangles; the
+            // collapse makes triangles below the guard that are worse than their predecessors (but better than the needle)
+            Vector3d p10 = GridWithNeedles().GetVertex(10);
+            Assert.False(collapse(false, 2, 10, p10));
+            Assert.False(collapse(true, 2, 10, p10));
+            // (where the exception applies, collapses remove the worst triangles: SimplifyWithin_WorstTriangleOfTheWrapImproved)
+        }
     }
 }
