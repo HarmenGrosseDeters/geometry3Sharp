@@ -23,8 +23,8 @@ LISTS = os.path.join(os.path.dirname(HERE), "thingi-pairs")
 BASE = "https://huggingface.co/datasets/Thingi10K/Thingi10K"
 
 # --- the protocol (README.md explains each choice)
-SEED_NORMAL, SEED_SIZE = 20261104, 20261105     # the day of the owner's decision, and the next
-PAIRS_NORMAL, PAIRS_SIZE = 1000, 100
+SEED_NORMAL, SEED_SIZE, SEED_SAMPLE = 20261104, 20261105, 20261106     # the day of the owner's decision, and the next
+PAIRS_NORMAL, PAIRS_SIZE, PAIRS_SAMPLE = 1000, 100, 100   # the sample: the pairs CGAL EPECK runs on
 NORMAL_TRIS = (1000, 100000)                    # triangles per operand (EMBER: 1k-100k faces)
 SIZE_TRIS = (100001, 1000000)                   # the size class: 100k-1M triangles per operand
 CATEGORIES = ["Closed", "Edge manifold", "Vertex manifold", "No degenerate faces", "No duplicated faces", "PWN"]
@@ -71,6 +71,15 @@ def write_pairs(path, comment, rows):
         w.writerow(HEADER)
         w.writerows(rows)
 
+def sample_rows(rows, seed, count):
+    """count of the rows, chosen by a partial Fisher-Yates shuffle of the indices, in the order of the list (pair numbers kept)"""
+    rng = SplitMix64(seed)
+    idx = list(range(len(rows)))
+    for i in range(count):
+        j = i + rng.below(len(idx) - i)
+        idx[i], idx[j] = idx[j], idx[i]
+    return [rows[k] for k in sorted(idx[:count])]
+
 def generate(clean=None, out=LISTS):
     clean = clean or read_clean()
     for name, seed, count, (lo, hi) in (("pairs.csv", SEED_NORMAL, PAIRS_NORMAL, NORMAL_TRIS), ("pairs_size.csv", SEED_SIZE, PAIRS_SIZE, SIZE_TRIS)):
@@ -79,6 +88,12 @@ def generate(clean=None, out=LISTS):
             f"thingi-pairs: {count} pairs drawn with SplitMix64 seed {seed} from the {len(pool)} clean models with {lo}-{hi} triangles",
             "of clean_models.csv (sorted by id); B = rotation (quaternion x y z w) and translation t of the unit-box normalized model",
         ], pair_rows(pool, seed, count))
+        if name == "pairs.csv":
+            rows = pair_rows(pool, seed, count)
+            write_pairs(os.path.join(out, "pairs_cgal_sample.csv"), [
+                f"thingi-pairs: {PAIRS_SAMPLE} of the {count} pairs of pairs.csv (same rows and pair numbers), chosen with SplitMix64 seed {SEED_SAMPLE}:",
+                "the pairs that CGAL EPECK runs on (it is slow and single-threaded)",
+            ], sample_rows(rows, SEED_SAMPLE, PAIRS_SAMPLE))
 
 # --- fetching
 

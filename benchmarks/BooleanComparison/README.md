@@ -68,6 +68,7 @@ huggingface into a directory outside the repository (individual licences, mostly
 |---|---|
 | `clean_models.csv` | the 3236 models (of 3399 candidates) that pass the filter below: id and triangle count |
 | `pairs.csv` | 1000 pairs, seed 20261104: model ids a and b, quaternion q (x y z w) and translation t of B |
+| `pairs_cgal_sample.csv` | 100 of the 1000 pairs (same rows and pair numbers), seed 20261106, partial Fisher-Yates over the list: the pairs CGAL EPECK runs on |
 | `pairs_size.csv` | the size class, 100 pairs, seed 20261105, models with 100 001-1 000 000 triangles |
 
 **Filter** (which models may be drawn): Thingi10K's own metadata first (`geometry_data.csv`, `input_summary.csv`:
@@ -122,18 +123,25 @@ python3 data/thingi_pairs.py manifest thingi-pairs/pairs.csv $D $D/cases.jsonl
 python3 data/thingi_pairs.py manifest thingi-pairs/pairs_size.csv $D $D/cases_size.jsonl
 
 cp -r bin/Release/net10.0 /some/where/frozen; export BOOLCMP_TOOL=/some/where/frozen/BooleanComparison.dll
-export CGAL_BOOL=... MANIFOLD_PYTHON=...    # as above; methods that are not installed are left out of --methods
-# the full run: 1000 pairs, 3 operations each, -j 1 for timings; resumable: rerun the same command after an interruption
-python3 compare.py $D/cases.jsonl results-pairs.jsonl --methods ours,manifold,cgal_epeck --timeout 300 -j 1 --resume
-python3 compare.py $D/cases_size.jsonl results-size.jsonl --methods ours,manifold,cgal_epeck --timeout 900 -j 1 --resume
-python3 analyze.py results-pairs.jsonl results-size.jsonl
-python3 data/thingi_pairs.py summary results-pairs.jsonl results-size.jsonl
+export MANIFOLD_PYTHON=...    # as above; CGAL_BOOL only for the sample run
+
+# the full run, ours + Manifold (1000 pairs, then the size class; 3 operations each, -j 1 for timings)
+python3 compare.py $D/cases.jsonl results-pairs.jsonl --methods ours,manifold --timeout 300 -j 1 --resume
+python3 compare.py $D/cases_size.jsonl results-size.jsonl --methods ours,manifold --timeout 900 -j 1 --resume
+
+# the CGAL sample: EPECK on 100 of the 1000 pairs (same case names as in the full run)
+python3 data/thingi_pairs.py manifest thingi-pairs/pairs_cgal_sample.csv $D $D/cases_cgal.jsonl
+export CGAL_BOOL=/path/to/cgal_bool
+python3 compare.py $D/cases_cgal.jsonl results-cgal.jsonl --methods cgal_epeck --timeout 300 -j 1 --resume
+
+python3 analyze.py results-pairs.jsonl results-size.jsonl results-cgal.jsonl
+python3 data/thingi_pairs.py summary results-pairs.jsonl results-size.jsonl results-cgal.jsonl
 ```
 
 One result line is one pair and one method (with the three operations); `--resume` skips the pairs that have a line for every
 method of `--methods` (a cut-off last line is ignored, its pair runs again), so an interrupted run loses at most the
 pair under way. Pair `NNNN` is the case `pNNNN_<idA>+<idB>`; `--only` runs single ones. `manifest ... --limit N` takes the
-first N pairs (the trial below). `--methods` may include `cgal_epick` and `cherchi` as well (not tried here). The
+first N pairs (the trial below). All three commands are resumable (rerun the same command). The CGAL sample is a separate run and output file, because the full run does not include CGAL; its rows have the same class and case names as the full run's. `--methods` may include `cgal_epick` and `cherchi` as well (not tried here). `analyze.py` tables compare methods on the cases they share, so read the CGAL column on the sample only. The
 results of the other tools are not committed (CGAL is GPL; `cgal_bool` stays an external, non-distributed binary).
 
 ### Trial run (2026-11-08, not the full run)

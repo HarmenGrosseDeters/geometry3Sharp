@@ -29,7 +29,7 @@ class GeneratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
             tp.generate(self.models(), d1)
             tp.generate(self.models(), d2)
-            for f in ("pairs.csv", "pairs_size.csv"):
+            for f in ("pairs.csv", "pairs_size.csv", "pairs_cgal_sample.csv"):
                 self.assertEqual(read(os.path.join(d1, f)), read(os.path.join(d2, f)))
         pool = sorted(k for k, n in self.models() if tp.NORMAL_TRIS[0] <= n <= tp.NORMAL_TRIS[1])
         self.assertNotEqual(tp.pair_rows(pool, 1, 20), tp.pair_rows(pool, 2, 20))
@@ -54,8 +54,19 @@ class GeneratorTests(unittest.TestCase):
             self.skipTest("no committed lists")
         with tempfile.TemporaryDirectory() as d:
             tp.generate(None, d)
-            for f in ("pairs.csv", "pairs_size.csv"):
+            for f in ("pairs.csv", "pairs_size.csv", "pairs_cgal_sample.csv"):
                 self.assertEqual(read(os.path.join(d, f)), read(os.path.join(tp.LISTS, f)), f)
+
+    def test_cgal_sample_is_a_subset_of_the_pairs(self):
+        with tempfile.TemporaryDirectory() as d:
+            tp.generate(self.models(), d)
+            rows = lambda n: [l for l in open(os.path.join(d, n)) if not l.startswith("#")][1:]
+            full, sample = rows("pairs.csv"), rows("pairs_cgal_sample.csv")
+            self.assertEqual(len(sample), tp.PAIRS_SAMPLE)
+            self.assertEqual(len(set(sample)), tp.PAIRS_SAMPLE)
+            self.assertTrue(set(sample) <= set(full))
+            self.assertEqual(sample, [r for r in full if r in set(sample)])      # the order of the list
+            self.assertNotEqual(sample, full[:tp.PAIRS_SAMPLE])
 
 class OracleTests(unittest.TestCase):
     def row(self, **kw):
