@@ -122,7 +122,9 @@ namespace gs
         /// doc holds. Facets that get no such point stay. It runs after RefineNonManifold, which then runs once more (the
         /// new points can make new pinches). Costs a few percent of triangles (docs/design/ALPHA_WRAP_PAPER_NOTES.md
         /// section 7: the 1 %-worst angle 17.8 -> 20.4 degrees on Thingi10K meshes, with TraverseByEmptyBall). The extra
-        /// points count against MaxSteinerPoints (PointLimitReached, as RefineNonManifold).
+        /// points count against MaxSteinerPoints (PointLimitReached, as RefineNonManifold). 15 is a measured choice
+        /// (section 7: 20 degrees gives more triangles, +6.8 %, and larger largest angles), not a derived bound (Chew's surface bound is 30 degrees); at 60 and
+        /// above every facet counts as poor and the rounds run to their limit; NaN or a value <= 0 turns it off.
         /// </summary>
         public double RefineMinAngleDegrees = 15;
         const int MaxQualityRounds = 10;
@@ -402,8 +404,12 @@ namespace gs
         {
             ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
+            staleGates = requeuedGates = 0;
             steiner = 0;
         }
+
+        // gates whose Phi(f) changed after they were queued (see refine_and_carve): dropped, queued again
+        long staleGates, requeuedGates;
 
         WrapStatus refine_and_carve()
         {
@@ -411,13 +417,20 @@ namespace gs
             while (gates.Count > 0) {
                 if ((++popped & 1023) == 0 && cancelled())
                     return WrapStatus.Cancelled;
-                gates.Pop(out int c, out int i, out int stampC);
+                gates.Pop(out double key, out int c, out int i, out int stampC);
                 if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
                     continue;
                 int n = dt.Neighbour(c, i);
                 if (label_of(n) != Outside)
                     continue;
-                // (traversable: only such gates are queued, and the radius depends on the facet only)
+                // (traversable: only such gates are queued. Phi(f) also depends on the outside cell's circumcenter, and that
+                // cell can have been replaced since the push while c was not: compute it again; a gate that is no longer
+                // traversable is dropped, one whose radius changed goes back into the queue under its new key)
+                if (TraverseByEmptyBall) {
+                    double r = facet_empty_ball(c, i);
+                    if (!(r > alpha)) { staleGates++; continue; }
+                    if (r != key) { requeuedGates++; gates.Push(r, c, i, stampC); continue; }
+                }
                 Vector3d from, to;
                 dual_edge(c, i, out from, out to);
 
@@ -465,6 +478,8 @@ namespace gs
                 }
             }
             Counts["steiner_points"] = steiner;
+            if (staleGates > 0) Counts["gates_stale"] = staleGates;
+            if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
             Counts["steiner_intersection"] = rule1;
             Counts["steiner_projection"] = rule2;
             // rule 2 points projected from the clamped end of the dual edge (the cell's circumcenter gave no point strictly
@@ -526,13 +541,21 @@ namespace gs
         double facet_empty_ball(int c, int i)
         {
             Index3i f = dt.FacetVertices(c, i);
-            Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
+            dual_edge(c, i, out Vector3d from, out Vector3d to);
+            return EmptyBallRadius(dt.GetVertex(f.a), dt.GetVertex(f.b), dt.GetVertex(f.c), from, to);
+        }
+
+        /// <summary>
+        /// (tests) the smallest radius of the balls through a, b, d whose centers lie on the segment [from, to] of the
+        /// triangle's normal line through its circumcenter (Phi(f) of facet_empty_ball)
+        /// </summary>
+        internal static double EmptyBallRadius(Vector3d a, Vector3d b, Vector3d d, Vector3d from, Vector3d to)
+        {
             Vector3d u = b - a, v = d - a, w = u.Cross(v);
             double w2 = w.LengthSquared;
             Vector3d x = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
             double R = x.Length;
             Vector3d fc = a + x, nrm = w / Math.Sqrt(w2);
-            dual_edge(c, i, out Vector3d from, out Vector3d to);
             double t0 = (from - fc).Dot(nrm), t1 = (to - fc).Dot(nrm);
             // (a flat facet: no finite normal; NaN compares false and gives the circumradius, as before)
             if (!(Math.Min(t0, t1) > 0) && !(Math.Max(t0, t1) < 0))
@@ -788,17 +811,22 @@ namespace gs
         void poor_facets(List<int> cells, double sinMin, List<int> outCells, List<int> outFacets)
         {
             outCells.Clear(); outFacets.Clear();
+            // (a facet is reached from its inside and its outside cell, and a cell can be in the list twice: each facet
+            // once, in the order first reached)
+            var seen = new HashSet<long>();
+            Action<int, int> add = (m, i) => {
+                if (seen.Add(4L * m + i) && poor_facet(m, i, sinMin)) { outCells.Add(m); outFacets.Add(i); }
+            };
             Action<int> visit = (c) => {
                 if (!dt.IsCell(c)) return;
                 if (label[c] == Inside) {
                     for (int i = 0; i < 4; ++i)
-                        if (label_of(dt.Neighbour(c, i)) == Outside && poor_facet(c, i, sinMin)) { outCells.Add(c); outFacets.Add(i); }
+                        if (label_of(dt.Neighbour(c, i)) == Outside) add(c, i);
                 } else {
                     for (int j = 0; j < 4; ++j) {
                         int m = dt.Neighbour(c, j);
                         if (m < 0 || label[m] != Inside) continue;
-                        int i = dt.FacetTo(m, c);
-                        if (poor_facet(m, i, sinMin)) { outCells.Add(m); outFacets.Add(i); }
+                        add(m, dt.FacetTo(m, c));
                     }
                 }
             };
@@ -840,8 +868,12 @@ namespace gs
                 }
                 points += inserted;
                 if (inserted > 0) rounds++;
-                if (inserted > 0 && status == WrapStatus.Success)
-                    status = refine_and_carve();
+                // (also after the point limit: the cells of this round's points are carved as far as no further point is
+                // needed, as refine_non_manifold does; the status stays PointLimitReached unless cancelled)
+                if (inserted > 0 && (status == WrapStatus.Success || status == WrapStatus.PointLimitReached)) {
+                    WrapStatus carve = refine_and_carve();
+                    if (status == WrapStatus.Success || carve == WrapStatus.Cancelled) status = carve;
+                }
                 scan = touched;
                 touched = null;
                 if (inserted == 0 || status != WrapStatus.Success) break;
@@ -1253,9 +1285,9 @@ namespace gs
                 key[i] = k; cell[i] = c; facet[i] = f; stamp[i] = s;
             }
 
-            public void Pop(out int c, out int f, out int s)
+            public void Pop(out double k0, out int c, out int f, out int s)
             {
-                c = cell[0]; f = facet[0]; s = stamp[0];
+                k0 = key[0]; c = cell[0]; f = facet[0]; s = stamp[0];
                 count--;
                 if (count == 0) return;
                 double k = key[count];

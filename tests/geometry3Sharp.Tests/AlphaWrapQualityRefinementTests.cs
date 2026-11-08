@@ -56,7 +56,42 @@ namespace geometry3Sharp.Tests
                 Assert.True(both.Counts["quality_points"] > 0 && both.Counts["quality_rounds"] > 0);
                 // (few skipped: the poor facets that stay)
                 Assert.True(both.Counts["quality_skipped"] < both.Counts["quality_points"], $"{name}: {both.Counts["quality_skipped"]} skipped");
+                // (the new points can make new pinches: the second pinch refinement runs)
+                Assert.True(both.PhaseMilliseconds.ContainsKey("wrap.pinches2"));
+                Assert.False(ball.PhaseMilliseconds.ContainsKey("wrap.pinches2"));
             }
+        }
+
+        // Phi(f) against a brute force: the smallest distance to a corner over many centers on the dual segment (all on
+        // the normal line through the circumcenter: the same distance to every corner), segments on one side of the
+        // triangle's plane, crossing it, and touching it
+        [Fact]
+        public void EmptyBallRadius_AsBruteForce()
+        {
+            var rnd = new Random(7);
+            Func<Vector3d> pt = () => new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()) * 4 - 2 * Vector3d.One;
+            int crossing = 0, oneSide = 0;
+            for (int k = 0; k < 2000; ++k) {
+                Vector3d a = pt(), b = pt(), d = pt();
+                Vector3d u = b - a, v = d - a, w = u.Cross(v);
+                if (w.Length < 0.1) continue;
+                Vector3d fc = a + (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w.LengthSquared);
+                Vector3d nrm = w.Normalized;
+                double s0 = 6 * rnd.NextDouble() - 3, s1 = 6 * rnd.NextDouble() - 3;
+                if (k % 10 == 0) s1 = 0;        // ends on the plane
+                Vector3d from = fc + s0 * nrm, to = fc + s1 * nrm;
+                double brute = double.MaxValue;
+                for (int j = 0; j <= 4000; ++j) {
+                    Vector3d x = from + (to - from) * (j / 4000.0);
+                    brute = Math.Min(brute, x.Distance(a));
+                }
+                double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, from, to);
+                double R = fc.Distance(a);
+                Assert.True(phi >= R - 1e-12 * R, $"{k}: below the circumradius");
+                Assert.True(Math.Abs(phi - brute) <= 2e-3 * Math.Max(1, Math.Abs(s1 - s0)), $"{k}: {phi} vs {brute}");
+                if (s0 * s1 < 0) crossing++; else oneSide++;
+            }
+            Assert.True(crossing > 300 && oneSide > 300);
         }
 
         // the quality points count against the point limit (PointLimitReached, with its guarantees); cancelled in the
