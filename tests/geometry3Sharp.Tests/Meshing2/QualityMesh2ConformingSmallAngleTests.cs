@@ -148,6 +148,50 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, on.Counts[8] + on.Counts[9] + on.Counts[16]);
         }
 
+        /// <summary> the in-circle test of rule C: a cocircular pair of apexes is Delaunay (the exemption stays), strictly inside is not </summary>
+        [Fact]
+        public void IsLocallyDelaunay_TreatsACocircularPairAsDelaunay()
+        {
+            var a = new Vector2d(0, 0); var b = new Vector2d(2, 0); var c = new Vector2d(1, 1);
+            Assert.True(QualityMesh2.Refiner.IsLocallyDelaunay(a, b, c, new Vector2d(1, -1)));      // on the circle of abc: 0
+            Assert.False(QualityMesh2.Refiner.IsLocallyDelaunay(a, b, c, new Vector2d(1, -0.5)));   // inside
+            Assert.True(QualityMesh2.Refiner.IsLocallyDelaunay(a, b, c, new Vector2d(1, -1.5)));    // outside
+            // the same at a scale and a shift that keep it exact (a lattice circle, radius 5: 3-4-5)
+            Assert.True(QualityMesh2.Refiner.IsLocallyDelaunay(new Vector2d(-4 + 100, -3), new Vector2d(4 + 100, 3), new Vector2d(3 + 100, -4), new Vector2d(-3 + 100, 4)));
+        }
+
+        internal static Mesh2Input HoleBesideTheWedge(double rx, double ry)
+        {
+            // a hole triangle P Q R under the edge PQ, a segment from P at 2.6 degrees above it: the subsegments of PQ have a hole triangle on one side
+            double t = Math.Round(8 * Math.Tan(2.6 * Math.PI / 180), 12);
+            var input = Generators.Literal(-10, -10, 10, -10, 10, 10, -10, 10, 0, 0, 8, 0, rx, ry, 8, t);
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1));
+            input.Rings.Add(new RingInput(new[] { 4, 5, 6 }, true, 2));
+            input.Segments.Add(new SegmentInput(4, 7));
+            input.MinAngleDeg = 25; input.SteinerLimit = 20000;
+            return input;
+        }
+
+        /// <summary>
+        /// the neighbour across an exempt subsegment is a hole triangle (the hole's edge PQ meets a segment from P at 2.6 degrees; R moves):
+        /// the conforming mode counts hole triangles (O2 across holes), so rule C revokes exemptions there. A check that skipped hole triangles
+        /// (a mutant) leaves subsegments that are not Delaunay edges: the oracle rejects those meshes (found by exploring R). Pinned
+        /// triangle and revocation counts
+        /// </summary>
+        [Theory]
+        [InlineData(1.0, -0.05, 285, 72)]
+        [InlineData(1.0, -0.2, 137, 29)]
+        [InlineData(1.0, -0.6, 68, 13)]
+        [InlineData(2.0, -0.6, 55, 9)]
+        [InlineData(6.0, -0.2, 54, 8)]
+        public void HoleTriangleAcrossTheExemptSubsegment_RevokesIt(double rx, double ry, int triangles, long revoked)
+        {
+            var r = Run(HoleBesideTheWedge(rx, ry));
+            Assert.True(r.Report.Ok, r.Report.ToString());
+            Assert.Equal(triangles, r.Output.Triangles.Length);
+            Assert.Equal(revoked, r.Counts[16]);
+        }
+
         /// <summary> with lenses forced on (benchmarks), the conforming mode has no rule: no exemption, the mesh of the rule off </summary>
         [Fact]
         public void WithLensesForcedOn_TheRuleIsOff()

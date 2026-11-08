@@ -676,8 +676,14 @@ namespace g3
             {
                 int h2 = k.H[e];
                 if (h2 < 0 || k.IsGhost(e / 3) || k.IsGhost(h2 / 3)) return true;
-                return ExactPredicates.InCircle(k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(k.V[Next(Next(e))]), k.Point(k.V[Next(Next(h2))])) <= 0;
+                return IsLocallyDelaunay(k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(k.V[Next(Next(e))]), k.Point(k.V[Next(Next(h2))]));
             }
+
+            /// <summary>
+            /// the edge ab with the apexes c and d on its two sides is locally Delaunay: d is not strictly inside the circumcircle of abc
+            /// (exact; a cocircular pair counts as Delaunay, as in the oracle and in the Delaunay lemma)
+            /// </summary>
+            internal static bool IsLocallyDelaunay(Vector2d a, Vector2d b, Vector2d c, Vector2d d) => ExactPredicates.InCircle(a, b, c, d) <= 0;
 
             /// <summary> tests only: false drops the Delaunay check of rule C in the conforming mode (the exemption then breaks O2; the tests show it) </summary>
             [ThreadStatic] internal static bool? ConformingDelaunayCheckForTests;
