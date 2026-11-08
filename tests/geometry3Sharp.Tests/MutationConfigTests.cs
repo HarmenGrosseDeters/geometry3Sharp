@@ -17,6 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string> SplitMethod = new Dictionary<string, string>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = "void build_triangles(",
             ["mesh_ops/ExactMeshBoolean.cs"] = "int front_winding(",
+            ["mesh_ops/MeshRoundingRepair.cs"] = "bool try_flip(",
         };
 
         static string RepoRoot()

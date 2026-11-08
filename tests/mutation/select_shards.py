@@ -3,7 +3,7 @@
 
 Reads the changed paths from stdin and writes GITHUB_OUTPUT lines to stdout:
   arithmetic=none|full|source|tests
-  mesh=[{"shard": "rounding", "mode": "full"}, ...]
+  mesh=[{"shard": "rounding-1", "mode": "full"}, ...]
 
 Modes (tests/mutation/README.md):
   full   the config or the tools changed: the whole shard, with its break threshold
@@ -16,7 +16,7 @@ The files of a shard come from its config (mutate, test-case-filter). The paths 
 only a coarse one: test_select_shards.py checks that it covers every config.
 An edit of the workflow runs every config in full, unless it only adds or removes trigger paths or comments (checked
 on the diff between $BASE and $HEAD, which the workflow sets): adding a test file to the paths changes no shard.
-With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding runs only those
+With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding-1 runs only those
 (workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards).
 """
 import glob

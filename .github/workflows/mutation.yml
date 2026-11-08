@@ -57,7 +57,7 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding, boolean-1, ...)'
+        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
 # a new push to the same PR cancels the running run

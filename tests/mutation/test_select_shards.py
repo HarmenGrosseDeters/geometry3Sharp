@@ -12,7 +12,7 @@ from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_is_
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-ALL_MESH = {"rounding", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope"}
+ALL_MESH = {"rounding-1", "rounding-2", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope"}
 
 
 def run(*changed):
@@ -44,7 +44,7 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(("none", {}), run("docs/ROADMAP.md", "mesh/Reducer.cs", TESTS + "geometry3Sharp.Tests.csproj"))
 
     def test_source_runs_only_its_shards_incrementally(self):
-        self.assertEqual(("none", {"rounding": "source"}), run("mesh_ops/MeshRoundingRepair.cs"))
+        self.assertEqual(("none", {"rounding-1": "source", "rounding-2": "source"}), run("mesh_ops/MeshRoundingRepair.cs"))
         self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
@@ -59,7 +59,7 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", {"boolean-1": "tests", "boolean-2": "tests", "rounding": "tests"}),
+        self.assertEqual(("none", {"boolean-1": "tests", "boolean-2": "tests", "rounding-1": "tests", "rounding-2": "tests"}),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
         self.assertEqual(("none", {"boolean-2": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
@@ -67,14 +67,15 @@ class SelectShards(unittest.TestCase):
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
         arithmetic, mesh = run(TESTS + "MeshRoundingRepairTests.cs")
         self.assertEqual("tests", mesh["arrangement-1"])
-        self.assertEqual("tests", mesh["rounding"])
+        self.assertEqual("tests", mesh["rounding-1"])
+        self.assertEqual("tests", mesh["rounding-2"])
 
     def test_source_wins_over_tests(self):
-        self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding"])
+        self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])
 
     def test_config_wins_over_source(self):
-        self.assertEqual(("none", {"rounding": "full"}),
-                         run("mesh_ops/MeshRoundingRepair.cs", "tests/mutation/stryker-mesh-rounding.json"))
+        self.assertEqual(("none", {"rounding-1": "full", "rounding-2": "source"}),
+                         run("mesh_ops/MeshRoundingRepair.cs", "tests/mutation/stryker-mesh-rounding-1.json"))
         self.assertEqual("full", run("math/ExactPoint3.cs", ".github/workflows/mutation.yml")[0])
 
     def test_config_change_runs_that_config_in_full(self):
@@ -176,7 +177,7 @@ class SelectShards(unittest.TestCase):
             self.assertEqual((0, "arithmetic=none\nmesh=[]\n"), (cli(paths_head).returncode, cli(paths_head).stdout))
             self.assertIn("arithmetic=full", cli(job_head).stdout)
             out = cli(paths_head, ".github/workflows/mutation.yml\nmesh_ops/MeshRoundingRepair.cs\n").stdout
-            self.assertEqual('arithmetic=none\nmesh=[{"shard": "rounding", "mode": "source"}]\n', out)
+            self.assertEqual('arithmetic=none\nmesh=[{"shard": "rounding-1", "mode": "source"}, {"shard": "rounding-2", "mode": "source"}]\n', out)
             self.assertNotEqual(0, cli("0" * 40).returncode)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -187,20 +188,20 @@ class SelectShards(unittest.TestCase):
         self.assertEqual({s: "full" for s in ALL_MESH}, {m["shard"]: m["mode"] for m in mesh})
 
     def test_only_runs_the_named_shards_in_full(self):
-        arithmetic, mesh = select([], CONFIGS, run_all=True, only={"rounding", "arithmetic"})
-        self.assertEqual(("full", [{"shard": "rounding", "mode": "full"}]), (arithmetic, mesh))
+        arithmetic, mesh = select([], CONFIGS, run_all=True, only={"rounding-1", "arithmetic"})
+        self.assertEqual(("full", [{"shard": "rounding-1", "mode": "full"}]), (arithmetic, mesh))
         arithmetic, mesh = select([], CONFIGS, run_all=True, only={"planar"})
         self.assertEqual(("none", [{"shard": "planar", "mode": "full"}]), (arithmetic, mesh))
         with self.assertRaises(ValueError):
-            select([], CONFIGS, run_all=True, only={"rounding", "typo"})
+            select([], CONFIGS, run_all=True, only={"rounding-1", "typo"})
 
     def test_command_line(self):
         def cli(*args):
             p = subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")] + list(args), input="",
                                capture_output=True, text=True)
             return p.returncode, p.stdout
-        self.assertEqual((0, 'arithmetic=none\nmesh=[{"shard": "rounding", "mode": "full"}]\n'),
-                         cli("--all", "--only", "rounding"))
+        self.assertEqual((0, 'arithmetic=none\nmesh=[{"shard": "rounding-1", "mode": "full"}]\n'),
+                         cli("--all", "--only", "rounding-1"))
         code, out = cli("--all", "--only", "all")
         self.assertEqual(0, code)
         self.assertIn("arithmetic=full", out)

@@ -37,7 +37,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
-(`arithmetic`, `rounding`, `boolean-1`, ...).
+(`arithmetic`, `rounding-1`, `boolean-1`, ...).
 
 ### Baseline (incremental runs)
 
@@ -182,7 +182,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 
 | Shard | Mutated | Tests |
 |---|---|---|
-| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`, `SafeRoundingBoundTests`, `ExactBooleanPropertyFindings` (the displacement bound) |
+| `rounding-1`, `rounding-2` | `mesh_ops/MeshRoundingRepair.cs`, split at `try_flip` (character offsets, as `boolean-1/2`; since 8 November 2026: the shard alone ran past the job's 350 minutes, the coverage pass taking over 3 hours on #398; both halves keep the break threshold 59 of the whole shard until their own full runs give a reason to change it) | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`, `SafeRoundingBoundTests`, `ExactBooleanPropertyFindings` (the displacement bound) |
 | `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
 | `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |

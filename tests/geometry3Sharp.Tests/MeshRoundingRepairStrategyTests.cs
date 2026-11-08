@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Each edit of MeshRoundingRepair on its own, on hand-built meshes where only that edit can fix the defect: the
     /// counts, the resulting topology and positions, not only a clean result. Found with the mutation tests
-    /// (tests/mutation, stryker-mesh-rounding.json): the tests of the whole repair passed with the flip, the zip or the
+    /// (tests/mutation, stryker-mesh-rounding-1.json and -2.json): the tests of the whole repair passed with the flip, the zip or the
     /// move of a cap's apex broken, because another edit or a later pass fixed the mesh as well.
     /// </summary>
     public class MeshRoundingRepairStrategyTests
