@@ -42,6 +42,37 @@ namespace g3
         /// </summary>
         public double MinCollapseTriangleQuality = 0;
 
+        /// <summary>
+        /// (internal) MinCollapseTriangleQuality compared against the worst triangle around the collapsed edge (both
+        /// one-rings, the two removed triangles included; collapseWorstQuality, set by the collapse) instead of each
+        /// triangle's own quality before: a collapse that removes a sliver may then create a triangle below the
+        /// threshold, as long as it is no worse than the worst one it replaces. The worst quality around the edge
+        /// does not drop below min(threshold, worst before).
+        /// </summary>
+        internal bool CollapseQualityAgainstWorst = false;
+        protected double collapseWorstQuality = double.PositiveInfinity;
+
+        // MinCollapseTriangleQuality: does the new triangle (quality qNew) of the old triangle (va, vb, vc) refuse the collapse?
+        protected bool collapse_quality_rejects(double qNew, ref Vector3d va, ref Vector3d vb, ref Vector3d vc)
+        {
+            if (!(qNew < MinCollapseTriangleQuality))
+                return false;
+            return qNew < (CollapseQualityAgainstWorst ? collapseWorstQuality : TriangleQuality(ref va, ref vb, ref vc));
+        }
+
+        // the worst triangle quality in the one-rings of a and b (for CollapseQualityAgainstWorst)
+        protected double worst_quality_around(int a, int b)
+        {
+            double worst = double.PositiveInfinity;
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            foreach (int v in new int[] { a, b })
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                    worst = Math.Min(worst, TriangleQuality(ref va, ref vb, ref vc));
+                }
+            return worst;
+        }
+
         /// <summary> 4*sqrt(3)*area / sum of squared edge lengths: 1 for equilateral, 0 for degenerate </summary>
         public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
         {
@@ -147,7 +178,7 @@ namespace g3
                 if (MinCollapseTriangleQuality > 0) {
                     Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
                     double qNew = TriangleQuality(ref na, ref nb, ref nc);
-                    if (qNew < MinCollapseTriangleQuality && qNew < TriangleQuality(ref va, ref vb, ref vc))
+                    if (collapse_quality_rejects(qNew, ref va, ref vb, ref vc))
                         return true;
                 }
             }

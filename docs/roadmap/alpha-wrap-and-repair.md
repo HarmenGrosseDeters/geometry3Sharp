@@ -5,7 +5,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `MeshAlphaWrap` and the wrap fallback of `MeshRobustRepair` (quality pass, raw-wrap fixes, wrap
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
-- **Status (2026-11-08):** no active session. Wrap quality (#292), wrap resolution (#280), raw-wrap fixes (#311,
+- **Status (2026-11-08):** milestone Alpha Wrap 2.0 started (session session_01AaGT5CSm6ZjSih3jZRg7HJ, see below). Wrap quality (#292), wrap resolution (#280), raw-wrap fixes (#311,
   #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01). The
   remesher items of Phase 2 stay open.
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -18,7 +18,31 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Raw alpha wrap, parked:** the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
+#### Alpha Wrap 2.0 (milestone)
+
+**Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
+(`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
+- guarantees (closed, manifold, free of self-intersections, offset band) and fidelity (F-score, Hausdorff, band) not
+  worse than master;
+- 0 triangles < 0.5° and 0 > 170° per mesh in the final output; the pinch caps (102793, 118678, 1505037) gone;
+  **p01 (owner 2026-11-08):** the raw wrap reaches CGAL's p01 (the ~2° gap of #317; behaviour numbers only, CGAL code
+  is never read); the final simplified output has p01 >= 10° as the median over the 800 sample (floor confirmed
+  after the full-800 data);
+- at most 5 s wall time per mesh on the 4-core cloud machine.
+A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
+phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`).
+
+**WP1 interim (2026-11-08, 55 meshes, serial):** pipeline median 10.8 s, p90 19.4, max 34.4; > 5 s on 53 of 55 (the
+target needs about 2.2x at the median, 6-7x at the tail). Shares: simplify 39 % (Reducer 29 %), quality pass 27 %, raw
+wrap 34 % (carve loop 23 %). Quality: the raw wrap is good (p01 median 17.3°); the bad angles come from the
+simplification (976 triangles > 170° on 52 of 55; p01 median 7.8°), whose Reducer guard `MinCollapseTriangleQuality`
+0.05 allows caps up to about 175°. Upper bound on 12 meshes: guard 0.3 gives 0 triangles > 170°, p01 median 10.8°,
++4 % triangles, 0.92x time, guarantees and band unchanged (F-score pending).
+
+#### Other open items
+
+- **Raw alpha wrap** (now part of Alpha Wrap 2.0): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
