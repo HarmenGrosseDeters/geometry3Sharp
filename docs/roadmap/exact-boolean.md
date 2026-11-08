@@ -40,7 +40,9 @@ solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evalua
 corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
 dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
 layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
-where the profiles spend the time (owner 2026-11-08).
+where the profiles spend the time (owner 2026-11-08). It also lists the library's serial loops over single tree
+queries (nearest point, rays, inside tests: repair volume check, MaxDeviation / IsWithin, fidelity metrics,
+deviation maps) with an upper bound each for switching them to the batch queries (research.md, priority 1).
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud

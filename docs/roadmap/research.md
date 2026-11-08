@@ -20,7 +20,10 @@ Part of the [roadmap](../ROADMAP.md).
      (2026-11-08, branch claude/batch-queries-stage1, docs/design/BATCH_QUERIES.md): batching over the existing
      `DMeshAABBTree3` gives 2.2-5.2x (rays) / 3.6-5.3x (inside) on 4 cores, bit-identical to the single calls; an own
      BVH at most ~1.3x more, SIMD 1.05-1.3x. Owner 2026-11-08: stage 2 = that batching only (new file
-     `spatial/MeshBatchQueries.cs`), nearest + any-hit in the first PR; after the boolean queue and Lévy phase 2.
+     `spatial/MeshBatchQueries.cs`), nearest + any-hit in the first PR, plus a batched nearest-point / distance query (`NearestPointBatch`, same
+     pattern, bit-identical); after the boolean queue and Lévy phase 2. Internal callers are switched only where the
+     spatial-structure profile shows serial loops over single queries that pay (repair volume check, MaxDeviation /
+     IsWithin, fidelity metrics, deviation maps).
   2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
      provably correct; Unity, robotics, simulation; nothing comparable in .NET.
   3. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
