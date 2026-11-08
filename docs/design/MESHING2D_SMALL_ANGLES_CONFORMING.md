@@ -118,3 +118,19 @@ excuse; the rule does not widen it. If a wider region is wanted, that is the Ter
    alternative that reaches the constrained numbers is a spec change (O2 waived near small angles, or the Terminator with a region excuse), which the
    owner did not choose.
 3. Should the apex rule also apply to hull edges and holes' sides in the conforming mode as in the constrained one? The probe did: no failures.
+
+## 8. Result of building it: the snap grid stays out (2026-11-08)
+
+The code (rule C as in section 2) passes every test off the grid. On the snap grid it does not, so the rule is **off on the grid** in the first
+version:
+- The zigzag of `QualityMesh2CollapsedPartsTests` (a domain 7 mm wide on a grid of 1 cm, Q17) ends INVALID with rule C: eight subsegments are
+  not locally Delaunay and marked unsplittable by the mesher; for seven of them the oracle's `GridUnsplittable` agrees (excused), for one it does
+  not (`NotDelaunayLocal`, `NotDelaunayGlobal`).
+- The cause is a documented difference between the oracle and the mesher in the pinch rule of the grid split ("the oracle may demand a split
+  the mesher refuses, never excuse one it would make", `Oracle.GridUnsplittable`). Rule C postpones a split, so it is forced late, when vertices
+  crowd the piece, which is where the difference shows. Master never hits it on this input because it splits those pieces early.
+- This is not a flaw of the O2 argument of section 3 (the kernel's constrained edges that stay non-Delaunay are the unsplittable ones, which
+  the O2 argument excludes like Locked and the Steiner limit), but of the oracle's excuse. Closing it needs a change to the pinch rule on one side
+  or the other, which is a grid item of its own; Herne's default-mode gain from rule C waits for it.
+- Mutants: the ghost side counted as not Delaunay and the grid guard removed are killed; the in-circle tie (`<= 0` against `< 0`) survives: a
+  cocircular pair of apexes would need a symmetric input where the rule also fires, and the rule is only more conservative with `< 0`.
