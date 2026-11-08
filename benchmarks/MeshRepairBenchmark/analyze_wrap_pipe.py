@@ -22,9 +22,10 @@ def q(v, p):
     return v[min(len(v) - 1, int(p * (len(v) - 1) + 0.5))] if v else float("nan")
 
 def guarantees(r):
-    """closed, valid, manifold (no bowties, no boundary), no exact self-intersections (-1: not checked)"""
+    """closed, valid, manifold (no bowties, no boundary), oriented, no exact self-intersections (-1: not checked)"""
     return (r.get("status") == "closed" and r.get("after_valid") is True and r.get("after_bowties") == 0
             and r.get("after_boundary_edges") == 0 and r.get("after_selfint_exact") == 0
+            and r.get("after_inconsistent_orient_edges") == 0 and r.get("after_inverted_components") == 0
             and r.get("wrap_status") in ("Success", "PointLimitReached"))
 
 def band(r):

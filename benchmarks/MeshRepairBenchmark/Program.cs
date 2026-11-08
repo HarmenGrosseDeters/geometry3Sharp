@@ -264,7 +264,16 @@ class Program
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
             } else if (repairMode == "wrappipe") {
-                result = WrapPipeline(original, r);
+                // BENCH_WRAP_REPEAT=n: the pipeline n times in this process; the row keeps the last run (warm JIT) and
+                // pipe_ms_runs lists every run's time (the first one includes the JIT compilation)
+                int repeat = int.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_REPEAT") ?? "1");
+                var runs = new System.Collections.Generic.List<object>();
+                result = null;
+                for (int k = 0; k < Math.Max(1, repeat); ++k) {
+                    result = WrapPipeline(original, r);
+                    runs.Add(r["pipe_ms"]);
+                }
+                if (repeat > 1) r["pipe_ms_runs"] = runs;
                 ok = r["wrap_status"].ToString() == "Success" || r["wrap_status"].ToString() == "PointLimitReached";
             } else if (repairMode == "wrap") {
                 result = Wrap(original, r);
