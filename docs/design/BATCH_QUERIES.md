@@ -1,7 +1,15 @@
 # Batch ray and point queries: prior art, upper bound, API proposal (ROADMAP Phase 5 priority 1, stage 1)
 
-Status: stage 1 (2026-11-08), for the owner's decision. No library code changed. The benchmark prototype is
+Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. No library code changed. The benchmark prototype is
 [benchmarks/BatchQueryBenchmark](../../benchmarks/BatchQueryBenchmark/README.md) (raw results there).
+
+## 0. Decisions (owner, 2026-11-08)
+
+- Stage 2 is option 1 of section 4: **b1 only**, a new static class `MeshBatchQueries` in `spatial/MeshBatchQueries.cs`
+  over the public tree API. No own BVH, no SIMD.
+- The first PR offers **nearest hit and any-hit**; all-hits come later.
+- The library PR starts after the exact-boolean merge queue and the Lévy phase-2 PR have merged (it must not touch
+  `DMeshAABBTree*.cs` before). The CLI commands (`raycast`, `inside`, section 5) go into the later CLI / MCP update.
 
 ## 1. Result in short
 
@@ -22,15 +30,15 @@ Status: stage 1 (2026-11-08), for the owner's decision. No library code changed.
 ## 2. Prior art ("how others solve it")
 
 Searched for: ray packets / stream traversal, wide BVH, ray sorting, watertight ray-triangle, batched winding numbers.
-Papers only; no Embree, CGAL or GEOS code read (citations from memory of the papers, to be re-checked before they go into SOURCES.md; nothing is ported, so no entry yet).
+Papers only; no Embree, CGAL or GEOS code read. Citation data re-checked on 2026-11-08 against the publishers' and authors' pages (title, venue, volume, DOI); the full texts were not read for this note, the relevance column is from the abstracts and the earlier reading of the techniques. Nothing is ported; the papers are listed in [SOURCES.md](../SOURCES.md) as design references.
 
 | Topic | Source | Relevance |
 |---|---|---|
-| Ray packets: trace several coherent rays together, share box tests and cache lines | I. Wald, P. Slusallek, C. Benthin, M. Wagner, *Interactive Rendering with Coherent Ray Tracing*, Eurographics 2001; Reshetov, Soupikov, Hurley, *Multi-level ray tracing algorithm*, SIGGRAPH 2005 | Needs coherent rays and a SIMD-friendly BVH; for incoherent rays packets degrade. Gains are for camera rays. |
-| Wide BVH (4-8 children) tested with SIMD per node, ray streams | Dammertz, Hanika, Keller, *Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays*, EGSR 2008; Wald et al., *Embree: A kernel framework for efficient CPU ray tracing*, SIGGRAPH 2014 (Apache-2.0 code, not read) | The incoherent case is handled by a wide tree, not by packets: a second tree layout, i.e. our b2 and larger. |
-| Ray sorting for coherence | Garanzha, Loop, *Fast ray sorting and breadth-first packet traversal for GPU ray tracing*, Eurographics 2010; Meister et al., *A survey on bounding volume hierarchies for ray tracing*, EG STAR 2021 | The Morton key of origin and direction, as in b1. Sorting pays when the input order is incoherent. |
-| Watertight ray-triangle test | Woop, Benthin, Wald, *Watertight ray/triangle intersection*, JCGT 2013 | The library's `ExactRayTriangle` is the exact (Plücker / `Orient3d`) variant of the same idea. |
-| Batched inside test by winding number | Barill, Dickson, Schmidt, Levin, Jacobson, *Fast winding numbers for soups and clouds*, SIGGRAPH 2018 | The library already has `FastWindingNumber` (Barill); batching is queries in sorted order, in parallel. |
+| Ray packets: trace several coherent rays together, share box tests and cache lines | I. Wald, P. Slusallek, C. Benthin, M. Wagner, *Interactive Rendering with Coherent Ray Tracing*, Computer Graphics Forum 20(3), 153-165, 2001 (Eurographics 2001), doi:10.1111/1467-8659.00508; Reshetov, Soupikov, Hurley, *Multi-level ray tracing algorithm*, ACM TOG 24(3), SIGGRAPH 2005, doi:10.1145/1073204.1073329 (Intel holds a patent on the method, US 7,755,628, listed as expired; not implemented here) | Needs coherent rays and a SIMD-friendly BVH; for incoherent rays packets degrade. Gains are for camera rays. |
+| Wide BVH (4-8 children) tested with SIMD per node, ray streams | Dammertz, Hanika, Keller, *Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays*, Computer Graphics Forum 27(4), 1225-1233, 2008 (EGSR 2008), doi:10.1111/j.1467-8659.2008.01261.x; Wald, Woop, Benthin, Johnson, Ernst, *Embree: A kernel framework for efficient CPU ray tracing*, ACM TOG 33(4), art. 143, 2014, doi:10.1145/2601097.2601199 (Apache-2.0 code, not read) | The incoherent case is handled by a wide tree, not by packets: a second tree layout, i.e. our b2 and larger. |
+| Ray sorting for coherence | Garanzha, Loop, *Fast ray sorting and breadth-first packet traversal for GPU ray tracing*, Computer Graphics Forum 29(2), 289-298, 2010, doi:10.1111/j.1467-8659.2009.01598.x; Meister, Ogaki, Benthin, Doyle, Guthe, Bittner, *A survey on bounding volume hierarchies for ray tracing*, Computer Graphics Forum 40(2), 683-712, 2021, doi:10.1111/cgf.142662 | The Morton key of origin and direction, as in b1. Sorting pays when the input order is incoherent. |
+| Watertight ray-triangle test | Woop, Benthin, Wald, *Watertight ray/triangle intersection*, Journal of Computer Graphics Techniques 2(1), 65-82, 2013 | The library's `ExactRayTriangle` is the exact (Plücker / `Orient3d`) variant of the same idea. |
+| Batched inside test by winding number | Barill, Dickson, Schmidt, Levin, Jacobson, *Fast winding numbers for soups and clouds*, ACM TOG 37(4), art. 43, SIGGRAPH 2018, doi:10.1145/3197517.3201337 | The library already has `FastWindingNumber` (Barill); batching is queries in sorted order, in parallel. |
 
 What the library already has: `DMeshAABBTree3.FindNearestHitTriangle` (exact, ties to the lowest id, recursive: no
 stack to reuse, no allocation), `FindAllHitTriangles`, `IsInside` (exact crossing parity with symbolic perturbation,
@@ -126,7 +134,7 @@ Exactness semantics:
 - `IsInside` with `Crossings` on an open or non-manifold mesh has no meaning (as for the single call); `WindingNumber` is the general choice. No automatic switching in the library (the CLI does, below).
 
 Options for the owner:
-1. **b1 only (recommended)**: about 3-5x on 4 cores, exact by construction, about 300 lines plus tests, M, no change to the tree.
+1. **b1 only (recommended; chosen by the owner, section 0)**: about 3-5x on 4 cores, exact by construction, about 300 lines plus tests, M, no change to the tree.
 2. b1 now, SIMD filter later: only if a profile of the real callers shows the filter (it is 1.1-1.3x serial here).
 3. Own flat BVH (b2): a second tree and its memory, a duplicate of the planned `DMeshAABBTree3` profile; 0-30 % more than b1. Not recommended.
 
@@ -153,6 +161,5 @@ MCP: tools `raycast` and `inside` with the same schema (the `Param` list), array
 
 ## 6. Open questions for the coordinator / owner
 
-- Which of the options in section 4 (recommended: 1).
-- Whether `IntersectBatch` should also offer `FindAllHitTriangles` / any-hit variants in the first PR (any-hit is cheap with the same pattern; left to stage 2).
+- Decided: the first PR has nearest hit and any-hit (`IntersectBatch`, `AnyHitBatch`, same options and statuses; any-hit equals `FindNearestHitTriangle(ray, maxDistance) != InvalidID`); all-hits later.
 - b1 with the Lévy phase-2 fast-winding cache: the winding batch only calls `FastWindingNumber`, so it needs no change when that PR lands.
