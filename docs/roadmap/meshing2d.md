@@ -24,14 +24,17 @@ Small input angles and triangle count:
 - **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
   edge at near-180° triangles.
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
-- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C):** in tools/Z3Pilot,
+- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C; pilot 3 merged in #443):** in tools/Z3Pilot,
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
   decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
   25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
 - **Default (conforming) mode near small angles:** rule C (owner decision 2026-11-08,
   [design/MESHING2D_SMALL_ANGLES_CONFORMING.md](../design/MESHING2D_SMALL_ANGLES_CONFORMING.md)): #394's rule with an exact
-  local Delaunay check, so O2 holds; off the snap grid only (#441). Open: the corpus / Herne measurement on a runner, including
-  the refused forced splits (counters 13-15).
+  local Delaunay check, so O2 holds; off the snap grid only (#441, merged). Corpus measurement (runner, base caa1d518 against
+  #441's merge eccdaf1a, 252 runs at 20° and 30°; runs/meshing2d-rule-c a3074096): verdicts 249 ok / 3 unjudged → 250 / 2 (one
+  change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
+  per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
+  at 20° and 30°). Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
 - **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
   `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
   ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
