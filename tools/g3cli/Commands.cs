@@ -305,6 +305,7 @@ namespace g3cli
                 ["strip_zips"] = r.StripZips,
                 ["removed_components"] = r.RemovedComponents,
                 ["scale_disparity"] = r.ScaleDisparity,
+                ["scale_not_finite"] = r.ScaleNotFinite,
                 ["removed_triangles"] = r.RemovedTriangles,
                 ["max_drift"] = MeshReport.Num(r.MaxDrift),
                 ["max_length"] = MeshReport.Num(r.MaxLength),

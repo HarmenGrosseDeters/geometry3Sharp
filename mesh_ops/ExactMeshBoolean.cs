@@ -408,9 +408,10 @@ namespace g3
                 Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {7} components kept that the bound took as thin (scale disparity)",
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {7} components kept that the bound took as thin (scale disparity){8}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
-                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift, Rounding.ScaleDisparity);
+                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift, Rounding.ScaleDisparity,
+                        Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "");
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;

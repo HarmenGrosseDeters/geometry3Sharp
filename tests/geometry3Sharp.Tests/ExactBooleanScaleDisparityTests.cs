@@ -82,5 +82,17 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.False(r.ScaleNotFinite);
         }
+
+        [Fact]
+        public void HugeExtent_StrictRounding_NamesTheScale()
+        {
+            // the boolean of a rod to 1e300 with nothing: strict, it fails and says that the scale is not finite
+            DMesh3 rod = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e300, 1, 1)) }.Generate().MakeDMesh();
+            var strict = new ExactMeshBoolean(rod, new DMesh3(), g3.ExactMeshBoolean.Operations.Union) { StrictRounding = true };
+            Assert.False(strict.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);
+            Assert.Contains("the scale is not finite", strict.Error);
+            Assert.Equal(1, strict.Counts["rounding_scale_not_finite"]);
+        }
     }
 }

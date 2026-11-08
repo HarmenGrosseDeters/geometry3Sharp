@@ -681,7 +681,8 @@ repairs of that stage are reported as `exact_resolve_rounding` and `separated_ro
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
 largest drift and `max_length`, the bound: 1e-5 of the largest component's diagonal, or far from the origin the ulp or absolute
-term, and `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
+term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
+`scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
 and `result_reason`:
