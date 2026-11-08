@@ -44,6 +44,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
       - 'tests/geometry3Sharp.Tests/BoxTreeMortonTests.cs'
+      - 'tests/geometry3Sharp.Tests/BoxTreeOrderTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
