@@ -22,7 +22,9 @@ namespace geometry3Sharp.Tests
             Assert.True(w.Compute());
             wrap = w.Result;
             tol = 0.5 * w.UsedOffset;
-            simplified = MeshRobustRepair.SimplifyWithin(wrap, tol, tol, true, () => false);
+            // (with the earlier guard of the simplification, which leaves the slivers and caps the pass is made for; the
+            // guard of SimplifyWithin now avoids most of them, WrapSimplifyQualityTests)
+            simplified = MeshRobustRepair.SimplifyWithin(wrap, tol, tol, true, () => false, out int subdivisions, 0.05, false);
             Assert.NotNull(simplified);
         }
 
