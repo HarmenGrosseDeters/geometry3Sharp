@@ -65,22 +65,32 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(P01(local.Result) - P01(full.Result)) <= 1.0, $"soup {seed}: p01 {P01(local.Result)} vs {P01(full.Result)}");
         }
 
-        // local trials happen on these inputs (else the test above compares the full trials with themselves), and the
-        // labels of a local trial are never kept: when the last trial was local, the final manifold step runs in full
+        // local trials happen on these inputs (else the test above compares the full trials with themselves) and find
+        // pinches (seeds that miss every changed star would find none: the confirming full trials would find them all);
+        // a local trial that finds nothing is confirmed by a full one, whose labels are then reused (#417) when it moved
+        // nothing
         [Fact]
-        public void LocalTrials_Happen_AndAreNotReused()
+        public void LocalTrials_Happen_FindPinches_AndAreConfirmed()
         {
-            int withLocal = 0;
+            int withLocal = 0, reused = 0;
+            long found = 0, confirmed = 0, missed = 0;
             foreach (object[] c in Inputs()) {
                 var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup((int)c[0])) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2] };
                 Assert.True(w.Compute(), w.Error);
-                if (w.Counts.ContainsKey("local_trials") && w.Counts["local_trials"] > 0) {
-                    withLocal++;
-                    // (the pinch refinement ran more than one round, so the last trial was local: no reuse)
-                    Assert.False(w.Counts.ContainsKey("manifold_reused"), $"soup {c[0]}: labels of a local trial kept");
-                }
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+                if (w.Counts["local_trials"] == 0)
+                    continue;
+                withLocal++;
+                found += w.Counts["local_trials_found"];
+                confirmed += w.Counts["local_trials_confirmed"];
+                missed += w.Counts["local_trials_missed"];
+                Assert.True(w.Counts["local_trials_missed"] <= w.Counts["local_trials_confirmed"]);
+                if (w.Counts.ContainsKey("manifold_reused")) reused++;
             }
             Assert.True(withLocal >= 5, $"local trials on {withLocal} inputs");
+            Assert.True(found > 0 && found >= missed, $"local trials found pinches {found} times, the full confirmation {missed} times");
+            Assert.True(confirmed > 0, "no local trial was confirmed");
+            Assert.True(reused > 0, "the confirming full trial was never reused");
         }
 
         // reused instance and the 2^k scales: the same result bit for bit
