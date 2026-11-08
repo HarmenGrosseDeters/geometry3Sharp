@@ -21,6 +21,35 @@ Part of the [roadmap](../ROADMAP.md).
 #### Exact Boolean 2.0 (milestone)
 
 **Exact Boolean 2.0 (milestone, owner 2026-11-07).** Every operation of the #385 Thingi10K harness (union, intersection, difference; B rotated and translated) at most 5 s of Compute wall time on the cloud machine.
+**Speed target revised (owner 2026-11-08):** per operation at most max(5 s, 20 µs × arrangement pieces) of Compute
+wall time (an acceptance criterion of the benchmark, which records the piece count; the Lévy phase-1 samples showed
+that the arrangement size predicts the time far better than the input size, log-log correlation 0.87 vs 0.75). With
+all levers this leaves 11 ops on 7 small, heavily self-intersecting models (113685, 1059579, 105693, 107543, 107545,
+107554, 113906) as documented exceptions (#428, `benchmarks/LevyClassification/results/exceptions_levers.md`).
+Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 after the merge queue
+is one PR with the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
+ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
+so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
+
+**`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
+has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
+boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
+per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
+The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
+solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evaluates winding numbers at cell
+corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
+dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
+layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
+where the profiles spend the time (owner 2026-11-08).
+
+**Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
+levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
+machines have 4 cores, but the trend is to many more, so the arrangement, the classification (e.g. the Lévy-style
+propagation or the open-mesh GWN, which were not worth it serially) and rounding should be re-measured for scaling
+over core counts (deterministic by construction: fixed partitions, ordered merges, no floating-point reduction
+across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
+exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
+upper bound per lever on the 2.0 benchmark set.
 - Closed inputs, self-intersection free or self-intersecting: a clean result (closed, manifold, free of self-intersections, no degenerate triangles or bowties). Self-intersecting inputs are read as solids by winding number (inside = winding >= 1).
 - Inputs of unknown status: classified first.
 - Open inputs: no degenerate triangles and no crash; closedness is not required.
@@ -40,10 +69,39 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 **D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
 
+**Lévy-style classification (owner 2026-11-08, queued):** for the self-intersecting, unknown and open cohorts;
+phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue
+clears). Started and paused the same day (owner: wait); its session is archived, the hand-over note is on branch
+`claude/levy-classification-phase1` (docs/design/LEVY_CLASSIFICATION_HANDOVER.md). Restarted 2026-11-08 (owner): a fresh session
+continues phase 1 now (data, design, benchmarks only); the library code PR (phase 2) waits until the exact-boolean
+merge queue behind the #403 mutation gate has cleared.
+
+**Final A/B of the speed levers (runner, 2026-11-08, 42 models x 3 ops, bit-identical):** master 342 s, ops > 5 s 20;
++#409 -13 %; +#412 -22 %; +#406 +#419 -41 % (rounding -68 %), ops > 5 s 6 (519511 x3, 1517923 union / intersection,
+519507 union). Raw rows on runs/boolean2-combined (89f2943).
+
+**thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
+size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
+final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
+runner's data branch.
+
+**Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
+#425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
+the PRs merge one by one with normal CI. Open library items after the queue: L3 work-unit budget, the
+ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5 s (1517923, 519507).
+
 **PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
 
 #### Other open items
 
+- **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
+  `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
+  (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
+  other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
+  `WindingContouring`, `DualContouring`'s cell dictionaries) with a dense-key measurement before changing any;
+  taken by the owner locally (2026-11-08).
+  Audit implementation and measurements: [LongHashAudit](../../benchmarks/LongHashAudit/README.md); packed tables
+  use the existing comparer, linear indices and scalar-only `containerOf` keep the default hash.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under

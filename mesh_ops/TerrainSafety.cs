@@ -179,7 +179,7 @@ namespace gs
         // a break line) and short isolated pieces; repeated until nothing changes
         void prune(List<int> edges, double minLen)
         {
-            var set = new HashSet<long>();
+            var set = new HashSet<long>(EdgeKeyComparer.Instance);
             var adj = new Dictionary<int, HashSet<int>>();
             foreach (int eid in edges) {
                 Index2i ev = Terrain.GetEdgeV(eid);
@@ -232,7 +232,7 @@ namespace gs
                 if (!adj.ContainsKey(ev.b)) adj[ev.b] = new List<int>();
                 adj[ev.a].Add(ev.b); adj[ev.b].Add(ev.a);
             }
-            var used = new HashSet<long>();
+            var used = new HashSet<long>(EdgeKeyComparer.Instance);
             Func<int, int, long> key = (a, b) => (long)Math.Min(a, b) * int.MaxValue + Math.Max(a, b);
             Action<int, int> walk = (start, first) => {
                 var line = new List<int>() { start };

@@ -29,7 +29,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The
   local re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
-- **Honest terrain metrics** (task 5, C2(A), benchmark only): open, see [below](#task-5-honest-terrain-metrics).
+- **Honest terrain metrics** (task 5, C2(A), benchmark only): done in #399 (2026-11-08), see [below](#task-5-honest-terrain-metrics).
 - **Biomedical / orthotics** showcase: no work recorded.
 
 ### Done / history
@@ -108,7 +108,7 @@ RoundToGrid upper bound (2026-11-03): with the grid as the build's resolution th
 
 Plan fact-checked on 2026-10-30 (see [platform.md](platform.md#plans-fact-checked-2026-10-30)):
 
-- [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](../design/TERRAIN_DISTANCE_METRICS.md). Add shortest
+- [x] **5. Honest terrain metrics (C2(A)):** done in #399 (2026-11-08: directed closest-point distances with horizontal / vertical components in TerrainBenchmark). [benchmark-only plan](../design/TERRAIN_DISTANCE_METRICS.md). Add shortest
   3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
   for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
   change terrain algorithms or the "never steeper" rule.

@@ -55,11 +55,16 @@ Status on 2026-11-08.
 - **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
   are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
   oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
+- **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
+  session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
+  #411 (owner's oracle speed-up, certified STRtree pruning as the oracle default) merged 2026-11-08; next, after the
+  exact-boolean merge queue has cleared (#427, the oracle source coverage index, merged 2026-11-08; owner 2026-11-08): the mesher's corner choice (Sonnet) and a runner measurement of the near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
   wrap pipeline keeps its guarantees and fidelity, has 0 triangles < 0.5° or > 170°, no pinch caps, a p01 angle at the
-  level of CGAL's alpha wrap, and at most 5 s per mesh on the 4-core cloud machine. Session
+  level of CGAL's alpha wrap (raw wrap; final output p01 >= 10°), and at most max(5 s, 50 µs per raw-wrap triangle) per
+  mesh in a warm process on the 4-core cloud machine. Session
   session_01AaGT5CSm6ZjSih3jZRg7HJ, WP1 (baseline, profile, upper bounds) first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 
 ## Open decisions (owner)
@@ -90,7 +95,7 @@ Planned, not started.
 - Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
   M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Exact booleans: **Z3 pilot 2** (owner 2026-11-08), after #400 merges, in `tools/Z3Pilot`: (1) prove the D1
+- Exact booleans: **Z3 pilot 2** (owner 2026-11-08; pilot 1 merged in #400; step (2) merged in #407: 20 rule lemmas unsat, 17 mutants sat), in `tools/Z3Pilot`; open: (1) prove the D1
   drift-accounting rule sound (or find a counterexample) before the Boolean session builds it; (2) the error-bound
   rules of the predicate generator, one lemma per rule. [research.md](roadmap/research.md#smt-checks-with-z3)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -103,14 +108,12 @@ Planned, not started.
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Terrain, after the pause: a DGM reader in the CLI, then the later steps (2)-(8), the §11 follow-ups and the
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
-- Terrain: honest terrain metrics (task 5, benchmark only). [terrain.md](roadmap/terrain.md#task-5-honest-terrain-metrics)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
+- Parameterization: AffineLocal log-map follow-up with estimated normals and far field (low), integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
-- Platform: two wall-clock tests that fail only in a full local run. [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
@@ -119,7 +122,7 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
-- SMT checks with Z3 (pilot 1 in #400; pilot 2 queued, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
+- SMT checks with Z3 (pilot 1 merged in #400; pilot 2 started, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)

@@ -515,6 +515,15 @@ namespace gs
         }
 
         /// <summary>
+        /// the triangle quality (Reducer.MinCollapseTriangleQuality, 4 sqrt(3) area / sum of squared edge lengths) below
+        /// which the simplification of the wrap creates no triangle, unless it replaces a worse one around the collapsed
+        /// edge (CollapseQualityAgainstWorst). 0.3 is an isosceles cap of 150 degrees; the earlier 0.05 (about 175 degrees)
+        /// left caps above 170 degrees on nearly every wrap (benchmarks/MeshRepairBenchmark README, "Simplification
+        /// quality guard")
+        /// </summary>
+        internal const double WrapSimplifyMinQuality = 0.3;
+
+        /// <summary>
         /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
         /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
         /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
@@ -530,11 +539,20 @@ namespace gs
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions)
         {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions, WrapSimplifyMinQuality, true);
+        }
+
+        /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
+        /// AlphaWrapQualityPass is tested on) </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst)
+        {
             hausdorffSubdivisions = 0;
             DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
                 PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minQuality, CollapseQualityAgainstWorst = qualityAgainstWorst,
+                EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
             };
             reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
             m = new DMesh3(m, true);
