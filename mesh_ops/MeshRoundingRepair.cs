@@ -214,7 +214,7 @@ namespace g3
         // per vertex: the smallest id at its position (in atPosition; kept with it by position_add, position_remove)
         int[] canonId;
         // spatial index over the triangles at the last build; triangles changed since are in dirty, with an index
-        // of their own (rebuilt when they change, it is small)
+        // of their own (dirtyTree, rebuilt after 256 more changes, see pending)
         TriangleBoxTree tree, dirtyTree;
         List<int> treeTids, dirtyTids;
         // the triangles changed since dirtyTree was built (searched linearly; their boxes in dirtyTree are stale): the
@@ -229,6 +229,8 @@ namespace g3
         internal long NearChecks;
         // for tests: the builds of the tree of the changed triangles in the last Apply
         internal int DirtyTreeBuilds;
+        // for tests: the most triangles near scanned linearly in one query (the rebuild threshold, 256)
+        internal int MaxPendingScanned;
         HashSet<int> dirty = new HashSet<int>();
         // the intersecting pairs of the last intersecting_pairs, and the triangles changed or removed since (null:
         // not computed for the current mesh)
@@ -311,6 +313,7 @@ namespace g3
             check = CheckOnThisThread;
             NearChecks = 0;
             DirtyTreeBuilds = 0;
+            MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
             MovesPastTheLimit = 0;
 
@@ -599,6 +602,8 @@ namespace g3
                 if (pendingSet.Contains(t) == false && Mesh.IsTriangle(t))
                     result.Add(t);
             }
+            if (pending.Count > MaxPendingScanned)
+                MaxPendingScanned = pending.Count;
             foreach (int t in pending)
                 if (Mesh.IsTriangle(t) && closed_overlap(box(Mesh.GetTriangle(t)), query))
                     result.Add(t);

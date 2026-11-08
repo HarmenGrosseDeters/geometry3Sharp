@@ -71,11 +71,31 @@ namespace geometry3Sharp.Tests
             Assert.True(checkedRepair.IsClean, $"{checkedRepair.RemainingDegenerate} degenerate left");
             Assert.True(checkedRepair.Collapses > 500, $"{checkedRepair.Collapses} contractions");
             Assert.True(checkedRepair.NearChecks > 1000, $"{checkedRepair.NearChecks} queries checked");
-            // (before: a build after every edit; now one per 256 changed triangles)
+            // (before: a build after every edit; now one per 256 changed triangles, and never more than 256 scanned
+            // linearly: without the threshold the scan grows to a sixteenth of the mesh, quadratic again)
             Assert.True(checkedRepair.DirtyTreeBuilds > 1 && checkedRepair.DirtyTreeBuilds * 20 < checkedRepair.Collapses,
                 $"{checkedRepair.DirtyTreeBuilds} builds for {checkedRepair.Collapses} contractions");
+            Assert.True(checkedRepair.MaxPendingScanned > 0 && checkedRepair.MaxPendingScanned <= 256, $"{checkedRepair.MaxPendingScanned} scanned in one query");
             Assert.Equal(Print(plainMesh), Print(checkedMesh));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(checkedMesh));
+        }
+
+        [Theory]
+        [InlineData("utm Cluster 0 4 0")]
+        [InlineData("utm Cluster 0 9 1")]
+        public void Moves_QueriesEqualAScan(string name)
+        {
+            // repairs with vertex moves (the moved vertex's triangles pending while a move is proposed: near must see
+            // the current geometry, not the proposed one), compared with a scan of the mesh in check mode
+            ExactMeshBoolean b = MeshRoundingRepairIncrementalTests.Case(name)();
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                Assert.True(b.Compute(), b.Error);
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+            Assert.True(b.Rounding.Moves > 0, $"{name}: no moves");
+            Assert.True(b.Rounding.NearChecks > 0, $"{name}: no query checked");
         }
 
         [Fact]
