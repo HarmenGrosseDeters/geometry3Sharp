@@ -761,8 +761,9 @@ namespace g3
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
             editApex = apex_of(added);
             if (check) {
-                // (an independent statement of M: the largest drift over every vertex of the removed and the added
-                // triangles; drift_apex.py proves the bound for that M, not for one over the added triangles only)
+                // (a tripwire, not an independent oracle: M once more as the largest drift over every vertex of the
+                // removed and the added triangles, so that a change of one of the two loops is caught; drift_apex.py
+                // proves the bound for that M, not for one over the added triangles only)
                 double m2 = 0;
                 foreach (int t in removed)
                     foreach (int v in Mesh.GetTriangle(t).array)

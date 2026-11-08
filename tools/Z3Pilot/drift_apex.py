@@ -484,6 +484,7 @@ def source_contract():
     if text.count('editApex =') != 1 or text.count('drift[editApex]') != 2:
         raise ValueError('editApex is set or read elsewhere; review drift_apex.py')
 
+
 if __name__ == '__main__':
     import argparse
     import json

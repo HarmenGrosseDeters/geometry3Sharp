@@ -187,15 +187,17 @@ namespace geometry3Sharp.Tests
         {
             // contractions that follow each other through one vertex, each charging its apex: the repaired surface lies
             // within MaxDrift of the start (vertices against triangles, both ways) and MaxDrift within the bound. The
-            // drifts must add up along the chain: without the apex's charge, or with M over the added triangles only
-            // (the vanishing vertex's drift dropped), MaxDrift falls below the distance the surface moved
+            // drifts must add up along the chain: without the apex's charge MaxDrift falls below the distance the
+            // surface moved. (M over the added triangles only is not seen here, the per-edit bounds being about ten
+            // times the displacement: the check mode catches it, CheckMode_EveryEditType_SameResultAsWithout)
             DMesh3 start = Chains(farthestFirst, at), m = new DMesh3(start);
             var r = new MeshRoundingRepair(m);
             Assert.True(r.Apply());
             Assert.True(r.Collapses >= 2 * at.Length);
             double moved = Invariance.VertexDistance(m, start);
             Assert.True(moved > 0, $"moved {moved:G3}");
-            Assert.True(moved <= r.MaxDrift * (1 + 1e-9), $"moved {moved:G3}, MaxDrift {r.MaxDrift:G3}");
+            // (plus a few ulps of the coordinates, the size of the distance computation's rounding: about 1)
+            Assert.True(moved <= r.MaxDrift + 8 * 2.220446049250313e-16, $"moved {moved:G3}, MaxDrift {r.MaxDrift:G3}");
             Assert.True(r.MaxDrift <= r.MaxLength);
         }
     }
