@@ -290,9 +290,9 @@ namespace geometry3Sharp.Tests
         public static string CleanReason(DMesh3 mesh, bool allowDegenerate = false)
         {
             if (mesh == null) return "null mesh";
-            if (mesh.TriangleCount == 0) return "";
-            if (!mesh.CheckValidity(false, FailMode.ReturnOnly)) return "invalid DMesh3";
             if (!mesh.Vertices().All(v => v.IsFinite)) return "non-finite coordinates";
+            if (!mesh.CheckValidity(false, FailMode.ReturnOnly)) return "invalid DMesh3";
+            if (mesh.TriangleCount == 0) return "";
             var defects = MeshRobustRepair.FindDefects(mesh, false);
             if (allowDegenerate) defects &= ~MeshRobustRepair.Defects.DegenerateTriangles;
             if (defects != MeshRobustRepair.Defects.None) return MeshRobustRepair.DescribeDefects(defects);
@@ -381,13 +381,13 @@ namespace geometry3Sharp.Tests
         public static string CheckBoxResult(DMesh3 result, BoxCase c, Ops op, bool allowDegenerate = false)
         {
             if (result == null) return "null result";
+            string clean = CleanReason(result, allowDegenerate);
+            if (clean != "") return clean;
             double s = c.Scale;
             Dyadic s3 = Dyadic.Of(s) * Dyadic.Of(s) * Dyadic.Of(s);
             Dyadic expectedSix = Dyadic.Of(6 * ExpectedVolume(c, op)) * s3;
             if (expectedSix.Sign == 0)
                 return result.TriangleCount == 0 ? "" : $"expected an empty result, got {result.TriangleCount} triangles";
-            string clean = CleanReason(result, allowDegenerate);
-            if (clean != "") return clean;
             if (result.TriangleCount == 0) return "empty result, expected volume " + expectedSix.ToDouble() / 6;
             Dyadic six = ExactSixVolume(result);
             if (!six.Equals(expectedSix)) return $"volume {six.ToDouble() / 6:R}, expected {expectedSix.ToDouble() / 6:R}";
