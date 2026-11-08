@@ -5,7 +5,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `MeshAlphaWrap` and the wrap fallback of `MeshRobustRepair` (quality pass, raw-wrap fixes, wrap
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
-- **Status (2026-11-08):** no active session. Wrap quality (#292), wrap resolution (#280), raw-wrap fixes (#311,
+- **Status (2026-11-08):** milestone Alpha Wrap 2.0 started (session session_01AaGT5CSm6ZjSih3jZRg7HJ, see below). Wrap quality (#292), wrap resolution (#280), raw-wrap fixes (#311,
   #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01). The
   remesher items of Phase 2 stay open.
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -18,7 +18,22 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Raw alpha wrap, parked:** the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
+#### Alpha Wrap 2.0 (milestone)
+
+**Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
+(`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
+- guarantees (closed, manifold, free of self-intersections, offset band) and fidelity (F-score, Hausdorff, band) not
+  worse than master;
+- 0 triangles < 0.5° and 0 > 170°; the pinch caps (102793, 118678, 1505037) gone; p01 min angle at least at the
+  level of CGAL's alpha wrap (behaviour numbers only, CGAL code is never read);
+- at most 5 s wall time per mesh on the 4-core cloud machine.
+A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
+phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08).
+
+#### Other open items
+
+- **Raw alpha wrap** (now part of Alpha Wrap 2.0): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).

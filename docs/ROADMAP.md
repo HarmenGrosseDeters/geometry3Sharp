@@ -53,13 +53,14 @@ Status on 2026-11-08.
   review, gated by the split rounding mutation shard (#403); then L1 (rounding search only from cut triangles), D1
   (drift budget), L3. No architecture rewrite (assessment 2026-11-07). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
-  are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Open follow-ups: the corner
-  choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
+  are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
+  oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
-- **Alpha wrap and repair:** no active session. Wrap quality (#292), raw-wrap fixes (#311, #317) and the volume check
-  (#305) are done; the remaining pinch caps, the p01 gap and the remesher items of Phase 2 are open or parked.
-  [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
+- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
+  wrap pipeline keeps its guarantees and fidelity, has 0 triangles < 0.5° or > 170°, no pinch caps, a p01 angle at the
+  level of CGAL's alpha wrap, and at most 5 s per mesh on the 4-core cloud machine. Session
+  session_01AaGT5CSm6ZjSih3jZRg7HJ, WP1 (baseline, profile, upper bounds) first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 
 ## Open decisions (owner)
 
@@ -101,7 +102,7 @@ Planned, not started.
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
 - Terrain: honest terrain metrics (task 5, benchmark only). [terrain.md](roadmap/terrain.md#task-5-honest-terrain-metrics)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Alpha wrap: the remaining pinch caps and the p01 gap (parked). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
+- Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
