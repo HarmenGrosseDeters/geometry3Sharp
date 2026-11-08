@@ -12,7 +12,7 @@ from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_is_
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-ALL_MESH = {"rounding-1", "rounding-2", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope"}
+ALL_MESH = {"rounding-1", "rounding-2", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4"}
 
 
 def run(*changed):
@@ -46,7 +46,7 @@ class SelectShards(unittest.TestCase):
     def test_source_runs_only_its_shards_incrementally(self):
         self.assertEqual(("none", {"rounding-1": "source", "rounding-2": "source"}), run("mesh_ops/MeshRoundingRepair.cs"))
         self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
-        self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source"}),
+        self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
 
