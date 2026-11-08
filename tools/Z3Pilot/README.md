@@ -355,8 +355,9 @@ errors are each at most `2u`. The second obligation proves position error at
 most `E = 2^-28`. Coordinate clamping to the original edge interval cannot
 increase it. On an axis-aligned grid only one coordinate varies, so `E` is also
 a Euclidean error bound. This does not certify construction of the grid itself:
-the recipe requires exactly representable grid nodes, e.g. dyadic origin and
-power-of-two spacing with small integer indices. All generated nodes, including
+the recipe requires exactly representable grid nodes, e.g. an origin whose
+coordinates are integer multiples of a power-of-two spacing, with all node
+integer coordinates small enough to be represented exactly. All generated nodes, including
 the extra boundary cell, must satisfy the coordinate bounds.
 
 For exact 1-Lipschitz samples the linear edge slope has magnitude <= 1, so the

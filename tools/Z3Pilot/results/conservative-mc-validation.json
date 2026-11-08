@@ -45,5 +45,13 @@
     }
   ],
   "review": "Independent review completed; source coupling and outer-boundary preconditions corrected. No remaining blockers for conditional winding enclosure.",
-  "limitations": "Draft validation: filtered native tests and all Python pilots; full library/CLI/addon suites remain CI gates. Direct NRA experiment remains incomplete."
+  "limitations": "Draft validation: filtered native tests and all Python pilots; full library/CLI/addon suites remain CI gates. Direct NRA experiment remains incomplete.",
+  "merge_validation": {
+    "base_commit": "2ef422b463e899fd81dac3c3c7c52e4ac26eaa18",
+    "source_unchanged": true,
+    "python_command": "python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v",
+    "python_output": "\n----------------------------------------------------------------------\nRan 23 tests in 120.047s\n\nOK (skipped=1)",
+    "native_command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --no-restore --filter FullyQualifiedName~MarchingCubesConservativeTests --nologo",
+    "native_output": "Test run for /workspace/geometry3Sharp/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     8, Skipped:     0, Total:     8, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)"
+  }
 }
