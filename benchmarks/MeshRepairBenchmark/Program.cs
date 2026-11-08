@@ -324,6 +324,12 @@ class Program
                 }
             }
 
+            // BENCH_SAVE_DIR: the result as <dir>/<input name>.obj (for diagnostics; never committed)
+            string saveDir = Environment.GetEnvironmentVariable("BENCH_SAVE_DIR");
+            if (string.IsNullOrEmpty(saveDir) == false && result != null && result.TriangleCount > 0) {
+                System.IO.Directory.CreateDirectory(saveDir);
+                StandardMeshWriter.WriteMesh(System.IO.Path.Combine(saveDir, System.IO.Path.GetFileNameWithoutExtension(args[0]) + ".obj"), result, WriteOptions.Defaults);
+            }
             stage = "stats_after";
             swStats.Restart();
             Stats(result, r, "after");
