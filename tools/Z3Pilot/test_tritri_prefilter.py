@@ -11,6 +11,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # the code that the model describes (ExactMeshArrangement.apart_on_the_line and its use): a change to any of these
 # lines must be checked against the model again
 CONTRACT = [
+    # the call site: the signs of T's vertices to U's plane and of U's to T's, passed in this order
+    'int[] sT = { ExactPredicates.Orient3d(u0, u1, u2, t0), ExactPredicates.Orient3d(u0, u1, u2, t1), ExactPredicates.Orient3d(u0, u1, u2, t2) };',
+    'int[] sU = { ExactPredicates.Orient3d(t0, t1, t2, u0), ExactPredicates.Orient3d(t0, t1, t2, u1), ExactPredicates.Orient3d(t0, t1, t2, u2) };',
+    'bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);',
     'bool proper = sT[0] != 0 && sT[1] != 0 && sT[2] != 0 && sU[0] != 0 && sU[1] != 0 && sU[2] != 0;',
     'int i = (sT[0] != sT[1] && sT[0] != sT[2]) ? 0 : (sT[1] != sT[0] && sT[1] != sT[2]) ? 1 : 2;',
     'int j = (sU[0] != sU[1] && sU[0] != sU[2]) ? 0 : (sU[1] != sU[0] && sU[1] != sU[2]) ? 1 : 2;',

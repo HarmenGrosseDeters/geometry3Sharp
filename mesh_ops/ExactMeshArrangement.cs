@@ -207,8 +207,9 @@ namespace g3
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
-        // candidate pairs that the Devillers-Guigue test rejected without constructing points (for tests and profiles)
-        internal int PrefilterRejected;
+        // tests (counted in check mode only): candidate pairs the Devillers-Guigue test rejected, and proper pairs whose
+        // decision was compared with the construction's
+        internal int PrefilterRejected, PrefilterChecked;
         // tests: every proper pair is decided both ways, the prefilter's decision compared with the construction's
         // (InvalidOperationException if they differ); read when the intersections are searched, on the calling thread
         [ThreadStatic] internal static bool CheckPrefilterOnThisThread;
@@ -1809,10 +1810,11 @@ namespace g3
             bool proper = sT[0] != 0 && sT[1] != 0 && sT[2] != 0 && sU[0] != 0 && sU[1] != 0 && sU[2] != 0;
             bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
             if (apart) {
-                System.Threading.Interlocked.Increment(ref PrefilterRejected);
                 // Stryker disable once all: without the early return the construction below decides the same (slower)
                 if (checkPrefilter == false)
                     return;
+                // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
+                System.Threading.Interlocked.Increment(ref PrefilterRejected);
             }
 
             List<int> pT = plane_points(T, sT, 4 * ui), pU = plane_points(U, sU, 4 * ti);
@@ -1823,6 +1825,8 @@ namespace g3
             int lo = (compare_along(d, loT, loU) >= 0) ? loT : loU;
             int hi = (compare_along(d, hiT, hiU) <= 0) ? hiT : hiU;
             int c = compare_along(d, lo, hi);
+            if (checkPrefilter && proper)
+                System.Threading.Interlocked.Increment(ref PrefilterChecked);
             if (checkPrefilter && proper && apart != (c > 0))
                 throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
             if (c > 0)

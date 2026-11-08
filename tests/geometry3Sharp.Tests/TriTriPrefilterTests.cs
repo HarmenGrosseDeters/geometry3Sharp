@@ -56,6 +56,73 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(proper >= 1000, $"{proper} proper pairs");
             Assert.True(apart > 0 && apart < proper, $"{apart} apart of {proper}");
+            if (range <= 5)
+                Assert.True(touching > 0, "no touching pair");
+        }
+
+        static DMesh3 OneTriangle(Vector3d a, Vector3d b, Vector3d c)
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(c));
+            return m;
+        }
+
+        static int MeetingPairs(Vector3d[] t, Vector3d[] u, bool check)
+        {
+            ExactMeshArrangement.CheckPrefilterOnThisThread = check;
+            try {
+                var arr = new ExactMeshArrangement(new List<DMesh3> { OneTriangle(t[0], t[1], t[2]), OneTriangle(u[0], u[1], u[2]) });
+                arr.Compute();
+                return arr.IntersectingPairs;
+            } finally {
+                ExactMeshArrangement.CheckPrefilterOnThisThread = false;
+            }
+        }
+
+        static Vector3d[] Cyclic(Vector3d[] v, int k) => new[] { v[k % 3], v[(k + 1) % 3], v[(k + 2) % 3] };
+
+        [Fact]
+        public void OneVertexInTheOtherPlane_NotPrefiltered()
+        {
+            // U touches T's plane only at one vertex, which lies in T: sT = [+, -, -], sU = [+, +, 0]. Not a proper pair:
+            // the construction finds the common point. In every cyclic order of both, with the roles swapped, with and
+            // without the check (a prefilter that ignored one of the six non-zero conditions called it apart)
+            var T = new[] { new Vector3d(0, 2, 2), new Vector3d(3, 0, 0), new Vector3d(2, 4, 0) };
+            var U = new[] { new Vector3d(2, 2, 1), new Vector3d(3, 4, 1), new Vector3d(1, 3, 1) };
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    foreach (bool check in new[] { false, true }) {
+                        Assert.True(MeetingPairs(Cyclic(T, i), Cyclic(U, j), check) == 1, $"T {i} U {j} check {check}");
+                        Assert.True(MeetingPairs(Cyclic(U, j), Cyclic(T, i), check) == 1, $"U {j} T {i} check {check}");
+                    }
+        }
+
+        [Fact]
+        public void OneZeroSign_SameAsAnExactTest()
+        {
+            // integer triangles with exactly one of the six signs zero and both straddling otherwise: the arrangement
+            // finds a meeting pair iff an exact test does
+            var rand = new Random(4);
+            int found = 0, meeting = 0;
+            for (int n = 0; n < 400000 && found < 400; ++n) {
+                Func<Vector3d> v = () => new Vector3d(rand.Next(0, 5), rand.Next(0, 5), rand.Next(0, 5));
+                var t = new[] { v(), v(), v() };
+                var u = new[] { v(), v(), v() };
+                int[] sT = Sides(u[0], u[1], u[2], t[0], t[1], t[2]), sU = Sides(t[0], t[1], t[2], u[0], u[1], u[2]);
+                if (sT.Concat(sU).Count(x => x == 0) != 1 || sT.All(x => x == 0) || sU.All(x => x == 0))
+                    continue;
+                // (both triangles must reach both sides, or touch the plane, else the plane separates them)
+                if (sT.All(x => x >= 0) && sT.Any(x => x > 0) && sT.Count(x => x == 0) == 0) continue;
+                var A = new Triangle3d(t[0], t[1], t[2]);
+                var B = new Triangle3d(u[0], u[1], u[2]);
+                if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B))
+                    continue;
+                found++;
+                bool meet = ExactTriangleIntersection.Intersects(ref A, ref B);
+                if (meet) meeting++;
+                Assert.True(MeetingPairs(t, u, false) == (meet ? 1 : 0), $"T ({t[0]}) ({t[1]}) ({t[2]}) U ({u[0]}) ({u[1]}) ({u[2]}): exact meet {meet}");
+            }
+            Assert.True(found >= 200 && meeting > 0, $"{found} cases, {meeting} meeting");
         }
 
         static DMesh3 Grid(Vector3d center, Vector3d half, int n)
@@ -132,6 +199,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(plain.Arrangement.IntersectingPairs, checkedRun.Arrangement.IntersectingPairs);
             if (name != "grid")
                 Assert.True(checkedRun.Arrangement.PrefilterRejected > 0, $"{name}: nothing rejected");
+            // (the check ran: proper pairs were decided both ways)
+            if (name != "grid")
+                Assert.True(checkedRun.Arrangement.PrefilterChecked > 0, $"{name}: nothing checked");
             Assert.True(checkedRun.Result.IsClosed() && Invariance.AllFinite(checkedRun.Result));
             if (checkedRun.RoundingClean)
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(checkedRun.Result, checkSelfIntersections: false));

@@ -70,8 +70,9 @@ them.
 
 The sign convention is the paper's: `[a, b, c, d]` positive when `d` is on the side the normal of the
 counter-clockwise triangle `(a, b, c)` points to, which is `ExactPredicates.Orient3d`. This is not taken on trust:
-`TriTriPrefilterTests.ProperPairs_SameAsAnExactTest` compares the prefilter with the independent exact test
-`ExactTriangleIntersection.Intersects` on 20000 proper pairs each of integer triangles in `[0, 3]`, `[0, 5]` (many
+`TriTriPrefilterTests.ProperPairs_SameAsAnExactTest` compares the prefilter with the library's exact test
+`ExactTriangleIntersection.Intersects` (itself a Devillers-Guigue implementation on the same predicates, so a check of
+this implementation against that one; the independent comparison is the check mode's, against the construction) on 20000 proper pairs each of integer triangles in `[0, 3]`, `[0, 5]` (many
 segments that touch at an end) and `[0, 1000]`, in every cyclic order and both orientations of the triangles; with
 the swaps reversed, the orders reversed, a predicate dropped or `>= 0` instead of `> 0` it fails.
 
@@ -90,7 +91,14 @@ point appears nowhere in the decision.
   not from the predicates: the two orders, the two predicate equivalences, and the lemma in both directions (apart
   but overlapping; not apart but disjoint) are UNSAT; the assumptions, both decisions and touching are SAT (not
   vacuous); four mutants (`>= 0`, either predicate alone, the opposite sign) are SAT. The test also checks that the
-  code's normalization and predicates are the ones modelled (a source contract on `apart_on_the_line`).
+  code's normalization and predicates are the ones modelled (a source contract on `apart_on_the_line` and its call
+  site: the side signs, their order, the proper condition). Z3 covers the normalized core only: the choice of `i`,
+  `j`, the swap conditions and the argument order rest on that contract and on the C# tests (every cyclic order, both
+  orientations, the roles swapped).
+- Pairs that are not proper: `OneVertexInTheOtherPlane_NotPrefiltered` (one vertex of `U` in `T`'s plane, inside `T`:
+  a common point, in all 3 x 3 cyclic orders, the roles swapped, with and without the check) and
+  `OneZeroSign_SameAsAnExactTest` (sampled integer pairs with exactly one zero sign); dropping any one of the six
+  non-zero conditions of `proper` fails them (a reviewer found such a mutant losing common points).
 
 - Check mode (`ExactMeshArrangement.CheckPrefilterOnThisThread`, read on the calling thread when the intersections
   are searched): every proper pair is decided by both, and a difference throws.
