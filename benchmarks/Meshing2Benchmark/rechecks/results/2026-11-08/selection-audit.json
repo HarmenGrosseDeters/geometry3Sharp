@@ -1,0 +1,10 @@
+{
+  "reference_commit": "6fb929f9c86decb2b33f28a939d1031e1cd13a55",
+  "cases_tsv_git_blob_sha": "016e3229cefcda1da6aa6b14034cd2610dba00c5",
+  "selected_operations": 163,
+  "angle_operations": 79,
+  "timeout_operations": 84,
+  "manifest_verdict_and_pairing_mismatches": 0,
+  "base_hashes_verified": 163,
+  "historical_variant_hashes_verified": 79
+}

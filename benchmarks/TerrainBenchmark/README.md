@@ -496,3 +496,104 @@ flipped or degenerate, then steeper, then unsupported (of those not steeper).
 
 On the Hambach cases about half of the region's triangles fail at 1 mm and at 0.1 mm with the default margin, and
 21 % / 28 % (steeper / unsupported) at 1 mm with `margin=1e-4`. The table and the conclusion are in the design note.
+
+## Directed closest-point terrain errors (`tdc`, `gtin`)
+
+Both cases now emit `closest_*` fields against the input grid TIN, including when
+`tdc` is constructed from a point cloud. For each sampled result point p, an
+unrestricted AABB-tree query finds q on the full valid reference surface:
+
+- `closest_d3_*`: length of p-q;
+- `closest_dh_*`: length of its XY component;
+- `closest_dv_*`: absolute Z component of the **same displacement**.
+
+Units are meters, Z is up, direction is `result_to_reference`. This is not a ray
+along a normal. Existing `dz_*` remains the vertical-ray error on its existing grid
+node domain; `missed` and `xy_overlaps` remain visible. Small directed errors do
+not establish coverage, absence of holes, or a symmetric Hausdorff bound.
+
+Each component reports `_n`, `_min`, `_p01`, `_p50`, `_p99`, `_max`, `_mean`, `_rms`.
+Quantiles use sorted index floor(p*(n-1)), as in `Checks.Stats`. The maximum is a
+**sampled maximum**, not a certified bound. Sampling follows
+`MeshFidelityMetrics.sample_surface`: stratified cumulative triangle area, uniform
+sqrt-barycentric triangle interiors, `System.Random` seed 0. It is benchmark-local
+because the existing sampler is internal; shared `fm_*` fields are unchanged.
+`closest_samples=10000` selects the default count; any positive integer is accepted.
+The JSON records count, seed, sampling, direction and units. Ties follow a fixed
+tree's traversal, deterministically for that tree; horizontal/vertical components
+need not survive arbitrary retriangulation of ambiguous equal-distance surfaces.
+
+`closest_valid`, `closest_invalid` (failed queries), `closest_missing` (requested
+samples not generated), `closest_invalid_reference_triangles`,
+`closest_invalid_result_triangles`, and `closest_missing_grid_triangles` expose
+validity and no-data exclusions. Non-finite or zero-area triangles are excluded.
+`closest_status` is `ok`, `partial` (exclusions or missing/failed samples), or
+`unavailable` (no valid correspondences). With no valid samples only `_n=0` is
+emitted; no finite zero or sentinel distance is substituted. Partial statistics
+refer only to valid correspondences, not to a complete surface measurement.
+
+`closest_reference_s`, `closest_tree_s`, and `closest_measure_s` separately time
+grid-TIN construction, reference filtering/tree construction, and sampling plus
+queries/statistics. Existing algorithm and check timers exclude these phases;
+`total_s` and process peak memory naturally include them.
+
+### Validation and reproduction
+
+No external geodata is needed. `test_analysis.py` writes a temporary procedural
+plane grid; integration exercises both commands and the additive JSON schema.
+The analyzer accepts old rows without the fields and prints `-` for unavailable
+values. CI runs its compatibility and integration tests.
+
+```sh
+dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~TerrainDistanceMetric
+dotnet build benchmarks/TerrainBenchmark -c Release
+TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
+python3 benchmarks/TerrainBenchmark/check_closest_mutations.py dotnet /tmp/terrain-mutations.json
+python3 benchmarks/TerrainBenchmark/verify_closest.py --dotnet dotnet --base /path/to/base/TerrainBenchmark.dll --current "$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" --out /tmp/terrain-closest-evidence.json
+```
+
+The analytic tests independently check planes, steep facets, all triangle
+features, queries outside the footprint, a brute-force projection/segment oracle,
+invalid inputs, same-row reuse, fixed-tree ties, area weighting, nonconstant
+statistics, and `Similarity.All()` with components recomputed in the fixed Z-up
+frame. Four controlled faults replace 3D distance with vertical distance, zero the
+horizontal component, mix correspondences, and cap the search. Each must fail the
+actual linked-helper tests before the restored implementation is accepted.
+
+Measured on 2026-11-07, .NET SDK 10.0.403, baseline `a482d490`, using the
+`verify_closest.py` command above after the builds completed. [Compact summary](validation/closest_runs_2026-11-07.json)
+(written by the script; command template, grid checksums, local/UTM placement, the pre-existing
+non-timing fields once per case and every new field per sample count; machine paths and
+run-to-run timings other than the two closest-point phase times are not kept).
+The 48 synthetic rows cover 24×24 flat, sloping and ridge grids, both operations,
+both placements, and 1k/10k/50k samples. All pre-existing non-timing fields match
+base exactly; the new distance fields are absent on base. Terrain algorithms and
+production geometry code are unchanged. No local Hambach geodata was available;
+these measurements make no large-TIN performance claim.
+
+Ridge, local coordinates (meters; single-process phase times, including first-use
+JIT; no concurrent build/benchmark):
+
+| case | samples | d3 mean | d3 p99 | d3 sampled max | tree/filter s | sample/query/stats s |
+|---|---:|---:|---:|---:|---:|---:|
+| tdc | 1,000 | 0.0244075 | 0.122011 | 0.132951 | 0.002699 | 0.009804 |
+| tdc | 10,000 | 0.0245089 | 0.121042 | 0.223753 | 0.002626 | 0.066025 |
+| tdc | 50,000 | 0.0245987 | 0.124365 | 0.266895 | 0.002492 | 0.213292 |
+| gtin | 1,000 | 0.0058433 | 0.0428042 | 0.0685863 | 0.002581 | 0.008464 |
+| gtin | 10,000 | 0.0057598 | 0.0492665 | 0.0705479 | 0.002702 | 0.065164 |
+| gtin | 50,000 | 0.0057979 | 0.0503305 | 0.0718491 | 0.003299 | 0.206402 |
+
+10k is the default compromise for reporting distributions: the ridge mean is
+within 0.7% and p99 within 2.7% of the 50k estimate for both operations. The tdc
+sampled maximum still changes substantially; this is why it is not called a global
+bound. Increase `closest_samples` when studying the tail. The analytic sloping
+plane test separately distinguishes d3=sqrt(2) from a vertical-ray error of 2,
+with dh=dv=1 at its known correspondence.
+
+[Captured checks](validation/closest_checks_2026-11-07.json): 9 targeted .NET tests,
+2 Python tests (including both CLI integrations), net48 builds, API-validated core
+and Clipper2 packs, and both package smoke tests pass. Existing compiler warnings
+remain. [Controlled mutation output](validation/closest_mutations_2026-11-07.json):
+vertical-instead-of-3D fails 3 tests, zero-horizontal 3, mixed-correspondence 2,
+capped-search 8; restored implementation passes all 9. The full unrelated .NET
+test suite and net48 execution were not run locally; CI runs those suites.

@@ -18,7 +18,7 @@ Part of the [roadmap](../ROADMAP.md).
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
-- **SMT checks with Z3** (owner 2026-11-04): pilot 1 in #400; pilot 2 for the exact booleans queued (owner 2026-11-08).
+- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans started (owner 2026-11-08).
 - **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
@@ -31,7 +31,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 **SMT checks with Z3 (owner 2026-11-04, a pilot, not scheduled):** Z3 (Microsoft, MIT licence; NuGet `Microsoft.Z3` with a native library) only in a separate test or tool project, never in the library. Pilot, about half a day: (1) prove the `SnapGrid.Pixel` double filter of #380 with Z3's IEEE-754 theory: for every double x and width W in the stated range the filter's decision equals the exact floor(x/W) (today: a written derivation, review and 2.7M sampled cases); (2) for one surviving boundary mutant (e.g. the oracle's zone-filter margins of #376), ask Z3 for an input where original and mutant decide differently and pin it as a test, or show the mutant equivalent. If both work: a standard step for every new double filter in front of an exact test. Further fits: finite rules (EMBER-style early-out over winding numbers, oracle excuse rules never broader than the mesher rule), and an independent check of bit-width tables. Not a fit: error bounds of large predicates (Orient3d, InCircle; bit-precise FP does not scale there; tools like Gappa or FPTaylor, or our derivations plus review) and whole-algorithm properties (termination, Delaunay, boolean correctness; theorem provers, out of proportion; our certifying oracles cover them).
 
-**Pilot 2, exact booleans (owner 2026-11-08, queued after #400):** Z3 as a proof checker for small lemmas, never in
+**Pilot 1 result (#400, merged 2026-11-08):** the `SnapGrid.Pixel` filter proved by 6 modular obligations (all unsat, preconditions sat; the monolithic attempt returns unknown and is not counted), a boundary-margin mutant shown equivalent and pinned by a test, in `tools/Z3Pilot` (Python `z3-solver`, hash-pinned, own workflow).
+
+**Pilot 2, exact booleans (owner 2026-11-08, started after #400):** Z3 as a proof checker for small lemmas, never in
 the library and never at run time. (1) D1 first: the Boolean 2.0 session states its tighter drift-accounting rule for
 SafeRounding as a precise lemma (assumptions, claim: no new intersection or degeneracy); Z3 (nonlinear real
 arithmetic, with rounding modelled as (1 + δ), |δ| <= u) proves it or returns a counterexample, which becomes a

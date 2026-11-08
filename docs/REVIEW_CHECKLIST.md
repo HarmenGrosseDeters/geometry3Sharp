@@ -16,6 +16,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Is a set of skipped items (exempt, unsplittable) visible in the output, as a list or a diagnostic, so that a bound
   silently left unmet can be detected (meshing M3 review)?
 
+- For proof tools: does a counterexample (SAT), including an optional diagnostic query, fail the overall
+  check? UNKNOWN/timeouts must not be counted as proofs. Are assumptions satisfiable, source/model drift
+  detected, and model mutations covered so contradictory assumptions cannot pass vacuously? (Z3 pilot)
+
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
 - Are tolerances relative to the input (bounding box of the *used* vertices, edge lengths), not absolute

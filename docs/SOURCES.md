@@ -4,6 +4,22 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Historical meshing recheck tools and data
+
+The standalone Python preparation tool in `benchmarks/Meshing2Benchmark/rechecks`
+uses installed public parsing APIs only. It does not supply meshing algorithms or
+dependencies to geometry3Sharp, and no implementation is copied or inspected.
+
+| Item | Use and license evidence |
+|---|---|
+| Shapely 2.1.2 | WKT/WKB parsing only; [BSD-3-Clause license at tag 2.1.2](https://github.com/shapely/shapely/blob/2.1.2/LICENSE.txt). Its binary wheel bundles GEOS under LGPL-2.1; the installed wheel includes `LICENSE_GEOS`. GEOS is run as a tool dependency; its implementation is not read, ported, vendored or linked into this library. |
+| NumPy 2.5.4 | Pinned Shapely dependency; installed distribution's `licenses/LICENSE.txt` records BSD-3-Clause for NumPy and bundled-component notices (also 0BSD, MIT, Zlib and CC0-1.0). This is a separate Python tool environment. |
+| GEOS XML test data | Five XML fixtures fetched at commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; URLs and SHA-256 values are in `rechecks/historical-exceptions.json`. The pinned upstream [COPYING](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING) provides LGPL-2.1; no separate permissive grant is assumed for these fixtures. Only external data is parsed at run time. Neither the fixtures nor converted geometries or meshes are redistributed in this repository. |
+
+The committed manifest and reports contain source identifiers, hashes and numeric
+results. Reference-producer implementations, including Triangle/Triangle.NET and
+the owner's fork, remain outside the clean-room session.
+
 ## 2D loose quadtree (`LooseQuadtree2d`, point / segment / triangle adapters)
 
 Clean-room implementation from [QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) and published
@@ -492,3 +508,13 @@ The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, 
 | Fork | Taken over |
 |---|---|
 | [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
+
+## SMT verification pilot (test/tool only)
+
+`tools/Z3Pilot` uses `z3-solver` 4.15.4.0 (Z3 4.15.4, MIT), only as a pinned
+Python verification-tool dependency. Its native library is not distributed with
+geometry3Sharp and no library/NuGet dependency is added. Modeling uses the
+[SMT-LIB FloatingPoint specification](https://smt-lib.org/theories-FloatingPoint.shtml)
+and [Z3's public Python API](https://z3prover.github.io/api/html/namespacez3py.html).
+The [pilot README](../tools/Z3Pilot/README.md) states proof scope, mathematical
+bridges, native replay and the UNKNOWN limitation of the monolithic attempt.
