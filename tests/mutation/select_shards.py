@@ -64,10 +64,10 @@ def _indent(line):
     return len(line) - len(line.lstrip(" "))
 
 
-def _step_identities(lines):
-    """first line number (0-based) of a step of the Stryker jobs -> its identity: `name:<name>` if it has one, else
-    `uses:<action without version>`, else the text of its first line"""
-    identities = {}
+def _steps(lines):
+    """the steps of the workflow (items at indent 6 of a `steps:` list): [(first line, end line (exclusive), identity)];
+    the identity is `name:<name>` if the step has one, else `uses:<action without version>`, else its first line"""
+    out = []
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -84,18 +84,78 @@ def _step_identities(lines):
             if ident is None:
                 m = re.match(r"^\s*- uses:\s*([^@\s]+)", line)
                 ident = "uses:" + m.group(1) if m else "step:" + line.strip()
-            identities[i] = ident
+            out.append((i, j, ident))
             i = j
         else:
             i += 1
-    return identities
+    return out
+
+
+_STEP_KEYS_OK = {"name", "if", "run", "uses", "with", "continue-on-error"}
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def _read_only(command):
+    """True if a `run` value only reads: cat or jq, with no redirect other than the append to the step summary, no
+    command separator, pipe (other than `|| true`), substitution or background. Quoted text (the jq program) is
+    skipped. A reporting step runs before "Prepare the baseline", so a command that wrote into StrykerOutput would
+    change what is stored as the baseline."""
+    text = " ".join(command.split())
+    text = re.sub(r"^[>|][+-]?\s*", "", text)
+    text = text.replace('>> "$GITHUB_STEP_SUMMARY"', "")
+    text = _QUOTED.sub("''", text).replace("|| true", "")
+    if not re.match(r"^(cat|jq)\s", text):
+        return False
+    return re.search(r"[;&<>`|]|\$\(", text) is None
+
+
+def _reporting_step_ok(lines, step, stryker_start, idents):
+    """a step that only reports: a name or action from the harmless list, after the Stryker step, unique in its job,
+    with only plain keys, and a read-only command. A new step of the same name BEFORE the Stryker step (a `sed` on the
+    thresholds, a write to $GITHUB_ENV, run_stryker.sh itself) is not harmless."""
+    start, end, ident = step
+    if not (ident in STEPS_OK or ident.startswith("uses:actions/upload-artifact")):
+        return False
+    if stryker_start is None or start < stryker_start or idents.count(ident) != 1:
+        return False
+    run = []
+    for k in range(start, end):
+        line = lines[k]
+        m = re.match(r"^\s*(?:- )?([A-Za-z0-9_-]+):\s*(.*)$", line)
+        if m and _indent(line) in (6, 8):
+            if m.group(1) not in _STEP_KEYS_OK:
+                return False
+            if m.group(1) == "run":
+                run = [m.group(2)]
+                for r in range(k + 1, end):
+                    if lines[r].strip() and not lines[r].lstrip().startswith("#") and _indent(lines[r]) > 8:
+                        run.append(lines[r].strip())
+                    elif lines[r].strip() and not lines[r].lstrip().startswith("#"):
+                        break
+    if any(re.match(r"^\s*(?:- )?run:", lines[k]) for k in range(start, end)) and not _read_only(" ".join(run)):
+        return False
+    return True
+
+
+# YAML anchors, aliases and merge keys can move a value into a region that the classification calls harmless, so a
+# workflow that uses them is not classified: any edit forces the full run
+_ANCHOR = re.compile(r"(^|[\s:\[{,])[&*][A-Za-z0-9_-]+|^\s*<<:")
+
+
+def _uses_anchors(text):
+    return any(_ANCHOR.search(l) for l in text.splitlines() if not l.lstrip().startswith("#"))
 
 
 def _forcing_lines(text):
     """for every line of the workflow text: True if an edit of it forces the full run, False if not"""
     lines = text.splitlines()
-    steps = _step_identities(lines)
+    step_list = _steps(lines)
+    steps = {st[0]: st for st in step_list}
     flags = [None] * len(lines)
+    # per job (by the line of its first step): the first Stryker step and the identities of all steps
+    job_starts = [i for i, l in enumerate(lines) if _indent(l) == 2 and re.match(r"^\s+[A-Za-z0-9_-]+:\s*$", l)] + [len(lines)]
+    def job_of(i):
+        return max((j for j in job_starts[:-1] if j <= i), default=0), min((j for j in job_starts if j > i), default=len(lines))
     top = job = jobkey = substrategy = step = None
     for i, line in enumerate(lines):
         if not line.strip() or line.lstrip().startswith("#"):
@@ -140,8 +200,11 @@ def _forcing_lines(text):
         if step is None:
             flags[i] = True
             continue
-        ok = step in STEPS_OK or step.startswith("uses:actions/upload-artifact")
-        if step in KEY_LINES_OK_STEPS and re.match(r"^\s*(key|restore-keys):", line):
+        first, last = job_of(i)
+        in_job = [st for st in step_list if first <= st[0] < last]
+        stryker = next((st[0] for st in in_job if st[2] == "name:Stryker"), None)
+        ok = _reporting_step_ok(lines, step, stryker, [st[2] for st in in_job])
+        if step[2] in KEY_LINES_OK_STEPS and re.match(r"^\s*(key|restore-keys):", line):
             ok = True                                   # (a continuation of a key is on its own line: see the test)
         flags[i] = not ok
     # a comment or blank line forces if a neighbouring line of code does (a `#` in a run block is shell text)
@@ -159,6 +222,8 @@ def workflow_edit_forces_full(diff, old_text, new_text):
     (see the table above), or is empty. False: the edit alone runs no shard in full (a full run of all shards takes
     hours of runners; adding a trigger path, raising max-parallel or editing a reporting step changes no shard)."""
     try:
+        if _uses_anchors(old_text) or _uses_anchors(new_text):
+            return True
         old_flags, new_flags = _forcing_lines(old_text), _forcing_lines(new_text)
     except Exception:
         return True
@@ -218,6 +283,14 @@ def shard_name(config_name):
     return "arithmetic" if config_name == "config" else config_name[len("mesh-"):]
 
 
+# These scripts run in every shard's real Stryker run (run_stryker.sh, the baseline store and the incremental plan/merge);
+# the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
+# (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
+# the `changes` job of every workflow run (their paths are in the workflow's trigger).
+SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"}
+SCRIPT_SHARD = "mesh-fixed"
+
+
 def select(changed, configs, run_all=False, only=None):
     """(mode of the arithmetic config, list of the mesh shards to run)"""
     changed = set(changed)
@@ -227,6 +300,8 @@ def select(changed, configs, run_all=False, only=None):
             raise ValueError("unknown shards: " + ", ".join(sorted(unknown)))
     modes = {name: ("full" if only is None or shard_name(name) in only else "none") if run_all
              else mode_of(config, changed) for name, config in configs.items()}
+    if not run_all and changed & SCRIPTS and SCRIPT_SHARD in modes:
+        modes[SCRIPT_SHARD] = "full"
     mesh = [{"shard": name[len("mesh-"):], "mode": mode} for name, mode in modes.items()
             if name.startswith("mesh-") and mode != "none"]
     return modes["config"], mesh
