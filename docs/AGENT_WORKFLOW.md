@@ -157,6 +157,8 @@ from secret tests, which a public repository cannot keep.
   scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
   profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
   coordinator starts the runner on request.
+  A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
+  under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
   resumable (one result line or file per case; a rerun skips finished cases; a timing job reruns an interrupted
   pair), the runner pushes partial raw results to its data branch about every hour, keeps a self check-in
