@@ -30,6 +30,11 @@ Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-
 is one PR with the AddPoint fix and the parallel fast-winding tree build (bit-identical; classification -29 to
 -42 % on tree-bound open ops); an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 
+**`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
+has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
+boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
+per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
+
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
 machines have 4 cores, but the trend is to many more, so the arrangement, the classification (e.g. the Lévy-style
