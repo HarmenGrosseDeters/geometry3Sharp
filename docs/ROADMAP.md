@@ -61,7 +61,7 @@ Status on 2026-11-08 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts, envelope thresholds from the first CI run) is running its CI;
   the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
   `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
-- **Meshing2D:** fast oracle (#411, #427) merged; a Sonnet session works on the corner choice, lenses to 28.6° and
+- **Meshing2D:** fast oracle (#411, #427) merged; a Sonnet session works on the corner choice (#437) and
   the small-angle rule for the default mode (O2 unchanged); coarsening waits for a runner re-measurement.
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
@@ -103,7 +103,6 @@ Planned, not started.
 - Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Meshing2D: the corner choice after #394 (MinSin2 against the exact shortest edge). [meshing2d.md](roadmap/meshing2d.md#open)
-- Meshing2D: lenses up to 28.6° (Rand, CCCG 2011). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: near-contact inputs (stmlf/1461), not measured. [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: SplitSegment speed; the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
