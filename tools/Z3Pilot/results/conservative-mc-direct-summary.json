@@ -1,0 +1,22 @@
+{
+  "command": "python tools/Z3Pilot/conservative_mc.py --direct --timeout-ms 100 --out <dir>/z3-mc-direct.json",
+  "direct_passed": false,
+  "results": [
+    {
+      "assumptions": "sat",
+      "result": "unknown",
+      "count": 222
+    },
+    {
+      "assumptions": "sat",
+      "result": "unsat",
+      "count": 1
+    },
+    {
+      "assumptions": "unknown",
+      "result": "unknown",
+      "count": 33
+    }
+  ],
+  "conclusion": "Short-budget direct experiment only; UNKNOWN is no proof. Default modular certificate uses 20000 ms/query."
+}

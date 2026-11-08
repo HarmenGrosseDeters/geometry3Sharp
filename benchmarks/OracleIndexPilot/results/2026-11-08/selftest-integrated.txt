@@ -1,0 +1,1 @@
+SELFTEST passed: 312 cases; exact exhaustive equivalence, boundary/nested/coincident cases, power-of-two scales, reuse and parallel determinism.

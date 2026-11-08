@@ -36,13 +36,30 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the wrap without the Φ gates and the quality refinement of #408 (old: true): the inputs above were chosen on it,
+        // and there the last trial of the pinch refinement is reused on most of them. With the defaults the quality
+        // refinement inserts after that trial (the reuse must be dropped) and the second pinch pass decides
+        static MeshAlphaWrap Wrap(DMesh3 input, double relAlpha, double relOffset, bool old, bool reuse = true)
+        {
+            var w = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, ReuseTrialLabels = reuse };
+            if (old) { w.TraverseByEmptyBall = false; w.RefineMinAngleDegrees = 0; }
+            return w;
+        }
+
+        public static IEnumerable<object[]> InputsBoth()
+        {
+            foreach (object[] c in Inputs())
+                foreach (bool old in new[] { true, false })
+                    yield return new object[] { c[0], c[1], c[2], old };
+        }
+
         [Theory]
-        [MemberData(nameof(Inputs))]
-        public void ReusedTrialLabels_SameResultAndCounts(string name, double relAlpha, double relOffset)
+        [MemberData(nameof(InputsBoth))]
+        public void ReusedTrialLabels_SameResultAndCounts(string name, double relAlpha, double relOffset, bool old)
         {
             DMesh3 input = Input(name);
-            var reuse = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
-            var again = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, ReuseTrialLabels = false };
+            var reuse = Wrap(input, relAlpha, relOffset, old);
+            var again = Wrap(input, relAlpha, relOffset, old, false);
             Assert.Equal(reuse.Compute(), again.Compute());
             Assert.Equal(again.Status, reuse.Status);
             Assert.Equal("", Invariance.Difference(again.Result, reuse.Result));
@@ -79,8 +96,8 @@ namespace geometry3Sharp.Tests
         public void ReusedTrialLabels_SameResult_UnderSimilarity(string sim)
         {
             DMesh3 input = Invariance.Transformed(Input("soup42"), Similarity.ByName(sim));
-            var reuse = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
-            var again = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600, ReuseTrialLabels = false };
+            var reuse = Wrap(input, 60, 600, true);
+            var again = Wrap(input, 60, 600, true, false);
             Assert.True(reuse.Compute(), reuse.Error);
             Assert.True(again.Compute(), again.Error);
             Assert.Equal("", Invariance.Difference(again.Result, reuse.Result));
@@ -96,7 +113,7 @@ namespace geometry3Sharp.Tests
         {
             int reused = 0;
             foreach (object[] c in Inputs()) {
-                var w = new MeshAlphaWrap(Input((string)c[0])) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2] };
+                var w = Wrap(Input((string)c[0]), (double)c[1], (double)c[2], true);
                 Assert.True(w.Compute(), w.Error);
                 if (w.Counts.ContainsKey("manifold_reused")) reused++;
                 DMesh3 first = new DMesh3(w.Result);

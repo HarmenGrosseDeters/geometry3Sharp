@@ -1,0 +1,30 @@
+Final combined-index pilot validation, 2026-11-08. SDK 10.0.403, runtime 10.0.14.
+Build/test/package outputs were isolated from all frozen campaign binaries.
+Commands: validation-commands.sh. Existing compilation warnings remain; no build errors.
+
+all-target core build
+Build succeeded; zero errors.
+
+net48 test-project build
+Build succeeded; zero errors.
+
+Clipper2 net48 test-project build
+Build succeeded; zero errors.
+
+core API-validating pack
+API-validating package build succeeded.
+
+Clipper2 API-validating pack
+API-validating package build succeeded.
+
+both-index targeted oracle/modes/box-pairs/golden tests
+651/651 passed.
+Total time: 6.8373 Minutes
+
+point and edge component selftests
+SELFTEST passed: 312 cases; exact exhaustive equivalence, boundary/nested/coincident cases, power-of-two scales, reuse and parallel determinism.
+EDGE SELFTEST passed: 442 cases; exact all-pairs equivalence, contact/collinearity/shared/degenerate cases, actual line/hull pruning, scales/translation, reuse and parallel determinism.
+
+both controller variants
+10/10 passed.
+
