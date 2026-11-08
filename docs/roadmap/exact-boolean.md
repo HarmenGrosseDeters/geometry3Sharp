@@ -36,7 +36,8 @@ boolean classification's fast-winding cache with its O(n log n) HashSet build, a
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
 The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
 solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evaluates winding numbers at cell
-corners) and, if the Alpha Wrap session has not covered it, the Reducer's `TriangleHashGrid`; the order follows
+corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
+dictionaries) and, if the Alpha Wrap session has not covered it, the Reducer's `TriangleHashGrid`; the order follows
 where the profiles spend the time (owner 2026-11-08).
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
@@ -95,7 +96,7 @@ ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5
   `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
   (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
   other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
-  `WindingContouring`) with a dense-key measurement before changing any.
+  `WindingContouring`, `DualContouring`'s cell dictionaries) with a dense-key measurement before changing any.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under
