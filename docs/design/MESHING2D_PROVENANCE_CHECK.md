@@ -1,6 +1,6 @@
 # 2D meshing: provenance check (stage 6b)
 
-Stage 6b of the [roadmap](../ROADMAP.md): a separate session (the dirty side, the only one that read the reference
+Stage 6b of the [roadmap](../roadmap/meshing2d.md#stage-6b-meshing-provenance-check): a separate session (the dirty side, the only one that read the reference
 implementations) compared the clean-room 2D mesher with them for copied expression before the BSL-1.0 release. This file is
 the **clean part** of the report: it names only our files, routines and lines, the class of each finding and, where a rewrite
 would be needed, the paper or spec item to follow. It holds no code, names, structure or line references of the reference

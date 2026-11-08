@@ -149,7 +149,7 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
   `RemeshIteration` is with the final #151 slower on the band and leaves a degenerate triangle in an existing
   test. To be measured again with the quality pass.
 
-Open bug (docs/ROADMAP.md, Phase 2): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
+Open bug (docs/roadmap/alpha-wrap-and-repair.md, Phase 2 items): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
 triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave
 degenerate triangles on most Thingi10K meshes.
 
