@@ -121,7 +121,7 @@ exactly.
      (`results/lock_spin_levers.jsonl`): spinning on the sharded point-index locks (64 shards) is 16-46 % of the busy
      samples on the patch-heavy ops, 2-5 % on the others; 67-77 % of it (60 % on 113685) comes from the classification
      centroids (`centroid` < `patch_winding` / `coplanar_stack`), the rest from `add_implicit` and `intersect` in the
-     intersection step. Removing the centroid part (this prototype) turned roughly a fifth of the busy samples into
+     intersection step. Removing the centroid part (this prototype; 10-30 % of the busy samples on those ops) gave only
      -1.3 % of Compute: spinning threads mostly occupy cores that would otherwise idle at the end of the parallel loops.
      By the same ratio, a lock-free index for the intersection step (more shards, a concurrent map, or per-thread
      collection and a sorted merge) would gain well under 1 %; not pursued without a new signal.
