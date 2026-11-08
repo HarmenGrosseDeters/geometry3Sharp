@@ -64,7 +64,7 @@ in the tool project.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
   - Status 2026-11-08: #423 (merged) adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
-    enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
+    enclosure with a `2^-26` level pad). Follow-up (owner decision 2026-11-08, done in #433): restate the FP obligation in a
     relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
     check that gap for SDFs, and the code does not check it).
   - Found in the #423 review (pre-existing, also in legacy modes, low priority): `MarchingCubesPro.GenerateContinuation`
@@ -74,7 +74,7 @@ in the tool project.
     component can be skipped without an exception (repro in the #423 review: bounds 0..2.5, h 1, spheres r 0.3 at
     nodes (4,1,1) and (1,2,1), seeds in cells (3,0,0) and (0,1,0)). Fix: size `done_cells` (n+1)^3 or make the
     neighbour test exclusive; changes legacy behaviour, so note it in UPSTREAM_CHANGES. Own bugfix PR with a test.
-    Taken by the owner locally (2026-11-08).
+    Fixed in #430 (2026-11-08).
 - 2D wrap (idea only, owner 2026-11-08; not scheduled). Clipper2 has no alpha wrap, but the Clipper2 addon can
   already do a morphological closing: `Offset` / `OffsetPolyLines` by r + offset, `Union`, `Offset` by -r, then
   `Simplify` (simple, non-self-intersecting polygons; gaps narrower than about 2r are closed). A small step would be

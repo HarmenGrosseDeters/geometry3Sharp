@@ -136,7 +136,7 @@ namespace g3
             if (factor < 2 || (factor & (factor - 1)) != 0)
                 throw new ArgumentException("DualContouring: refine factor must be a power of two");
             F = factor;
-            refined = new HashSet<long>();
+            refined = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Vector3i c in refinedCells)
                 refined.Add(node_key(c));
             fineCandidates = new List<Vector3i>(fineCandidateCells);
@@ -160,11 +160,11 @@ namespace g3
             if (sparse) {
                 if (NodeValueF == null)
                     throw new Exception("DualContouring: sparse mode requires NodeValueF");
-                sparseValues = new ConcurrentDictionary<long, float>();
+                sparseValues = new ConcurrentDictionary<long, float>(EdgeKeyComparer.Instance);
                 edgeDecisions = new ConcurrentDictionary<EdgeKey, EdgeDecision>();
                 faceDecisions = new ConcurrentDictionary<EdgeKey, FaceDecision>();
                 ImposedEdges = ImposedFaces = 0;
-                imposedCells = new ConcurrentDictionary<long, Vector3i>();
+                imposedCells = new ConcurrentDictionary<long, Vector3i>(EdgeKeyComparer.Instance);
             } else {
                 Vector3d size = Bounds.Diagonal;
                 double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
@@ -233,7 +233,7 @@ namespace g3
 
             // gather crossings per cell, by local cube edge (each crossing edge touches 4 cells). Fine
             // crossings inside a face of a coarse cell are kept in a separate list of that cell.
-            Dictionary<long, CellCrossings> cellCrossings = new Dictionary<long, CellCrossings>();
+            Dictionary<long, CellCrossings> cellCrossings = new Dictionary<long, CellCrossings>(EdgeKeyComparer.Instance);
             TransitionErrors = 0;
             for (int ci = 0; ci < NC; ++ci) {
                 GridEdge e = crossings[ci];
@@ -336,8 +336,8 @@ namespace g3
             var vertexPlane = new List<Vector3d>();
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
-            Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length);
-            Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>();
+            Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
+            Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
                 int[] groupVertex = new int[cellGroupPos[idx].Length];
                 for (int g = 0; g < groupVertex.Length; ++g) {
@@ -370,7 +370,7 @@ namespace g3
             // one polygon per crossing edge, connecting the vertices of its patches in the cells around it:
             // a quad, or a triangle for a fine edge inside a face of a coarse cell
             NonManifoldTriangles = 0;
-            var nonManifoldCells = new Dictionary<long, Vector3i>();
+            var nonManifoldCells = new Dictionary<long, Vector3i>(EdgeKeyComparer.Instance);
             Cell[] polyCells = new Cell[4];
             int[] poly = new int[4];
             HashSet<int> transitionVertices = new HashSet<int>();
@@ -857,7 +857,7 @@ namespace g3
             // until no new cells come up. Corners of each batch of cells are evaluated in parallel first.
             // With refinement, candidates inside refined cells are replaced by the fine candidates.
             List<Cell> cells = new List<Cell>();
-            HashSet<long> visited = new HashSet<long>();
+            HashSet<long> visited = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Vector3i c in CandidateCells) {
                 if (is_refined(c))
                     continue;
