@@ -144,6 +144,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
@@ -220,6 +229,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs-mesh-${{ matrix.shard }}
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)

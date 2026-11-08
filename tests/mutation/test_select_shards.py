@@ -260,6 +260,26 @@ class SelectShards(unittest.TestCase):
         moved = moved.replace("      - name: Stryker\n", "      - name: Summary\n        run: >\n          cat report.md || true\n      - name: Stryker\n")
         self.assertTrue(self._forces(moved))
 
+    def test_a_named_upload_step_is_reporting_only_after_the_stryker_step(self):
+        e = self._edit
+        step = ("      - name: Upload the logs\n        if: always()\n        uses: actions/upload-artifact@v4\n"
+                "        with:\n          name: logs\n          path: x/\n")
+        after = e("      - uses: actions/upload-artifact@v4\n", step + "      - uses: actions/upload-artifact@v4\n")
+        self.assertFalse(self._forces(after))
+        self.assertTrue(self._forces(e("      - name: Stryker\n", step + "      - name: Stryker\n")))      # before Stryker
+        # another action, or a plain key of a step that runs something, is not reporting
+        other = step.replace("actions/upload-artifact@v4", "actions/cache/save@v4")
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", other + "      - uses: actions/upload-artifact@v4\n")))
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step.replace("with:", "shell: bash\n        with:") + "      - uses: actions/upload-artifact@v4\n")))
+        # the same name twice
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step + step + "      - uses: actions/upload-artifact@v4\n")))
+        # the real workflow's logs steps are harmless in both jobs (they are in it already: removing one is harmless, too)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertEqual(2, wf.count("name: Upload the Stryker logs"))
+        removed = wf.replace(wf[wf.index("      - name: Upload the Stryker logs"):wf.index("          if-no-files-found: warn\n", wf.index("      - name: Upload the Stryker logs")) + len("          if-no-files-found: warn\n")], "", 1)
+        self.assertFalse(self._forces(removed, wf))
+
     def test_yaml_anchors_aliases_and_merge_keys_force_a_full_run(self):
         e = self._edit
         anchored = e("    runs-on: ubuntu-latest\n    timeout", "    runs-on: &runner ubuntu-latest\n    timeout")
