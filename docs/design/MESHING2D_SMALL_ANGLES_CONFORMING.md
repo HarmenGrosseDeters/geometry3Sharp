@@ -29,6 +29,13 @@ Delaunay**: the in-circle test of the apex of one triangle at e against the circ
 two triangles of the kernel's triangulation at e (holes and outside included, as the conforming mode already counts them; a ghost side counts as
 Delaunay). Nothing else changes: the pair, the v condition, (i) and (ii), the causes 1 and 2, the shells, the grid rules, the constrained mode.
 
+**Preconditions** (the O2 argument of section 3 needs them): the rule is evaluated only in the conforming mode with `MinAngle > 0` (`MinAngle == 0`
+leaves it off, as `ApexExempt` does today: `sin2Min > 0`); lenses are always off in the conforming mode (`LensesForBenchmarks` aside; the code
+asserts that no conforming path enables them, since Chew's deletion of free vertices runs only with lenses); no Steiner limit reached (at the limit
+the oracle judges the mesh as constrained Delaunay). The side choice is the one `Encroached` makes (the apex of each of the two triangles at e, the
+ghost side skipped before the call), and "not Delaunay" is the exact `InCircle > 0`. `RestoreDelaunay` is a no-op in the normal run and rule C is
+not re-evaluated after it.
+
 In words: the conforming mode leaves a subsegment unsplit for a partner vertex only while that subsegment is a Delaunay edge.
 
 ## 3. O2 is kept (this part is an argument, not a measurement)
@@ -52,11 +59,14 @@ Probe 2 (same state, rule C added; filters F-4/, F-5, F-22, F-26, F-27, F-38, F-
 | F-4/c | 71 412 | 56 595 |
 | F-5 | 6 075 | 3 609 |
 | F-22/a | 40 006 | 40 006 |
-| F-26, F-27 | 1 624 | 432 |
+| F-26 | 1 624 | 432 |
+| F-27 | 1 624 | 432 |
 | F-38/d | 22 344 | 21 957 |
 | F-42 | 23 934 | 18 874 |
 
-Rows not listed are unchanged. For reference, the constrained mode with #394: F-5 3 269, F-22/a 386, F-38/d 3 165, F-42 18 245. So rule C keeps
+Each of F-26 and F-27 is its own row (the same input shape, the same numbers). Rows not listed are unchanged, among them F-38/e (57) and F-39
+(1 188): in probe 1 the unchanged rule exempted a subsegment there and broke O2 (F-38/e even globally), and rule C revokes exactly those exemptions,
+so the mesh returns to master's. For reference, the constrained mode with #394: F-5 3 269, F-22/a 386, F-38/d 3 165, F-42 18 245. So rule C keeps
 much of the gain on F-4, F-5, F-26/27 and F-42 and little on F-22/a and F-38/d (fans and narrow wedges, where the other apex of s often is a
 nearly 180° neighbour, so s stops being Delaunay). The corpus (island, cdt, stmlf/1461, Herne) is not measured; that is the first measurement of the
 PR, on a runner.
@@ -70,6 +80,14 @@ PR, on a runner.
   two ends; I do not have a proof and I do not claim one.
 - What carries over from §6.2: the cure is applied only to a refinement vertex on a source incident to s's source (or meeting it), the situation of
   the figure-eight cycle. The forced splits of rule C (s not Delaunay) are splits that conforming Delaunay needs whatever the angles are.
+- **No state cycle (review, argument A).** In the conforming mode no vertex is ever deleted (Chew's deletion of free vertices runs only with
+  lenses; the carve runs only before `firstSteiner`), and a subsegment is re-examined only when its neighbourhood changed (the dirty queue,
+  `Dirty` / `Collect`). So the vertex set only grows, and non-termination can only be an unbounded cascade of splits, which `SteinerLimit` stops
+  and reports.
+- **A revoked exemption never returns (argument B).** If s is not locally Delaunay, s is not an edge of the Delaunay triangulation of any
+  superset of the current vertices (the in-circle witness stays in every superset's triangulation of those points: the two apexes and s's ends are
+  still there, and the circle through them is non-empty). So every forced split is needed by any conforming solution, whatever the angles.
+  What stays open is only the cascade: there is no insertion-radius bound for it.
 - Open for the reviewer: is there a cycle in which a forced split (s not Delaunay) halves an apex piece, a circumcentre then lands near the partner
   piece, and the roles swap for ever? Probe 2 settles on every probed row; the corpus is the test.
 
