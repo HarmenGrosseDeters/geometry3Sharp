@@ -65,7 +65,8 @@ namespace g3
     /// the features before rounding; this works on the rounded mesh and has no guarantee that every case can
     /// be repaired).
     ///
-    /// Bounded displacement: every vertex has a drift, 0 at the start. An edit gives its apex, a vertex of every triangle
+    /// Bounded displacement: every vertex has a drift, 0 at the start; it is a charge, not a bound on how far that vertex
+    /// itself moved (an edit charges its apex, which need not be a vertex it moves). An edit gives its apex, a vertex of every triangle
     /// it adds (all vertices of the triangles it removes and adds if it has none: zips, strip zips of longer loops, ear
     /// contractions; docs/design/ROUNDING_DRIFT_APEX.md), the largest drift among the vertices of the triangles it removes
     /// and adds plus a bound on how far it moves the surface: the distance a
@@ -759,6 +760,18 @@ namespace g3
             foreach (Index3i tv in added)
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
             editApex = apex_of(added);
+            if (check) {
+                // (an independent statement of M: the largest drift over every vertex of the removed and the added
+                // triangles; drift_apex.py proves the bound for that M, not for one over the added triangles only)
+                double m2 = 0;
+                foreach (int t in removed)
+                    foreach (int v in Mesh.GetTriangle(t).array)
+                        m2 = Math.Max(m2, drift[v]);
+                foreach (Index3i tv in added)
+                    m2 = Math.Max(m2, Math.Max(drift[tv.a], Math.Max(drift[tv.b], drift[tv.c])));
+                if (!(most == m2))
+                    throw new InvalidOperationException("MeshRoundingRepair check: M " + most + " is not the largest drift of the edit's vertices, " + m2);
+            }
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
             if (within_bound(most, step) == false)
@@ -891,9 +904,15 @@ namespace g3
         {
             if (editApex >= 0) {
                 if (check) {
-                    foreach (Index3i tv in added)
+                    // (against the mesh after the edit: every added triangle is there, with the apex)
+                    foreach (Index3i tv in added) {
                         if (tv.a != editApex && tv.b != editApex && tv.c != editApex)
                             throw new InvalidOperationException("MeshRoundingRepair check: the apex " + editApex + " is not in the added triangle " + tv);
+                        if (Mesh.FindTriangle(tv.a, tv.b, tv.c) < 0)
+                            throw new InvalidOperationException("MeshRoundingRepair check: the added triangle " + tv + " is not in the mesh after the edit");
+                    }
+                    // (defensive only: the apex is a vertex of the added triangles, so its drift is part of M, and the
+                    // step is not negative; this cannot fail while improves computes M as it does)
                     if (!(editDrift >= drift[editApex]))
                         throw new InvalidOperationException("MeshRoundingRepair check: the apex's drift would decrease");
                 }

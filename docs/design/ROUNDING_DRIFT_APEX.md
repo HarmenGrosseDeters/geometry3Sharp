@@ -146,7 +146,7 @@ adds this one.
 
 **Procedural case (the test).** A sphere (20 vertices per cube edge) with needles: edges split at 1e-13 from one end,
 chosen so that no needle's end is an end or an opposite vertex of another (694 needles, 1388 degenerate triangles);
-neighbouring needles share opposite vertices only. With a bound of 1.5 needles, today's rule leaves 880 degenerate
+neighbouring needles share opposite vertices only. With a bound of 1.5 needles, today's rule leaves 834 degenerate
 triangles (the drift of a contraction goes to the opposite vertices, and the next needle there starts from it); the
 apex rule repairs all 694 (`RoundingDriftApexTests`).
 
@@ -157,7 +157,9 @@ apex rule repairs all 694 (`RoundingDriftApexTests`).
    `MaxDrift` distribution, times; runner job) before the PR is marked ready.
 3. Done: the review of the note (#415, #416).
 4. This PR: the implementation, with a check mode that asserts the apex is in every added triangle and that its drift
-   does not decrease; tests on a procedural D1 case (fail on master), `Similarity.All()`, serial = parallel, reuse; the
+   does not decrease (defensive: it holds by construction, the apex being a vertex of the edit, so it is no extra
+   guarantee); in check mode also M recomputed over the removed and added triangles and every added triangle found in
+   the mesh after the edit; tests on a procedural D1 case (fail on master), `Similarity.All()`, serial = parallel, reuse; the
    source contract in `tools/Z3Pilot/drift_apex.py`.
 
 ## 7. Prior art

@@ -13,8 +13,9 @@ namespace geometry3Sharp.Tests
     /// of the triangles it removes and adds (docs/design/ROUNDING_DRIFT_APEX.md; the lemma is checked by Z3,
     /// tools/Z3Pilot/drift_apex.py). Neighbouring edits that share no apex then do not add up their drifts: needles that
     /// share only the vertices opposite their short edges are all repaired within a bound of 1.5 times one needle, where
-    /// the old rule chained them through the shared vertices. The check mode asserts that the apex is in every added
-    /// triangle and that its drift does not decrease.
+    /// the old rule chained them through the shared vertices. The check mode asserts that M is the largest drift over the
+    /// removed and added triangles' vertices, that the apex is in every added triangle and every added triangle in the
+    /// mesh after the edit (and, defensively, that the apex's drift does not decrease, which holds by construction).
     /// </summary>
     public class RoundingDriftApexTests
     {
@@ -57,7 +58,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Needles_SharingOppositeVertices_AllRepairedWithinTheBound()
         {
-            // before: 880 of the 1388 degenerate triangles left (the drift of each contraction went to the opposite
+            // before: 834 of the 1388 degenerate triangles left (the drift of each contraction went to the opposite
             // vertices too, and the next needle there started from it)
             DMesh3 start = Needles(S, out int count), m = new DMesh3(start);
             Assert.True(count > 600, $"{count} needles");
@@ -152,6 +153,50 @@ namespace geometry3Sharp.Tests
             r.Mesh = new DMesh3(start);
             Assert.True(r.Apply());
             Assert.Equal("", Invariance.Difference(serial, r.Mesh));
+        }
+
+        // a sphere with chains of needles: every 7th edge split at the given distances from its first end, so that the
+        // contractions follow each other along the edge. Farthest first: each needle vertex has a smaller id than the
+        // next nearer one, and the contractions keep the same vertex (one apex charged again and again); nearest first:
+        // the vertex charged by one contraction vanishes in the next (its drift must come with it)
+        static DMesh3 Chains(bool farthestFirst, params double[] at)
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            foreach (int eid in m.EdgeIndices().ToArray()) {
+                if (eid % 7 != 0 || m.IsEdge(eid) == false)
+                    continue;
+                Index2i ev = m.GetEdgeV(eid);
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b), dir = (b - a).Normalized;
+                int e = eid;
+                foreach (double s in farthestFirst ? at.OrderByDescending(x => x) : at.OrderBy(x => x)) {
+                    Assert.Equal(MeshResult.Ok, m.SplitEdge(e, out DMesh3.EdgeSplitInfo info));
+                    m.SetVertex(info.vNew, a + s * dir);
+                    e = farthestFirst ? m.FindEdge(ev.a, info.vNew) : m.FindEdge(info.vNew, ev.b);
+                }
+            }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(true, new double[] { 1e-13, 2e-13 })]
+        [InlineData(true, new double[] { 1e-13, 2e-13, 3e-13, 4e-13 })]
+        [InlineData(true, new double[] { 1e-13, 3e-13, 4e-13 })]
+        [InlineData(false, new double[] { 1e-13, 2e-13 })]
+        [InlineData(false, new double[] { 1e-13, 2e-13, 3e-13, 4e-13 })]
+        public void Chains_TheSurfaceWithinMaxDrift(bool farthestFirst, double[] at)
+        {
+            // contractions that follow each other through one vertex, each charging its apex: the repaired surface lies
+            // within MaxDrift of the start (vertices against triangles, both ways) and MaxDrift within the bound. The
+            // drifts must add up along the chain: without the apex's charge, or with M over the added triangles only
+            // (the vanishing vertex's drift dropped), MaxDrift falls below the distance the surface moved
+            DMesh3 start = Chains(farthestFirst, at), m = new DMesh3(start);
+            var r = new MeshRoundingRepair(m);
+            Assert.True(r.Apply());
+            Assert.True(r.Collapses >= 2 * at.Length);
+            double moved = Invariance.VertexDistance(m, start);
+            Assert.True(moved > 0, $"moved {moved:G3}");
+            Assert.True(moved <= r.MaxDrift * (1 + 1e-9), $"moved {moved:G3}, MaxDrift {r.MaxDrift:G3}");
+            Assert.True(r.MaxDrift <= r.MaxLength);
         }
     }
 }

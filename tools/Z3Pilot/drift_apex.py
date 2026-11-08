@@ -17,7 +17,7 @@ The invariant, with D(T) the largest drift of the corners of T and S0 the surfac
 The lemma: one edit that satisfies the two-sided bounds (E1) / (E2) keeps I, and d' >= d, and max d' <= L.
 
 CHARGING below is the specification: the obligations are derived from it (edit_formula, obligations), so a change
-of the specification is checked by Z3; the future source contract checks the code against it.
+of the specification is checked by Z3; source_contract() checks the code against it.
 
 Model (README, section 'Pilot 2, step 1'): the distances are real variables, the geometric facts are hypotheses (the
 witness points of (E1), (E2) and of I before the edit, and the triangle inequality); the combinatorics are fixed,
@@ -32,6 +32,8 @@ SAT with a witness replayed with fractions outside Z3; UNKNOWN never counts.
 source_contract() checks the code against CHARGING: the drift accounting of mesh_ops/MeshRoundingRepair.cs
 (improves: M over the vertices of R and A and the apex of A; within_bound: accepted if M + delta <= maxLength;
 apex_of: a vertex of every added triangle; commit_drift: only the apex gets M + delta, else every vertex of R and A).
+The contract compares the text of these methods; the check-mode blocks in improves and commit_drift (between the parts
+it compares) are not covered by it: they are tested by the C# check-mode tests (RoundingDriftApexTests).
 """
 import re
 from fractions import Fraction
@@ -417,19 +419,6 @@ def run(timeout_ms=120000):
                             'induction over edits and the per-vertex chain counter are review-only.')
 
 
-if __name__ == '__main__':
-    import argparse
-    import json
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--timeout-ms', type=int, default=120000)
-    parser.add_argument('--out', required=True)
-    args = parser.parse_args()
-    report = run(args.timeout_ms)
-    with open(args.out, 'w') as fh:
-        fh.write(json.dumps(report, indent=2) + '\n')
-    print(json.dumps({k: report[k] for k in ('obligations_passed', 'total_seconds')}))
-    raise SystemExit(0 if report['obligations_passed'] else 1)
-
 
 def _method(text, signature):
     start = text.index(signature)
@@ -494,3 +483,16 @@ def source_contract():
         raise ValueError('commit_drift: only the apex gets M + delta, else every vertex of R and A; review drift_apex.py')
     if text.count('editApex =') != 1 or text.count('drift[editApex]') != 2:
         raise ValueError('editApex is set or read elsewhere; review drift_apex.py')
+
+if __name__ == '__main__':
+    import argparse
+    import json
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--timeout-ms', type=int, default=120000)
+    parser.add_argument('--out', required=True)
+    args = parser.parse_args()
+    report = run(args.timeout_ms)
+    with open(args.out, 'w') as fh:
+        fh.write(json.dumps(report, indent=2) + '\n')
+    print(json.dumps({k: report[k] for k in ('obligations_passed', 'total_seconds')}))
+    raise SystemExit(0 if report['obligations_passed'] else 1)
