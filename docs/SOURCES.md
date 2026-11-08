@@ -557,3 +557,8 @@ Pilot 2 (`tools/Z3Pilot/filter_rules.py`, the error-bound rules of `tools/Predic
 model of floating-point arithmetic and its variant `fl(s) = s / (1 + d)` from N. J. Higham, *Accuracy and Stability
 of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2, and the form of the filter bounds (`|e~ - e| <= c m~`) of
 J. R. Shewchuk 1997 (see above); results only, no code.
+
+- Alec Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
+  [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
+  3.1. Paper-only mathematical source for the `LinearEdges` adapter and
+  `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.

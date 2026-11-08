@@ -269,15 +269,18 @@ namespace geometry3Sharp.Tests
         [InlineData(MarchingCubes.RootfindingModes.SingleLerp)]
         [InlineData(MarchingCubes.RootfindingModes.LerpSteps)]
         [InlineData(MarchingCubes.RootfindingModes.Bisection)]
+        [InlineData(MarchingCubes.RootfindingModes.LinearEdges)]
         public void MarchingCubes_ParallelIdsMatchSerialAndReuse(MarchingCubes.RootfindingModes mode)
         {
+            // (LinearEdges throws for a grid node on the level, as the node (1, 0, 0) is for level 0: an offset level)
+            double level = mode == MarchingCubes.RootfindingModes.LinearEdges ? 0.1 : 0;
             DMesh3 reference = null;
             foreach (Similarity s in Similarity.All()) {
                 Vector3d center = s.Apply(Vector3d.Zero);
                 var mc = new MarchingCubes {
                     Implicit = new ImplicitSphere3d { Origin = center, Radius = s.Scale },
                     Bounds = new AxisAlignedBox3d(center, 1.5 * s.Scale), CubeSize = 0.25 * s.Scale,
-                    RootMode = mode, ParallelCompute = false
+                    IsoValue = level * s.Scale, RootMode = mode, ParallelCompute = false
                 };
                 mc.Generate();
                 DMesh3 serial = mc.Mesh;
@@ -287,7 +290,7 @@ namespace geometry3Sharp.Tests
                 if (reference == null) reference = serial;
                 if (s.IsExact)
                     Assert.Equal("", Invariance.Difference(reference, Invariance.MappedBack(serial, s)));
-                Assert.All(serial.Vertices(), v => Assert.InRange((v - center).Length / s.Scale, 0.97, 1.03));
+                Assert.All(serial.Vertices(), v => Assert.InRange((v - center).Length / s.Scale, 0.97 + level, 1.03 + level));
                 mc.ParallelCompute = true;
                 for (int run = 0; run < 3; ++run) {
                     mc.Generate();

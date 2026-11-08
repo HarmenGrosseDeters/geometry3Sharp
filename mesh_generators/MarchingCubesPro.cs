@@ -40,7 +40,21 @@ namespace gs
         /// </summary>
         public bool ParallelCompute = true;
 
-        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
+        /// <summary>
+        /// How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, bisection,
+        /// or LinearEdges: one linear interpolation of the original corner samples, without the endpoint nudges and
+        /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
+        /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
+        /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed triangle, or as a guard a rejected
+        /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
+        /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
+        /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
+        /// GenerateContinuation() (its 16-bit grid hash), whose seeds must lie in the grid (cell indices 0 to n), and
+        /// otherwise throws ArgumentException before any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
+        /// </summary>
+        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
         /// <summary>
         /// Which rootfinding method will be used to converge on surface along edges
@@ -85,6 +99,7 @@ namespace gs
         {
             Mesh = new DMesh3();
 
+            check_linear_edges_grid(65535);
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
@@ -107,11 +122,15 @@ namespace gs
         {
             Mesh = new DMesh3();
 
+            // (the continuation also visits the cells of index nx, ny, nz: GridBounds.Contains is inclusive)
+            check_linear_edges_grid(65534);
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
             CellDimensions = new Vector3i(nx, ny, nz);
             GridBounds = new AxisAlignedBox3i(Vector3i.Zero, CellDimensions);
+            if (RootMode == RootfindingModes.LinearEdges)
+                seeds = check_linear_edges_seeds(seeds);
 
             if (LastGridBounds != GridBounds) {
                 corner_values_grid = new DenseGrid3f(nx + 1, ny + 1, nz + 1, float.MaxValue);
@@ -136,6 +155,45 @@ namespace gs
             LastGridBounds = GridBounds;
         }
 
+
+
+        /// <summary>
+        /// The corner and edge hashes keep 16 bits of each corner index (0 to 65535). Generate() visits the cells 0 to
+        /// n - 1 of an axis with n = (int)(w / h) + 1 cells, so corner indices up to n: at most 65535 cells.
+        /// GenerateContinuation() also visits the cell n (GridBounds.Contains is inclusive), corner indices up to
+        /// n + 1: at most 65534 cells. Beyond that two grid edges alias onto one vertex; LinearEdges refuses such a
+        /// grid, and a cube size that is not finite and positive, before any work (the legacy modes keep their
+        /// behaviour). (int)(w / h) + 1 &lt;= maxCells iff w / h &lt; maxCells (also false for NaN and infinity)
+        /// </summary>
+        void check_linear_edges_grid(int maxCells)
+        {
+            if (RootMode != RootfindingModes.LinearEdges)
+                return;
+            if (!(CubeSize > 0) || double.IsInfinity(CubeSize))
+                throw new ArgumentException("MarchingCubesPro LinearEdges: the cube size must be finite and positive");
+            if (!(Bounds.Width / CubeSize < maxCells) || !(Bounds.Height / CubeSize < maxCells) || !(Bounds.Depth / CubeSize < maxCells))
+                throw new ArgumentException($"MarchingCubesPro LinearEdges: at most {maxCells} cells per axis (16-bit grid hash)");
+        }
+
+
+        /// <summary>
+        /// LinearEdges: the continuation visits the cells of GridBounds (inclusive: indices 0 to n per axis) and the
+        /// seed cells, which cell_index does not clamp; a seed cell outside that range (eg a negative index) would
+        /// alias in the 16-bit hash. cell_index truncates (pos - min) / h toward zero, so its index lies in [0, n] iff
+        /// -1 &lt; (pos - min) / h &lt; n + 1 (also false for NaN and infinity). The seeds are read once, before any work
+        /// </summary>
+        List<Vector3d> check_linear_edges_seeds(IEnumerable<Vector3d> seeds)
+        {
+            var list = new List<Vector3d>(seeds);
+            foreach (Vector3d seed in list) {
+                for (int d = 0; d < 3; ++d) {
+                    double q = (seed[d] - Bounds.Min[d]) / CubeSize;
+                    if (!(q > -1 && q < CellDimensions[d] + 1))
+                        throw new ArgumentException("MarchingCubesPro LinearEdges: a seed lies outside the grid of the continuation");
+                }
+            }
+            return list;
+        }
 
 
         AxisAlignedBox3i GridBounds;
@@ -389,7 +447,10 @@ namespace gs
             cell.i[7] = new Vector3i(idx.x + 0, idx.y + 1, idx.z + 1);
 
             //initialize_cell_values(cell, false);
-            initialize_cell_values_grid(cell, false);
+            if (RootMode == RootfindingModes.LinearEdges)
+                initialize_cell_values_nohash(cell, false);
+            else
+                initialize_cell_values_grid(cell, false);
             //initialize_cell_values_nohash(cell, false);
         }
 
@@ -408,7 +469,10 @@ namespace gs
             cell.i[4].x = xi; cell.i[5].x = xi+1; cell.i[6].x = xi+1; cell.i[7].x = xi;
 
             //initialize_cell_values(cell, true);
-            initialize_cell_values_grid(cell, true);
+            if (RootMode == RootfindingModes.LinearEdges)
+                initialize_cell_values_nohash(cell, true);
+            else
+                initialize_cell_values_grid(cell, true);
             //initialize_cell_values_nohash(cell, true);
         }
 
@@ -425,25 +489,29 @@ namespace gs
             parallel_mesh_access = true;
 
             // [TODO] maybe shouldn't alway use Z axis here?
-            gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
-                GridCell cell = new GridCell();
-                int[] vertlist = new int[12];
-                for (int yi = 0; yi < CellDimensions.y; ++yi) {
-                    if (CancelF())
-                        return;
-                    // compute full cell at x=0, then slide along x row, which saves half of value computes
-                    Vector3i idx = new Vector3i(0, yi, zi);
-                    initialize_cell(cell, ref idx);
-                    polygonize_cell(cell, vertlist);
-                    for (int xi = 1; xi < CellDimensions.x; ++xi) {
-                        shift_cell_x(cell, xi);
+            Exception failure = null;
+            try {
+                gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
+                    GridCell cell = new GridCell();
+                    int[] vertlist = new int[12];
+                    for (int yi = 0; yi < CellDimensions.y; ++yi) {
+                        if (CancelF())
+                            return;
+                        // compute full cell at x=0, then slide along x row, which saves half of value computes
+                        Vector3i idx = new Vector3i(0, yi, zi);
+                        initialize_cell(cell, ref idx);
                         polygonize_cell(cell, vertlist);
+                        for (int xi = 1; xi < CellDimensions.x; ++xi) {
+                            shift_cell_x(cell, xi);
+                            polygonize_cell(cell, vertlist);
+                        }
                     }
-                }
-            });
-
-
-            parallel_mesh_access = false;
+                });
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            } finally {
+                parallel_mesh_access = false;
+            }
         }
 
 
@@ -527,38 +595,44 @@ namespace gs
             mesh_lock = new SpinLock();
             parallel_mesh_access = true;
 
-            gParallel.ForEach(seeds, (seed) => {
-                Vector3i seed_idx = cell_index(seed);
-                if (set_cell_if_not_done(ref seed_idx) == false)
-                    return;
-
-                GridCell cell = new GridCell();
-                int[] vertlist = new int[12];
-
-                List<Vector3i> stack = new List<Vector3i>();
-                stack.Add(seed_idx);
-
-                while (stack.Count > 0) {
-                    Vector3i idx = stack[stack.Count - 1];
-                    stack.RemoveAt(stack.Count - 1);
-                    if (CancelF())
+            Exception failure = null;
+            try {
+                gParallel.ForEach(seeds, (seed) => {
+                    Vector3i seed_idx = cell_index(seed);
+                    if (set_cell_if_not_done(ref seed_idx) == false)
                         return;
 
-                    initialize_cell(cell, ref idx);
-                    if (polygonize_cell(cell, vertlist)) {     // found crossing
-                        foreach (Vector3i o in gIndices.GridOffsets6) {
-                            Vector3i nbr_idx = idx + o;
-                            if (GridBounds.Contains(nbr_idx)) {
-                                if (set_cell_if_not_done(ref nbr_idx) == true) { 
-                                    stack.Add(nbr_idx);
+                    GridCell cell = new GridCell();
+                    int[] vertlist = new int[12];
+
+                    List<Vector3i> stack = new List<Vector3i>();
+                    stack.Add(seed_idx);
+
+                    while (stack.Count > 0) {
+                        Vector3i idx = stack[stack.Count - 1];
+                        stack.RemoveAt(stack.Count - 1);
+                        if (CancelF())
+                            return;
+
+                        initialize_cell(cell, ref idx);
+                        if (polygonize_cell(cell, vertlist)) {     // found crossing
+                            foreach (Vector3i o in gIndices.GridOffsets6) {
+                                Vector3i nbr_idx = idx + o;
+                                if (GridBounds.Contains(nbr_idx)) {
+                                    if (set_cell_if_not_done(ref nbr_idx) == true) { 
+                                        stack.Add(nbr_idx);
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-
-            parallel_mesh_access = false;
+                });
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                // (LinearEdges documents InvalidOperationException and ArgumentException, not the AggregateException of the loop)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            } finally {
+                parallel_mesh_access = false;
+            }
         }
 
 
@@ -633,8 +707,11 @@ namespace gs
                 // if a corner is within tolerance of isovalue, then some triangles
                 // will be degenerate, and we can skip them w/o resulting in cracks (right?)
                 // !! this should never happen anymore...artifact of old hashtable impl
-                if (a == b || a == c || b == c)
+                if (a == b || a == c || b == c) {
+                    if (RootMode == RootfindingModes.LinearEdges)
+                        throw new InvalidOperationException("LinearEdges: a triangle collapsed (coincident crossings)");
                     continue;
+                }
 
                 /*int tid = */
                 append_triangle(a, b, c);
@@ -682,6 +759,8 @@ namespace gs
             if (lock_taken)
                 mesh_lock.Exit();
 
+            if (RootMode == RootfindingModes.LinearEdges && tid < 0)
+                throw new InvalidOperationException("LinearEdges: mesh rejected a required triangle");
             return tid;
         }
 
@@ -701,20 +780,23 @@ namespace gs
             // repeated nearly-coincident vertices, but the mesh will be manifold.
             // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
             // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
-            const double dt = 0.999999;
-            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
-            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
-            if (Math.Abs(valp1 - valp2) <= tol) {
-                pIso = (p1 + p2) * 0.5;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp1) < tol) {
-                pIso = dt * p1 + (1.0 - dt) * p2;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp2) < tol) {
-                pIso = (dt) * p2 + (1.0 - dt) * p1;
-                return;
+            // LinearEdges bypasses the endpoint nudges used by the legacy modes.
+            if (RootMode != RootfindingModes.LinearEdges) {
+                const double dt = 0.999999;
+                double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+                if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+                if (Math.Abs(valp1 - valp2) <= tol) {
+                    pIso = (p1 + p2) * 0.5;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp1) < tol) {
+                    pIso = dt * p1 + (1.0 - dt) * p2;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp2) < tol) {
+                    pIso = (dt) * p2 + (1.0 - dt) * p1;
+                    return;
+                }
             }
 
             // [RMS] if we don't maintain min/max order here, then numerical error means
@@ -724,6 +806,23 @@ namespace gs
             if (valp2 < valp1) {
                 a = p2; b = p1;
                 fb = valp1; fa = valp2;
+            }
+
+            if (RootMode == RootfindingModes.LinearEdges) {
+                double gap = fb - fa;
+                double t = (IsoValue - fa) / gap;
+                if (!(gap > 0) || double.IsInfinity(gap) || double.IsNaN(t) || double.IsInfinity(t))
+                    throw new ArgumentException("LinearEdges requires finite, distinct crossing values");
+                t = Math.Max(0, Math.Min(1, t));
+                for (int d = 0; d < 3; ++d) {
+                    double q = a[d] + t * (b[d] - a[d]);
+                    if (double.IsNaN(q) || double.IsInfinity(q))
+                        throw new ArgumentException("LinearEdges requires finite edge coordinates");
+                    pIso[d] = Math.Max(Math.Min(a[d], b[d]), Math.Min(Math.Max(a[d], b[d]), q));
+                }
+                if (pIso == a || pIso == b)
+                    throw new InvalidOperationException("LinearEdges requires strictly interior edge crossings");
+                return;
             }
 
             // converge on root
