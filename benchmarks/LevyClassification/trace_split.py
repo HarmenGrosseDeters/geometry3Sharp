@@ -11,6 +11,8 @@ from the leaf up (CPU samples on all threads, so parallel parts count with their
   stack        coplanar_stack (incl. its centroid point)
   patch_setup  patch_winding minus the above (centroid, candidate query)
   rest         union-find, edge grouping, the per-piece pass
+and, across these parts: add_point (ExactMeshArrangement.AddPoint of the exact centroids), gwn_build (the fast
+winding tree of an open mesh, built serially before the parallel loop) and gwn_eval (its evaluations).
 Thread samples blocked in waits are dropped (the rest is busy time on all threads, so parallel parts count with\ntheir CPU time, not wall time). Prints one JSON line per trace."""
 import json, os, sys
 
@@ -53,6 +55,9 @@ def split(path):
         part_of.append(p)
     tot = {k: 0.0 for k, _ in PARTS}
     tot['rest'] = 0.0
+    extra = {'add_point': 0.0, 'gwn_build': 0.0, 'gwn_eval': 0.0}
+    is_add = ['ExactMeshArrangement.AddPoint(' in n for n in names]
+    is_tree = ['ExactMeshBoolean.winding_tree(' in n for n in names]
     allw = waitw = 0.0
     for prof in d['profiles']:
         for stack, w in stacks(prof):
@@ -68,9 +73,16 @@ def split(path):
                     part = part_of[f]
                     break
             tot[part] += w
+            # cross-cutting: the exact centroid points added to the arrangement (centroid -> AddPoint, in stack
+            # and patch_setup), and for open meshes the fast-winding tree build versus its evaluations
+            if any(is_add[f] for f in stack):
+                extra['add_point'] += w
+            if part == 'gwn':
+                extra['gwn_build' if any(is_tree[f] for f in stack) else 'gwn_eval'] += w
     cls = sum(tot.values())
     return {'trace': os.path.basename(path), 'busy_ms': round(allw), 'classification_busy_ms': round(cls),
-            **{k: round(v / cls, 3) if cls else 0 for k, v in tot.items()}}
+            **{k: round(v / cls, 3) if cls else 0 for k, v in tot.items()},
+            **{k: round(v / cls, 3) if cls else 0 for k, v in extra.items()}}
 
 
 if __name__ == '__main__':
