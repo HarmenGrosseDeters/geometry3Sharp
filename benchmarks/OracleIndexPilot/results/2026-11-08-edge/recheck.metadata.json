@@ -1,33 +1,33 @@
 {
   "binaries": {
     "mesh_benchmark": {
-      "path": "/workspace/geometry3Sharp-meshing-qa/benchmarks/Meshing2Benchmark/bin/Release/net10.0/Meshing2Benchmark.dll",
+      "path": "<baseline-benchmark>/Meshing2Benchmark.dll",
       "sha256": "9fa6588e2ee5acb2b3c3e61790ecf9125924d317fad15c9b5193f2c17c498231"
     },
     "mesh_oracle": {
-      "path": "/workspace/geometry3Sharp-meshing-qa/benchmarks/Meshing2Benchmark/bin/Release/net10.0/Meshing2Oracle.dll",
+      "path": "<baseline-benchmark>/Meshing2Oracle.dll",
       "sha256": "5d4a795fe65c7038a7e525e2eae07082f10ed45556a02489d8ba0e3e6f805c4a"
     },
     "mesh_library": {
-      "path": "/workspace/geometry3Sharp-meshing-qa/benchmarks/Meshing2Benchmark/bin/Release/net10.0/geometry3Sharp.dll",
+      "path": "<baseline-benchmark>/geometry3Sharp.dll",
       "sha256": "89fff5ba71aadc49333eee47115c479ef70294ddcd7c930dee3e734fc748f78a"
     },
     "pilot_benchmark": {
-      "path": "/workspace/strtree-edge-variant-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll",
+      "path": "<benchmark>/Meshing2Benchmark.dll",
       "sha256": "25656133fefa7f70466a23db0d51756e2b0d4b17878bb5aec556d346fa2b2f6b"
     },
     "pilot_oracle": {
-      "path": "/workspace/strtree-edge-variant-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Oracle.dll",
+      "path": "<benchmark>/Meshing2Oracle.dll",
       "sha256": "0f069699da5bd51ad28a2b599efc58be5a0a4dc41fb45e6b6c5326db582b2879"
     },
     "pilot_library": {
-      "path": "/workspace/strtree-edge-variant-artifacts/bin/Meshing2Benchmark/release_net10.0/geometry3Sharp.dll",
+      "path": "<benchmark>/geometry3Sharp.dll",
       "sha256": "9c68c5a152d28670af4b4a13eef7644ca902359c8f63a95902f69bc2260148fc"
     }
   },
   "baseline_metadata_sha256": "fb656b4fa0fb2f2a7a8cddd2237063871d5f337551d0e26edffb3b16662c5162",
   "controller_sha256": "073879b409c1f9f20c31ddb05b1bc65c5fddef5ba2f5e3283b28d24a414ca952",
-  "working_directory": "/workspace/geometry3Sharp-oracle-strtree",
+  "working_directory": "<repo>",
   "runtime_files": {
     "mesh": {
       "Meshing2Benchmark.deps.json": "6a40ce97d603e16587b4406f93581ec3e29cba405422a5ae6646792828812e0c",

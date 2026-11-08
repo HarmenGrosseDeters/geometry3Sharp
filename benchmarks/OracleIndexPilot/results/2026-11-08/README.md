@@ -60,8 +60,10 @@ with 2118919 leaf candidates and no hits. Its wall time overlaps a short selftes
 as well as the baseline batch. The optional full baseline comparison was stopped
 to prioritize the owner's timeout recheck request; it has no completed timing and
 is not used for a full-mesh speedup ratio. The 128/4096 sampled comparisons are
-complete. Pre-integration source is retained as text under `component-version`;
-its SHA matches the frozen component metadata. The mathematical search/filter
+complete. The pre-integration source (`Program.cs`, SHA-256 `7bb485c1…7f918`, and its
+project file, `3eac46ee…e923`) is not kept as a copy; it stays in commit `4fd98250`:
+`git show 4fd98250:benchmarks/OracleIndexPilot/results/2026-11-08/component-version/Program.cs.txt`.
+Its SHA matches the frozen component metadata. The mathematical search/filter
 was then moved into the test-oracle project for full judging, with compatible
 hash/API calls and unchanged geometric decisions.
 
@@ -112,3 +114,10 @@ The next edge experiment proposed by the owner discussion is STRtree nodes
 augmented by exact endpoint convex hulls, with certified separation and unchanged
 ProperCrossV leaves; an exact intersection sweep is the larger alternative.
 Neither edge optimization is implemented or claimed as measured here.
+
+## Committed records (review of #411)
+
+Machine paths in the committed records are placeholders (`<benchmark>`, `<pilot>`, `<inputs>`, `<work>`, `<repo>`, `dotnet`),
+and raw oracle stdout/stderr is reduced to the verdict, the triangle count, the phase times (`phase_ms`) and, for mutants, the
+failure line. The validation scripts write to `$G3_PILOT_WORK` (default: a new temporary directory). Recorded hashes (rows,
+records, binaries, inputs, outputs) refer to the original, unreduced records and binaries.

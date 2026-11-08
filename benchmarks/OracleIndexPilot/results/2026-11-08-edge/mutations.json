@@ -5,8 +5,7 @@
     "old": "line=!(positive && negative);",
     "new": "line=positive && negative;",
     "exit_code": -6,
-    "stdout": "",
-    "stderr": "Unhandled exception. System.Exception: Edge search differs from exact exhaustive check: hulls\n   at EdgeSelfTest.<>c__DisplayClass2_0.<Run>g__Check|0(Case c, Int32 exponent, Double translate) in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/EdgeSelfTest.cs:line 57\n   at EdgeSelfTest.Run() in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/EdgeSelfTest.cs:line 65\n   at Program.Main(String[] args) in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/Program.cs:line 71\n"
+    "failure": "Unhandled exception. System.Exception: Edge search differs from exact exhaustive check: hulls"
   },
   {
     "name": "wrong-hull-side",
@@ -14,7 +13,6 @@
     "old": "Orient(u,v,a)<=0 && Orient(u,v,b)<=0",
     "new": "Orient(u,v,a)>=0 && Orient(u,v,b)>=0",
     "exit_code": -6,
-    "stdout": "",
-    "stderr": "Unhandled exception. System.Exception: Edge search differs from exact exhaustive check: hulls\n   at EdgeSelfTest.<>c__DisplayClass2_0.<Run>g__Check|0(Case c, Int32 exponent, Double translate) in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/EdgeSelfTest.cs:line 57\n   at EdgeSelfTest.Run() in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/EdgeSelfTest.cs:line 65\n   at Program.Main(String[] args) in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/Program.cs:line 71\n"
+    "failure": "Unhandled exception. System.Exception: Edge search differs from exact exhaustive check: hulls"
   }
 ]

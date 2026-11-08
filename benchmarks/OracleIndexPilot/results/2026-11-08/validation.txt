@@ -1,5 +1,5 @@
 Final point-pilot validation, 2026-11-08. SDK10.0.403, runtime10.0.14.
-All build/pack outputs use /workspace/strtree-final-validation-artifacts; no frozen campaign binaries overwritten.
+All build/pack outputs use <work>; no frozen campaign binaries overwritten.
 
 all-target core build
 Build succeeded.
@@ -17,11 +17,11 @@ Build succeeded.
     0 Error(s)
 
 core API-validating pack
-  Successfully created package '/workspace/strtree-pilot-packages/geometry3Sharp.1.0.0-ci.1.nupkg'.
-  Successfully created package '/workspace/strtree-pilot-packages/geometry3Sharp.1.0.0-ci.1.snupkg'.
+  Successfully created package '<work>/geometry3Sharp.1.0.0-ci.1.nupkg'.
+  Successfully created package '<work>/geometry3Sharp.1.0.0-ci.1.snupkg'.
 
 Clipper2 API-validating pack
-  Successfully created package '/workspace/strtree-pilot-packages/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg'.
+  Successfully created package '<work>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg'.
 
 opt-in targeted oracle/modes/box-pairs/golden tests
 Test Run Successful.

@@ -2,11 +2,10 @@
   "mutation": "Outside: strict <0 becomes <=0",
   "source_sha256": "7bb485c11daecbed7126ca2283e6101a3a9e147b57656778f49abcb65867f918",
   "command": [
-    "/workspace/dotnet/dotnet",
-    "/tmp/oracle-index-mutant-artifacts/bin/OracleIndexPilot/release/OracleIndexPilot.dll",
+    "dotnet",
+    "<work>/bin/OracleIndexPilot/release/OracleIndexPilot.dll",
     "selftest"
   ],
   "exit_code": -6,
-  "stdout": "",
-  "stderr": "Unhandled exception. System.Exception: Search differs from exact exhaustive check: pruned\n   at Program.SelfTest() in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/Program.cs:line 203\n   at Program.Main(String[] args) in /workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/Program.cs:line 215\n"
+  "failure": "Unhandled exception. System.Exception: Search differs from exact exhaustive check: pruned"
 }

@@ -30,3 +30,10 @@ this selection change.
 
 The independent review found no outstanding selection, fallback, controller or
 documentation issue. No merge or change to core library dependencies is made.
+
+## Committed records (review of #411)
+
+Machine paths in the committed records are placeholders (`<benchmark>`, `<pilot>`, `<inputs>`, `<work>`, `<repo>`, `dotnet`),
+and raw oracle stdout/stderr is reduced to the verdict, the triangle count, the phase times (`phase_ms`) and, for mutants, the
+failure line. The validation scripts write to `$G3_PILOT_WORK` (default: a new temporary directory). Recorded hashes (rows,
+records, binaries, inputs, outputs) refer to the original, unreduced records and binaries.

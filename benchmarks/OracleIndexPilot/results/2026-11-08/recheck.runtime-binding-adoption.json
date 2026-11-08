@@ -6,10 +6,10 @@
   "controller_after_sha256": "88c13a550f01ba9f7fe413f9a574380cae974857e7d65a2313d756242d19e3f1",
   "all_previously_bound_binaries_unchanged": true,
   "nts_verified_against_release_package_and_frozen_component": {
-    "/workspace/geometry3Sharp-meshing-qa/benchmarks/Meshing2Benchmark/bin/Release/net10.0/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
-    "/workspace/strtree-oracle-variant-artifacts/bin/Meshing2Benchmark/release_net10.0/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
-    "/workspace/nuget/nettopologysuite/2.6.0/lib/netstandard2.1/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
-    "/workspace/geometry3Sharp-oracle-strtree/benchmarks/OracleIndexPilot/bin/Release/net10.0/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858"
+    "<baseline-benchmark>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<benchmark>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<nuget>/nettopologysuite/2.6.0/lib/netstandard2.1/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "<pilot>/NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858"
   },
   "runtime_asset": "NetTopologySuite 2.6.0 netstandard2.1 selected by net10.0",
   "inflight_attempt_discarded": true,
