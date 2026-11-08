@@ -95,10 +95,10 @@ namespace gs
         }
 
         public readonly List<Face> Faces = new List<Face>();
-        public readonly Dictionary<long, int> FaceOf = new Dictionary<long, int>();     // (ta, tb) -> face
-        public readonly Dictionary<long, sbyte> Sign = new Dictionary<long, sbyte>();   // overlay vertex -> sign of D (+1 or -1)
+        public readonly Dictionary<long, int> FaceOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);     // (ta, tb) -> face
+        public readonly Dictionary<long, sbyte> Sign = new Dictionary<long, sbyte>(EdgeKeyComparer.Instance);   // overlay vertex -> sign of D (+1 or -1)
         /// <summary> per overlay edge, its faces (the second is -1 on the boundary of A or B) </summary>
-        public readonly Dictionary<long, Index2i> EdgeFaces = new Dictionary<long, Index2i>();
+        public readonly Dictionary<long, Index2i> EdgeFaces = new Dictionary<long, Index2i>(EdgeKeyComparer.Instance);
         public readonly List<CatchLine> CatchLines = new List<CatchLine>();
         /// <summary> per catch line, the catch points (overlay edge keys) in order </summary>
         public readonly List<List<long>> CatchKeys = new List<List<long>>();
@@ -415,7 +415,7 @@ namespace gs
         bool chain()
         {
             // the links of the catch points through the region faces
-            var links = new Dictionary<long, List<long>>();
+            var links = new Dictionary<long, List<long>>(EdgeKeyComparer.Instance);
             var order = new List<long>();
             var segFace = new Dictionary<(long, long), int>();
             for (int fi = 0; fi < Faces.Count; ++fi) {
@@ -428,7 +428,7 @@ namespace gs
                     l.Add(c == f.C0 ? f.C1 : f.C0);
                 }
             }
-            var done = new HashSet<long>();
+            var done = new HashSet<long>(EdgeKeyComparer.Instance);
             // open chains first (from their ends, in the order the ends were found), then the closed ones
             for (int pass = 0; pass < 2; ++pass) {
                 foreach (long start in order) {
@@ -540,7 +540,7 @@ namespace gs
             face_gradient(face, out gradient, out tangential);
             if (tangential) return;
             if (facesAtVertex == null) {
-                facesAtVertex = new Dictionary<long, List<int>>();
+                facesAtVertex = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
                 for (int fi = 0; fi < Faces.Count; ++fi)
                     foreach (var oe in Faces[fi].Edges)
                         foreach (long k in new[] { oe.P, oe.Q }) {
@@ -625,8 +625,8 @@ namespace gs
 
         // ---------------------------------------------------------------- positions (approximate; 1c reports their accuracy)
 
-        readonly Dictionary<long, Vector3d> catchPos = new Dictionary<long, Vector3d>();
-        readonly Dictionary<long, Vector2d> crossPos = new Dictionary<long, Vector2d>();
+        readonly Dictionary<long, Vector3d> catchPos = new Dictionary<long, Vector3d>(EdgeKeyComparer.Instance);
+        readonly Dictionary<long, Vector2d> crossPos = new Dictionary<long, Vector2d>(EdgeKeyComparer.Instance);
 
         /// <summary> the XY of an overlay vertex: exact for vertices, the rounded crossing otherwise (canonical) </summary>
         public Vector2d VertexXY(long k)

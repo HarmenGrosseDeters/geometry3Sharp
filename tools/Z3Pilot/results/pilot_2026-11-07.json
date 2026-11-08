@@ -1,0 +1,65 @@
+{
+  "z3": "4.15.4",
+  "timeout_ms": 20000,
+  "source_contracts": {
+    "comp_geom/SnapRounding2.cs": "8dc5d022e546baf8267bdea3fab5e1ba86b854237e5368333d35f4f03416f3fa",
+    "benchmarks/Meshing2Benchmark/Oracle/Oracle.cs": "e8cbb1c032325266289672b8ca6751d40fb8923adc82f5cc19de79e9e12ec28e",
+    "benchmarks/Meshing2Benchmark/Oracle/Exact.cs": "03cf3720ef69ded2c9fec59592c557db8d655f442bbd804ae1ac2bca1a42d02a"
+  },
+  "obligations": [
+    {
+      "name": "pixel_index_range",
+      "result": "unsat",
+      "seconds": 0.9401137299998936,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "pixel_lower_regular",
+      "result": "unsat",
+      "seconds": 4.009600674000012,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "pixel_lower_endpoint",
+      "result": "unsat",
+      "seconds": 0.11627947800002403,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "pixel_upper",
+      "result": "unsat",
+      "seconds": 8.37867340799994,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "query_bounds_lower",
+      "result": "unsat",
+      "seconds": 1.0652824910000618,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "query_absolute_pad_equivalent",
+      "result": "unsat",
+      "seconds": 0.24087422799993874,
+      "assumptions_result": "sat"
+    }
+  ],
+  "witness": {
+    "name": "pixel_guard_le_mutant",
+    "result": "sat",
+    "seconds": 0.04767939699991075,
+    "x_bits": 4602678819172646911,
+    "x_hex": "0x1.fffffffffffffp-2",
+    "width": 1,
+    "exact_pixel": 0,
+    "mutant_pixel": 1
+  },
+  "obligations_passed": true,
+  "proof_scope": "Modular binary64 lemmas plus the IEEE rounding/representability bridges in README; not a monolithic solver proof.",
+  "direct_attempt": {
+    "name": "monolithic_pixel",
+    "result": "unknown",
+    "seconds": 13.7664216940002,
+    "reason": "smt tactic failed to show goal to be sat/unsat (incomplete (theory arithmetic))"
+  }
+}

@@ -218,7 +218,9 @@ whether a hard limit can end in a success status.
   flaky.
 - A failing seed becomes an example test.
 - Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
-  `ExactPoint3ConversionTests`). The boolean identities are open.
+  `ExactPoint3ConversionTests`). Boolean identities are covered by `ExactBooleanMetamorphicTests` and the seeded
+  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs`; the directed-family follow-up gives each
+  box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
 

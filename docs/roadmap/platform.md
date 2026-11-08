@@ -7,12 +7,26 @@ Part of the [roadmap](../ROADMAP.md).
   the DAP audit, the upstream ledger, the test suite on other locales, and the release.
 - **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
   issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
+- **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+  Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
+  operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
+  conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
+  proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [design/UPSTREAM_LEDGER_PLAN.md](../design/UPSTREAM_LEDGER_PLAN.md), [tools/g3cli](../../tools/g3cli/README.md).
 
 ### Open
 
+- **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
+  >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
+  its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
+  edit reruns all shards because select_shards.py forces full mode; rounding and envelope never had a master baseline.
+  Owner decision: after #403 merges, (1) region-based full-run selection in select_shards.py + a BASELINE_FORMAT
+  constant in the cache key, (3) suggest_split.py (offsets from baseline weights, shards <= ~150 min), (4) a progress
+  line; seed master baselines for the new / never-seeded shards by workflow_dispatch right after #403. Later, with
+  per-mutant data: two-tier tests / dropping test classes without exclusive kills; timeout ratio 1.1 / 5 s only after
+  an A/B with identical survivor sets; larger runners are the owner's cost call.
 - **Release:** no public package until the library "just works"; package ID and publishing open (the nuget.org ID
   `geometry3Sharp` belongs to upstream).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
@@ -23,8 +37,10 @@ Part of the [roadmap](../ROADMAP.md).
 - **Verifiable agent work** (QA.md 4a): the parent item is still open; the other items go with the modules they touch
   (status unclear, check).
 - **Two wall-clock tests** (`QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap`,
-  `Predicates_MatchTheOracle_AtAllSizes`) fail only in a full local run: check whether they belong in a
-  DisableParallelization collection.
+  `Predicates_MatchTheOracle_AtAllSizes`): closed 2026-11-08, not reproduced (owner, local): on current master the full
+  suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the
+  `Meshing2OracleTiming` collection (parallelization disabled, guarded by `RobustnessSweepRemainingTests`); the
+  predicate test has no time budget. Reopen only with the exact failing assertion and invocation.
 - **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only, and a
   vertex with d segments costs about d² comparisons; mesh2d report areas underflow to 0 below coordinates of about
   1e-160 (see [stage 8](#stage-8-planned-follow-ups)).
@@ -76,6 +92,29 @@ Tier: S, M. Parallel: up to 2 sessions
     conforming subdivision; CsCheck campaigns with shrinking and replay on net10.0, the fixed corpus also on net48;
     analytic box oracle. Finding: `SafeRounding` moves exact vertices of pieces below its degenerate threshold
     (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
+  - [ ] CsCheck property campaigns beyond the boolean (owner 2026-11-08; after the exact-boolean merge queue; one
+    bounded Sonnet task per area, test-only, findings go as bugfixes to the owning session), in this order:
+    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`): a generator of multi-component inputs with
+       very different sizes and distances (it would have found #420 and #425); properties: no defect the input does
+       not have, `Apply() == true` implies clean by `NotCleanReason`, every vertex displacement <= MaxDrift, 2^k
+       scale invariance.
+    2. 2D mesher (`QualityMesh2`) against the independent oracle (fast since #411 / #427): random polygons with
+       holes, near-parallel and near-touching segments; properties: input segments are unions of output edges,
+       angle bounds, conformity.
+    3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
+       deterministic; shrinking to minimal pinch / cap cases.
+    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
+       (never steeper, cut + fill consistent).
+    Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
+    CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
+    fixed example test (QA.md 2.4).
+  - [ ] Further test tools (owner 2026-11-08, not scheduled; one bounded task each):
+    - Changed-line coverage gate (QA.md item 8) with coverlet (MIT): new or changed lines must be executed by tests;
+      cheap, runs in normal CI, catches part of what the mutation runs find hours later.
+    - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
+      the hand derivation (complements Z3, which checks logical rules).
+    - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
+      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test.
 
 #### Test suite on German Windows
 

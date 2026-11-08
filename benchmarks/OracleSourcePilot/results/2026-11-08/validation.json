@@ -1,0 +1,57 @@
+{
+  "core_all_targets": "passed",
+  "both_net48_test_projects": "passed",
+  "both_api_validating_packs": "passed",
+  "native_counts": {
+    "total": "1178",
+    "executed": "1178",
+    "passed": "1178",
+    "failed": "0",
+    "error": "0",
+    "timeout": "0",
+    "aborted": "0",
+    "inconclusive": "0",
+    "passedButRunAborted": "0",
+    "notRunnable": "0",
+    "notExecuted": "0",
+    "disconnected": "0",
+    "warning": "0",
+    "completed": "0",
+    "inProgress": "0",
+    "pending": "0"
+  },
+  "native_trx_sha256": "7269f6b4ef6554e1627323feeacdbf8dfa585e56af9c491bcd50cb2f42d4b1de",
+  "command_line_ci_selfchecks": {
+    "ci-default": 396,
+    "ci-scan": 396
+  },
+  "golden_rows_each_mode": {
+    "M1": 28,
+    "M2": 33,
+    "M3": 52,
+    "M3_constrained": 52
+  },
+  "golden_differences_each_mode": 0,
+  "invalid_config_exit_code": 2,
+  "acceptance_negative_tests": 5,
+  "source_mutants_killed": 6,
+  "source_bytes_restored": true,
+  "sdk": "10.0.403",
+  "cpu_quota": "200000 100000",
+  "affinity_cpu_count": 3,
+  "log_sha256": {
+    "core": "677ff9e0f594ac0304ae4c722bb146dc6361d2986721ca3bc1ebe4623d291332",
+    "native-build": "571dccb156e307c37faa482e30e68f0301a845db40d023b849d16e40f399fea4",
+    "net48": "c55c2de9f710825f95a551ce3549c7bea0b041ee23e8c7cd27f5e31bb92d15c1",
+    "clipper-net48": "0fcb3d5454f8935b87ad078144f6919bf5289dea8c1552f6a293117e3ad70546",
+    "benchmark-build": "b2a9713a25f6b90fbb73bb985df3ef66558ea03002488ad7dc6f0012d46977ca",
+    "pilot-build": "a0eb45f40a2d248021d92d45799963608d4a1ad60f1eb018269a7bf114e4cb1e",
+    "pack": "a149f651cd4372bcb15d47e16e6d8022329bc8e370efa190bc6bdff6b5b8768d",
+    "clipper-pack": "a4b0f1f0cf49c590067af3073ebbeadc4fa5fdbc0f4684c20f7ff8160b925203",
+    "native-tests": "e802578ed0b7e54f1fba4bc02f3e6bd59e6695a829289b446a4fb759a01bb847",
+    "ci-default": "225e8ca4a3218db8bf1b24b5d8910d441b597c78844379a2c22c1081a3f9a3fa",
+    "ci-scan": "225e8ca4a3218db8bf1b24b5d8910d441b597c78844379a2c22c1081a3f9a3fa",
+    "cli-invalid": "628eec42614acbe9c86799f8ac2e650184390e1b061b839f950a492c57775349",
+    "python-tests": "0122f26eedccdb99dbeb4c89e9960fc8b66b4655e24bcbcd388d43b3aabef2a6"
+  }
+}

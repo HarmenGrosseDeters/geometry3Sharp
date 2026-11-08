@@ -1,0 +1,61 @@
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 8be0ee99..3194c37f 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -693,9 +693,20 @@ namespace g3
+                 BigInteger[] bmin, bmax;
+                 if (ExactWinding[m])
+                     mesh_bounds(m, out bmin, out bmax);
+-                else
+-                    winding_tree(m);
+             }
++            // PROTOTYPE (way 1): the fast-winding trees of the open meshes concurrently (independent per mesh)
++            var builtTrees = new DMeshAABBTree3[openMeshes.Count];
++            gParallel.ForRange(openMeshes.Count, (k) => {
++                int m = openMeshes[k];
++                if (windingTrees.ContainsKey(m) == false) {
++                    var t = new DMeshAABBTree3(arr.Meshes[m], true);
++                    t.FastWindingNumber(Vector3d.Zero);
++                    builtTrees[k] = t;
++                }
++            });
++            for (int k = 0; k < openMeshes.Count; ++k)
++                if (builtTrees[k] != null)
++                    windingTrees[openMeshes[k]] = builtTrees[k];
+             var closedTree = new TriangleBoxTree(closedBoxes);
+             var patchWinding = new int[n][];
+             var firsts = new List<int>();
+diff --git a/spatial/DMeshAABBTree.cs b/spatial/DMeshAABBTree.cs
+index eb459803..05e75afc 100644
+--- a/spatial/DMeshAABBTree.cs
++++ b/spatial/DMeshAABBTree.cs
+@@ -1567,6 +1567,7 @@ namespace g3
+             HashSet<int> root_hash;
+             build_fast_winding_cache(root_index, 0, WINDING_CACHE_THRESH, out root_hash, triCache);
+         }
++        public static int FWNParallelDepth = int.Parse(System.Environment.GetEnvironmentVariable("G3_FWN_PAR_DEPTH") ?? "0");
+         protected int build_fast_winding_cache(int iBox, int depth, int tri_count_thresh, out HashSet<int> tri_hash, MeshTriInfoCache triCache)
+         {
+             tri_hash = null;
+@@ -1592,8 +1593,19 @@ namespace g3
+                     // let each child build its own cache if it wants. If so, it will return the
+                     // list of its child tris
+                     HashSet<int> child2_hash;
+-                    int num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
+-                    int num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
++                    int num_tris_1, num_tris_2;
++                    // PROTOTYPE (way 2): the two subtrees concurrently in the top levels (each writes its own boxes)
++                    if (depth < FWNParallelDepth) {
++                        HashSet<int> h1 = null, h2 = null;
++                        int n1 = 0, n2 = 0;
++                        System.Threading.Tasks.Parallel.Invoke(
++                            () => n1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out h1, triCache),
++                            () => n2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out h2, triCache));
++                        num_tris_1 = n1; num_tris_2 = n2; tri_hash = h1; child2_hash = h2;
++                    } else {
++                        num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
++                        num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
++                    }
+                     bool build_cache = (num_tris_1 + num_tris_2 > tri_count_thresh);
+ 
+                     if (depth == 0)
