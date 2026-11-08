@@ -30,8 +30,6 @@ Part of the [roadmap](../ROADMAP.md).
   local re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
 - **Honest terrain metrics** (task 5, C2(A), benchmark only): open, see [below](#task-5-honest-terrain-metrics).
-- **Quadtree** (#195): the record lists as open the timing, memory and side-by-side comparison on the owner's
-  machine (status unclear, check: the owner's local optimizations merged in #266 on 2026-11-01).
 - **Biomedical / orthotics** showcase: no work recorded.
 
 ### Done / history
@@ -46,16 +44,17 @@ Part of the [roadmap](../ROADMAP.md).
     own to check existing results); **1b** the overlay with the terrain and the connected catch line; **1c**
     volumes, failure kinds, accuracy reporting, km-scale benchmarks. Berms after phase 1. Priority: before the
     planned remesher work; starts after the `ExactMeshBoolean` work that is being scoped now.
-  - [ ] 2D spatial index: a loose quadtree over AABBs (TIN triangles, edges, points) with insert / remove, height
+  - [x] 2D spatial index: a loose quadtree over AABBs (TIN triangles, edges, points) with insert / remove, height
     queries and nearest-neighbour queries, complementing the existing hash grids. Clean-room from the behavioural
     spec [design/QUADTREE2D_SPEC.md](../design/QUADTREE2D_SPEC.md) (owner decisions in its §7) and the literature only;
     targets 1M triangles built in about 100-260 ms, height query about 2.5 µs, on net48 and net8. Comes after the
     `ExactMeshBoolean` work and before terrain phase 1; may speed up the height-field check of
-    `TerrainVolumeDifference`. Implemented, on `quadtree-takeover` (#195): see the record in the spec. Open: the timing, memory and side-by-side comparison on the owner's machine.
+    `TerrainVolumeDifference`. Implemented, on `quadtree-takeover` (#195): see the record in the spec. The side-by-side comparison on the owner's machine is done (2026-11-08): always faster than or as fast as the old quadtree.
 
 #### Stage 5: quadtree
 
-`quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree. The owner's local optimizations merged in #266 (2026-11-01)
+`quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree. The owner's local optimizations merged in #266 (2026-11-01). **Done 2026-11-08:** the owner's side-by-side
+comparison with the old quadtree: the new one is always faster or as fast.
 
 Tier: L. Parallel: owner, local
 

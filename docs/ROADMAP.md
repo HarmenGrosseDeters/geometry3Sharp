@@ -75,8 +75,6 @@ Status on 2026-11-08.
   decision. [hotspots.md](roadmap/hotspots.md#shared-hotspots-across-sessions)
 - **Boolean allocations:** `System.Buffers`' ArrayPool as a new netstandard2.0 dependency, only if step (3) is
   reached. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Quadtree:** the timing, memory and side-by-side comparison on the owner's machine (status unclear, check).
-  [terrain.md](roadmap/terrain.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); contact with rms80 for the upstream
   ledger is prepared, not initiated. [platform.md](roadmap/platform.md#open)
 - **Ports from geogram and other permissive libraries:** each port is a decision with an A/B.
@@ -139,6 +137,8 @@ Planned, not started.
 - Issue-tracker fix list complete (2026-11-03). [platform.md](roadmap/platform.md#release-when-its-done)
 - Meshing2D M2 (#233), M3 (#252), `m2.snap` (#277), provenance check 6b (#295, #296), Q17 (#358), fast oracle (#376,
   #379), grading (#375, #380), run A (#390), small-angle rule (#394). [meshing2d.md](roadmap/meshing2d.md#done--history)
+- Quadtree (#195, #266): owner-machine side-by-side comparison done (2026-11-08): always faster than or as fast as
+  the old quadtree. [terrain.md](roadmap/terrain.md#stage-5-quadtree)
 - Terrain phase 1 (#357, 2026-11-03). [terrain.md](roadmap/terrain.md#terrain-session-record-2026-11-01-to-2026-11-03)
 - Phase 5: geodesic paths and loops (#1), foldover-free maps (#7, #374); inside / outside for open inputs stopped
   (#331); the affine heat method stopped at its gate (#371). [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
@@ -154,8 +154,8 @@ Planned, not started.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
-  disjoint in code; they run at the same time because the owner works on the quadtree locally and the review session
-  takes the meshing reviews.
+  disjoint in code; they ran at the same time because the owner worked on the quadtree locally and the review session
+  took the meshing reviews.
 - Merges are serial, because many PRs touch `docs/ROADMAP.md`, `docs/QA.md`, `docs/SOURCES.md`, `docs/OPERATIONS.md`
   and `ExactBooleanIssueCasesTests.cs`. Rebase the next PR and re-run CI after each merge. Keep status text in the
   PR, not in the roadmap.
