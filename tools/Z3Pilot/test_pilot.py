@@ -191,6 +191,12 @@ class FilterRuleTests(unittest.TestCase):
 class DriftApexTests(unittest.TestCase):
     """Pilot 2, step 1: the D1 drift lemma of SafeRounding (drift_apex.py, README section 'Pilot 2, step 1')."""
 
+    MUTANTS = {'contraction_charges_vanishing_a', 'flip_charges_a_in_one_added_triangle_I1',
+               'flip_charges_a_in_one_added_triangle_I2', 'move_charges_ring_vertex', 'move_charges_M_without_delta',
+               'flip_charges_M_without_delta_I2', 'contraction_M_over_A_only', 'removal_M_over_A_only',
+               'move_apex_gets_delta_only_monotone', 'move_without_acceptance_bound', 'zip_charges_d_in_three_of_four',
+               'ear_charges_only_vanishing_v', 'chain_step_with_2_4_model_only'}
+
     def test_drift_lemma_obligations_mutants_and_replays(self):
         report = drift_apex.run(TIMEOUT_MS)
         out = os.environ.get('Z3_DRIFT_APEX_REPORT')
@@ -200,39 +206,58 @@ class DriftApexTests(unittest.TestCase):
         rows = report['obligations']
         self.assertTrue(all(r['result'] == 'unsat' and r['assumptions_result'] == 'sat' and r['assumptions_replayed']
                             for r in rows))
-        # every apex shape: the four claims; today's rule for the ear and three apex shapes; the chain step
-        self.assertEqual(4 * (6 + 25 + 3 + 2) + 3 + 3 * 4 + 1, len(rows))
+        # the rows come from the specification: every apex of every shape (or 'all' without one), four claims
+        # (no I1 for A empty), the shape-free four and the chain step
+        expected = sum(max(1, len(drift_apex.apexes(s))) * (4 if s['A'] else 3) for s in drift_apex.shapes())
+        self.assertEqual(expected + 4 + 1, len(rows))
+        # I1 checks every added triangle (one query each), not only the first
+        shapes = {s['name']: s for s in drift_apex.shapes()}
+        for r in rows:
+            if r['claim'] == 'I1' and r['rule'] != 'shape-free':
+                self.assertEqual(r['queries'], r['added'])
+                self.assertEqual(len(shapes[r['name'].rsplit('_', 3)[0]]['A']), r['added'], r['name'])
         self.assertEqual('unsat', next(r for r in rows if r['name'] == 'chain_step_higham_2_5')['result'])
-        names = {m['name'] for m in report['mutants'] if m['result'] == 'sat' and m['replayed']}
-        self.assertEqual({'contraction_charges_vanishing_a', 'flip_charges_a_in_one_added_triangle',
-                          'move_charges_ring_vertex', 'move_charges_M_without_delta', 'flip_charges_M_without_delta_I2',
-                          'contraction_M_over_A_only', 'removal_M_over_A_only', 'ear_charges_only_vanishing_v',
-                          'chain_step_with_2_4_model_only'}, names)
-        self.assertTrue(all(p['result'] == 'sat' and p['replayed'] for p in report['partial_charge_nonvacuity']))
+        self.assertEqual({'zip_all_I1', 'ear_in_place_all_I2'} <= {r['name'] for r in rows}, True)
+        self.assertEqual(self.MUTANTS, {m['name'] for m in report['mutants'] if m['result'] == 'sat' and m['replayed']})
+        partial = report['partial_charge_nonvacuity']
+        self.assertEqual(sum(len(drift_apex.apexes(s)) for s in drift_apex.shapes()), len(partial))
+        self.assertTrue(all(p['result'] == 'sat' and p['replayed'] for p in partial))
 
-    def test_apex_is_in_every_added_triangle(self):
-        for s in drift_apex.shapes():
-            for c in s['apexes']:
+    def test_apexes_and_classification(self):
+        names = {s['name']: s for s in drift_apex.shapes()}
+        for s in names.values():
+            for c in drift_apex.apexes(s):
                 self.assertTrue(all(c in t for t in s['A']), (s['name'], c))
-            self.assertTrue(s['apexes'])
+        # the code's zips add four triangles without a common vertex; an ear with b moved has the apex b
+        self.assertEqual([], drift_apex.apexes(names['zip']))
+        self.assertEqual([], drift_apex.apexes(names['ear_in_place']))
+        self.assertEqual('b', drift_apex.apexes(names['ear_moved_b_1'])[0])
+        self.assertIn('x', drift_apex.apexes(names['strip_common_tip']))
 
-    def _run_with(self, obligation):
+    def test_specification_drives_the_obligations(self):
+        # a specification the lemma does not cover is rejected, or fails the proof
+        for key, value in [('with_apex', 'first vertex of A[0]'), ('without_apex', 'apex'), ('M_over', 'everything')]:
+            with self.subTest(key=key), patch.dict(drift_apex.CHARGING, {key: value}):
+                with self.assertRaises(ValueError):
+                    drift_apex.run(TIMEOUT_MS)
+        for value in ('A', 'R'):
+            with self.subTest(M_over=value), patch.dict(drift_apex.CHARGING, {'M_over': value}):
+                report = self._run_with([('apex rule', 'removal_I1', drift_apex.removal(), 'I1', 'a'),
+                                         ('apex rule', 'removal_monotone', drift_apex.removal(), 'monotone', 'a')])
+                self.assertFalse(report['obligations_passed'])
+                self.assertIn('sat', [r['result'] for r in report['obligations']])
+
+    def _run_with(self, obligations):
         flip = drift_apex.flip()
-        mutant = ('apex rule', 'flip_charges_a', flip, 'I1', 'a', None, 'RA')
-        with patch.object(drift_apex, 'obligations', lambda: iter([obligation])), \
+        mutant = ('apex rule', 'flip_charges_a', flip, 'I1', 'c', dict(rule='a'))
+        with patch.object(drift_apex, 'obligations', lambda: iter(obligations)), \
                 patch.object(drift_apex, 'mutants', lambda: iter([mutant])), \
                 patch.object(drift_apex, 'shapes', lambda: iter([flip])):
             return drift_apex.run(TIMEOUT_MS)
 
     def test_controls_pass(self):
-        report = self._run_with(('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'apex', 'c'))
+        report = self._run_with([('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'c')])
         self.assertTrue(report['obligations_passed'], report)
-
-    def test_false_rule_is_not_success(self):
-        # charging M without delta as if it were the rule: an obligation that is SAT must fail the run
-        report = self._run_with(('apex rule', 'flip_I1_no_delta', drift_apex.flip(), 'I1', 'no_delta', 'c'))
-        self.assertEqual('sat', report['obligations'][0]['result'])
-        self.assertFalse(report['obligations_passed'])
 
     def test_unknown_is_not_success(self):
         original = drift_apex._check
@@ -241,14 +266,15 @@ class DriftApexTests(unittest.TestCase):
                 return original(assumptions, bad, timeout_ms)
             return None, drift_apex.z.unknown, 0.0
         with patch.object(drift_apex, '_check', unknown):
-            report = self._run_with(('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'apex', 'c'))
+            report = self._run_with([('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'c')])
         self.assertEqual('unknown', report['obligations'][0]['result'])
         self.assertFalse(report['obligations_passed'])
 
     @unittest.skip('TODO(D1): the apex rule is not implemented yet. The implementation PR adds the source contract: '
                    'the drift accounting of mesh_ops/MeshRoundingRepair.cs (improves, within_bound, commit_drift) '
-                   'must match drift_apex.CHARGING (only the apex gets M + delta with an apex; every vertex without '
-                   'one; acceptance M + delta <= maxLength with M over R and A), and fail on drift.')
+                   'must match drift_apex.CHARGING as proved here (with an apex, a vertex in every added triangle, '
+                   'only it gets M + delta; without one every vertex of R and A; acceptance M + delta <= maxLength with '
+                   'M over R and A), and fail on drift.')
     def test_source_contract_against_the_apex_rule(self):
         pass
 

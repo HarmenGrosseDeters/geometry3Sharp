@@ -1,29 +1,36 @@
-"""Z3 pilot 2, step 1: the D1 drift lemma of SafeRounding (docs/design/ROUNDING_DRIFT_APEX.md), checked per edit
-shape before the rule is built.
+"""Z3 pilot 2, step 1: the D1 drift lemma of SafeRounding (docs/design/ROUNDING_DRIFT_APEX.md, corrected in
+fd931c69), checked before the rule is built.
 
 An edit removes the triangles R, adds A and moves the surface by at most delta. Every vertex has a drift d (0 at the
 start); M is the largest drift over the vertices of R and A; the edit is accepted if M + delta <= maxLength (L).
-The apex rule charges M + delta to one vertex c that lies in every triangle of A (the apex) and keeps every other
-drift; edits without an apex (A empty: ears, zips, strip zips) keep today's rule (every vertex of the edit gets
-M + delta). The invariant, with D(T) the largest drift of the corners of T and S0 the surface at the start:
+The apex rule charges M + delta to one vertex c that lies in every triangle of A (an apex) and keeps every other
+drift; an edit without an apex keeps today's rule (every vertex of the edit gets M + delta). Which edits have an
+apex is decided by the triangles the code adds, not by the edit's name: zips add four triangles without a common
+vertex (no apex); a contraction of an ear with the kept vertex moved adds the kept vertex's other triangles (apex
+the kept vertex); a strip zip has an apex only if all its added triangles share their tip; an ear contraction with
+the kept vertex in place adds none (A empty, no apex).
+The invariant, with D(T) the largest drift of the corners of T and S0 the surface at the start:
   (I1) every point x of a triangle T of S has dist(x, S0) <= D(T);
   (I2) every point y of S0 has a triangle T of S with dist(y, T) <= D(T).
 The lemma: one edit that satisfies the two-sided bounds (E1) / (E2) keeps I, and d' >= d, and max d' <= L.
 
+CHARGING below is the specification: the obligations are derived from it (edit_formula, obligations), so a change
+of the specification is checked by Z3; the future source contract checks the code against it.
+
 Model (README, section 'Pilot 2, step 1'): the distances are real variables, the geometric facts are hypotheses (the
-witness points of (E1), (E2) and of I before the edit, and the triangle inequality); the combinatorics of each edit
-type are fixed shapes. All of it is linear real arithmetic. The rounding of the stored drift uses Higham (2.5),
-fl(s) = s / (1 + eta), |eta| <= u (valid for round to nearest); the weaker (2.4) model fl(s) = s (1 + eta) cannot
-prove the chain bound and is kept as a documented SAT witness.
+witness points of (E1), (E2) and of I before the edit, and the triangle inequality); the combinatorics are fixed,
+illustrative shapes, plus a shape-free version that uses only 'the apex is in every triangle of A' and 'M is over
+R and A'. The edit obligations are linear real arithmetic; the chain step of the rounding is nonlinear (products
+with g and eta). The stored drift is rounded with Higham (2.5), fl(s) = s / (1 + eta), |eta| <= u (valid for round to
+nearest); the weaker (2.4) model fl(s) = s (1 + eta) cannot prove the chain bound and is kept as a SAT witness.
 
-Every obligation must be UNSAT, its assumptions SAT (the model replayed with fractions), every mutant SAT with a
-witness replayed with fractions outside Z3; UNKNOWN never counts.
+Every obligation must be UNSAT, its assumptions SAT with delta > 0 (the model replayed with fractions), every mutant
+SAT with a witness replayed with fractions outside Z3; UNKNOWN never counts.
 
-This file is the specification of the rule (CHARGING, the constants below). The library does not implement the apex
-rule yet: TODO(D1) the implementation PR adds a source contract against its accounting in
-mesh_ops/MeshRoundingRepair.cs (improves / within_bound / commit_drift), see test_pilot.DriftApexTests.
+TODO(D1): the library does not implement the apex rule yet. Its implementation PR adds the source contract: the drift
+accounting of mesh_ops/MeshRoundingRepair.cs (improves / within_bound / commit_drift) against CHARGING (see
+test_pilot.DriftApexTests.test_source_contract_against_the_apex_rule).
 """
-import time
 from fractions import Fraction
 
 import z3 as z
@@ -32,9 +39,25 @@ from filter_rules import QB, ZB, Vars, _check
 
 U = Fraction(1, 2**53)          # unit roundoff of binary64 round to nearest
 
-# the specification of the charging (ROUNDING_DRIFT_APEX.md section 2): with an apex, only the apex gets M + delta;
-# without one (A empty), every vertex of R and A; the acceptance M + delta <= maxLength with M over R and A
-CHARGING = dict(with_apex='apex', without_apex='all', acceptance='M + delta <= L', M_over='R and A')
+# the specification of the charging (ROUNDING_DRIFT_APEX.md section 2): with an apex (a vertex in every added
+# triangle) only that vertex gets M + delta; without one, every vertex of R and A; M over the vertices of R and A;
+# accepted if M + delta <= maxLength
+CHARGING = dict(with_apex='apex', without_apex='all', M_over='R and A', acceptance='M + delta <= L')
+
+
+def spec():
+    """CHARGING as the parameters of edit_formula; raises on a specification the lemma does not cover"""
+    with_apex, without_apex = CHARGING['with_apex'], CHARGING['without_apex']
+    if with_apex not in ('apex', 'all'):
+        raise ValueError(f"CHARGING['with_apex'] = {with_apex!r}: 'apex' (a vertex in every added triangle) or 'all'")
+    if without_apex != 'all':
+        raise ValueError(f"CHARGING['without_apex'] = {without_apex!r}: an edit without an apex must charge 'all'")
+    m_over = {'R and A': 'RA', 'A': 'A', 'R': 'R'}.get(CHARGING['M_over'])
+    if m_over is None:
+        raise ValueError(f"CHARGING['M_over'] = {CHARGING['M_over']!r}")
+    if CHARGING['acceptance'] != 'M + delta <= L':
+        raise ValueError(f"CHARGING['acceptance'] = {CHARGING['acceptance']!r}")
+    return with_apex, without_apex, m_over
 
 
 def _if(B, c, a, b):
@@ -49,44 +72,72 @@ def _max(B, xs):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# edit shapes: R (removed), A (added), the apex choices, and for A empty the untouched triangles that hold the
-# counterpart simplex of (E2)
+# edit shapes: R (removed), A (added), for A empty the untouched triangles that hold the counterpart simplex of (E2).
+# Illustrative: the proof uses only 'apex in every triangle of A' and 'M over R and A' (see generic_formula).
+
+def apexes(shape):
+    """the vertices in every added triangle, in the order of A[0] (the code takes the first)"""
+    if not shape['A']:
+        return []
+    return [x for x in shape['A'][0] if all(x in t for t in shape['A'])]
+
 
 def move(k):
-    """a move or slide of v with valence k (closed fan): the same triangles, v at a new position; apex v"""
+    """a move or slide of v with valence k (closed fan): the same triangles, v at a new position"""
     ring = [f'r{i}' for i in range(k)]
     tris = [('v', ring[i], ring[(i + 1) % k]) for i in range(k)]
-    return dict(name=f'move_valence_{k}', R=tris, A=tris, apexes=['v'], U=[])
+    return dict(name=f'move_valence_{k}', R=tris, A=tris, U=[])
 
 
 def contraction(m, n):
-    """contraction of a-b, a vanishes, b kept (possibly moved): m + 1 triangles of a and n + 1 of b besides the two
-    at the edge (l and r the opposite vertices); A: a's triangles with a replaced by b, and b's again; apex b"""
+    """contraction of a-b (try_collapse), a vanishes, b kept and moved: m + 1 triangles of a and n + 1 of b besides
+    the two at the edge (l and r the opposite vertices); A: a's triangles with a replaced by b, and b's again"""
     p = ['l'] + [f'p{i}' for i in range(m)] + ['r']
     q = ['r'] + [f'q{i}' for i in range(n)] + ['l']
     a_side = [('a', p[i], p[i + 1]) for i in range(m + 1)]
     b_side = [('b', q[i], q[i + 1]) for i in range(n + 1)]
     R = a_side + b_side + [('a', 'b', 'l'), ('b', 'a', 'r')]
     A = [('b', x, y) for _, x, y in a_side] + b_side
-    return dict(name=f'contraction_{m + 1}_{n + 1}', R=R, A=A, apexes=['b'], U=[])
+    return dict(name=f'contraction_{m + 1}_{n + 1}', R=R, A=A, U=[])
+
+
+def ear_moved(k):
+    """contraction of the ear a (its single triangle a, b, w0) into b with b moved: b's other k triangles (an open
+    fan at the boundary) are removed and added again"""
+    w = [f'w{i}' for i in range(k + 1)]
+    fan = [('b', w[i], w[i + 1]) for i in range(k)]
+    return dict(name=f'ear_moved_b_{k}', R=[('a', 'b', 'w0')] + fan, A=fan, U=[])
 
 
 def removal():
-    """removal of v of valence 3 (ring a, b, c): one new triangle; every corner is an apex"""
+    """removal of v of valence 3 (ring a, b, c): one new triangle"""
     return dict(name='removal_valence_3', R=[('v', 'a', 'b'), ('v', 'b', 'c'), ('v', 'c', 'a')], A=[('a', 'b', 'c')],
-                apexes=['a', 'b', 'c'], U=[])
+                U=[])
 
 
 def flip():
-    """flip of a-b to c-d: apex c or d"""
-    return dict(name='flip', R=[('a', 'b', 'c'), ('b', 'a', 'd')], A=[('c', 'a', 'd'), ('d', 'b', 'c')],
-                apexes=['c', 'd'], U=[])
+    """flip of a-b to c-d"""
+    return dict(name='flip', R=[('a', 'b', 'c'), ('b', 'a', 'd')], A=[('c', 'a', 'd'), ('d', 'b', 'c')], U=[])
+
+
+def strip_common_tip():
+    """a strip zip whose added triangles all share their tip x (the rare case with an apex): the sliver m0, m1, m2
+    and the outer triangle m0, m2, x are replaced by m1, m0, x and m2, m1, x"""
+    return dict(name='strip_common_tip', R=[('m0', 'm1', 'm2'), ('m0', 'm2', 'x')],
+                A=[('m1', 'm0', 'x'), ('m2', 'm1', 'x')], U=[])
+
+
+def zip_shape():
+    """try_zip (c before d along a-b): removes (a, b, c), (b, a, d), (c, b, x), (d, a, y), adds (c, d, x),
+    (d, b, x), (d, c, y), (c, a, y): no vertex is in all four, so today's rule"""
+    return dict(name='zip', R=[('a', 'b', 'c'), ('b', 'a', 'd'), ('c', 'b', 'x'), ('d', 'a', 'y')],
+                A=[('c', 'd', 'x'), ('d', 'b', 'x'), ('d', 'c', 'y'), ('c', 'a', 'y')], U=[])
 
 
 def ear():
-    """contraction of an ear (v has the single triangle v, a, b; A empty): its points go to the edge a-b, which is in
-    the untouched triangle a, b, w (w not a vertex of the edit); today's rule"""
-    return dict(name='ear', R=[('v', 'a', 'b')], A=[], apexes=[], U=[('a', 'b', 'w')])
+    """contraction of an ear v (single triangle v, a, b) into a in place: A empty, its points go to the edge a-b,
+    which lies in the untouched triangle a, b, w (w not a vertex of the edit)"""
+    return dict(name='ear_in_place', R=[('v', 'a', 'b')], A=[], U=[('a', 'b', 'w')])
 
 
 def shapes():
@@ -95,8 +146,13 @@ def shapes():
     for m in range(1, 6):
         for n in range(1, 6):
             yield contraction(m, n)
+    for k in range(1, 4):
+        yield ear_moved(k)
     yield removal()
     yield flip()
+    yield strip_common_tip()
+    yield zip_shape()
+    yield ear()
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -125,26 +181,33 @@ def variables(shape):
     return Vars({n: z.Real(n) for n in names})
 
 
-def edit_formula(B, v, shape, claim, rule='apex', apex=None, m_over='RA', only=None):
+def edit_formula(B, v, shape, claim, apex=None, rule=None, m_over=None, only=None, accept=True):
     """(hyps, bad) for one claim: 'I1', 'I2', 'monotone' (d' >= d) or 'bound' (max d' <= L).
-    rule: 'apex' (charge apex), 'all' (today's rule), 'no_delta' (apex gets M only), or a vertex name to charge
-    instead of the apex (a mutant); m_over: 'RA' (the rule) or 'A' (a mutant: M over the added triangles only);
-    only: for 'I1', the one added triangle to check (None: all at once; the claim is a conjunction over them, so one
-    query per triangle is the same check, and much faster for the larger contractions)."""
+    By default the charging follows CHARGING (spec()): with apex given, CHARGING['with_apex']; without,
+    CHARGING['without_apex']. Mutants override: rule 'no_delta' (the apex gets M), 'delta_only' (the apex gets
+    delta), or a vertex name to charge instead; m_over 'A' (M over the added triangles only); accept=False drops the
+    acceptance test. only: for 'I1', the one added triangle to check (the claim is a conjunction over them)."""
+    with_apex, without_apex, spec_m_over = spec()
+    if rule is None:
+        rule = with_apex if apex is not None else without_apex
+    m_over = spec_m_over if m_over is None else m_over
     edit, verts = _verts(shape)
     d = {x: v[f'd_{x}'] for x in verts}
     delta, M, L = v.delta, v.M, v.L
-    m_set = edit if m_over == 'RA' else [x for t in shape['A'] for x in t]
+    m_set = {'RA': edit, 'A': [x for t in shape['A'] for x in t], 'R': [x for t in shape['R'] for x in t]}[m_over]
     hyps = [d[x] >= 0 for x in verts] + [delta >= 0, L >= 0] + [d[x] <= L for x in verts]
-    hyps += [M >= d[x] for x in m_set] + [B.Or(*[M == d[x] for x in m_set]), M + delta <= L]
+    hyps += [M >= d[x] for x in m_set] + [B.Or(*[M == d[x] for x in m_set])]
+    if accept:
+        hyps.append(M + delta <= L)
+    value = {'no_delta': M, 'delta_only': delta}.get(rule, M + delta)
     if rule == 'apex':
-        charged, value = {apex}, M + delta
+        charged = {apex}
     elif rule == 'all':
-        charged, value = set(edit), M + delta
-    elif rule == 'no_delta':
-        charged, value = {apex}, M
+        charged = set(edit)
+    elif rule in ('no_delta', 'delta_only'):
+        charged = {apex}
     else:
-        charged, value = {rule}, M + delta
+        charged = {rule}
     d2 = {x: (value if x in charged else d[x]) for x in verts}
 
     def D(t, dd):
@@ -154,8 +217,6 @@ def edit_formula(B, v, shape, claim, rule='apex', apex=None, m_over='RA', only=N
     if claim == 'bound':
         return hyps, B.Or(*[d2[x] > L for x in verts])
     if claim == 'I1':
-        if not shape['A']:
-            return None
         bad = []
         for i, t2 in enumerate(shape['A']):
             if only is not None and i != only:
@@ -182,39 +243,70 @@ def edit_formula(B, v, shape, claim, rule='apex', apex=None, m_over='RA', only=N
     raise ValueError(claim)
 
 
+GENERIC_VARS = 'delta M L xz dz dx DT D2 dc dc2 yz zt yt'
+
+
+def generic_formula(B, v, claim):
+    """the shape-free lemma: T a removed triangle (D(T) <= M, as M is over R and A), T' an added triangle that
+    contains the apex c (D'(T') >= d'(c)); only these two facts and the charging of the specification are used"""
+    with_apex, _, m_over = spec()
+    hyps = [v.delta >= 0, v.L >= 0, v.M >= 0, v.dc >= 0, v.M + v.delta <= v.L, v.D2 >= v.dc2, v.dc <= v.L]
+    if m_over in ('RA', 'R'):
+        hyps.append(v.DT <= v.M)            # every corner of a removed triangle is counted in M
+    if m_over in ('RA', 'A'):
+        hyps.append(v.dc <= v.M)            # the apex is a corner of an added triangle
+    hyps.append(v.dc2 == v.M + v.delta)     # with_apex 'apex' or 'all': c gets M + delta
+    if claim == 'I1':
+        hyps += [v.xz >= 0, v.dz >= 0, v.xz <= v.delta, v.dz <= v.DT, v.dx <= v.xz + v.dz]
+        return hyps, v.dx > v.D2
+    if claim == 'I2':
+        hyps += [v.yz >= 0, v.zt >= 0, v.yz <= v.DT, v.zt <= v.delta, v.yt <= v.yz + v.zt]
+        return hyps, v.yt > v.D2
+    if claim == 'monotone':
+        return hyps, v.dc2 < v.dc
+    if claim == 'bound':
+        return hyps, v.dc2 > v.L
+    raise ValueError(claim)
+
+
 def obligations():
-    """(rule label, name, shape, claim, rule, apex)"""
+    """(label, name, shape, claim, apex): the charging of each comes from CHARGING (edit_formula)"""
+    with_apex, _, _ = spec()
     for s in shapes():
-        for c in s['apexes']:
-            assert all(c in t for t in s['A']), (s['name'], c)      # the apex is in every added triangle
+        cs = apexes(s)
+        choices = (cs if with_apex == 'apex' else [cs[0]]) if cs else [None]
+        for c in choices:
             for claim in ('I1', 'I2', 'monotone', 'bound'):
-                yield ('apex rule', f"{s['name']}_apex_{c}_{claim}", s, claim, 'apex', c)
-    for s in [ear(), flip(), removal(), contraction(1, 1)]:
-        for claim in ('I1', 'I2', 'monotone', 'bound'):
-            if claim == 'I1' and not s['A']:
-                continue
-            yield ("today's rule", f"{s['name']}_all_{claim}", s, claim, 'all', None)
+                if claim == 'I1' and not s['A']:
+                    continue
+                label = 'apex rule' if c is not None else 'without apex'
+                tag = f'apex_{c}' if c is not None else 'all'
+                yield label, f"{s['name']}_{tag}_{claim}", s, claim, c
 
 
 def mutants():
-    """(rule label, name, shape, claim, rule, apex, m_over): each must be SAT with a replayed witness"""
+    """(label, name, shape, claim, apex, overrides): each must be SAT with a replayed witness"""
     c11 = contraction(1, 1)
-    yield 'apex rule', 'contraction_charges_vanishing_a', c11, 'I1', 'a', None, 'RA'
-    yield 'apex rule', 'flip_charges_a_in_one_added_triangle', flip(), 'I1', 'a', None, 'RA'
-    yield 'apex rule', 'move_charges_ring_vertex', move(3), 'I1', 'r0', None, 'RA'
-    yield 'apex rule', 'move_charges_M_without_delta', move(3), 'I1', 'no_delta', 'v', 'RA'
-    yield 'apex rule', 'flip_charges_M_without_delta_I2', flip(), 'I2', 'no_delta', 'c', 'RA'
-    yield 'apex rule', 'contraction_M_over_A_only', c11, 'I1', 'apex', 'b', 'A'
-    yield 'apex rule', 'removal_M_over_A_only', removal(), 'I1', 'apex', 'a', 'RA_A'
-    yield "today's rule", 'ear_charges_only_vanishing_v', ear(), 'I2', 'v', None, 'RA'
+    yield 'apex rule', 'contraction_charges_vanishing_a', c11, 'I1', 'b', dict(rule='a')
+    yield 'apex rule', 'flip_charges_a_in_one_added_triangle_I1', flip(), 'I1', 'c', dict(rule='a')
+    yield 'apex rule', 'flip_charges_a_in_one_added_triangle_I2', flip(), 'I2', 'c', dict(rule='a')
+    yield 'apex rule', 'move_charges_ring_vertex', move(3), 'I1', 'v', dict(rule='r0')
+    yield 'apex rule', 'move_charges_M_without_delta', move(3), 'I1', 'v', dict(rule='no_delta')
+    yield 'apex rule', 'flip_charges_M_without_delta_I2', flip(), 'I2', 'c', dict(rule='no_delta')
+    yield 'apex rule', 'contraction_M_over_A_only', c11, 'I1', 'b', dict(m_over='A')
+    yield 'apex rule', 'removal_M_over_A_only', removal(), 'I1', 'a', dict(m_over='A')
+    yield 'apex rule', 'move_apex_gets_delta_only_monotone', move(3), 'monotone', 'v', dict(rule='delta_only')
+    yield 'apex rule', 'move_without_acceptance_bound', move(3), 'bound', 'v', dict(accept=False)
+    yield 'without apex', 'zip_charges_d_in_three_of_four', zip_shape(), 'I1', None, dict(rule='d')
+    yield 'without apex', 'ear_charges_only_vanishing_v', ear(), 'I2', None, dict(rule='v')
 
 
 # ---------------------------------------------------------------------------------------------------------------
 # the rounding of the stored drift over a chain of k edits
 
-def chain_formula(B, v, model='2.5', with_eps=True):
+def chain_formula(B, v, model='2.5'):
     """one step k -> k + 1: true drift M_t <= M_h g + k eps (g = (1 + u)^k >= 1), true delta <= delta_h + eps, stored
-    d_h' = fl(M_h + delta_h); claim: M_t + delta <= d_h' g (1 + u) + (k + 1) eps"""
+    d_h' = fl(M_h + delta_h); claim: M_t + delta <= d_h' g (1 + u) + (k + 1) eps (nonlinear: g and eta)"""
     u = B.const(U)
     s = v.M_h + v.delta_h
     stored = s / (1 + v.eta) if model == '2.5' else s * (1 + v.eta)
@@ -231,92 +323,89 @@ def _replay(model, v, formula):
     for k, var in v.items():
         val = model.eval(var, model_completion=True)
         if not z.is_rational_value(val):
-            return dict(replayed=False, reason=f'{k} is not rational')
+            return dict(hyps=False, bad=False, values={}, reason=f'{k} is not rational')
         vals[k] = val.as_fraction()
     hyps, bad = formula(QB, Vars(vals))
     return dict(hyps=all(hyps), bad=bool(bad), values={k: str(x) for k, x in vals.items() if x != 0})
 
 
+def _prove(f, v, timeout_ms):
+    """(result, seconds, assumptions SAT with delta > 0 and replayed)"""
+    hyps, bad = f(ZB, v)
+    _, r, secs = _check(hyps, bad, timeout_ms)
+    sat_s, rr, _ = _check(hyps + [v.delta > 0], z.BoolVal(True), timeout_ms)
+    replayed = rr == z.sat and _replay(sat_s.model(), v, f)['hyps']
+    return r, secs, rr, replayed
+
+
+def _refute(f, v, timeout_ms):
+    hyps, bad = f(ZB, v)
+    sol, r, secs = _check(hyps, bad, timeout_ms)
+    row = dict(result=str(r), seconds=round(secs, 3), replayed=False)
+    if r == z.sat:
+        rep = _replay(sol.model(), v, f)
+        row.update(replayed=rep['hyps'] and rep['bad'], witness=rep['values'])
+    return row
+
+
 def run(timeout_ms=120000):
-    rows, muts = [], []
-    for label, name, s, claim, rule, apex in obligations():
+    rows, muts, partial = [], [], []
+    for label, name, s, claim, apex in obligations():
         v = variables(s)
         parts = range(len(s['A'])) if claim == 'I1' else [None]
         results, secs, assumed, replayed = [], 0.0, [], True
         for i in parts:
-            f = (lambda s, claim, rule, apex, i: lambda B, w: edit_formula(B, w, s, claim, rule, apex, 'RA', i))(
-                s, claim, rule, apex, i)
-            hyps, bad = f(ZB, v)
-            sol, r, t = _check(hyps, bad, timeout_ms)
+            f = (lambda s, claim, apex, i: lambda B, w: edit_formula(B, w, s, claim, apex, only=i))(s, claim, apex, i)
+            r, t, rr, rep = _prove(f, v, timeout_ms)
             results.append(r)
             secs += t
-            sat_s, rr, _ = _check(hyps, z.BoolVal(True), timeout_ms)
             assumed.append(rr)
-            replayed = replayed and rr == z.sat and _replay(sat_s.model(), v, f)['hyps']
-        # one row per claim: UNSAT only if every part is UNSAT, assumptions SAT only if every part's are
+            replayed = replayed and rep
+        # one row per claim: UNSAT only if every query is UNSAT (I1: one query per added triangle)
         worst = next((r for r in results if r != z.unsat), z.unsat)
-        row = dict(rule=label, name=name, claim=claim, queries=len(results), result=str(worst), seconds=round(secs, 3),
-                   assumptions_result='sat' if all(a == z.sat for a in assumed) else 'unsat or unknown',
-                   assumptions_replayed=replayed)
-        rows.append(row)
-    # the apex rule really leaves other vertices below M + delta (non-vacuity of 'only the apex')
-    partial = []
+        rows.append(dict(rule=label, name=name, claim=claim, queries=len(results), added=len(s['A']),
+                         result=str(worst), seconds=round(secs, 3),
+                         assumptions_result='sat' if all(a == z.sat for a in assumed) else 'unsat or unknown',
+                         assumptions_replayed=replayed))
+    v = Vars({n: z.Real(n) for n in GENERIC_VARS.split()})
+    for claim in ('I1', 'I2', 'monotone', 'bound'):
+        f = (lambda claim: lambda B, w: generic_formula(B, w, claim))(claim)
+        r, t, rr, rep = _prove(f, v, timeout_ms)
+        rows.append(dict(rule='shape-free', name=f'generic_{claim}', claim=claim, queries=1, added=1, result=str(r),
+                         seconds=round(t, 3), assumptions_result=str(rr), assumptions_replayed=rep))
+    # 'only the apex is charged' is not vacuous: another vertex of the edit can stay below M + delta
     for s in shapes():
-        c = s['apexes'][0]
-        v = variables(s)
         edit, _ = _verts(s)
-
-        def f(B, w, s=s, c=c, edit=edit):
-            hyps, _ = edit_formula(B, w, s, 'monotone', 'apex', c)
-            return hyps, B.Or(*[B.And(w[f'd_{x}'] < w.M + w.delta, w.delta > 0) for x in edit if x != c])
-        hyps, bad = f(ZB, v)
-        sol, r, _ = _check(hyps, bad, timeout_ms)
-        partial.append(dict(name=s['name'], result=str(r),
-                            replayed=r == z.sat and all(_replay(sol.model(), v, f)[k] for k in ('hyps', 'bad'))))
-    for label, name, s, claim, rule, apex, m_over in mutants():
+        for c in apexes(s):
+            def f(B, w, s=s, c=c, edit=edit):
+                hyps, _ = edit_formula(B, w, s, 'monotone', c)
+                return hyps, B.Or(*[B.And(w[f'd_{x}'] < w.M + w.delta, w.delta > 0) for x in edit if x != c])
+            row = _refute(f, variables(s), timeout_ms)
+            partial.append(dict(name=f"{s['name']}_apex_{c}", **row))
+    for label, name, s, claim, apex, over in mutants():
         v = variables(s)
-        mo = 'A' if m_over in ('A', 'RA_A') else 'RA'
-        f = (lambda s, claim, rule, apex, mo: lambda B, w: edit_formula(B, w, s, claim, rule, apex, mo))(s, claim, rule, apex, mo)
-        hyps, bad = f(ZB, v)
-        sol, r, secs = _check(hyps, bad, timeout_ms)
-        row = dict(rule=label, name=name, result=str(r), seconds=round(secs, 3))
-        if r == z.sat:
-            rep = _replay(sol.model(), v, f)
-            row.update(replayed=rep['hyps'] and rep['bad'], witness=rep['values'])
-        else:
-            row['replayed'] = False
-        muts.append(row)
+        f = (lambda s, claim, apex, over: lambda B, w: edit_formula(B, w, s, claim, apex, **over))(s, claim, apex, over)
+        muts.append(dict(rule=label, name=name, **_refute(f, v, timeout_ms)))
     # the chain step
     v = Vars({n: z.Real(n) for n in CHAIN_VARS.split()})
     f = lambda B, w: chain_formula(B, w, '2.5')
-    hyps, bad = f(ZB, v)
-    sol, r, secs = _check(hyps, bad, timeout_ms)
-    row = dict(rule='rounding chain', name='chain_step_higham_2_5', claim='d <= d_h (1 + u)^k + k eps', result=str(r),
-               seconds=round(secs, 3))
-    sat_s, rr, _ = _check(hyps, z.BoolVal(True), timeout_ms)
-    row['assumptions_result'] = str(rr)
-    row['assumptions_replayed'] = rr == z.sat and _replay(sat_s.model(), v, f)['hyps']
-    rows.append(row)
+    r, t, rr, rep = _prove(f, v, timeout_ms)
+    rows.append(dict(rule='rounding chain', name='chain_step_higham_2_5', claim='d <= d_h (1 + u)^k + k eps',
+                     queries=1, added=0, result=str(r), seconds=round(t, 3), assumptions_result=str(rr),
+                     assumptions_replayed=rep))
     f = lambda B, w: chain_formula(B, w, '2.4')
-    hyps, bad = f(ZB, v)
-    sol, r, secs = _check(hyps, bad, timeout_ms)
-    row = dict(rule='rounding chain', name='chain_step_with_2_4_model_only', result=str(r), seconds=round(secs, 3))
-    if r == z.sat:
-        rep = _replay(sol.model(), v, f)
-        row.update(replayed=rep['hyps'] and rep['bad'], witness=rep['values'])
-    else:
-        row['replayed'] = False
-    muts.append(row)
+    muts.append(dict(rule='rounding chain', name='chain_step_with_2_4_model_only', **_refute(f, v, timeout_ms)))
     passed = (all(r['result'] == 'unsat' and r['assumptions_result'] == 'sat' and r['assumptions_replayed']
                   for r in rows)
+              and all(r['queries'] == r['added'] for r in rows if r['claim'] == 'I1' and r['rule'] != 'shape-free')
               and all(p['result'] == 'sat' and p['replayed'] for p in partial)
               and all(m['result'] == 'sat' and m['replayed'] for m in muts))
-    return dict(z3=z.get_version_string(), timeout_ms=timeout_ms, specification=CHARGING, obligations=rows,
+    return dict(z3=z.get_version_string(), timeout_ms=timeout_ms, specification=dict(CHARGING), obligations=rows,
                 partial_charge_nonvacuity=partial, mutants=muts,
                 total_seconds=round(sum(r['seconds'] for r in rows + muts), 3), obligations_passed=passed,
-                proof_scope='One edit of each listed shape, distances as real variables (README); (E1), (E2), the '
-                            'point/triangle distance model, I1/I2 => Hausdorff and the induction over edits are '
-                            'review-only.')
+                proof_scope='One edit of each illustrative shape and the shape-free version, distances as real '
+                            'variables (README); (E1), (E2), the point/triangle distance model, I1/I2 => Hausdorff, the '
+                            'induction over edits and the per-vertex chain counter are review-only.')
 
 
 if __name__ == '__main__':
