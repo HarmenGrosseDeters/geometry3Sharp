@@ -135,10 +135,11 @@ namespace Meshing2Acceptance
                     int a=A(s.keys[node.Item]), b=B(s.keys[node.Item]);
                     node.Hull=s.x[a]==s.x[b] && s.y[a]==s.y[b] ? new[]{a} : new[]{a,b};
                 }
-                if (node.Hull.Length>HullLimit) {
-                    // the closed box contains the polygon (and so every descendant endpoint); its corners in CCW order. A hull of more than
-                    // HullLimit ≥ 3 vertices has three non-collinear points, so the box has positive width and height: four distinct
-                    // corners (a repeated corner would make a zero-length edge whose orientation 0 "separates" everything)
+                // the closed box contains the polygon (and so every descendant endpoint); its corners in CCW order. Only a box of
+                // positive width and height: a flat box has repeated corners, and a zero-length edge, whose orientation 0 "separates"
+                // everything, would prune unsoundly (a hull of more than HullLimit ≥ 3 vertices is never flat; the guard keeps it so
+                // if the limit changes)
+                if (node.Hull.Length>HullLimit && node.Box.Width>0 && node.Box.Height>0) {
                     var e=node.Box; Coarse++;
                     node.Hull=new[] { Corner(e.MinX,e.MinY),Corner(e.MaxX,e.MinY),Corner(e.MaxX,e.MaxY),Corner(e.MinX,e.MaxY) };
                 }

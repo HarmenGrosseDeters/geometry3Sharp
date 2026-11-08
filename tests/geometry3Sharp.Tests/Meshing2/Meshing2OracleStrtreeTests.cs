@@ -108,6 +108,44 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// The box-corner fallback with crossings: two lens strips, one turned by 90 degrees, crossing in the middle (their upper
+        /// nodes have hulls above HullLimit and test their box corners), and a column of 400 thin triangles with one edge each on the
+        /// vertical line x = 1/16 (STR packs those edges into flat nodes: a box of width 0). The search must test box corners
+        /// (CoarseNodes &gt; 0), find many crossings, and equal the sweep, directly and through Conformity in check mode. Lost
+        /// crossings here: a replacement polygon that no longer contains its node, or a flat box with repeated corners (a zero-length
+        /// edge has orientation 0 and "separates" everything)
+        /// </summary>
+        [Fact]
+        public void EdgeSearch_BoxCornerFallback_WithCrossings_EqualsTheSweep()
+        {
+            var (lens, _) = Lens(400);
+            var p = new List<double[]>(); var t = new List<int[]>();
+            // the lens, and the lens turned by 90 degrees ((x, y) -> (-y, x) keeps the orientation)
+            foreach (bool turned in new[] { false, true }) {
+                int s = p.Count;
+                for (int i = 0; i < lens.VX.Length; ++i) p.Add(turned ? new[] { -lens.VY[i], lens.VX[i] } : new[] { lens.VX[i], lens.VY[i] });
+                foreach (var q in lens.Triangles) t.Add(new[] { s + q[0], s + q[1], s + q[2] });
+            }
+            // (the column's points on the line are shared by consecutive triangles: no repeated input points)
+            int column = p.Count;
+            for (int i = 0; i <= 400; ++i) p.Add(new[] { 0.0625, -0.9 + 1.8 * i / 400 });
+            for (int i = 0; i < 400; ++i) {
+                double h = 1.8 / 400;
+                p.Add(new[] { 0.0625 + h / 4, -0.9 + 1.8 * i / 400 + h / 2 });
+                t.Add(new[] { column + i, p.Count - 1, column + i + 1 });
+            }
+            var mesh = Mesh(p, t);
+            var keys = mesh.Triangles.SelectMany(q => new[] {
+                StrtreeEdgeSearch.Key(q[0], q[1]), StrtreeEdgeSearch.Key(q[1], q[2]), StrtreeEdgeSearch.Key(q[2], q[0]) }).ToArray();
+            var search = new StrtreeEdgeSearch(mesh, keys);
+            var hulls = search.Run("hulls");
+            Assert.True(hulls.CoarseNodes > 0, "no node tests its box corners");
+            Assert.True(hulls.Hits > 1000, "too few crossings: " + hulls.Hits);
+            Assert.Equal(search.Run("boxes").Fingerprint, hulls.Fingerprint);
+            Assert.True(Checked(mesh).Has(Violation.EdgesCross));
+        }
+
+        /// <summary>
         /// Complexity (REVIEW_CHECKLIST §10): the edge search's work (nodes visited plus orientation tests of the pruning certificates)
         /// on the convex lens at n and 4n edges grows like n log n, not n²: an inner node tests at most HullLimit polygon vertices.
         /// With the exact hull at every node (before the fix) the work grew about 13-fold per 4n here. The answers equal the sweep's

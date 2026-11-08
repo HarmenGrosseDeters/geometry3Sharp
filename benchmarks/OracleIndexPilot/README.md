@@ -144,7 +144,8 @@ is on the convex hull, so the root's exact hull held nearly all of them, every c
 splits the lens (no line prune), and each visited inner node tested all h hull
 vertices and edges. Now a node keeps a containing polygon of at most
 `StrtreeEdgeSearch.HullLimit` = 16 vertices: the exact hull of its children's
-polygons if that is small, else the four corners of its closed box (which contains
+polygons if that is small, else (if the box has positive width and height) the
+four corners of its closed box (which contains
 that hull, so the certificates stay sound; corner points are exact, as an NTS
 envelope's bounds are input doubles). The test per visited node is O(16), and the
 build is linear in the tree size. Leaf parents keep exact endpoint hulls, so the
@@ -175,7 +176,10 @@ fingerprints equal the sweep's (no crossings).
 | comb k = 1000, m = 60 (M1) | 180 005 | 1.063 | 2.277 | 2.382 | 21.3 M / 50.9 M |
 
 The reviewer measured 0.48 / 4.5 / 65 s for the strips and 101.7 s for a lens mesh
-of its own (PR head). The bounded search is 3-4 times the sweep on the lens
+of its own (PR head). Remaining cost: on convex boundaries the bounded search stays
+about 3-4 times slower than the sweep (lens rows), next to its gains where boxes
+overlap (comb k = 8000: 4.7 times faster; the #402 sampled component: 3.4 times
+faster). The bounded search is 3-4 times the sweep on the lens
 (the STRtree visits about 120-180 nodes per chord query, against the sweep's 64k
 candidates in all) and grows like n log n: work (nodes + prune tests) 2.61 M,
 13.5 M, 66.3 M for 4× steps (×5.2, ×4.9). `Meshing2OracleStrtreeTests` asserts the

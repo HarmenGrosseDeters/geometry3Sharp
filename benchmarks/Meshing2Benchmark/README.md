@@ -302,6 +302,11 @@ else its box corners) lies on one closed side of the query line, or the query se
 tests are the oracle's unchanged `OrientV` filter with the exact fallback. The reference path keeps the sweep (`BoxPairs`). Proofs,
 controls and measurements: [OracleIndexPilot](../OracleIndexPilot/README.md).
 
+What it costs and gains (edge component, one 2-CPU container): where edge boxes overlap massively the sweep is quadratic and the hull
+search wins (a 301 453-triangle former timeout: 5.9 s against 1.7 s for 4096 sampled queries; a comb of 8000 diagonal chains: 6.4 s
+against 1.4 s); on convex boundaries, where few nodes can be pruned, it stays about 3-4 times slower than the sweep (a 60 000-point
+lens: 0.25 s against 0.93 s), growing like n log n.
+
 | Variable | Values | Default |
 |---|---|---|
 | `G3_ORACLE_POINT_INDEX` | `strtree`, `sweep` | `strtree` |
