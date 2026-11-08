@@ -25,6 +25,25 @@ its JTS-derived content is available under the permissive BSD-style Eclipse Dist
 Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
 benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
 
+`benchmarks/OracleIndexPilot` also uses the public NetTopologySuite 2.6.0 STRtree
+API (BSD-3-Clause, same release license above), as an isolated test/benchmark
+dependency. NTS builds a point hierarchy; our traversal uses the existing oracle's
+unchanged orientation filter/exact fallback and the affine maximum of orientation
+over a closed rectangle to prune strictly exterior subtrees. No NTS geometric
+verdict is used and no implementation is read or ported. The full experimental
+oracle path adds NTS to the independent test-oracle project, never to the library;
+the compiler still enforces the oracle's lack of a geometry3Sharp reference.
+The proof, controls and measurements are documented
+in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
+
+The large pilot mesh is generated externally from a GEOS XML test fixture at
+commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output
+hashes are recorded in the pilot's numeric provenance. Upstream's pinned
+[COPYING](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING)
+is LGPL-2.1; no separate permissive fixture license is assumed. Fixtures and
+generated geometries/meshes are not committed. Only external data is used;
+GEOS implementation code is not consulted or ported.
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.

@@ -238,6 +238,7 @@ namespace Meshing2Acceptance
             var output = TextFormat.ReadOutput(File.ReadAllText(outputPath), out string producer);
             var e = MeshCommand.OracleExpectation(MilestoneArg(args, Milestone.M1), Arg(args, "--tube"), Arg(args, "--stated-area"), Arg(args, "--stated-area-tolerance"));
             e.ReportSnappedArea = Has(args, "--snapped-area");
+            if (Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null) Console.Error.WriteLine("ORACLE-JUDGE-BEGIN");
             var report = Oracle.Check(input, output, e);
             foreach (var v in report.Violations) Console.WriteLine("VIOLATION " + v);
             Console.WriteLine((report.Ok ? "VALID" : "INVALID") + " " + producer + ": " + output.Triangles.Length + " triangles, unique " + report.Unique.ToString().ToLowerInvariant()

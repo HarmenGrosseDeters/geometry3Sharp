@@ -182,7 +182,7 @@ namespace Meshing2Acceptance
                 EdgesAndNeighbours(); Lap("edges");
                 Sources(); Lap("sources");
                 Filters(); Lap("filters");
-                Conformity(); Lap("conformity");
+                Conformity(); Lap("conformity: remaining");
                 Crossings();
                 InventedVertices(); Lap("crossings, invented");
                 Segments(); Lap("segments");   // before Coverage: it measures how far the geometry moved
@@ -1759,7 +1759,10 @@ namespace Meshing2Acceptance
                 var vertexBoxes = used.Select(i => new[] { rx[i], rx[i], ry[i], ry[i] }).ToArray();
                 // (the pairs come in no particular order: the violations are collected and the first 8 in index order reported)
                 var touching = new List<(int ti, int id)>();
-                OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
+                string pointIndex = Environment.GetEnvironmentVariable("G3_ORACLE_POINT_INDEX");
+                if (pointIndex != null && pointIndex != "strtree") throw new InvalidOperationException("G3_ORACLE_POINT_INDEX accepts strtree only");
+                if (Fast && pointIndex == "strtree") touching.AddRange(new StrtreePointSearch(o).FindTouches());
+                else OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
                     var t = o.Triangles[ti];
                     int id = used[vi];
                     if (id == t[0] || id == t[1] || id == t[2]) return;
@@ -1770,6 +1773,7 @@ namespace Meshing2Acceptance
                     var t = o.Triangles[ti];
                     r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
                 }
+                Lap("conformity: point-triangle");
                 var keys = edges.Keys.ToArray();
                 var edgeBoxes = keys.Select(k => new[] {
                     Math.Min(rx[KeyA(k)], rx[KeyB(k)]), Math.Max(rx[KeyA(k)], rx[KeyB(k)]),
@@ -1783,6 +1787,7 @@ namespace Meshing2Acceptance
                 crossing.Sort();
                 foreach (var (k1, k2) in crossing.Take(8))
                     r.Add(Violation.EdgesCross, "edges " + KeyA(k1) + "-" + KeyB(k1) + " and " + KeyA(k2) + "-" + KeyB(k2) + " cross");
+                Lap("conformity: edge-crossings");
                 // every used vertex that is a corner of two triangles with the same coordinates would pass the tests above
                 if (Fast) {
                     // the doubles are the exact vertices: equal doubles, equal points (0.0 and -0.0 made one)

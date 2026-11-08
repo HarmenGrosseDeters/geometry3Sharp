@@ -1,0 +1,24 @@
+name: Oracle index pilot
+on:
+  pull_request:
+    paths:
+      - 'benchmarks/OracleIndexPilot/**'
+      - 'benchmarks/Meshing2Benchmark/Oracle/**'
+      - 'benchmarks/Meshing2Benchmark/Program.cs'
+      - '.github/workflows/oracle-index-pilot.yml'
+  workflow_dispatch:
+jobs:
+  equivalence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet run --project benchmarks/OracleIndexPilot -c Release -- selftest
+      - name: Integrated oracle opt-in self-check
+        env:
+          G3_ORACLE_POINT_INDEX: strtree
+        run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- selfcheck
+      - run: python3 -m unittest discover -s benchmarks/OracleIndexPilot -p 'test_*.py' -v
