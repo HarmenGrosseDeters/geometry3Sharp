@@ -1,0 +1,39 @@
+Final point-pilot validation, 2026-11-08. SDK10.0.403, runtime10.0.14.
+All build/pack outputs use <work>; no frozen campaign binaries overwritten.
+
+all-target core build
+Build succeeded.
+    5 Warning(s)
+    0 Error(s)
+
+net48 test-project build
+Build succeeded.
+    7 Warning(s)
+    0 Error(s)
+
+Clipper2 net48 test-project build
+Build succeeded.
+    4 Warning(s)
+    0 Error(s)
+
+core API-validating pack
+  Successfully created package '<work>/geometry3Sharp.1.0.0-ci.1.nupkg'.
+  Successfully created package '<work>/geometry3Sharp.1.0.0-ci.1.snupkg'.
+
+Clipper2 API-validating pack
+  Successfully created package '<work>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg'.
+
+opt-in targeted oracle/modes/box-pairs/golden tests
+Test Run Successful.
+Total tests: 651
+     Passed: 651
+ Total time: 6.0557 Minutes
+
+component selftest
+SELFTEST passed: 312 cases; exact exhaustive equivalence, boundary/nested/coincident cases, power-of-two scales, reuse and parallel determinism.
+
+controller tests
+Ran 5 tests in 0.006s
+OK
+
+The first broader Oracle filter was interrupted during a paused session and produced no completed report; no pass claim is made for that attempt. The completed targeted replacement has 651 passing tests.
