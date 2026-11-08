@@ -10,8 +10,6 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(false, 1.0, LogMapStrategy.AffineLocal)]
         [InlineData(true, 0.125, LogMapStrategy.AffineLocal)]
-        [InlineData(false, 1.0, LogMapStrategy.AffineAdaptive)]
-        [InlineData(true, 0.125, LogMapStrategy.AffineAdaptive)]
         public void Affine_MatchesFullHomogeneousSystem(bool refine, double time, LogMapStrategy strategy)
         {
             DMesh3 mesh = IntrinsicGeodesicsTests.Grid(2, 4, (x, y) => 0.3 * x * y);
@@ -24,8 +22,7 @@ namespace geometry3Sharp.Tests
                 var rhs = new double[3 * n];
                 rhs[3 * s] = 1;
                 double[] reference = DenseSolve(matrix, rhs);
-                if (strategy == LogMapStrategy.AffineAdaptive) matrix = Assemble(t, method.DiffusionTime, reference);
-                rhs[3 * s] = 0;
+                                rhs[3 * s] = 0;
                 rhs[3 * s + 2] = 1;
                 double[] homogeneous = DenseSolve(matrix, rhs);
                 foreach (int v in mesh.VertexIndices()) {
@@ -33,8 +30,7 @@ namespace geometry3Sharp.Tests
                     Vector2d p = new Vector2d(homogeneous[3 * i], homogeneous[3 * i + 1]) / homogeneous[3 * i + 2];
                     Vector2d r = new Vector2d(reference[3 * i], reference[3 * i + 1]);
                     r /= r.Length;
-                    Vector2d expected = i == s ? Vector2d.Zero : strategy == LogMapStrategy.AffineAdaptive
-                        ? p : new Vector2d(p.Dot(r), p.y * r.x - p.x * r.y);
+                    Vector2d expected = i == s ? Vector2d.Zero : new Vector2d(p.Dot(r), p.y * r.x - p.x * r.y);
                     Assert.True(actual[v].Distance(expected) < 2e-10, $"source {source}, vertex {v}: {actual[v]} vs {expected}");
                 }
             }
@@ -103,7 +99,6 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(LogMapStrategy.AffineLocal)]
-        [InlineData(LogMapStrategy.AffineAdaptive)]
         public void Affine_LegacyDispatchAndReuseAreIdentical(LogMapStrategy strategy)
         {
             DMesh3 mesh = IntrinsicGeodesicsTests.GoodSphere(1, 7);

@@ -29,9 +29,12 @@ namespace gs
     /// <summary>Construction used for the vector heat logarithmic map.</summary>
     public enum LogMapStrategy
     {
+        /// <summary>The default construction of <see cref="VectorHeatMethod.ComputeLogMap(int)"/>.</summary>
         Legacy,
-        AffineLocal,
-        AffineAdaptive
+        /// <summary>
+        /// Affine heat (Soliman and Sharp 2025): accurate near the source, not for distances up to the cut locus.
+        /// </summary>
+        AffineLocal
     }
 
     /// <summary>
@@ -518,18 +521,19 @@ namespace gs
 
 
         /// <summary>
-        /// Selects the legacy construction or an affine heat method (Soliman and Sharp, 2025).
-        /// AffineLocal divides affine heat coordinates by scalar heat, then transports to the source frame.
-        /// AffineAdaptive instead develops the edge translations in the transported source frame before diffusion.
-        /// Unlike the upstream assembly, negative cotangent weights are clamped, as in the other heat operators.
-        /// Neither variant guarantees pointwise improvement over the legacy construction.
+        /// Logarithmic map around a vertex by the selected construction. <see cref="LogMapStrategy.Legacy"/> is
+        /// <see cref="ComputeLogMap(int)"/>. <see cref="LogMapStrategy.AffineLocal"/> solves the affine heat
+        /// system of Soliman and Sharp (2025): the heat-weighted mean of the edge translations, divided by the
+        /// scalar heat and transported to the source frame. Its range is documented as accurate near the source (in
+        /// a patch of some ten edge lengths, on the smooth fixtures far more than the legacy map and the discrete
+        /// exponential map of <see cref="MeshLocalParam"/>), not for distances up to the cut locus, where it is less
+        /// accurate than the legacy map. It does not guarantee pointwise improvement. Negative cotangent weights are
+        /// clamped, as in the other heat operators. The same gauge as <see cref="ComputeLogMap(int)"/>.
         /// </summary>
         public Vector2d[] ComputeLogMap(int sourceVid, LogMapStrategy strategy)
         {
             if (strategy == LogMapStrategy.Legacy) return ComputeLogMap(sourceVid);
-            if (strategy != LogMapStrategy.AffineLocal && strategy != LogMapStrategy.AffineAdaptive)
-                throw new ArgumentOutOfRangeException(nameof(strategy));
-            bool adaptive = strategy == LogMapStrategy.AffineAdaptive;
+            if (strategy != LogMapStrategy.AffineLocal) throw new ArgumentOutOfRangeException(nameof(strategy));
             check();
             IntrinsicTriangulation T = triangulation;
             int x = index_of(sourceVid);
@@ -549,7 +553,7 @@ namespace gs
                 frame[i] /= frame[i].Length;
             }
             Array.Clear(rhs, 0, rhs.Length);
-            // [A_vector B; 0 A_scalar] [u; z] = [0; delta]; Adaptive replaces A_vector by two A_scalar blocks.
+            // [A_vector B; 0 A_scalar] [u; z] = [0; delta]: the block B couples the vector heat to the scalar heat z
             for (int h = 0; h < T.HalfedgeCount; ++h) {
                 if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;
                 int i = T.Tail(h), j = T.Head(h);
@@ -557,33 +561,23 @@ namespace gs
                 double c = -DiffusionTime * heatWeight[h] * T.Length(h);
                 double ai = T.Signpost(h), aj = T.ReverseSignpost(h);
                 Vector2d ei = new Vector2d(Math.Cos(ai), Math.Sin(ai)), ej = new Vector2d(Math.Cos(aj), Math.Sin(aj));
-                if (adaptive) {
-                    ei = source_frame(ei, frame[i]);
-                    ej = source_frame(ej, frame[j]);
-                }
                 rhs[2 * i] += c * z[j] * ei.x;
                 rhs[2 * i + 1] += c * z[j] * ei.y;
                 rhs[2 * j] += c * z[i] * ej.x;
                 rhs[2 * j + 1] += c * z[i] * ej.y;
             }
             double[] u = new double[2 * N];
-            if (adaptive) {
-                double[] b = new double[N], solution = new double[N];
-                for (int k = 0; k < 2; ++k) {
-                    for (int i = 0; i < N; ++i) b[i] = rhs[2 * i + k];
-                    ops.Scalar.Solve(b, solution);
-                    for (int i = 0; i < N; ++i) u[2 * i + k] = solution[i];
-                }
-            } else ops.Vector.Solve(rhs, u);
+            ops.Vector.Solve(rhs, u);
             return per_vertex(i => {
                 if (i == x) return Vector2d.Zero;
                 if (!(z[i] > 0)) return nan;
                 Vector2d p = new Vector2d(u[2 * i] / z[i], u[2 * i + 1] / z[i]);
-                return adaptive ? p : source_frame(p, frame[i]);
+                return source_frame(p, frame[i]);
             }, nan, has);
         }
 
 
+        // p (in the vertex frame) rotated into the frame of the transported source reference
         static Vector2d source_frame(Vector2d p, Vector2d unitReference)
         {
             return new Vector2d(p.Dot(unitReference), p.y * unitReference.x - p.x * unitReference.y);
