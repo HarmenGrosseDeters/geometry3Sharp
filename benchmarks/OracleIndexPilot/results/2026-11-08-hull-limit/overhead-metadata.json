@@ -1,0 +1,51 @@
+{
+  "mesh_sha256": "56de8a1b8f6969f2fba35e9950b7bee0a6b746da18df0a00a694f464bacc6521",
+  "controller_sha256": "9791d77b82532fb8bfb5faa41346d6fc8ad431eb762dcc76cf68e3e85cca2afa",
+  "variants": {
+    "before": {
+      "runtime": {
+        "Meshing2Oracle.dll": "985683c03dbe28773b1cde844509b3bac4c62e09e90e8f7da5824d04038d9397",
+        "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+        "OracleIndexPilot.deps.json": "b06b252ae69b9a9c577454db435d1e413defe7fc8384a955009adeea65a803ac",
+        "OracleIndexPilot.dll": "34a895ae2d508f9f92cfd82eaa7fb11469882e1b84455c6f4cb978ab566b9e4e",
+        "OracleIndexPilot.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+      },
+      "edge_source_sha256": "a17a0178407a390f6128bb35296007d40e2bb10b77feae22e6b30d67d0e992a3"
+    },
+    "bounded": {
+      "runtime": {
+        "Meshing2Oracle.dll": "d3a96dae5baf2714fc8fb3738f45b72cdbdc087c23f7fb3ecf1e73dd3c58c4a5",
+        "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+        "OracleIndexPilot.deps.json": "b06b252ae69b9a9c577454db435d1e413defe7fc8384a955009adeea65a803ac",
+        "OracleIndexPilot.dll": "18733d2d6e45c9908f328b4da3d0441ec30e88e5942799dcfbd6bb87aaca45d4",
+        "OracleIndexPilot.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+      },
+      "edge_source_sha256": "d14258ab43569c7479088e09f26a8adb19493e51292e9cda7fee754934e8b2dd"
+    },
+    "uncapped": {
+      "runtime": {
+        "Meshing2Oracle.dll": "086485a12745d8ef652a3555e84a5e7e4ac57e0f3626675c850da51a6ebc1755",
+        "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+        "OracleIndexPilot.deps.json": "b06b252ae69b9a9c577454db435d1e413defe7fc8384a955009adeea65a803ac",
+        "OracleIndexPilot.dll": "44d9ca281073d413c66d1459e515c4a1d7d23d32689f4d7329fb34fd44a19d86",
+        "OracleIndexPilot.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+      },
+      "edge_source_sha256": "a715ac4fc97b8a522db5b1fc5ca8d046dc97204c937898d97fe1771e2538522f"
+    },
+    "uncounted": {
+      "runtime": {
+        "Meshing2Oracle.dll": "271a9ab64b3491172640c5a474cfd639893662be2af2541af254ad75a3a552c0",
+        "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+        "OracleIndexPilot.deps.json": "b06b252ae69b9a9c577454db435d1e413defe7fc8384a955009adeea65a803ac",
+        "OracleIndexPilot.dll": "673fa685ebab7acd0f685a49e2c9a2a157b1ca698c39102b54fd18a22cd63064",
+        "OracleIndexPilot.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+      },
+      "edge_source_sha256": "fd4b68b9bf269055f0e90a937a0c5be992b32d9f13c03c5639e6d17c76cfde96"
+    }
+  },
+  "rounds": 3,
+  "controls": {
+    "uncapped": "b58b0078 with only HullLimit=16 changed to int.MaxValue",
+    "uncounted": "b58b0078 with only pruneTests++ omitted; HullLimit stays 16"
+  }
+}

@@ -14,7 +14,7 @@ namespace geometry3Sharp.Tests
     public class DefectFreeReduceTests
     {
         // a thin wavy slab, finely tessellated: aggressive reduction pushes the two sides through each other
-        static DMesh3 ThinSlab()
+        internal static DMesh3 ThinSlab()
         {
             DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.02)), EdgeVertices = 40 }.Generate().MakeDMesh();
             foreach (int vid in slab.VertexIndices().ToArray()) {
@@ -292,7 +292,7 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "coincident sheets", 640 };
         }
 
-        static DMesh3 UnionQueryMesh(string name)
+        internal static DMesh3 UnionQueryMesh(string name)
         {
             switch (name) {
                 case "thin slab": return ThinSlab();

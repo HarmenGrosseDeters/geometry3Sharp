@@ -62,6 +62,40 @@ library). It answers "the edges that may lie within √d of p" and replaces five
 the box of the subsegment's first end. This is the argument `InventedVertices` already uses: a superset in ascending order, and
 `MayBeNear` drops only sources certainly farther than the tube.
 
+**Source coverage (2026-11-08).** With no reported subsegments, `Sources` previously
+tried every input source against every output edge. It now uses `SourceCovers`,
+also used by Coverage, with the existing source `BoxGrid`. Source boxes are built
+lazily with exactly the previous Filters envelope and reused by Filters. A query
+uses the closed interval box of the first endpoint. A covering source must contain
+that endpoint within its tube, so its tube-widened box must meet the query. The
+grid returns a superset in source order. The same necessary overlap test excludes
+candidates whose known box misses either endpoint; unknown source boxes remain
+candidates and an unknown query endpoint falls back to the scan. Both original
+exact `WithinTube` predicates remain the final decision. Thus every true source
+survives and every accepted source still passes the same exact definition.
+
+`G3_ORACLE_SOURCE_INDEX=scan` restores the full scan independently of the other
+fast paths; `grid` is the default. Empty/blank values mean default and names are
+case-insensitive. Invalid values fail before geometry work (the command line
+validates before its self-check). Reference runs and exact-coordinate outputs
+retain their full scans. The grid and boxes belong to one Run, and sources and
+tolerance stay fixed for its lifetime. `Oracle.CheckFastPathForTests` checks both
+the candidate superset and each resulting coverage boolean against the exact scan.
+
+This reuses the envelope/grid argument above and the existing exact distance
+definition; no predicate, margin or library dependency is introduced. It does not
+promise a subquadratic worst case: the exact fallback may still scan the
+entire source set. Coverage's `QueryBounded` caps candidate enumeration at 4096
+work units (copied/marked unknowns, visited cells and bucket entries) and returns
+null on exhaustion, never a partial result. The exact scan then restarts from the
+first source. This avoids materializing an unbounded candidate list where the
+previous scan would stop early, including dense buckets next to an outlier.
+Ordinary grid callers retain their previous Query implementation. The grid build
+and the existing amortized generation-counter reset are outside this enumeration
+budget. `OracleSourcePilot` records component work, complete reports
+on identical meshes, the original implementation and a scan control; its `phase`
+command is explicitly a partial diagnostic and never issues a validity verdict.
+
 ### (2) Quality
 
 - **`GridBlocked`: vertices.** It asked whether any vertex lies at the centre of the circumcentre's pixel. It now buckets the vertices

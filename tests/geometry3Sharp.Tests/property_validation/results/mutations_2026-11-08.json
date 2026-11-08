@@ -1,0 +1,95 @@
+{
+ "results": [
+  {
+   "mutation": "empty_before_finiteness",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~EmptyResult_StillRequiresFiniteCoordinates",
+   "exit_code": 1,
+   "failed": 3,
+   "passed": 0
+  },
+  {
+   "mutation": "vacuous_family_check",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsWrongRelations",
+   "exit_code": 1,
+   "failed": 8,
+   "passed": 0
+  },
+  {
+   "mutation": "rejecting_family_check",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_AcceptsCanonicalCase",
+   "exit_code": 1,
+   "failed": 8,
+   "passed": 0
+  },
+  {
+   "mutation": "nondeterministic_shrink",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~Shrink_IsDeterministicForAGivenSeed",
+   "exit_code": 1,
+   "failed": 1,
+   "passed": 0
+  },
+  {
+   "mutation": "touching_any_contact_count",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 6,
+   "passed": 21
+  },
+  {
+   "mutation": "disjoint_allows_contact",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 3,
+   "passed": 24
+  },
+  {
+   "mutation": "identical_accepts_containment",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 2,
+   "passed": 25
+  },
+  {
+   "mutation": "strict_nested_accepts_shared_faces",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 1,
+   "passed": 26
+  },
+  {
+   "mutation": "overlapping_accepts_shared_planes",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 2,
+   "passed": 25
+  },
+  {
+   "mutation": "overlapping_accepts_containment",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 1,
+   "passed": 26
+  },
+  {
+   "mutation": "coplanar_one_shared_plane",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 1,
+   "passed": 26
+  },
+  {
+   "mutation": "coplanar_accepts_containment",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
+   "exit_code": 1,
+   "failed": 2,
+   "passed": 25
+  },
+  {
+   "mutation": "restored",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~ExactBooleanProperty|FullyQualifiedName~ExactBooleanMetamorphic'",
+   "exit_code": 0,
+   "failed": 0,
+   "passed": 124
+  }
+ ]
+}
