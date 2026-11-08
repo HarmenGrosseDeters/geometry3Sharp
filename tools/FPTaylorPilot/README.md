@@ -37,3 +37,22 @@ because the installer was edited while the first build was running. The resultin
 through binary `float` is caught by the negative-underflow test. Library targets, both net48 test-project
 builds and both API-validating package builds pass. Independent review found the underflow issue; the fix
 and subsequent delta were reviewed with no remaining findings.
+
+## First comparison: one Orient3dLPI leaf
+
+`orient3dlpi_ux.txt` models just `ux = s.x - r.x` in `indirect.spec`, with binary64 inputs
+`s.x` in `[1,2]` and `r.x` in `[0,0.5]`. Under round-to-nearest-even and the generator's existing leaf
+rule, the rounded `ux` lies in `[0.5,2]`; its computed magnitude is `|ux|`, and the rule gives
+`|error| <= 2^-53 |ux| <= 2^-52`. The gate and the rest of the expression graph are not modeled.
+The FPTaylor result below is a separate absolute bound for this restricted range; a tighter result on this
+range does not establish that the generator's relative rule holds in general.
+
+```sh
+python3 tools/FPTaylorPilot/compare_ux.py "$base"
+```
+
+On FPTaylor b5a77cae with `bb-eval`, this returned `0x1p-53`, which is below the conservative
+`2^-52` upper bound derived from the generator rule. The comparison reads FPTaylor's hexadecimal result
+as an exact rational, fails when it exceeds the derived bound, and checks the model and relevant source
+snippets for drift. It is an initial **single-leaf, bounded-domain** check, not a proof of Orient3dLPI,
+its filter gate, other inputs, or all binary64 exceptional and underflow cases.
