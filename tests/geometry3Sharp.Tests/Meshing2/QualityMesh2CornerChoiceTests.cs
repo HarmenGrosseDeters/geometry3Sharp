@@ -97,8 +97,8 @@ namespace geometry3Sharp.Tests
         public void ShortestEdgeCorner_AcrossTheFilterMargin_IsExact()
         {
             // |ab| = 1 and |bc| = 1 + 2^-k or 1 - 2^-k: the squared lengths differ by about 2^(1-k), so the sweep crosses the filter's
-            // relative margin of 2^-40 (k = 41) from both sides, and the rounding error of the squared lengths (2^-53) at k = 52
-            for (int k = 20; k <= 52; ++k) {
+            // relative margin of 2^-40 (k = 41) from both sides, and the rounding error of the squared lengths (2^-53) at k = 51 (2 + 2^-52 is not a double, so the sweep ends there)
+            for (int k = 20; k <= 51; ++k) {
                 double d = Math.Pow(2, -k);
                 var a = new Vector2d(0, 0); var b = new Vector2d(1, 0);
                 Assert.Equal(2, QualityMesh2.Refiner.ShortestEdgeCorner(a, b, new Vector2d(2 + d, Eps)));   // ab shorter: opposite corner c
