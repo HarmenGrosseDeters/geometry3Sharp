@@ -30,7 +30,9 @@ Part of the [roadmap](../ROADMAP.md).
   after the full-800 data); the CGAL comparison for the raw target runs on the 100 meshes of the T1 list only
   (median comparison), as a fixed reference that later runs do not repeat (owner 2026-11-08). Q1 (A+B+C, quality
   pass off, 800): final p01 median 11.53° (min 10.79°, master 7.62°), 0 triangles < 0.5° or > 170°, raw p01 median
-  20.11°, F-score / IoU medians not worse, triangles +16.5 %; hd_back mixed per mesh (attribution to A/B/C pending);
+  20.11°, F-score / IoU medians not worse, triangles +16.5 %; hd_back mixed per mesh (79-81 worse > 5 %, 124-126 better, medians equal), caused by B's Φ gating (paper
+  Definition 2; CGAL shows equal or larger input→result distances on the probed meshes), accepted as paper behaviour
+  (owner 2026-11-08; the circumradius gates would cost the raw p01 gain);
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
