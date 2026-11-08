@@ -1,8 +1,12 @@
 # Summarizes BENCH_REPAIR=wrappipe runs (the alpha wrap fallback pipeline: raw wrap, simplification, quality pass):
 # guarantees, offset band, fidelity, triangle quality of the raw wrap and of the result, time and its phases.
 # Usage: python3 analyze_wrap_pipe.py run.jsonl [base.jsonl]   (with a base: paired per-mesh comparison)
-#        --budget S   wall time budget per mesh in seconds (default 5)
+#        --budget S   wall time budget per mesh: max(S seconds, --per-tri µs x raw-wrap triangles) (owner 2026-11-08:
+#                     5 s and 50 µs, warm process); defaults 5 and 50
+#        --per-tri U
 import json, sys, statistics as st
+
+PER_TRI = 50
 
 def load(path):
     out = {}
@@ -59,11 +63,20 @@ def summary(rs, budget, name):
               f"median {q([r[f'{p}_angle_max'] for r in v], .5):.2f}; p01 median {q(p01, .5):.2f} min {min(p01):.2f}; "
               f"> 150: {sum(r[f'{p}_angle_gt150'] for r in v)}; tris median {q([r.get(p + '_tris', 0) for r in v], .5):.0f}")
     t = [r["pipe_ms"] / 1000 for r in ok if "pipe_ms" in r]
-    over = sorted(((r["pipe_ms"] / 1000, r["file"]) for r in ok if r.get("pipe_ms", 0) > budget * 1000), reverse=True)
-    print(f"pipeline time (s): median {q(t, .5):.2f} p90 {q(t, .9):.2f} p99 {q(t, .99):.2f} max {max(t):.2f}; "
-          f"> {budget} s: {len(over)} of {len(t)} (+ {len(rs) - len(ok)} without a result)")
+    def limit(r):
+        return max(budget, PER_TRI * 1e-6 * r.get("raw_tris", 0))
+    over = sorted(((r["pipe_ms"] / 1000, r["file"], limit(r)) for r in ok if "pipe_ms" in r and r["pipe_ms"] / 1000 > limit(r)), reverse=True)
+    warm = sum(1 for r in ok if r.get("warmup") in ("soup", "same"))
+    print(f"pipeline time (s, {'warm' if warm == len(ok) else f'{warm} of {len(ok)} warm'}): median {q(t, .5):.2f} p90 {q(t, .9):.2f} "
+          f"p99 {q(t, .99):.2f} max {max(t):.2f}; over the budget max({budget} s, {PER_TRI} µs x raw triangles): {len(over)} of {len(t)} "
+          f"(+ {len(rs) - len(ok)} without a result); pass {len(t) - len(over)}")
+    if over:
+        print("  over: " + ", ".join(f"{f} {x:.1f}/{b:.1f}" for x, f, b in over[:15]))
+    cold = [r["pipe_ms_cold"] / 1000 for r in ok if "pipe_ms_cold" in r]
+    if cold:
+        print(f"cold (first run in the process): median {q(cold, .5):.2f} max {max(cold):.2f}")
     # phase shares, all meshes and over the budget
-    for label, sel in [("all", ok), (f"> {budget} s", [r for r in ok if r.get("pipe_ms", 0) > budget * 1000])]:
+    for label, sel in [("all", ok), ("over the budget", [r for r in ok if "pipe_ms" in r and r["pipe_ms"] / 1000 > limit(r)])]:
         tot = {}
         for r in sel:
             for k, ms in r.get("pipe_phases", {}).items():
@@ -76,9 +89,12 @@ def summary(rs, budget, name):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    global PER_TRI
     budget = float(sys.argv[sys.argv.index("--budget") + 1]) if "--budget" in sys.argv else 5
-    if "--budget" in sys.argv:
-        args.remove(sys.argv[sys.argv.index("--budget") + 1])
+    PER_TRI = float(sys.argv[sys.argv.index("--per-tri") + 1]) if "--per-tri" in sys.argv else 50
+    for opt in ("--budget", "--per-tri"):
+        if opt in sys.argv:
+            args.remove(sys.argv[sys.argv.index(opt) + 1])
     runs = [load(a) for a in args]
     for a, rs in zip(args, runs):
         summary(rs, budget, a)
