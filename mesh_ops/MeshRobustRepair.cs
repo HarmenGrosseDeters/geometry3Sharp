@@ -604,12 +604,17 @@ namespace gs
 
         /// <summary>
         /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
-        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// nothing, was cancelled, or its result is not clean.
+        /// simplified must be certified within maxDistance of wrap (SimplifyWithin does that). The result is then
+        /// certified within maxDistance by construction, without a second Hausdorff check: every operation of the pass
+        /// certifies each of its new triangles, exactly as it puts them into the mesh, within 0.95 maxDistance of wrap
+        /// (AlphaWrapQualityPass.accept, TriangleDeviationBounds.IsWithin), and the triangles it does not touch keep the
+        /// certificate of simplified (AlphaWrapQualityPassTests.ImproveWrapQuality_CertifiedByConstruction checks it). If
+        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before.
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)
         {
-            int subdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
             // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
             // check, which resolves to 1 % of maxDistance, undecided)
@@ -624,9 +629,15 @@ namespace gs
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             lap(phases, "check", timer);
-            bool within = certified_within(m, wrap, maxDistance, cancelF, ref subdivisions);
-            lap(phases, "certify", timer);
-            return within ? m : null;
+            // (a configuration that widened the operations' tolerance beyond 0.95 maxDistance: no certificate by
+            // construction, the Hausdorff check decides)
+            if (!(pass.Tolerance <= 0.95 * maxDistance)) {
+                int subdivisions = 0;
+                bool within = certified_within(m, wrap, maxDistance, cancelF, ref subdivisions);
+                lap(phases, "certify", timer);
+                return within ? m : null;
+            }
+            return m;
         }
 
         // (benchmarks) adds the time since the last lap to phases[name], if phases is given

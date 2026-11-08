@@ -75,6 +75,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(copy, simp));
         }
 
+        // ImproveWrapQuality returns its result without a second Hausdorff check: certified by construction (every new
+        // triangle by IsWithin, the others by the simplification's certificate). Checked here with the bounds without the
+        // patch bound, over inputs and every kind of operation (default, collapses, splits of more caps, moves only)
+        [Fact]
+        public void ImproveWrapQuality_CertifiedByConstruction()
+        {
+            var inputs = new List<DMesh3> {
+                new TrivialBox3Generator() { Box = DefaultBox, NoSharedVertices = false }.Generate().MakeDMesh(),
+                new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1.5f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh(),
+                AlphaWrapTests.Ellipsoid(5, 0.3, 0.45), AlphaWrapTests.RandomSoup(42), AlphaWrapTests.RandomSoup(173)
+            };
+            var variants = new List<Action<AlphaWrapQualityPass>> {
+                MeshRobustRepair.DefaultWrapQuality,
+                p => { MeshRobustRepair.DefaultWrapQuality(p); p.EnableCollapses = true; },
+                p => { MeshRobustRepair.DefaultWrapQuality(p); p.SplitCapsAboveDegrees = 120; p.MaxTriangleGrowth = 0.2; },
+                p => { p.EnableFlips = false; },
+            };
+            int checkedResults = 0;
+            foreach (DMesh3 input in inputs) {
+                var w = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
+                Assert.True(w.Compute(), w.Error);
+                double tol = 0.5 * w.UsedOffset;
+                DMesh3 simp = MeshRobustRepair.SimplifyWithin(w.Result, tol, tol, true, () => false);
+                Assert.NotNull(simp);
+                foreach (var configure in variants) {
+                    DMesh3 q = MeshRobustRepair.ImproveWrapQuality(simp, w.Result, tol, true, () => false, configure);
+                    if (q == null) continue;
+                    checkedResults++;
+                    Assert.True(HausdorffUpper(q, w.Result, tol) <= tol, $"{checkedResults}: not within {tol}");
+                }
+            }
+            Assert.True(checkedResults >= 15, $"{checkedResults} results");
+        }
+
         [Fact]
         public void Pass_KeepsEveryTriangleWithinItsTolerance_AndCountsOperations()
         {
@@ -645,7 +679,8 @@ namespace geometry3Sharp.Tests
         public void ImproveWrapQuality_RejectsAResultBeyondMaxDistance()
         {
             // the pass run at 4 times the distance: its result is clean but not within maxDistance, so the final
-            // certification rejects it (null); with maxDistance 4 times as large the same pass is accepted
+            // certification rejects it (null; a tolerance above 0.95 maxDistance has no certificate by construction, so the
+            // Hausdorff check runs); with maxDistance 4 times as large the same pass is accepted
             DMesh3 wrap, simp; double tol;
             BoxWrap(DefaultBox, out wrap, out simp, out tol);
             DMesh3 wide = MeshRobustRepair.ImproveWrapQuality(simp, wrap, 4 * tol, true, () => false);
