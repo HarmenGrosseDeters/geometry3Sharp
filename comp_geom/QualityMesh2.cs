@@ -426,6 +426,7 @@ namespace g3
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
+                if (CoarsenForBenchmarks > 0) Coarsen();
                 k.Dirty = null;
                 // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
                 // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
@@ -455,6 +456,77 @@ namespace g3
                 var bad = k.NonDelaunayEdges();
                 if (bad.Count > 0) k.RestoreDelaunay(bad);
                 return null;
+            }
+
+            /// <summary> benchmarks only (probe): after refinement, delete free Steiner vertices one at a time while no rewritten triangle
+            /// is bad (greedy, latest first, repeated until a pass deletes nothing); 0 or null off. Counts per thread. </summary>
+            [ThreadStatic] internal static int? CoarsenForBenchmarks;
+            [ThreadStatic] internal static long CoarsenTriedForBenchmarks, CoarsenDeletedForBenchmarks, CoarsenRefusedForBenchmarks;
+
+            void Coarsen()
+            {
+                var dirty = new List<int>();
+                for (int pass = 0; pass < 8; ++pass) {
+                    int deleted = 0;
+                    for (int v = k.VertexCount - 1; v >= firstSteiner; --v) {
+                        if (TryDelete(v, dirty)) { ++deleted; ++CoarsenDeletedForBenchmarks; }
+                    }
+                    if (deleted == 0) break;
+                }
+                k.Dirty = new List<int>();
+            }
+
+            /// <summary> no rewritten triangle is bad; conforming (O2): every edge of them locally Delaunay, constrained ones too </summary>
+            bool CoarsenAcceptable(List<int> dirty)
+            {
+                foreach (int t in dirty) {
+                    if (t >= k.TriangleSlots || k.IsGhost(t)) continue;
+                    if (InDomain(t) && Bad(t)) return false;
+                    if (!options.Conforming) continue;
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j, f = k.H[e];
+                        if (k.Seg[e] < 0 || k.IsGhost(f / 3)) continue;
+                        int opp = k.V[3 * (f / 3) + (f % 3 + 2) % 3];
+                        if (ExactPredicates.InCircle(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), k.Point(opp)) > 0) return false;
+                    }
+                }
+                return true;
+            }
+
+            bool TryDelete(int v, List<int> dirty)
+            {
+                double x = k.X[v], y = k.Y[v];
+                // mode 2: a vertex between two pieces of the same sources (a split undone)
+                int e1 = -1, e2 = -1, constrained = 0;
+                foreach (int e in k.Star(v)) if (k.Seg[e] >= 0) { if (constrained == 0) e1 = e; else e2 = e; ++constrained; }
+                if (constrained != 0 && (CoarsenForBenchmarks < 2 || constrained != 2)) return false;
+                List<int> src = null; int u = -1, w = -1;
+                if (constrained == 2) {
+                    var s1 = k.Sources[k.Seg[e1]]; var s2 = k.Sources[k.Seg[e2]];
+                    if (s1.Count != s2.Count || s1.Any(z => !s2.Contains(z))) return false;
+                    src = new List<int>(s1); u = k.V[Next(e1)]; w = k.V[Next(e2)];
+                    int seg1 = k.Seg[e1], seg2 = k.Seg[e2];
+                    k.Unconstrain(e1); k.Unconstrain(e2);
+                    dirty.Clear(); k.Dirty = dirty;
+                    if (!k.DeleteVertex(v)) { k.SetConstraint(e1, seg1); k.SetConstraint(e2, seg2); ++CoarsenRefusedForBenchmarks; return false; }
+                    int uw = k.FindEdge(u, w);
+                    if (uw >= 0) k.SetConstraint(uw, k.NewConstraint(src));
+                    ++CoarsenTriedForBenchmarks;
+                    if (uw >= 0 && CoarsenAcceptable(dirty)) return true;
+                    if (uw >= 0) k.Unconstrain(uw);
+                    int q = k.InsertPoint(x, y);
+                    var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
+                    pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = src });
+                    pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(src) });
+                    while (pending.Count > 0) b.InsertPiece(pending.Pop(), pending);
+                    return false;
+                }
+                dirty.Clear(); k.Dirty = dirty;
+                if (!k.DeleteVertex(v)) { ++CoarsenRefusedForBenchmarks; return false; }
+                ++CoarsenTriedForBenchmarks;
+                if (CoarsenAcceptable(dirty)) return true;
+                k.InsertPoint(x, y);
+                return false;
             }
 
             bool HasRegionArea()

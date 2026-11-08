@@ -56,6 +56,10 @@ namespace Meshing2Acceptance
             SetRefinerSwitch("BestCandidateForBenchmarks", Flag("G3_M2_BEST"));
             SetRefinerSwitch("PetalForBenchmarks", Flag("G3_M2_PETAL"));
             SetRefinerSwitch("SmallAngleExemptionForTests", Flag("G3_M2_APEX_EXEMPT"));
+            // G3_M2_COARSEN (probe): a coarsening pass after refinement, by mode (0 off)
+            var coarsen = Environment.GetEnvironmentVariable("G3_M2_COARSEN");
+            typeof(g3.QualityMesh2.Refiner).GetField("CoarsenForBenchmarks", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(null, coarsen == null ? (int?)null : int.Parse(coarsen, System.Globalization.CultureInfo.InvariantCulture));
         }
 
         static void SetRefinerSwitch(string name, bool? value)
@@ -139,7 +143,8 @@ namespace Meshing2Acceptance
             long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[17] : null;
             long deleted = 0;
             var thread = new System.Threading.Thread(() => {
-                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }
+                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests;
+                    if (Environment.GetEnvironmentVariable("G3_M2_COARSEN") != null) { var R = typeof(g3.QualityMesh2.Refiner); var F = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic; Console.Error.WriteLine("coarsen: tried " + R.GetField("CoarsenTriedForBenchmarks", F)?.GetValue(null) + ", deleted " + R.GetField("CoarsenDeletedForBenchmarks", F)?.GetValue(null) + ", refused " + R.GetField("CoarsenRefusedForBenchmarks", F)?.GetValue(null)); } }
                 catch (Exception e) { error = e; }
                 finally { g3.QualityMesh2.Refiner.CountsForBenchmarks = null; }
             }, 256 << 20);
