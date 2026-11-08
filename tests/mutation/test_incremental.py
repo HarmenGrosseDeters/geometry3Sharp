@@ -234,7 +234,7 @@ class PlanAndMerge(unittest.TestCase):
 class RunStryker(unittest.TestCase):
     """run_stryker.sh with a fake dotnet that logs its arguments and writes a report"""
 
-    def run_script(self, mode, with_baseline, source=NEW, slow=False, progress=None):
+    def run_script(self, mode, with_baseline, source=NEW, slow=False, progress=None, rc=0, late=0.0, runners=2):
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "repo")
             work = os.path.join(root, "tests", "mutation")
@@ -247,14 +247,16 @@ class RunStryker(unittest.TestCase):
             os.makedirs(bindir)
             run_report = json.dumps(report(NEW, [mutant(3, "Killed")]))
             with open(os.path.join(bindir, "dotnet"), "w") as f:
-                # (slow: the log files Stryker writes with --log-to-file, Stryker's count, two test runs, and time for
-                # the progress line)
-                logs = ('mkdir -p StrykerOutput/2026-01-01.00-00-00/logs\n'
+                # (slow: the log files Stryker writes with --log-to-file, Stryker's count, `runners` test runs (and a
+                # file that only contains "Runner "), and time for the progress line; late: they appear that many
+                # seconds after Stryker started; rc: the exit code of dotnet stryker after it wrote its report)
+                logs = ('sleep %s\nmkdir -p StrykerOutput/2026-01-01.00-00-00/logs\n'
                         'echo "[INF] 7    total mutants will be tested" > StrykerOutput/2026-01-01.00-00-00/logs/log-1.txt\n'
-                        'touch "StrykerOutput/2026-01-01.00-00-00/logs/Runner 0-log.host.1.txt" '
-                        '"StrykerOutput/2026-01-01.00-00-00/logs/Runner 1-log.host.2.txt"\nsleep 3\n') if slow else ''
+                        'touch "StrykerOutput/2026-01-01.00-00-00/logs/log Runner 9.txt"\n'
+                        'for i in $(seq 1 %d); do touch "StrykerOutput/2026-01-01.00-00-00/logs/Runner $i-log.host.$i.txt"; done\n'
+                        'sleep 3\n' % (late, runners)) if slow else ''
                 f.write('#!/usr/bin/env bash\necho "ARGS: $*"\nmkdir -p StrykerOutput/2026-01-01.00-00-00/reports\n' + logs +
-                        "echo '%s' > StrykerOutput/2026-01-01.00-00-00/reports/mutation-report.json\n" % run_report)
+                        "echo '%s' > StrykerOutput/2026-01-01.00-00-00/reports/mutation-report.json\nexit %d\n" % (run_report, rc))
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             if with_baseline:
                 os.makedirs(os.path.join(work, "baseline"))
@@ -302,6 +304,38 @@ class RunStryker(unittest.TestCase):
         code, args, full_marker, out = self.run_script("full", True, slow=True)
         self.assertEqual(0, code, out)
         self.assertNotIn("[progress", out)
+
+    def test_progress_line_when_the_logs_come_late(self):
+        # (the ticker subshell must survive the polls before the log directory exists)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, late=2.5)
+        self.assertEqual(0, code, out)
+        self.assertIn("test runs started: 2, mutants to test: 7", out)
+
+    def test_progress_line_counts_only_runner_files(self):
+        # (a file with "Runner " inside its name does not count, and no run started is 0, not an error)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, runners=0)
+        self.assertEqual(0, code, out)
+        self.assertIn("test runs started: 0, mutants to test: 7", out)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, runners=3)
+        self.assertIn("test runs started: 3, mutants to test: 7", out)
+
+    def test_the_runner_is_printed(self):
+        out = self.run_script("full", True)[3]
+        self.assertRegex(out, r"runner: \S+ cpus, [0-9]* MB memory")
+
+    def test_the_exit_code_of_stryker_passes_through(self):
+        # full: a failing Stryker (below its own break threshold, or a crash) fails the script with the same code
+        code, args, full_marker, out = self.run_script("full", True, rc=1)
+        self.assertEqual((1, True), (code, full_marker), out)
+        self.assertEqual(3, self.run_script("full", True, rc=3)[0])
+        # tests mode and source without a baseline (which runs in full)
+        self.assertEqual(3, self.run_script("tests", False, rc=3)[0])
+        self.assertEqual(2, self.run_script("source", False, rc=2)[0])
+        # source with a plan: no merge (no score) after a failing run
+        code, args, full_marker, out = self.run_script("source", True, rc=1)
+        self.assertEqual(1, code, out)
+        self.assertEqual(["stryker --log-to-file --config-file incremental-run.json --break-at 0"], args)
+        self.assertNotIn("Score of the shard", out)
 
     def test_unknown_mode_fails(self):
         self.assertNotEqual(0, self.run_script("nonsense", False)[0])
