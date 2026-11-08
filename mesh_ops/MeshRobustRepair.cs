@@ -527,14 +527,36 @@ namespace gs
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions)
         {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions, WrapSimplifySlabs, 0);
+        }
+
+        /// <summary>
+        /// the slabs of the wrap simplification (PartitionedReduction; Alpha Wrap 2.0 option A, owner decision 2026-11-08).
+        /// Fixed, not the core count: the partition decides the result
+        /// </summary>
+        internal const int WrapSimplifySlabs = 8;
+
+        /// <summary>
+        /// SimplifyWithin on slabs (0: one serial Reducer run) with at most maxThreads threads (0: the platform default; the
+        /// result does not depend on it)
+        /// </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, int slabs, int maxThreads)
+        {
             hausdorffSubdivisions = 0;
             DMesh3 m = new DMesh3(mesh);
-            Reducer reducer = new Reducer(m) {
-                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            Action<Reducer> configure = (r) => {
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = 0.05; r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
-            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
-            m = new DMesh3(m, true);
+            if (slabs > 0) {
+                m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);
+            } else {
+                Reducer reducer = new Reducer(m);
+                configure(reducer);
+                reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+                m = new DMesh3(m, true);
+            }
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
