@@ -7,6 +7,8 @@ Read both before you change anything. If anything below conflicts with them, the
 ## Essentials
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
+- Times for the user are given in the Europe/Berlin time zone (CET / CEST, as in Amsterdam), not in UTC, eg
+  "08:40 (Berlin)". Times in logs, commits and machine output stay as they are.
 - Choose a tier (S/M/L, docs/AGENT_WORKFLOW.md §1) and work only within the task brief: its scope, non-goals and
   acceptance criteria.
 - Every change comes with tests, if possible ones that fail on the old code; check them by breaking the change.
