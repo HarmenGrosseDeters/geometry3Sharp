@@ -11,35 +11,56 @@ from the leaf up (CPU samples on all threads, so parallel parts count with their
   stack        coplanar_stack (incl. its centroid point)
   patch_setup  patch_winding minus the above (centroid, candidate query)
   rest         union-find, edge grouping, the per-piece pass
-Prints one JSON line per trace."""
-import json, sys
+Thread samples blocked in waits are dropped (the rest is busy time on all threads, so parallel parts count with\ntheir CPU time, not wall time). Prints one JSON line per trace."""
+import json, os, sys
 
 PARTS = [('rays', ('front_winding',)), ('gwn', ('front_generalized_winding', 'winding_tree')),
          ('stack', ('coplanar_stack',)), ('patch_setup', ('patch_winding',))]
 
 
+WAIT = ('Wait(', 'WaitOne', 'SpinWait', 'Semaphore', 'WaitCore', 'Sleep(', 'Join(')
+
+
+def stacks(prof):
+    """(stack tuple, weight) pairs of a speedscope profile, sampled or evented (dotnet-trace writes evented ones)."""
+    if prof.get('type') == 'sampled':
+        yield from ((tuple(st), w) for st, w in zip(prof['samples'], prof['weights']))
+        return
+    stack, last = [], None
+    for e in prof['events']:
+        if last is not None and stack and e['at'] > last:
+            yield tuple(stack), e['at'] - last
+        last = e['at']
+        if e['type'] == 'O':
+            stack.append(e['frame'])
+        elif stack:
+            stack.pop()
+
+
 def split(path):
     d = json.load(open(path))
     names = [f['name'] for f in d['shared']['frames']]
-    is_cls = [('ExactMeshBoolean' in n and 'classify' in n) for n in names]
+    is_cls = ['ExactMeshBoolean' in n and ('.classify(' in n or '<classify>' in n) for n in names]
+    is_wait = [any(w in n for w in WAIT) for n in names]
     part_of = []
     for n in names:
         p = None
         if 'ExactMeshBoolean' in n:
             for key, pats in PARTS:
-                if any(('.' + s + '(') in n or ('::' + s) in n or n.endswith('.' + s) or ('.' + s + ' ') in n for s in pats):
+                if any(('.' + s + '(') in n for s in pats):
                     p = key
                     break
         part_of.append(p)
     tot = {k: 0.0 for k, _ in PARTS}
     tot['rest'] = 0.0
-    allw = 0.0
+    allw = waitw = 0.0
     for prof in d['profiles']:
-        if prof.get('type') != 'sampled':
-            continue
-        for stack, w in zip(prof['samples'], prof['weights']):
+        for stack, w in stacks(prof):
+            if any(is_wait[f] for f in stack):
+                waitw += w
+                continue
             allw += w
-            if not any(is_cls[f] for f in stack) and not any(part_of[f] for f in stack):
+            if not any(is_cls[f] or part_of[f] for f in stack):
                 continue
             part = 'rest'
             for f in reversed(stack):
@@ -48,7 +69,7 @@ def split(path):
                     break
             tot[part] += w
     cls = sum(tot.values())
-    return {'trace': path, 'cpu_all': round(allw, 1), 'cpu_classification': round(cls, 1),
+    return {'trace': os.path.basename(path), 'busy_ms': round(allw), 'classification_busy_ms': round(cls),
             **{k: round(v / cls, 3) if cls else 0 for k, v in tot.items()}}
 
 
