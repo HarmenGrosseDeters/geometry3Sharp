@@ -702,7 +702,9 @@ namespace gs
         }
 
         // true while the labels are those of a successful make_manifold run without changes since (see
-        // cells_moved_by_manifold_step); cleared by every insertion and carving
+        // cells_moved_by_manifold_step); cleared by every insertion and carving. (With today's control flow nothing
+        // inserts or carves after such a trial: refine_non_manifold stops when it moved nothing. The resets keep the
+        // reuse correct if that changes; no test can reach them now)
         bool labelsManifold;
         /// <summary> (tests) false: the manifold step runs again after a trial that moved nothing (the same result) </summary>
         internal bool ReuseTrialLabels = true;

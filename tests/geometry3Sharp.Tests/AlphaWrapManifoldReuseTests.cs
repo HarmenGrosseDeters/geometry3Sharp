@@ -52,6 +52,43 @@ namespace geometry3Sharp.Tests
             Assert.False(again.Counts.ContainsKey("manifold_reused"));
         }
 
+        // the same with the point limit reached during the refinement, and with the other start box (the retry)
+        [Theory]
+        [InlineData("soup42", 20.0, 200.0, 30, false)]
+        [InlineData("soup173", 20.0, 200.0, 200, false)]
+        [InlineData("boxes", 20.0, 200.0, 60, false)]
+        [InlineData("soup42", 20.0, 200.0, 2000000, true)]
+        [InlineData("ellipsoid", 150.0, 1500.0, 2000000, true)]
+        public void ReusedTrialLabels_SameResult_PointLimitAndOtherBox(string name, double relAlpha, double relOffset, int maxPoints, bool otherBox)
+        {
+            DMesh3 input = Input(name);
+            var reuse = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, MaxSteinerPoints = maxPoints, StartWithOtherBox = otherBox };
+            var again = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, MaxSteinerPoints = maxPoints, StartWithOtherBox = otherBox,
+                ReuseTrialLabels = false };
+            Assert.Equal(reuse.Compute(), again.Compute());
+            Assert.Equal(again.Status, reuse.Status);
+            if (maxPoints < 1000)
+                Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, reuse.Status);
+            if (again.Result != null)
+                Assert.Equal("", Invariance.Difference(again.Result, reuse.Result));
+        }
+
+        // under every similarity: the same result with and without the reuse, and the reuse happens (without rotation)
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ReusedTrialLabels_SameResult_UnderSimilarity(string sim)
+        {
+            DMesh3 input = Invariance.Transformed(Input("soup42"), Similarity.ByName(sim));
+            var reuse = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
+            var again = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600, ReuseTrialLabels = false };
+            Assert.True(reuse.Compute(), reuse.Error);
+            Assert.True(again.Compute(), again.Error);
+            Assert.Equal("", Invariance.Difference(again.Result, reuse.Result));
+            // (a rotation changes the start box, so the refinement can differ; the reuse is asserted without one)
+            if (!sim.Contains("rotated"))
+                Assert.True(reuse.Counts.ContainsKey("manifold_reused"), "no reuse under " + sim);
+        }
+
         // the reuse happens on these inputs (otherwise the test above compares nothing new), and a reused instance gives
         // the same result again
         [Fact]
