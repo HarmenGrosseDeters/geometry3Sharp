@@ -548,7 +548,9 @@ class Program
         Func<bool> never = () => false;
         var phases = new System.Collections.Generic.Dictionary<string, long>();
         var sw = Stopwatch.StartNew();
-        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        // BENCH_WRAP_LOCALTRIAL=1: the prototype of local trial runs of the manifold step (bench branch only)
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset,
+            LocalPinchTrials = Environment.GetEnvironmentVariable("BENCH_WRAP_LOCALTRIAL") == "1" };
         wrap.Compute();
         long wrapMs = sw.ElapsedMilliseconds;
         r["wrap_ms"] = wrapMs;
