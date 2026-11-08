@@ -99,11 +99,17 @@ namespace g3
     {
         /// <summary> the mesh, repaired in place </summary>
         public DMesh3 Mesh;
-        /// <summary> a triangle is degenerate below this area, relative to the squared bounding box diagonal (as MeshRobustRepair.NotCleanReason) </summary>
+        /// <summary>
+        /// a triangle is degenerate below this area, relative to the squared diagonal of the size of the mesh: the
+        /// diagonal of its largest connected component (not of the box of all components: a part far from the rest would
+        /// make every triangle of the rest degenerate). MeshRobustRepair.NotCleanReason uses the box of all triangles; the
+        /// two agree unless the components lie far apart compared to their size
+        /// </summary>
         public double DegenerateArea = 1e-12;
         /// <summary>
-        /// longest edge contracted and farthest vertex move, relative to the bounding box diagonal; also the bound on how
-        /// far the surface moves in all edits together (see the class comment, MaxDrift)
+        /// longest edge contracted and farthest vertex move, relative to the diagonal of the largest connected component
+        /// (see DegenerateArea); also the bound on how far the surface moves in all edits together (see the class comment,
+        /// MaxDrift)
         /// </summary>
         public double MaxDisplacement = 1e-5;
         /// <summary> vertices at the same position count as shared vertices (touching sheets, see class comment) </summary>
@@ -149,7 +155,9 @@ namespace g3
         public int StripZips;
         /// <summary>
         /// the tolerance in units in the last place of the largest coordinate: the bound maxLength is the largest of
-        /// MaxDisplacement times the diagonal, UlpFactor times ulp(largest absolute coordinate) and AbsoluteTolerance.
+        /// MaxDisplacement times the diagonal (of the largest component), UlpFactor times ulp(largest absolute coordinate
+        /// of the vertex's own connected component: a part far from the origin gets its coarser bound without the others)
+        /// and AbsoluteTolerance.
         /// Far from the origin compared to its size (eg UTM coordinates), a mesh's rounding errors exceed the relative
         /// bound; there the ulp term lets the edits remove what the rounding broke (owner decision of 2026-11-02, 256:
         /// 0.24 micrometres at 5.7e6). It changes nothing unless the largest coordinate exceeds about 1.75e8 times the
@@ -168,7 +176,10 @@ namespace g3
         /// vertex (only with SharedPositionsTouch, and only where the ulp term of the bound is active, see UlpFactor)
         /// </summary>
         public int VertexRemovals;
-        /// <summary> the bound on the drift: the largest of the three terms (see UlpFactor) </summary>
+        /// <summary>
+        /// the bound on the drift, the largest of the three terms (see UlpFactor), per connected component from its own
+        /// bounds; this is the largest over the components
+        /// </summary>
         public double MaxLength { get { return maxLength; } }
         /// <summary>
         /// the smallest drift that a proposed edit rejected by the bound would have needed (infinity if none was
@@ -191,17 +202,32 @@ namespace g3
         /// diagonal
         /// </summary>
         public double MaxDrift;
-        /// <summary> no self-intersections and no degenerate triangles remain </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0; } }
+        /// <summary>
+        /// closed components that would have been removed as tiny or thin (by the tolerances of their own diagonal) but
+        /// hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the result is not clean. A
+        /// component that spans scales its own tolerances do not fit (eg a part linked to a far one)
+        /// </summary>
+        public int ScaleDisparity;
+        /// <summary> no self-intersections and no degenerate triangles remain, and no component was kept for ScaleDisparity </summary>
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && ScaleDisparity == 0; } }
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
             Mesh = mesh;
         }
 
-        double areaEps, maxLength;
-        // the ulp term of the bound is active (see UlpFactor)
-        bool coarse;
+        // the scale of the tolerances is per connected component (vertices joined by triangles): a component far from
+        // the rest, or much larger, does not make the others' triangles degenerate or their bound coarse. Per vertex its
+        // component; per component the degenerate area, the drift bound and whether the ulp term of the bound is active
+        // (see UlpFactor). maxLength is the largest bound, for MaxLength
+        int[] componentOf;
+        double[] areaEpsC, maxLengthC;
+        bool[] coarseC;
+        double maxLength;
+        bool anyCoarse;
+        double areaEps_of(int v) { return areaEpsC[componentOf[v]]; }
+        double maxLength_of(int v) { return maxLengthC[componentOf[v]]; }
+        bool coarse_at(int v) { return coarseC[componentOf[v]]; }
         // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
         // applied
         double[] drift;
@@ -266,28 +292,15 @@ namespace g3
             changed.Clear();
             SmallestRejectedDrift = double.PositiveInfinity;
             RemainingDefectAt = Vector3d.Zero;
-            coarse = false;
+            anyCoarse = false;
+            ScaleDisparity = 0;
             if (SharedPositionsTouch == false)
                 atPosition = null;
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
             }
-            AxisAlignedBox3d bounds = gs.MeshRepairMetrics.TriangleBounds(Mesh);
-            double diag = bounds.DiagonalLength;
-            areaEps = DegenerateArea * diag * diag;
-            // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit)
-            // (of the triangles' vertices, as the diagonal: unreferenced vertices do not count; a bound that is not finite
-            // has no ulp term)
-            double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
-            double ulpTerm = UlpFactor * ulp(largest);
-            if (!(ulpTerm >= 0 && ulpTerm < double.PositiveInfinity))
-                ulpTerm = 0;
-            maxLength = Math.Max(MaxDisplacement * diag, Math.Max(ulpTerm, AbsoluteTolerance));
-            // (a bound that is not finite, from coordinates that are not or a diagonal that overflows, rejects every edit)
-            if (!(maxLength < double.PositiveInfinity))
-                maxLength = double.NaN;
-            coarse = ulpTerm > MaxDisplacement * diag;
+            component_scales();
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
                 canonId = new int[Mesh.MaxVertexID];
@@ -313,7 +326,7 @@ namespace g3
             // shared, MeshRobustRepair.NotCleanReason as intersecting): a vertex of valence 3 there is removed, if the
             // result improves. Only where the coordinates are coarse (the ulp term of the bound is active): elsewhere
             // such contacts are where solids touch (ExactMeshBoolean)
-            if (coarse && atPosition != null && EvaluationLimitReached == false && remove_contact_vertices() > 0) {
+            if (anyCoarse && atPosition != null && EvaluationLimitReached == false && remove_contact_vertices() > 0) {
                 // (and the passes again where the removals changed the mesh)
                 bad = degenerate_triangles();
                 pairs = intersecting_pairs();
@@ -402,6 +415,72 @@ namespace g3
             return 0.5 * (pos(t.b) - a).Cross(pos(t.c) - a).Length;
         }
 
+        // the components (union-find over the triangles' vertices) and their tolerances, each from the bounds of its own
+        // triangles: degenerate area DegenerateArea diag^2, bound max(MaxDisplacement diag, UlpFactor ulp(largest
+        // coordinate), AbsoluteTolerance). Edits stay within one component (see the class comment), so the drift bound,
+        // and the proof of the Hausdorff bound, are per component
+        void component_scales()
+        {
+            int nv = Mesh.MaxVertexID;
+            var parent = new int[nv];
+            for (int v = 0; v < nv; ++v) parent[v] = v;
+            Func<int, int> find = null;
+            find = (v) => { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                int ra = find(tv.a), rb = find(tv.b), rc = find(tv.c);
+                // (the smaller root wins: the same components for the same mesh)
+                int r = Math.Min(ra, Math.Min(rb, rc));
+                parent[ra] = r; parent[rb] = r; parent[rc] = r;
+            }
+            componentOf = new int[nv];
+            var index = new Dictionary<int, int>();
+            var boxes = new List<AxisAlignedBox3d>();
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                int r = find(tv.a), c;
+                if (index.TryGetValue(r, out c) == false) {
+                    index[r] = c = boxes.Count;
+                    boxes.Add(AxisAlignedBox3d.Empty);
+                }
+                AxisAlignedBox3d b = boxes[c];
+                b.Contain(Mesh.GetVertex(tv.a)); b.Contain(Mesh.GetVertex(tv.b)); b.Contain(Mesh.GetVertex(tv.c));
+                boxes[c] = b;
+            }
+            for (int v = 0; v < nv; ++v) {
+                int c;
+                componentOf[v] = index.TryGetValue(find(v), out c) ? c : 0;
+            }
+            int n = Math.Max(boxes.Count, 1);
+            areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
+            maxLength = 0;
+            // the size: the largest component's diagonal (not the box of all: components far apart would inflate it)
+            double size = 0;
+            foreach (AxisAlignedBox3d bx in boxes)
+                if (!(bx.DiagonalLength <= size)) size = bx.DiagonalLength;
+            for (int c = 0; c < boxes.Count; ++c) {
+                AxisAlignedBox3d bounds = boxes[c];
+                double diag = size;
+                areaEpsC[c] = DegenerateArea * diag * diag;
+                // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit;
+                // a bound that is not finite has no ulp term)
+                double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
+                double ulpTerm = UlpFactor * ulp(largest);
+                if (!(ulpTerm >= 0 && ulpTerm < double.PositiveInfinity))
+                    ulpTerm = 0;
+                double ml = Math.Max(MaxDisplacement * diag, Math.Max(ulpTerm, AbsoluteTolerance));
+                // (a bound that is not finite, from coordinates that are not or a diagonal that overflows, rejects every
+                // edit in the component)
+                if (!(ml < double.PositiveInfinity))
+                    ml = double.NaN;
+                maxLengthC[c] = ml;
+                coarseC[c] = ulpTerm > MaxDisplacement * diag;
+                anyCoarse |= coarseC[c];
+                if (!(ml <= maxLength))
+                    maxLength = (ml >= 0) ? ml : (maxLength > 0 ? maxLength : ml);
+            }
+        }
+
         bool is_bad(int tid)
         {
             return is_bad(Mesh.GetTriangle(tid));
@@ -409,7 +488,7 @@ namespace g3
 
         bool is_bad(Index3i t)
         {
-            if (area(t) < areaEps)
+            if (area(t) < areaEps_of(t.a))
                 return true;
             Triangle3d tri = triangle(t);
             return ExactTriangleIntersection.IsDegenerate(ref tri);
@@ -727,10 +806,10 @@ namespace g3
         double[] frozenMost;
 
         // editDrift = most + step; false (and the smallest rejected drift updated) if beyond the bound
-        bool within_bound(double most, double step)
+        bool within_bound(double most, double step, double bound)
         {
             editDrift = most + step;
-            if (!(step >= 0) || !(editDrift <= maxLength)) {
+            if (!(step >= 0) || !(editDrift <= bound)) {
                 if (step >= 0 && editDrift < SmallestRejectedDrift)
                     SmallestRejectedDrift = editDrift;
                 return false;
@@ -755,7 +834,8 @@ namespace g3
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
-            if (within_bound(most, step) == false)
+            // (the bound of the edit's component: edits stay within one)
+            if (within_bound(most, step, editVerts.Count > 0 ? maxLength_of(editVerts[0]) : double.NaN) == false)
                 return false;
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
@@ -783,7 +863,7 @@ namespace g3
                 // (slivers just above the degenerate area, and triangles not higher than twice the displacement
                 // of the edit, may turn over: tiny folds, intersections are checked)
                 double longest = Math.Max(T.V0.Distance(T.V1), Math.Max(T.V1.Distance(T.V2), T.V2.Distance(T.V0)));
-                if (oldCross[i].Length < 2 * OrientedArea * areaEps || oldCross[i].Length <= 2 * displacement * longest)
+                if (oldCross[i].Length < 2 * OrientedArea * areaEps_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
                     oldCross[i] = Vector3d.Zero;
                 else
                     crossSum += oldCross[i];
@@ -943,7 +1023,7 @@ namespace g3
         // (where the coordinates are coarse only with FixedWhereCoarse)
         bool is_fixed(int v)
         {
-            return (coarse == false || FixedWhereCoarse) && FixedVertexF != null && FixedVertexF(v);
+            return (coarse_at(v) == false || FixedWhereCoarse) && FixedVertexF != null && FixedVertexF(v);
         }
 
         // contracting edge eid = (a, b), b kept at p, keeps the boundary curve (see class comment): a boundary
@@ -1188,9 +1268,11 @@ namespace g3
             // (the direction not normalized: Normalized has an absolute threshold, which would depend on the scale)
             Vector3d dir = l1 - l0;
             double len2 = dir.LengthSquared;
+            Index3i t0v = Mesh.GetTriangle(t0);
+            double half = 0.5 * maxLength_of(t0v.a), eps = areaEps_of(t0v.a);
             Func<int, bool> near = (v) => {
                 Vector3d d = pos(v) - l0;
-                return len2 > 0 && (d - (d.Dot(dir) / len2) * dir).Length <= 0.5 * maxLength;
+                return len2 > 0 && (d - (d.Dot(dir) / len2) * dir).Length <= half;
             };
             var strip = new List<int> { t0 };
             var inStrip = new HashSet<int> { t0 };
@@ -1202,7 +1284,7 @@ namespace g3
                         return null;
                     int nb = (et.a == strip[i]) ? et.b : et.a;
                     // (slivers just above the degenerate area too: a flip of a cap onto one gives a degenerate triangle)
-                    if (inStrip.Contains(nb) || (area(nb) >= OrientedArea * areaEps && is_bad(nb) == false))
+                    if (inStrip.Contains(nb) || (area(nb) >= OrientedArea * eps && is_bad(nb) == false))
                         continue;
                     if (alongLine) {
                         Index3i nv = Mesh.GetTriangle(nb);
@@ -1458,7 +1540,7 @@ namespace g3
                 groups.Sort((x, y) => x[0].CompareTo(y[0]));
                 foreach (List<int> g in groups)
                     foreach (int u in g)
-                        if (Mesh.IsVertex(u) && try_remove_vertex(u)) {
+                        if (Mesh.IsVertex(u) && coarse_at(u) && try_remove_vertex(u)) {
                             removedNow++;
                             again = true;
                             break;
@@ -1607,7 +1689,7 @@ namespace g3
                 }
                 MovesPastTheLimit++;
                 if (SkipMovesPastTheLimit == false)
-                    within_bound(most, p.Distance(Mesh.GetVertex(v)));
+                    within_bound(most, p.Distance(Mesh.GetVertex(v)), maxLength_of(v));
                 return false;
             }
             begin_edit();
@@ -1650,7 +1732,7 @@ namespace g3
                 for (int k = 0; k < 3; ++k) {
                     Index2i ev = Mesh.GetEdgeV(te[k]);
                     double len = Mesh.GetVertex(ev.a).Distance(Mesh.GetVertex(ev.b));
-                    if (len <= maxLength)
+                    if (len <= maxLength_of(ev.a))
                         edges.Add(new KeyValuePair<double, int>(len, te[k]));
                 }
             }
@@ -1697,10 +1779,10 @@ namespace g3
             if (-len[0] <= 0)
                 return;
             // height for the degenerate area, and more
-            double h = 2 * areaEps / -len[0];
+            double h = 2 * areaEps_of(apex) / -len[0], bound = maxLength_of(apex);
             if (Mesh.IsBoundaryVertex(apex)) {
                 // along the boundary
-                for (double s = 2 * h; s <= maxLength; s *= 4)
+                for (double s = 2 * h; s <= bound; s *= 4)
                     if (try_slide(apex, s))
                         return;
                 return;
@@ -1721,7 +1803,7 @@ namespace g3
             off = unit(off);
             if (off == Vector3d.Zero)
                 return;
-            for (double s = 2 * h; s <= maxLength; s *= 4)
+            for (double s = 2 * h; s <= bound; s *= 4)
                 if (try_move(apex, c + s * off))
                     return;
         }
@@ -1755,16 +1837,17 @@ namespace g3
                 Vector3d toCtr = (n > 0) ? unit(ctr / n - p) : Vector3d.Zero;
                 // (the first step a few units in the last place of p; for p at the origin, of maxLength: an absolute
                 // constant would make the steps depend on the scale)
+                double bound = maxLength_of(v);
                 double ulp = 8 * 2.220446049250313e-16 * Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
                 if (!(ulp > 0))
-                    ulp = MeshRoundingRepair.ulp(maxLength);
+                    ulp = MeshRoundingRepair.ulp(bound);
                 if (Mesh.IsBoundaryVertex(v)) {
-                    for (double s = ulp; s <= maxLength; s *= 16)
+                    for (double s = ulp; s <= bound; s *= 16)
                         if (try_slide(v, s))
                             return;
                     continue;
                 }
-                for (double s = ulp; s <= maxLength; s *= 16) {
+                for (double s = ulp; s <= bound; s *= 16) {
                     if (vn.Value.LengthSquared > 0.5 && (try_move(v, p + s * vn.Value) || try_move(v, p - s * vn.Value)))
                         return;
                     if (toCtr.LengthSquared > 0.5 && try_move(v, p + s * toCtr))
@@ -1806,8 +1889,17 @@ namespace g3
                 }
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
-                if (closed == false || (sum >= 1e4 * areaEps && 2 * Math.Abs(volume) >= maxLength * sum))
+                int v0 = Mesh.GetTriangle(comp.Indices[0]).a;
+                bool tiny = sum < 1e4 * areaEps_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
+                if (closed == false || (tiny == false && thin == false))
                     continue;
+                // never as thin a component that holds real volume for its area (a sphere has |V| = 0.094 A^1.5, a slab
+                // of thickness h about h A / 2): thin by the bound but not by its shape, it is kept and counted
+                // (ScaleDisparity, not clean). Tiny components go, as decided (SAFE_ROUNDING.md section 1)
+                if (tiny == false && Math.Abs(volume) >= 1e-3 * sum * Math.Sqrt(sum)) {
+                    ScaleDisparity++;
+                    continue;
+                }
                 foreach (int t in comp.Indices)
                     remove_triangle(t, true);
                 count += comp.Indices.Length;

@@ -28,6 +28,17 @@ triangles A. Let δ bound how far the edit moves the surface. Applying the edit 
 and A of d(u), plus δ, for every vertex v of R and A. An edit is not applied if any of these drifts would exceed
 `maxLength` = `MaxDisplacement` (1e-5) times the diagonal. `MaxDrift` reports the largest drift reached.
 
+**Scale (2026-11-08, Exact Boolean 2.0, the far-part defect).** The diagonal in the degenerate area and in
+`maxLength` is that of the largest connected component (vertices joined by triangles), not of the box of all
+triangles; the ulp term is per component, from the largest coordinate of its own triangles. Before, a small part far
+from the rest (a unit tetrahedron 1e8 away from two unit spheres) made the diagonal 1.7e8: every sphere triangle was
+degenerate, the bound 1732, and the union came out empty, reported clean. Edits stay within one component, so the drift
+bound is checked with the edit's component and the theorem below holds per component. Tiny components are still
+removed relative to the largest one (as decided above). A closed component that the bound takes as thin but that holds
+real volume for its area (`|V| >= 1e-3 A^1.5`; a sphere has 0.094) is never removed: it is kept and counted
+(`ScaleDisparity`), and the repair is not clean. `MeshRobustRepair.NotCleanReason` keeps the box of all triangles, so
+for components far apart compared to their size it can flag triangles that the rounding keeps.
+
 **The bounds δ per edit** (proofs in the code comments of `MeshRoundingRepair`):
 
 | edit | δ | why |
