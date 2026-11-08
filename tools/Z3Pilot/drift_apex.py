@@ -29,15 +29,16 @@ nearest); the weaker (2.4) model fl(s) = s (1 + eta) cannot prove the chain boun
 Every obligation must be UNSAT, its assumptions SAT with delta > 0 (the model replayed with fractions), every mutant
 SAT with a witness replayed with fractions outside Z3; UNKNOWN never counts.
 
-TODO(D1): the library does not implement the apex rule yet. Its implementation PR adds the source contract: the drift
-accounting of mesh_ops/MeshRoundingRepair.cs (improves / within_bound / commit_drift) against CHARGING (see
-test_pilot.DriftApexTests.test_source_contract_against_the_apex_rule).
+source_contract() checks the code against CHARGING: the drift accounting of mesh_ops/MeshRoundingRepair.cs
+(improves: M over the vertices of R and A and the apex of A; within_bound: accepted if M + delta <= maxLength;
+apex_of: a vertex of every added triangle; commit_drift: only the apex gets M + delta, else every vertex of R and A).
 """
+import re
 from fractions import Fraction
 
 import z3 as z
 
-from filter_rules import QB, ZB, Vars, _check
+from filter_rules import QB, ZB, Vars, _check, ROOT
 
 U = Fraction(1, 2**53)          # unit roundoff of binary64 round to nearest
 
@@ -428,3 +429,68 @@ if __name__ == '__main__':
         fh.write(json.dumps(report, indent=2) + '\n')
     print(json.dumps({k: report[k] for k in ('obligations_passed', 'total_seconds')}))
     raise SystemExit(0 if report['obligations_passed'] else 1)
+
+
+def _method(text, signature):
+    start = text.index(signature)
+    opening = text.index('{', start)
+    depth = 0
+    for end in range(opening, len(text)):
+        depth += (text[end] == '{') - (text[end] == '}')
+        if depth == 0:
+            return text[start:end + 1]
+    raise ValueError('unterminated method ' + signature)
+
+
+def source_contract():
+    """Fail on code drift: the drift accounting of MeshRoundingRepair must be CHARGING as proved here."""
+    assert CHARGING == dict(with_apex='apex', without_apex='all', M_over='R and A', acceptance='M + delta <= L')
+    text = (ROOT / 'mesh_ops/MeshRoundingRepair.cs').read_text(encoding='utf-8-sig')
+    norm = lambda x: re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', x))
+    improves = norm(_method(text, 'bool improves('))
+    # M over the vertices of R and A, every one of them recorded; then the apex of A
+    drift_part = norm("""editVerts.Clear();
+            double most = 0;
+            foreach (int t in removed) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            }
+            foreach (Index3i tv in added)
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            editApex = apex_of(added);""")
+    if drift_part not in improves:
+        raise ValueError('improves: M over R and A, or the apex of A, changed; review drift_apex.py')
+    # the bound is checked before anything else that could apply the edit
+    if improves.index(drift_part) > improves.index('within_bound(most,step)==false'):
+        raise ValueError('improves: the bound is checked before M is complete')
+    within = norm(_method(text, 'bool within_bound('))
+    if 'editDrift=most+step;' not in within or 'if(!(step>=0)||!(editDrift<=maxLength)){' not in within:
+        raise ValueError('within_bound: the acceptance M + delta <= maxLength changed; review drift_apex.py')
+    apex = norm(_method(text, 'static int apex_of('))
+    apex_expected = norm("""static int apex_of(List<Index3i> tris)
+        {
+            if (tris.Count == 0)
+                return -1;
+            for (int k = 0; k < 3; ++k) {
+                int c = tris[0][k];
+                bool all = true;
+                for (int i = 1; i < tris.Count && all; ++i)
+                    all = tris[i].a == c || tris[i].b == c || tris[i].c == c;
+                if (all)
+                    return c;
+            }
+            return -1;
+        }""")
+    if apex != apex_expected:
+        raise ValueError('apex_of changed: the apex must be a vertex of every added triangle; review drift_apex.py')
+    commit = norm(_method(text, 'void commit_drift('))
+    charge = norm("""if (editApex >= 0) {""")
+    apex_only = norm("""drift[editApex] = editDrift;
+            } else
+                foreach (int v in editVerts)
+                    drift[v] = editDrift;
+            MaxDrift = Math.Max(MaxDrift, editDrift);""")
+    if not commit.startswith(norm('void commit_drift()') + '{' + charge) or not commit.endswith(apex_only + '}'):
+        raise ValueError('commit_drift: only the apex gets M + delta, else every vertex of R and A; review drift_apex.py')
+    if text.count('editApex =') != 1 or text.count('drift[editApex]') != 2:
+        raise ValueError('editApex is set or read elsewhere; review drift_apex.py')

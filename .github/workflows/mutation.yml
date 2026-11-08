@@ -45,6 +45,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanPropertyFindings.cs'
       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'

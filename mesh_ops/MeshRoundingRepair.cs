@@ -65,8 +65,10 @@ namespace g3
     /// the features before rounding; this works on the rounded mesh and has no guarantee that every case can
     /// be repaired).
     ///
-    /// Bounded displacement: every vertex has a drift, 0 at the start. An edit gives all vertices of the triangles it
-    /// removes and adds the largest drift among them plus a bound on how far it moves the surface: the distance a
+    /// Bounded displacement: every vertex has a drift, 0 at the start. An edit gives its apex, a vertex of every triangle
+    /// it adds (all vertices of the triangles it removes and adds if it has none: zips, strip zips of longer loops, ear
+    /// contractions; docs/design/ROUNDING_DRIFT_APEX.md), the largest drift among the vertices of the triangles it removes
+    /// and adds plus a bound on how far it moves the surface: the distance a
     /// vertex moves (moves, slides, contractions: the kept vertex's new position from both ends), for a flip the
     /// smallest of twice the distance between the flipped edge and the new one, a bound from the distances of the
     /// corners to the other side's triangles (each bounded by the distance to the nearest edge), and 0 for a convex
@@ -77,7 +79,7 @@ namespace g3
     /// triangles cover the same set). An edit after which a drift would exceed maxLength (MaxDisplacement
     /// times the diagonal, or the ulp or the absolute term, see UlpFactor) is not applied. By induction over the edits, every point of a triangle lies within the
     /// largest drift of its vertices of the surface at the start, and every point of that surface within it of the
-    /// repaired one: each edit moves every point of the triangles it removes to within its bound of the triangles it
+    /// repaired one (every added triangle has a vertex with the edit's drift): each edit moves every point of the triangles it removes to within its bound of the triangles it
     /// adds or of a simplex spanned by their vertices, and back (a contraction of an ear, whose vertex has a single
     /// triangle, adds none: that triangle goes to the edge across, which is in an untouched triangle with both ends
     /// among the edit's vertices). Edits stay within one connected component. So the Hausdorff distance between the
@@ -207,6 +209,9 @@ namespace g3
         double[] drift;
         readonly List<int> editVerts = new List<int>();
         double editDrift;
+        // the proposed edit's apex, a vertex of every triangle it adds (-1: none, or nothing added): only the apex gets
+        // the edit's drift (docs/design/ROUNDING_DRIFT_APEX.md)
+        int editApex;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -753,6 +758,7 @@ namespace g3
             }
             foreach (Index3i tv in added)
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            editApex = apex_of(added);
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
             if (within_bound(most, step) == false)
@@ -861,11 +867,40 @@ namespace g3
             return newI + newB < oldI + oldB || (removesContact && newI + newB <= oldI + oldB);
         }
 
-        // the proposed edit (improves) was applied: its vertices get its drift
+        // a vertex of every triangle in the list, the first such of the first triangle (-1: none, or the list is empty)
+        static int apex_of(List<Index3i> tris)
+        {
+            if (tris.Count == 0)
+                return -1;
+            for (int k = 0; k < 3; ++k) {
+                int c = tris[0][k];
+                bool all = true;
+                for (int i = 1; i < tris.Count && all; ++i)
+                    all = tris[i].a == c || tris[i].b == c || tris[i].c == c;
+                if (all)
+                    return c;
+            }
+            return -1;
+        }
+
+        // the proposed edit (improves) was applied: with an apex (a vertex of every added triangle) only it gets the
+        // edit's drift, else every vertex of the removed and added triangles (docs/design/ROUNDING_DRIFT_APEX.md: every
+        // added triangle then has a vertex with the new drift, and the invariant needs no more; untouched triangles keep
+        // their vertices' drifts, which do not decrease)
         void commit_drift()
         {
-            foreach (int v in editVerts)
-                drift[v] = editDrift;
+            if (editApex >= 0) {
+                if (check) {
+                    foreach (Index3i tv in added)
+                        if (tv.a != editApex && tv.b != editApex && tv.c != editApex)
+                            throw new InvalidOperationException("MeshRoundingRepair check: the apex " + editApex + " is not in the added triangle " + tv);
+                    if (!(editDrift >= drift[editApex]))
+                        throw new InvalidOperationException("MeshRoundingRepair check: the apex's drift would decrease");
+                }
+                drift[editApex] = editDrift;
+            } else
+                foreach (int v in editVerts)
+                    drift[v] = editDrift;
             MaxDrift = Math.Max(MaxDrift, editDrift);
         }
 

@@ -1,7 +1,8 @@
 # SafeRounding: drift charged to the apex of an edit (D1 cause 1, the lemma for Z3 pilot 2 step 1)
 
-Status: design note and probe, no library change. The rule is built only after Z3 has checked the lemma below
-(ROADMAP, Z3 pilot 2 step 1) and an independent bound review (CLAUDE.md, a change to the D′ accounting).
+Status: implemented (`MeshRoundingRepair.commit_drift`, `apex_of`; tests `RoundingDriftApexTests`), after Z3 checked
+the lemma below (#416, `tools/Z3Pilot/drift_apex.py`, which also holds the source contract of the code against the
+rule) and the review of the note (#415).
 
 ## 1. Problem (Exact Boolean 2.0 finding D1, cause 1)
 
@@ -18,16 +19,14 @@ operations are unclean for this reason (the rejected edits' vertices carry 0.989
 
 ## 2. The rule: charge the apex
 
-An **apex** of an edit is a vertex that lies in every triangle of `A` (`A` not empty). Moves and slides: the moved
-vertex. Contractions (`a` vanishes, `b` kept): `b`. Vertex removals (valence 3, one new triangle): any of its three
-corners. Flips of `ab` to `cd`: `c` or `d`. By the code (review of the Z3 pilot, #416):
-- `try_zip` adds four triangles `(c,d,x), (d,b,x), (d,c,y), (c,a,y)`: no vertex is in all four, no apex, today's rule;
-- `try_strip`: for a loop of 3 vertices (one triangle, the chains `e0, m, e1` and `e0, e1`) the outer triangle
-  `(e1, e0, x)` becomes `(m, e0, x), (e1, m, x)`, and the chain vertex `m` lies in both: the apex (the common case).
-  Longer loops have no apex (today's rule). A tip `x` common to all outer triangles is not an apex the code reaches: it
-  rejects such a strip (the directed check fails). (E2) points into `A`;
-- `try_collapse` at an ear: never an apex. The ear's triangle `(a, b, w0)` makes `b` a boundary vertex, and
-  `collapse_keeps_boundary` rejects any move of it, so `A` is empty and the edit takes today's rule.
+An **apex** of an edit is a vertex that lies in every triangle of `A` (`A` not empty). Whether an edit has an apex
+follows from the triangles the code adds, not from the edit's name. Moves, slides, contractions, vertex removals and
+flips have one. A zip (`try_zip`) adds four triangles `(c,d,x), (d,b,x), (d,c,y), (c,a,y)` without a common vertex and
+keeps today's rule. A strip zip (`try_strip`) removes the outer triangle at every loop edge and re-adds it split at the
+chain vertices; for a loop of three vertices `e0, m, e1` (a sliver, also with inner vertices), every added triangle
+contains the middle chain vertex `m`, which is the apex; longer loops have no apex; a common tip of all outer triangles
+is rejected by the code. An ear contraction adds no triangle, because `collapse_keeps_boundary` never moves the kept
+boundary vertex; `A` is empty and today's rule applies.
 
 For every edit where the code finds an apex, its (E2) counterparts are triangles of `A` (not untouched triangles):
 the cases with an untouched counterpart are exactly those with `A` empty.
@@ -130,14 +129,36 @@ The apex rule on the 14 Thingi10K models with D1 operations (42 operations), aga
 - The changed results are expected (more edits pass the bound); whether results that are clean today stay clean, and
   their drift, needs the cohort run before a PR (548875 intersection is one counterexample).
 
+**548875 intersection (2026-11-08).** Not a fault of the rule: the model's slivers need nearly the whole bound under
+either rule, and which edits pass depends on their order. The largest drift reached and the cleanness, with the two
+directions of a contraction tried in either order (`a` into `b` first, as the code does, or `b` into `a` first):
+
+| rule, order | union | intersection |
+|---|---|---|
+| today's, a into b | 0.999, not clean (1 degenerate, needs 1.009) | 0.980, clean |
+| today's, b into a | 0.987, clean | 0.999, clean |
+| apex, a into b | 0.987, clean | 0.995, not clean (1 degenerate, needs 1.007) |
+| apex, b into a | 0.987, clean | 0.945, clean |
+
+(drifts in units of maxLength). Each rule leaves one of the four unclean, an edit that needs 0.7-0.9 % more than the
+bound; the apex rule is not monotone per operation, but over the 42 operations it removes 13 of 21 unclean ones and
+adds this one.
+
+**Procedural case (the test).** A sphere (20 vertices per cube edge) with needles: edges split at 1e-13 from one end,
+chosen so that no needle's end is an end or an opposite vertex of another (694 needles, 1388 degenerate triangles);
+neighbouring needles share opposite vertices only. With a bound of 1.5 needles, today's rule leaves 880 degenerate
+triangles (the drift of a contraction goes to the opposite vertices, and the next needle there starts from it); the
+apex rule repairs all 694 (`RoundingDriftApexTests`).
+
 ## 6. Plan
 
-1. Z3 pilot 2 step 1 checks §3/§4 (the Z3 session; this note is its input).
-2. Probe the regression (548875 intersection) and the cohort: clean-status changes on the 42-model set and the
-   corpus, `MaxDrift` distribution, times (runner job).
-3. Independent bound review of §2-§3.
-4. Implementation with a check mode that asserts the apex is in every added triangle, tests on the D1 cases (fail on
-   master), `Similarity.All()`, serial = parallel; its own PR.
+1. Done: Z3 pilot 2 step 1 checks §3/§4 (#416).
+2. Done: the regression 548875 intersection (above). Open: the cohort run (clean-status changes on the corpus,
+   `MaxDrift` distribution, times; runner job) before the PR is marked ready.
+3. Done: the review of the note (#415, #416).
+4. This PR: the implementation, with a check mode that asserts the apex is in every added triangle and that its drift
+   does not decrease; tests on a procedural D1 case (fail on master), `Similarity.All()`, serial = parallel, reuse; the
+   source contract in `tools/Z3Pilot/drift_apex.py`.
 
 ## 7. Prior art
 
