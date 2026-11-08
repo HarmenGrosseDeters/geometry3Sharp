@@ -22,10 +22,12 @@ An **apex** of an edit is a vertex that lies in every triangle of `A` (`A` not e
 vertex. Contractions (`a` vanishes, `b` kept): `b`. Vertex removals (valence 3, one new triangle): any of its three
 corners. Flips of `ab` to `cd`: `c` or `d`. By the code (review of the Z3 pilot, #416):
 - `try_zip` adds four triangles `(c,d,x), (d,b,x), (d,c,y), (c,a,y)`: no vertex is in all four, no apex, today's rule;
-- `try_strip`: an apex `x` where all the strip's outer triangles share their tip, else none;
-- `try_collapse` at an ear: with the kept vertex moved (`p != pos(b)`), `b`'s other triangles are in `R` and `A`, so
-  `A` is not empty and `b` is the apex (the normal case); only an ear contraction that moves nothing has `A` empty and
-  takes today's rule.
+- `try_strip`: for a loop of 3 vertices (one triangle, the chains `e0, m, e1` and `e0, e1`) the outer triangle
+  `(e1, e0, x)` becomes `(m, e0, x), (e1, m, x)`, and the chain vertex `m` lies in both: the apex (the common case).
+  Longer loops have no apex (today's rule). A tip `x` common to all outer triangles is not an apex the code reaches: it
+  rejects such a strip (the directed check fails). (E2) points into `A`;
+- `try_collapse` at an ear: never an apex. The ear's triangle `(a, b, w0)` makes `b` a boundary vertex, and
+  `collapse_keeps_boundary` rejects any move of it, so `A` is empty and the edit takes today's rule.
 
 For every edit where the code finds an apex, its (E2) counterparts are triangles of `A` (not untouched triangles):
 the cases with an untouched counterpart are exactly those with `A` empty.
