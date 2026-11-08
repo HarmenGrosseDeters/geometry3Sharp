@@ -242,6 +242,18 @@ namespace g3
         // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift)
         [ThreadStatic] internal static bool CheckOnThisThread;
         bool check;
+        // the vertices at their exact position (ExactMeshBoolean: the input points of the result), or null: the full search
+        // skips the pairs of two triangles that existed at the start with three such vertices and have not changed since
+        // (the exact arrangement already resolved them, docs/design/ROUNDING_EXACT_PAIRS.md); used with
+        // SharedPositionsTouch only, and by the next Apply only (it is cleared there). The caller's promise holds
+        // at the start of that Apply: such a vertex is at its exact point (an input point at its input double, not rounded
+        // or snapped); a vertex the repair moves (set_vertex, the one place that writes positions) takes its triangles
+        // out of the set
+        internal Func<int, bool> ExactVertexF = null;
+        // per triangle id: its vertices at the start if it is such a triangle (else -1), cleared by mark_dirty
+        Index3i[] exactAtStart;
+        // for tests: the triangles whose queries the last full searches skipped
+        internal long SkippedExactQueries;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
         internal int FullPairSearches, IncrementalPairSearches, UnchangedPairSearches;
         // for tests: moves past the evaluation limit whose drift try_move computed directly, in the last Apply
@@ -283,6 +295,14 @@ namespace g3
             coarse = false;
             if (SharedPositionsTouch == false)
                 atPosition = null;
+            // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
+            // mesh as the caller handed it over: this Apply may move such vertices, and the mesh may be changed before
+            // another Apply, which then searches every pair); only with SharedPositionsTouch (without it the full search
+            // reports vertices of one exact point at one position, duplicated where the solid touches itself, as
+            // intersecting, which the lemma does not cover)
+            Func<int, bool> exactF = SharedPositionsTouch ? ExactVertexF : null;
+            ExactVertexF = null;
+            exactAtStart = null;
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
@@ -307,6 +327,14 @@ namespace g3
                 canonId = new int[Mesh.MaxVertexID];
                 foreach (int vid in Mesh.VertexIndices())
                     position_add(vid, Mesh.GetVertex(vid));
+            }
+            SkippedExactQueries = 0;
+            if (exactF != null) {
+                exactAtStart = new Index3i[Mesh.MaxTriangleID];
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Index3i tv = Mesh.GetTriangle(tid);
+                    exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
+                }
             }
             rebuild_tree();
             lastPairs = null;
@@ -549,6 +577,8 @@ namespace g3
 
         void mark_dirty(int tid)
         {
+            if (exactAtStart != null && tid >= 0 && tid < exactAtStart.Length)
+                exactAtStart[tid] = new Index3i(-1, -1, -1);
             dirty.Add(tid);
             pairsStale.Add(tid);
             if (dirtyTree != null && pendingSet.Add(tid))
@@ -669,26 +699,46 @@ namespace g3
                 FullPairSearches++;
             }
             if (check) {
-                List<Index2i> full = intersecting_pairs_all();
+                // (also the full search with the exact pairs skipped, against one that tests every pair)
+                List<Index2i> full = intersecting_pairs_all(skipExact: false);
                 bool same = full.Count == pairs.Count;
                 for (int i = 0; same && i < full.Count; ++i)
                     same = full[i] == pairs[i];
                 if (same == false)
-                    throw new InvalidOperationException("MeshRoundingRepair: incremental intersecting pairs differ from a full search");
+                    throw new InvalidOperationException("MeshRoundingRepair: incremental or skipping intersecting pairs differ from a full search");
             }
             pairsStale.Clear();
             lastPairs = new List<Index2i>(pairs);
             return pairs;
         }
 
+        // a triangle of the start with its vertices at their exact positions, unchanged since (its id may have been reused
+        // by an edit for another triangle: then its vertices differ)
+        bool exact_triangle(int tid)
+        {
+            if (exactAtStart == null || tid >= exactAtStart.Length || exactAtStart[tid].a < 0)
+                return false;
+            return Mesh.IsTriangle(tid) && Mesh.GetTriangle(tid) == exactAtStart[tid];
+        }
+
+        // the intersecting pairs of the whole mesh (ta < tb, sorted); with skipExact, the pairs of two exact triangles of
+        // the start are not tested: they do not intersect beyond what they share (docs/design/ROUNDING_EXACT_PAIRS.md),
+        // so the result is the same
         [MethodImpl(JitHints.Optimize)]
-        List<Index2i> intersecting_pairs_all()
+        List<Index2i> intersecting_pairs_all(bool skipExact = true)
         {
             int[] tris = treeTids.ToArray();
+            bool skip = skipExact && exactAtStart != null;
+            long skipped = 0;
             // (per triangle, in triangle order: deterministic without a lock)
             var found = new List<Index2i>[tris.Length];
             gParallel.ForRange(tris.Length, (k) => {
                 int ta = tris[k];
+                // (an exact triangle's pairs with the others are found from those)
+                if (skip && exact_triangle(ta)) {
+                    System.Threading.Interlocked.Increment(ref skipped);
+                    return;
+                }
                 Index3i ia = Mesh.GetTriangle(ta);
                 Triangle3d A = triangle(ia);
                 if (ExactTriangleIntersection.IsDegenerate(ref A))
@@ -696,17 +746,22 @@ namespace g3
                 List<Index2i> local = null;
                 tree.Query(box(ia), (i) => {
                     int tb = tris[i];
-                    if (tb <= ta) return;
+                    // (a pair of two triangles that are not skipped once, from the smaller id; one with a skipped
+                    // triangle from the other)
+                    if (tb == ta || (tb < ta && (skip == false || exact_triangle(tb) == false))) return;
                     Index3i ib = Mesh.GetTriangle(tb);
                     Triangle3d B = triangle(ib);
                     if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                    if (intersects(ia, ref A, ib, ref B)) {
+                    // (the smaller id first, as without the skip)
+                    bool hit = ta < tb ? intersects(ia, ref A, ib, ref B) : intersects(ib, ref B, ia, ref A);
+                    if (hit) {
                         if (local == null) local = new List<Index2i>();
-                        local.Add(new Index2i(ta, tb));
+                        local.Add(new Index2i(Math.Min(ta, tb), Math.Max(ta, tb)));
                     }
                 });
                 found[k] = local;
             });
+            SkippedExactQueries += skipped;
             var pairs = new List<Index2i>();
             foreach (List<Index2i> local in found)
                 if (local != null)
@@ -1707,6 +1762,11 @@ namespace g3
                 position_add(v, p);
             }
             Mesh.SetVertex(v, p);
+            // (the callers mark the triangles dirty as well; here so that no position change keeps a triangle exact)
+            if (exactAtStart != null)
+                foreach (int t in Mesh.VtxTrianglesItr(v))
+                    if (t < exactAtStart.Length)
+                        exactAtStart[t] = new Index3i(-1, -1, -1);
         }
 
         // contract one of the edges of the triangles (shortest first, at most maxLength), the kept vertex at
