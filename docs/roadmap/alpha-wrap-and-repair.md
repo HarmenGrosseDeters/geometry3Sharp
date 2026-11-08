@@ -52,6 +52,10 @@ our manifold extension (large outside cells), not a bug; lever: a two-sided mani
 
 #### Other open items
 
+- **`external/cgal_wrap.cpp`** (behaviour comparison with CGAL's alpha wrap; links CGAL, GPL; never distributed
+  compiled): stays while we compare against CGAL; remove it in its own PR once no comparison needs it (owner
+  2026-11-08).
+
 - **Raw alpha wrap** (now part of Alpha Wrap 2.0): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
