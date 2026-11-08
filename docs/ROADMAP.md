@@ -57,8 +57,8 @@ Status on 2026-11-08.
   oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
 - **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
   session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
-  Queued after #411 (owner's oracle speed-up): the mesher's corner choice (Sonnet) and a runner measurement of the
-  near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
+  #411 (owner's oracle speed-up, certified STRtree pruning as the oracle default) merged 2026-11-08; next, on the
+  owner's go: the mesher's corner choice (Sonnet) and a runner measurement of the near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
