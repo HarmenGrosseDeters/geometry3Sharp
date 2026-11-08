@@ -4,7 +4,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** parameterization (LSCM, ARAP, SLIM, BFF, cones, seams, charts, UV packing), intrinsic triangulations
   and refinement, the vector heat method and log maps, geodesic paths, foldover-free maps.
-- **Status (2026-11-08):** the Phase 3 operations are done; three small items are open. Foldover-free maps (Phase 5
+- **Status (2026-11-08):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
   #7) merged in #374; the affine heat method stopped at its gate (#371).
 - **Related:** [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md),
   [design/FOLDOVER_FREE_MAPS.md](../design/FOLDOVER_FREE_MAPS.md),
@@ -13,11 +13,6 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Near-field log map from affine heat** (priority: medium-low, small): a new gate on the local-parameterization use
-  against `MeshLocalParam` and Legacy; code on branch `agents/implement-logarithmic-map-brief-2` at f8a5f388. A good
-  owner-local brief. Details below.
-- **The current log map is not exact on a plane** (priority: low): compare with the Vector Heat paper's reported
-  errors first; a defect only if ours is clearly worse.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
@@ -46,23 +41,19 @@ Part of the [roadmap](../ROADMAP.md).
 - [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
   `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
   with the direct solver `SparseCholesky`.
-  - [ ] **Near-field log map from affine heat (priority: medium-low, small).** Brief 2 (#371) failed its global
-    gate only toward the cut locus. Near the source, AffineLocal is far more accurate than the current log map
-    ([AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md)): exact on the plane where Legacy errs by 0.03-0.07; on
-    the sphere for r < π/4 a mean of 0.0024 against 0.028; on the cylinder's first two bands 0.0006-0.0015 against
-    0.05-0.08. Queries are also 2-3 times faster. Use: local parameterization (decals, texture stamps, surface
-    brushes, local polar coordinates, geodesic means), the role of `MeshLocalParam` (discrete exponential map,
-    Schmidt 2006). Task: a new gate on that use, comparing AffineLocal with `MeshLocalParam` and Legacy within a patch
-    radius, on the smooth fixtures plus noisy and anisotropic meshes. If it wins clearly, ship it as
-    `ComputeLogMap(int, LogMapStrategy.AffineLocal)` with its documented range ("accurate near the source, not for
-    distances up to the cut locus"). Prior art: geometry-central offers AffineLocal exactly as the fast near-source
-    variant. The code is on branch `agents/implement-logarithmic-map-brief-2` at f8a5f388; reuse it, do not port
-    again. Why medium-low: no library caller (the value is API for users), after the mesher queue and the
-    robustness and CI work; a good owner-local brief.
-  - [ ] **The current log map is not exact on a plane (priority: low).** It errs by 0.03-0.07 on the planar grid
-    of the #371 gate, up to 0.38 in the outer band. This is probably the heat method's own smoothing (time step
-    ~h²). First compare with the Vector Heat paper's reported errors; treat it as a defect only if ours is clearly
-    worse.
+  - [x] **Near-field log map from affine heat: gated, not shipped (2026-11-08).** The near-field gate (AffineLocal
+    against Legacy and `MeshLocalParam`, both modes, 7 procedural fixtures including noisy and anisotropic meshes, radii
+    of 3, 6 and 12 edge lengths, 21 cells; criteria fixed in the design note before the run) did **not** show a clear
+    win: AffineLocal is 10 to 100 times more accurate than Legacy and exact on the plane, but `MeshLocalParam` is as good
+    or better on the sphere up to 6 edge lengths (AffineLocal's mean error 1.0 to 1.5 times its), so G1 (9 of 21 cells,
+    16 needed) and G2 failed. No API. Affine wins at 12 edge lengths and on the cylinder, and is 1.5 to 2.5 times faster
+    than Legacy. Result, tables and the reopen condition (a patch of 12 or more edge lengths, or poor normals for
+    `MeshLocalParam`): [AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md). Gate code and prototype, for reuse:
+    branch `agents/affine-local-logmap-gate` at `ab9ea81e` (not for merge).
+  - [x] **The current log map is not exact on a plane: not a defect (2026-11-08).** The Vector Heat paper reports no
+    numeric planar log-map error (only O(h) convergence of the transported vector, Fig. 13, and t = h²); ours is
+    first order with t = h² (0.11 to 0.31 mean edge lengths), so there is nothing to be clearly worse than. Details in
+    the design note.
 - [x] Intrinsic Delaunay *refinement* (vertex insertion): `IntrinsicTriangulation.DelaunayRefine` (insertion in
   faces and on edges with signpost updates, Chew / Ruppert circumcenter refinement with a minimum angle,
   boundary edges opposite obtuse angles split, concentric shells and skipped triangles at small input
