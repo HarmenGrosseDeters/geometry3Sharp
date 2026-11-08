@@ -21,6 +21,14 @@ Part of the [roadmap](../ROADMAP.md).
 #### Exact Boolean 2.0 (milestone)
 
 **Exact Boolean 2.0 (milestone, owner 2026-11-07).** Every operation of the #385 Thingi10K harness (union, intersection, difference; B rotated and translated) at most 5 s of Compute wall time on the cloud machine.
+**Speed target revised (owner 2026-11-08):** per operation at most max(5 s, 20 µs × arrangement pieces) of Compute
+wall time (an acceptance criterion of the benchmark, which records the piece count; the Lévy phase-1 samples showed
+that the arrangement size predicts the time far better than the input size, log-log correlation 0.87 vs 0.75). With
+all levers this leaves 11 ops on 7 small, heavily self-intersecting models (113685, 1059579, 105693, 107543, 107545,
+107554, 113906) as documented exceptions (#428, `benchmarks/LevyClassification/results/exceptions_levers.md`).
+Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 after the merge queue
+is one PR with the AddPoint fix and the parallel fast-winding tree build (bit-identical; classification -29 to
+-42 % on tree-bound open ops); an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 - Closed inputs, self-intersection free or self-intersecting: a clean result (closed, manifold, free of self-intersections, no degenerate triangles or bowties). Self-intersecting inputs are read as solids by winding number (inside = winding >= 1).
 - Inputs of unknown status: classified first.
 - Open inputs: no degenerate triangles and no crash; closedness is not required.
