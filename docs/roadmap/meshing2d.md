@@ -25,8 +25,10 @@ Small input angles and triangle count:
   edge at near-180° triangles.
 - **Lenses up to 28.6°** (cause B of the triangle-count diagnosis): lenses are allowed only up to 25.65°; up to
   28.6° would be covered by proof (Rand, CCCG 2011). Secondary once A is in (A merged in #394).
-- **Default (conforming) mode near small angles:** needs an owner spec decision on O2 near small angles (owner
-  2026-11-06). #394 covers the cq / constrained mode only.
+- **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
+  O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
+  small input angles, judged that way by the oracle; design note with the termination argument first, independent
+  review; item 4 of the Meshing2D Sonnet bundle.
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.
@@ -34,7 +36,11 @@ Small input angles and triangle count:
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
   quadtree meshing, smoothing) are recorded below, not scheduled.
-- **Coarsening** (owner 2026-11-04: the next mesher project, week of 2026-11-09): the probe (draft #391) gave small
+  Candidate for later (owner 2026-11-08): off-center Steiner points (Üngör 2004/2009; fewer Steiner points and more
+  graded meshes than circumcenters, same termination guarantee), as a prototype behind a switch with an upper bound
+  on f-11 and the run-A triangle counts first.
+- **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
+  170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
   gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
   check: whether coarsening is still the project for that week.) Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
