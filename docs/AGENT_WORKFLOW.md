@@ -171,6 +171,14 @@ from secret tests, which a public repository cannot keep.
   runs to set thresholds) and for relative timings with baseline and candidate in the same job; acceptance timings
   stay on the cloud reference machine. Never a self-hosted GitHub runner for this public repository (fork PRs could
   run code on it).
+  Hand-over to the owner's machine goes only through the repository (owner 2026-11-08): no trust cards
+  (confirm_repository_trust) for cloud sessions, because a session allowed to reach the owner's machine is then
+  limited to trusted devices for good and normal cloud sessions can no longer message it, while the messaging to the
+  local session still did not work. Instead: jobs are files on a `runs/` branch (`jobs/JOB-<n>.md`, complete and
+  literal); the local session waits for a new job file with one harness-tracked background task (a `git fetch`
+  loop that exits when the file appears; waiting costs nothing) and starts it; results and a `REPORT-<n>.md` go to
+  the same branch, and the coordinator reads them there at its check-ins. A message to a cloud session is sent
+  only if the local session's tools allow it.
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
