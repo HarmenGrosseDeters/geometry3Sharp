@@ -10,7 +10,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// The order of TriangleBoxTree is a heuristic: one far box must not spoil it (the Morton coordinates are ranks), and
     /// no result may depend on it (a random order of the boxes, PermutationSeedForTests, gives the same queries, pairs,
-    /// segment queries and Boolean and repair results). Runs alone: the seed is process-wide.
+    /// segment queries, Boolean results and a repair's result). Runs alone: the seed is process-wide.
     /// </summary>
     [Collection("BoxTreeOrder")]
     public class BoxTreeOrderTests
@@ -63,14 +63,19 @@ namespace geometry3Sharp.Tests
 
         static void WithSeed(int seed, Action a)
         {
+            long before = TriangleBoxTree.PermutedTrees;
             TriangleBoxTree.PermutationSeedForTests = seed;
             try { a(); } finally { TriangleBoxTree.PermutationSeedForTests = 0; }
+            // (the hook ran: the trees were built in a random order)
+            Assert.True(TriangleBoxTree.PermutedTrees > before, "no tree was permuted");
         }
 
-        [Fact]
-        public void RandomOrders_SameQueriesPairsAndSegments()
+        [Theory]
+        [InlineData(16)]    // below MedianSplitBelow: the median split
+        [InlineData(40)]    // above: the Morton order
+        public void RandomOrders_SameQueriesPairsAndSegments(int edgeVertices)
         {
-            List<AxisAlignedBox3d> boxes = SphereBoxes(16, 5);
+            List<AxisAlignedBox3d> boxes = SphereBoxes(edgeVertices, 5);
             var rand = new Random(9);
             var segments = Enumerable.Range(0, 200).Select(_ => (new Vector3d(rand.NextDouble() * 3 - 1.5, rand.NextDouble() * 3 - 1.5, rand.NextDouble() * 3 - 1.5),
                 new Vector3d(rand.NextDouble() * 3 - 1.5, rand.NextDouble() * 3 - 1.5, rand.NextDouble() * 3 - 1.5))).ToList();
@@ -109,6 +114,24 @@ namespace geometry3Sharp.Tests
             foreach (int t in m.TriangleIndices())
                 sb.Append(t).Append(':').Append(m.GetTriangle(t)).Append(';');
             return sb.ToString();
+        }
+
+        [Fact]
+        public void RandomOrders_SameRepairResult()
+        {
+            // SafeRounding's trees (the main one and that of the changed triangles) on a random order
+            DMesh3 input = SafeRoundingDegenerateInputTests.Make(SafeRoundingDegenerateInputTests.Family.Cluster, 36, 1);
+            Func<string> run = () => {
+                DMesh3 m = new DMesh3(input);
+                new MeshRoundingRepair(m) { SharedPositionsTouch = true }.Apply();
+                return Print(m);
+            };
+            string reference = run();
+            foreach (int seed in new[] { 1, 2 }) {
+                string got = null;
+                WithSeed(seed, () => got = run());
+                Assert.True(reference == got, $"seed {seed}: the repair depends on the tree's order");
+            }
         }
 
         [Theory]
