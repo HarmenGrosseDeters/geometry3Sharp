@@ -155,7 +155,7 @@ namespace Meshing2Acceptance
                     + " points chosen on the bisector (grading); small-angle exemptions (constrained mode): " + counts[8] + " at a shared endpoint, " + counts[9]
                     + " at a T-junction or crossing; triangles given up: " + counts[10] + " without a circumcentre, " + counts[11] + " behind a locked or unsplittable subsegment, "
                     + counts[12] + " without a new vertex; subsegments left unsplit: " + counts[13] + " below the rounding floor, " + counts[14] + " without progress, "
-                    + counts[15] + " near another source");
+                    + counts[15] + " near another source; small-angle exemptions revoked in the conforming mode (subsegment not locally Delaunay): " + counts[16]);
             clock.Restart();
             var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
             double oracleMs = clock.Elapsed.TotalMilliseconds;

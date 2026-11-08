@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
         {
             var r = Run(Conforming(QualityMesh2ApexExemptionTests.Pair(1, 20)));
             Assert.True(r.Counts[16] > 0);
-            Assert.True(r.Counts[16] < r.Counts[8] + r.Counts[9] + r.Counts[16] + 1);
+            Assert.True(r.Counts[16] < r.Counts[8] + r.Counts[9], r.Counts[16] + " revoked of " + (r.Counts[8] + r.Counts[9]) + " granted");
             Assert.Equal(0, Run(Conforming(QualityMesh2ApexExemptionTests.Pair(1, 20)), false).Counts[16]);   // the rule off: nothing granted, nothing revoked
         }
 
@@ -146,6 +146,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.Output.VY, on.Output.VY);
             Assert.Equal(off.Output.Triangles.SelectMany(t => t), on.Output.Triangles.SelectMany(t => t));
             Assert.Equal(0, on.Counts[8] + on.Counts[9] + on.Counts[16]);
+        }
+
+        /// <summary> with lenses forced on (benchmarks), the conforming mode has no rule: no exemption, the mesh of the rule off </summary>
+        [Fact]
+        public void WithLensesForcedOn_TheRuleIsOff()
+        {
+            var input = Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, 2.6));
+            QualityMesh2.Refiner.LensesForBenchmarks = true;
+            try {
+                var on = Run(input); var off = Run(input, false);
+                Assert.Equal(0, on.Counts[8] + on.Counts[9] + on.Counts[16]);
+                Assert.Equal(off.Output.Triangles.SelectMany(t => t), on.Output.Triangles.SelectMany(t => t));
+            }
+            finally { QualityMesh2.Refiner.LensesForBenchmarks = null; }
+        }
+
+        /// <summary>
+        /// a hole and the wedge: the conforming mode counts the vertices of hole triangles as encroaching too (O2 across holes), and so does
+        /// the Delaunay check; valid, with no more triangles than without the rule (a smoke test: whether the hole triangle is ever the
+        /// neighbour across the subsegment is not asserted)
+        /// </summary>
+        [Fact]
+        public void WedgeWithAHole_IsValid()
+        {
+            double t = Math.Round(8 * Math.Tan(2.6 * Math.PI / 180), 12);
+            var input = Generators.Literal(0, 0, 10, 0, 10, 6, 0, 6, 3, 0.8, 5, 0.8, 5, 1.6, 3, 1.6, 8, t);
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1));
+            input.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true, 2));
+            input.Segments.Add(new SegmentInput(0, 8));
+            input.MinAngleDeg = 25; input.SteinerLimit = 20000;
+            var on = Run(input); var off = Run(input, false);
+            Assert.True(on.Report.Ok, on.Report.ToString());
+            Assert.False(on.Output.SteinerLimitReached);
+            Assert.True(on.Output.Triangles.Length <= off.Output.Triangles.Length);
         }
 
         /// <summary> without an angle bound (an area bound only) the rule is off </summary>
