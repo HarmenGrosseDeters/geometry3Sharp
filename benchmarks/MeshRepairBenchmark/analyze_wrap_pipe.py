@@ -48,10 +48,17 @@ def summary(rs, budget, name):
     print(f"== {name}: {len(rs)} rows, {len(ok)} with a result, timeouts / crashes / exceptions "
           f"{sum(1 for r in rs.values() if r.get('status') in ('timeout_or_crash', 'exception'))}")
     g = [r for r in ok if guarantees(r)]
-    print(f"guarantees met: {len(g)} / {len(ok)}; failures: "
-          + ", ".join(f"{r['file']}({r.get('status')},si={r.get('after_selfint_exact')},{r.get('wrap_status')})" for r in ok if not guarantees(r))[:600])
+    # (after_selfint_exact = -1: the exact self-intersection check was skipped, above 300k result triangles: not a
+    # failure, not proven either)
+    unchecked = [r for r in ok if not guarantees(r) and r.get("after_selfint_exact") == -1 and guarantees(dict(r, after_selfint_exact=0))]
+    failed = [r for r in ok if not guarantees(r) and r not in unchecked]
+    print(f"guarantees met: {len(g)} / {len(rs)} (rows without a result count as not met), self-intersections not checked "
+          f"(> 300k triangles): {len(unchecked)}, failed: {len(failed)}"
+          + (": " + ", ".join(f"{r['file']}({r.get('status')},si={r.get('after_selfint_exact')},{r.get('wrap_status')})" for r in failed)[:600] if failed else "")
+          + (f"; unchecked: {', '.join(r['file'] for r in unchecked)[:300]}" if unchecked else ""))
     b = [band(r) for r in ok if band(r) is not None]
-    print(f"band (hd fwd upper bound / (alpha + offset)): median {q(b, .5):.3f} p90 {q(b, .9):.3f} max {max(b):.3f}; > 1: {sum(1 for x in b if x > 1)}")
+    print(f"band (hd fwd upper bound / (alpha + offset)): median {q(b, .5):.3f} p90 {q(b, .9):.3f} max {max(b):.3f}; > 1: {sum(1 for x in b if x > 1)}"
+          f"; rows without a Hausdorff result: {len(ok) - len(b)}")
     # the documented value for the final output: alpha + offset for the wrap (class doc: "about"), plus the
     # simplification's certified 0.5 offset when it was simplified; a proven exceedance needs the lower bound above it
     lows = [(band(r, "lo"), contract(r), r["file"]) for r in ok if band(r, "lo") is not None]
@@ -95,8 +102,13 @@ def summary(rs, budget, name):
                 tot[k] = tot.get(k, 0) + ms
         T = sum(r.get("pipe_ms", 0) for r in sel)
         if T:
+            # top-level phases (wrap, simplify, quality) add up to about the pipeline; their parts (wrap.*, ...) are
+            # shown separately, also as shares of the whole pipeline (wrap's parts are timed inside its loop and overlap)
+            top = {k: v for k, v in tot.items() if "." not in k}
+            sub = {k: v for k, v in tot.items() if "." in k}
             print(f"phases ({label}, {len(sel)} meshes, sum {T / 1000:.0f} s): "
-                  + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(tot.items(), key=lambda kv: -kv[1])))
+                  + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(top.items(), key=lambda kv: -kv[1])))
+            print(f"  parts: " + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(sub.items(), key=lambda kv: -kv[1])))
     return ok
 
 def main():

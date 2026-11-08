@@ -274,8 +274,12 @@ class Program
                 if (warmup == "soup") {
                     var wsw = Stopwatch.StartNew();
                     // (alpha = diagonal / 60: about 1 s; as warm as a first run of the same mesh, measured on 3 meshes)
-                    WrapPipeline(WarmupInput(), new System.Collections.Generic.Dictionary<string, object>(), 60);
+                    var wr = new System.Collections.Generic.Dictionary<string, object>();
+                    WrapPipeline(WarmupInput(), wr, 60);
                     r["warmup_ms"] = wsw.ElapsedMilliseconds;
+                    // (whether the warm-up reached the simplification and the quality pass: else their JIT lands in pipe_ms)
+                    r["warmup_simplified"] = wr.ContainsKey("pipe_simplified") ? wr["pipe_simplified"] : false;
+                    r["warmup_quality"] = wr.ContainsKey("pipe_quality_improved") ? wr["pipe_quality_improved"] : false;
                 } else if (warmup == "same") {
                     WrapPipeline(original, r);
                     r["pipe_ms_cold"] = r["pipe_ms"];

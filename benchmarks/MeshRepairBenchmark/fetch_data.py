@@ -54,7 +54,12 @@ def select(seed, seed_large, exclude=frozenset()):
     return sel, large
 
 def arg(name, default):
-    return int(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
+    if name not in sys.argv:
+        return default
+    i = sys.argv.index(name) + 1
+    if i >= len(sys.argv) or sys.argv[i].startswith("--"):
+        sys.exit(f"{name} needs a number")
+    return int(sys.argv[i])
 
 sel, large = select(42, 7)
 prefix, suffix = "", ""
