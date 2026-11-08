@@ -48,6 +48,7 @@ on:
       - 'tests/geometry3Sharp.Tests/TriTriPrefilterTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'

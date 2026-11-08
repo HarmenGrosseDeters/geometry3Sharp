@@ -24,9 +24,12 @@ The owner decided:
   `MeshRobustRepair` can run a second repair with a fresh budget: there the total is at most 2 `maxLength`.
 
 **Drift.** Every vertex has a drift d(v), 0 at the start of `Apply`. A proposed edit removes triangles R and adds
-triangles A. Let δ bound how far the edit moves the surface. Applying the edit sets d(v) = max over the vertices u of R
-and A of d(u), plus δ, for every vertex v of R and A. An edit is not applied if any of these drifts would exceed
-`maxLength` = `MaxDisplacement` (1e-5) times the diagonal. `MaxDrift` reports the largest drift reached.
+triangles A. Let δ bound how far the edit moves the surface, and M = max over the vertices u of R and A of d(u).
+Applying the edit sets d(c) = M + δ for its apex c, a vertex of every triangle of A, and keeps every other drift; an
+edit without an apex (a zip, a strip zip of a longer loop, an ear contraction, which adds no triangle) sets
+d(v) = M + δ for every vertex v of R and A (since November 2026, docs/design/ROUNDING_DRIFT_APEX.md; before, every edit
+did). An edit is not applied if M + δ would exceed `maxLength` = `MaxDisplacement` (1e-5) times the diagonal.
+`MaxDrift` reports the largest drift reached.
 
 **Scale (2026-11-08, Exact Boolean 2.0, the far-part defect).** The diagonal in the degenerate area and in
 `maxLength` is that of the largest connected component (vertices joined by triangles), not of the box of all
@@ -65,8 +68,9 @@ exact boolean result, the rounding of the vertices adds at most √3/2 ulp.
 - every point of S0 lies within the drift of the vertices of some current triangle.
 
 Each edit moves every point of the triangles it removes to within δ of the triangles it adds, or of a simplex spanned by
-the edit's vertices, and back; the bounds in the table are two-sided. The vertices of those triangles get at least the
-old maximum plus δ, so drifts never decrease, and untouched triangles that share those vertices stay valid.
+the edit's vertices, and back; the bounds in the table are two-sided. Every added triangle has a vertex with at least
+the old maximum plus δ (the apex, or with no apex all of them), so drifts never decrease, and untouched triangles
+that share those vertices stay valid (the lemma of ROUNDING_DRIFT_APEX.md section 3, checked by Z3).
 
 Special case, the ear: a contraction of a vertex with a single triangle adds no triangle. That triangle goes to the edge
 across, which lies in an untouched triangle with both ends among the edit's vertices. Edits never create, merge or split
