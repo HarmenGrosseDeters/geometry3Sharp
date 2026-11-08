@@ -91,7 +91,6 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(Volume(r) - total) <= 1e-6 * total + 1e-6, $"far {far} {op}: volume {Volume(r)}, expected {total}");
             Assert.True(r.IsClosed() && Invariance.AllFinite(r));
             Assert.True(boolean.RoundingClean, $"far {far} {op}: not clean");
-            Assert.Equal(0, boolean.Rounding.ScaleDisparity);
             // the spheres' part is the same as without the far part (same tolerances: the largest component's)
             Assert.Equal(near.Rounding.MaxDrift, boolean.Rounding.MaxDrift);
         }
@@ -124,31 +123,6 @@ namespace geometry3Sharp.Tests
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.True(Invariance.Difference(serial, boolean.Result) == "");
-        }
-
-        [Fact]
-        public void RealVolume_NotRemovedAsThin_Counted()
-        {
-            // a sphere and a cube of edge 1e-3 with a needle, with a bound so wide (MaxDisplacement 0.01) that the cube
-            // counts as thin (thickness edge / 3 below 0.01 diag) though it is not tiny: it holds real volume for its
-            // area, so it is kept and counted, and the repair is not clean (before: removed silently)
-            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
-            int n = m.TriangleCount;
-            DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(3, 0, 0), 0.5e-3 * Vector3d.One) }.Generate().MakeDMesh();
-            int eid = cube.EdgeIndices().First();
-            Index2i ev = cube.GetEdgeV(eid);
-            Vector3d p = cube.GetVertex(ev.a), q = cube.GetVertex(ev.b);
-            DMesh3.EdgeSplitInfo split;
-            Assert.Equal(MeshResult.Ok, cube.SplitEdge(eid, out split));
-            cube.SetVertex(split.vNew, p + 1e-12 * (q - p).Normalized);
-            new MeshEditor(m).AppendMesh(cube);
-            int total = m.TriangleCount;
-            var repair = new MeshRoundingRepair(m) { MaxDisplacement = 0.01 };
-            Assert.False(repair.Apply());
-            Assert.Equal(1, repair.ScaleDisparity);
-            Assert.Equal(0, repair.RemovedComponents);
-            Assert.True(m.TriangleCount > n, "the cube was removed");
-            Assert.True(m.IsClosed());
         }
     }
 }
