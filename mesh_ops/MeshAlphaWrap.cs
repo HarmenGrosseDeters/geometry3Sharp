@@ -203,6 +203,7 @@ namespace gs
             end_phase("setup");
 
             reset_refinement_counts();
+            labelsManifold = false;
             Status = refine_and_carve();
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -214,8 +215,15 @@ namespace gs
                     return false;
             }
 
-            remove_pockets();
-            WrapStatus manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
+            // (the last trial run of the refinement at non-manifold spots found nothing to move and kept its labels: they
+            // are what remove_pockets and make_manifold would give, see cells_moved_by_manifold_step)
+            WrapStatus manifold = WrapStatus.Success;
+            if (!(labelsManifold && MakeManifold)) {
+                remove_pockets();
+                manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
+            } else {
+                Counts["manifold_reused"] = 1;
+            }
             if (manifold != WrapStatus.Success) {
                 Status = manifold;
                 Error = manifold == WrapStatus.Cancelled ? null : "could not make the result manifold";
@@ -411,6 +419,7 @@ namespace gs
                     continue;
                 }
                 // carve
+                labelsManifold = false;
                 label[c] = Outside;
                 carved++;
                 for (int j = 0; j < 4; ++j) {
@@ -452,6 +461,7 @@ namespace gs
             ticksInsert += Stopwatch.GetTimestamp() - t2;
             if (res != Delaunay3.InsertResult.Inserted)
                 return false;
+            labelsManifold = false;
             steiner++;
             vertexDistance.Add(offset);
             ensure_labels();
@@ -691,6 +701,12 @@ namespace gs
             return status;
         }
 
+        // true while the labels are those of a successful make_manifold run without changes since (see
+        // cells_moved_by_manifold_step); cleared by every insertion and carving
+        bool labelsManifold;
+        /// <summary> (tests) false: the manifold step runs again after a trial that moved nothing (the same result) </summary>
+        internal bool ReuseTrialLabels = true;
+
         // the outside cells that remove_pockets and make_manifold would move inside, without the pockets (enclosed outside
         // regions, whose facets do not reach the result); the labels and counts are restored
         WrapStatus cells_moved_by_manifold_step(List<int> moved)
@@ -706,6 +722,12 @@ namespace gs
             WrapStatus status = make_manifold();
             foreach (int c in dt.CellIndices())
                 if (afterPockets[c] == Outside && label[c] == Inside) moved.Add(c);
+            // nothing moved: make_manifold changed no label, so the labels and counts are those that remove_pockets and
+            // make_manifold give after the refinement: kept (labelsManifold, until a later insertion or carving)
+            if (status == WrapStatus.Success && moved.Count == 0 && ReuseTrialLabels) {
+                labelsManifold = true;
+                return status;
+            }
             Array.Copy(saved, label, n);
             Counts.Clear();
             foreach (var kv in savedCounts)
