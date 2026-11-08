@@ -336,5 +336,5 @@ and three in `MeetKind`. Surviving: the same-source check (equivalent: a pair (a
   - An exact test (as `MeetKind`) would fix both and stay oracle-consistent; measured first.
 - The cascade through causes 1 and 2 (cdt): the Terminator, with a wider oracle excuse, is the ROADMAP research item.
 - The near-contact features of cdt and stmlf (a vertex very close to a segment it does not touch).
-- Lenses up to 28.6° (Rand, CCCG 2011), later.
+- Lenses up to 28.6°: not applicable, Rand's bound is for Chew's second algorithm, not for lenses (meshing2d.md, Open).
 - The O2 question for the default mode (#390 section 6, owner).
