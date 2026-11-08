@@ -1,0 +1,16 @@
+diff --git a/mesh_ops/MeshRobustRepair.cs b/mesh_ops/MeshRobustRepair.cs
+index 1b13edb..c227911 100644
+--- a/mesh_ops/MeshRobustRepair.cs
++++ b/mesh_ops/MeshRobustRepair.cs
+@@ -552,6 +552,11 @@ namespace gs
+                 AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minQuality, CollapseQualityAgainstWorst = qualityAgainstWorst,
+                 EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+             };
++            // SWEEP ONLY (not for the PR): G3_FEATURE_ANGLE / G3_FEATURE_WEIGHT
++            string fa = Environment.GetEnvironmentVariable("G3_FEATURE_ANGLE");
++            if (!string.IsNullOrEmpty(fa)) reducer.FeatureAngle = double.Parse(fa, System.Globalization.CultureInfo.InvariantCulture);
++            string fw = Environment.GetEnvironmentVariable("G3_FEATURE_WEIGHT");
++            if (!string.IsNullOrEmpty(fw)) reducer.FeatureQuadricWeight = double.Parse(fw, System.Globalization.CultureInfo.InvariantCulture);
+             reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+             m = new DMesh3(m, true);
+             lap(phases, "reduce", timer);
