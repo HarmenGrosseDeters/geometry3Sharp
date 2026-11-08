@@ -111,8 +111,9 @@ FMA contraction happens remain review obligations (with native tests). The
 failure paths (`InvalidOperationException` for a crossing on a corner or a
 collapsed triangle, also from the parallel paths; `ArgumentException` for a Pro
 grid of more than 65535 cells per axis in `Generate()`, 65534 in
-`GenerateContinuation()`, which also visits the cell of index n, whose 16-bit
-hash would alias edges) have native tests in `MarchingCubesConservativeTests`.
+`GenerateContinuation()`, which also visits the cell of index n, and for a
+continuation seed outside cells 0 to n: beyond these its 16-bit hash would alias
+edges) have native tests in `MarchingCubesConservativeTests`.
 The throw on a rejected triangle is a guard: within these limits every visited
 grid edge has its own vertex and by the case table no edge between two crossings
 is used by more than two triangles, so it is not expected to fire. The optional

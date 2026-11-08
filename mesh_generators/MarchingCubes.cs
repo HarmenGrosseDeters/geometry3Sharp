@@ -69,8 +69,8 @@ namespace g3
         /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
         /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
         /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
-        /// GenerateContinuation() (its 16-bit grid hash), and otherwise throws ArgumentException before any work. The
-        /// mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// GenerateContinuation() (its 16-bit grid hash), whose seeds must lie in the grid (cell indices 0 to n), and
+        /// otherwise throws ArgumentException before any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
         /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }

@@ -50,8 +50,8 @@ namespace gs
         /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
         /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
         /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
-        /// GenerateContinuation() (its 16-bit grid hash), and otherwise throws ArgumentException before any work. The
-        /// mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// GenerateContinuation() (its 16-bit grid hash), whose seeds must lie in the grid (cell indices 0 to n), and
+        /// otherwise throws ArgumentException before any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
         /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
@@ -129,6 +129,8 @@ namespace gs
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
             CellDimensions = new Vector3i(nx, ny, nz);
             GridBounds = new AxisAlignedBox3i(Vector3i.Zero, CellDimensions);
+            if (RootMode == RootfindingModes.LinearEdges)
+                seeds = check_linear_edges_seeds(seeds);
 
             if (LastGridBounds != GridBounds) {
                 corner_values_grid = new DenseGrid3f(nx + 1, ny + 1, nz + 1, float.MaxValue);
@@ -171,6 +173,26 @@ namespace gs
                 throw new ArgumentException("MarchingCubesPro LinearEdges: the cube size must be finite and positive");
             if (!(Bounds.Width / CubeSize < maxCells) || !(Bounds.Height / CubeSize < maxCells) || !(Bounds.Depth / CubeSize < maxCells))
                 throw new ArgumentException($"MarchingCubesPro LinearEdges: at most {maxCells} cells per axis (16-bit grid hash)");
+        }
+
+
+        /// <summary>
+        /// LinearEdges: the continuation visits the cells of GridBounds (inclusive: indices 0 to n per axis) and the
+        /// seed cells, which cell_index does not clamp; a seed cell outside that range (eg a negative index) would
+        /// alias in the 16-bit hash. cell_index truncates (pos - min) / h toward zero, so its index lies in [0, n] iff
+        /// -1 &lt; (pos - min) / h &lt; n + 1 (also false for NaN and infinity). The seeds are read once, before any work
+        /// </summary>
+        List<Vector3d> check_linear_edges_seeds(IEnumerable<Vector3d> seeds)
+        {
+            var list = new List<Vector3d>(seeds);
+            foreach (Vector3d seed in list) {
+                for (int d = 0; d < 3; ++d) {
+                    double q = (seed[d] - Bounds.Min[d]) / CubeSize;
+                    if (!(q > -1 && q < CellDimensions[d] + 1))
+                        throw new ArgumentException("MarchingCubesPro LinearEdges: a seed lies outside the grid of the continuation");
+                }
+            }
+            return list;
         }
 
 

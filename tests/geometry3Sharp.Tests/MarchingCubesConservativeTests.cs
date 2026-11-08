@@ -235,9 +235,33 @@ namespace geometry3Sharp.Tests
             var error = Assert.Throws<ArgumentException>(() => pro.GenerateContinuation(seeds));
             Assert.Contains("65534", error.Message);
             Assert.Equal(0, pro.Mesh.TriangleCount);
-            // (seeds inside the bounds: a seed outside them is visited too, also an aliasing route, not checked here)
+            // (seeds inside the grid: see LinearEdges_ProContinuationRejectsSeedsOutsideTheGrid)
             pro.Bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65533, 2, 2));
             pro.GenerateContinuation(new[] { new Vector3d(0.5, 0.5, 0.5), new Vector3d(65533.5, 0.5, 0.5) });
+            Assert.True(pro.Mesh.TriangleCount > 0);
+            Assert.True(pro.Mesh.CheckValidity());
+            Assert.All(pro.Mesh.Vertices(), v => Assert.True(v.x < 2));
+        }
+
+        [Theory]
+        [InlineData(false, 65535.5)]
+        [InlineData(true, 65535.5)]
+        [InlineData(false, -1.5)]
+        [InlineData(true, -1.5)]
+        public void LinearEdges_ProContinuationRejectsSeedsOutsideTheGrid(bool parallel, double x)
+        {
+            // The continuation visits the seed cells as given: with n = 65534 cells along x, the cell 65535 of the seed
+            // x = 65535.5 (corner index 65536) and the cell -1 of x = -1.5 alias in the 16-bit hash (the spheres at
+            // x = 0 and x = 65536 shared vertices). LinearEdges accepts cell indices 0 to n only.
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65533, 2, 2));
+            var pro = new MarchingCubesPro { Implicit = new TwoSpheres(), Bounds = bounds, CubeSize = 1,
+                RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+            var error = Assert.Throws<ArgumentException>(
+                () => pro.GenerateContinuation(new[] { new Vector3d(0.5, 0.5, 0.5), new Vector3d(x, 0.5, 0.5) }));
+            Assert.Contains("seed", error.Message);
+            Assert.Equal(0, pro.Mesh.TriangleCount);
+            // the extreme cells 0 (also from x = -0.5, truncated toward zero) and n are accepted
+            pro.GenerateContinuation(new[] { new Vector3d(-0.5, 0.5, 0.5), new Vector3d(65534.5, 0.5, 0.5) });
             Assert.True(pro.Mesh.TriangleCount > 0);
             Assert.True(pro.Mesh.CheckValidity());
             Assert.All(pro.Mesh.Vertices(), v => Assert.True(v.x < 2));

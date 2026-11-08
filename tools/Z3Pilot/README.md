@@ -365,9 +365,11 @@ would itself be incorrect. The default adapter guards are SAT for every row.
    components and is excluded. Pro's 16-bit index hashing allows corner indices
    up to 65535: at most 65535 cells per axis for `Generate()`, 65534 for
    `GenerateContinuation()` (it also visits the cell of index n, as
-   `AxisAlignedBox3i.Contains` is inclusive). `LinearEdges` refuses a larger grid,
-   and a cube size that is not finite and positive, with `ArgumentException`
-   before any work (the legacy modes alias silently). Use full `Generate()`.
+   `AxisAlignedBox3i.Contains` is inclusive), whose seeds must lie in cells 0 to
+   n (seed cells are not clamped). `LinearEdges` refuses a larger grid, a seed
+   outside it and a cube size that is not finite and positive with
+   `ArgumentException` before any work, so no silent aliasing remains in this
+   mode (the legacy modes alias silently). Use full `Generate()`.
 5. Required SAT controls: the positive-radius cell-center sphere below the
    threshold, and a deliberately incorrect crossing placement with a lift below
    sigma. These check satisfiability, not merely absence of counterexamples.

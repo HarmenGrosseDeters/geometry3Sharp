@@ -6,7 +6,7 @@
       "name": "marching_cubes_tests",
       "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~MarchingCubes",
       "exit_code": 0,
-      "passed": 68,
+      "passed": 72,
       "failed": 0
     },
     {
@@ -50,6 +50,16 @@
       "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProRejectsInvalidCubeSize (cube size check disabled, restored afterwards)",
       "exit_code": 1,
       "failed": 4
+    },
+    {
+      "name": "mutant_pro_seed_check",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProContinuationRejectsSeeds (seed range check removed as in 84ff89a7 / upper bound one larger / lower bound one smaller, each restored afterwards)",
+      "exit_code": 1,
+      "failed": [
+        4,
+        2,
+        2
+      ]
     },
     {
       "name": "mutant_collapsed_triangle_not_thrown",
