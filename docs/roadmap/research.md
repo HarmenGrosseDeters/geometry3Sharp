@@ -63,7 +63,7 @@ in the tool project.
     from self-intersections.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
-  - Status 2026-11-08: #423 adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
+  - Status 2026-11-08: #423 (merged) adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
     enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
     relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
     check that gap for SDFs, and the code does not check it).
