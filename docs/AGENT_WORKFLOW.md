@@ -143,6 +143,10 @@ from secret tests, which a public repository cannot keep.
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
+- Medium sessions on a mid-size model (Sonnet, owner 2026-11-08) take bounded, well-specified tasks (benchmark
+  classes, gates, small fixes). They escalate hard or risky decisions (correctness arguments, error bounds, licences,
+  protocol choices) to the coordinator with the options and their leaning, instead of guessing; the coordinator asks
+  them proactively, too.
 - Runner sessions (owner 2026-11-08): long runs (benchmarks, corpus sweeps, A/B timings, CGAL or other black-box
   comparisons) go, whenever possible and useful, to a separate runner session on a small model (Haiku) instead of the
   implementing session. It runs jobs only: no code, docs or design decisions, no PRs; it takes jobs only from its
