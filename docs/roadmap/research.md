@@ -63,6 +63,10 @@ in the tool project.
     from self-intersections.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
+  - Status 2026-11-08: #423 adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
+    enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
+    relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
+    check that gap for SDFs, and the code does not check it).
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
