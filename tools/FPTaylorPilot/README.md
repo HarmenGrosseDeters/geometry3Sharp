@@ -56,3 +56,27 @@ On FPTaylor b5a77cae with `bb-eval`, this returned `0x1p-53`, which is below the
 as an exact rational, fails when it exceeds the derived bound, and checks the model and relevant source
 snippets for drift. It is an initial **single-leaf, bounded-domain** check, not a proof of Orient3dLPI,
 its filter gate, other inputs, or all binary64 exceptional and underflow cases.
+
+## Orient3dLPI `nx`: a composed filter expression
+
+`orient3dlpi_nx.txt` models the operations `uy = s.y-r.y`, `uz = s.z-r.z`, `wy = t.y-r.y`,
+`wz = t.z-r.z`, then `nx = uy*wz - uz*wy`, with each operation rounded to binary64. The model preserves the
+shared coordinates `r.y` and `r.z`; all coordinates `s.y`, `s.z`, `t.y`, `t.z` are in `[1,2]` and `r.y`,
+`r.z` are in `[0,0.5]`. The model includes inputs outside the generator's gate; the generator comparison
+applies to the subset satisfying it. No sign decision or complete predicate is modeled.
+
+Let `u = 2^-53`. Each leaf magnitude is at most 2, each rounded product magnitude at most 4, and the
+computed sum of their magnitudes at most 8. On gated inputs, the generator's product rule gives
+`P = (u + 2u + u²)/(1-u)`, and its subtraction rule gives `C = (u+P)/(1-u)`. Therefore its absolute bound
+for this domain is `8C = 288230376151711744/81129638414606663681390495662081`. FPTaylor returned the
+upper bound `0x1.0080000000001p-49` (about `1.78e-15`), below the generator bound (about `3.55e-15`).
+These are bounds for this domain, not timings or a general proof of the filter.
+
+```sh
+python3 tools/FPTaylorPilot/compare_nx.py "$base"
+```
+
+The check preserves the tool result as an exact rational, requires it not to exceed `8C`, and fails on
+changes to the modeled input, source expressions, or generator rules. The input includes potentially
+subnormal coordinates; no claim is made for an ungated execution of the real filter. The other cross-product
+components, gate, sign decision and complete predicate remain outside this check.

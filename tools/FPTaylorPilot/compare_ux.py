@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 
 
-def compare(report):
+def compare(report, bound=Fraction(1, 2**52)):
     # The hex value preserves the tool's printed bound exactly; the decimal is rounded for display.
     match = re.findall(r'^Absolute error \(exact\):\s+(\S+)\s+\((0x[0-9a-fA-F.]+p[+-]\d+)\)', report, re.M)
     if len(match) != 1:
@@ -27,10 +27,10 @@ def compare(report):
     tolerance = Decimal(1).scaleb(printed.as_tuple().exponent)
     if abs(printed - Decimal.from_float(parsed)) > tolerance:
         raise ValueError('decimal and hexadecimal bounds disagree')
-    if value < 0 or value > Fraction(1, 2**52):
+    if value < 0 or value > bound:
         raise ValueError('FPTaylor bound exceeds the conservative generator bound')
     return {'fptaylor_bound_hex': hexadecimal, 'fptaylor_bound_exact': str(value),
-            'generator_bound_exact': str(Fraction(1, 2**52)), 'ok': True}
+            'generator_bound_exact': str(bound), 'ok': True}
 
 
 def main():
