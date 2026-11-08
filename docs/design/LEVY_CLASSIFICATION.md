@@ -117,6 +117,14 @@ exactly.
      functions (e.g. propagation, if reopened), or be dropped. Acceptance if built: hashes equal on both samples
      (`job.sh` with both sample files, the probe writes `hash`), the boolean suites, invariance over
      `Similarity.All()`, a test pinning `coplanar_stack` with coincident and coplanar overlapping triangles.
+   - Lock-free point index elsewhere? (owner question 2026-11-08) `lock_spin.py` on the 12 traces
+     (`results/lock_spin_levers.jsonl`): spinning on the sharded point-index locks (64 shards) is 16-46 % of the busy
+     samples on the patch-heavy ops, 2-5 % on the others; 67-77 % of it (60 % on 113685) comes from the classification
+     centroids (`centroid` < `patch_winding` / `coplanar_stack`), the rest from `add_implicit` and `intersect` in the
+     intersection step. Removing the centroid part (this prototype) turned roughly a fifth of the busy samples into
+     -1.3 % of Compute: spinning threads mostly occupy cores that would otherwise idle at the end of the parallel loops.
+     By the same ratio, a lock-free index for the intersection step (more shards, a concurrent map, or per-thread
+     collection and a sorted merge) would gain well under 1 %; not pursued without a new signal.
 2. **Fast-winding tree, ways 1 and 2.** Way 1: build the trees of all open meshes concurrently in `classify` (a member
    already on the `ExactCodeAllowList`; each tree is independent; the dictionary is filled serially afterwards).
    Way 2: in `build_fast_winding_cache` build the two child subtrees concurrently in the top levels (each subtree
