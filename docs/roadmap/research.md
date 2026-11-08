@@ -18,7 +18,7 @@ Part of the [roadmap](../ROADMAP.md).
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
-- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans started (owner 2026-11-08).
+- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma, waits for the Boolean session's design note.
 - **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
@@ -42,6 +42,8 @@ rules from which the static filter bounds are derived), one lemma per rule, as a
 bound review CLAUDE.md demands. This is consistent with "not a fit" above: the rules are small, the large predicates
 are not proved as a whole. Pilot 1 used the Python package `z3-solver` (MIT), not the NuGet `Microsoft.Z3`; still only
 in the tool project.
+
+**Pilot 2, step (2) result (2026-11-08, draft PR):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
 
 #### Later
 

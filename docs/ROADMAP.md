@@ -55,6 +55,10 @@ Status on 2026-11-08.
 - **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
   are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
   oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
+- **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
+  session_01AaGT5DE1eqU32Pa92L638u) and the near-field log map AffineLocal (gate and PR, session_01AaGT5CUnt1NpkvEMf6cmjG).
+  Queued after #411 (owner's oracle speed-up): the mesher's corner choice (Sonnet) and a runner measurement of the
+  near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
@@ -91,7 +95,7 @@ Planned, not started.
 - Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
   M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Exact booleans: **Z3 pilot 2** (owner 2026-11-08, started; pilot 1 merged in #400), in `tools/Z3Pilot`: (1) prove the D1
+- Exact booleans: **Z3 pilot 2** (owner 2026-11-08; pilot 1 merged in #400; step (2) merged in #407: 20 rule lemmas unsat, 17 mutants sat), in `tools/Z3Pilot`; open: (1) prove the D1
   drift-accounting rule sound (or find a counterexample) before the Boolean session builds it; (2) the error-bound
   rules of the predicate generator, one lemma per rule. [research.md](roadmap/research.md#smt-checks-with-z3)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -104,7 +108,6 @@ Planned, not started.
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Terrain, after the pause: a DGM reader in the CLI, then the later steps (2)-(8), the §11 follow-ups and the
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
-- Terrain: honest terrain metrics (task 5, benchmark only). [terrain.md](roadmap/terrain.md#task-5-honest-terrain-metrics)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
