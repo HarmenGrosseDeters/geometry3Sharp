@@ -764,7 +764,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void RobustRepair_QualityPass_OnByDefault_ImprovesTheWrap_OffSwitch()
+        public void RobustRepair_QualityPass_OffByDefault_ImprovesTheWrapWhenOn()
         {
             Func<bool, MeshRobustRepair> run = (on) => {
                 var r = new MeshRobustRepair(MeshRobustRepairTests.ThinPlates(6)) {
@@ -774,7 +774,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.UsedAlphaWrap && r.AlphaWrapSimplified);
                 return r;
             };
-            Assert.True(new MeshRobustRepair(new DMesh3()).AlphaWrapQualityPass);
+            // (off by default since Alpha Wrap 2.0: the simplification's quality guard leaves it little to do)
+            Assert.False(new MeshRobustRepair(new DMesh3()).AlphaWrapQualityPass);
             var off = run(false);
             Assert.False(off.AlphaWrapQualityImproved);
             Assert.False(off.PhaseMilliseconds.ContainsKey("wrap.quality"));
