@@ -59,6 +59,11 @@ runner's data branch.
 
 #### Other open items
 
+- **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
+  `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
+  (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
+  other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
+  `WindingContouring`) with a dense-key measurement before changing any.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under
