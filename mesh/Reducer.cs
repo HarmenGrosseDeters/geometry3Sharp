@@ -214,6 +214,8 @@ namespace g3
             begin_ops();
 
             begin_collapse();
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            try {
             while (EdgeQueue.Count > 0) {
 
                 // termination criteria
@@ -248,6 +250,9 @@ namespace g3
                     vertQuadrics[vKept] = EdgeQuadrics[eid].q;
                     UpdateNeighbours(vKept);
                 }
+            }
+            } finally {
+                bowtieState = null;
             }
             end_collapse();
             end_ops();
@@ -360,6 +365,8 @@ namespace g3
 
             int N = mesh.MaxEdgeID;
             int num_last_pass = 0;
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            try {
             for (int ri = 0; ri < nRounds; ++ri) {
                 num_last_pass = 0;
 
@@ -388,6 +395,9 @@ namespace g3
 
                 if (num_last_pass == 0)     // converged
                     break;
+            }
+            } finally {
+                bowtieState = null;
             }
             end_collapse();
             end_ops();
@@ -425,6 +435,15 @@ namespace g3
 
         // current triangles by grid cell, for PreventSelfIntersections
         protected TriangleHashGrid triangleGrid;
+        /// <summary>
+        /// (tests, benchmarks) the cell size of the self-intersection grid in mean edge lengths of the mesh at the
+        /// start. The check's answers do not depend on it (only which candidates a query visits), so the reduction
+        /// is the same bit for bit; larger cells mean fewer cells per query and per update (1.5 before 2026-11-08,
+        /// see the reducer profile in docs/roadmap/alpha-wrap-and-repair.md)
+        /// </summary>
+        internal double GridCellEdgeLengths = 3.0;
+        /// <summary> (tests) false: IsBowtieVertex on every collapse instead of the per-vertex states; the same answers </summary>
+        internal bool CacheBowtieStates = true;
         protected HashSet<int> gridRingTris = new HashSet<int>();
         AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
 
@@ -439,7 +458,7 @@ namespace g3
                 Index2i ev = mesh.GetEdgeV(eid);
                 sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
             }
-            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(GridCellEdgeLengths * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
             foreach (int tid in mesh.TriangleIndices())
                 triangleGrid.Insert(tid, tri_box(tid));
         }
@@ -467,8 +486,10 @@ namespace g3
             gridRingTris.Clear();
             foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
             foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
-            var newIds = new List<Index3i>();
-            var newTris = new List<Triangle3d>();
+            // (the lists and the query's callback are kept between collapses: this runs for every collapse)
+            List<Index3i> newIds = siNewIds;
+            List<Triangle3d> newTris = siNewTris;
+            newIds.Clear(); newTris.Clear();
             foreach (int tid in gridRingTris) {
                 Index3i t = mesh.GetTriangle(tid);
                 bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
@@ -507,24 +528,35 @@ namespace g3
                 gridNewBoxes[i] = box;
                 if (i == 0) union = box; else union.Contain(box);
             }
-            bool hit = false;
-            triangleGrid.Query(union, (tc) => {
-                // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
-                // be used here: flat boxes of triangles in one axis plane never overlap by it)
-                if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                Index3i ic = mesh.GetTriangle(tc);
-                Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
-                // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
-                if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                for (int i = 0; i < newTris.Count && hit == false; ++i) {
-                    if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
-                        continue;
-                    Triangle3d A = newTris[i];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(newIds[i], ref A, ic, ref C))
-                        hit = true;
-                }
-            });
-            return hit;
+            siHit = false;
+            if (siCandidate == null) siCandidate = si_candidate;
+            triangleGrid.Query(union, siCandidate);
+            return siHit;
+        }
+
+        List<Index3i> siNewIds = new List<Index3i>();
+        List<Triangle3d> siNewTris = new List<Triangle3d>();
+        bool siHit;
+        Action<int> siCandidate;
+
+        // a candidate of the grid query of collapse_creates_intersection: the new triangles (siNewIds, siNewTris,
+        // their boxes in gridNewBoxes) against triangle tc
+        void si_candidate(int tc)
+        {
+            // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+            // be used here: flat boxes of triangles in one axis plane never overlap by it)
+            if (siHit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+            Index3i ic = mesh.GetTriangle(tc);
+            Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+            // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+            if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+            for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
+                if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
+                    continue;
+                Triangle3d A = siNewTris[i];
+                if (TriangleTriangleFilter.IntersectsBeyondShared(siNewIds[i], ref A, ic, ref C))
+                    siHit = true;
+            }
         }
 
         // (tests) the check with one grid query per new triangle, as before the union query: the same answer
@@ -1129,6 +1161,42 @@ namespace g3
 
 
 
+        // during a reduction: per vertex, whether it is a bowtie vertex (0 not known yet, 1 no, 2 yes). That depends
+        // only on the triangles at the vertex, and a collapse changes only those at the kept vertex and its
+        // neighbours (the triangles that had a or b, whose other corners are now all neighbours of the kept
+        // vertex), so forget_bowtie_states resets exactly those; the answers are those of IsBowtieVertex. (In
+        // practice DMesh3.CollapseEdge's neighbourhood test refuses the collapses that would change a state; the
+        // resets do not rely on it.) null outside DoReduce and FastCollapsePass: the mesh can change in between
+        sbyte[] bowtieState;
+
+        bool is_bowtie(int vid)
+        {
+            if (bowtieState == null || CacheBowtieStates == false || vid < 0 || vid >= bowtieState.Length)
+                return mesh.IsBowtieVertex(vid);
+            sbyte state = bowtieState[vid];
+            if (state == 0) {
+                state = mesh.IsBowtieVertex(vid) ? (sbyte)2 : (sbyte)1;
+                bowtieState[vid] = state;
+            }
+            return state == 2;
+        }
+
+        void forget_bowtie_states(int vKeep, int vRemoved)
+        {
+            if (bowtieState == null)
+                return;
+            forget_bowtie_state(vKeep);
+            forget_bowtie_state(vRemoved);
+            foreach (int v in mesh.VtxVerticesItr(vKeep))
+                forget_bowtie_state(v);
+        }
+
+        void forget_bowtie_state(int vid)
+        {
+            if (vid >= 0 && vid < bowtieState.Length)
+                bowtieState[vid] = 0;
+        }
+
 		protected enum ProcessResult {
 			Ok_Collapsed = 0,
 			Ignored_CannotCollapse = 1,
@@ -1205,7 +1273,7 @@ namespace g3
             // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
             // triangles through). The queue priority of such an edge is still that of the free optimum: the forced
             // position is only checked here (flip test), not costed
-            bool bowA = mesh.IsBowtieVertex(a), bowB = mesh.IsBowtieVertex(b);
+            bool bowA = is_bowtie(a), bowB = is_bowtie(b);
             if (bowA || bowB) {
                 if (bowA && bowB)
                     return ProcessResult.Ignored_Constrained;
@@ -1273,6 +1341,7 @@ namespace g3
 			if ( result == MeshResult.Ok ) {
 				collapseToV = iKeep;
 				mesh.SetVertex(iKeep, vNewPos);
+                forget_bowtie_states(iKeep, iCollapse);
                 if (refNormals != null) {
                     refNormals[iKeep] += refNormals[iCollapse];
                     refLengths[iKeep] += refLengths[iCollapse];
