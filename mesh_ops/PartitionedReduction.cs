@@ -242,7 +242,16 @@ namespace gs
                     int rv;
                     if (smap.TryGetValue(sv, out rv)) return rv;
                     // (a vertex of the frozen part keeps its global vertex; a free one is new)
-                    if (sv < s2g.Length && gmap.ContainsKey(s2g[sv])) rv = gmap[s2g[sv]];
+                    if (sv < s2g.Length && gmap.ContainsKey(s2g[sv])) {
+                        rv = gmap[s2g[sv]];
+                        // (a pinned vertex in this region's slab has absorbed the free vertices collapsed onto it: its quadric
+                        // and fold-over reference come from this region; a pinned vertex of another slab is unchanged here)
+                        Vector3d pv = sub.GetVertex(sv);
+                        if (inside(ref boxes[k], ref pv)) {
+                            resQ[rv] = subQuadrics[k][sv];
+                            if (subNormals[k] != null) { resN[rv] = subNormals[k][sv]; resL[rv] = subLengths[k][sv]; }
+                        }
+                    }
                     else {
                         rv = res.AppendVertex(sub.GetVertex(sv)); resQ.Add(subQuadrics[k][sv]);
                         resN.Add(subNormals[k] != null ? subNormals[k][sv] : Vector3d.Zero); resL.Add(subLengths[k] != null ? subLengths[k][sv] : 0);
