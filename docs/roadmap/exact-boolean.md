@@ -29,6 +29,15 @@ all levers this leaves 11 ops on 7 small, heavily self-intersecting models (1136
 Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 after the merge queue
 is one PR with the AddPoint fix and the parallel fast-winding tree build (bit-identical; classification -29 to
 -42 % on tree-bound open ops); an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
+
+**Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
+levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
+machines have 4 cores, but the trend is to many more, so the arrangement, the classification (e.g. the Lévy-style
+propagation or the open-mesh GWN, which were not worth it serially) and rounding should be re-measured for scaling
+over core counts (deterministic by construction: fixed partitions, ordered merges, no floating-point reduction
+across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
+exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
+upper bound per lever on the 2.0 benchmark set.
 - Closed inputs, self-intersection free or self-intersecting: a clean result (closed, manifold, free of self-intersections, no degenerate triangles or bowties). Self-intersecting inputs are read as solids by winding number (inside = winding >= 1).
 - Inputs of unknown status: classified first.
 - Open inputs: no degenerate triangles and no crash; closedness is not required.
