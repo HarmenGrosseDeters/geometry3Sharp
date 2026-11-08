@@ -29,6 +29,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshResult.Ok, cube.SplitEdge(eid, out split));
             cube.SetVertex(split.vNew, p + 1e-12 * (q - p).Normalized);
             new MeshEditor(m).AppendMesh(cube);
+            DMesh3 start = new DMesh3(m);
             int total = m.TriangleCount;
             var repair = new MeshRoundingRepair(m) { MaxDisplacement = 0.01 };
             Assert.False(repair.Apply());
@@ -36,6 +37,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, repair.RemovedComponents);
             Assert.True(m.TriangleCount > n, "the cube was removed");
             Assert.True(m.IsClosed());
+            // the same instance on the same input again: counted once, not added to the first run's count
+            repair.Mesh = new DMesh3(start);
+            Assert.False(repair.Apply());
+            Assert.Equal(1, repair.ScaleDisparity);
+            Assert.True(repair.Mesh.TriangleCount > n, "the cube was removed");
         }
 
         [Fact]

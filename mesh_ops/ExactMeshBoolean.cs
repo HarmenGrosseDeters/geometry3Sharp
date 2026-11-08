@@ -155,9 +155,11 @@ namespace g3
         public bool AllowOpenMeshes = true;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
-        /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
+        /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
+        /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents;
+        /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain (unless StrictRounding); RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
@@ -174,7 +176,8 @@ namespace g3
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
-        /// farthest the surface moves, relative to the bounding box diagonal. (A larger value also switches off sooner
+        /// farthest the surface moves, relative to the diagonal of the largest connected component (not of the
+        /// bounding box of all: a small part far away does not widen it). (A larger value also switches off sooner
         /// what applies where the coordinates are coarse: there the ulp term must exceed this one)
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;

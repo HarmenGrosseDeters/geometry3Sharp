@@ -118,6 +118,11 @@ boolean.Compute();
 bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
 ```
 
+"The diagonal" of the tolerances is the diagonal of the result's largest connected component, not of the bounding box of
+all components: a small part far away (eg 1e8 off) does not make the others' triangles degenerate. Only the ulp term
+below is per component. A long thin component still sets the diagonal for all (eg a rod of length 1e8 makes a unit part
+"tiny", and it is removed), as the bound of `docs/design/SAFE_ROUNDING.md` section 1 decides.
+
 It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
 is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
@@ -128,7 +133,8 @@ contracted (also exact ones, eg a well-shaped triangle of size 2^-20 where an ex
 triangles trouble slicers, FEM and remeshers), and the edits also change well-shaped neighbours (flips, contractions,
 moves), all within a bound: the surface moves by at most `Rounding.MaxDrift` from the rounded result, at most
 `MaxDisplacement` = 1e-5 times the diagonal, in Hausdorff distance (without the components it removes as tiny
-or thin, counted in `Rounding.RemovedComponents`; up to an absolute rounding error of a few ulps of the largest
+or thin, counted in `Rounding.RemovedComponents`; a closed component thinner than the bound that holds real volume for its
+area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is not clean; up to an absolute rounding error of a few ulps of the largest
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
@@ -674,7 +680,8 @@ after the separation of touching vertices uses the relative bound only and does 
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the largest component's diagonal, or far from the origin the ulp or absolute
+term, and `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
 and `result_reason`:

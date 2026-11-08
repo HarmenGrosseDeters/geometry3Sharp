@@ -203,9 +203,11 @@ namespace g3
         /// </summary>
         public double MaxDrift;
         /// <summary>
-        /// closed components that would have been removed as tiny or thin (by the tolerances of their own diagonal) but
-        /// hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the result is not clean. A
-        /// component that spans scales its own tolerances do not fit (eg a part linked to a far one)
+        /// closed components that would have been removed as thin (thinner than the bound, which is relative to the largest
+        /// component's diagonal) but hold real volume for their area (|V| at least 1e-3 times area^1.5): kept, and the
+        /// result is not clean. Components removed as tiny (area below 1e4 DegenerateArea times the square of that
+        /// diagonal) are not counted: they go, as SAFE_ROUNDING.md section 1 decides, also where a long thin component
+        /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny)
         /// </summary>
         public int ScaleDisparity;
         /// <summary> no self-intersections and no degenerate triangles remain, and no component was kept for ScaleDisparity </summary>
@@ -216,10 +218,10 @@ namespace g3
             Mesh = mesh;
         }
 
-        // the scale of the tolerances is per connected component (vertices joined by triangles): a component far from
-        // the rest, or much larger, does not make the others' triangles degenerate or their bound coarse. Per vertex its
-        // component; per component the degenerate area, the drift bound and whether the ulp term of the bound is active
-        // (see UlpFactor). maxLength is the largest bound, for MaxLength
+        // the scale of the tolerances: the largest connected component's diagonal (vertices joined by triangles), and
+        // the ulp term per component: a component far from the rest does not make the others' triangles degenerate or
+        // their bound coarse. Per vertex its component; per component the degenerate area, the drift bound and whether
+        // the ulp term of the bound is active (see UlpFactor). maxLength is the largest bound, for MaxLength
         int[] componentOf;
         double[] areaEpsC, maxLengthC;
         bool[] coarseC;
@@ -415,10 +417,11 @@ namespace g3
             return 0.5 * (pos(t.b) - a).Cross(pos(t.c) - a).Length;
         }
 
-        // the components (union-find over the triangles' vertices) and their tolerances, each from the bounds of its own
-        // triangles: degenerate area DegenerateArea diag^2, bound max(MaxDisplacement diag, UlpFactor ulp(largest
-        // coordinate), AbsoluteTolerance). Edits stay within one component (see the class comment), so the drift bound,
-        // and the proof of the Hausdorff bound, are per component
+        // the components (union-find over the triangles' vertices) and their tolerances: degenerate area DegenerateArea
+        // size^2 and bound max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance),
+        // with size the largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
+        // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
+        // component
         void component_scales()
         {
             int nv = Mesh.MaxVertexID;
@@ -454,10 +457,16 @@ namespace g3
             int n = Math.Max(boxes.Count, 1);
             areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
             maxLength = 0;
-            // the size: the largest component's diagonal (not the box of all: components far apart would inflate it)
+            // the size: the largest component's diagonal (not the box of all: components far apart would inflate it).
+            // A diagonal that is not finite (NaN or infinite, from coordinates that are not finite) makes the size NaN,
+            // whatever the order of the components: every edit is rejected (the bound is NaN) and no component is removed
+            // as tiny or thin (an infinite size would remove every closed component as tiny)
             double size = 0;
-            foreach (AxisAlignedBox3d bx in boxes)
-                if (!(bx.DiagonalLength <= size)) size = bx.DiagonalLength;
+            foreach (AxisAlignedBox3d bx in boxes) {
+                double d = bx.DiagonalLength;
+                if (!(d < double.PositiveInfinity)) size = double.NaN;
+                else if (d > size) size = d;
+            }
             for (int c = 0; c < boxes.Count; ++c) {
                 AxisAlignedBox3d bounds = boxes[c];
                 double diag = size;
