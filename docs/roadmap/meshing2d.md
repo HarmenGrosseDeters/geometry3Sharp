@@ -23,8 +23,7 @@ Small input angles and triangle count:
 
 - **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
   edge at near-180° triangles.
-- **Lenses up to 28.6°** (cause B of the triangle-count diagnosis): lenses are allowed only up to 25.65°; up to
-  28.6° would be covered by proof (Rand, CCCG 2011). Secondary once A is in (A merged in #394).
+- **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
 - **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
   O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
   small input angles, judged that way by the oracle; design note with the termination argument first, independent
@@ -191,7 +190,7 @@ Oracle side: #389 (merged 2026-11-05 as 05f078da; owner 2026-11-05: AutoToleranc
 
 - Coarsening after refinement (draft #391, probe): greedy deletion of Steiner vertices, all outputs VALID, but small gains: f-11 -17/-24 %, outliers about -15 %, corpus -3 %, +50 % mesher time. Not built.
 - Cause A: there is no small-angle rule for subsegment encroachment. Hull edges and segments that meet at input angles of 0-5° start a mutual split cascade about 38 octaves deep. A cluster rule after Miller-Pav-Walkington / Shewchuk, measured as a probe in cq mode: island q30 8879 -> 741 triangles (reference 929), cdt -31 %, corpus cq q20 -31 %, stmlf/1461 -7 to -16 %.
-- Cause B: lenses are allowed only up to 25.65°. Up to 28.6° would be covered by proof (Rand, CCCG 2011); secondary once A is in.
+- Cause B: lenses are allowed only up to 25.65°. The 28.6° of Rand (CCCG 2011) does not cover lenses (see Open).
 - Side bug: island cq at 32°/34° without lenses returns Failed.
 - Rest: near-contact or near-coincident input (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent off segments they do not touch), 6.8x the reference even relative to the LFS yardstick. Its own question, not measured.
 
