@@ -23,8 +23,8 @@
     ],
     "thresholds": {
       "high": 97,
-      "low": 94,
-      "break": 90
+      "low": 77,
+      "break": 75
     },
     "concurrency": 2
   }

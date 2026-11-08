@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of select_shards.py, on the real configs. Run by the changes job of the mutation workflow."""
 import fnmatch
+import json
 import os
 import re
 import subprocess
@@ -12,7 +13,8 @@ from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_for
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-ALL_MESH = {"rounding-1", "rounding-2", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4"}
+RO = ["rounding-%d" % i for i in range(1, 8)]
+ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4"}
 
 
 def run(*changed):
@@ -44,7 +46,7 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(("none", {}), run("docs/ROADMAP.md", "mesh/Reducer.cs", TESTS + "geometry3Sharp.Tests.csproj"))
 
     def test_source_runs_only_its_shards_incrementally(self):
-        self.assertEqual(("none", {"rounding-1": "source", "rounding-2": "source"}), run("mesh_ops/MeshRoundingRepair.cs"))
+        self.assertEqual(("none", {r: "source" for r in RO}), run("mesh_ops/MeshRoundingRepair.cs"))
         self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
@@ -59,7 +61,7 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", {"boolean-1": "tests", "boolean-2": "tests", "rounding-1": "tests", "rounding-2": "tests"}),
+        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests"}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
         self.assertEqual(("none", {"boolean-2": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
@@ -67,14 +69,14 @@ class SelectShards(unittest.TestCase):
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
         arithmetic, mesh = run(TESTS + "MeshRoundingRepairTests.cs")
         self.assertEqual("tests", mesh["arrangement-1"])
-        self.assertEqual("tests", mesh["rounding-1"])
-        self.assertEqual("tests", mesh["rounding-2"])
+        for r in RO:
+            self.assertEqual("tests", mesh[r])
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])
 
     def test_config_wins_over_source(self):
-        self.assertEqual(("none", {"rounding-1": "full", "rounding-2": "source"}),
+        self.assertEqual(("none", dict({r: "source" for r in RO}, **{"rounding-1": "full"})),
                          run("mesh_ops/MeshRoundingRepair.cs", "tests/mutation/stryker-mesh-rounding-1.json"))
         self.assertEqual("full", run("math/ExactPoint3.cs", ".github/workflows/mutation.yml")[0])
 
@@ -427,7 +429,7 @@ class SelectShards(unittest.TestCase):
             self.assertEqual((0, "arithmetic=none\nmesh=[]\n"), (cli(paths_head).returncode, cli(paths_head).stdout))
             self.assertIn("arithmetic=full", cli(job_head).stdout)
             out = cli(paths_head, ".github/workflows/mutation.yml\nmesh_ops/MeshRoundingRepair.cs\n").stdout
-            self.assertEqual('arithmetic=none\nmesh=[{"shard": "rounding-1", "mode": "source"}, {"shard": "rounding-2", "mode": "source"}]\n', out)
+            self.assertEqual("arithmetic=none\nmesh=" + json.dumps([{"shard": r, "mode": "source"} for r in RO]) + "\n", out)
             self.assertNotEqual(0, cli("0" * 40).returncode)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
