@@ -19,6 +19,7 @@ Modes:
 | `b2-ownbvh-*` | a separate flat BVH of this benchmark (Morton-ordered triangles, leaves of 4 as SoA, reused stack, ray second point once per ray). A certified-miss filter drops triangles; every other triangle goes to the library's exact `IntrRay3Triangle3.Intersects`, so the hit set is the library's. `-scalar` / `-simd`: the filter per lane or as `Vector256<double>` over the 4 triangles of a leaf (no FMA) |
 | `sort-only` | cost of computing the keys and sorting (included in every b mode) |
 | `FastWindingNumber>0.5` | library fast winding number, loop vs parallel |
+| `NearestPoint` | (`-- 256 40 30,92,290 nearest`) `FindNearestTriangle` + `MeshQueries.TriangleDistance` per point: loop vs b1 sorted serial / parallel, compared bit for bit (triangle, point, distance) |
 
 The `check` column compares with the baseline bit for bit (hit triangle ids; inside flags): `equal`, plus
 `par=ser` (parallel equals serial) and `simd=scalar`. Every row of the committed run is equal.

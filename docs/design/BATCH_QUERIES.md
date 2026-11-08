@@ -8,6 +8,7 @@ Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. N
 - Stage 2 is option 1 of section 4: **b1 only**, a new static class `MeshBatchQueries` in `spatial/MeshBatchQueries.cs`
   over the public tree API. No own BVH, no SIMD.
 - The first PR offers **nearest hit and any-hit**; all-hits come later.
+- Addendum (owner, 2026-11-08): stage 2 also gets a batched nearest-point query, `NearestPointBatch` (section 4), same b1 pattern, bit-identical to the single call. Internal callers are not switched in stage 2; a later profile decides where that pays.
 - The library PR starts after the exact-boolean merge queue and the Lévy phase-2 PR have merged (it must not touch
   `DMeshAABBTree*.cs` before). The CLI commands (`raycast`, `inside`, section 5) go into the later CLI / MCP update.
 
@@ -24,6 +25,7 @@ Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. N
   second code path (net10.0 only). **Not worth it now**; it is also tied to b2's leaf layout, which the existing tree does not have.
 - `FastWindingNumber`, parallel over sorted points, gives 3.3-5.3x over the loop and is the only batch inside test that is
   also defined for open meshes.
+- Nearest point in the same pattern: sorted + parallel 3.7-7.2x, bit-identical (section 3).
 - Recommendation: stage 2 = **b1 only** (new static class, new file, no new tree, no SIMD). It is small, exact by
   construction, allocation-free, and does not touch `DMeshAABBTree3.cs`.
 
@@ -84,7 +86,17 @@ random (random origins and targets); points: grid (raster order), grid-shuffled,
 | 1002252 | IsInside | random | 7105 | 1.43x | 4.98x | 1.42x | 1.59x | 5.04x |
 | 1002252 | FastWindingNumber>0.5 | random | 6146 | parallel: 5.3x | | | | |
 
-Reading:
+Nearest point (`NearestPointBatch` pattern: `FindNearestTriangle` + `TriangleDistance` per point, unbounded `MaxDistance`; points in the cube [-1.2, 1.2]^3 around the sphere; `-- 256 40 30,92,290 nearest`, `results-nearest-2026-11-08.csv`), speedup over the loop, same conditions:
+
+| triangles | grid (coherent) sorted | grid sorted + parallel | shuffled / random sorted | shuffled / random sorted + parallel |
+|---:|---:|---:|---:|---:|
+| 10k | 1.01x | 3.69x | 1.40x / 1.26x | 4.56x / 4.27x |
+| 100k | 1.05x | 3.67x | 1.43x / 1.48x | 4.58x / 5.15x |
+| 1M | 1.12x | 3.85x | 2.03x / 2.02x | 7.18x / 6.92x |
+
+(ns per query in the loop: 6.2 us at 10k, 20-29 us at 100k, 78-137 us at 1M: the queries are far from the surface and memory bound; at 1M the 7x on 4 cores is sort and cache effect together, one run, not a scaling claim.) All results equal the loop bit for bit (triangle, point, distance).
+
+Reading (rays and `IsInside`):
 - b1 sorted (serial) alone: 0.89-1.74x. It loses a little (sorting cost, about 90-210 ns per query at 65k rays) on an
   already coherent input and on small meshes, and wins for shuffled input on large meshes.
 - b1 + parallel: 2.2-5.2x for rays, 3.6-5.1x for `IsInside`. Above 4x on 4 cores is the sort effect plus noise.
@@ -124,6 +136,18 @@ public static class MeshBatchQueries {
     // #if NET: the same with ReadOnlySpan<Ray3d> / Span<RayHit> (netstandard2.0 has no Span without a new package reference)
 }
 ```
+
+Nearest point (owner addendum), same class, same options (`MaxDistance` as `fMaxDist`: strictly closer than it, else no hit):
+
+```csharp
+public struct NearestPointResult { public int Triangle; public Vector3d Point; public double Distance; public Vector3d Bary; }   // Triangle = InvalidID: none within MaxDistance (Distance = double.MaxValue)
+public static BatchStatus NearestPointBatch(DMeshAABBTree3 tree, Vector3d[] points, NearestPointResult[] results, InsideStatus[] status = null, BatchOptions options = null);
+```
+Per point: `t = tree.FindNearestTriangle(p, out dSqr, MaxDistance)`; `Point` = `MeshQueries.TriangleDistance(mesh, t, p).TriangleClosest`;
+`Distance` = `Math.Sqrt(dSqr)` as the single-call composition computes it (the batch calls the same two functions, so it is bit-identical;
+the test compares the triangle id, the point and the distance bit for bit with the loop). Non-finite points get `Invalid` and no result. A mesh with no
+triangles gives `InvalidID` for every point. Ties between equally distant triangles go to the single call's choice (traversal-order dependent in the existing
+`FindNearestTriangle`, but deterministic per tree; the batch does not change the tree or the per-query traversal, so it gives the same one).
 
 Exactness semantics:
 - Each result equals the result of the single call for the same tree: `hits[i]` = `FindNearestHitTriangle(rays[i], MaxDistance)` (smallest t, ties to the lowest id) and `T` = the single query's t; `IsInside` equals `tree.IsInside(p)`; the winding method equals `tree.FastWindingNumber(p) > 0.5`. The batch runs the same code per query: batching only reorders independent queries and writes by index. The min-t / lowest-id rule does not depend on the order of the triangles visited, so sorting cannot change a result.

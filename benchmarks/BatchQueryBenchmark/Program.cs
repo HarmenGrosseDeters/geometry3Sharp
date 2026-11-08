@@ -168,6 +168,31 @@ static class Program
         Row(name, mesh.TriangleCount, "FastWindingNumber>0.5", wl, "c-batch-parallel", fp, a, wp.SequenceEqual(w) ? "par=ser" : "PAR!=SER");
     }
 
+    // nearest triangle + point + distance: loop of single calls vs b1 (sorted, serial / parallel), public API only
+    static void Nearest(string name, DMesh3 mesh, DMeshAABBTree3 tree, string wl, int side)
+    {
+        var pts = PointWorkload(wl, side); int n = pts.Length;
+        var r0 = new int[n]; var d0 = new double[n]; var r1 = new int[n]; var d1 = new double[n]; var r2 = new int[n]; var d2 = new double[n];
+        var qp0 = new Vector3d[n]; var qp1 = new Vector3d[n]; var qp2 = new Vector3d[n];
+        Action<int, int[], double[], Vector3d[]> one = (i, tri, dist, cp) => {
+            int t = tree.FindNearestTriangle(pts[i], out double dsq);
+            tri[i] = t; dist[i] = Math.Sqrt(dsq);
+            var dt = MeshQueries.TriangleDistance(mesh, t, pts[i]); cp[i] = dt.TriangleClosest;
+        };
+        double a = Time(() => { for (int i = 0; i < n; ++i) one(i, r0, d0, qp0); }, n);
+        Row(name, mesh.TriangleCount, "NearestPoint", wl, "a-loop-library", a, a, "ref");
+        string Chk(int[] r, double[] d, Vector3d[] q) { int diff = 0; for (int i = 0; i < n; ++i) if (r[i] != r0[i] || d[i] != d0[i] || q[i] != qp0[i]) diff++; return diff == 0 ? "equal" : $"DIFF{diff}"; }
+        var keys = new ulong[n]; var order = new int[n];
+        Action sort = () => {
+            for (int i = 0; i < n; ++i) { keys[i] = Bvh.Morton((pts[i].x + 1.3) / 2.6, (pts[i].y + 1.3) / 2.6, (pts[i].z + 1.3) / 2.6); order[i] = i; }
+            Array.Sort(keys, order);
+        };
+        double b = Time(() => { sort(); for (int i = 0; i < n; ++i) one(order[i], r1, d1, qp1); }, n);
+        Row(name, mesh.TriangleCount, "NearestPoint", wl, "b1-library-sorted-serial", b, a, Chk(r1, d1, qp1));
+        double c = Time(() => { sort(); gParallel.BlockStartEnd(0, n - 1, (s, e) => { for (int i = s; i <= e; ++i) one(order[i], r2, d2, qp2); }, 2048); }, n);
+        Row(name, mesh.TriangleCount, "NearestPoint", wl, "b1-library-sorted-parallel", c, a, Chk(r2, d2, qp2));
+    }
+
     static void Main(string[] args)
     {
         int raySide = args.Length > 0 ? int.Parse(args[0]) : 512;      // rays = side^2
@@ -175,8 +200,10 @@ static class Program
         var sizes = args.Length > 2 ? args[2].Split(',').Select(int.Parse).ToArray() : new[] { 30, 92, 290 };    // sphere EdgeVertices: ~10k, 100k, 1M triangles
         Console.WriteLine($"# cores={Environment.ProcessorCount} rays={raySide * raySide} points={pointSide * pointSide * pointSide} rounds={rounds}");
         Console.WriteLine("mesh,triangles,query,workload,mode,ns/query,Mqueries/s,speedup vs a,check");
+        bool nearestOnly = args.Length > 3 && args[3] == "nearest";
         foreach (int e in sizes) {
             var mesh = Sphere(e); var tree = new DMeshAABBTree3(mesh, true); var bvh = new Bvh(mesh);
+            if (nearestOnly) { foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) Nearest("sphere", mesh, tree, wl, pointSide); continue; }
             foreach (var wl in new[] { "camera", "camera-shuffled", "random" }) Rays("sphere", mesh, tree, bvh, wl, raySide);
             foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) Points("sphere", mesh, tree, bvh, wl, pointSide);
         }
