@@ -103,6 +103,12 @@ ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5
 
 #### Other open items
 
+- **Degeneracy criterion (open question for 2.x, owner 2026-11-08):** `DegenerateArea` = 1e-12 × diag² counts
+  well-shaped but tiny triangles as degenerate. 119829/119830 carry about 13.4k of them (longest edge about 3.3e-6 ×
+  diag, shortest / longest edge median 0.15); SafeRounding contracts them as D′ prescribes (union 13 439 edits, about
+  2.3 s) and 23 / 5 stay where the accumulated drift reaches the bound. Leaving well-shaped tiny triangles alone (a
+  shape criterion, eg aspect ratio, next to the area) would make both clean and faster, but reopens D′: an owner
+  decision with data (how many inputs of the Thingi10K run carry such triangles, and what changes) after 2.0.
 - **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
   `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
   (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
