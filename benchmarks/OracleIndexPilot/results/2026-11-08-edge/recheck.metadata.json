@@ -1,0 +1,58 @@
+{
+  "binaries": {
+    "mesh_benchmark": {
+      "path": "<baseline-benchmark>/Meshing2Benchmark.dll",
+      "sha256": "9fa6588e2ee5acb2b3c3e61790ecf9125924d317fad15c9b5193f2c17c498231"
+    },
+    "mesh_oracle": {
+      "path": "<baseline-benchmark>/Meshing2Oracle.dll",
+      "sha256": "5d4a795fe65c7038a7e525e2eae07082f10ed45556a02489d8ba0e3e6f805c4a"
+    },
+    "mesh_library": {
+      "path": "<baseline-benchmark>/geometry3Sharp.dll",
+      "sha256": "89fff5ba71aadc49333eee47115c479ef70294ddcd7c930dee3e734fc748f78a"
+    },
+    "pilot_benchmark": {
+      "path": "<benchmark>/Meshing2Benchmark.dll",
+      "sha256": "25656133fefa7f70466a23db0d51756e2b0d4b17878bb5aec556d346fa2b2f6b"
+    },
+    "pilot_oracle": {
+      "path": "<benchmark>/Meshing2Oracle.dll",
+      "sha256": "0f069699da5bd51ad28a2b599efc58be5a0a4dc41fb45e6b6c5326db582b2879"
+    },
+    "pilot_library": {
+      "path": "<benchmark>/geometry3Sharp.dll",
+      "sha256": "9c68c5a152d28670af4b4a13eef7644ca902359c8f63a95902f69bc2260148fc"
+    }
+  },
+  "baseline_metadata_sha256": "fb656b4fa0fb2f2a7a8cddd2237063871d5f337551d0e26edffb3b16662c5162",
+  "controller_sha256": "073879b409c1f9f20c31ddb05b1bc65c5fddef5ba2f5e3283b28d24a414ca952",
+  "working_directory": "<repo>",
+  "runtime_files": {
+    "mesh": {
+      "Meshing2Benchmark.deps.json": "6a40ce97d603e16587b4406f93581ec3e29cba405422a5ae6646792828812e0c",
+      "Meshing2Benchmark.dll": "9fa6588e2ee5acb2b3c3e61790ecf9125924d317fad15c9b5193f2c17c498231",
+      "Meshing2Benchmark.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f",
+      "Meshing2Oracle.dll": "5d4a795fe65c7038a7e525e2eae07082f10ed45556a02489d8ba0e3e6f805c4a",
+      "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+      "geometry3Sharp.dll": "89fff5ba71aadc49333eee47115c479ef70294ddcd7c930dee3e734fc748f78a"
+    },
+    "pilot": {
+      "Meshing2Benchmark.deps.json": "55d23d60232f134b4655e6f70f64fd14de18490532e3576239b480cab483bbfb",
+      "Meshing2Benchmark.dll": "25656133fefa7f70466a23db0d51756e2b0d4b17878bb5aec556d346fa2b2f6b",
+      "Meshing2Benchmark.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f",
+      "Meshing2Oracle.dll": "0f069699da5bd51ad28a2b599efc58be5a0a4dc41fb45e6b6c5326db582b2879",
+      "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+      "geometry3Sharp.dll": "9c68c5a152d28670af4b4a13eef7644ca902359c8f63a95902f69bc2260148fc"
+    }
+  },
+  "inherited_variants": {},
+  "pilot_environment": {
+    "G3_ORACLE_POINT_INDEX": "strtree",
+    "G3_ORACLE_EDGE_INDEX": "strtree-hulls",
+    "G3_ORACLE_TIMING": "1"
+  },
+  "mesh_timeout": 60,
+  "oracle_timeout": 120,
+  "concurrency": "one while baseline runs; two after complete baseline summary"
+}

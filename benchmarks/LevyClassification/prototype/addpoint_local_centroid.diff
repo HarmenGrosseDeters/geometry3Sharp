@@ -1,0 +1,107 @@
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 0a6c76ef..5d281626 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1260,6 +1260,38 @@ namespace g3
+             return det.Sign * t.Sign;
+         }
+ 
++        /// <summary>
++        /// PROTOTYPE: Orient with r given as a local exact point (not in the arrangement) and its double approximation
++        /// ra with error re; the same sign as Orient(t, p, q, id) for a point id of the same value
++        /// </summary>
++        [MethodImpl(JitHints.Optimize)]
++        public int Orient(InputTriangle t, int p, int q, ExactPoint3 r, Vector3d ra, double re)
++        {
++            if (p == q)
++                return 0;
++            PredicateStats.Call(PredicateStats.Kind.ArrOrient);
++            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
++            if (DisableFilters == false) {
++                double e = Math.Max(approxErr[p], Math.Max(approxErr[q], re));
++                double err;
++                double fdet = orient2d_approx(approx[p], approx[q], ra, i, j, e, out err);
++                if (fdet > err) return t.Sign;
++                if (-fdet > err) return -t.Sign;
++            }
++            PredicateStats.ExactStage(PredicateStats.Kind.ArrOrient);
++            ExactPoint3 a = Exact(p), b = Exact(q);
++            BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, r[i], r[j], r.W);
++            return det.Sign * t.Sign;
++        }
++
++        /// <summary> PROTOTYPE: the double approximation of a local exact point and its error bound, as AddPoint stores them </summary>
++        public static Vector3d LocalApprox(ExactPoint3 p, out double err)
++        {
++            Vector3d a = p.ApproxVector3d();
++            err = (p.W.IsOne ? 1 : 4) * U * max_abs(a) + Tiny;
++            return a;
++        }
++
+         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
+         [MethodImpl(JitHints.Optimize)]
+         internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 8be0ee99..02e5ab26 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -765,9 +765,12 @@ namespace g3
+             if (src.Coplanar.Count == 0)
+                 return true;
+             bool representative = true;
+-            int c = centroid(ot);
++            // PROTOTYPE: a local exact centroid, not added to the arrangement
++            ExactPoint3 c = centroid_point(ot);
++            double ce;
++            Vector3d ca = ExactMeshArrangement.LocalApprox(c, out ce);
+             foreach (int ui in src.Coplanar) {
+-                if (inside_coplanar(src, arr.Triangles[ui], c)) {
++                if (inside_coplanar(src, arr.Triangles[ui], c, ca, ce)) {
+                     if (stack == null)
+                         stack = new List<int>() { ot.Source };
+                     stack.Add(ui);
+@@ -795,12 +798,11 @@ namespace g3
+         int[] patch_winding(int i, List<int> stack, TriangleBoxTree closedTree, List<int> openMeshes, List<int> candidates)
+         {
+             var ot = arr.Output[i];
+-            int p = centroid(ot);
+             // (no error bound needed: the box corners are input doubles, the map from grid to input
+             // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
+             // into the double box; the pad only widens the query, front_winding tests the box exactly)
+             // (the exact point and its doubles once per patch, not per candidate mesh)
+-            var center = new Center(arr.Exact(p));
++            var center = new Center(centroid_point(ot));
+             center.Input = arr.ToInputVector(center.P);
+             Vector3d pv = center.Input;
+             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
+@@ -921,24 +923,25 @@ namespace g3
+ 
+ 
+         [MethodImpl(JitHints.Optimize)]
+-        int centroid(ExactMeshArrangement.OutputTriangle ot)
++        ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot)
+         {
+             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
+             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
+-            return arr.AddPoint(ExactPoint3.Create(
++            return ExactPoint3.Create(
+                 a.X * wbc + b.X * wac + c.X * wab,
+                 a.Y * wbc + b.Y * wac + c.Y * wab,
+                 a.Z * wbc + b.Z * wac + c.Z * wab,
+-                3 * a.W * wbc));
++                3 * a.W * wbc);
+         }
+ 
++
+         // point p (in the common plane of t and u) is in the closed triangle u
+         [MethodImpl(JitHints.Optimize)]
+-        bool inside_coplanar(ExactMeshArrangement.InputTriangle t, ExactMeshArrangement.InputTriangle u, int p)
++        bool inside_coplanar(ExactMeshArrangement.InputTriangle t, ExactMeshArrangement.InputTriangle u, ExactPoint3 p, Vector3d pa, double pe)
+         {
+             int s = arr.Orient(t, u.Corners[0], u.Corners[1], u.Corners[2]);
+             for (int k = 0; k < 3; ++k)
+-                if (arr.Orient(t, u.Corners[k], u.Corners[(k + 1) % 3], p) * s < 0)
++                if (arr.Orient(t, u.Corners[k], u.Corners[(k + 1) % 3], p, pa, pe) * s < 0)
+                     return false;
+             return true;
+         }

@@ -1,0 +1,11 @@
+{
+  "mutation": "Outside: strict <0 becomes <=0",
+  "source_sha256": "7bb485c11daecbed7126ca2283e6101a3a9e147b57656778f49abcb65867f918",
+  "command": [
+    "dotnet",
+    "<work>/bin/OracleIndexPilot/release/OracleIndexPilot.dll",
+    "selftest"
+  ],
+  "exit_code": -6,
+  "failure": "Unhandled exception. System.Exception: Search differs from exact exhaustive check: pruned"
+}

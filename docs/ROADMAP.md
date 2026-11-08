@@ -43,29 +43,34 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-
-Status on 2026-11-08.
-
-- **Exact Boolean 2.0** (milestone, owner 2026-11-07): every operation of the #385 Thingi10K harness at most 5 s of
-  Compute wall time, clean results on closed inputs. Baseline: 81 of 16 239 operations unclean, p95 4.5 s, max 282 s.
-  Work packages (1)-(5) in session session_01AaGT5CTqL86zQ1wj56oXAq. WP1 done: 16 ops > 5 s on 4 cores in the
-  selfint = 0 cohort; the rounding projection filter (#397) and the rounding-created contacts fix (#398, M3) are in
-  review, gated by the split rounding mutation shard (#403); then L1 (rounding search only from cut triangles), D1
-  (drift budget), L3. No architecture rewrite (assessment 2026-11-07). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
-  are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
-  oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
-- **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
-  Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
-- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
-  wrap pipeline keeps its guarantees and fidelity, has 0 triangles < 0.5° or > 170°, no pinch caps, a p01 angle at the
-  level of CGAL's alpha wrap, and at most 5 s per mesh on the 4-core cloud machine. Session
-  session_01AaGT5CSm6ZjSih3jZRg7HJ, WP1 (baseline, profile, upper bounds) first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+Status on 2026-11-08 (evening, Berlin).
+- **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
+  2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
+  documented exceptions). Ten PRs are ready or nearly (#397, #398, #406, #409, #412, #419, #420, #424, #425, #426:
+  levers −41 % total / −68 % rounding bit-identical, D1 apex rule, scale disparity, empty-union fix, edge-key hash);
+  they merge through one combined mutation gate on an integration branch once #403 (shard split) has merged and the
+  master baselines are seeded. Then: L3 work-unit budget, the ±1e308 predicate throw, the final Thingi10K run, the
+  control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
+  (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405 (simplification guard), #413
+  (quality pass off by default), #422 (Reducer speedups); next #404, #408, #410, #417, #429, then #432 (parallel slab
+  reduction), then the final 800 run. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
+  CGAL's on the T1 100. Open: the per-mesh speed budget (72 of 100 with (A) on a 4-core machine) goes to the owner with
+  the final numbers. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **Mutation tooling:** #403 (rounding in 7 parts, envelope thresholds from the first CI run) is running its CI;
+  the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
+  `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
+- **Meshing2D:** fast oracle (#411, #427) merged; a Sonnet session works on the corner choice, lenses to 28.6° and
+  the small-angle rule for the default mode (O2 unchanged); coarsening waits for a runner re-measurement.
+  [meshing2d.md](roadmap/meshing2d.md#open)
+- **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
+  done (stage 2 after the queue); the rest starts after the 2.0 milestones, next to the CLI / MCP update and a
+  Reducer / Remesher 2.0 milestone.
+- **Terrain:** paused since 2026-11-03; restarts with a DGM reader in the CLI, designed with `QualityMesh2`.
+  [terrain.md](roadmap/terrain.md#open)
 
 ## Open decisions (owner)
 
-- **Meshing2D, default mode near small angles:** a spec decision on O2 near small angles (owner 2026-11-06: needed
-  before the small-angle rule can apply to the conforming mode). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Meshing2D, Terminator:** a region-based oracle excuse would lower the guarantee near small input angles (a spec
   change; research item, not scheduled). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Exact booleans, second kernel:** EMBER levers 1 (quantized 26-bit inputs) and 5 (a new architecture) only as a
@@ -90,7 +95,7 @@ Planned, not started.
 - Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
   M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Exact booleans: **Z3 pilot 2** (owner 2026-11-08), after #400 merges, in `tools/Z3Pilot`: (1) prove the D1
+- Exact booleans: **Z3 pilot 2** (owner 2026-11-08; pilot 1 merged in #400; step (2) merged in #407: 20 rule lemmas unsat, 17 mutants sat), in `tools/Z3Pilot`; open: (1) prove the D1
   drift-accounting rule sound (or find a counterexample) before the Boolean session builds it; (2) the error-bound
   rules of the predicate generator, one lemma per rule. [research.md](roadmap/research.md#smt-checks-with-z3)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -103,14 +108,12 @@ Planned, not started.
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Terrain, after the pause: a DGM reader in the CLI, then the later steps (2)-(8), the §11 follow-ups and the
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
-- Terrain: honest terrain metrics (task 5, benchmark only). [terrain.md](roadmap/terrain.md#task-5-honest-terrain-metrics)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
+- Parameterization: AffineLocal log-map follow-up with estimated normals and far field (low), integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
-- Platform: two wall-clock tests that fail only in a full local run. [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
@@ -119,7 +122,7 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
-- SMT checks with Z3 (pilot 1 in #400; pilot 2 queued, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
+- SMT checks with Z3 (pilot 1 merged in #400; pilot 2 started, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)

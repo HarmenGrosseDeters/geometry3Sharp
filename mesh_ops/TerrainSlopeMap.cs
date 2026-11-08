@@ -188,7 +188,7 @@ namespace gs
             var cdt = new ExactTriangulation2(nIn, nIn + 1, nIn + 2, orient, incircle);
             for (int i = 0; i < nIn; ++i) cdt.InsertPoint(i);
             for (int i = 0; i < 4; ++i) cdt.InsertConstraint(i, (i + 1) % 4);
-            var segOf = new Dictionary<long, int>();
+            var segOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             var domainSign = new List<int>();
             for (int t = 0; t < toes.Count; ++t) {
                 int n = toes[t].Count, m = closed[t] ? n : n - 1;
@@ -212,8 +212,8 @@ namespace gs
             // faces from the triangles inside the box
             var kv = new int[nIn];
             for (int i = 0; i < nIn; ++i) kv[i] = K.PointVertex(pts[i]);
-            var he = new Dictionary<long, int>();
-            var lineOf = new Dictionary<long, int>();
+            var he = new Dictionary<long, int>(EdgeKeyComparer.Instance);
+            var lineOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             foreach (Index3i tri in cdt.Triangles()) {
                 if (tri.a >= nIn || tri.b >= nIn || tri.c >= nIn) continue;
                 int[] v = { tri.a, tri.b, tri.c };
@@ -1093,7 +1093,7 @@ namespace gs
                 if (ca != cb) return cb.CompareTo(ca);
                 return a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
             });
-            var grid = new Dictionary<long, List<Vector2d>>();
+            var grid = new Dictionary<long, List<Vector2d>>(EdgeKeyComparer.Instance);
             Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
             foreach (Vector2d p in order) {
                 long cx = cell(p.x), cy = cell(p.y);

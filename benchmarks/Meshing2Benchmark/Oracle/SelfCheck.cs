@@ -163,6 +163,20 @@ namespace Meshing2Acceptance
         {
             var items = new List<Item>();
             void Must(string name, bool ok, string detail = null) => items.Add(new Item { Name = name, Passed = ok, Detail = ok ? null : detail ?? "failed" });
+            foreach (string index in new[] { "strtree", "strtree-hulls" }) {
+                Must("conformity index " + index + ": default indexed", Oracle.UseConformityIndex(true, null, index));
+                Must("conformity index " + index + ": explicit indexed", Oracle.UseConformityIndex(true, index, index));
+                Must("conformity index " + index + ": explicit sweep", !Oracle.UseConformityIndex(true, "sweep", index));
+                Must("conformity index " + index + ": reference default sweep", !Oracle.UseConformityIndex(false, null, index));
+                Must("conformity index " + index + ": reference ignores index", !Oracle.UseConformityIndex(false, index, index));
+                // set but empty or blank is unset; case and blanks around the value do not matter
+                Must("conformity index " + index + ": empty is default", Oracle.UseConformityIndex(true, "", index) && Oracle.UseConformityIndex(true, "  ", index));
+                Must("conformity index " + index + ": case-insensitive", Oracle.UseConformityIndex(true, index.ToUpperInvariant(), index) && !Oracle.UseConformityIndex(true, " Sweep ", index));
+                bool rejected = false;
+                try { Oracle.UseConformityIndex(true, "unknown", index); }
+                catch (InvalidOperationException ex) { rejected = ex.Message.Contains("'unknown'") && ex.Message.Contains(index) && ex.Message.Contains("sweep"); }
+                Must("conformity index " + index + ": reject unknown", rejected);
+            }
             void Accept(string name, Mesh2Input input, Mesh2Output o, OracleExpect e)
             {
                 var report = Oracle.Check(input, o, e);

@@ -251,3 +251,26 @@ accepting the time cost in the table below).
 | Steiner points added by the refinement (share of all) | 16606 (0.03 %) | 1682 (0.4 %) |
 | time per mesh, median / p90 (3 meshes in parallel on 4 cores) | ×1.22 / ×1.44 | ×1.05 / ×1.38 |
 
+
+## 7. Sharp creases: upper bound for crease-aware Steiner points (2026-11-08, Alpha Wrap 2.0)
+
+Question (owner): how much of the rounding of sharp input edges is δ itself, and how much could Steiner points placed
+on the creases recover (option 3)? Measured before building anything.
+
+Probe (scratch, not committed): 100 Thingi10K meshes of the T1 list, 300/3000 (α = 10δ), the raw wrap. On every input
+edge with a dihedral angle of at least 30° (normals finite, both sides present), the distance from three samples
+(1/4, 1/2, 3/4) to the wrap, weighted by edge length, in units of δ. Convex and concave are told apart from the side
+the wrap is on (the inputs' orientation is not trusted). The best distance with δ alone: δ at a convex crease;
+δ / sin(θ/2) at a concave one (θ the interior angle; the intersection of the two face planes offset by δ). The best
+distance an empty α-ball allows at a concave crease: (α + δ) / sin(θ/2) − α (2D cross-section through a long crease;
+an approximation).
+
+| median over meshes (p10 – p90) | now | best with δ alone | α limit |
+|---|---|---|---|
+| convex creases | 0.56δ (0.48 – 1.92) | 1δ | – |
+| concave creases (28 % of the crease length) | 4.7δ (2.4 – 7.1) | 1.41δ | 5.5δ |
+
+The wrap is already within δ at convex creases (gain 0 at the median). At concave creases it is 0.45δ (median) inside
+the α limit: the rounding there is set by α, by definition of the wrap, not by where the Steiner points lie; CGAL's
+wrap has the same limit. Crease-aware Steiner points that keep the α-ball semantics cannot recover it, so option 3 is
+not built. Only a locally smaller α (option 4, a change of the wrap's semantics) could; that stays research.
