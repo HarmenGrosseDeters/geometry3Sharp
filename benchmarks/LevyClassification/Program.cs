@@ -61,10 +61,27 @@ static class Program
                     ["conflict_edges"] = boolean.ConflictEdges,
                     ["phases_ms"] = boolean.PhaseMilliseconds, ["counts"] = boolean.Counts,
                     ["triangles"] = ok ? boolean.Result.TriangleCount : -1,
+                    ["hash"] = ok ? Hash(boolean.Result) : "-",
                 }));
             }
         }
         return 0;
+    }
+
+    // FNV-1a over the result's vertex bits and triangles, in index order (bit-identity check between builds)
+    static string Hash(DMesh3 m)
+    {
+        ulong h = 14695981039346656037UL;
+        void add(long v) { h = (h ^ (ulong)v) * 1099511628211UL; }
+        foreach (int v in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(v);
+            add(v); add(BitConverter.DoubleToInt64Bits(p.x)); add(BitConverter.DoubleToInt64Bits(p.y)); add(BitConverter.DoubleToInt64Bits(p.z));
+        }
+        foreach (int t in m.TriangleIndices()) {
+            Index3i f = m.GetTriangle(t);
+            add(t); add(f.a); add(f.b); add(f.c);
+        }
+        return h.ToString("X16");
     }
 
     static R Let<T, R>(this T x, Func<T, R> f) => f(x);
