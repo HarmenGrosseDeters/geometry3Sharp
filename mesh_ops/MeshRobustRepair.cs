@@ -135,8 +135,9 @@ namespace gs
         /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
         /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
-        /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
-        /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
+        /// self-intersection (exact). Every changed triangle is certified within the distance when it is made, the
+        /// others keep the simplification's certificate, so the improved mesh is within half the offset by
+        /// construction; it is kept only if it is clean, otherwise the simplified one (AlphaWrapQualityImproved false).
         /// The default settings (DefaultWrapQuality) also split caps above 160 degrees (at most 5 % more triangles),
         /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
         /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
@@ -592,8 +593,17 @@ namespace gs
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             Action<AlphaWrapQualityPass> configure = null)
         {
-            // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
-            // check, which resolves to 1 % of maxDistance, undecided)
+            bool hausdorffChecked;
+            return ImproveWrapQuality(simplified, wrap, maxDistance, checkSelfIntersections, cancelF, configure, out hausdorffChecked);
+        }
+
+        /// <summary> ImproveWrapQuality; hausdorffChecked: whether the final Hausdorff check ran (tests) </summary>
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            Action<AlphaWrapQualityPass> configure, out bool hausdorffChecked)
+        {
+            hausdorffChecked = false;
+            // (the operations within 0.95 of maxDistance, by default: a margin below the distance that the result is
+            // certified within; it also lets the Hausdorff check decide when a configuration widens the tolerance)
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
             configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
@@ -605,6 +615,7 @@ namespace gs
             // (a configuration that widened the operations' tolerance beyond 0.95 maxDistance: no certificate by
             // construction, the Hausdorff check decides)
             if (!(pass.Tolerance <= 0.95 * maxDistance)) {
+                hausdorffChecked = true;
                 int subdivisions = 0;
                 return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
             }

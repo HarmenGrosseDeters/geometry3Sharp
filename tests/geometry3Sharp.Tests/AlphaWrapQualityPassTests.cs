@@ -98,7 +98,9 @@ namespace geometry3Sharp.Tests
                 DMesh3 simp = MeshRobustRepair.SimplifyWithin(w.Result, tol, tol, true, () => false);
                 Assert.NotNull(simp);
                 foreach (var configure in variants) {
-                    DMesh3 q = MeshRobustRepair.ImproveWrapQuality(simp, w.Result, tol, true, () => false, configure);
+                    bool hausdorffChecked;
+                    DMesh3 q = MeshRobustRepair.ImproveWrapQuality(simp, w.Result, tol, true, () => false, configure, out hausdorffChecked);
+                    Assert.False(hausdorffChecked);      // certified by construction: no second check
                     if (q == null) continue;
                     checkedResults++;
                     Assert.True(HausdorffUpper(q, w.Result, tol) <= tol, $"{checkedResults}: not within {tol}");
@@ -686,7 +688,9 @@ namespace geometry3Sharp.Tests
             var hd = new MeshHausdorffDistance(wide, wrap) { Symmetric = false, Tolerance = 0.01 * tol };
             Assert.True(hd.Compute() && hd.Converged);
             Assert.True(hd.LowerBound > tol, $"the wide pass must leave the tolerance for this test: {hd.LowerBound / tol}");
-            Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.Tolerance = 0.95 * 4 * tol));
+            bool hausdorffChecked;
+            Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.Tolerance = 0.95 * 4 * tol, out hausdorffChecked));
+            Assert.True(hausdorffChecked);
         }
 
         [Fact]
