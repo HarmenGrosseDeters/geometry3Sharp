@@ -41,9 +41,10 @@ Part of the [roadmap](../ROADMAP.md).
   bit-identical to the serial reducer; owner 2026-11-08: PR, default on; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
   19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0); sharp features (owner 2026-11-08): option 1, the Reducer's feature
   quadrics (FeatureAngle sweep 30/45/60° on 20 T1 meshes, full fidelity): no gain (sharp-edge Chamfer and edge F
-  within 0.2 %, +2-4 % triangles, band slightly worse; raw rows on runs/alpha-wrap-features), closed; option 3, crease-aware Steiner points in the raw wrap (convex creases exact), is a
-  2.x item for the Alpha Wrap session after (A), first with an upper bound (how much of the edge Chamfer is the
-  offset itself vs the rounded creases); concave corner recovery is research, not in 2.0;
+  within 0.2 %, +2-4 % triangles, band slightly worse; raw rows on runs/alpha-wrap-features), closed; option 3, crease-aware Steiner points: upper bound on 100 meshes says no (convex creases
+  already 0.56δ from the input edges; concave creases 4.7δ, set by the empty α-ball, about 0.45δ better than the
+  α limit (α+δ)/sin(θ/2) − α; only a locally smaller α, option 4, could change that), not built; #405 (A, the
+  simplification guard) merged 2026-11-08; concave corner recovery is research, not in 2.0;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
