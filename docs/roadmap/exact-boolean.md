@@ -41,7 +41,7 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
 
 **thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
-size class; ours, Manifold, CGAL EPECK) twice on a Haiku runner: a baseline on master right after #418 merges, and the
+size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
 runner's data branch.
 
