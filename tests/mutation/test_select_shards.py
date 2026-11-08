@@ -326,7 +326,7 @@ class SelectShards(unittest.TestCase):
         # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
         for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
             self.assertEqual(("none", {"fixed": "full"}), run(path), path)
-        self.assertEqual(("none", {"fixed": "full", "rounding-1": "source", "rounding-2": "source"}),
+        self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
                          run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))
         # the test files and select_shards.py run in the `changes` job of every run (the workflow paths cover them)
         self.assertEqual(("none", {}), run("tests/mutation/test_incremental.py", "tests/mutation/select_shards.py", "tests/mutation/BASELINE_FORMAT"))
