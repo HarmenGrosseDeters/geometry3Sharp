@@ -1,6 +1,6 @@
 # g3cli: mesh operations as CLI and MCP server
 
-`g3cli` is the headless layer of this fork (phase 4 of [docs/ROADMAP.md](../../docs/ROADMAP.md)): the
+`g3cli` is the headless layer of this fork (phase 4 of the roadmap, [docs/roadmap/platform.md](../../docs/roadmap/platform.md)): the
 geometry3Sharp mesh operations on mesh files, as subcommands with JSON output and, with `g3cli mcp`, as the
 tools of an MCP server (stdio), for coding agents and scripts.
 
