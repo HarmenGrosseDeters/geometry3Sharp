@@ -56,7 +56,7 @@ Status on 2026-11-08.
   are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
   oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
 - **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
-  session_01AaGT5DE1eqU32Pa92L638u) and the near-field log map AffineLocal (gate and PR, session_01AaGT5CUnt1NpkvEMf6cmjG).
+  session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
   Queued after #411 (owner's oracle speed-up): the mesher's corner choice (Sonnet) and a runner measurement of the
   near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
@@ -110,7 +110,7 @@ Planned, not started.
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
+- Parameterization: integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
