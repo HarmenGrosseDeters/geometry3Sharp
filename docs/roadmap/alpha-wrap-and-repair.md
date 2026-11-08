@@ -36,7 +36,8 @@ Part of the [roadmap](../ROADMAP.md).
   identical, wrap.manifold 32 → 7 s; 4b (local pinch trials) 94/100 identical, 6 marginal changes, pinch 159 → 68 s;
   speed budget passed by 24 → 27 → 35 of 100 (median 1.14 → 1.06× budget). Owner 2026-11-08: 4b becomes a PR,
   default on; parallel reducer option (A) is built as a deterministic prototype behind a switch, PR decision from
-  its T1 measurement;
+  its T1 measurement; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
+  19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0);
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.

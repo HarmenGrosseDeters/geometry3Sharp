@@ -37,7 +37,8 @@ per lever (build, winding cache, queries) before any change; bit-identical resul
 The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
 solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evaluates winding numbers at cell
 corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
-dictionaries) and, if the Alpha Wrap session has not covered it, the Reducer's `TriangleHashGrid`; the order follows
+dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
+layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
 where the profiles spend the time (owner 2026-11-08).
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
