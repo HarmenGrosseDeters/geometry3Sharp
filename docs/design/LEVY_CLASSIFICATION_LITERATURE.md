@@ -358,12 +358,12 @@ The Manifold Authors. Licensed under the Apache License, Version 2.0".
     principled hybrid: exact crossings, approximate boundary term, with an error that is easy to bound because B is a
     sum over boundary edges only.
   * Xie, Hafner, Wojtan, *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), Article 41 (SIGGRAPH
-    2026), <https://visualcomputing.ist.ac.at/publications/2026/FEWN/> (abstract read; paper not yet read): an
+    2026), <https://visualcomputing.ist.ac.at/publications/2026/FEWN/> (read in full: [LEVY_CLASSIFICATION_WINDING2026.md](LEVY_CLASSIFICATION_WINDING2026.md)): an
     analytical reduction of the surface integral to one ray-mesh intersection test plus an elementary sum over the
     boundary edges per evaluation; no approximation apart from floating-point error; reported orders of magnitude
     faster than prior methods, aimed at meshes with gaps, self-intersections and open boundaries. The same
-    decomposition as the two papers above, published independently. Source code is linked from the page; its licence
-    is not checked yet (paper only until it is).
+    decomposition as the two papers above, published independently. Both 2026 papers are CC BY 4.0; the Antipodal
+    code is MIT (portable with attribution), the FEWN code has no licence (all rights reserved: paper only).
   * Both 2026 methods need no fast-winding precomputation (no far-field coefficients per box), only a ray query tree
     and the boundary edges. For our open operands that would remove the serial fast-winding tree build (69-82 % of
     the classification time of the large open cases in benchmarks/LevyClassification/results/trace_split_levers.jsonl)
