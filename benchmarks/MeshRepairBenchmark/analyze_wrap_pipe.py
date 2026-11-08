@@ -32,11 +32,16 @@ def guarantees(r):
             and r.get("after_inconsistent_orient_edges") == 0 and r.get("after_inverted_components") == 0
             and r.get("wrap_status") in ("Success", "PointLimitReached"))
 
-def band(r):
-    """certified Hausdorff result -> input over (alpha + offset), both relative to the diagonal"""
-    if "hd_fwd_hi_rel" not in r:
+def band(r, which="hi"):
+    """certified Hausdorff result -> input (upper or lower bound) over (alpha + offset), both relative to the diagonal"""
+    if f"hd_fwd_{which}_rel" not in r:
         return None
-    return r["hd_fwd_hi_rel"] / (1 / float(r["wrap_rel_alpha"]) + 1 / float(r["wrap_rel_offset"]))
+    return r[f"hd_fwd_{which}_rel"] / (1 / float(r["wrap_rel_alpha"]) + 1 / float(r["wrap_rel_offset"]))
+
+def contract(r):
+    """the documented distance for the result, over (alpha + offset): 1, plus 0.5 offset if simplified"""
+    a, o = 1 / float(r["wrap_rel_alpha"]), 1 / float(r["wrap_rel_offset"])
+    return (a + o + (0.5 * o if r.get("pipe_simplified") else 0)) / (a + o)
 
 def summary(rs, budget, name):
     ok = [r for r in rs.values() if r.get("status") not in ("timeout_or_crash", "exception")]
@@ -46,7 +51,14 @@ def summary(rs, budget, name):
     print(f"guarantees met: {len(g)} / {len(ok)}; failures: "
           + ", ".join(f"{r['file']}({r.get('status')},si={r.get('after_selfint_exact')},{r.get('wrap_status')})" for r in ok if not guarantees(r))[:600])
     b = [band(r) for r in ok if band(r) is not None]
-    print(f"band (hd fwd / (alpha + offset)): median {q(b, .5):.3f} p90 {q(b, .9):.3f} max {max(b):.3f}; > 1: {sum(1 for x in b if x > 1)}")
+    print(f"band (hd fwd upper bound / (alpha + offset)): median {q(b, .5):.3f} p90 {q(b, .9):.3f} max {max(b):.3f}; > 1: {sum(1 for x in b if x > 1)}")
+    # the documented value for the final output: alpha + offset for the wrap (class doc: "about"), plus the
+    # simplification's certified 0.5 offset when it was simplified; a proven exceedance needs the lower bound above it
+    lows = [(band(r, "lo"), contract(r), r["file"]) for r in ok if band(r, "lo") is not None]
+    proven = sorted((x / c, f) for x, c, f in lows if x > c)
+    ups = sum(1 for r in ok if band(r) is not None and band(r) > contract(r))
+    print(f"contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) {len(proven)}, upper bound above it {ups}"
+          + (": " + ", ".join(f"{f} {x:.3f}" for x, f in reversed(proven[-10:])) if proven else ""))
     for k in ["fm_f_0001", "fm_f_001", "iou", "hd_back_hi_rel"]:
         v = [r[k] for r in ok if r.get(k) is not None]
         if v:
