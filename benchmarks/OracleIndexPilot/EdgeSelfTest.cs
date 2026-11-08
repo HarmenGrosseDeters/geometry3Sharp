@@ -10,7 +10,7 @@ static class EdgeSelfTest
     {
         public double[][] Points;
         public int[][] Edges;
-        public bool MustPruneLine,MustPruneHull;
+        public bool MustPruneLine,MustPruneHull,MustCoarsen;
     }
     static Case Make(double[][] points,params int[][] edges) => new Case { Points=points,Edges=edges };
     public static void Run()
@@ -38,6 +38,13 @@ static class EdgeSelfTest
         var crossingPoints=new List<double[]> {new[]{-100d,0},new[]{100d,0}};var crossingEdges=new List<int[]> {new[]{0,1}};
         for(int i=-20;i<=20;i++){int n=crossingPoints.Count;crossingPoints.Add(new[]{(double)i,-10d});crossingPoints.Add(new[]{(double)i,10d});crossingEdges.Add(new[]{n,n+1});}
         cases.Add(Make(crossingPoints.ToArray(),crossingEdges.ToArray()));
+        // a convex boundary (every point on the hull) with its boundary edges and random chords, many crossing: upper nodes have
+        // hulls above StrtreeEdgeSearch.HullLimit and test their box corners instead (review of #411); the chords cross across them
+        var ring=new List<double[]>();var ringEdges=new List<int[]>();var chordRandom=new Random(733);
+        for(int i=0;i<96;i++){double t=-1+2.0*(i%48)/47;ring.Add(new[]{t*64,(i<48?1:-1)*(16-16*t*t)+(i<48?0.5:-0.5)});}
+        for(int i=0;i<47;i++){ringEdges.Add(new[]{i,i+1});ringEdges.Add(new[]{48+i,49+i});}
+        for(int i=0;i<200;i++)ringEdges.Add(new[]{chordRandom.Next(96),chordRandom.Next(96)});
+        cases.Add(new Case {Points=ring.ToArray(),Edges=ringEdges.ToArray(),MustCoarsen=true});
         var random=new Random(461);
         for(int c=0;c<100;c++){
             var p=Enumerable.Range(0,20).Select(_=>new[]{(double)random.Next(-10,11),(double)random.Next(-10,11)}).ToArray();
@@ -58,6 +65,7 @@ static class EdgeSelfTest
                 if(search.Run(mode).Fingerprint!=actual.Fingerprint)throw new Exception("Edge reuse differs");
                 if(mode=="hulls" && c.MustPruneLine && actual.LinePruned==0)throw new Exception("Targeted closed-side case must prune a subtree");
                 if(mode=="hulls" && c.MustPruneHull && actual.HullPruned==0)throw new Exception("Targeted finite-segment case must prune by a hull side");
+                if(mode=="hulls" && c.MustCoarsen && (actual.CoarseNodes==0 || actual.Hits==0))throw new Exception("Targeted convex case must test box corners on crossing chords");
             }
             Parallel.For(0,3,_=>{if(search.Run("hulls").Fingerprint!=expected.Fingerprint)throw new Exception("Edge parallel differs");});
             checkedCases++;

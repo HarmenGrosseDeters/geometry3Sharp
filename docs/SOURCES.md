@@ -30,9 +30,10 @@ API (BSD-3-Clause, same release license above), as an isolated test/benchmark
 dependency. NTS builds a point hierarchy; our traversal uses the existing oracle's
 unchanged orientation filter/exact fallback and the affine maximum of orientation
 over a closed rectangle to prune strictly exterior subtrees. No NTS geometric
-verdict is used and no implementation is read or ported. The full experimental
-oracle path adds NTS to the independent test-oracle project, never to the library;
-the compiler still enforces the oracle's lack of a geometry3Sharp reference.
+verdict is used and no implementation is read or ported. The oracle's default
+conformity searches (binary64 outputs; `G3_ORACLE_POINT_INDEX` / `G3_ORACLE_EDGE_INDEX`
+`=sweep` restore the sweeps) add NTS to the independent test-oracle project, never to
+the library; the compiler still enforces the oracle's lack of a geometry3Sharp reference.
 The proof, controls and measurements are documented
 in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
 
@@ -46,7 +47,10 @@ Geometric Intersections*, IEEE TC 1979, is the sweep alternative. Publication
 metadata/abstracts were consulted; no implementation code was read or copied.
 The two closed-half-plane certificates and the degenerate-hull handling are
 derived in the pilot comments/README and reviewed against the unchanged exact
-ProperCross predicate. The point/triangle and duplicate checks remain in force.
+ProperCross predicate. A node keeps its exact hull only up to 16 vertices and
+otherwise tests the corners of its closed box (a containing polygon), so the test per
+node is bounded (own construction after the #411 review found O(E·h) work on convex
+boundaries). The point/triangle and duplicate checks remain in force.
 
 The large pilot mesh is generated externally from a GEOS XML test fixture at
 commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output

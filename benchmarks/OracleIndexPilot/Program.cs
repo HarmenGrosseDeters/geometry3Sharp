@@ -69,6 +69,14 @@ static class Program
     {
         if (args.Length==1 && args[0]=="selftest") { SelfTest(); EdgeSelfTest.Run(); return 0; }
         if (args.Length==1 && args[0]=="edge-selftest") { EdgeSelfTest.Run(); return 0; }
+        if (args.Length>=4 && args[0]=="comb-input") { System.IO.File.WriteAllText(args[3],Lens.CombInput(int.Parse(args[1]),int.Parse(args[2]))); return 0; }
+        if (args.Length>=2 && args[0]=="lens-input") { System.IO.File.WriteAllText(args[2],Lens.Input(int.Parse(args[1]))); return 0; }
+        if (args.Length>=2 && args[0]=="edge-lens") {
+            // edge-lens <m> [modes...]: the synthetic strip between two parabolas, every mode on the same edges
+            var lens=Lens.Strip(int.Parse(args[1])); var lensSearch=new StrtreeEdgeSearch(lens,Lens.EdgeKeys(lens));
+            foreach (string mode in args.Length>2?args.Skip(2):new[]{"boxes","hulls"}) Console.WriteLine(JsonSerializer.Serialize(lensSearch.Run(mode)));
+            return 0;
+        }
         if (args.Length<2 || args.Length>3) { Console.Error.WriteLine("OracleIndexPilot <boxes|nts|pruned> <mesh2-output> [query-count; default all]"); return 2; }
         var mesh=TextFormat.ReadOutput(File.ReadAllText(args[1]),out _);
         if (args[0].StartsWith("edge-",StringComparison.Ordinal)) {
