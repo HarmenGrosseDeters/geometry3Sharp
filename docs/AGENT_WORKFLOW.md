@@ -165,6 +165,12 @@ from secret tests, which a public repository cannot keep.
   scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
   profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
   coordinator starts the runner on request.
+  The owner's machine (owner 2026-11-08; i7-8700K, 6 cores / 12 threads, 16 GB) can serve as a runner: the owner
+  starts a Claude Code session there (desktop app in the repository folder, or `claude remote-control`), which then
+  takes runner jobs under the same rules. Good for long result-only runs (CsCheck campaigns, fuzzing, local Stryker
+  runs to set thresholds) and for relative timings with baseline and candidate in the same job; acceptance timings
+  stay on the cloud reference machine. Never a self-hosted GitHub runner for this public repository (fork PRs could
+  run code on it).
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are

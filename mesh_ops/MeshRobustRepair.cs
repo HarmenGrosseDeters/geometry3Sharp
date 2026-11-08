@@ -512,6 +512,15 @@ namespace gs
         }
 
         /// <summary>
+        /// the triangle quality (Reducer.MinCollapseTriangleQuality, 4 sqrt(3) area / sum of squared edge lengths) below
+        /// which the simplification of the wrap creates no triangle, unless it replaces a worse one around the collapsed
+        /// edge (CollapseQualityAgainstWorst). 0.3 is an isosceles cap of 150 degrees; the earlier 0.05 (about 175 degrees)
+        /// left caps above 170 degrees on nearly every wrap (benchmarks/MeshRepairBenchmark README, "Simplification
+        /// quality guard")
+        /// </summary>
+        internal const double WrapSimplifyMinQuality = 0.3;
+
+        /// <summary>
         /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
         /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
         /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
@@ -527,7 +536,17 @@ namespace gs
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions)
         {
-            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions, WrapSimplifySlabs, 0);
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, WrapSimplifySlabs, 0);
+        }
+
+        /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
+        /// AlphaWrapQualityPass is tested on) </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst)
+        {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                minQuality, qualityAgainstWorst, WrapSimplifySlabs, 0);
         }
 
         /// <summary>
@@ -543,11 +562,19 @@ namespace gs
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, int slabs, int maxThreads)
         {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, slabs, maxThreads);
+        }
+
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads)
+        {
             hausdorffSubdivisions = 0;
             DMesh3 m = new DMesh3(mesh);
             Action<Reducer> configure = (r) => {
                 r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
-                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = 0.05; r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
             if (slabs > 0) {
                 m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);

@@ -17,7 +17,15 @@ namespace geometry3Sharp.Tests
         static void Configure(Reducer r)
         {
             r.PreventSelfIntersections = true; r.AreaWeightedQuadrics = false;
-            r.MinCollapseTriangleQuality = 0.05; r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+            r.MinCollapseTriangleQuality = MeshRobustRepair.WrapSimplifyMinQuality; r.CollapseQualityAgainstWorst = true;
+            r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
+        }
+
+        // the guard before #405 (0.05 per triangle): more collapses, so a lost quadric shows in the distance
+        static void ConfigureLoose(Reducer r)
+        {
+            Configure(r);
+            r.MinCollapseTriangleQuality = 0.05; r.CollapseQualityAgainstWorst = false;
         }
 
         static MeshAlphaWrap Wrap(int seed, double relAlpha)
@@ -116,7 +124,8 @@ namespace geometry3Sharp.Tests
 
         // a free vertex collapsed onto a pinned one adds its quadric to it; losing that (CarryPinnedVertexData false, the
         // first prototype) let later collapses go further: on these wraps the distance to the wrap rose from 0.79 / 0.53 to
-        // 0.96 / 0.82 of the tolerance (and on Thingi10K wraps beyond it: 26 of 100 failed the certification)
+        // 0.96 / 0.82 of the tolerance (and on Thingi10K wraps beyond it: 26 of 100 failed the certification). With the guard
+        // of #405 too few collapses reach a pinned vertex on these small wraps to show it: the guard of before (loose)
         [Theory]
         [InlineData(42, 60.0, 0.85)]
         [InlineData(3, 60.0, 0.65)]
@@ -124,8 +133,8 @@ namespace geometry3Sharp.Tests
         {
             MeshAlphaWrap w = Wrap(seed, relAlpha);
             double tol = 0.5 * w.UsedOffset;
-            DMesh3 carried = new PartitionedReduction() { Configure = Configure }.Reduce(w.Result, tol * tol);
-            DMesh3 lost = new PartitionedReduction() { Configure = Configure, CarryPinnedVertexData = false }.Reduce(w.Result, tol * tol);
+            DMesh3 carried = new PartitionedReduction() { Configure = ConfigureLoose }.Reduce(w.Result, tol * tol);
+            DMesh3 lost = new PartitionedReduction() { Configure = ConfigureLoose, CarryPinnedVertexData = false }.Reduce(w.Result, tol * tol);
             double dc = Hausdorff(carried, w.Result, tol) / tol, dl = Hausdorff(lost, w.Result, tol) / tol;
             Assert.True(dc <= bound, $"carried: {dc}");
             Assert.True(dl > dc + 0.1, $"lost {dl} vs carried {dc}");
@@ -216,7 +225,7 @@ namespace geometry3Sharp.Tests
                 var pr = new PartitionedReduction() { MaxThreads = threads, Configure = Configure };
                 DMesh3 r = pr.Reduce(box, 1e-6);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(r, true));
-                Assert.True(r.TriangleCount < box.TriangleCount / 4, $"{r.TriangleCount}");
+                Assert.True(r.TriangleCount < box.TriangleCount * 3 / 4, $"{r.TriangleCount}");
                 if (reference == null) reference = r;
                 else Assert.Equal("", Invariance.Difference(reference, r));
             }

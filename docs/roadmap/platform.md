@@ -87,6 +87,29 @@ Tier: S, M. Parallel: up to 2 sessions
     conforming subdivision; CsCheck campaigns with shrinking and replay on net10.0, the fixed corpus also on net48;
     analytic box oracle. Finding: `SafeRounding` moves exact vertices of pieces below its degenerate threshold
     (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
+  - [ ] CsCheck property campaigns beyond the boolean (owner 2026-11-08; after the exact-boolean merge queue; one
+    bounded Sonnet task per area, test-only, findings go as bugfixes to the owning session), in this order:
+    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`): a generator of multi-component inputs with
+       very different sizes and distances (it would have found #420 and #425); properties: no defect the input does
+       not have, `Apply() == true` implies clean by `NotCleanReason`, every vertex displacement <= MaxDrift, 2^k
+       scale invariance.
+    2. 2D mesher (`QualityMesh2`) against the independent oracle (fast since #411 / #427): random polygons with
+       holes, near-parallel and near-touching segments; properties: input segments are unions of output edges,
+       angle bounds, conformity.
+    3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
+       deterministic; shrinking to minimal pinch / cap cases.
+    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
+       (never steeper, cut + fill consistent).
+    Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
+    CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
+    fixed example test (QA.md 2.4).
+  - [ ] Further test tools (owner 2026-11-08, not scheduled; one bounded task each):
+    - Changed-line coverage gate (QA.md item 8) with coverlet (MIT): new or changed lines must be executed by tests;
+      cheap, runs in normal CI, catches part of what the mutation runs find hours later.
+    - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
+      the hand derivation (complements Z3, which checks logical rules).
+    - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
+      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test.
 
 #### Test suite on German Windows
 
