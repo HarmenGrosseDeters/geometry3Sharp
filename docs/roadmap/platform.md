@@ -7,12 +7,17 @@ Part of the [roadmap](../ROADMAP.md).
   the DAP audit, the upstream ledger, the test suite on other locales, and the release.
 - **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
   issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
-- **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
-  visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
-  it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
-  so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
-  when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker).
+- **Mutation tooling follow-ups (owner 2026-11-08; done in the analyst's follow-up PR, results measured 8 November 2026):**
+  (1) *coverage pass visibility*: `--verbosity debug` and `trace` log no line per test during capture (checked with a
+  51-test filter: the capture-session test host logs `InProgressTests is null` / `Sending test run statistics` lines
+  in batches, 20 and 6 of them after 10 min, not one per test), so the ticker cannot count them exactly; it prints
+  the elapsed time and the "test runs started" counter starts after capture. (2) The Stryker logs are uploaded with
+  `if: always()` (`mutation-logs-mesh-<shard>`, 7 days). (3) `run_stryker.sh` stops a shard early when the projection
+  after the capture exceeds the limit by 15 % on two ticks in a row (exit 3, `StrykerOutput/stopped-early`, `::error::`
+  and step summary). (4) The `dots` reporter prints nothing without a terminal, like the progress reporter.
+  Open from the analysis: per-part reduced test filters (`exclusive_kills.py`), a `gate` mode that fingerprints without
+  thresholds, a two-tier test split, a timeout A/B (`timeout-ratio`), tests for the envelope survivors that look real,
+  baseline import through a data branch.
 - **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
