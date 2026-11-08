@@ -185,4 +185,16 @@ from secret tests, which a public repository cannot keep.
   - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
     coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
   - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+  - Standing cost rules (owner 2026-11-08, for all future work):
+    - Model by task: long runs on a Haiku runner, bounded medium tasks on Sonnet, design, exact code and their
+      reviews on the large model.
+    - Reviews: the first review is a fresh agent on the full diff; re-reviews of fixes resume that reviewer with the
+      delta only.
+    - Mutation gate: no push while a full mutation run is in flight on the PR (it cancels it); queued PRs on the same
+      shards share one combined gate; a thresholds-only commit is gated on the run that measured the same code
+      (see the merge-queue rule above).
+    - Waiting is free, polling is not: sessions with nothing on the critical path pause until messaged; check-ins
+      follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
+    - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
+      valid result for the owner).
 

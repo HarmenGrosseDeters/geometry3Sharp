@@ -30,6 +30,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   G3E0001-3). A new parallel loop there needs a review (no floating-point reduction across threads) and an entry in
   `core/ExactCodeAllowList.cs`.
 
+## Cost controls
+
+Binding for every session: [AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) section 8 (budget rules, messaging, runner
+sessions, combined mutation gates).
+
 ## Before every push
 
 Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
