@@ -89,9 +89,14 @@ assumption 1 is the arrangement's own guarantee.
   with probes in check mode (a prism edge on a face, a tetrahedron apex in a face from both sides, boxes touching along an
   edge, open sheets coplanar, oblique and coincident, WindingPredicate XOR, SimplifyFlatRegions on and off). It found a
   second `Apply` on the same instance trusting the flags (fixed: cleared after use; test
-  `ApplyAgain_AfterTheResultChanged_SearchesEveryPair`) and the dependence on SharedPositionsTouch (now required). The
-  clearing in `set_vertex` is an equivalent mutant today (an accepted edit never adds an intersecting pair, so a moved
-  triangle of `E` cannot meet another one); it stays as defence for edits that may some day add pairs.
+  `ApplyAgain_AfterTheResultChanged_SearchesEveryPair`) and the dependence on SharedPositionsTouch (now required, test
+  `WithoutSharedPositionsTouch_NoSkip`). The second review (coordinator) corrected a claim made here before: an accepted
+  edit may add an intersecting pair while it removes others (`improves` compares the numbers of pairs, `newI <= oldI`,
+  not which pairs), so a moved triangle of `E` can meet another one. The three mechanisms that take a triangle out
+  of `E` (the clearing in `mark_dirty`, the clearing in `set_vertex`, the comparison of the vertex triple in
+  `exact_triangle`) each look redundant only because the others cover the same edits; without the clearing in both
+  `mark_dirty` and `set_vertex` pairs are lost (MeshRoundingRepairIncrementalTests fail, which the rounding mutation
+  shard now runs).
 - Tests (`RoundingExactPairsTests`): in check mode over boxes with cut and uncut faces, a turned box, a coplanar stack,
   duplicated input triangles (also at rotated coordinates, cut by a box), A and B touching at a corner and along a face,
   and the degenerate families of SafeRoundingDegenerateInputTests (contractions free ids that later edits reuse, and

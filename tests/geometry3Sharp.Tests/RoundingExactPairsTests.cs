@@ -150,6 +150,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WithoutSharedPositionsTouch_NoSkip()
+        {
+            // the boxes touch at a corner: the result keeps two vertices of that exact point at one position. Without
+            // SharedPositionsTouch the full search reports their triangles as intersecting, which the lemma does not
+            // cover: the exact flags are not used then (in check mode a skip would throw)
+            var boolean = new ExactMeshBoolean(Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4), 4), Grid(new Vector3d(2, 1.4, 0.8), new Vector3d(1, 0.7, 0.4), 4), Ops.Union);
+            Assert.True(boolean.Compute(), boolean.Error);
+            DMesh3 r = boolean.Result;
+            Assert.True(r.VertexIndices().GroupBy(v => r.GetVertex(v)).Any(g => g.Count() > 1), "no contact");
+            var plain = new MeshRoundingRepair(new DMesh3(r)) { MaxPasses = 0 };
+            plain.Apply();
+            Assert.True(plain.InitialIntersections > 0, "the corner is not reported");
+            var repair = new MeshRoundingRepair(new DMesh3(r)) { MaxPasses = 0, ExactVertexF = (v) => true };
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                repair.Apply();
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+            Assert.Equal(plain.InitialIntersections, repair.InitialIntersections);
+            Assert.Equal(0, repair.SkippedExactQueries);
+        }
+
+        [Fact]
         public void Edits_ReuseIdsAndSearchAgain_StillTheSame()
         {
             // the families repair by contractions, flips and zips: ids are freed and reused, and over all of them searches

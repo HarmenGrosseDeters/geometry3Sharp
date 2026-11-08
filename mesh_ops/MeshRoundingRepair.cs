@@ -281,6 +281,14 @@ namespace g3
             coarse = false;
             if (SharedPositionsTouch == false)
                 atPosition = null;
+            // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
+            // mesh as the caller handed it over: this Apply may move such vertices, and the mesh may be changed before
+            // another Apply, which then searches every pair); only with SharedPositionsTouch (without it the full search
+            // reports vertices of one exact point at one position, duplicated where the solid touches itself, as
+            // intersecting, which the lemma does not cover)
+            Func<int, bool> exactF = SharedPositionsTouch ? ExactVertexF : null;
+            ExactVertexF = null;
+            exactAtStart = null;
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
@@ -306,20 +314,14 @@ namespace g3
                 foreach (int vid in Mesh.VertexIndices())
                     position_add(vid, Mesh.GetVertex(vid));
             }
-            exactAtStart = null;
             SkippedExactQueries = 0;
-            // (only with SharedPositionsTouch: without it the full search reports vertices of one exact point at one
-            // position, duplicated where the solid touches itself, as intersecting, which the lemma does not cover)
-            if (ExactVertexF != null && SharedPositionsTouch) {
+            if (exactF != null) {
                 exactAtStart = new Index3i[Mesh.MaxTriangleID];
                 foreach (int tid in Mesh.TriangleIndices()) {
                     Index3i tv = Mesh.GetTriangle(tid);
-                    exactAtStart[tid] = (ExactVertexF(tv.a) && ExactVertexF(tv.b) && ExactVertexF(tv.c)) ? tv : new Index3i(-1, -1, -1);
+                    exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
                 }
             }
-            // (the promise holds for the mesh as the caller handed it over: this Apply may move such vertices, and the
-            // mesh may be changed before another Apply, which then searches every pair)
-            ExactVertexF = null;
             rebuild_tree();
             lastPairs = null;
             check = CheckOnThisThread;
