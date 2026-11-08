@@ -28,9 +28,12 @@ namespace geometry3Sharp.Tests
             r.MinCollapseTriangleQuality = 0.05; r.CollapseQualityAgainstWorst = false;
         }
 
-        static MeshAlphaWrap Wrap(int seed, double relAlpha)
+        // (old: the gates and no quality refinement of before #408, the wraps the bounds of PinnedVertices_CarryTheirQuadric
+        // were measured on)
+        static MeshAlphaWrap Wrap(int seed, double relAlpha, bool old = false)
         {
             var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = relAlpha, RelativeOffset = 10 * relAlpha };
+            if (old) { w.TraverseByEmptyBall = false; w.RefineMinAngleDegrees = 0; }
             Assert.True(w.Compute(), w.Error);
             return w;
         }
@@ -131,7 +134,7 @@ namespace geometry3Sharp.Tests
         [InlineData(3, 60.0, 0.65)]
         public void PinnedVertices_CarryTheirQuadric(int seed, double relAlpha, double bound)
         {
-            MeshAlphaWrap w = Wrap(seed, relAlpha);
+            MeshAlphaWrap w = Wrap(seed, relAlpha, true);
             double tol = 0.5 * w.UsedOffset;
             DMesh3 carried = new PartitionedReduction() { Configure = ConfigureLoose }.Reduce(w.Result, tol * tol);
             DMesh3 lost = new PartitionedReduction() { Configure = ConfigureLoose, CarryPinnedVertexData = false }.Reduce(w.Result, tol * tol);

@@ -544,13 +544,13 @@ namespace gs
                 WrapSimplifyMinQuality, true, WrapSimplifySlabs, 0, phases);
         }
 
-        /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
-        /// AlphaWrapQualityPass is tested on) </summary>
+        /// <summary> SimplifyWithin with the quality guard given, one serial Reducer run (tests: the earlier 0.05 per triangle
+        /// leaves the caps that AlphaWrapQualityPass is tested on, the inputs those tests were chosen on) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, Dictionary<string, long> phases = null)
         {
             return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
-                minQuality, qualityAgainstWorst, WrapSimplifySlabs, 0, phases);
+                minQuality, qualityAgainstWorst, 0, 0, phases);
         }
 
         /// <summary>
