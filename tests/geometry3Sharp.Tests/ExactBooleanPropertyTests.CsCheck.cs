@@ -125,7 +125,9 @@ namespace geometry3Sharp.Tests
                 case "disjoint": valid = overlap.Any(x => x < 0); break;
                 case "identical": valid = identical; break;
                 case "strict_nested": valid = Enumerable.Range(0, 3).All(j => c.A.Lo(j) < c.B.Lo(j) && c.A.Hi(j) > c.B.Hi(j)); break;
-                case "overlapping": valid = overlap.All(x => x > 0) && !containsA && !containsB; break;
+                // Generic partial overlap: no shared boundary plane, which keeps it apart from coplanar_overlap.
+                case "overlapping": valid = overlap.All(x => x > 0) && !containsA && !containsB &&
+                    Enumerable.Range(0, 3).All(j => c.A.Lo(j) != c.B.Lo(j) && c.A.Hi(j) != c.B.Hi(j)); break;
                 case "coplanar_overlap": valid = overlap.All(x => x > 0) && !containsA && !containsB &&
                     Enumerable.Range(0, 3).Any(j => c.A.Lo(j) == c.B.Lo(j) && c.A.Hi(j) == c.B.Hi(j)); break;
                 default:
@@ -300,6 +302,61 @@ namespace geometry3Sharp.Tests
             var b = family == "identical" ? new IntBox(2, 0, 0, 3, 1, 1) : a;
             Assert.NotEqual("", DirectedFamilyReason(family, new BoxCase(a, b)));
         }
+
+        static IntBox ParseBox(string box)
+        {
+            int[] v = box.Split(' ').Select(t => int.Parse(t, CultureInfo.InvariantCulture)).ToArray();
+            return new IntBox(v[0], v[1], v[2], v[3], v[4], v[5]);
+        }
+
+        // One canonical member per family (A = [0,2]^3 unless the family needs a larger A): the classifier must
+        // accept it, so the neighbour controls below cannot pass with a classifier that rejects everything.
+        [Theory]
+        [InlineData("disjoint", "0 0 0 2 2 2", "3 0 0 5 2 2")]
+        [InlineData("identical", "0 0 0 2 2 2", "0 0 0 2 2 2")]
+        [InlineData("strict_nested", "0 0 0 4 4 4", "1 1 1 3 3 3")]
+        [InlineData("overlapping", "0 0 0 2 2 2", "1 1 1 3 3 3")]
+        [InlineData("coplanar_overlap", "0 0 0 2 2 2", "1 0 1 3 2 3")]
+        [InlineData("face_touching", "0 0 0 2 2 2", "2 0 0 4 2 2")]
+        [InlineData("edge_touching", "0 0 0 2 2 2", "2 2 0 4 4 2")]
+        [InlineData("vertex_touching", "0 0 0 2 2 2", "2 2 2 4 4 4")]
+        public void DirectedFamilyCheck_AcceptsCanonicalCase(string family, string a, string b) =>
+            Assert.Equal("", DirectedFamilyReason(family, new BoxCase(ParseBox(a), ParseBox(b))));
+
+        // Targeted negative controls: each family against its nearest neighbours (one contact dimension more or
+        // less, a gap of zero, a shared plane, a non-strict or reversed containment). Each row is a case of the
+        // named neighbour relation, which the classifier of the family under test must reject.
+        [Theory]
+        [InlineData("disjoint", "face", "0 0 0 2 2 2", "2 0 0 4 2 2")]
+        [InlineData("disjoint", "edge", "0 0 0 2 2 2", "2 2 0 4 4 2")]
+        [InlineData("disjoint", "vertex", "0 0 0 2 2 2", "2 2 2 4 4 4")]
+        [InlineData("identical", "strict_nested", "0 0 0 4 4 4", "1 1 1 3 3 3")]
+        [InlineData("identical", "nested_sharing_faces", "0 0 0 2 2 2", "0 0 0 2 2 1")]
+        [InlineData("identical", "coplanar_overlap", "0 0 0 2 2 2", "1 0 1 3 2 3")]
+        [InlineData("strict_nested", "nested_sharing_a_face", "0 0 0 4 4 4", "0 1 1 2 3 3")]
+        [InlineData("strict_nested", "identical", "0 0 0 2 2 2", "0 0 0 2 2 2")]
+        [InlineData("strict_nested", "reversed", "1 1 1 3 3 3", "0 0 0 4 4 4")]
+        [InlineData("overlapping", "coplanar_overlap", "0 0 0 2 2 2", "1 0 1 3 2 3")]
+        [InlineData("overlapping", "one_shared_plane", "0 0 0 2 2 2", "0 1 1 3 3 3")]
+        [InlineData("overlapping", "nested", "0 0 0 4 4 4", "1 1 1 3 3 3")]
+        [InlineData("overlapping", "face", "0 0 0 2 2 2", "2 1 1 4 3 3")]
+        [InlineData("coplanar_overlap", "overlapping", "0 0 0 2 2 2", "1 1 1 3 3 3")]
+        [InlineData("coplanar_overlap", "one_shared_plane", "0 0 0 2 2 2", "0 1 1 3 3 3")]
+        [InlineData("coplanar_overlap", "nested_sharing_planes", "0 0 0 4 4 4", "1 0 1 3 4 3")]
+        [InlineData("coplanar_overlap", "identical", "0 0 0 2 2 2", "0 0 0 2 2 2")]
+        [InlineData("face_touching", "edge", "0 0 0 2 2 2", "2 2 0 4 4 2")]
+        [InlineData("face_touching", "vertex", "0 0 0 2 2 2", "2 2 2 4 4 4")]
+        [InlineData("face_touching", "disjoint", "0 0 0 2 2 2", "3 0 0 5 2 2")]
+        [InlineData("face_touching", "overlapping", "0 0 0 2 2 2", "1 1 1 3 3 3")]
+        [InlineData("edge_touching", "face", "0 0 0 2 2 2", "2 0 0 4 2 2")]
+        [InlineData("edge_touching", "vertex", "0 0 0 2 2 2", "2 2 2 4 4 4")]
+        [InlineData("edge_touching", "disjoint", "0 0 0 2 2 2", "2 3 0 4 5 2")]
+        [InlineData("vertex_touching", "edge", "0 0 0 2 2 2", "2 2 0 4 4 2")]
+        [InlineData("vertex_touching", "face", "0 0 0 2 2 2", "2 0 0 4 2 2")]
+        [InlineData("vertex_touching", "disjoint", "0 0 0 2 2 2", "2 2 3 4 4 5")]
+        public void DirectedFamilyCheck_RejectsNeighbouringRelations(string family, string neighbour, string a, string b) =>
+            Assert.True(DirectedFamilyReason(family, new BoxCase(ParseBox(a), ParseBox(b))) != "",
+                family + " accepted a " + neighbour + " case");
 
         [Theory]
         [InlineData("disjoint")]

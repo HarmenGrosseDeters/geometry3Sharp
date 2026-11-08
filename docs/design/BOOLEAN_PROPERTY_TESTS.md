@@ -163,7 +163,11 @@ constructive campaigns in `ExactBooleanPropertyTests.DirectedBoxes`:
 Each runs 32 cases by default (256 additional cases, existing seeds/counts unchanged).
 An independent interval classifier checks the relation before every execution and
 every shrink. Positive bounded dimensions and constructive placement retain the
-relation during shrinking. Negative relation controls prevent a vacuous classifier.
+relation during shrinking. Negative relation controls prevent a vacuous classifier;
+targeted controls against each family's neighbours (one contact dimension more or
+less, a zero gap, a shared plane, non-strict or reversed containment) and one
+accepted canonical member per family check it more sharply. `overlapping` excludes
+shared boundary planes, so it does not overlap with `coplanar_overlap`.
 Two controlled wrong-operation campaigns prove family-preserving shrinking and
 replay via `Gen.Sample` of the emitted minimized seed; no production mutation is
 needed. The existing analytic oracle checks all operations, partition reconstruction,
