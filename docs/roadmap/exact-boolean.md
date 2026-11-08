@@ -40,6 +40,14 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 **D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
 
+**Lévy-style classification (owner 2026-11-08, started):** for the self-intersecting, unknown and open cohorts;
+phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue
+clears) in session session_01AaGT5DeCT9eMf9S5jzFrxx (a third large session, owner exception).
+
+**Final A/B of the speed levers (runner, 2026-11-08, 42 models x 3 ops, bit-identical):** master 342 s, ops > 5 s 20;
++#409 -13 %; +#412 -22 %; +#406 +#419 -41 % (rounding -68 %), ops > 5 s 6 (519511 x3, 1517923 union / intersection,
+519507 union). Raw rows on runs/boolean2-combined (89f2943).
+
 **thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
 size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the

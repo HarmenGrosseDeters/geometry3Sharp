@@ -13,7 +13,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Mutation-run cost analysis** (owner 2026-11-08, a Sonnet session after #403's split has run, analysis only):
+- **Mutation-run cost analysis** (owner 2026-11-08, Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh, started early on the existing reports; analysis only, no tooling change before #403 merges):
   from the Stryker reports and logs, measure the time cost of timeout mutants (31-43 % of mutants on the arrangement
   shards; timeout factor), the slow covering tests per shard (which add time without killing a mutant exclusively),
   mutators that only produce equivalent or worthless mutants (strings, statistics counters), and how to key each
