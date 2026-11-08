@@ -518,3 +518,7 @@ geometry3Sharp and no library/NuGet dependency is added. Modeling uses the
 and [Z3's public Python API](https://z3prover.github.io/api/html/namespacez3py.html).
 The [pilot README](../tools/Z3Pilot/README.md) states proof scope, mathematical
 bridges, native replay and the UNKNOWN limitation of the monolithic attempt.
+Pilot 2 (`tools/Z3Pilot/filter_rules.py`, the error-bound rules of `tools/PredicateCompiler`) uses the standard
+model of floating-point arithmetic and its variant `fl(s) = s / (1 + d)` from N. J. Higham, *Accuracy and Stability
+of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2, and the form of the filter bounds (`|e~ - e| <= c m~`) of
+J. R. Shewchuk 1997 (see above); results only, no code.
