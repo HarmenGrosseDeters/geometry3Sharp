@@ -23,7 +23,8 @@ echo "runner: $(nproc 2>/dev/null || echo '?') cpus, $(free -m 2>/dev/null | awk
 # limit shows it before it is cancelled
 stryker() {
   # (the subshell must not inherit `set -e` / pipefail: `ls` of a log directory that does not exist yet would end it, and
-  # no progress line would ever appear when Stryker writes its logs late)
+  # no progress line would ever appear when Stryker writes its logs late; it also means a real bug in the ticker
+  # shows as a missing progress line, not as a failed job, which is acceptable for a progress line)
   ( set +e +o pipefail
     while sleep "${PROGRESS_SECONDS:-600}" </dev/null >/dev/null 2>&1; do
       logs="$(ls -d StrykerOutput/*/logs 2>/dev/null | sort | tail -1 || true)"
