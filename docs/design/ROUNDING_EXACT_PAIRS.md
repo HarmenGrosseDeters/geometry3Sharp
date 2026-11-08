@@ -19,7 +19,11 @@ of its corners changes position: every position write of the repair goes through
 move, the kept end of a contraction, a separation of a contact). So a corner of a triangle in `E` is an input point at
 its unmoved input double: not rounded, snapped or moved. Which corners are exact is decided once, at the start, by the
 caller (`ExactVertexF`, from the assembly: `vertexPoint >= 0 && inputPoints[vertexPoint]`, the same as `resultFixed`);
-nothing between the assembly and `Apply` changes positions. A new vertex (a crossing, a split midpoint) is never exact,
+nothing between the assembly and `Apply` changes positions. The promise is used once: `Apply` clears `ExactVertexF`
+after reading it, so another `Apply` on the same instance (the mesh may have been changed in between, eg through
+`ExactMeshBoolean.Rounding`) searches every pair. And it is used only with `SharedPositionsTouch` (assumption 3):
+without it the full search reports the duplicated vertices of one exact point, where the solid touches itself, as
+intersecting, which the skip would hide. A new vertex (a crossing, a split midpoint) is never exact,
 even where its rounded double happens to equal its exact point. The full
 search queries the box tree only from the triangles not in `E`, and records every pair it finds with them (both orders);
 pairs of two triangles in `E` are not tested.
@@ -81,6 +85,13 @@ assumption 1 is the arrangement's own guarantee.
 - `CheckOnThisThread`: every full search with the rule also runs the full search without it and compares the pairs
   (`InvalidOperationException` if they differ), as the incremental search is checked today.
 - Bit-identical results: the set of intersecting pairs is the same, and the order (sorted) too.
+- Independent review (2026-11-08, against the code, not this note): no lost pair in the ExactMeshBoolean flow,
+  with probes in check mode (a prism edge on a face, a tetrahedron apex in a face from both sides, boxes touching along an
+  edge, open sheets coplanar, oblique and coincident, WindingPredicate XOR, SimplifyFlatRegions on and off). It found a
+  second `Apply` on the same instance trusting the flags (fixed: cleared after use; test
+  `ApplyAgain_AfterTheResultChanged_SearchesEveryPair`) and the dependence on SharedPositionsTouch (now required). The
+  clearing in `set_vertex` is an equivalent mutant today (an accepted edit never adds an intersecting pair, so a moved
+  triangle of `E` cannot meet another one); it stays as defence for edits that may some day add pairs.
 - Tests (`RoundingExactPairsTests`): in check mode over boxes with cut and uncut faces, a turned box, a coplanar stack,
   duplicated input triangles (also at rotated coordinates, cut by a box), A and B touching at a corner and along a face,
   and the degenerate families of SafeRoundingDegenerateInputTests (contractions free ids that later edits reuse, and

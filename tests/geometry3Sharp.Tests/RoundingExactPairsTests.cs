@@ -122,6 +122,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ApplyAgain_AfterTheResultChanged_SearchesEveryPair()
+        {
+            // the promise (exact vertices at their exact points) holds for the first Apply only: a second Apply on the
+            // same instance, after the result was changed, must find the intersections a fresh repair finds
+            var box = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), EdgeVertices = 4 }.Generate().MakeDMesh();
+            var boolean = new ExactMeshBoolean(box, new DMesh3(), Ops.Union);
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.True(boolean.Rounding.SkippedExactQueries > 0);
+            DMesh3 r = boolean.Result;
+            // an inner vertex of the top face, pushed through the bottom
+            int top = r.VertexIndices().First(v => r.GetVertex(v).z == 0.4 && Math.Abs(r.GetVertex(v).x) < 1 && Math.Abs(r.GetVertex(v).y) < 0.7);
+            Vector3d p = r.GetVertex(top);
+            r.SetVertex(top, new Vector3d(p.x, p.y, -0.8));
+            var fresh = new MeshRoundingRepair(new DMesh3(r)) { SharedPositionsTouch = true };
+            fresh.Apply();
+            int expected = fresh.InitialIntersections;
+            Assert.True(expected > 0);
+            MeshRoundingRepair.CheckOnThisThread = true;
+            try {
+                boolean.Rounding.Apply();
+            } finally {
+                MeshRoundingRepair.CheckOnThisThread = false;
+            }
+            Assert.Equal(expected, boolean.Rounding.InitialIntersections);
+            Assert.Equal(0, boolean.Rounding.SkippedExactQueries);
+        }
+
+        [Fact]
         public void Edits_ReuseIdsAndSearchAgain_StillTheSame()
         {
             // the families repair by contractions, flips and zips: ids are freed and reused, and over all of them searches
