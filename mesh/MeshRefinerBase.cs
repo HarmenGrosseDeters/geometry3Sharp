@@ -43,34 +43,55 @@ namespace g3
         public double MinCollapseTriangleQuality = 0;
 
         /// <summary>
-        /// (internal) MinCollapseTriangleQuality compared against the worst triangle around the collapsed edge (both
-        /// one-rings, the two removed triangles included; collapseWorstQuality, set by the collapse) instead of each
-        /// triangle's own quality before: a collapse that removes a sliver may then create a triangle below the
-        /// threshold, as long as it is no worse than the worst one it replaces. The worst quality around the edge
-        /// does not drop below min(threshold, worst before).
+        /// (internal; Reducer only) MinCollapseTriangleQuality with an exception for collapses that remove the worst
+        /// triangle around the collapsed edge (both one-rings): if one of the two triangles the collapse removes is that
+        /// worst triangle, a new triangle below the threshold and worse than its own predecessor (refused without this)
+        /// is allowed as long as it is better than the removed one. So a collapse can remove a sliver of the input
+        /// although its new triangles stay below the threshold; elsewhere the rule is the one without the option. The
+        /// worst quality around the edge never drops below min(threshold, worst before).
         /// </summary>
         internal bool CollapseQualityAgainstWorst = false;
-        protected double collapseWorstQuality = double.PositiveInfinity;
+
+        // per collapse (Reducer.CollapseEdge, begin_quality_check): the edge, its two triangles, and the bound of the
+        // exception: the worst old quality if one of the two removed triangles has it, else infinity (no exception); NaN
+        // until needed
+        int collapseA = -1, collapseB = -1, collapseT0 = -1, collapseT1 = -1;
+        double collapseExceptionBound = double.NaN;
+
+        protected void begin_quality_check(int a, int b, int t0, int t1)
+        {
+            collapseA = a; collapseB = b; collapseT0 = t0; collapseT1 = t1;
+            collapseExceptionBound = double.NaN;
+        }
 
         // MinCollapseTriangleQuality: does the new triangle (quality qNew) of the old triangle (va, vb, vc) refuse the collapse?
         protected bool collapse_quality_rejects(double qNew, ref Vector3d va, ref Vector3d vb, ref Vector3d vc)
         {
             if (!(qNew < MinCollapseTriangleQuality))
                 return false;
-            return qNew < (CollapseQualityAgainstWorst ? collapseWorstQuality : TriangleQuality(ref va, ref vb, ref vc));
+            if (!(qNew < TriangleQuality(ref va, ref vb, ref vc)))
+                return false;
+            if (CollapseQualityAgainstWorst == false || collapseA < 0)
+                return true;
+            if (double.IsNaN(collapseExceptionBound))
+                collapseExceptionBound = exception_bound();
+            return !(qNew > collapseExceptionBound);
         }
 
-        // the worst triangle quality in the one-rings of a and b (for CollapseQualityAgainstWorst)
-        protected double worst_quality_around(int a, int b)
+        // the worst quality in the one-rings of the collapsed edge if one of its two triangles has it, else infinity (a NaN
+        // quality, of a triangle beyond about 1e154, is skipped)
+        double exception_bound()
         {
-            double worst = double.PositiveInfinity;
+            double worst = double.PositiveInfinity, removed = double.PositiveInfinity;
             Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
-            foreach (int v in new int[] { a, b })
-                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+            for (int k = 0; k < 2; ++k)
+                foreach (int tid in mesh.VtxTrianglesItr(k == 0 ? collapseA : collapseB)) {
                     mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
-                    worst = Math.Min(worst, TriangleQuality(ref va, ref vb, ref vc));
+                    double q = TriangleQuality(ref va, ref vb, ref vc);
+                    if (q < worst) worst = q;
+                    if ((tid == collapseT0 || tid == collapseT1) && q < removed) removed = q;
                 }
-            return worst;
+            return removed <= worst ? removed : double.PositiveInfinity;
         }
 
         /// <summary> 4*sqrt(3)*area / sum of squared edge lengths: 1 for equilateral, 0 for degenerate </summary>
