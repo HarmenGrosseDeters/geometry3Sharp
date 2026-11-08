@@ -72,8 +72,8 @@ or another QEM code could be verified (GitHub returned 504), so none is quoted.
 | lever | upper bound | status |
 |---|---|---|
 | 1 grid: cells hold (id, box), reference-cell rule instead of stamps, no key arrays | ~30-35 % | built bit-identical, **slower** (1.02-1.15x): not used. The cost is the cell lookups; base cells of 3 instead of 1.5 mean edge lengths take that lever (bit-identical) |
-| 2 bowtie states per vertex | 4-9 % | built (#this PR) |
-| 3 self-intersection check without allocations per collapse | ~5 % | built (#this PR) |
+| 2 bowtie states per vertex | 4-9 % | built (#422) |
+| 3 self-intersection check without allocations per collapse | ~5 % | built (#422) |
 | 4 cheaper pre-reject before the exact tri-tri test | 9-17 %, realistic ≤ 5-8 % | not built (owner 2026-11-08: ≤ 2 % of the pipeline for a new error bound and an exact-code review) |
 | 5 lazy / version-stamped queue | 2 % (the queue updates in place) | not built |
 | 6 quadrics as struct of arrays | 3-5 % | not built |
