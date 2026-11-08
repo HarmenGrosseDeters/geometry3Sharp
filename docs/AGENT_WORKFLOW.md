@@ -181,6 +181,10 @@ from secret tests, which a public repository cannot keep.
   loop that exits when the file appears; waiting costs nothing) and starts it; results and a `REPORT-<n>.md` go to
   the same branch, and the coordinator reads them there at its check-ins. A message to a cloud session is sent
   only if the local session's tools allow it.
+  On the owner's machine (no container recycling) a job step longer than the 2-h limit of a harness-tracked task may
+  run as a detached process (owner 2026-11-08): record its PIDs and start time, keep every step resumable, and write
+  `.exit` / `.end` files when it ends; the local session evaluates when the owner asks or when the step has ended.
+  For local Stryker runs, `--open-report` shows the live HTML dashboard in the owner's browser.
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are

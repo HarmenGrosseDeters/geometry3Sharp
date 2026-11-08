@@ -673,7 +673,8 @@ namespace geometry3Sharp.Tests
             // Status was Success all the same; the result is checked now
             DMesh3 m = Box(Vector3d.Zero, Vector3d.One);
             MeshEditor.Append(m, Box(new Vector3d(1.02, 1.02, 0), new Vector3d(2, 2, 1)));
-            var w = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005, MakeManifold = false };
+            // (gates by circumradius, no quality refinement: with them the pinch is gone on this input before the manifold step)
+            var w = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005, MakeManifold = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.False(w.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
             Assert.StartsWith("result ", w.Error);
@@ -692,16 +693,24 @@ namespace geometry3Sharp.Tests
             // a sphere centred in a box with the same margin on all sides: two rule 1 points were rejected (at existing
             // vertices) and their cells stayed inside up to the box: two box corners on a Success result. Checked now,
             // and wrapped once more in a box with a different margin on each side
+            // (with the gates by circumradius and without the quality refinement, as when this was found: the gates by the
+            // empty ball of the paper and the refinement avoid these rejections on this input, see below)
             DMesh3 s = Sphere(1, 12);
-            var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
+            var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(w.Compute());
             Assert.Equal(0, w.Counts["result_box_corners"]);
             Assert.Equal(0, w.Counts["rejected_rule1"]);
             Assert.Equal(1, w.Counts["box_retries"]);       // the first box (same margin on all sides) failed
             CheckWrap(w, Vertices(s));
+            // the defaults: the first box succeeds
+            var dflt = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
+            Assert.True(dflt.Compute());
+            Assert.False(dflt.Counts.ContainsKey("box_retries"));
+            Assert.Equal(0, dflt.Counts["rejected_rule1"]);
+            CheckWrap(dflt, Vertices(s));
             // without the retry: box corners on the result, or (with the refinement at non-manifold spots, which can carve
             // them away) the rejected rule 1 points, which the result check reports as Failed, not Success
-            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false };
+            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.False(symmetric.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
             Assert.True(symmetric.Error == "result box corners on the result"
@@ -922,6 +931,20 @@ namespace geometry3Sharp.Tests
                 double a0 = ang(b - a, c - a), a1 = ang(a - b, c - b), a2 = ang(a - c, b - c);
                 double min = Math.Min(a0, Math.Min(a1, a2)), max = Math.Max(a0, Math.Max(a1, a2));
                 Assert.True(min >= lo && max <= 180 - 2 * lo, $"{what}: triangle {tid} with angles {min} / {max}, bound {lo}");
+            }
+        }
+
+        // the 1 %-worst minimum angle of the raw wrap (Alpha Wrap 2.0; the gates by the paper's empty ball and the quality
+        // refinement, AlphaWrapQualityRefinementTests): a capped cylinder had 16.0 degrees, a random soup with pinches 7.5;
+        // with both 22.2 and 15.2, the guarantees kept
+        [Fact]
+        public void Wrap_WorstAnglesOfTheRawWrap()
+        {
+            foreach (var (m, p01) in new[] { (AlphaWrapQualityRefinementTests.Cylinder(), 21.0), (RandomSoup(42), 13.0) }) {
+                var w = new MeshAlphaWrap(m) { RelativeAlpha = 60, RelativeOffset = 600 };
+                Assert.True(w.Compute(), w.Error);
+                CheckWrap(w, Vertices(m));
+                Assert.True(AlphaWrapQualityRefinementTests.P01(w.Result) > p01, $"{AlphaWrapQualityRefinementTests.P01(w.Result)}");
             }
         }
 
