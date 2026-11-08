@@ -156,7 +156,7 @@ from secret tests, which a public repository cannot keep.
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
   resumable (one result line or file per case; a rerun skips finished cases; a timing job reruns an interrupted
   pair), the runner pushes partial raw results to its data branch about every hour, keeps a self check-in
-  (`send_later`, about every 30-60 min) while a job runs, and on every wake, including a restart notice, checks
+  (`send_later`, every 15 min, owner 2026-11-08) while a job runs, and on every wake, including a restart notice, checks
   whether the job's process still runs and its output still grows; if not, it resumes the job and reports the
   restart and the cases rerun.
 - Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
