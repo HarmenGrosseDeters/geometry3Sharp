@@ -82,12 +82,13 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); m.AppendTriangle(a, d, b); m.AppendTriangle(b, d, c);
         }
 
-        // tetrahedra with their apexes at one position in separate octants; the apexes of the first two share an exact
-        // point (the solid touches itself there), the others are a point each, or (twoEach) the last two share one
-        static (DMesh3, Func<int, int>, int[]) Cones(int count, bool twoEach)
+        // tetrahedra with their apexes at one position p in separate octants; the apexes of the first two share an exact
+        // point (the solid touches itself there), the others are a point each, or (twoEach) the last two share one, or
+        // (singleFirst) the first is a point of its own and the next two share one
+        static (DMesh3, Func<int, int>, int[]) Cones(int count, bool twoEach, bool singleFirst = false, Vector3d? at = null)
         {
             var m = new DMesh3();
-            Vector3d p = new Vector3d(0.25, 0.5, 0.75);
+            Vector3d p = at ?? new Vector3d(0.25, 0.5, 0.75);
             var octants = new[] { new Vector3d(1, 1, 1), new Vector3d(-1, -1, 1), new Vector3d(1, -1, -1), new Vector3d(-1, 1, -1) };
             var apex = new int[count];
             for (int i = 0; i < count; ++i) {
@@ -97,7 +98,8 @@ namespace geometry3Sharp.Tests
             }
             var ids = new Dictionary<int, int>();
             for (int i = 0; i < count; ++i)
-                ids[apex[i]] = twoEach ? (i < 2 ? 1000 : 2000) : (i < 2 ? 1000 : 2000 + i);
+                ids[apex[i]] = singleFirst ? (i == 0 ? 2000 : i < 3 ? 1000 : 2000 + i)
+                    : twoEach ? (i < 2 ? 1000 : 2000) : (i < 2 ? 1000 : 2000 + i);
             Func<int, int> pointId = (v) => ids.TryGetValue(v, out int id) ? id : v;
             return (m, pointId, apex);
         }
@@ -134,7 +136,98 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SeparateBoxes_NoContacts()
+        public void SinglePointOfTheSmallestVertex_Moved_TheContactOfTheOtherKept()
+        {
+            // the vertex of smallest id is the single vertex of its point: the point with two vertices stays (not the
+            // point of the first vertex), the single one moves
+            (DMesh3 m, Func<int, int> pointId, int[] apex) = Cones(3, twoEach: false, singleFirst: true);
+            Vector3d p = m.GetVertex(apex[0]);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, PointIdF = pointId };
+            Assert.True(r.Apply());
+            Assert.Equal(1, r.InitialFalseContacts);
+            Assert.Equal(0, r.RemainingFalseContacts);
+            Assert.NotEqual(p, m.GetVertex(apex[0]));
+            Assert.Equal(p, m.GetVertex(apex[1]));
+            Assert.Equal(p, m.GetVertex(apex[2]));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ContactAtTheOrigin_SeparatedByANormalStep(string name)
+        {
+            // at the origin a position has no unit in the last place: the first step is the unit of maxLength (not a
+            // subnormal one); the 2^k scales give the same result, scaled
+            Similarity sim = Similarity.ByName(name);
+            (DMesh3 m0, Func<int, int> pointId, int[] apex) = Cones(3, twoEach: false, at: Vector3d.Zero);
+            DMesh3 reference = new DMesh3(m0);
+            Assert.True(new MeshRoundingRepair(reference) { SharedPositionsTouch = true, PointIdF = pointId }.Apply());
+            DMesh3 m = Invariance.Transformed(m0, sim);
+            Vector3d p = m.GetVertex(apex[2]);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, PointIdF = pointId };
+            Assert.True(r.Apply(), name);
+            Assert.Equal(1, r.InitialFalseContacts);
+            Assert.Equal(0, r.RemainingFalseContacts);
+            Assert.Equal(m.GetVertex(apex[0]), m.GetVertex(apex[1]));
+            Vector3d d = m.GetVertex(apex[2]) - p;
+            double moved = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
+            Assert.True(moved >= 2.2250738585072014E-308 && moved <= r.MaxLength, $"{name}: moved by {moved}");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m, checkSelfIntersections: false));
+            if (sim.IsExact)
+                Assert.True(Invariance.Difference(reference, Invariance.MappedBack(m, sim)) == "", name);
+        }
+
+        [Fact]
+        public void TouchingAtNegativeZero_OnePosition()
+        {
+            // the second box is the first reflected through the origin: its corner there is (-0.0, -0.0, -0.0), the
+            // first box's (0.0, 0.0, 0.0); one contact (Vector3d's equality and hash take the two as one position)
+            DMesh3 a = Box(Vector3d.Zero), b = new DMesh3(a);
+            foreach (int v in b.VertexIndices().ToList())
+                b.SetVertex(v, -b.GetVertex(v));
+            b.ReverseOrientation();
+            var boolean = new ExactMeshBoolean(a, b, Ops.Union);
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.Contains(boolean.Result.VertexIndices(), v => BitConverter.DoubleToInt64Bits(boolean.Result.GetVertex(v).x) == long.MinValue);
+            Assert.Equal(1, boolean.Contacts);
+            Assert.Equal(0, boolean.Rounding.InitialFalseContacts);
+            Assert.True(boolean.RoundingClean);
+        }
+
+        [Theory]
+        [InlineData(1, 1, 1, 1)]
+        [InlineData(1, 1, 0, 2)]
+        public void TouchingBoxes_Contacts_Similarities(double dx, double dy, double dz, int contacts)
+        {
+            // the shared corners are input points: every similarity maps them to one double each, so the contacts stay
+            foreach (Similarity sim in Similarity.All()) {
+                var b = new ExactMeshBoolean(Invariance.Transformed(Box(Vector3d.Zero), sim), Invariance.Transformed(Box(new Vector3d(dx, dy, dz)), sim), Ops.Union);
+                Assert.True(b.Compute(), b.Error);
+                Assert.True(b.Contacts == contacts, $"{sim}: contacts {b.Contacts}");
+                Assert.True(b.Rounding.InitialFalseContacts == 0, sim.ToString());
+                Assert.True(b.RoundingClean, sim.ToString());
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result, checkSelfIntersections: false));
+            }
+        }
+
+        [Fact]
+        public void EdgeSplitAtItsMidpoint_CopiesShareTheExactPoint_NotSeparated()
+        {
+            // a solid touching itself along an edge: the edge is split at its midpoint, a vertex per pair of pieces;
+            // the copies have one exact point id (the edge's), so they are a contact of the solid, not one the rounding
+            // made, and stay at one position
+            DMesh3[] parts = ExactMeshBooleanTests.PinchedSolid();
+            var b = new ExactMeshBoolean(ExactMeshBooleanTests.Merge(parts), new DMesh3(), Ops.Union);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(1, b.SplitNonManifoldEdges);
+            Assert.Equal(0, b.Rounding.InitialFalseContacts);
+            Assert.True(b.Result.VertexIndices().Any(v => b.Result.GetVertex(v) == new Vector3d(1, 1, 0.5)));
+            Assert.Equal(1, b.Contacts);
+            Assert.True(b.RoundingClean);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result, checkSelfIntersections: false));
+        }
+
+        [Fact]
+        public void OverlappingBoxes_NoContacts()
         {
             var b = new ExactMeshBoolean(Box(Vector3d.Zero), Box(new Vector3d(0.5, 0.25, 0.125)), Ops.Union);
             Assert.True(b.Compute(), b.Error);

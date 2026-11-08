@@ -161,7 +161,10 @@ namespace g3
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
         /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
-        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
+        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
+        /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
+        /// are moved apart by a few units in the last place where that adds no defect (Rounding.InitialFalseContacts,
+        /// RemainingFalseContacts; Contacts counts the positions with several vertices left). Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain (unless StrictRounding); RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
         /// on the Thingi10K benchmark it makes about 1.6 times as many results clean, for about 1.2 to 1.9 times the time
@@ -1551,10 +1554,8 @@ namespace g3
             int contacts = 0;
             foreach (int v in mesh.VertexIndices()) {
                 Vector3d p = mesh.GetVertex(v);
-                // (-0.0 and 0.0 are one position)
-                if (p.x == 0) p.x = 0;
-                if (p.y == 0) p.y = 0;
-                if (p.z == 0) p.z = 0;
+                // (-0.0 and 0.0 are one position: Vector3d's equality compares with ==, and double's hash is the same
+                // for both, on .NET Framework as on .NET)
                 int n;
                 seen.TryGetValue(p, out n);
                 if (n == 1)

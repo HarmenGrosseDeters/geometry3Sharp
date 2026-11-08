@@ -322,12 +322,13 @@ namespace g3
             InitialIntersections = pairs.Count;
             InitialDegenerate = bad.Count;
             evaluations = pairTests = 0;
-            maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count);
-            EvaluationLimitReached = false;
-            frozenMost = null;
             InitialFalseContacts = RemainingFalseContacts = 0;
             if (PointIdF != null && atPosition != null)
                 InitialFalseContacts = false_contacts().Count;
+            // (the contacts the rounding made are defects of their own: they count into the budget)
+            maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
+            EvaluationLimitReached = false;
+            frozenMost = null;
             repair_passes(ref pairs, ref bad);
             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
             // passes again where the moves changed the mesh)
@@ -1500,10 +1501,16 @@ namespace g3
         // separate the contacts the rounding made: move one vertex of a contact off its position, towards the centroid
         // of its neighbours or along its normal (both ways), from a few units in the last place up to maxLength; a move
         // is applied if it adds neither an intersection nor a degenerate triangle (improves, as every edit), so the
-        // vertex then meets the other sheet nowhere. Vertices that are not fixed first. Returns the moves applied
+        // vertex then meets the other sheet nowhere. Vertices that are not fixed first; a fixed vertex (FixedVertexF,
+        // eg an input point) is moved only as a fallback, where no vertex of the contact that is not fixed could be
+        // moved (its double is then no longer its exact point, by a few units in the last place: a contact counts as a
+        // defect, a moved input point does not). Returns the moves applied
         int separate_false_contacts()
         {
             int moved = 0;
+            // a vertex whose moves all failed is not tried again (a later move elsewhere rarely frees it, and each try
+            // costs up to three directions per step)
+            var failed = new HashSet<int>();
             for (bool again = true; again && EvaluationLimitReached == false; ) {
                 again = false;
                 foreach (List<int> g in false_contacts()) {
@@ -1527,13 +1534,14 @@ namespace g3
                     foreach (int v in movable) if (FixedVertexF == null || FixedVertexF(v) == false) order.Add(v);
                     foreach (int v in movable) if (FixedVertexF != null && FixedVertexF(v)) order.Add(v);
                     foreach (int v in order) {
-                        if (Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v) || Mesh.GetVtxEdgeCount(v) == 0)
+                        if (failed.Contains(v) || Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v) || Mesh.GetVtxEdgeCount(v) == 0)
                             continue;
                         if (try_separate(v)) {
                             moved++;
                             again = true;
                             break;
                         }
+                        failed.Add(v);
                     }
                 }
             }
@@ -1555,7 +1563,9 @@ namespace g3
             dirs.Add(unit(n));
             dirs.Add(-unit(n));
             double largest = Math.Max(Math.Abs(c.x), Math.Max(Math.Abs(c.y), Math.Abs(c.z)));
-            double s0 = 4 * ulp(Math.Max(largest, double.Epsilon));
+            // the first step: a few units in the last place of the position; at the origin (no such unit) the unit of
+            // maxLength, as in fix_intersection (so the steps do not start in the subnormals)
+            double s0 = largest > 0 ? 4 * ulp(largest) : ulp(maxLength);
             if (!(s0 > 0 && s0 < double.PositiveInfinity))
                 return false;
             for (double s = s0; s <= maxLength; s *= 4)
