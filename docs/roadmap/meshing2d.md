@@ -28,10 +28,15 @@ Small input angles and triangle count:
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
   decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
   25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
-- **Default (conforming) mode near small angles:** rule C (owner decision 2026-11-08,
+- **Default (conforming) mode near small angles:** rule C (owner decision 2026-11-08, #441,
   [design/MESHING2D_SMALL_ANGLES_CONFORMING.md](../design/MESHING2D_SMALL_ANGLES_CONFORMING.md)): #394's rule with an exact
-  local Delaunay check, so O2 holds; off the snap grid only (#441). Open: the corpus / Herne measurement on a runner, including
-  the refused forced splits (counters 13-15).
+  local Delaunay check, so O2 holds; off the snap grid only. Measured on the corpus (runner job `runs/meshing2d-rule-c`, 84 inputs,
+  default mode at 20° and 30°, 252 runs each side, same machine): no verdict worse (249 ok + 3 unjudged before, 250 ok + 2 unjudged
+  after; earcut/water-huge3 at 30° dropped below the judge limit and is now judged ok); triangles over the 234 runs that are ok on both sides
+  550 238 -> 451 893 (-17.9 %), 79 runs changed, none grew, median ratio 1.000, 5 % ratio 0.647 (earcut/bad-hole at 30° 1 454 -> 268);
+  meshing time 7.0 -> 6.0 s; the two Steiner-limit runs (poly2tri/debug2) unchanged. Counters 13-15 (refused forced splits) were not
+  printed by the corpus command; no verdict shows one. Herne default mode not measured (rule C is off on the grid, so it is expected to
+  be identical; the runner had no tiles).
 - **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
   `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
   ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
