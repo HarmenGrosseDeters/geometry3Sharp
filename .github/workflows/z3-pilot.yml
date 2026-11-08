@@ -13,6 +13,8 @@ on:
       - 'math/Generated/IndirectPredicates.cs'
       # pilot 2 step 1: the drift accounting of SafeRounding (the apex rule, D1)
       - 'mesh_ops/MeshRoundingRepair.cs'
+      # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
+      - 'mesh_ops/ExactMeshArrangement.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -39,6 +41,7 @@ jobs:
           Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
           Z3_CONSERVATIVE_MC_REPORT: z3-conservative-mc-report.json
           Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
+          Z3_TRITRI_REPORT: z3-tritri-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -48,3 +51,4 @@ jobs:
             z3-filter-rules-report.json
             z3-conservative-mc-report.json
             z3-drift-apex-report.json
+            z3-tritri-report.json

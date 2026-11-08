@@ -207,6 +207,13 @@ namespace g3
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
+        // tests (counted in check mode only): candidate pairs the Devillers-Guigue test rejected, and proper pairs whose
+        // decision was compared with the construction's
+        internal int PrefilterRejected, PrefilterChecked;
+        // tests: every proper pair is decided both ways, the prefilter's decision compared with the construction's
+        // (InvalidOperationException if they differ); read when the intersections are searched, on the calling thread
+        [ThreadStatic] internal static bool CheckPrefilterOnThisThread;
+        bool checkPrefilter;
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
         /// <summary> segment pairs and segment-point pairs examined in the triangles (for tests: about linear in their number) </summary>
         public long CandidateTests;
@@ -1461,6 +1468,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void find_intersections(PhaseClock clock)
         {
+            checkPrefilter = CheckPrefilterOnThisThread;
             // boxes of the exact input coordinates
             var boxes = new List<AxisAlignedBox3d>[Meshes.Count];
             var trees = Trees = new TriangleBoxTree[Meshes.Count];
@@ -1797,6 +1805,17 @@ namespace g3
                 intersect_coplanar(ti, ui);
                 return;
             }
+            // the proper case (no vertex in the other plane): decided by the signs alone, without the points
+            // (docs/design/TRITRI_PREFILTER.md); other cases, and pairs that meet, take the construction below
+            bool proper = sT[0] != 0 && sT[1] != 0 && sT[2] != 0 && sU[0] != 0 && sU[1] != 0 && sU[2] != 0;
+            bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
+            if (apart) {
+                // Stryker disable once all: without the early return the construction below decides the same (slower)
+                if (checkPrefilter == false)
+                    return;
+                // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
+                System.Threading.Interlocked.Increment(ref PrefilterRejected);
+            }
 
             List<int> pT = plane_points(T, sT, 4 * ui), pU = plane_points(U, sU, 4 * ti);
             var d = new Direction(T.NY * U.NZ - T.NZ * U.NY, T.NZ * U.NX - T.NX * U.NZ, T.NX * U.NY - T.NY * U.NX);
@@ -1806,6 +1825,10 @@ namespace g3
             int lo = (compare_along(d, loT, loU) >= 0) ? loT : loU;
             int hi = (compare_along(d, hiT, hiU) <= 0) ? hiT : hiU;
             int c = compare_along(d, lo, hi);
+            if (checkPrefilter && proper)
+                System.Threading.Interlocked.Increment(ref PrefilterChecked);
+            if (checkPrefilter && proper && apart != (c > 0))
+                throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -1816,6 +1839,31 @@ namespace g3
                 lock (T) T.AddSegment(new Segment(lo, hi, 4 * ui));
                 lock (U) U.AddSegment(new Segment(lo, hi, 4 * ti));
             }
+        }
+
+        // Devillers and Guigue (2002), the proper case: the triangles t and u each have their vertices strictly on both
+        // sides of the other's plane (sT[k] = Orient3d(u0, u1, u2, t_k), sU[k] = Orient3d(t0, t1, t2, u_k), all non-zero).
+        // Both triangles meet the line L of the two planes in a segment; they intersect iff the segments overlap. With
+        // p1 the vertex of t alone on its side and p2 the one of u (q, r follow in cyclic order), and q2, r2 swapped where
+        // p1 is below u's plane, q1, r1 where p2 is below t's plane, the segments overlap iff
+        // Orient3d(p1, q1, p2, q2) <= 0 and Orient3d(p1, r1, r2, p2) <= 0. True: they are apart (no common point)
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool apart_on_the_line(Vector3d t0, Vector3d t1, Vector3d t2, int[] sT, Vector3d u0, Vector3d u1, Vector3d u2, int[] sU)
+        {
+            int i = (sT[0] != sT[1] && sT[0] != sT[2]) ? 0 : (sT[1] != sT[0] && sT[1] != sT[2]) ? 1 : 2;
+            int j = (sU[0] != sU[1] && sU[0] != sU[2]) ? 0 : (sU[1] != sU[0] && sU[1] != sU[2]) ? 1 : 2;
+            Vector3d p1 = pick(t0, t1, t2, i), q1 = pick(t0, t1, t2, i + 1), r1 = pick(t0, t1, t2, i + 2);
+            Vector3d p2 = pick(u0, u1, u2, j), q2 = pick(u0, u1, u2, j + 1), r2 = pick(u0, u1, u2, j + 2);
+            // (a cyclic order keeps the plane's orientation: the sign of p1 to (p2, q2, r2) is sT[i], of p2 to (p1, q1, r1) sU[j])
+            if (sT[i] < 0) { Vector3d w = q2; q2 = r2; r2 = w; }
+            if (sU[j] < 0) { Vector3d w = q1; q1 = r1; r1 = w; }
+            return ExactPredicates.Orient3d(p1, q1, p2, q2) > 0 || ExactPredicates.Orient3d(p1, r1, r2, p2) > 0;
+        }
+
+        static Vector3d pick(Vector3d a, Vector3d b, Vector3d c, int k)
+        {
+            k %= 3;
+            return k == 0 ? a : k == 1 ? b : c;
         }
 
         // the points where the boundary of t meets the plane (key; t is not in the plane)
