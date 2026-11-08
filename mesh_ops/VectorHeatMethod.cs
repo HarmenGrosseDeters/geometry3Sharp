@@ -1,10 +1,39 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+// Affine strategies adapted from geometry-central, revision 019669ddabda05e0f71fa3587cfb3c1dadf19cb8.
+// MIT License
+// Copyright (c) 2017-2019 Nicholas Sharp and the geometry-central contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 using System;
 using System.Collections.Generic;
 using g3;
 
 namespace gs
 {
+    /// <summary>Construction used for the vector heat logarithmic map.</summary>
+    public enum LogMapStrategy
+    {
+        Legacy,
+        AffineLocal,
+        AffineAdaptive
+    }
+
     /// <summary>
     /// The Vector Heat Method (Sharp, Soliman and Crane, "The Vector Heat Method", ACM TOG 2019): parallel
     /// transport of tangent vectors along shortest geodesics, extension of scalar values to the nearest
@@ -485,6 +514,79 @@ namespace gs
                 hh = next;
             } while (hh >= 0 && hh != h0 && ++guard < T.HalfedgeCount);
             return per_vertex(i => log[i], nan, has);
+        }
+
+
+        /// <summary>
+        /// Selects the legacy construction or an affine heat method (Soliman and Sharp, 2025).
+        /// AffineLocal divides affine heat coordinates by scalar heat, then transports to the source frame.
+        /// AffineAdaptive instead develops the edge translations in the transported source frame before diffusion.
+        /// Unlike the upstream assembly, negative cotangent weights are clamped, as in the other heat operators.
+        /// Neither variant guarantees pointwise improvement over the legacy construction.
+        /// </summary>
+        public Vector2d[] ComputeLogMap(int sourceVid, LogMapStrategy strategy)
+        {
+            if (strategy == LogMapStrategy.Legacy) return ComputeLogMap(sourceVid);
+            if (strategy != LogMapStrategy.AffineLocal && strategy != LogMapStrategy.AffineAdaptive)
+                throw new ArgumentOutOfRangeException(nameof(strategy));
+            bool adaptive = strategy == LogMapStrategy.AffineAdaptive;
+            check();
+            IntrinsicTriangulation T = triangulation;
+            int x = index_of(sourceVid);
+            if (x < 0) throw new ArgumentException("VectorHeatMethod.ComputeLogMap: the source vertex has no triangles");
+            var src = new List<int>() { x };
+            bool[] has = source_components(src);
+            double[] z = indicator_heat(src, has);
+
+            double[] rhs = new double[2 * N], reference = new double[2 * N];
+            rhs[2 * x] = 1;
+            ops.Vector.Solve(rhs, reference);
+            Vector2d nan = new Vector2d(double.NaN, double.NaN);
+            Vector2d[] frame = new Vector2d[N];
+            for (int i = 0; i < N; ++i) {
+                double scale = Math.Max(Math.Abs(reference[2 * i]), Math.Abs(reference[2 * i + 1]));
+                frame[i] = scale > 0 ? new Vector2d(reference[2 * i] / scale, reference[2 * i + 1] / scale) : nan;
+                frame[i] /= frame[i].Length;
+            }
+            Array.Clear(rhs, 0, rhs.Length);
+            // [A_vector B; 0 A_scalar] [u; z] = [0; delta]; Adaptive replaces A_vector by two A_scalar blocks.
+            for (int h = 0; h < T.HalfedgeCount; ++h) {
+                if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;
+                int i = T.Tail(h), j = T.Head(h);
+                if (!has[component[i]]) continue;
+                double c = -DiffusionTime * heatWeight[h] * T.Length(h);
+                double ai = T.Signpost(h), aj = T.ReverseSignpost(h);
+                Vector2d ei = new Vector2d(Math.Cos(ai), Math.Sin(ai)), ej = new Vector2d(Math.Cos(aj), Math.Sin(aj));
+                if (adaptive) {
+                    ei = source_frame(ei, frame[i]);
+                    ej = source_frame(ej, frame[j]);
+                }
+                rhs[2 * i] += c * z[j] * ei.x;
+                rhs[2 * i + 1] += c * z[j] * ei.y;
+                rhs[2 * j] += c * z[i] * ej.x;
+                rhs[2 * j + 1] += c * z[i] * ej.y;
+            }
+            double[] u = new double[2 * N];
+            if (adaptive) {
+                double[] b = new double[N], solution = new double[N];
+                for (int k = 0; k < 2; ++k) {
+                    for (int i = 0; i < N; ++i) b[i] = rhs[2 * i + k];
+                    ops.Scalar.Solve(b, solution);
+                    for (int i = 0; i < N; ++i) u[2 * i + k] = solution[i];
+                }
+            } else ops.Vector.Solve(rhs, u);
+            return per_vertex(i => {
+                if (i == x) return Vector2d.Zero;
+                if (!(z[i] > 0)) return nan;
+                Vector2d p = new Vector2d(u[2 * i] / z[i], u[2 * i + 1] / z[i]);
+                return adaptive ? p : source_frame(p, frame[i]);
+            }, nan, has);
+        }
+
+
+        static Vector2d source_frame(Vector2d p, Vector2d unitReference)
+        {
+            return new Vector2d(p.Dot(unitReference), p.y * unitReference.x - p.x * unitReference.y);
         }
 
 
