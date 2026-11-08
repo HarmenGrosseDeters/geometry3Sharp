@@ -42,12 +42,32 @@ Part of the [roadmap](../ROADMAP.md).
      termination argument); Sonnet only for bounded parts.
   4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
-  5. Point clouds in stages: normal orientation first (fast winding numbers exist), then screened Poisson, L.
+  5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
+     sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
+     orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
+     and the batch queries (priority 1) are the building blocks.
   6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
+- **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
+  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 5).
+  - Meshing2D ↔ terrain: a TIN with breaklines is constrained quality meshing in 2.5D; the terrain restart (DGM
+    reader) designs with `QualityMesh2`, its oracle and golden tests.
+  - Exact booleans ↔ tetrahedral meshing ↔ practical 3D snap rounding: exact and implicit points, then doubles
+    without inverted tets; SafeRounding, the D1 rule and Z3 as a rule checker serve all three.
+  - Conservative marching cubes ↔ TPMS ↔ alpha wrap: lattices with a guaranteed enclosure; infill by intersecting
+    implicitly before marching cubes (cheaper than an exact boolean after); a cheap conservative bound for the
+    wrap's envelope checks.
+  - Batch queries ↔ fidelity metrics, wrap certification, point clouds, terrain height / ray queries, tet labelling,
+    CCD broad phase: priority 1 is the base for the others.
+  - Polyhedral envelope ↔ Reducer / Remesher ↔ tetrahedral meshing: too slow for the remeshers, but surface
+    preservation on a clean wrap surface may fit (fTetWild preserves the surface by an envelope).
+  - QA generators and the oracle pattern ↔ all modules: one CsCheck generator of multi-component, scale-disparate
+    inputs serves boolean, repair, wrap and later tets.
+  - CLI / MCP ↔ everything: batch raycast, inside test, wrap and later tet meshing form the chain agents need for
+    simulation and manufacturing.
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
