@@ -13,6 +13,11 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **AffineLocal log map, follow-up measurement** (priority: low; owner 2026-11-08): the near-field gate (#414) gave
+  `MeshLocalParam` exact normals and the oracle frame. Measure it with normals estimated from the mesh on the noisy
+  and anisotropic fixtures, and in the far field up to just before the cut locus; ship AffineLocal only if it then wins
+  clearly for a stated use ("robust local parameterization without good normals"). A Sonnet-sized task; code on
+  `agents/affine-local-logmap-gate` at ab9ea81e.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).

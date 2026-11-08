@@ -110,7 +110,7 @@ Planned, not started.
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Parameterization: integer
+- Parameterization: AffineLocal log-map follow-up with estimated normals and far field (low), integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
