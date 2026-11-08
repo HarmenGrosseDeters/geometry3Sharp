@@ -44,7 +44,8 @@ Part of the [roadmap](../ROADMAP.md).
   within 0.2 %, +2-4 % triangles, band slightly worse; raw rows on runs/alpha-wrap-features), closed; option 3, crease-aware Steiner points: upper bound on 100 meshes says no (convex creases
   already 0.56δ from the input edges; concave creases 4.7δ, set by the empty α-ball, about 0.45δ better than the
   α limit (α+δ)/sin(θ/2) − α; only a locally smaller α, option 4, could change that), not built; #405 (A, the
-  simplification guard) merged 2026-11-08; concave corner recovery is research, not in 2.0;
+  simplification guard), #413 (quality pass off by default) and #422 (bit-identical Reducer speedups, T3:
+  reduce 0.906, pipeline 0.975 per mesh) merged 2026-11-08; concave corner recovery is research, not in 2.0;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
