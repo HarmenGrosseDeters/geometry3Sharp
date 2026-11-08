@@ -1,0 +1,31 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/mesh_ops/ExactMeshArrangement.cs{85369..105425}"
+    ],
+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 10000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 74,
+      "break": 72
+    },
+    "concurrency": 2
+  }
+}

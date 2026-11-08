@@ -1,0 +1,31 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/mesh_ops/MeshRoundingRepair.cs{97200..112316}"
+    ],
+    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~MeshRoundingRepairFilterTests.BoundaryPairs|FullyQualifiedName~MeshRoundingRepairFilterTests.FilterDecisions_AgreeWithExactTest|FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips|FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip|FullyQualifiedName~MeshRoundingRepairIncrementalTests.Checked_SameResultAsUnchecked|FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits|FullyQualifiedName~RoundingDirtyTreeTests.ManySlivers_QueriesEqualAScan_TreeBuiltRarely|FullyQualifiedName~RoundingDirtyTreeTests.Moves_QueriesEqualAScan|FullyQualifiedName~ExactBooleanFarComponentTests|FullyQualifiedName~ExactBooleanScaleDisparityTests|FullyQualifiedName~RoundingDriftApexTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 61,
+      "break": 59
+    },
+    "concurrency": 2
+  }
+}
