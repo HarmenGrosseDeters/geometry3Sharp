@@ -1,0 +1,28 @@
+== results/t3_ABCR.jsonl: 100 rows, 100 with a result, timeouts / crashes / exceptions 0
+guarantees met: 100 / 100 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 0, failed: 0
+band (hd fwd upper bound / (alpha + offset)): median 0.982 p90 1.090 max 1.195; > 1: 39; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 0, upper bound above it 24
+hd_back_hi_rel: median 0.0056 p10 0.0039 p90 0.0343
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 8.967; max global 168.17 median 153.87; p01 median 19.47 min 15.49; > 150: 571; tris median 121760
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 9.024; max global 161.88 median 152.44; p01 median 11.67 min 10.92; > 150: 736; tris median 35298
+pipeline time (s, warm): median 7.02 p90 15.90 p99 28.74 max 57.07; over the budget max(5 s, 50 µs x raw triangles): 68 of 100 (+ 0 without a result); pass 32
+  over: 222695.stl 57.1/35.9, 270322.stl 28.7/12.5, 65584.stl 24.2/16.4, 51705.stl 23.8/11.5, 42179.stl 23.0/11.8, 1601406.stl 23.0/13.2, 66112.stl 22.4/15.0, 61198.stl 21.1/13.3, 503407.stl 19.0/15.0, 124185.stl 17.0/12.1, 92896.stl 15.9/10.6, 76685.stl 15.7/8.5, 509315.stl 15.2/10.1, 1038438.stl 15.2/11.9, 43390.stl 14.9/11.4
+phases (all, 100 meshes, sum 896 s): simplify 39.0%, wrap 36.2%
+  parts: simplify.reduce 30.5%, wrap.insert 10.3%, wrap.pinches 9.5%, wrap.intersection 9.1%, wrap.touch 8.9%, wrap.pinches2 8.4%, simplify.certify 6.5%, wrap.manifold 3.5%, simplify.check 1.9%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+phases (over the budget, 68 meshes, sum 763 s): simplify 37.8%, wrap 36.3%
+  parts: simplify.reduce 30.0%, wrap.insert 10.2%, wrap.pinches 10.0%, wrap.intersection 9.4%, wrap.pinches2 8.9%, wrap.touch 8.9%, simplify.certify 6.0%, wrap.manifold 3.5%, simplify.check 1.8%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+  parts: simplify.reduce 30.0%, wrap.insert 10.2%, wrap.pinches 10.0%, wrap.intersection 9.4%, wrap.pinches2 8.9%, wrap.touch 8.9%, simplify.certify 6.0%, wrap.manifold 3.5%, simplify.check 1.8%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+== results/t3_ABC.jsonl: 100 rows, 100 with a result, timeouts / crashes / exceptions 0
+guarantees met: 100 / 100 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 0, failed: 0
+band (hd fwd upper bound / (alpha + offset)): median 0.982 p90 1.090 max 1.195; > 1: 39; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 0, upper bound above it 24
+hd_back_hi_rel: median 0.0056 p10 0.0039 p90 0.0343
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 8.967; max global 168.17 median 153.87; p01 median 19.47 min 15.49; > 150: 571; tris median 121760
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 9.024; max global 161.88 median 152.44; p01 median 11.67 min 10.92; > 150: 736; tris median 35298
+pipeline time (s, warm): median 7.29 p90 16.36 p99 27.85 max 61.01; over the budget max(5 s, 50 µs x raw triangles): 71 of 100 (+ 0 without a result); pass 29
+  over: 222695.stl 61.0/35.9, 270322.stl 27.8/12.5, 65584.stl 26.1/16.4, 51705.stl 24.9/11.5, 1601406.stl 23.2/13.2, 66112.stl 22.7/15.0, 42179.stl 22.3/11.8, 61198.stl 20.6/13.3, 503407.stl 19.3/15.0, 124185.stl 17.9/12.1, 1038438.stl 16.4/11.9, 92896.stl 15.9/10.6, 76685.stl 15.5/8.5, 509315.stl 15.0/10.1, 37111.stl 14.3/8.6
+phases (all, 100 meshes, sum 921 s): simplify 41.0%, wrap 35.4%
+  parts: simplify.reduce 32.6%, wrap.insert 10.1%, wrap.pinches 9.0%, wrap.intersection 8.9%, wrap.touch 8.7%, wrap.pinches2 7.9%, simplify.certify 6.4%, wrap.manifold 3.4%, simplify.check 1.9%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+phases (over the budget, 71 meshes, sum 801 s): simplify 40.0%, wrap 35.5%
+  parts: simplify.reduce 32.2%, wrap.insert 9.9%, wrap.pinches 9.5%, wrap.intersection 9.2%, wrap.touch 8.7%, wrap.pinches2 8.4%, simplify.certify 6.0%, wrap.manifold 3.3%, simplify.check 1.8%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+== paired (100): time ratio median 0.975 p10 0.911 p90 1.028; identical results 100
