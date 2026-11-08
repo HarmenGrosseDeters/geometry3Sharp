@@ -244,7 +244,12 @@ Citation: Philip Trettner, Julius Nehring-Wirxel, Leif Kobbelt. *EMBER: Exact Me
 Local Arrangements.* ACM TOG 41(4), Article 39, July 2022, DOI
 [10.1145/3528223.3530181](https://doi.org/10.1145/3528223.3530181),
 <https://www.graphics.rwth-aachen.de/media/papers/339/ember_exact_mesh_booleans_via_efficient_and_robust_local_arrangements.pdf>.
-Paper only (no code is public; productised as Solidean by Shaped Code GmbH).
+Paper only (no code is public; productised as Solidean by Shaped Code GmbH). Licence of the paper: standard ACM
+copyright form, not open access ("© 2022 Copyright held by the owner/author(s). Publication rights licensed to ACM";
+Crossref licence URL: the ACM copyright policy): personal and classroom use, no redistribution. Copyright covers the
+text and figures, not the method, so implementing from the paper is allowed under our rules; the PDF must not be
+committed and text or figures are not copied (this note paraphrases). The copyright notice says nothing about
+patents, which are a separate question (below).
 
 - **Representation** (Sec. 3): plane-based geometry with fixed-width homogeneous integer coordinates (Nehring-Wirxel et
   al. 2021); input quantized to 26-bit integers (lossy for float input: about 15 nm on a 1 m scene). A segment between
