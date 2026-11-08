@@ -104,7 +104,6 @@ Planned, not started.
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Terrain, after the pause: a DGM reader in the CLI, then the later steps (2)-(8), the §11 follow-ups and the
   mutation shards (#302). [terrain.md](roadmap/terrain.md#open)
-- Terrain: honest terrain metrics (task 5, benchmark only). [terrain.md](roadmap/terrain.md#task-5-honest-terrain-metrics)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Parameterization: the near-field log map from affine heat (medium-low), the planar log-map error (low), integer
