@@ -153,6 +153,12 @@ from secret tests, which a public repository cannot keep.
   scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
   profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
   coordinator starts the runner on request.
+  Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
+  resumable (one result line or file per case; a rerun skips finished cases; a timing job reruns an interrupted
+  pair), the runner pushes partial raw results to its data branch about every hour, keeps a self check-in
+  (`send_later`, about every 30-60 min) while a job runs, and on every wake, including a restart notice, checks
+  whether the job's process still runs and its output still grows; if not, it resumes the job and reports the
+  restart and the cases rerun.
 - Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
   - Small, bounded tasks (reading a paper, a license check, one measurement) go to a fresh short session with a
     precise brief, not to a long-running one.
