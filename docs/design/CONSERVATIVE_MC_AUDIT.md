@@ -108,9 +108,13 @@ embeddedness. Its link to `find_iso` is a whole-file hash tripwire that forces a
 re-review on any change, not a semantic check: that the code matches the FP
 model, that shared crossings are bit-identical in neighbouring cells, and that no
 FMA contraction happens remain review obligations (with native tests). The
-failure paths (`InvalidOperationException` for a crossing on a corner, a
-collapsed or a rejected triangle, serial and parallel alike) have native tests in
-`MarchingCubesConservativeTests`. The optional
+failure paths (`InvalidOperationException` for a crossing on a corner or a
+collapsed triangle, also from the parallel paths; `ArgumentException` for a Pro
+grid of more than 65535 cells per axis, whose 16-bit hash would alias edges) have
+native tests in `MarchingCubesConservativeTests`. The throw on a rejected triangle
+is a guard only: with distinct vertices per grid edge it is not reachable, since
+by the case table no edge between two crossings is used by more than two
+triangles. The optional
 `--direct` query contains the proposed zero-point/Lipschitz nonlinear model;
 UNKNOWN results there are not proofs. SAT assumptions are required for the
 adapter queries; impossible zero-point cases in the direct model are separately

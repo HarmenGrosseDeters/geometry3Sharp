@@ -343,7 +343,10 @@ would itself be incorrect. The default adapter guards are SAT for every row.
    winding number one. This establishes **winding enclosure**, not embeddedness
    or a guarantee for every ray-parity implementation on self intersections.
    Runtime success must retain every required triangle; `LinearEdges` throws on
-   collapsed crossings or rejected triangles. Bounds must fully contain the
+   a crossing on a corner or a collapsed triangle (coincident crossings), and
+   keeps a throw on a rejected triangle as a guard (not reachable: no two grid
+   edges share a vertex, and by the case table no edge between two crossings is
+   used by more than two triangles). Bounds must fully contain the
    offset surface AND enclose the bounded low solid, with all extraction-boundary
    samples high; containing the offset surface alone is insufficient. The field
    must be deterministic/thread-safe for parallel use,
@@ -357,8 +360,9 @@ would itself be incorrect. The default adapter guards are SAT for every row.
    multiply-adds (RyuJIT emits FMA only for explicit `Math.FusedMultiplyAdd`;
    other runtimes, eg Mono or IL2CPP, are not checked; the FP envelope of the next
    section assumes separately rounded operations). Pro continuation can miss
-   components and is excluded; its 16-bit index hashing requires dimensions
-   below 65536. Use full `Generate()`.
+   components and is excluded. Pro's 16-bit index hashing allows at most 65535
+   cells per axis; `LinearEdges` refuses a larger grid with `ArgumentException`
+   before any work (the legacy modes alias silently). Use full `Generate()`.
 5. Required SAT controls: the positive-radius cell-center sphere below the
    threshold, and a deliberately incorrect crossing placement with a lift below
    sigma. These check satisfiability, not merely absence of counterexamples.

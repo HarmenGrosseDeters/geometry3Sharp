@@ -6,7 +6,7 @@
       "name": "marching_cubes_tests",
       "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~MarchingCubes",
       "exit_code": 0,
-      "passed": 54,
+      "passed": 58,
       "failed": 0
     },
     {
@@ -28,8 +28,14 @@
       "failed": 5
     },
     {
-      "name": "mutant_rejected_triangle_not_thrown",
-      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProRejected (Pro throw on a rejected triangle disabled, restored afterwards)",
+      "name": "mutant_pro_grid_limit_removed",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProRejectsGrids|FullyQualifiedName~ProGridLimit (Pro LinearEdges grid limit check disabled, restored afterwards; equals the behaviour of b5519a96)",
+      "exit_code": 1,
+      "failed": 6
+    },
+    {
+      "name": "mutant_pro_grid_limit_off_by_one",
+      "command": "same filter (limit w / h < 65536 instead of < 65535, restored afterwards)",
       "exit_code": 1,
       "failed": 2
     },

@@ -80,8 +80,10 @@ namespace g3
 
         /// <summary>
         /// The first InvalidOperationException among the (flattened) inner exceptions of e, else the first
-        /// ArgumentException, else null: for a caller whose serial path documents these exception types, so that its
-        /// parallel path throws the same type instead of an AggregateException
+        /// ArgumentException, else null: for a caller that documents these exception types, so that its parallel path
+        /// throws one of them instead of an AggregateException. Only the type preference is fixed: which exception
+        /// (and so which message) comes first among several depends on the thread schedule and need not be the one
+        /// the serial path throws; with null (only other exception types) the caller lets the AggregateException pass
         /// </summary>
         internal static Exception FirstOperationFailure(AggregateException e)
         {

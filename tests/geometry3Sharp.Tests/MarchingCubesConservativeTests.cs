@@ -151,22 +151,53 @@ namespace geometry3Sharp.Tests
             public double Value(ref Vector3d p) => p.y - 0.5;
         }
 
+        sealed class AliasField : ImplicitFunction3d
+        {
+            // A plane below x = 65536 and one low node at x = 65540: with 16-bit corner indices its y edges alias the
+            // edges at x = 4 of the plane, which silently gave an open mesh with edges 65536 long.
+            public double Value(ref Vector3d p)
+            {
+                if (p.x < 65536) return p.y - 0.25;
+                return p.x == 65540 && p.y == 1 && p.z == 1 ? -1 : 1;
+            }
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(true, true)]
+        public void LinearEdges_ProRejectsGridsBeyondItsHash(bool parallel, bool continuation)
+        {
+            // MarchingCubesPro keeps 16 bits of each corner index in its corner and edge hashes: LinearEdges refuses a
+            // grid of more than 65535 cells along an axis before any work. (With that limit no two grid edges share a
+            // vertex, and by the case table no edge between two crossings is used by more than two triangles, so the
+            // rejected-triangle throw is not reachable in either class; it stays as a guard.)
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65600, 2, 2));
+            var pro = new MarchingCubesPro { Implicit = new AliasField(), Bounds = bounds, CubeSize = 1,
+                RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+            var seeds = new[] { new Vector3d(65540, 1, 1), new Vector3d(4, 0.25, 1) };
+            var error = Assert.Throws<ArgumentException>(() => { if (continuation) pro.GenerateContinuation(seeds); else pro.Generate(); });
+            Assert.Contains("65535", error.Message);
+            Assert.Equal(0, pro.Mesh.TriangleCount);
+            // the legacy modes are unchanged (no check)
+            var legacy = new MarchingCubesPro { Implicit = new AliasField(), Bounds = bounds, CubeSize = 1, ParallelCompute = parallel };
+            legacy.Generate();
+            Assert.True(legacy.Mesh.TriangleCount > 0);
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public void LinearEdges_ProRejectedTriangleThrows(bool parallel)
+        public void LinearEdges_ProGridLimitIsExact(bool parallel)
         {
-            // MarchingCubesPro identifies crossings by a 16-bit-per-axis edge hash: with more than 65536 cells along x,
-            // the crossings at x and x + 65536 share one vertex, the plane y = 1/2 emits the same triangles twice, and
-            // the mesh rejects the third triangle at an edge. The legacy modes skip it silently; LinearEdges throws.
-            // (The rejection is not reachable in MarchingCubes: distinct grid edges have distinct crossing positions,
-            // and by the case table no edge between two crossings is used by more than two triangles.)
-            var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65540, 1, 1));
-            var error = Assert.Throws<InvalidOperationException>(() => Generate(true, parallel, new Slab(), bounds, 1, 0));
-            Assert.Contains("rejected", error.Message);
-            var legacy = new MarchingCubesPro { Implicit = new Slab(), Bounds = bounds, CubeSize = 1, ParallelCompute = parallel };
-            legacy.Generate();
-            Assert.True(legacy.Mesh.TriangleCount < 2 * 65541 * 2);     // (two triangles in each of the 65541 x 2 cells it crosses)
+            // Width / CubeSize < 65535 gives (int)(w / h) + 1 <= 65535 cells, corner indices up to 65535: allowed and
+            // without aliasing (the plane y = 1/2 crosses 65535 x 2 cells, two triangles each). One more is refused.
+            DMesh3 mesh = Generate(true, parallel, new Slab(), new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65534, 1, 1)), 1, 0);
+            Assert.Equal(2 * 65535 * 2, mesh.TriangleCount);
+            Assert.True(mesh.CheckValidity());
+            Assert.Throws<ArgumentException>(
+                () => Generate(true, parallel, new Slab(), new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65535, 1, 1)), 1, 0));
         }
 
         [Theory]
@@ -177,7 +208,7 @@ namespace geometry3Sharp.Tests
             // A grid that is not exactly representable: at x = 2^52 (spacing of doubles 1) the nodes 2^52 + 0.75 i
             // round to 2^52 + {0, 1, 2, 2, 3, 4, ...}, so one cell has width zero and MarchingCubes (vertices identified
             // by position) merges the crossings on its two sides into one vertex. The legacy modes skip the
-            // degenerate triangles; LinearEdges throws.
+            // degenerate triangles; LinearEdges throws (a triangle collapsed, coincident crossings).
             double x0 = Math.Pow(2, 52);
             var bounds = new AxisAlignedBox3d(new Vector3d(x0, 0, 0), new Vector3d(x0 + 4, 1, 1));
             var error = Assert.Throws<InvalidOperationException>(() => Generate(false, parallel, new Slab(), bounds, 0.75, 0));

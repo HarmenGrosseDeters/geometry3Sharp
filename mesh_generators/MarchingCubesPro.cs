@@ -46,10 +46,11 @@ namespace gs
         /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
         /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
         /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
-        /// InvalidOperationException (a crossing on a grid corner, a collapsed or rejected triangle) or
-        /// ArgumentException (non-finite values), from the parallel path as from the serial one, and the partial
-        /// mesh must not be used. MarchingCubesPro additionally needs fewer than 65536 cells per axis (its edge
-        /// hash). The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed triangle, or as a guard a rejected
+        /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
+        /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
+        /// needs fewer than 65536 cells per axis (its 16-bit grid hash) and otherwise throws ArgumentException before
+        /// any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
         /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
@@ -97,6 +98,7 @@ namespace gs
         {
             Mesh = new DMesh3();
 
+            check_linear_edges_grid();
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
@@ -119,6 +121,7 @@ namespace gs
         {
             Mesh = new DMesh3();
 
+            check_linear_edges_grid();
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
@@ -148,6 +151,21 @@ namespace gs
             LastGridBounds = GridBounds;
         }
 
+
+
+        /// <summary>
+        /// The corner and edge hashes keep 16 bits of each corner index, and the corner indices of an axis run from 0
+        /// to its cell count: more than 65535 cells alias two grid edges onto one vertex. LinearEdges refuses such a
+        /// grid before any work (the legacy modes keep their behaviour). nx = (int)(w / h) + 1 is at most 65535 iff
+        /// w / h &lt; 65535 (also false for NaN and infinity)
+        /// </summary>
+        void check_linear_edges_grid()
+        {
+            if (RootMode != RootfindingModes.LinearEdges)
+                return;
+            if (!(Bounds.Width / CubeSize < 65535) || !(Bounds.Height / CubeSize < 65535) || !(Bounds.Depth / CubeSize < 65535))
+                throw new ArgumentException("MarchingCubesPro LinearEdges: at most 65535 cells per axis (16-bit grid hash)");
+        }
 
 
         AxisAlignedBox3i GridBounds;
@@ -443,6 +461,7 @@ namespace gs
             parallel_mesh_access = true;
 
             // [TODO] maybe shouldn't alway use Z axis here?
+            Exception failure = null;
             try {
                 gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
                     GridCell cell = new GridCell();
@@ -460,21 +479,11 @@ namespace gs
                         }
                     }
                 });
-            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && gParallel.FirstOperationFailure(e) != null) {
-                rethrow_linear_edges_failure(e);
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             } finally {
                 parallel_mesh_access = false;
             }
-        }
-
-
-        /// <summary>
-        /// LinearEdges documents InvalidOperationException (and ArgumentException) for a failed run: the parallel
-        /// paths throw that exception, as the serial ones do, not the AggregateException of the parallel loop
-        /// </summary>
-        static void rethrow_linear_edges_failure(AggregateException e)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(gParallel.FirstOperationFailure(e)).Throw();
         }
 
 
@@ -558,6 +567,7 @@ namespace gs
             mesh_lock = new SpinLock();
             parallel_mesh_access = true;
 
+            Exception failure = null;
             try {
                 gParallel.ForEach(seeds, (seed) => {
                     Vector3i seed_idx = cell_index(seed);
@@ -589,8 +599,9 @@ namespace gs
                         }
                     }
                 });
-            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && gParallel.FirstOperationFailure(e) != null) {
-                rethrow_linear_edges_failure(e);
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                // (LinearEdges documents InvalidOperationException and ArgumentException, not the AggregateException of the loop)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             } finally {
                 parallel_mesh_access = false;
             }
@@ -670,7 +681,7 @@ namespace gs
                 // !! this should never happen anymore...artifact of old hashtable impl
                 if (a == b || a == c || b == c) {
                     if (RootMode == RootfindingModes.LinearEdges)
-                        throw new InvalidOperationException("LinearEdges: a crossing collapsed to a grid corner");
+                        throw new InvalidOperationException("LinearEdges: a triangle collapsed (coincident crossings)");
                     continue;
                 }
 
