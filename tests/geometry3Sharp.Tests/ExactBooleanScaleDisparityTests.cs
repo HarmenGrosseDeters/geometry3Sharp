@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// SafeRounding's safety net (MeshRoundingRepair.ScaleDisparity): a closed component that the bound takes as thin but
     /// that holds real volume for its area is never removed; it is kept, counted, and the repair is not clean. The far
-    /// parts of ExactBooleanFarComponentTests count none.
+    /// parts of ExactBooleanFarComponentTests count none. A scale that is not finite (ScaleNotFinite) is not clean either.
     /// </summary>
     public class ExactBooleanScaleDisparityTests
     {
@@ -58,6 +58,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, boolean.Rounding.ScaleDisparity);
             Assert.Equal(0, boolean.Counts["rounding_scale_disparity"]);
             Assert.True(boolean.RoundingClean);
+        }
+
+        [Fact]
+        public void HugeExtent_OneComponent_KeptAndNotClean()
+        {
+            // a closed rod from -1e300 to 1e300, one component: its diagonal overflows; it is kept (before: removed as
+            // tiny, and clean) and the repair is not clean
+            DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e300, 1, 1)) }.Generate().MakeDMesh();
+            int before = m.TriangleCount;
+            var r = new MeshRoundingRepair(m);
+            Assert.False(r.Apply());
+            Assert.True(r.ScaleNotFinite);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(before, m.TriangleCount);
+            // the flag is reset on the same instance: for a finite mesh and for an empty one
+            r.Mesh = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e3, 1, 1)) }.Generate().MakeDMesh();
+            Assert.True(r.Apply());
+            Assert.False(r.ScaleNotFinite);
+            r.Mesh = new DMesh3(m);
+            Assert.False(r.Apply());
+            r.Mesh = new DMesh3();
+            Assert.True(r.Apply());
+            Assert.False(r.ScaleNotFinite);
         }
     }
 }

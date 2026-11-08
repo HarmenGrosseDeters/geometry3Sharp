@@ -405,6 +405,7 @@ namespace g3
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
                 Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
                 Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
+                Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {7} components kept that the bound took as thin (scale disparity)",

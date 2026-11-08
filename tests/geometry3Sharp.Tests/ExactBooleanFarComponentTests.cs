@@ -83,12 +83,13 @@ namespace geometry3Sharp.Tests
             // the reference: the same operation without the far part
             ExactMeshBoolean near = Run(a, b, op);
             double expected = Volume(near.Result);
-            // (the same far part in both: the intersection keeps it too)
+            // (the far part in a; for the intersection the same in b too, so that every operation keeps it)
             double farVolume = AddFar(a, far, sphere);
-            AddFar(b, far, sphere);
+            if (op == Ops.Intersection)
+                AddFar(b, far, sphere);
             ExactMeshBoolean boolean = Run(a, b, op);
             DMesh3 r = boolean.Result;
-            double total = expected + (op == Ops.Difference ? 0 : farVolume);
+            double total = expected + farVolume;
             Assert.True(r.TriangleCount >= near.Result.TriangleCount / 2, $"far {far} {op}: {r.TriangleCount} triangles left of {near.Result.TriangleCount}");
             Assert.True(Math.Abs(Volume(r) - total) <= 1e-6 * total + 1e-6, $"far {far} {op}: volume {Volume(r)}, expected {total}");
             Assert.True(r.IsClosed() && Invariance.AllFinite(r));

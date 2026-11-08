@@ -210,8 +210,17 @@ namespace g3
         /// sets the diagonal (eg a rod of length 1e8 makes a unit part tiny)
         /// </summary>
         public int ScaleDisparity;
-        /// <summary> no self-intersections and no degenerate triangles remain, and no component was kept for ScaleDisparity </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && ScaleDisparity == 0; } }
+        /// <summary>
+        /// a component's diagonal is not finite (coordinates that are not finite, or finite ones whose extent overflows,
+        /// beyond about 1e154): the tolerances are NaN, every edit is rejected, nothing is removed, degenerate triangles are
+        /// found only by the exact test, and the repair is not clean
+        /// </summary>
+        public bool ScaleNotFinite;
+        /// <summary>
+        /// no self-intersections and no degenerate triangles remain, no component was kept for ScaleDisparity, and the
+        /// scale is finite (ScaleNotFinite)
+        /// </summary>
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && ScaleDisparity == 0 && ScaleNotFinite == false; } }
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
@@ -296,6 +305,7 @@ namespace g3
             RemainingDefectAt = Vector3d.Zero;
             anyCoarse = false;
             ScaleDisparity = 0;
+            ScaleNotFinite = false;
             if (SharedPositionsTouch == false)
                 atPosition = null;
             if (Mesh.TriangleCount == 0) {
@@ -458,15 +468,17 @@ namespace g3
             areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
             maxLength = 0;
             // the size: the largest component's diagonal (not the box of all: components far apart would inflate it).
-            // A diagonal that is not finite (NaN or infinite, from coordinates that are not finite) makes the size NaN,
-            // whatever the order of the components: every edit is rejected (the bound is NaN) and no component is removed
-            // as tiny or thin (an infinite size would remove every closed component as tiny)
+            // A diagonal that is not finite (NaN or infinite: coordinates that are not finite, or finite ones whose extent
+            // overflows) makes the size NaN, whatever the order of the components: every edit is rejected (the bound is
+            // NaN), no component is removed as tiny or thin (an infinite size would remove every closed component as tiny),
+            // and the repair is not clean (ScaleNotFinite: by area nothing is degenerate)
             double size = 0;
             foreach (AxisAlignedBox3d bx in boxes) {
                 double d = bx.DiagonalLength;
                 if (!(d < double.PositiveInfinity)) size = double.NaN;
                 else if (d > size) size = d;
             }
+            ScaleNotFinite = double.IsNaN(size);
             for (int c = 0; c < boxes.Count; ++c) {
                 AxisAlignedBox3d bounds = boxes[c];
                 double diag = size;

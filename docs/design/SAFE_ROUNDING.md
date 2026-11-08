@@ -36,8 +36,9 @@ degenerate, the bound 1732, and the union came out empty, reported clean. Edits 
 bound is checked with the edit's component and the theorem below holds per component. Tiny components are still
 removed relative to the largest one (as decided above); the limit of this: a long thin component still sets the
 diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. A diagonal that is
-not finite (coordinates that are not) makes the size NaN whatever the order of the components: every edit is rejected
-and nothing is removed as tiny or thin (an infinite size would remove every closed component as tiny). A closed component that the bound takes as thin but that holds
+not finite (coordinates that are not, or finite ones whose extent overflows, beyond about 1e154) makes the size NaN
+whatever the order of the components: every edit is rejected, nothing is removed as tiny or thin (an infinite size would
+remove every closed component as tiny), and the repair is not clean (`ScaleNotFinite`). A closed component that the bound takes as thin but that holds
 real volume for its area (`|V| >= 1e-3 A^1.5`; a sphere has 0.094) is never removed: it is kept and counted
 (`ScaleDisparity`), and the repair is not clean. `MeshRobustRepair.NotCleanReason` keeps the box of all triangles, so
 for components far apart compared to their size it can flag triangles that the rounding keeps.
