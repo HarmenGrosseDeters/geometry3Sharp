@@ -114,6 +114,15 @@ better; 0.75 is 1.09-1.22x.
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
+- **Reducer / Remesher 2.0 (milestone idea, owner 2026-11-08; after Alpha Wrap 2.0, upper bounds first):**
+  (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
+  quality guard (compare with the worst triangle around the edge) to the general `Reducer` as options, since today
+  both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
+  `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
+  and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
+  "status unclear" items below (the Remesher session, shared BVH queries per collapse). The Alpha Wrap session writes a
+  hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
