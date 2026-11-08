@@ -8,6 +8,7 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 ## Rules
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
+- Times for the user are given in the Europe/Berlin time zone (CET / CEST), not in UTC, eg "08:40 (Berlin)".
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
   (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
   reports which fail there (`New tests on base`, `tools/new_tests_on_base.py`); with the label `bugfix` at least one
