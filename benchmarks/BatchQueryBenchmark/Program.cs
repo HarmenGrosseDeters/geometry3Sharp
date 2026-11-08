@@ -89,7 +89,7 @@ static class Program
         // (b0) prototype BVH, input order, scalar filter, one ray at a time
         var stack = new int[128]; var stackT = new double[128];
         double b0 = Time(() => { for (int i = 0; i < n; ++i) res[i] = Kernels.Closest(bvh, rays[i], stack, stackT, false); }, n);
-        Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b0-proto-loop-scalar", b0, bb, Chk(res));
+        Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b2-ownbvh-loop-scalar", b0, bb, Chk(res));
 
         // sort cost and batched serial / parallel, scalar and SIMD filter
         var bbx = mesh.GetBounds(); double lo = bbx.Min.x - 4, ext = 8 + (bbx.Max.x - bbx.Min.x);
@@ -100,6 +100,12 @@ static class Program
         };
         double sortNs = Time(sort, n);
         Row(name, mesh.TriangleCount, "FindNearestHit", wl, "sort-only", sortNs, bb, "-");
+        // (b1) batching over the existing DMeshAABBTree3, public API only: sorted order, parallel, same single-call query
+        var o1 = new int[n]; var o1p = new int[n];
+        double b1 = Time(() => { sort(); for (int i = 0; i < n; ++i) { int k = order[i]; o1[k] = tree.FindNearestHitTriangle(rays[k]); } }, n);
+        Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b1-library-sorted-serial", b1, bb, Chk(o1));
+        double b1p = Time(() => { sort(); gParallel.BlockStartEnd(0, n - 1, (s, e) => { for (int i = s; i <= e; ++i) { int k = order[i]; o1p[k] = tree.FindNearestHitTriangle(rays[k]); } }, 2048); }, n);
+        Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b1-library-sorted-parallel", b1p, bb, Chk(o1p) + (o1p.SequenceEqual(o1) ? "/par=ser" : "/PAR!=SER"));
         var outS = new int[n]; var outP = new int[n]; var outV = new int[n]; var outVP = new int[n];
         Action<bool, int[]> serial = (simd, o) => {
             sort();
@@ -112,10 +118,10 @@ static class Program
                 for (int i = s; i <= e; ++i) { int k = order[i]; o[k] = Kernels.Closest(bvh, rays[k], st, stt, simd); }
             }, 2048);
         };
-        double b = Time(() => serial(false, outS), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b-batch-serial-scalar", b, bb, Chk(outS));
-        double c = Time(() => parallel(false, outP), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "c-batch-parallel-scalar", c, bb, Chk(outP) + (outP.SequenceEqual(outS) ? "/par=ser" : "/PAR!=SER"));
-        double d = Time(() => serial(true, outV), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "d-batch-serial-simd", d, bb, Chk(outV) + (outV.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
-        double dp = Time(() => parallel(true, outVP), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "d-batch-parallel-simd", dp, bb, Chk(outVP) + (outVP.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
+        double b = Time(() => serial(false, outS), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b2-ownbvh-sorted-serial-scalar", b, bb, Chk(outS));
+        double c = Time(() => parallel(false, outP), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b2-ownbvh-sorted-parallel-scalar", c, bb, Chk(outP) + (outP.SequenceEqual(outS) ? "/par=ser" : "/PAR!=SER"));
+        double d = Time(() => serial(true, outV), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b2-ownbvh-sorted-serial-simd", d, bb, Chk(outV) + (outV.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
+        double dp = Time(() => parallel(true, outVP), n); Row(name, mesh.TriangleCount, "FindNearestHit", wl, "b2-ownbvh-sorted-parallel-simd", dp, bb, Chk(outVP) + (outVP.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
     }
 
     static void Points(string name, DMesh3 mesh, DMeshAABBTree3 tree, Bvh bvh, string wl, int side)
@@ -133,6 +139,11 @@ static class Program
             Array.Sort(keys, order);
         };
         Row(name, mesh.TriangleCount, "IsInside", wl, "sort-only", Time(sort, n), a, "-");
+        var o1 = new bool[n]; var o1p = new bool[n];
+        double b1 = Time(() => { sort(); for (int i = 0; i < n; ++i) { int k = order[i]; o1[k] = tree.IsInside(pts[k]); } }, n);
+        Row(name, mesh.TriangleCount, "IsInside", wl, "b1-library-sorted-serial", b1, a, Chk(o1));
+        double b1p = Time(() => { sort(); gParallel.BlockStartEnd(0, n - 1, (s, e) => { for (int i = s; i <= e; ++i) { int k = order[i]; o1p[k] = tree.IsInside(pts[k]); } }, 2048); }, n);
+        Row(name, mesh.TriangleCount, "IsInside", wl, "b1-library-sorted-parallel", b1p, a, Chk(o1p) + (o1p.SequenceEqual(o1) ? "/par=ser" : "/PAR!=SER"));
         var stack = new int[128];
         var outS = new bool[n]; var outP = new bool[n]; var outV = new bool[n]; var outVP = new bool[n];
         Action<bool, bool[], bool> run = (simd, o, par) => {
@@ -143,10 +154,10 @@ static class Program
                 for (int i = s; i <= e; ++i) { int k = order[i]; o[k] = (Kernels.Crossings(bvh, pts[k], st, simd) & 1) != 0; }
             }, 2048);
         };
-        double b = Time(() => run(false, outS, false), n); Row(name, mesh.TriangleCount, "IsInside", wl, "b-batch-serial-scalar", b, a, Chk(outS));
-        double c = Time(() => run(false, outP, true), n); Row(name, mesh.TriangleCount, "IsInside", wl, "c-batch-parallel-scalar", c, a, Chk(outP) + (outP.SequenceEqual(outS) ? "/par=ser" : "/PAR!=SER"));
-        double d = Time(() => run(true, outV, false), n); Row(name, mesh.TriangleCount, "IsInside", wl, "d-batch-serial-simd", d, a, Chk(outV) + (outV.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
-        double dp = Time(() => run(true, outVP, true), n); Row(name, mesh.TriangleCount, "IsInside", wl, "d-batch-parallel-simd", dp, a, Chk(outVP) + (outVP.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
+        double b = Time(() => run(false, outS, false), n); Row(name, mesh.TriangleCount, "IsInside", wl, "b2-ownbvh-sorted-serial-scalar", b, a, Chk(outS));
+        double c = Time(() => run(false, outP, true), n); Row(name, mesh.TriangleCount, "IsInside", wl, "b2-ownbvh-sorted-parallel-scalar", c, a, Chk(outP) + (outP.SequenceEqual(outS) ? "/par=ser" : "/PAR!=SER"));
+        double d = Time(() => run(true, outV, false), n); Row(name, mesh.TriangleCount, "IsInside", wl, "b2-ownbvh-sorted-serial-simd", d, a, Chk(outV) + (outV.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
+        double dp = Time(() => run(true, outVP, true), n); Row(name, mesh.TriangleCount, "IsInside", wl, "b2-ownbvh-sorted-parallel-simd", dp, a, Chk(outVP) + (outVP.SequenceEqual(outS) ? "/simd=scalar" : "/SIMD!=SCALAR"));
 
         // winding number alternative (library public API): loop vs parallel loop in sorted order
         tree.FastWindingNumber(pts[0]);
