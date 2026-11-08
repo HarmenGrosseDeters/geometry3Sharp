@@ -390,6 +390,9 @@ namespace g3
                 bool[] fixedV = resultFixed;
                 Rounding = new MeshRoundingRepair(Result) {
                     SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
+                    // (the input points are doubles, so the rounding leaves them where they are: the triangles with three
+                    // of them are exact triangles of the arrangement)
+                    ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
                     MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
                 };
