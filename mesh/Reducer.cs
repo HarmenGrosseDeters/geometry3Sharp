@@ -1241,8 +1241,7 @@ namespace g3
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
             // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
             // (with PreventFoldOver in one pass with its check; without it, as before)
-            if (CollapseQualityAgainstWorst && MinCollapseTriangleQuality > 0)
-                collapseWorstQuality = worst_quality_around(a, b);
+            begin_quality_check(a, b, t0, t1);
             if (refNormals != null && FusedFoldCheck) {
                 if (collapse_creates_flip_invalid_or_fold(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_invalid_or_fold(b, a, ref vNewPos, t0, t1)) {
                     retVal = ProcessResult.Ignored_CreatesFlip;
