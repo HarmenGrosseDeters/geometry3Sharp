@@ -23,8 +23,10 @@ Part of the [roadmap](../ROADMAP.md).
 - **Verifiable agent work** (QA.md 4a): the parent item is still open; the other items go with the modules they touch
   (status unclear, check).
 - **Two wall-clock tests** (`QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap`,
-  `Predicates_MatchTheOracle_AtAllSizes`) fail only in a full local run: check whether they belong in a
-  DisableParallelization collection.
+  `Predicates_MatchTheOracle_AtAllSizes`): closed 2026-11-08, not reproduced (owner, local): on current master the full
+  suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the
+  `Meshing2OracleTiming` collection (parallelization disabled, guarded by `RobustnessSweepRemainingTests`); the
+  predicate test has no time budget. Reopen only with the exact failing assertion and invocation.
 - **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only, and a
   vertex with d segments costs about d² comparisons; mesh2d report areas underflow to 0 below coordinates of about
   1e-160 (see [stage 8](#stage-8-planned-follow-ups)).

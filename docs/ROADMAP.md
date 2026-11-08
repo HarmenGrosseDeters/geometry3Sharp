@@ -114,7 +114,6 @@ Planned, not started.
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
-- Platform: two wall-clock tests that fail only in a full local run. [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
