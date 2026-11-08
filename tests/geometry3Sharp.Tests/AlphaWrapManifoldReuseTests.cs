@@ -1,0 +1,72 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using g3;
+using gs;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// MeshAlphaWrap keeps the labels of the last trial run of the manifold step (refinement at non-manifold spots) when
+    /// it moved nothing, instead of running the step again: the same result and counts, bit for bit.
+    /// </summary>
+    public class AlphaWrapManifoldReuseTests
+    {
+        public static IEnumerable<object[]> Inputs()
+        {
+            yield return new object[] { "soup42", 20.0, 200.0 };
+            yield return new object[] { "soup173", 20.0, 200.0 };
+            yield return new object[] { "soup42", 60.0, 600.0 };
+            yield return new object[] { "ellipsoid", 150.0, 1500.0 };
+            yield return new object[] { "boxes", 20.0, 200.0 };
+        }
+
+        static DMesh3 Input(string name)
+        {
+            switch (name) {
+                case "soup42": return AlphaWrapTests.RandomSoup(42);
+                case "soup173": return AlphaWrapTests.RandomSoup(173);
+                case "ellipsoid": return AlphaWrapTests.Ellipsoid(5, 0.3, 0.45);
+                default:
+                    // two boxes nearly touching at an edge: a pinch
+                    DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)), NoSharedVertices = false }.Generate().MakeDMesh();
+                    MeshEditor.Append(m, new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1.51, 1.51, 0.5), new Vector3d(0.5, 0.5, 0.5)), NoSharedVertices = false }.Generate().MakeDMesh());
+                    return m;
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Inputs))]
+        public void ReusedTrialLabels_SameResultAndCounts(string name, double relAlpha, double relOffset)
+        {
+            DMesh3 input = Input(name);
+            var reuse = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+            var again = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, ReuseTrialLabels = false };
+            Assert.Equal(reuse.Compute(), again.Compute());
+            Assert.Equal(again.Status, reuse.Status);
+            Assert.Equal("", Invariance.Difference(again.Result, reuse.Result));
+            var a = new Dictionary<string, long>(reuse.Counts);
+            a.Remove("manifold_reused");
+            Assert.Equal(again.Counts, a);
+            Assert.False(again.Counts.ContainsKey("manifold_reused"));
+        }
+
+        // the reuse happens on these inputs (otherwise the test above compares nothing new), and a reused instance gives
+        // the same result again
+        [Fact]
+        public void ReusedTrialLabels_HappensAndReuse()
+        {
+            int reused = 0;
+            foreach (object[] c in Inputs()) {
+                var w = new MeshAlphaWrap(Input((string)c[0])) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2] };
+                Assert.True(w.Compute(), w.Error);
+                if (w.Counts.ContainsKey("manifold_reused")) reused++;
+                DMesh3 first = new DMesh3(w.Result);
+                Assert.True(w.Compute(), w.Error);
+                Assert.Equal("", Invariance.Difference(first, w.Result));
+            }
+            Assert.True(reused >= 3, $"reused on {reused} inputs");
+        }
+    }
+}
