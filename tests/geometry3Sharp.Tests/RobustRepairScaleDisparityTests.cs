@@ -22,6 +22,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedExactResolve);
             Assert.False(r.UsedSolidify || r.UsedAlphaWrap);
             Assert.EndsWith(MeshRobustRepair.ScaleDisparity, r.ExactResolveReason);
+            Assert.True(r.ScaleRetry && r.MaxScaleErosionShare > 0.5, $"share {r.MaxScaleErosionShare}");
             Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
 
@@ -80,6 +81,9 @@ namespace geometry3Sharp.Tests
             r.Apply();
             Assert.NotEqual(MeshRobustRepair.ScaleDisparity, r.ResultReason);
             Assert.True(r.Mesh.Vertices().All(v => v.MaxAbs < 10), "the far scene came back");
+            // (no triangle below the degenerate area: the resolve does not run again relative to the largest component)
+            Assert.False(r.ScaleRetry);
+            Assert.DoesNotContain("largest component", r.ExactResolveReason);
         }
     }
 }

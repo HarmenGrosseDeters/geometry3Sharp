@@ -31,11 +31,12 @@ namespace gs
     /// a cell or the offset, and lose parts smaller than that).
     ///
     /// Components far apart compared to their size (eg a part 1e8 away from parts of size 1): the degenerate area of
-    /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles. The cleanups
-    /// of the exact resolve take the diagonal of the largest component where that area covers 1 % or more of a
-    /// component; if the resolve is then clean but for that area, Apply() returns false with the resolved mesh in Mesh
-    /// and ResultReason ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the
-    /// parts).
+    /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles, and the cleanups
+    /// of the exact resolve collapse them. If the exact resolve fails and some component has triangles below that area,
+    /// it runs once more with the cleanups relative to the diagonal of the largest component; if that resolve is clean
+    /// but for the area of NotCleanReason, Apply() returns false with the resolved mesh in Mesh and ResultReason
+    /// ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the parts). A resolve the
+    /// first attempts accept is unchanged.
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -291,6 +292,8 @@ namespace gs
             UsedExactResolve = false;
             ExactResolveReason = "";
             scaleOnly = null;
+            MaxScaleErosionShare = 0;
+            ScaleRetry = false;
             TopologyChanged = false;
             GenusBefore = GenusAfter = double.NaN;
             ExactResolveRoundsUsed = 0;
@@ -377,6 +380,23 @@ namespace gs
                     exact = resolve_exactly(solidifyFrom, input, false);
                     if (exact == null && reason != "")
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
+                }
+                // components far apart compared to their size: the degenerate area of NotCleanReason (relative to the
+                // diagonal of all triangles) also covers real triangles, and the cleanups above collapse them. Once
+                // more, with the cleanups relative to the largest component (only where the resolves above failed, so a
+                // result they accept is unchanged)
+                if (exact == null && CancelF() == false) {
+                    DMesh3 from = solidifyFrom != result || result.TriangleCount == 0 ? solidifyFrom : result;
+                    MaxScaleErosionShare = global_scale_share(from);
+                    if (MaxScaleErosionShare > 0) {
+                        ScaleRetry = true;
+                        string reason = ExactResolveReason;
+                        exact = resolve_exactly(from, input, false, true);
+                        if (exact == null)
+                            ExactResolveReason = reason + "; relative to the largest component: " + ExactResolveReason;
+                        else
+                            fromResult = from == result;
+                    }
                 }
                 end_phase("exact");
                 if (CancelF())
@@ -649,7 +669,9 @@ namespace gs
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
-        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
+        // (largestScale: the cleanups relative to the diagonal of the largest component, and a resolve clean but for the
+        // degenerate area of NotCleanReason kept as scaleOnly)
+        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput, bool largestScale = false)
         {
             var timer = Stopwatch.StartNew();
             // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
@@ -699,9 +721,8 @@ namespace gs
                     // (relative to the largest component, as the safe rounding, where the diagonal of all triangles would
                     // collapse real surface: a small part far from the rest must not make every other triangle
                     // degenerate; elsewhere relative to all triangles, as NotCleanReason, as before)
-                    bool erodes = global_scale_erodes(res);
-                    double scale = erodes ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
-                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = erodes ? scale : double.NaN }.Apply();
+                    double scale = largestScale ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
+                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = largestScale ? scale : double.NaN }.Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
                     // the self-intersections that can create are found below and resolved by the next round (so
@@ -743,7 +764,7 @@ namespace gs
                 }
                 reason = NotCleanReason(res, false);
                 // (clean but for the degenerate area of NotCleanReason: the rest of the checks as for a clean one)
-                bool onlyScale = reason == "degenerate triangles" && global_scale_erodes(res) && not_clean_reason_at_scale(res) == "";
+                bool onlyScale = largestScale && reason == "degenerate triangles" && not_clean_reason_at_scale(res) == "";
                 if (onlyScale)
                     reason = "";
                 if (reason == "" && CheckSelfIntersections) {
@@ -1101,17 +1122,21 @@ namespace gs
             new KeyValuePair<Defects, string>(Defects.SelfIntersections, "self-intersections"),
         };
 
-        // the degenerate area of NotCleanReason (1e-12 of the squared diagonal of all triangles) covers at least 1 % of the
-        // area of a connected component: components far apart compared to their size, where cleaning by that area would
-        // collapse real surface, not only slivers (a unit sphere next to a part 1e8 away: all of it; 1e3 away: none)
-        static bool global_scale_erodes(DMesh3 mesh)
+        // the last Apply(): whether the exact resolve ran once more relative to the largest component, and the share of
+        // global_scale_share that decided it (benchmarks)
+        internal bool ScaleRetry;
+        internal double MaxScaleErosionShare;
+
+        // the largest share, over the connected components, of a component's area in triangles below the degenerate
+        // area of NotCleanReason (0 with fewer than two components)
+        static double global_scale_share(DMesh3 mesh)
         {
             double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             int[] componentOf;
             List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(mesh, out componentOf);
             if (boxes.Count < 2)
-                return false;
+                return 0;
             var total = new double[boxes.Count];
             var below = new double[boxes.Count];
             foreach (int t in mesh.TriangleIndices()) {
@@ -1121,10 +1146,11 @@ namespace gs
                 if (a < areaEps)
                     below[c] += a;
             }
+            double share = 0;
             for (int c = 0; c < boxes.Count; ++c)
-                if (below[c] > 0 && below[c] >= 0.01 * total[c])
-                    return true;
-            return false;
+                if (below[c] > 0)
+                    share = Math.Max(share, below[c] / total[c]);
+            return share;
         }
 
         // NotCleanReason without self-intersections, the degenerate area relative to the diagonal of the largest
