@@ -103,6 +103,13 @@ Tier: S, M. Parallel: up to 2 sessions
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
+  - [ ] Further test tools (owner 2026-11-08, not scheduled; one bounded task each):
+    - Changed-line coverage gate (QA.md item 8) with coverlet (MIT): new or changed lines must be executed by tests;
+      cheap, runs in normal CI, catches part of what the mutation runs find hours later.
+    - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
+      the hand derivation (complements Z3, which checks logical rules).
+    - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
+      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test.
 
 #### Test suite on German Windows
 
