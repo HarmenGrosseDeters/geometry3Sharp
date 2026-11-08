@@ -660,7 +660,7 @@ namespace g3
                         // the conforming mode (O2) leaves a subsegment unsplit for an exempt vertex only while it is a Delaunay edge
                         // (MESHING2D_SMALL_ANGLES_CONFORMING.md, rule C); else the exemption is revoked and the split is needed by every
                         // conforming solution
-                        if (options.Conforming && !LocallyDelaunayAt(e)) { Note(16); return true; }
+                        if (options.Conforming && ConformingDelaunayCheckForTests != false && !LocallyDelaunayAt(e)) { Note(16); return true; }
                     }
                 }
                 return false;
@@ -678,6 +678,9 @@ namespace g3
                 if (h2 < 0 || k.IsGhost(e / 3) || k.IsGhost(h2 / 3)) return true;
                 return ExactPredicates.InCircle(k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(k.V[Next(Next(e))]), k.Point(k.V[Next(Next(h2))])) <= 0;
             }
+
+            /// <summary> tests only: false drops the Delaunay check of rule C in the conforming mode (the exemption then breaks O2; the tests show it) </summary>
+            [ThreadStatic] internal static bool? ConformingDelaunayCheckForTests;
 
             /// <summary> tests only: false turns the small-angle exemption of ApexExempt off </summary>
             [ThreadStatic] internal static bool? SmallAngleExemptionForTests;
