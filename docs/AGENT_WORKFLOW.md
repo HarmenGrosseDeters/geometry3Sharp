@@ -142,6 +142,14 @@ from secret tests, which a public repository cannot keep.
   targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
+- Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
+  for progress; several items go in one message. A session with nothing to do while its PRs wait pauses (no
+  check-ins, no polling) until the coordinator messages it.
+- Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
+  integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
+  the PRs merge one by one with normal CI only. Survivors are attributed by line to the PR that changed it. A gate
+  whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
+  thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
 - Medium sessions on a mid-size model (Sonnet, owner 2026-11-08) take bounded, well-specified tasks (benchmark
   classes, gates, small fixes). They escalate hard or risky decisions (correctness arguments, error bounds, licences,
@@ -157,6 +165,12 @@ from secret tests, which a public repository cannot keep.
   scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
   profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
   coordinator starts the runner on request.
+  The owner's machine (owner 2026-11-08; i7-8700K, 6 cores / 12 threads, 16 GB) can serve as a runner: the owner
+  starts a Claude Code session there (desktop app in the repository folder, or `claude remote-control`), which then
+  takes runner jobs under the same rules. Good for long result-only runs (CsCheck campaigns, fuzzing, local Stryker
+  runs to set thresholds) and for relative timings with baseline and candidate in the same job; acceptance timings
+  stay on the cloud reference machine. Never a self-hosted GitHub runner for this public repository (fork PRs could
+  run code on it).
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
@@ -177,4 +191,16 @@ from secret tests, which a public repository cannot keep.
   - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
     coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
   - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+  - Standing cost rules (owner 2026-11-08, for all future work):
+    - Model by task: long runs on a Haiku runner, bounded medium tasks on Sonnet, design, exact code and their
+      reviews on the large model.
+    - Reviews: the first review is a fresh agent on the full diff; re-reviews of fixes resume that reviewer with the
+      delta only.
+    - Mutation gate: no push while a full mutation run is in flight on the PR (it cancels it); queued PRs on the same
+      shards share one combined gate; a thresholds-only commit is gated on the run that measured the same code
+      (see the merge-queue rule above).
+    - Waiting is free, polling is not: sessions with nothing on the critical path pause until messaged; check-ins
+      follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
+    - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
+      valid result for the owner).
 

@@ -428,7 +428,7 @@ namespace gs
         // (coarse cells of F fine cells each)
         static Func<Vector3i, int, bool> region_filter(HashSet<Vector3i> region, int F)
         {
-            var ancestors = new HashSet<long>();
+            var ancestors = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Vector3i c in region) {
                 if (c.x < 0 || c.y < 0 || c.z < 0)
                     continue;       // the octree has no cells there

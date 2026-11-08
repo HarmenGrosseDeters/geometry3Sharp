@@ -43,6 +43,8 @@ bound review CLAUDE.md demands. This is consistent with "not a fit" above: the r
 are not proved as a whole. Pilot 1 used the Python package `z3-solver` (MIT), not the NuGet `Microsoft.Z3`; still only
 in the tool project.
 
+**Pilot 2, step (1) result (2026-11-08, draft PR #416):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
+
 **Pilot 2, step (2) result (2026-11-08, draft PR):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
 
 #### Later
@@ -61,6 +63,24 @@ in the tool project.
     from self-intersections.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
+  - Status 2026-11-08: #423 (merged) adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
+    enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
+    relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
+    check that gap for SDFs, and the code does not check it).
+  - Found in the #423 review (pre-existing, also in legacy modes, low priority): `MarchingCubesPro.GenerateContinuation`
+    runs past `done_cells` at the upper grid edge or with seeds outside the bounds (`IndexOutOfRangeException`, in
+    parallel an `AggregateException`, or a silent wrap into the next row), because `GridBounds.Contains` is inclusive.
+    Also silent: `done_cells` is sized nx*ny*nz, so cell (n, j, k) shares an index with (0, j+1, k) and a whole
+    component can be skipped without an exception (repro in the #423 review: bounds 0..2.5, h 1, spheres r 0.3 at
+    nodes (4,1,1) and (1,2,1), seeds in cells (3,0,0) and (0,1,0)). Fix: size `done_cells` (n+1)^3 or make the
+    neighbour test exclusive; changes legacy behaviour, so note it in UPSTREAM_CHANGES. Own bugfix PR with a test.
+    Taken by the owner locally (2026-11-08).
+- 2D wrap (idea only, owner 2026-11-08; not scheduled). Clipper2 has no alpha wrap, but the Clipper2 addon can
+  already do a morphological closing: `Offset` / `OffsetPolyLines` by r + offset, `Union`, `Offset` by -r, then
+  `Simplify` (simple, non-self-intersecting polygons; gaps narrower than about 2r are closed). A small step would be
+  a documented recipe or a `Clipper2Polygons.Close(...)` helper with tests. A real 2D alpha wrap (after Portaneri et
+  al. 2022, cf. CGAL's 2026 2D package as a black box only) only if a use case needs coarse, low-vertex outlines or
+  large point sets as input (concave-hull style).
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one

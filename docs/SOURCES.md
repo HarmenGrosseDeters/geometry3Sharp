@@ -41,6 +41,41 @@ its JTS-derived content is available under the permissive BSD-style Eclipse Dist
 Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
 benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
 
+`benchmarks/OracleIndexPilot` also uses the public NetTopologySuite 2.6.0 STRtree
+API (BSD-3-Clause, same release license above), as an isolated test/benchmark
+dependency. NTS builds a point hierarchy; our traversal uses the existing oracle's
+unchanged orientation filter/exact fallback and the affine maximum of orientation
+over a closed rectangle to prune strictly exterior subtrees. No NTS geometric
+verdict is used and no implementation is read or ported. The oracle's default
+conformity searches (binary64 outputs; `G3_ORACLE_POINT_INDEX` / `G3_ORACLE_EDGE_INDEX`
+`=sweep` restore the sweeps) add NTS to the independent test-oracle project, never to
+the library; the compiler still enforces the oracle's lack of a geometry3Sharp reference.
+The proof, controls and measurements are documented
+in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
+
+The second isolated variant uses exact endpoint convex hulls on STRtree nodes for
+proper edge-crossing queries. The monotone-chain hull is own code from the standard
+concept of A. M. Andrew, *Another efficient algorithm for convex hulls in two
+dimensions*, IPL 9(5), 1979, [doi:10.1016/0020-0190(79)90072-3](https://doi.org/10.1016/0020-0190(79)90072-3).
+Hierarchical geometric separation was considered from Gottschalk, Lin and Manocha,
+*OBBTree*, SIGGRAPH 1996; Bentley and Ottmann, *Algorithms for Reporting and Counting
+Geometric Intersections*, IEEE TC 1979, is the sweep alternative. Publication
+metadata/abstracts were consulted; no implementation code was read or copied.
+The two closed-half-plane certificates and the degenerate-hull handling are
+derived in the pilot comments/README and reviewed against the unchanged exact
+ProperCross predicate. A node keeps its exact hull only up to 16 vertices and
+otherwise tests the corners of its closed box (a containing polygon), so the test per
+node is bounded (own construction after the #411 review found O(E·h) work on convex
+boundaries). The point/triangle and duplicate checks remain in force.
+
+The large pilot mesh is generated externally from a GEOS XML test fixture at
+commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output
+hashes are recorded in the pilot's numeric provenance. Upstream's pinned
+[COPYING](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING)
+is LGPL-2.1; no separate permissive fixture license is assumed. Fixtures and
+generated geometries/meshes are not committed. Only external data is used;
+GEOS implementation code is not consulted or ported.
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.
@@ -113,7 +148,7 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Oracle (`Meshing2Benchmark`, rule O-H5 (ii')): the rounding of the input alone includes the restore step of snap rounding with restore, recomputed from the paper (`RestorePixels`: rounds of routing and critical pixels, ChoosePixel's rules R1 and R3 and a widened search, all choices of a round made on one arrangement); written from the paper and MESHING2D_SNAP.md section 3b, not from `SnapRounding2`, and compared with it in tests | A. Belussi, S. Migliorini, M. Negri, G. Pelagatti, *Snap rounding with restore: an algorithm for producing robust geometric datasets*, ACM TSAS 2(1), 2016 (Table II, Proposition 4.17); J. D. Hobby 1999 (above) |
 | Off-centres: a triangle below the angle bound is split on the perpendicular bisector of its shortest edge pq, where the triangle of pq and the new point has the bound at the point (|pq| cot(theta/2) / 2 from the midpoint), or at its circumcentre if that is closer (`QualityMesh2.Refiner.OffCentre`) | A. Üngör, *Off-centers: A New Type of Steiner Points for Computing Size-Optimal Quality-Guaranteed Delaunay Triangulations*, LATIN 2004 |
 | Grading in `QualityMesh2` with an angle bound: the split point of a triangle bad by its angle chosen among candidates in the petal of its shortest edge (the circumcentres of nearby triangles inside it and seven points of its arc, `QualityMesh2.Refiner.PetalCandidates`; step 1's points on the bisector behind a switch) by the bad triangles it removes and creates, never with a smaller insertion radius than the off-centre or circumcentre (`QualityMesh2.Refiner.BestCandidate`); bad triangles split worst first (`TriangleQueue`, own) | H. Erten, A. Üngör, *Triangulations with Locally Optimal Steiner Points*, Eurographics Symposium on Geometry Processing 2007 (read 2026-11-04; the journal version, SIAM J. Sci. Comput. 2009, not read): the idea of choosing among points and the petal (Algorithm 1); the arc's rational parametrisation, the score and the floor own (`docs/design/MESHING2D_GRADING.md` 4.3) |
-| The Meshing2 oracle's fast path (test tool, `benchmarks/Meshing2Benchmark/Oracle`): a checker independent of and simpler than the mesher, its indexes and filters each with an equivalence argument and a check against the full scan (`docs/design/MESHING2D_FAST_ORACLE.md`) | R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 2011 (the approach; the checks are own work) |
+| The Meshing2 oracle's fast path (test tool, `benchmarks/Meshing2Benchmark/Oracle`): a checker independent of and simpler than the mesher, its indexes and filters each with an equivalence argument and a check against the full scan (`docs/design/MESHING2D_FAST_ORACLE.md`). Source coverage reuses the existing tube boxes and BoxGrid, with a bounded query and exact scan fallback; diagnostics and full-report controls are in `benchmarks/OracleSourcePilot` | R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 2011 (the approach; the checks are own work) |
 | Integer coordinates for a robust common subdivision (not implemented; why the tracing suffices is in OPERATIONS.md) | M. Gillespie, N. Sharp, K. Crane, *Integer Coordinates for Intrinsic Geometry Processing*, ACM TOG (SIGGRAPH Asia) 2021 |
 | Intrinsic Delaunay triangulations, non-negative cotan weights, flip algorithm | A. I. Bobenko, B. A. Springborn, *A Discrete Laplace-Beltrami Operator for Simplicial Surfaces*, Discrete & Computational Geometry 2007; C. Indermitte, T. M. Liebling, M. Troyanov, H. Clémençon, *Voronoi diagrams on piecewise flat surfaces and an application to biological growth*, Theoretical Computer Science 2001 (termination of the flips) |
 | Intrinsic mollification of degenerate triangles | N. Sharp, K. Crane, *A Laplacian for Nonmanifold Triangle Meshes*, Computer Graphics Forum (SGP) 2020 |
@@ -522,3 +557,8 @@ Pilot 2 (`tools/Z3Pilot/filter_rules.py`, the error-bound rules of `tools/Predic
 model of floating-point arithmetic and its variant `fl(s) = s / (1 + d)` from N. J. Higham, *Accuracy and Stability
 of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2, and the form of the filter bounds (`|e~ - e| <= c m~`) of
 J. R. Shewchuk 1997 (see above); results only, no code.
+
+- Alec Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
+  [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
+  3.1. Paper-only mathematical source for the `LinearEdges` adapter and
+  `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.

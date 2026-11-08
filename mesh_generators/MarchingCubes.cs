@@ -59,8 +59,21 @@ namespace g3
         public bool ParallelCompute = true;
 
 
-        /// <summary> How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, or bisection </summary>
-        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
+        /// <summary>
+        /// How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, bisection,
+        /// or LinearEdges: one linear interpolation of the original corner samples, without the endpoint nudges and
+        /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
+        /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
+        /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed triangle, or as a guard a rejected
+        /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
+        /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
+        /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
+        /// GenerateContinuation() (its 16-bit grid hash), whose seeds must lie in the grid (cell indices 0 to n), and
+        /// otherwise throws ArgumentException before any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
+        /// </summary>
+        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
         /// <summary>
         /// Which rootfinding method will be used to converge on surface along edges
@@ -233,23 +246,29 @@ namespace g3
                     return;
                 int count = Math.Min(batchSize, CellDimensions.z - start);
                 var slabs = new List<Vector3d>[count];
-                gParallel.ForRange(count, i => {
-                    var vertices = new List<Vector3d>();
-                    slabs[i] = vertices;
-                    GridCell cell = new GridCell();
-                    Vector3d[] vertlist = new Vector3d[12];
-                    for (int yi = 0; yi < CellDimensions.y; ++yi) {
-                        if (CancelF())
-                            return;
-                        Vector3i idx = new Vector3i(0, yi, start + i);
-                        initialize_cell(cell, ref idx);
-                        polygonize_cell(cell, vertlist, vertices);
-                        for (int xi = 1; xi < CellDimensions.x; ++xi) {
-                            shift_cell_x(cell, xi);
+                Exception failure = null;
+                try {
+                    gParallel.ForRange(count, i => {
+                        var vertices = new List<Vector3d>();
+                        slabs[i] = vertices;
+                        GridCell cell = new GridCell();
+                        Vector3d[] vertlist = new Vector3d[12];
+                        for (int yi = 0; yi < CellDimensions.y; ++yi) {
+                            if (CancelF())
+                                return;
+                            Vector3i idx = new Vector3i(0, yi, start + i);
+                            initialize_cell(cell, ref idx);
                             polygonize_cell(cell, vertlist, vertices);
+                            for (int xi = 1; xi < CellDimensions.x; ++xi) {
+                                shift_cell_x(cell, xi);
+                                polygonize_cell(cell, vertlist, vertices);
+                            }
                         }
-                    }
-                });
+                    });
+                } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                    // (several slabs failed at once; ForRange unwraps only a single failure: throw the documented type)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+                }
                 foreach (List<Vector3d> slab in slabs)
                     for (int t = 0; t < slab.Count; t += 3)
                         emit_triangle(slab[t], slab[t + 1], slab[t + 2]);
@@ -356,8 +375,13 @@ namespace g3
             int a = find_or_append_vertex(pa);
             int b = find_or_append_vertex(pb);
             int c = find_or_append_vertex(pc);
-            if (a != b && a != c && b != c)
-                Mesh.AppendTriangle(a, b, c);
+            if (a != b && a != c && b != c) {
+                int tid = Mesh.AppendTriangle(a, b, c);
+                if (RootMode == RootfindingModes.LinearEdges && tid < 0)
+                    throw new InvalidOperationException("LinearEdges: mesh rejected a required triangle");
+            } else if (RootMode == RootfindingModes.LinearEdges) {
+                throw new InvalidOperationException("LinearEdges: a triangle collapsed (coincident crossings)");
+            }
         }
 
 
@@ -376,20 +400,23 @@ namespace g3
             // repeated nearly-coincident vertices, but the mesh will be manifold.
             // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
             // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
-            const double dt = 0.999999;
-            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
-            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
-            if (Math.Abs(valp1 - valp2) <= tol) {
-                pIso = (p1 + p2) * 0.5;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp1) < tol) {
-                pIso = dt*p1 + (1.0-dt)*p2;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp2) < tol) {
-                pIso = (dt)*p2 + (1.0-dt)*p1;
-                return;
+            // LinearEdges bypasses the endpoint nudges used by the legacy modes.
+            if (RootMode != RootfindingModes.LinearEdges) {
+                const double dt = 0.999999;
+                double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+                if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+                if (Math.Abs(valp1 - valp2) <= tol) {
+                    pIso = (p1 + p2) * 0.5;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp1) < tol) {
+                    pIso = dt*p1 + (1.0-dt)*p2;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp2) < tol) {
+                    pIso = (dt)*p2 + (1.0-dt)*p1;
+                    return;
+                }
             }
 
             // [RMS] if we don't maintain min/max order here, then numerical error means
@@ -399,6 +426,23 @@ namespace g3
             if (valp2 < valp1) {
                 a = p2; b = p1;
                 fb = valp1; fa = valp2;
+            }
+
+            if (RootMode == RootfindingModes.LinearEdges) {
+                double gap = fb - fa;
+                double t = (IsoValue - fa) / gap;
+                if (!(gap > 0) || double.IsInfinity(gap) || double.IsNaN(t) || double.IsInfinity(t))
+                    throw new ArgumentException("LinearEdges requires finite, distinct crossing values");
+                t = Math.Max(0, Math.Min(1, t));
+                for (int d = 0; d < 3; ++d) {
+                    double q = a[d] + t * (b[d] - a[d]);
+                    if (double.IsNaN(q) || double.IsInfinity(q))
+                        throw new ArgumentException("LinearEdges requires finite edge coordinates");
+                    pIso[d] = Math.Max(Math.Min(a[d], b[d]), Math.Min(Math.Max(a[d], b[d]), q));
+                }
+                if (pIso == a || pIso == b)
+                    throw new InvalidOperationException("LinearEdges requires strictly interior edge crossings");
+                return;
             }
 
             // converge on root
