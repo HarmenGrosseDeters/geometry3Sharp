@@ -110,11 +110,12 @@ model, that shared crossings are bit-identical in neighbouring cells, and that n
 FMA contraction happens remain review obligations (with native tests). The
 failure paths (`InvalidOperationException` for a crossing on a corner or a
 collapsed triangle, also from the parallel paths; `ArgumentException` for a Pro
-grid of more than 65535 cells per axis, whose 16-bit hash would alias edges) have
-native tests in `MarchingCubesConservativeTests`. The throw on a rejected triangle
-is a guard only: with distinct vertices per grid edge it is not reachable, since
-by the case table no edge between two crossings is used by more than two
-triangles. The optional
+grid of more than 65535 cells per axis in `Generate()`, 65534 in
+`GenerateContinuation()`, which also visits the cell of index n, whose 16-bit
+hash would alias edges) have native tests in `MarchingCubesConservativeTests`.
+The throw on a rejected triangle is a guard: within these limits every visited
+grid edge has its own vertex and by the case table no edge between two crossings
+is used by more than two triangles, so it is not expected to fire. The optional
 `--direct` query contains the proposed zero-point/Lipschitz nonlinear model;
 UNKNOWN results there are not proofs. SAT assumptions are required for the
 adapter queries; impossible zero-point cases in the direct model are separately

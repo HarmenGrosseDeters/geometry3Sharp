@@ -6,7 +6,7 @@
       "name": "marching_cubes_tests",
       "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~MarchingCubes",
       "exit_code": 0,
-      "passed": 58,
+      "passed": 68,
       "failed": 0
     },
     {
@@ -34,10 +34,22 @@
       "failed": 6
     },
     {
-      "name": "mutant_pro_grid_limit_off_by_one",
-      "command": "same filter (limit w / h < 65536 instead of < 65535, restored afterwards)",
+      "name": "mutant_pro_grid_limit_off_by_one_y",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProGridLimitIsExact (y limit w / h < 65536 instead of < 65535, restored afterwards)",
       "exit_code": 1,
       "failed": 2
+    },
+    {
+      "name": "mutant_pro_continuation_limit_65535",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProContinuationGridLimit (continuation limit 65535 as in 7a180ff1, restored afterwards)",
+      "exit_code": 1,
+      "failed": 2
+    },
+    {
+      "name": "mutant_pro_cube_size_check_removed",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ProRejectsInvalidCubeSize (cube size check disabled, restored afterwards)",
+      "exit_code": 1,
+      "failed": 4
     },
     {
       "name": "mutant_collapsed_triangle_not_thrown",

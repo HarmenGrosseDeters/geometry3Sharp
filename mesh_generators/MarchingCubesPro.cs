@@ -49,8 +49,9 @@ namespace gs
         /// InvalidOperationException (a crossing on a grid corner, a collapsed triangle, or as a guard a rejected
         /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
         /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
-        /// needs fewer than 65536 cells per axis (its 16-bit grid hash) and otherwise throws ArgumentException before
-        /// any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
+        /// GenerateContinuation() (its 16-bit grid hash), and otherwise throws ArgumentException before any work. The
+        /// mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
         /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
@@ -98,7 +99,7 @@ namespace gs
         {
             Mesh = new DMesh3();
 
-            check_linear_edges_grid();
+            check_linear_edges_grid(65535);
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
@@ -121,7 +122,8 @@ namespace gs
         {
             Mesh = new DMesh3();
 
-            check_linear_edges_grid();
+            // (the continuation also visits the cells of index nx, ny, nz: GridBounds.Contains is inclusive)
+            check_linear_edges_grid(65534);
             int nx = (int)(Bounds.Width / CubeSize) + 1;
             int ny = (int)(Bounds.Height / CubeSize) + 1;
             int nz = (int)(Bounds.Depth / CubeSize) + 1;
@@ -154,17 +156,21 @@ namespace gs
 
 
         /// <summary>
-        /// The corner and edge hashes keep 16 bits of each corner index, and the corner indices of an axis run from 0
-        /// to its cell count: more than 65535 cells alias two grid edges onto one vertex. LinearEdges refuses such a
-        /// grid before any work (the legacy modes keep their behaviour). nx = (int)(w / h) + 1 is at most 65535 iff
-        /// w / h &lt; 65535 (also false for NaN and infinity)
+        /// The corner and edge hashes keep 16 bits of each corner index (0 to 65535). Generate() visits the cells 0 to
+        /// n - 1 of an axis with n = (int)(w / h) + 1 cells, so corner indices up to n: at most 65535 cells.
+        /// GenerateContinuation() also visits the cell n (GridBounds.Contains is inclusive), corner indices up to
+        /// n + 1: at most 65534 cells. Beyond that two grid edges alias onto one vertex; LinearEdges refuses such a
+        /// grid, and a cube size that is not finite and positive, before any work (the legacy modes keep their
+        /// behaviour). (int)(w / h) + 1 &lt;= maxCells iff w / h &lt; maxCells (also false for NaN and infinity)
         /// </summary>
-        void check_linear_edges_grid()
+        void check_linear_edges_grid(int maxCells)
         {
             if (RootMode != RootfindingModes.LinearEdges)
                 return;
-            if (!(Bounds.Width / CubeSize < 65535) || !(Bounds.Height / CubeSize < 65535) || !(Bounds.Depth / CubeSize < 65535))
-                throw new ArgumentException("MarchingCubesPro LinearEdges: at most 65535 cells per axis (16-bit grid hash)");
+            if (!(CubeSize > 0) || double.IsInfinity(CubeSize))
+                throw new ArgumentException("MarchingCubesPro LinearEdges: the cube size must be finite and positive");
+            if (!(Bounds.Width / CubeSize < maxCells) || !(Bounds.Height / CubeSize < maxCells) || !(Bounds.Depth / CubeSize < maxCells))
+                throw new ArgumentException($"MarchingCubesPro LinearEdges: at most {maxCells} cells per axis (16-bit grid hash)");
         }
 
 

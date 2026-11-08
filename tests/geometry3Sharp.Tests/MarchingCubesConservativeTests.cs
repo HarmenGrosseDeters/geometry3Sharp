@@ -170,15 +170,16 @@ namespace geometry3Sharp.Tests
         public void LinearEdges_ProRejectsGridsBeyondItsHash(bool parallel, bool continuation)
         {
             // MarchingCubesPro keeps 16 bits of each corner index in its corner and edge hashes: LinearEdges refuses a
-            // grid of more than 65535 cells along an axis before any work. (With that limit no two grid edges share a
-            // vertex, and by the case table no edge between two crossings is used by more than two triangles, so the
-            // rejected-triangle throw is not reachable in either class; it stays as a guard.)
+            // grid of more than 65535 cells along an axis (65534 for the continuation) before any work. (Within these
+            // limits every visited grid edge has its own vertex, and by the case table no edge between two crossings is
+            // used by more than two triangles, so the rejected-triangle throw is not expected to fire; it stays as a
+            // guard.)
             var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65600, 2, 2));
             var pro = new MarchingCubesPro { Implicit = new AliasField(), Bounds = bounds, CubeSize = 1,
                 RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
             var seeds = new[] { new Vector3d(65540, 1, 1), new Vector3d(4, 0.25, 1) };
             var error = Assert.Throws<ArgumentException>(() => { if (continuation) pro.GenerateContinuation(seeds); else pro.Generate(); });
-            Assert.Contains("65535", error.Message);
+            Assert.Contains("cells per axis", error.Message);
             Assert.Equal(0, pro.Mesh.TriangleCount);
             // the legacy modes are unchanged (no check)
             var legacy = new MarchingCubesPro { Implicit = new AliasField(), Bounds = bounds, CubeSize = 1, ParallelCompute = parallel };
@@ -186,18 +187,73 @@ namespace geometry3Sharp.Tests
             Assert.True(legacy.Mesh.TriangleCount > 0);
         }
 
+        sealed class AxisPlane : ImplicitFunction3d
+        {
+            readonly int axis;
+            public AxisPlane(int axis) { this.axis = axis; }
+            public double Value(ref Vector3d p) => p[axis] - 0.5;
+        }
+
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(1, false)]
+        [InlineData(2, false)]
+        [InlineData(0, true)]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        public void LinearEdges_ProGridLimitIsExact(int axis, bool parallel)
+        {
+            // Along the given axis, w / h < 65535 gives (int)(w / h) + 1 <= 65535 cells, corner indices up to 65535:
+            // allowed and without aliasing (a plane across the other axes crosses 65535 x 2 cells, two triangles each).
+            // One more is refused.
+            Vector3d size = Vector3d.One;
+            size[axis] = 65534;
+            DMesh3 mesh = Generate(true, parallel, new AxisPlane((axis + 1) % 3), new AxisAlignedBox3d(Vector3d.Zero, size), 1, 0);
+            Assert.Equal(2 * 65535 * 2, mesh.TriangleCount);
+            Assert.True(mesh.CheckValidity());
+            size[axis] = 65535;
+            Assert.Throws<ArgumentException>(
+                () => Generate(true, parallel, new AxisPlane((axis + 1) % 3), new AxisAlignedBox3d(Vector3d.Zero, size), 1, 0));
+        }
+
+        sealed class TwoSpheres : ImplicitFunction3d
+        {
+            public double Value(ref Vector3d p) => Math.Min((p - new Vector3d(0, 1, 1)).Length, (p - new Vector3d(65536, 1, 1)).Length) - 0.7;
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public void LinearEdges_ProGridLimitIsExact(bool parallel)
+        public void LinearEdges_ProContinuationGridLimit(bool parallel)
         {
-            // Width / CubeSize < 65535 gives (int)(w / h) + 1 <= 65535 cells, corner indices up to 65535: allowed and
-            // without aliasing (the plane y = 1/2 crosses 65535 x 2 cells, two triangles each). One more is refused.
-            DMesh3 mesh = Generate(true, parallel, new Slab(), new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65534, 1, 1)), 1, 0);
-            Assert.Equal(2 * 65535 * 2, mesh.TriangleCount);
-            Assert.True(mesh.CheckValidity());
-            Assert.Throws<ArgumentException>(
-                () => Generate(true, parallel, new Slab(), new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65535, 1, 1)), 1, 0));
+            // GenerateContinuation also visits the cell of index n (GridBounds.Contains is inclusive), so with n = 65535
+            // cells its corner index 65536 aliased to 0: the spheres at x = 0 and x = 65536 shared vertices (an open
+            // mesh with edges 65536 long). The continuation allows 65534 cells.
+            var seeds = new[] { new Vector3d(0.5, 0.5, 0.5), new Vector3d(65535.5, 0.5, 0.5) };
+            var pro = new MarchingCubesPro { Implicit = new TwoSpheres(), Bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65534, 2, 2)),
+                CubeSize = 1, RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+            var error = Assert.Throws<ArgumentException>(() => pro.GenerateContinuation(seeds));
+            Assert.Contains("65534", error.Message);
+            Assert.Equal(0, pro.Mesh.TriangleCount);
+            // (seeds inside the bounds: a seed outside them is visited too, also an aliasing route, not checked here)
+            pro.Bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65533, 2, 2));
+            pro.GenerateContinuation(new[] { new Vector3d(0.5, 0.5, 0.5), new Vector3d(65533.5, 0.5, 0.5) });
+            Assert.True(pro.Mesh.TriangleCount > 0);
+            Assert.True(pro.Mesh.CheckValidity());
+            Assert.All(pro.Mesh.Vertices(), v => Assert.True(v.x < 2));
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-1.0)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NaN)]
+        public void LinearEdges_ProRejectsInvalidCubeSize(double h)
+        {
+            var pro = new MarchingCubesPro { Implicit = new Slab(), Bounds = new AxisAlignedBox3d(Vector3d.Zero, 4), CubeSize = h,
+                RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = false };
+            Assert.Contains("cube size", Assert.Throws<ArgumentException>(() => pro.Generate()).Message);
+            Assert.Contains("cube size", Assert.Throws<ArgumentException>(() => pro.GenerateContinuation(new[] { Vector3d.One })).Message);
         }
 
         [Theory]
