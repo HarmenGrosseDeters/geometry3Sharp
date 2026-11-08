@@ -74,7 +74,7 @@ using Floating-point Arithmetic*, ACM TOG 2020 (the method from the papers; no c
 The polyhedral envelope (`docs/design/ENVELOPE.md`; `mesh_ops/PolyhedralEnvelope.cs`, internal, own code) follows B. Wang, T. Schneider, Y. Hu,
 M. Attene, D. Panozzo, *Exact and Efficient Polyhedral Envelope Containment Check*, ACM TOG 39(4), 2020; its reference
 code `fast-envelope` (MIT) serves as a reference only; Geogram and the predicate libraries bundled with it were not
-read for it. Since 2026-11-03 geogram's own BSD-3 code may be read and ported under the rules in ROADMAP.md ("Geogram as a source").
+read for it. Since 2026-11-03 geogram's own BSD-3 code may be read and ported under the rules in [roadmap/sources-surveys.md](roadmap/sources-surveys.md#geogram-as-a-source-owner-2026-11-03) ("Geogram as a source").
 
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 
@@ -446,7 +446,7 @@ Own design from the textbook procedures, no code taken over.
 
 The rest (moves, collapses and flips rejected if they flip a normal or create a flat triangle, no splits of an edge
 with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
-in `docs/ROADMAP.md`.
+in `docs/roadmap/alpha-wrap-and-repair.md` (Phase 2 items).
 
 `Remesher.PreventSelfIntersections`: own design, the per-operation check of `Reducer.PreventSelfIntersections`
 (triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
