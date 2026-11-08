@@ -7,6 +7,7 @@ import collections
 from fractions import Fraction
 import hashlib
 import json
+import os
 import pathlib
 import re
 import time
@@ -77,7 +78,10 @@ def source_contracts():
     return tables[0], result
 
 
-SOURCE_SHA = {'MarchingCubes': 'bdbb97acb64e8a893fe0315d38b1bc2a7b1b7878e9adbe0479bafb1652f5fdb8', 'MarchingCubesPro': 'adfb57d4dcced941a20d25ef6966cf5b3ee0fc0b3842ffa86523cc348c849b13'}
+# Review tripwire, not a semantic check: these whole-file hashes only force a re-review when either file changes.
+# The link between find_iso and the FP model is a review obligation; updating the hashes after a change (eg one
+# that restores the endpoint nudge) keeps this pilot green. The semantic content is the table certificate.
+SOURCE_SHA = {'MarchingCubes': 'e1eca0c9b1faeebc52b952e223b7f513d4fb8681fa3cf08663abb41d748ec4b3', 'MarchingCubesPro': 'f8773471e5ab2ce44df4d260fae6939d82f6e2491e75623b334e380d58964ff0'}
 METHOD_SHA = {'MarchingCubes': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50', 'MarchingCubesPro': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50'}  # Reviewed bodies.
 
 
@@ -160,7 +164,11 @@ def table_certificate(rows):
                 interpretation='oriented winding chains; not an embeddedness certificate')
 
 
-def check(name, assumptions, bad, timeout_ms=20000):
+# Per-query timeout; Z3_PILOT_TIMEOUT_MS overrides it (as for the other pilots; CI sets 120 s). UNKNOWN fails.
+DEFAULT_TIMEOUT_MS = int(os.environ.get('Z3_PILOT_TIMEOUT_MS', '20000'))
+
+
+def check(name, assumptions, bad, timeout_ms=DEFAULT_TIMEOUT_MS):
     solver = z.Solver()
     solver.set(timeout=timeout_ms)
     solver.add(*assumptions)
@@ -218,7 +226,7 @@ def fp_obligations():
     yield 'fp_position_envelope', assumptions, z.Or(q-target > z.RealVal(1)/2**28, target-q > z.RealVal(1)/2**28)
 
 
-def run(timeout_ms=20000):
+def run(timeout_ms=DEFAULT_TIMEOUT_MS):
     rows, sources = source_contracts()
     topology = table_certificate(rows)
     obligations = []
@@ -299,7 +307,7 @@ def direct_query(case, row, timeout_ms):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=pathlib.Path)
-    parser.add_argument('--timeout-ms', type=int, default=20000)
+    parser.add_argument('--timeout-ms', type=int, default=DEFAULT_TIMEOUT_MS)
     parser.add_argument('--direct', action='store_true', help='also run unreduced zero-point NRA queries; UNKNOWN fails')
     args = parser.parse_args()
     report = run(args.timeout_ms)

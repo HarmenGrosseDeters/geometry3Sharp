@@ -41,9 +41,16 @@ namespace gs
         public bool ParallelCompute = true;
 
         /// <summary>
-        /// LinearEdges uses the original corner samples without endpoint nudging.
-        /// See docs/design/CONSERVATIVE_MC_AUDIT.md for the conditional enclosure recipe;
-        /// this mode alone does not certify an arbitrary field or output mesh.
+        /// How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, bisection,
+        /// or LinearEdges: one linear interpolation of the original corner samples, without the endpoint nudges and
+        /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
+        /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
+        /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed or rejected triangle) or
+        /// ArgumentException (non-finite values), from the parallel path as from the serial one, and the partial
+        /// mesh must not be used. MarchingCubesPro additionally needs fewer than 65536 cells per axis (its edge
+        /// hash). The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
@@ -436,25 +443,38 @@ namespace gs
             parallel_mesh_access = true;
 
             // [TODO] maybe shouldn't alway use Z axis here?
-            gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
-                GridCell cell = new GridCell();
-                int[] vertlist = new int[12];
-                for (int yi = 0; yi < CellDimensions.y; ++yi) {
-                    if (CancelF())
-                        return;
-                    // compute full cell at x=0, then slide along x row, which saves half of value computes
-                    Vector3i idx = new Vector3i(0, yi, zi);
-                    initialize_cell(cell, ref idx);
-                    polygonize_cell(cell, vertlist);
-                    for (int xi = 1; xi < CellDimensions.x; ++xi) {
-                        shift_cell_x(cell, xi);
+            try {
+                gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
+                    GridCell cell = new GridCell();
+                    int[] vertlist = new int[12];
+                    for (int yi = 0; yi < CellDimensions.y; ++yi) {
+                        if (CancelF())
+                            return;
+                        // compute full cell at x=0, then slide along x row, which saves half of value computes
+                        Vector3i idx = new Vector3i(0, yi, zi);
+                        initialize_cell(cell, ref idx);
                         polygonize_cell(cell, vertlist);
+                        for (int xi = 1; xi < CellDimensions.x; ++xi) {
+                            shift_cell_x(cell, xi);
+                            polygonize_cell(cell, vertlist);
+                        }
                     }
-                }
-            });
+                });
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && gParallel.FirstOperationFailure(e) != null) {
+                rethrow_linear_edges_failure(e);
+            } finally {
+                parallel_mesh_access = false;
+            }
+        }
 
 
-            parallel_mesh_access = false;
+        /// <summary>
+        /// LinearEdges documents InvalidOperationException (and ArgumentException) for a failed run: the parallel
+        /// paths throw that exception, as the serial ones do, not the AggregateException of the parallel loop
+        /// </summary>
+        static void rethrow_linear_edges_failure(AggregateException e)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(gParallel.FirstOperationFailure(e)).Throw();
         }
 
 
@@ -538,38 +558,42 @@ namespace gs
             mesh_lock = new SpinLock();
             parallel_mesh_access = true;
 
-            gParallel.ForEach(seeds, (seed) => {
-                Vector3i seed_idx = cell_index(seed);
-                if (set_cell_if_not_done(ref seed_idx) == false)
-                    return;
-
-                GridCell cell = new GridCell();
-                int[] vertlist = new int[12];
-
-                List<Vector3i> stack = new List<Vector3i>();
-                stack.Add(seed_idx);
-
-                while (stack.Count > 0) {
-                    Vector3i idx = stack[stack.Count - 1];
-                    stack.RemoveAt(stack.Count - 1);
-                    if (CancelF())
+            try {
+                gParallel.ForEach(seeds, (seed) => {
+                    Vector3i seed_idx = cell_index(seed);
+                    if (set_cell_if_not_done(ref seed_idx) == false)
                         return;
 
-                    initialize_cell(cell, ref idx);
-                    if (polygonize_cell(cell, vertlist)) {     // found crossing
-                        foreach (Vector3i o in gIndices.GridOffsets6) {
-                            Vector3i nbr_idx = idx + o;
-                            if (GridBounds.Contains(nbr_idx)) {
-                                if (set_cell_if_not_done(ref nbr_idx) == true) { 
-                                    stack.Add(nbr_idx);
+                    GridCell cell = new GridCell();
+                    int[] vertlist = new int[12];
+
+                    List<Vector3i> stack = new List<Vector3i>();
+                    stack.Add(seed_idx);
+
+                    while (stack.Count > 0) {
+                        Vector3i idx = stack[stack.Count - 1];
+                        stack.RemoveAt(stack.Count - 1);
+                        if (CancelF())
+                            return;
+
+                        initialize_cell(cell, ref idx);
+                        if (polygonize_cell(cell, vertlist)) {     // found crossing
+                            foreach (Vector3i o in gIndices.GridOffsets6) {
+                                Vector3i nbr_idx = idx + o;
+                                if (GridBounds.Contains(nbr_idx)) {
+                                    if (set_cell_if_not_done(ref nbr_idx) == true) { 
+                                        stack.Add(nbr_idx);
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-
-            parallel_mesh_access = false;
+                });
+            } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && gParallel.FirstOperationFailure(e) != null) {
+                rethrow_linear_edges_failure(e);
+            } finally {
+                parallel_mesh_access = false;
+            }
         }
 
 

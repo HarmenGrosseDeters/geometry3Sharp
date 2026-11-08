@@ -79,6 +79,22 @@ namespace g3
 
 
         /// <summary>
+        /// The first InvalidOperationException among the (flattened) inner exceptions of e, else the first
+        /// ArgumentException, else null: for a caller whose serial path documents these exception types, so that its
+        /// parallel path throws the same type instead of an AggregateException
+        /// </summary>
+        internal static Exception FirstOperationFailure(AggregateException e)
+        {
+            var inner = e.Flatten().InnerExceptions;
+            foreach (Exception x in inner)
+                if (x is InvalidOperationException) return x;
+            foreach (Exception x in inner)
+                if (x is ArgumentException) return x;
+            return null;
+        }
+
+
+        /// <summary>
         /// Evaluate input actions in parallel
         /// </summary>
         public static void Evaluate(params Action[] funcs)

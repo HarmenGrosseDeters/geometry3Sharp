@@ -60,9 +60,16 @@ namespace g3
 
 
         /// <summary>
-        /// LinearEdges uses the original corner samples without endpoint nudging.
-        /// See docs/design/CONSERVATIVE_MC_AUDIT.md for the conditional enclosure recipe;
-        /// this mode alone does not certify an arbitrary field or output mesh.
+        /// How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, bisection,
+        /// or LinearEdges: one linear interpolation of the original corner samples, without the endpoint nudges and
+        /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
+        /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
+        /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed or rejected triangle) or
+        /// ArgumentException (non-finite values), from the parallel path as from the serial one, and the partial
+        /// mesh must not be used. MarchingCubesPro additionally needs fewer than 65536 cells per axis (its edge
+        /// hash). The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
         /// </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
@@ -237,23 +244,28 @@ namespace g3
                     return;
                 int count = Math.Min(batchSize, CellDimensions.z - start);
                 var slabs = new List<Vector3d>[count];
-                gParallel.ForRange(count, i => {
-                    var vertices = new List<Vector3d>();
-                    slabs[i] = vertices;
-                    GridCell cell = new GridCell();
-                    Vector3d[] vertlist = new Vector3d[12];
-                    for (int yi = 0; yi < CellDimensions.y; ++yi) {
-                        if (CancelF())
-                            return;
-                        Vector3i idx = new Vector3i(0, yi, start + i);
-                        initialize_cell(cell, ref idx);
-                        polygonize_cell(cell, vertlist, vertices);
-                        for (int xi = 1; xi < CellDimensions.x; ++xi) {
-                            shift_cell_x(cell, xi);
+                try {
+                    gParallel.ForRange(count, i => {
+                        var vertices = new List<Vector3d>();
+                        slabs[i] = vertices;
+                        GridCell cell = new GridCell();
+                        Vector3d[] vertlist = new Vector3d[12];
+                        for (int yi = 0; yi < CellDimensions.y; ++yi) {
+                            if (CancelF())
+                                return;
+                            Vector3i idx = new Vector3i(0, yi, start + i);
+                            initialize_cell(cell, ref idx);
                             polygonize_cell(cell, vertlist, vertices);
+                            for (int xi = 1; xi < CellDimensions.x; ++xi) {
+                                shift_cell_x(cell, xi);
+                                polygonize_cell(cell, vertlist, vertices);
+                            }
                         }
-                    }
-                });
+                    });
+                } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && gParallel.FirstOperationFailure(e) != null) {
+                    // (several slabs failed at once; ForRange unwraps only a single failure: throw the documented type)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(gParallel.FirstOperationFailure(e)).Throw();
+                }
                 foreach (List<Vector3d> slab in slabs)
                     for (int t = 0; t < slab.Count; t += 3)
                         emit_triangle(slab[t], slab[t + 1], slab[t + 2]);

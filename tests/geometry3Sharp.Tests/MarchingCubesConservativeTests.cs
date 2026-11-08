@@ -51,6 +51,139 @@ namespace geometry3Sharp.Tests
             Assert.IsType<InvalidOperationException>(error.InnerException);
         }
 
+        static DMesh3 Generate(bool pro, bool parallel, ImplicitFunction3d f, AxisAlignedBox3d bounds, double h, double level)
+        {
+            if (pro) {
+                var mc = new MarchingCubesPro { Implicit = f, Bounds = bounds, CubeSize = h, IsoValue = level,
+                    RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+                mc.Generate();
+                return mc.Mesh;
+            } else {
+                var mc = new MarchingCubes { Implicit = f, Bounds = bounds, CubeSize = h, IsoValue = level,
+                    RootMode = MarchingCubes.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+                mc.Generate();
+                return mc.Mesh;
+            }
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void LinearEdges_GenerateIsInvariant(bool pro, bool parallel)
+        {
+            // Generate() itself under Similarity.All(): a sphere of radius 1 on a grid of spacing 1/4 around its
+            // center, at the level 0.1 (no grid node on the level; at level 0 the node (1, 0, 0) is, and the mode throws).
+            DMesh3 reference = null;
+            foreach (Similarity s in Similarity.All()) {
+                Vector3d center = s.Apply(Vector3d.Zero);
+                var sphere = new ImplicitSphere3d { Origin = center, Radius = s.Scale };
+                var bounds = new AxisAlignedBox3d(center, 1.5 * s.Scale);
+                DMesh3 mesh = Generate(pro, parallel, sphere, bounds, 0.25 * s.Scale, 0.1 * s.Scale);
+                Assert.True(mesh.TriangleCount > 0, s.Name);
+                Assert.True(mesh.IsClosed(), s.Name);
+                Assert.True(mesh.CheckValidity(), s.Name);
+                Assert.True(Invariance.AllFinite(mesh), s.Name);
+                Assert.All(mesh.Vertices(), v => Assert.InRange((v - center).Length / s.Scale, 1.07, 1.13));
+                if (reference == null) reference = mesh;
+                // (the 2^k scales: the same mesh, scaled, bit for bit; the ids of the Pro parallel path follow the schedule)
+                if (s.IsExact)
+                    Assert.Equal("", pro && parallel ? Invariance.GeometricDifference(reference, Invariance.MappedBack(mesh, s))
+                                                     : Invariance.Difference(reference, Invariance.MappedBack(mesh, s)));
+                // the parallel path gives the serial result (the same ids for MarchingCubes), on every run
+                DMesh3 serial = parallel ? Generate(pro, false, sphere, bounds, 0.25 * s.Scale, 0.1 * s.Scale) : mesh;
+                for (int run = 0; run < 2; ++run) {
+                    DMesh3 again = Generate(pro, parallel, sphere, bounds, 0.25 * s.Scale, 0.1 * s.Scale);
+                    Assert.Equal("", pro && parallel ? Invariance.GeometricDifference(serial, again) : Invariance.Difference(serial, again));
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void LinearEdges_NodeOnLevelThrowsInvalidOperationInEveryPath(bool pro, bool parallel)
+        {
+            // The grid nodes (+-1, 0, 0), (0, +-1, 0), (0, 0, +-1) lie on the level 0 of the unit sphere: their crossings
+            // fall onto grid corners in several z-slabs. The parallel paths throw the serial exception type, not an
+            // AggregateException of the parallel loop.
+            var sphere = new ImplicitSphere3d { Origin = Vector3d.Zero, Radius = 1 };
+            var error = Assert.Throws<InvalidOperationException>(
+                () => Generate(pro, parallel, sphere, new AxisAlignedBox3d(Vector3d.Zero, 1.5), 0.25, 0));
+            Assert.Contains("LinearEdges", error.Message);
+        }
+
+        sealed class MeetingPlane : ImplicitFunction3d
+        {
+            // The plane y = 1 through grid nodes: every z-slab fails. The first sample on the plane in a thread waits
+            // (at most two seconds) until a second thread has one too, so two slabs fail at the same time and the
+            // parallel loop collects two exceptions (with a single core the test still passes, without this check).
+            int arrived;
+            [ThreadStatic] static MeetingPlane met;
+            public double Value(ref Vector3d p)
+            {
+                if (p.y == 1 && met != this) {
+                    met = this;
+                    System.Threading.Interlocked.Increment(ref arrived);
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    while (System.Threading.Volatile.Read(ref arrived) < 2 && clock.ElapsedMilliseconds < 2000)
+                        System.Threading.Thread.Yield();
+                }
+                return p.y - 1;
+            }
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void LinearEdges_SimultaneousSlabFailuresThrowInvalidOperation(bool pro)
+        {
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 3));
+            var error = Assert.Throws<InvalidOperationException>(() => Generate(pro, true, new MeetingPlane(), bounds, 1, 0));
+            Assert.Contains("LinearEdges", error.Message);
+        }
+
+        sealed class Slab : ImplicitFunction3d
+        {
+            public double Value(ref Vector3d p) => p.y - 0.5;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void LinearEdges_ProRejectedTriangleThrows(bool parallel)
+        {
+            // MarchingCubesPro identifies crossings by a 16-bit-per-axis edge hash: with more than 65536 cells along x,
+            // the crossings at x and x + 65536 share one vertex, the plane y = 1/2 emits the same triangles twice, and
+            // the mesh rejects the third triangle at an edge. The legacy modes skip it silently; LinearEdges throws.
+            // (The rejection is not reachable in MarchingCubes: distinct grid edges have distinct crossing positions,
+            // and by the case table no edge between two crossings is used by more than two triangles.)
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(65540, 1, 1));
+            var error = Assert.Throws<InvalidOperationException>(() => Generate(true, parallel, new Slab(), bounds, 1, 0));
+            Assert.Contains("rejected", error.Message);
+            var legacy = new MarchingCubesPro { Implicit = new Slab(), Bounds = bounds, CubeSize = 1, ParallelCompute = parallel };
+            legacy.Generate();
+            Assert.True(legacy.Mesh.TriangleCount < 2 * 65541 * 2);     // (two triangles in each of the 65541 x 2 cells it crosses)
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void LinearEdges_CollapsedTriangleThrows(bool parallel)
+        {
+            // A grid that is not exactly representable: at x = 2^52 (spacing of doubles 1) the nodes 2^52 + 0.75 i
+            // round to 2^52 + {0, 1, 2, 2, 3, 4, ...}, so one cell has width zero and MarchingCubes (vertices identified
+            // by position) merges the crossings on its two sides into one vertex. The legacy modes skip the
+            // degenerate triangles; LinearEdges throws.
+            double x0 = Math.Pow(2, 52);
+            var bounds = new AxisAlignedBox3d(new Vector3d(x0, 0, 0), new Vector3d(x0 + 4, 1, 1));
+            var error = Assert.Throws<InvalidOperationException>(() => Generate(false, parallel, new Slab(), bounds, 0.75, 0));
+            Assert.Contains("collapsed", error.Message);
+        }
+
         [Fact]
         public void BelowThreshold_CellCenteredSphereIsMissed()
         {
