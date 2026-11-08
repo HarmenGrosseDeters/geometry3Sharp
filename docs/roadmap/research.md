@@ -67,6 +67,10 @@ in the tool project.
     enclosure with a `2^-26` level pad). Follow-up PR (owner decision 2026-11-08): restate the FP obligation in a
     relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
     check that gap for SDFs, and the code does not check it).
+  - Found in the #423 review (pre-existing, also in legacy modes, low priority): `MarchingCubesPro.GenerateContinuation`
+    runs past `done_cells` at the upper grid edge or with seeds outside the bounds (`IndexOutOfRangeException`, in
+    parallel an `AggregateException`, or a silent wrap into the next row), because `GridBounds.Contains` is inclusive.
+    Own bugfix PR with a test.
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
