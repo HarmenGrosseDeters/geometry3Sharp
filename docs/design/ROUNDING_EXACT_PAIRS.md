@@ -97,8 +97,8 @@ the non-exact triangles against all).
 
 ### Measured (2026-11-08)
 
-The implementation, without instrumentation, on an otherwise idle machine (4 cores): the 12 slow and 30 random cohort
-models, 3 operations each, master and L1 alternating, best of 2 rounds
+The implementation, without instrumentation, on an otherwise idle machine (4 cores): 42 cohort models (the slow ones and a random sample),
+3 operations each, master and L1 alternating, best of 2 rounds
 (`benchmarks/BooleanComparison/perf/rounding_exact_pairs_2026-11-08.jsonl`): rounding 106.9 -> 83.9 s (-21.5 %), total
 293.8 -> 257.9 s (-12.2 %), operations over 5 s 16 -> 10 (1063860 union 7.6 -> 3.7 s, 1063866 union 6.1 -> 3.3 s;
 519511 and 119829/119830 union stay over 20 s: there the rounding is not the full search). 126 of 126 results
