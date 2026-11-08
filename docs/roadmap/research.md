@@ -26,6 +26,9 @@ Part of the [roadmap](../ROADMAP.md).
      IsWithin, fidelity metrics, deviation maps).
   2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
      provably correct; Unity, robotics, simulation; nothing comparable in .NET.
+     Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
+     is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
+     first, then 2-3 days with an Opus-level review of the bounds.
   3. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   4. Point clouds in stages: normal orientation first (fast winding numbers exist), then screened Poisson, L.
