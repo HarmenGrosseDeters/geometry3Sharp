@@ -3,7 +3,8 @@
 Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** libraries and papers that may serve open items: geogram (owner 2026-11-03), other permissive libraries
-  (survey 2026-11-03), RWTH Aachen papers (survey 2026-11-05), award-winning papers (October 2026 survey).
+  (survey 2026-11-03), RWTH Aachen papers (survey 2026-11-05), award-winning papers (October 2026 survey), PaMO
+  (survey 2026-11-08).
 - **Status:** documented only; nothing in these lists is read or planned unless an item below says so.
 - **Related:** [SOURCES.md](../SOURCES.md) (what was used and how), the licence rules in
   [CLAUDE.md](../../CLAUDE.md).
@@ -18,8 +19,82 @@ Part of the [roadmap](../ROADMAP.md).
   [their section](#rwth-aachen-papers-survey-2026-11-05).
 - **Award-winning papers:** documented only. The affine heat method stopped at its gate (#371); generalized winding
   numbers for rational curves are Phase 5 next research item 3 ([research.md](research.md#phase-5-candidates-from-recent-research)).
+- **PaMO (survey 2026-11-08):** paper only; a patent check comes before adopting any idea. Probe candidates are listed
+  at the end of [its section](#pamo-parallel-mesh-optimization-survey-2026-11-08); none is planned.
 
 ### Done / history
+
+#### PaMO, parallel mesh optimization (survey 2026-11-08)
+
+PaMO, by Oh, Yuan, Wei, Shi, Xiang, Liu and Su, [arXiv 2509.05595](https://arxiv.org/abs/2509.05595) v1, 6 Sep
+2025, CC BY 4.0. Read: the full v1 text (HTML), owner request via the coordinator. No code read. Status: paper only; patent check before adopting any idea
+(the paper says nothing about patents; its funding note names Hillbot Inc., whose CTO is an author).
+
+The pipeline has three GPU stages (section numbers of the paper):
+
+- **Re-meshing (Sec. 4):** an unsigned distance field on a narrow band. It is offset by ε = 0.9/R (input
+  normalised to [0,1]³, R = 256 by default) and extracted with Dual Marching Cubes. Quad splits use an
+  envelope/concavity test (Eqs. 14-15), and the interpolation weight is smoothed by a sigmoid (Eq. 13). Works on
+  triangle soups. Freedom from self-intersections is shown on 10k random grids (8 failures for plain DualMC, 0 for
+  theirs, Sec. 8.2); it is not proven. Floating point throughout.
+- **Parallel simplification (Sec. 5, after Gautron and Kubisch 2023):**
+  - The cost is QEM + 0.001 · edge length + 0.005 · Σ(1 − quality of the new triangles) (Eq. 1).
+  - An edge collapses in a round if its 64-bit key (float cost in the high bits, edge id in the low bits) is the
+    minimum over every triangle of its endpoints' one-rings (atomicMin). The link condition is checked.
+  - After each round: an LBVH over the whole mesh and a Devillers-Guigue triangle test in mixed float/double
+    precision. Shared-vertex 3D pairs are decided by a heuristic ("very short" segment = touching, App. 13.2).
+    Measured on 10,100 pairs against CGAL: false-negative rate 0, false-positive rate 0.0114 (Table 7).
+  - Offending collapses are undone; check and undo repeat (at most 3 passes, Table 8). An undone edge is barred
+    from the next round.
+- **Safe projection (Sec. 6):** moves the vertices with fixed connectivity. The energy is a two-sided approximate
+  Chamfer distance to the input + membrane + bending + an IPC barrier, solved by projected Newton with additive
+  CCD. "Safe" means intersection-free along the trajectory; there is no distance bound (CD and HD are measured
+  only). Sharp features come back only as far as the fixed connectivity allows (Sec. 9).
+
+Reported (RTX 4090 + i9-12900K, Table 1): 100 Thingi10K meshes with more than 300k faces, reduced to 1 % of the
+faces.
+
+| Method | Time (s) | HD (10⁻²) | CD (10⁻⁴) | min angle (°) | manifold | intersection-free |
+|---|---|---|---|---|---|---|
+| AlphaWrap + GK23 | 56.21 | 3.369 | 0.6451 | 4.081 | 100 % | 85 % |
+| PaMO without stage 3 | 0.86 | 3.439 | 0.8468 | 3.317 | 100 % | 100 % |
+| PaMO | 1.95 | 2.294 | 0.1846 | 2.994 | 100 % | 100 % |
+
+On the full Thingi10K at 1 % (Table 3): 1.23 s, HD 2.907. At 10 % and 20 % (Table 2) PaMO's HD is worse than QEM's
+(1.886 against 1.233 and 1.910 against 0.920); QEM there runs on the raw input and is intersection-free on only 12 %
+of the meshes. Limitations (Sec. 9): no speed advantage on small meshes; gaps below the voxel size close, and cloth
+becomes two layers; the simplifier never sees the input.
+
+PaMO against Alpha Wrap 2.0 (our numbers: the 800 sample at 300/3000 and the T1 subset, see
+[alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)):
+
+| | PaMO | Alpha Wrap 2.0 |
+|---|---|---|
+| closed, manifold | by construction (DualMC) + link condition | by construction (manifold step) + link condition |
+| no self-intersections | measured (float test, 0 misses on their sample, heuristic at shared vertices) | guaranteed: exact predicates per collapse |
+| distance to the input | none guaranteed; measured HD/CD | offset band; simplification certified within half the offset (one-sided Hausdorff upper bound) |
+| resolution | voxel grid, R = 256 on [0,1]³ | α and offset relative to the bounding box (default 300/3000) |
+| sharp features | stage 3 pulls vertices to the input; limited by fixed connectivity | none recovered (follow-up in the roadmap) |
+| triangle quality | shape term in the cost; Table 1 min angle 3.0° | quality guard in the reducer; target p01 ≥ 10° and no triangle below 0.5° or above 170° |
+| time | 1-2 s per mesh (GPU) | median about 7 s per mesh (4-core CPU, warm, T1 subset) |
+
+Ideas for a CPU probe (none planned; each needs the patent check first):
+
+1. **The round rule** (packed cost + id key, minimum over the one-ring triangles): independent collapses per round
+   that do not depend on thread order. It fits option (A) of the parallel reducer if each collapse keeps our exact
+   check, so no rollback is needed. Our serial reducer profile (2026-11-08) puts the self-intersection check at
+   56-63 % of the reduction, which is what a parallel round would split.
+2. **The length and shape terms in the cost:** cheap, and their Table 5 shows fewer bad triangles. Our reducer
+   rejects bad collapses with a guard instead; a cost term would change the order of collapses (not bit-identical,
+   needs the quality and fidelity gates).
+3. **Safe projection:** only reduced: a distance term plus exact rejection of moves that create intersections.
+   After it, the Hausdorff certificate to the wrap has to be computed again. The IPC/CCD solver itself is not a
+   fit (floating point, and costly on the CPU).
+
+Correction of an earlier summary (the prior-art note for the parallel reducer): "rounds at local minima of the cost with a
+self-intersection check and rollback" holds. But the check is floating point, not exact. "Hausdorff about that of
+QEM" holds for stage 2 at 1 %; the full pipeline is about 32 % lower at 1 % and worse than QEM at 10-20 %.
+
 
 #### Geogram as a source (owner 2026-11-03)
 
