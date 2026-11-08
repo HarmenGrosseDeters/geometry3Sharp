@@ -100,9 +100,17 @@ Legacy mode values and defaults remain compatible.
 The [pilot README](../../tools/Z3Pilot/README.md#conservative-marching-cubes-source-coupled-adapter)
 contains the composed winding-enclosure argument, exact FP prerequisites,
 normalized recipe, and treatment of approximate samples. The default gate is a
-modular adapter certificate. It verifies closed high boundary chains, neighbor
-face consistency, per-case lift composition and FP error envelopes; it is not
-a new proof of the continuous-function theorem or embeddedness. The optional
+modular adapter certificate. It verifies closed high boundary chains and neighbor
+face consistency of the parsed tables (the substance), plus the elementary lift
+composition (one trivial linear lemma, instantiated per case) and FP error
+envelopes; it is not a new proof of the continuous-function theorem or
+embeddedness. Its link to `find_iso` is a whole-file hash tripwire that forces a
+re-review on any change, not a semantic check: that the code matches the FP
+model, that shared crossings are bit-identical in neighbouring cells, and that no
+FMA contraction happens remain review obligations (with native tests). The
+failure paths (`InvalidOperationException` for a crossing on a corner, a
+collapsed or a rejected triangle, serial and parallel alike) have native tests in
+`MarchingCubesConservativeTests`. The optional
 `--direct` query contains the proposed zero-point/Lipschitz nonlinear model;
 UNKNOWN results there are not proofs. SAT assumptions are required for the
 adapter queries; impossible zero-point cases in the direct model are separately

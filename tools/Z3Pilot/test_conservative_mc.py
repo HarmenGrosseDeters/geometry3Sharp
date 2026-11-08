@@ -17,6 +17,7 @@ class ConservativeMcTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_adapter_and_fp_envelopes(self):
+        # (the child reads Z3_PILOT_TIMEOUT_MS itself: conservative_mc.DEFAULT_TIMEOUT_MS)
         report = self.child('import json, conservative_mc as mc; print(json.dumps(mc.run()))')
         out = os.environ.get('Z3_CONSERVATIVE_MC_REPORT')
         if out:
@@ -64,6 +65,15 @@ class ConservativeMcTests(unittest.TestCase):
         """)
         self.assertTrue(rejected)
 
+    def test_timeout_comes_from_the_environment(self):
+        timeout = self.child('''
+            import json, os
+            os.environ['Z3_PILOT_TIMEOUT_MS'] = '1234'
+            import conservative_mc as mc
+            print(json.dumps(mc.DEFAULT_TIMEOUT_MS))
+        ''')
+        self.assertEqual(1234, timeout)
+
     def test_no_vacuous_or_unknown_success(self):
         report = self.child("""
             import json
@@ -86,7 +96,7 @@ class ConservativeMcTests(unittest.TestCase):
         row = self.child("""
             import json, conservative_mc as mc
             rows, _ = mc.source_contracts()
-            print(json.dumps(mc.direct_query(255, rows[255], 20000)))
+            print(json.dumps(mc.direct_query(255, rows[255], mc.DEFAULT_TIMEOUT_MS)))
         """)
         self.assertTrue(row['passed'], row)
 

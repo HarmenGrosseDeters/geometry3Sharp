@@ -1,5 +1,5 @@
 {
-  "command": "python tools/Z3Pilot/conservative_mc.py --direct --timeout-ms 100 --out /tmp/z3-mc-direct.json",
+  "command": "python tools/Z3Pilot/conservative_mc.py --direct --timeout-ms 100 --out <dir>/z3-mc-direct.json",
   "direct_passed": false,
   "results": [
     {

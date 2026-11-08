@@ -284,6 +284,9 @@ are used, no code.
 /tmp/g3-z3/bin/python tools/Z3Pilot/conservative_mc.py --direct --timeout-ms 1000 --out /tmp/z3-mc-direct.json
 ```
 
+The per-query timeout is `--timeout-ms`, default `Z3_PILOT_TIMEOUT_MS` or 20 s
+(CI sets 120 s, as for the other pilots); UNKNOWN fails.
+
 Source: only Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
 [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), sections 1, 3, 3.1.
 [Prerequisite audit and recipe](../../docs/design/CONSERVATIVE_MC_AUDIT.md).
@@ -300,9 +303,17 @@ would itself be incorrect. The default adapter guards are SAT for every row.
 ### Composition and what Z3 checks
 
 1. Parse the actual active edge/triangle tables of both implementations; verify
-   crossing masks, edge numbering, table identity and full reviewed source hashes.
-   Source drift in classification, corner sampling, grid formation, interpolation
-   or emitted winding must fail before any solver query.
+   crossing masks, edge numbering and table identity (semantic checks of the parsed
+   tables). In addition, a SHA-256 hash of each whole source file and of the
+   whitespace-normalized `find_iso` body is compared with a reviewed value before
+   any solver query. This hash is a **review tripwire, not a semantic check**: any
+   edit of either file fails the pilot until someone re-reviews it and updates the
+   hashes, but nothing checks that `find_iso` still computes what the FP model of
+   the next section assumes. A mutation that restores the endpoint nudge, with the
+   hashes updated, keeps this pilot green; only the native tests
+   (`MarchingCubesConservativeTests`) and the review catch it. The link between
+   the code and the FP model is therefore a review obligation. The semantic
+   substance of this pilot is the combinatorial table certificate of step 2.
 2. For each row construct the **high-side boundary chain**: reverse the MC
    triangles and close them with outward-oriented high-side cube-face polygons.
    Verify the cap arcs form disjoint oriented cycles and every edge cancels.
@@ -310,12 +321,17 @@ would itself be incorrect. The default adapter guards are SAT for every row.
    cells. All cap vertices are high corners or emitted crossings. A cap polygon
    can be triangulated as an oriented fan using its boundary vertices; this is a
    signed chain, so convexity of the polygon is unnecessary.
-3. Z3 checks the linear edge lift identity and nonnegative-product lemma. For
-   each actual table row, abstract each convex weight times its normalized lift
-   as a contribution. A crossing contributes its weight; a high corner
-   contributes at least its weight. Contributions therefore sum to at least one.
-   Each case is a SAT-guarded UNSAT query. This abstraction uses the independently
-   proved product and edge lemmas, not an assumed conclusion about enclosure.
+3. Z3 checks two small lemmas: the linear edge lift identity (the interpolated
+   crossing has lift exactly sigma) and the nonnegative-product lemma. The 256
+   per-case `case_NNN_lift` queries then all check **the same trivial linear
+   lemma**, only with a different number of nodes: convex weights `w_i >= 0` with
+   sum one and contributions `c_i = w_i` (crossing) or `c_i >= w_i` (high corner)
+   sum to at least one. This is elementary algebra, not an independent check of
+   each case; the per-case structure only ties the node list (high corners plus
+   crossings of the row) to the parsed table. The substance per case is the table
+   certificate of step 2, checked without Z3. Each query also checks that its
+   assumptions are SAT, which here only rules out contradictory guards; the
+   non-vacuity of the method is shown by the two SAT controls of step 5.
 4. Mathematical bridge (not proved again by SMT): a closed finite oriented
    boundary chain has winding zero outside its vertices' convex hull. By (3)
    its hull lies in the paper's projected convex lift `P`. The paper excludes
@@ -331,7 +347,16 @@ would itself be incorrect. The default adapter guards are SAT for every row.
    offset surface AND enclose the bounded low solid, with all extraction-boundary
    samples high; containing the offset surface alone is insufficient. The field
    must be deterministic/thread-safe for parallel use,
-   and canceled or failed runs are never certificates. Pro continuation can miss
+   and canceled or failed runs are never certificates. Two further assumptions are
+   checked by review and by the native tests only, not by this pilot: a crossing
+   shared by neighbouring cells is computed bit-identically in each (MarchingCubes
+   identifies vertices by their exact position in `VertexHash`, so it relies on
+   the same corner positions and samples and on `find_iso` being symmetric in its
+   endpoints; MarchingCubesPro computes each crossing once per edge, keyed by its
+   edge hash), and the JIT does not contract the interpolation into fused
+   multiply-adds (RyuJIT emits FMA only for explicit `Math.FusedMultiplyAdd`;
+   other runtimes, eg Mono or IL2CPP, are not checked; the FP envelope of the next
+   section assumes separately rounded operations). Pro continuation can miss
    components and is excluded; its 16-bit index hashing requires dimensions
    below 65536. Use full `Generate()`.
 5. Required SAT controls: the positive-radius cell-center sphere below the
@@ -390,8 +415,11 @@ overflow and other root modes remain outside these FP lemmas.
 
 ### Recorded outcome
 
-`results/conservative-mc.json` records the default source-coupled gate: 260
-SAT-guarded UNSAT obligations and both SAT controls with exact-rational replay.
+`results/conservative-mc.json` records the default gate: the table certificate
+(256 rows, closed high chains, matching neighbour faces), 260 UNSAT queries with
+SAT assumptions (the edge-identity and product lemmas, the 256 instances of the
+same trivial lift lemma described in step 3, and the two FP envelopes) and both
+SAT controls with exact-rational replay.
 `results/conservative-mc-direct-summary.json` records the separate short-budget
 experiment (`--direct --timeout-ms 100`): one direct UNSAT with SAT assumptions,
 255 direct UNKNOWN results. This is explicitly **not** a completed direct NRA
@@ -400,12 +428,14 @@ conditional recipe; its winding-chain and rounding bridges remain reviewable
 mathematical steps. Independent review found and fixed incomplete source
 coupling and the missing outer-boundary-high precondition.
 
-`results/conservative-mc-validation.json` records native tests, the controlled
-legacy-nudge mutation (two expected failures), all Python pilot tests, both
-library targets, net48 compilation and API package validation. New pilot solver
+`results/conservative-mc-validation.json` records commands (relative paths,
+`<dir>` for scratch directories), exit codes and test counts of the native tests,
+the controlled mutations, all Python pilot tests, both library targets, net48
+compilation and API package validation; no logs. New pilot solver
 tests use child processes to keep their expression context out of existing
 pilots: an initial shared-context run timed out in Pilot 2's product lemma;
 isolated execution passes without changing that lemma or accepting UNKNOWN.
+
 ## Pilot 2, step 1: the D1 drift lemma of SafeRounding (apex rule)
 
 Step (1) of pilot 2: the lemma of `docs/design/ROUNDING_DRIFT_APEX.md` (branch `claude/d1-drift-lemma`; checked at
