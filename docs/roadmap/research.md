@@ -130,6 +130,13 @@ Problems where the library already has a head start and that could be researched
   sides (L > r + Δa + Δb). The report's idea 1 (a clearance certificate reused until the movement budget is spent,
   after Verlet skins) and idea 3 (fixed-collar search over representable positions per defect cluster) are the next
   probes here; each starts with its stated falsification run on a real rounding trace, not on a synthetic fixture.
+  **Z3 as a rule checker (owner 2026-11-08, step 3 of the Z3 pilot, only once someone takes up the empty-ball lead):**
+  (a) the lemma that a lower distance bound computed in doubles really is a lower bound (the rounding of every step,
+  as in pilot 2); (b) the lemma "the ball contains the whole moved primitive plus the motion of both sides and no
+  other primitive ⇒ no new intersection"; (c) for every candidate local rounding rule, a bounded counterexample
+  search on tiny configurations (2-3 triangles, small grid) for a new intersection or degenerate triangle; each
+  counterexample becomes a test. Not for Z3: the global guarantee over whole meshes (induction over cascades of moves,
+  termination) and the running-time question.
 - **An envelope-guaranteed exact pipeline.** Boolean → rounding → simplification / remeshing with every stage
   provably inside an ε-envelope and free of self-intersections (needs Phase 5 #2).
 - **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,
