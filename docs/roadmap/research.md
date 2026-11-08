@@ -16,8 +16,11 @@ Part of the [roadmap](../ROADMAP.md).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
   alongside):**
-  1. Batch ray / point queries (`IntersectBatch`, `IsInsideBatch`; owner idea 2026-11-02), M: every app needs mass
-     ray casts and inside tests; BVH and exact tests exist; SIMD pays off here; existing API unchanged.
+  1. Batch ray / point queries (`IntersectBatch`, `IsInsideBatch`; owner idea 2026-11-02), M. Stage 1 done
+     (2026-11-08, branch claude/batch-queries-stage1, docs/design/BATCH_QUERIES.md): batching over the existing
+     `DMeshAABBTree3` gives 2.2-5.2x (rays) / 3.6-5.3x (inside) on 4 cores, bit-identical to the single calls; an own
+     BVH at most ~1.3x more, SIMD 1.05-1.3x. Owner 2026-11-08: stage 2 = that batching only (new file
+     `spatial/MeshBatchQueries.cs`), nearest + any-hit in the first PR; after the boolean queue and Lévy phase 2.
   2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
      provably correct; Unity, robotics, simulation; nothing comparable in .NET.
   3. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
