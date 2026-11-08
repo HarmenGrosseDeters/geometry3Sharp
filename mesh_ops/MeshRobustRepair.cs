@@ -30,6 +30,13 @@ namespace gs
     /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
     /// a cell or the offset, and lose parts smaller than that).
     ///
+    /// Components far apart compared to their size (eg a part 1e8 away from parts of size 1): the degenerate area of
+    /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles. The cleanups
+    /// of the exact resolve take the diagonal of the largest component where that area covers 1 % or more of a
+    /// component; if the resolve is then clean but for that area, Apply() returns false with the resolved mesh in Mesh
+    /// and ResultReason ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the
+    /// parts).
+    ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
     /// removed, they are no part of the solid), so pass a copy if
@@ -283,6 +290,7 @@ namespace gs
             WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
+            scaleOnly = null;
             TopologyChanged = false;
             GenusBefore = GenusAfter = double.NaN;
             ExactResolveRoundsUsed = 0;
@@ -380,6 +388,18 @@ namespace gs
                     ResultReason = "";
                     return true;
                 }
+                // resolved, and clean but for the degenerate area of NotCleanReason, which components far apart make
+                // too large: not repaired (NotCleanReason rejects it), but the resolved mesh is returned, not the
+                // solidify's or the wrap's, which cannot keep the parts at that scale
+                if (scaleOnly != null) {
+                    Mesh = scaleOnly;
+                    UsedExactResolve = true;
+                    UsedInput = scaleOnlyFromInput;
+                    ResultReason = ScaleDisparity;
+                    TopologyChanged = false;
+                    GenusBefore = GenusAfter = double.NaN;
+                    return false;
+                }
                 // the topology outputs describe the returned mesh only (a rejection stays in ExactResolveReason)
                 TopologyChanged = false;
                 GenusBefore = GenusAfter = double.NaN;
@@ -455,6 +475,15 @@ namespace gs
         }
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+        /// <summary>
+        /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
+        /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
+        /// larger than their triangles. Apply() returns false with the resolved mesh, not the solidify's or the wrap's
+        /// </summary>
+        public const string ScaleDisparity = "scale disparity: degenerate triangles only by the diagonal of all triangles (components far apart compared to their size); clean by the diagonal of the largest component";
+        // the exact resolve that is clean but for that (null: none), and whether it came from the input
+        DMesh3 scaleOnly;
+        bool scaleOnlyFromInput;
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the
         // volume check of the exact stage rejects, but the solidify and the wrap do not check): then the fallbacks start
@@ -667,10 +696,12 @@ namespace gs
                 bool editedAfterRounding = false;
                 if (reason == "degenerate triangles") {
                     editedAfterRounding = true;
-                    // (relative to the largest component, as the safe rounding: a small part far from the rest must not
-                    // make every other triangle degenerate and collapse it)
-                    double scale = MeshRepairMetrics.LargestComponentDiagonal(res);
-                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = scale }.Apply();
+                    // (relative to the largest component, as the safe rounding, where the diagonal of all triangles would
+                    // collapse real surface: a small part far from the rest must not make every other triangle
+                    // degenerate; elsewhere relative to all triangles, as NotCleanReason, as before)
+                    bool erodes = global_scale_erodes(res);
+                    double scale = erodes ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
+                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = erodes ? scale : double.NaN }.Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
                     // the self-intersections that can create are found below and resolved by the next round (so
@@ -711,6 +742,10 @@ namespace gs
                     ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.VertexRemovals + first.RemovedTriangles, edits));
                 }
                 reason = NotCleanReason(res, false);
+                // (clean but for the degenerate area of NotCleanReason: the rest of the checks as for a clean one)
+                bool onlyScale = reason == "degenerate triangles" && global_scale_erodes(res) && not_clean_reason_at_scale(res) == "";
+                if (onlyScale)
+                    reason = "";
                 if (reason == "" && CheckSelfIntersections) {
                     if (si < 0)
                         si = MeshRepairMetrics.SelfIntersections(res);
@@ -745,6 +780,15 @@ namespace gs
                     }
                     if (MinVolumeIoU > 0)
                         RepairVolumeIoU = iou;
+                }
+                if (onlyScale) {
+                    // (the first one: the repair result's before the input's)
+                    if (scaleOnly == null) {
+                        scaleOnly = res;
+                        scaleOnlyFromInput = from == input;
+                    }
+                    ExactResolveReason = ScaleDisparity;
+                    return null;
                 }
                 ExactResolveReason = "";
                 return res;
@@ -1056,6 +1100,49 @@ namespace gs
             new KeyValuePair<Defects, string>(Defects.InsideOutComponents, "inside-out components"),
             new KeyValuePair<Defects, string>(Defects.SelfIntersections, "self-intersections"),
         };
+
+        // the degenerate area of NotCleanReason (1e-12 of the squared diagonal of all triangles) covers at least 1 % of the
+        // area of a connected component: components far apart compared to their size, where cleaning by that area would
+        // collapse real surface, not only slivers (a unit sphere next to a part 1e8 away: all of it; 1e3 away: none)
+        static bool global_scale_erodes(DMesh3 mesh)
+        {
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+            double areaEps = 1e-12 * diag * diag;
+            int[] componentOf;
+            List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(mesh, out componentOf);
+            if (boxes.Count < 2)
+                return false;
+            var total = new double[boxes.Count];
+            var below = new double[boxes.Count];
+            foreach (int t in mesh.TriangleIndices()) {
+                int c = componentOf[mesh.GetTriangle(t).a];
+                double a = mesh.GetTriArea(t);
+                total[c] += a;
+                if (a < areaEps)
+                    below[c] += a;
+            }
+            for (int c = 0; c < boxes.Count; ++c)
+                if (below[c] > 0 && below[c] >= 0.01 * total[c])
+                    return true;
+            return false;
+        }
+
+        // NotCleanReason without self-intersections, the degenerate area relative to the diagonal of the largest
+        // connected component (MeshRepairMetrics.LargestComponentDiagonal), NotCleanReason's if that is not finite
+        static string not_clean_reason_at_scale(DMesh3 mesh)
+        {
+            string reason = NotCleanReason(mesh, false);
+            if (reason != "degenerate triangles")
+                return reason;
+            double scale = MeshRepairMetrics.LargestComponentDiagonal(mesh);
+            if (!(scale > 0 && scale < double.PositiveInfinity))
+                return reason;
+            double areaEps = 1e-12 * scale * scale;
+            if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
+            if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
+            if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
+            return "";
+        }
 
         // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
         static bool has_degenerate_triangles(DMesh3 mesh)

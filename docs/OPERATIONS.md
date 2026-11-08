@@ -685,7 +685,10 @@ term, `scale_disparity`, the closed components kept although thin by the bound, 
 `scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`:
+and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
+with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
+false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):
 
 ```
 g3cli repair scan.obj scan_fixed.stl --check-lost-components --no-alpha-wrap

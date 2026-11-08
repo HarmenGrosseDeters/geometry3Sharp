@@ -563,6 +563,26 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Repair_FarPart_FailsWithTheScaleDisparity()
+        {
+            // two intersecting unit spheres and a unit tetrahedron 1e8 away: the repair fails and says why, instead of
+            // writing a coarse wrap (before: 8 triangles, reported as repaired)
+            string input = m.Path_("far_part.g3mesh"), output = m.Path_("far_part_repaired.g3mesh");
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(s, new Vector3d(0.5, 0.3, 0.2));
+            new MeshEditor(mesh).AppendMesh(s);
+            var p = new Vector3d(1e8, 1e8, 1e8);
+            int v0 = mesh.AppendVertex(p), v1 = mesh.AppendVertex(p + Vector3d.AxisX), v2 = mesh.AppendVertex(p + Vector3d.AxisY), v3 = mesh.AppendVertex(p + Vector3d.AxisZ);
+            mesh.AppendTriangle(v0, v2, v1); mesh.AppendTriangle(v0, v1, v3); mesh.AppendTriangle(v0, v3, v2); mesh.AppendTriangle(v1, v2, v3);
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(input, mesh, WriteOptions.Defaults).code);
+            var (exit, r) = Run("repair", input, output);
+            AssertError(exit, r, ResultCodes.OperationFailed);
+            Assert.Contains("scale disparity", S(r["message"]));
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
         public void Resolve_RoundingTolerances_AtUtmCoordinates()
         {
             string input = UtmCluster();

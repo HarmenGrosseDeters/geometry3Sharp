@@ -225,7 +225,8 @@ namespace g3cli
                     };
                     if (repair.Apply() == false)
                         throw new CommandException(ResultCodes.OperationFailed,
-                            "MeshRobustRepair failed" + (repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
+                            "MeshRobustRepair failed" + (repair.ResultReason == MeshRobustRepair.ScaleDisparity ? ": " + repair.ResultReason
+                                : repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
                     result = repair.Mesh;
                     o["used_exact_resolve"] = repair.UsedExactResolve;
                     // genus of the mesh the exact stage resolved and of its result (null without the exact stage or where
