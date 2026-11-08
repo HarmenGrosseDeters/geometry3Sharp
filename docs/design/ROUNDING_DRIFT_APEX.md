@@ -20,7 +20,15 @@ operations are unclean for this reason (the rejected edits' vertices carry 0.989
 
 An **apex** of an edit is a vertex that lies in every triangle of `A` (`A` not empty). Moves and slides: the moved
 vertex. Contractions (`a` vanishes, `b` kept): `b`. Vertex removals (valence 3, one new triangle): any of its three
-corners. Flips of `ab` to `cd`: `c` or `d`. Zips, strip zips and ear contractions (`A` empty) have none in general.
+corners. Flips of `ab` to `cd`: `c` or `d`. By the code (review of the Z3 pilot, #416):
+- `try_zip` adds four triangles `(c,d,x), (d,b,x), (d,c,y), (c,a,y)`: no vertex is in all four, no apex, today's rule;
+- `try_strip`: an apex `x` where all the strip's outer triangles share their tip, else none;
+- `try_collapse` at an ear: with the kept vertex moved (`p != pos(b)`), `b`'s other triangles are in `R` and `A`, so
+  `A` is not empty and `b` is the apex (the normal case); only an ear contraction that moves nothing has `A` empty and
+  takes today's rule.
+
+For every edit where the code finds an apex, its (E2) counterparts are triangles of `A` (not untouched triangles):
+the cases with an untouched counterpart are exactly those with `A` empty.
 
     if the edit has an apex c:   d'(c) = M + δ,   d'(v) = d(v) for every other vertex
     otherwise:                    d'(v) = M + δ for every vertex v of R and A (as today)
@@ -45,6 +53,13 @@ Notation: `S0` the surface at the start of `Apply` (the rounded mesh), `S` the c
   for edits with `A` empty the counterpart is an untouched triangle with all corners among the edit's vertices, so
   those edits use today's rule).
 
+**Implicit assumptions** (true of the code, stated so the lemma's use is checkable):
+- untouched triangles keep their geometry: every triangle of a moved vertex is in `R` (moves, slides, the kept vertex
+  of a contraction);
+- the rounding creates no vertices and reuses no vertex id (it appends none; a vanishing vertex's drift is not read
+  again), so `d` is a function of the vertex for the whole repair; triangle ids may be reused, `D(T)` is taken from
+  the triangle's current vertices.
+
 **Lemma** (one edit). Let `I(S, d)`, (E1), (E2) hold, let `c` be an apex of the edit, `M = max d` over the vertices
 of `R` and `A`, `S' = (S \ R) ∪ A`, and `d'` as in §2. Then `I(S', d')` holds, and `d' >= d` pointwise.
 
@@ -64,7 +79,9 @@ the distance computation (a few ulps of the largest coordinate, as the theorem s
 form of Higham (2.5): `M̂ + δ̂ = fl(M̂ + δ̂)(1 + η)`, `|η| <= u = 2^-53` (round to nearest), so the true sum is at most
 `fl(M̂ + δ̂)(1 + u)`. Claim: the true drifts satisfy `d <= d̂ (1 + u)^k + k ε (1 + u)^k` after a chain of `k` edits,
 so `H(S, S0) <= (MaxDrift + k ε)(1 + u)^k` (today's caveat, unchanged in form; the apex rule makes `k` the length of a
-chain of edits through one vertex, not through a cluster). With the other model, Higham (2.4), `fl(s) = s (1 + η)`,
+chain of edits through one vertex, not through a cluster; precisely, `k` is the depth of the charging DAG: an edit
+charges its apex from the largest drift among its vertices, so `k` is the longest sequence of edits each of which read
+a drift that the previous one wrote). With the other model, Higham (2.4), `fl(s) = s (1 + η)`,
 the bound would need `(1 - u)^-k` instead: Z3 found the witness `M̂ = 1`, `δ = δ̂ = ε = 0`, stored `1 - u`, where
 `(1 - u)(1 + u) < 1` (Z3 pilot 2 step 1, 2026-11-08). The acceptance test compares the stored `fl(M̂ + δ̂)` with
 `maxLength`, so the guarantee reads `H <= maxLength (1 + u)^k + ...`, as today up to the rounding caveat.
@@ -87,6 +104,8 @@ valence 3, a flip.
   (dropping the removed triangles' vertices).
 - The rounding model of §3 (`δ <= δ̂ + ε`, Higham (2.5): `s = fl(s)(1 + η)`, `|η| <= u`) for the bound
   `d <= (d̂ + k ε)(1 + u)^k` over a chain of `k` edits (an induction step: one edit, `k -> k + 1`).
+
+The implementation's check mode asserts that the chosen apex lies in every added triangle.
 
 Not checked by Z3: the per-edit bounds (E1), (E2) themselves (SAFE_ROUNDING.md §1, reviewed); that the code's apex is
 in every added triangle (a test asserts it in check mode, §6).
