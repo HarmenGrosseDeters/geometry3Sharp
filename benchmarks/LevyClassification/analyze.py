@@ -32,7 +32,7 @@ def main():
             continue
         rows = load(p)
         print(f'## Build `{b}`\n')
-        print('| cohort | ops | Compute s | classification s | share | ops > 5 s | ops <= 5 s if replaceable part = 0 |')
+        print('| cohort | ops | Compute s | classification s | share | ops > 5 s | ops still > 5 s if replaceable part = 0 |')
         print('|---|---|---|---|---|---|---|')
         agg = collections.defaultdict(collections.Counter)
         for r in rows:
