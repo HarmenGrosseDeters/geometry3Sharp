@@ -90,6 +90,9 @@ Planned, not started.
 - Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
   M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- Exact booleans: **Z3 pilot 2** (owner 2026-11-08), after #400 merges, in `tools/Z3Pilot`: (1) prove the D1
+  drift-accounting rule sound (or find a counterexample) before the Boolean session builds it; (2) the error-bound
+  rules of the predicate generator, one lemma per rule. [research.md](roadmap/research.md#smt-checks-with-z3)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -116,7 +119,7 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
-- SMT checks with Z3 (pilot, not scheduled): [research.md](roadmap/research.md#smt-checks-with-z3)
+- SMT checks with Z3 (pilot 1 in #400; pilot 2 queued, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
 - RWTH Aachen papers and award-winning papers: [sources-surveys.md](roadmap/sources-surveys.md)

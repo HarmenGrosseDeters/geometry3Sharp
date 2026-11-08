@@ -345,3 +345,32 @@ report 2.3 to 3.6 times on the large runs.
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.ele    # ours.node, .ele, .poly
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.poly --output lake_ours.ele --min-angle 30
   ```
+
+## Constrained-quality golden gate
+
+The default M3 golden file and `golden/m3-constrained.json` are separate suites.
+The constrained suite contains all 52 covered, non-slow M3 catalogue cases that
+do not explicitly require Conforming. It creates fresh canonical inputs with
+`mode constrained`, so their hashes differ from the default inputs. F-38/a–e run
+with the angle check enabled, as in #394. The independent oracle must accept each
+result before it is recorded, and it is rerun on every check; matching a stored
+fingerprint alone cannot excuse an invalid output.
+
+```sh
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden check --milestone M3 --mode constrained
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden update --milestone M3 --mode constrained --reasons /tmp/reasons.tsv
+```
+
+Updates require a per-row reason, just like the default suite. `--mode constrained`
+requires M3; a missing or unknown mode value is a usage error. `ci` checks this
+suite as well as default M1/M2/M3. `Meshing2GoldenTests` runs it on net10.0 and
+net48, including negative mode selection and fresh-instance isolation controls.
+No default golden row or production mesher is changed by this addition.
+
+Two rows intentionally record a reached Steiner limit (f-12/b and f-37); their
+limit/bad-triangle fields are protected too. An oracle-valid limited output is
+not a claim that every requested quality bound was achieved.
+
+The [reference recheck tools](rechecks/README.md) separately regenerate historical
+exceptions against pinned public inputs. They retain failures/timeouts and do not
+promote reference rows into golden truth.

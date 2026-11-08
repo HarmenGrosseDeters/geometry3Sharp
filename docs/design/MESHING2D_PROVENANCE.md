@@ -147,6 +147,15 @@ source of the mesher, and nothing is committed. Each license is downloaded next 
 | mapbox/delaunator | 7 point sets from `test/fixtures`: robustness1-4, issue43, issue44, ukraine | ISC | https://github.com/mapbox/delaunator |
 | jhasse/poly2tri | 16 polygons from `testbed/data` (one ring per file), among them sketchup, nazca_monkey, debug2 | BSD-3-Clause | https://github.com/jhasse/poly2tri |
 
+The targeted historical recheck additionally fetches five GEOS XML fixtures at
+commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; each URL and SHA-256 is pinned in
+`benchmarks/Meshing2Benchmark/rechecks/historical-exceptions.json`. Upstream's
+[COPYING at that commit](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING)
+is LGPL-2.1; no permissive test-data license is assumed. Data is downloaded and
+parsed externally, never committed. GEOS implementation code is not consulted.
+The separate Shapely/NumPy parsing environment and its bundled GEOS licensing are
+listed in [SOURCES.md](../SOURCES.md#historical-meshing-recheck-tools-and-data).
+
 ## The oracle (test tool, `benchmarks/Meshing2Benchmark/Oracle`)
 
 Not part of the library; listed because its bounds decide verdicts. The fast path's filters use the static error bounds of [Sh97] (orientation:

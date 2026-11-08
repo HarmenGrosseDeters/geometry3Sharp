@@ -1,0 +1,11 @@
+{
+  "planned": 163,
+  "completed": 163,
+  "verdicts": {
+    "INVALID": 81,
+    "VALID": 57,
+    "ORACLE_TIMEOUT": 24,
+    "MESH_TIMEOUT": 1
+  },
+  "valid_with_steiner_limit": 33
+}

@@ -3,7 +3,7 @@
 # Usage: python3 analyze.py results/all.jsonl
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import reference
+
 
 ARGS = ["before", "after", "grid", "points", "win", "coords", "variant", "mode", "terrain", "d", "simplify",
         "heightcheck", "tol", "cell", "src", "tf", "res", "threshold"]
@@ -31,7 +31,8 @@ def table(title, rows, cols):
 
 
 def main(path):
-    rows = [json.loads(l) for l in open(path) if l.strip()]
+    with open(path) as stream:
+        rows = [json.loads(l) for l in stream if l.strip()]
     bad = [r for r in rows if r.get("status") != "ok"]
     print(f"{len(rows)} runs, {len(bad)} with exception / timeout / crash")
     for r in bad:
@@ -41,6 +42,8 @@ def main(path):
 
     cache_path = os.path.join(os.path.dirname(path), "reference_cache.json")
     cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
+    if by("volume"):
+        import reference
     for r in by("volume"):
         key = f"{r['before']}|{r['after']}|{r['win']}"
         if key not in cache:
@@ -79,6 +82,22 @@ def main(path):
         ("dz p99 m", lambda r: r.get("dz_p99")), ("dz max m", lambda r: r.get("dz_max")),
         ("XY overlaps", lambda r: r.get("xy_overlaps")),
     ])
+    for case in ("tdc", "gtin"):
+        table(case + " directed closest distances (result -> reference, sampled; Z-up)", by(case), [
+            ("status", lambda r: r.get("closest_status")),
+            ("valid/requested", lambda r: f"{r['closest_valid']}/{r['closest_requested']}" if "closest_valid" in r else None),
+            ("invalid/missing", lambda r: f"{r['closest_invalid']}/{r['closest_missing']}" if "closest_invalid" in r else None),
+            ("invalid ref tris", lambda r: r.get("closest_invalid_reference_triangles")),
+            ("missing grid tris", lambda r: r.get("closest_missing_grid_triangles")),
+            ("d3 rms m", lambda r: r.get("closest_d3_rms")),
+            ("d3 p99 m", lambda r: r.get("closest_d3_p99")),
+            ("d3 sampled max m", lambda r: r.get("closest_d3_max")),
+            ("horizontal rms m", lambda r: r.get("closest_dh_rms")),
+            ("vertical rms m", lambda r: r.get("closest_dv_rms")),
+            ("reference s", lambda r: r.get("closest_reference_s")),
+            ("tree s", lambda r: r.get("closest_tree_s")),
+            ("measurement s", lambda r: r.get("closest_measure_s")),
+        ])
     table("TerrainOffset (distance of the result vertices to the terrain - |d|)", by("offset"), [
         ("time s", lambda r: r["offset_s"]), ("result tris", lambda r: r.get("result_tris")),
         ("checked", lambda r: r.get("checked_verts")), ("wrong side", lambda r: r.get("wrong_side")),

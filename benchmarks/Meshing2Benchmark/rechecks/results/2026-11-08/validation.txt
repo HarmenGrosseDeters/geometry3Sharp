@@ -1,0 +1,79 @@
+Validation on .NET SDK 10.0.403, Linux; test/tool changes only.
+Builds use a separate --artifacts-path <artifacts>, keeping the running reference binaries fixed.
+Local paths are shown as placeholders: <artifacts>, <packages>, <dotnet>, <work>.
+
+$ dotnet build benchmarks/Meshing2Benchmark -c Release
+Build succeeded.
+    4 Warning(s)
+    0 Error(s)
+
+$ dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~Meshing2GoldenTests|FullyQualifiedName~QualityMesh2SmallAngleRuleTests|FullyQualifiedName~QualityMesh2SmallAngleMarginTests|FullyQualifiedName~QualityMesh2PieceSettleTests
+Passed!  - Failed:     0, Passed:    81, Skipped:     0, Total:    81, Duration: 1 m 5 s - geometry3Sharp.Tests.dll (net10.0)
+
+$ dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+Build succeeded.
+    8 Warning(s)
+    0 Error(s)
+
+$ dotnet pack geometry3Sharp_netstandard.csproj -c Release -p:Version=1.0.0-ci.1
+  Successfully created package '<packages>/geometry3Sharp.1.0.0-ci.1.nupkg'.
+  Successfully created package '<packages>/geometry3Sharp.1.0.0-ci.1.snupkg'.
+
+$ dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true
+Build succeeded.
+    5 Warning(s)
+    0 Error(s)
+
+$ dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -p:Version=1.0.0-ci.1
+  Successfully created package '<packages>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg'.
+
+$ python -m unittest discover -s benchmarks/Meshing2Benchmark/rechecks -p test_*.py -v
+Ran 8 tests in 0.015s
+OK
+(Stale: this run predates test_box_candidate_counts_match_exhaustive_pairs. The final run of all
+nine tests is below, under "Final Python run after adding independent box-counter controls".)
+
+ci-clean:
+oracle self-check: 396 checks passed
+differential g3-delaunay against nts-2.0.0.0: SameTriangles 19, BothValid 5, ReferenceInvalid 2, ReferenceThrew 2
+golden M1: 28 rows, 0 differences
+golden M2: 33 rows, 0 differences
+golden M3: 52 rows, 0 differences
+golden M3 constrained: 52 rows, 0 differences
+
+ci-constrained-row-mutated:
+oracle self-check: 396 checks passed
+differential g3-delaunay against nts-2.0.0.0: SameTriangles 19, BothValid 5, ReferenceInvalid 2, ReferenceThrew 2
+golden M1: 28 rows, 0 differences
+golden M2: 33 rows, 0 differences
+golden M3: 52 rows, 0 differences
+GOLDEN f-3/c: triangles: recorded 10, now 9
+golden M3 constrained: 52 rows, 1 differences
+
+CLI controls ran against a temporary copy of all golden files: trailing/missing mode, unknown mode and constrained M2 return 2; clean ci returns 0; incrementing the constrained f-3/c triangle count makes ci return 1. Repository golden files are unchanged. See cli-controls.json.
+
+Prepared 163 jobs; 79 full historical variant hashes checked
+
+Final prepare.py matches all 163 input hashes of the active run.
+
+Final Python run after adding independent box-counter controls:
+test_box_candidate_counts_match_exhaustive_pairs (test_rechecks.InputTests.test_box_candidate_counts_match_exhaustive_pairs) ... ok
+test_historical_hash_is_required_and_modes_are_distinct (test_rechecks.InputTests.test_historical_hash_is_required_and_modes_are_distinct) ... ok
+test_linework_preserves_order_and_shared_vertices (test_rechecks.InputTests.test_linework_preserves_order_and_shared_vertices) ... ok
+test_wkb_and_empty_geometries (test_rechecks.InputTests.test_wkb_and_empty_geometries) ... ok
+test_empty_or_duplicate_manifest_is_rejected (test_rechecks.RunnerTests.test_empty_or_duplicate_manifest_is_rejected) ... ok
+test_exit_code_alone_is_not_validation (test_rechecks.RunnerTests.test_exit_code_alone_is_not_validation) ... ok
+test_findings_incomplete_or_empty_batches_do_not_pass (test_rechecks.RunnerTests.test_findings_incomplete_or_empty_batches_do_not_pass) ... ok
+test_resume_binds_versions_options_and_rejects_variants (test_rechecks.RunnerTests.test_resume_binds_versions_options_and_rejects_variants) ... ok
+test_timeouts_are_explicit (test_rechecks.RunnerTests.test_timeouts_are_explicit) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.031s
+
+OK
+
+Exact local build/pack commands: validation-build-commands.sh.
+Exact CLI controls, including temporary-copy mutation and repository-byte check: cli-controls.py.
+
+$ <dotnet> test tests/geometry3Sharp.Tests -c Release -f net10.0 --artifacts-path <artifacts> --filter FullyQualifiedName~Meshing2GoldenTests|FullyQualifiedName~QualityMesh2SmallAngleRuleTests|FullyQualifiedName~QualityMesh2SmallAngleMarginTests|FullyQualifiedName~QualityMesh2PieceSettleTests --logger trx;LogFileName=meshing-qa-final.trx --results-directory <work>/meshing-qa-tests
+(The filter and logger arguments are shell-quoted as in the task invocation.)
