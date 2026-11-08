@@ -2295,13 +2295,16 @@ namespace g3
 
     /// <summary>
     /// Bounding volume hierarchy of boxes with closed overlap tests and no padding, so that it never
-    /// misses a pair of touching boxes (for exact computations).
+    /// misses a pair of touching boxes (for exact computations). The boxes are sorted once along a Morton curve of
+    /// their centres and every node splits its range in the middle (as Geogram's MeshFacetsAABB, Lévy; Lauterbach et
+    /// al. 2009), which on Thingi10K gives tighter nodes than the median split on the longest axis used before
+    /// (docs/perf/EXACT_BOOLEAN_PERFORMANCE.md). The order only steers which boxes share a node: the boxes a query
+    /// finds, and the pairs, are the same.
     /// </summary>
     internal class TriangleBoxTree
     {
         readonly List<AxisAlignedBox3d> boxes;
         readonly int[] order;
-        readonly double[] keys;     // sort keys while building
         const int LeafSize = 8;
         // nodes (in the order of construction, the root first): box (min x, y, z, max x, y, z), first index into
         // order and count, children (-1 for a leaf)
@@ -2319,7 +2322,9 @@ namespace g3
             order = new int[n];
             for (int i = 0; i < n; ++i)
                 order[i] = i;
-            keys = new double[n];
+            // Stryker disable once all: the order only decides which boxes share a node (performance, not results)
+            if (n > LeafSize)
+                morton_order(n);
             // (at most 2 n / LeafSize * 2 + 1 nodes: every inner node splits a range of more than LeafSize in halves)
             int cap = 4 * (n / LeafSize) + 3;
             nodeBox = new double[6 * cap];
@@ -2349,12 +2354,8 @@ namespace g3
             nodeStart[node] = start; nodeSize[node] = count; nodeLeft[node] = -1; nodeRight[node] = -1;
             if (count <= LeafSize)
                 return node;
-            Vector3d d = box.Diagonal;
-            int axis = (d.x >= d.y && d.x >= d.z) ? 0 : (d.y >= d.z) ? 1 : 2;
-            for (int i = start; i < start + count; ++i)
-                keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
+            // (the boxes are in Morton order: the halves of the range are the halves of the curve)
             int half = count / 2;
-            select(start, start + count - 1, start + half);
             int left = build(start, half);
             int right = build(start + half, count - half);
             nodeLeft[node] = left;
@@ -2408,28 +2409,44 @@ namespace g3
             return true;
         }
 
-        // partial sort of order[lo..hi] by keys so that position k holds its element and the halves are split
-        // there (Hoare quickselect)
+        // Stryker disable all: an ordering heuristic; any permutation gives the same queries and pairs (performance only,
+        // measured in docs/perf/EXACT_BOOLEAN_PERFORMANCE.md); BoxTreeMortonTests check that the results do not depend on it
+        // sort order by the Morton code of the box centres, quantized to 21 bits per axis in the box of all centres;
+        // a coordinate that is not finite counts as the low end (the order is a heuristic, deterministic for any input)
         [MethodImpl(JitHints.Optimize)]
-        void select(int lo, int hi, int k)
+        void morton_order(int n)
         {
-            while (lo < hi) {
-                double pivot = keys[(lo + hi) >> 1];
-                int i = lo, j = hi;
-                while (i <= j) {
-                    while (keys[i] < pivot) i++;
-                    while (keys[j] > pivot) j--;
-                    if (i <= j) {
-                        double tk = keys[i]; keys[i] = keys[j]; keys[j] = tk;
-                        int to = order[i]; order[i] = order[j]; order[j] = to;
-                        i++; j--;
-                    }
-                }
-                if (k <= j) hi = j;
-                else if (k >= i) lo = i;
-                else return;
+            var all = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < n; ++i)
+                all.Contain(boxes[i].Center);
+            Vector3d lo = all.Min, ext = all.Max - all.Min;
+            const double cells = 2097151;   // 2^21 - 1
+            double sx = ext.x > 0 ? cells / ext.x : 0, sy = ext.y > 0 ? cells / ext.y : 0, sz = ext.z > 0 ? cells / ext.z : 0;
+            var codes = new long[n];
+            for (int i = 0; i < n; ++i) {
+                Vector3d c = boxes[i].Center;
+                codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
             }
+            Array.Sort(codes, order);
         }
+
+        static uint quantize(double t)
+        {
+            return (t >= 0) ? (t < 2097151 ? (uint)t : 2097151u) : 0u;      // (NaN: 0)
+        }
+
+        // the 21 bits of v at every third bit position
+        static long spread(uint v)
+        {
+            ulong x = v & 0x1fffff;
+            x = (x | x << 32) & 0x1f00000000ffffUL;
+            x = (x | x << 16) & 0x1f0000ff0000ffUL;
+            x = (x | x << 8) & 0x100f00f00f00f00fUL;
+            x = (x | x << 4) & 0x10c30c30c30c30c3UL;
+            x = (x | x << 2) & 0x1249249249249249UL;
+            return (long)x;
+        }
+        // Stryker restore all
 
         // the closed boxes b[6 i ..] and the query (min x, y, z, max x, y, z) overlap
         [MethodImpl(JitHints.Optimize)]
