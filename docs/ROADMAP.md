@@ -91,7 +91,7 @@ Planned, not started.
 - Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
   M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Exact booleans: **Z3 pilot 2** (owner 2026-11-08, started; pilot 1 merged in #400), in `tools/Z3Pilot`: (1) prove the D1
+- Exact booleans: **Z3 pilot 2** (owner 2026-11-08; pilot 1 merged in #400; step (2) merged in #407: 20 rule lemmas unsat, 17 mutants sat), in `tools/Z3Pilot`; open: (1) prove the D1
   drift-accounting rule sound (or find a counterexample) before the Boolean session builds it; (2) the error-bound
   rules of the predicate generator, one lemma per rule. [research.md](roadmap/research.md#smt-checks-with-z3)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)

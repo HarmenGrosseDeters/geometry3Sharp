@@ -18,7 +18,7 @@ Part of the [roadmap](../ROADMAP.md).
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
-- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans started (owner 2026-11-08).
+- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma, waits for the Boolean session's design note.
 - **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
