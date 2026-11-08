@@ -13,13 +13,15 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Mutation-run cost analysis** (owner 2026-11-08, Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh, started early on the existing reports; analysis only, no tooling change before #403 merges):
-  from the Stryker reports and logs, measure the time cost of timeout mutants (31-43 % of mutants on the arrangement
-  shards; timeout factor), the slow covering tests per shard (which add time without killing a mutant exclusively),
-  mutators that only produce equivalent or worthless mutants (strings, statistics counters), and how to key each
-  shard's cache only on its own configuration (today every `mutation.yml` change reruns all shards in full); also
-  dynamic shard splitting by measured time. Output: levers with expected savings; changes only after the owner's
-  decision, since every gate depends on this tooling.
+- **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
+  >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
+  its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
+  edit reruns all shards because select_shards.py forces full mode; rounding and envelope never had a master baseline.
+  Owner decision: after #403 merges, (1) region-based full-run selection in select_shards.py + a BASELINE_FORMAT
+  constant in the cache key, (3) suggest_split.py (offsets from baseline weights, shards <= ~150 min), (4) a progress
+  line; seed master baselines for the new / never-seeded shards by workflow_dispatch right after #403. Later, with
+  per-mutant data: two-tier tests / dropping test classes without exclusive kills; timeout ratio 1.1 / 5 s only after
+  an A/B with identical survivor sets; larger runners are the owner's cost call.
 - **Release:** no public package until the library "just works"; package ID and publishing open (the nuget.org ID
   `geometry3Sharp` belongs to upstream).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
