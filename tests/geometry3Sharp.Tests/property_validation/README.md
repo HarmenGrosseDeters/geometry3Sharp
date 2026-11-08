@@ -66,8 +66,9 @@ python3 tests/geometry3Sharp.Tests/property_validation/check_mutations.py dotnet
 ```
 
 The script temporarily moves the empty-result shortcut ahead of finite checks,
-makes the family classifier always accept or always reject, and weakens single
-families toward a neighbour (eight variants). Their dedicated tests must fail. Finally it restores both sources and reruns the full
+makes the family classifier always accept or always reject, restores the
+nondeterministic shrink source, and weakens single families toward a neighbour
+(eight variants). Their dedicated tests must fail. Finally it restores both sources and reruns the full
 property/metamorphic selection. No production files or Stryker configuration are
 mutated. Run it in a clean worktree without other builds.
 
@@ -84,27 +85,36 @@ the controlled shrink; no paths or logs). Both runs come from pure trees: the
 baseline from master `12ae9276` (this PR's base after merging master), the final
 run from this branch; neither contains the Z3 pilot (#400) tests. An earlier capture
 (2026-11-07) came from a tree that also compiled the #400 tests and is superseded.
-Baseline: 67 passed, no skips, about 16 s. Final: 123 passed, no skips, about 19 s
-(56 added tests: 8 directed campaigns, 8 + 27 + 8 classifier controls, 2 shrink
-tests, 3 malformed-empty controls). These are single bounded runs, not a statistical
-overhead estimate. The eight 32-case campaigns took about 0.3–0.9 s apiece. All
-original sample counts remain.
+Baseline: 67 passed, no skips, about 16 s. Final: 124 passed, no skips, about 18 s
+(57 added tests: 8 directed campaigns, 8 + 27 + 8 classifier controls, 2 shrink
+tests, 1 shrink-determinism test, 3 malformed-empty controls). These are single
+bounded runs, not a statistical overhead estimate. The eight 32-case campaigns took
+about 0.3–0.9 s apiece. All original sample counts remain.
 
-The controlled shrink is not reproducible between runs: CsCheck's minimized seed and
-the number of shrinks change from run to run (in the captured run the disjoint fault
-shrank twice, to `eTTJqkAsgH91`, the face-contact fault four times, to
-`7RXIHoaBF4h1`; other runs gave other seeds and 1 to 4 shrinks). The test therefore
-asserts only that at least one shrink happened, that the minimized case stays in its
-family, and that replaying the minimized seed reproduces the descriptor and fails the
-analytic Union oracle again. "Smaller" is CsCheck's size ordering, not a globally
-minimal mesh.
+Shrinking is deterministic for a given failing seed. The harness used to shrink with
+CsCheck's `Sample(seed, iter: 400)`, which runs the seed first and draws every
+further iteration from `PCG.ThreadPCG`: a thread-static generator seeded differently
+in each process (checked: it prints a different seed per process) and advanced by
+every test on the thread. The minimized seed and the shrink count therefore changed
+from run to run. `ExactBooleanPropertyTests.Shrink` now derives candidate k's seed
+from the failing seed and k only (SplitMix64), and otherwise follows CsCheck's rule:
+a candidate not smaller by CsCheck's size order is skipped, a smaller failing one
+becomes the new best. `Shrink_IsDeterministicForAGivenSeed` shrinks the same seed
+twice, with `PCG.ThreadPCG` advanced in between, and requires the same seed, count
+and case; it fails when the candidates come from `PCG.ThreadPCG` again (mutant
+`nondeterministic_shrink`). In every run both controlled faults (disjoint and face
+contact, wrong operation) shrink four times, to `3xHD4wyiBWVv` (both families map the
+same seed sequence through the same generator structure), stay in their family, and
+the replayed minimized seed fails the analytic Union oracle again. "Smaller" is
+CsCheck's size ordering, not a globally minimal mesh.
 
 [mutations_2026-11-08.json](results/mutations_2026-11-08.json) records the helper
 faults: empty-before-finiteness fails 3/3 dedicated tests; always-accept-family
-fails 8/8 wrong-relation controls; always-reject-family fails 8/8 canonical accepts.
+fails 8/8 wrong-relation controls; always-reject-family fails 8/8 canonical accepts;
+the nondeterministic shrink fails the determinism test.
 Each of the eight neighbour-directed weakenings fails 1 to 6 of the 27 neighbour
 controls; seven of them still pass the original eight wrong-relation controls. The
-restored full selection passes 123/123. No real production defect was found by the
+restored full selection passes 124/124. No real production defect was found by the
 added cases.
 
 [Build/API evidence](results/builds_2026-11-08.json): the library (net10.0,

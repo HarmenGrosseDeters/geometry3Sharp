@@ -22,6 +22,13 @@
    "passed": 0
   },
   {
+   "mutation": "nondeterministic_shrink",
+   "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~Shrink_IsDeterministicForAGivenSeed",
+   "exit_code": 1,
+   "failed": 1,
+   "passed": 0
+  },
+  {
    "mutation": "touching_any_contact_count",
    "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter FullyQualifiedName~DirectedFamilyCheck_RejectsNeighbouringRelations",
    "exit_code": 1,
@@ -82,7 +89,7 @@
    "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~ExactBooleanProperty|FullyQualifiedName~ExactBooleanMetamorphic'",
    "exit_code": 0,
    "failed": 0,
-   "passed": 123
+   "passed": 124
   }
  ]
 }

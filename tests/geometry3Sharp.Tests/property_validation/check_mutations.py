@@ -24,6 +24,10 @@ mutants = [
      'return "";', 'FullyQualifiedName~DirectedFamilyCheck_RejectsWrongRelations'),
     ('rejecting_family_check', properties, 'return valid ? "" : "generator left " + family + ": " + c;',
      'return "generator left " + family + ": " + c;', 'FullyQualifiedName~DirectedFamilyCheck_AcceptsCanonicalCase'),
+    # The pre-fix shrink source: candidates from CsCheck's per-process thread generator.
+    ('nondeterministic_shrink', properties,
+     'var pcg = new PCG(root.Stream, SplitMix64(root.Seed ^ ((ulong)root.Stream << 32) ^ SplitMix64((ulong)k + 1)));',
+     'var pcg = new PCG(root.Stream, PCG.ThreadPCG.Next64());', 'FullyQualifiedName~Shrink_IsDeterministicForAGivenSeed'),
     # Weakened classifiers aimed at a neighbouring family. Seven of these eight still pass
     # DirectedFamilyCheck_RejectsWrongRelations (only coplanar_accepts_containment fails it);
     # the neighbour controls must reject all eight.

@@ -2,7 +2,7 @@
  "measured": "2026-11-08",
  "sdk": "10.0.403",
  "cscheck": "4.9.1",
- "provenance": "Rerun from pure trees. Baseline: master 12ae9276, the base of this PR after merging master. Final: the commit that adds this file (merge 5d2f7074 plus the follow-up test changes in the same commit: neighbour controls, canonical accepts, sharper overlapping classifier). Neither tree contains the Z3 pilot (#400) tests. Supersedes campaigns_2026-11-07.json, whose baseline and final runs came from a tree that also compiled the #400 tests.",
+ "provenance": "Rerun from pure trees. Baseline: master 12ae9276, the base of this PR after merging master. Final: this branch with the follow-up test changes (neighbour controls, canonical accepts, sharper overlapping classifier, deterministic shrinking). Neither tree contains the Z3 pilot (#400) tests. Supersedes campaigns_2026-11-07.json, whose baseline and final runs came from a tree that also compiled the #400 tests.",
  "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --no-restore --filter 'FullyQualifiedName~ExactBooleanProperty|FullyQualifiedName~ExactBooleanMetamorphic' --logger 'trx;LogFileName=<name>.trx' --results-directory <dir>",
  "baseline": {
   "commit": "12ae92764b4f1b64ac45b945c482bf77a92ebed0",
@@ -16,86 +16,86 @@
  },
  "final": {
   "counts": {
-   "total": 123,
-   "passed": 123,
+   "total": 124,
+   "passed": 124,
    "failed": 0,
    "skipped": 0
   },
-  "added_tests": 56,
-  "suite_seconds": 18.7
+  "added_tests": 57,
+  "suite_seconds": 17.5
  },
  "directed_campaigns": {
   "coplanar_overlap": {
    "campaign": 15,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.59
+   "seconds": 0.66
   },
   "strict_nested": {
    "campaign": 13,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.87
+   "seconds": 0.83
   },
   "face_touching": {
    "campaign": 16,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.34
+   "seconds": 0.35
   },
   "vertex_touching": {
    "campaign": 18,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.37
+   "seconds": 0.3
   },
   "disjoint": {
    "campaign": 11,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.26
+   "seconds": 0.28
   },
   "identical": {
    "campaign": 12,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.29
+   "seconds": 0.35
   },
   "overlapping": {
    "campaign": 14,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.56
+   "seconds": 0.59
   },
   "edge_touching": {
    "campaign": 17,
    "samples": 32,
    "outcome": "Passed",
-   "seconds": 0.36
+   "seconds": 0.39
   }
  },
  "controlled_shrink": {
-  "note": "Test-local wrong operation (Difference checked as Union). The shrink path is not reproducible between runs (the minimized seed and the shrink count change from run to run, here and in two further runs); the test asserts only that it shrinks at least once, stays in the family and that the minimized seed replays and fails again.",
+  "note": "Test-local wrong operation (Difference checked as Union). Shrinking is deterministic for a given failing seed (ExactBooleanPropertyTests.Shrink; candidate seeds derived from the failing seed only), so these minimized seeds and shrink counts are the same in every run. Before the fix the harness shrank with CsCheck Sample(seed, iter), whose iterations after the first draw from PCG.ThreadPCG (seeded per process, shared per thread), and seed and shrink count changed from run to run.",
   "runs": {
    "face_touching": {
     "outcome": "Passed",
     "campaign": 31,
     "original_seed": "0000000000-v",
     "original": "A=[0,2]x[0,1]x[1,2] B=[2,4]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)",
-    "minimized_seed": "7RXIHoaBF4h1",
+    "minimized_seed": "3xHD4wyiBWVv",
     "shrinks": 4,
-    "minimized": "A=[1,2]x[0,2]x[0,2] B=[1,2]x[0,2]x[2,4] scale=2^-1 t=(-293,118.375,-379.9375)",
-    "oracle_message": "volume 0.5, expected 1"
+    "minimized": "A=[1,2]x[0,2]x[0,2] B=[1,2]x[0,2]x[2,4] scale=2^0 t=(0,0,0)",
+    "oracle_message": "volume 4, expected 8"
    },
    "disjoint": {
     "outcome": "Passed",
     "campaign": 31,
     "original_seed": "0000000000-v",
     "original": "A=[0,2]x[0,1]x[1,2] B=[4,6]x[0,1]x[1,2] scale=2^-7 t=(-798.0625,1214.125,-35.6875)",
-    "minimized_seed": "eTTJqkAsgH91",
-    "shrinks": 2,
-    "minimized": "A=[0,1]x[1,2]x[1,2] B=[0,1]x[1,2]x[3,4] scale=2^-6 t=(0,0,0)",
-    "oracle_message": "volume 3.814697265625E-06, expected 7.62939453125E-06"
+    "minimized_seed": "3xHD4wyiBWVv",
+    "shrinks": 4,
+    "minimized": "A=[1,2]x[0,2]x[0,2] B=[1,2]x[0,2]x[4,6] scale=2^0 t=(0,0,0)",
+    "oracle_message": "volume 4, expected 8"
    }
   }
  },

@@ -20,9 +20,9 @@ namespace geometry3Sharp.Tests
     /// per run and checked against the oracles of BooleanOracle; the fixed corpus is ExactBooleanMetamorphicTests.
     ///
     /// Campaign: Samples cases, each from its own seed derived from a fixed campaign seed (CsCheck's own sampling
-    /// draws random seeds after the first one, so it is used for shrinking only). A failing seed is shrunk by
-    /// CsCheck (Sample from that seed, ShrinkIterations tries, one thread) and reported with the original and the
-    /// shrunk case and seed. Opt-in:
+    /// draws random seeds after the first one). A failing seed is shrunk deterministically (Shrink: ShrinkIterations
+    /// candidates from seeds derived from the failing seed, CsCheck's size order) and reported with the original and
+    /// the shrunk case and seed; the same failing seed always gives the same shrunk seed and shrink count. Opt-in:
     ///   G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ExactBooleanPropertyTests
     ///     a larger campaign (any number of samples per property, from the same campaign seeds);
     ///   G3_PROPERTY_CAMPAIGN="Boxes(general)" G3_PROPERTY_REPLAY=&lt;seed&gt; dotnet test ... --filter "FullyQualifiedName~ExactBooleanPropertyTests.Boxes"
@@ -200,17 +200,64 @@ namespace geometry3Sharp.Tests
                 try { gen.Sample(t => { original = t; Check(t); }, seed: seed, iter: 1, threads: 1, print: t => t.ToString()); }
                 catch (CsCheckException e) { failure = e.InnerException?.Message ?? e.Message; }
                 if (failure == null) continue;
-                string shrunk;
-                try {
-                    gen.Sample(Check, seed: seed, iter: ShrinkIterations, threads: 1, print: t => t.ToString());
-                    shrunk = "(shrinking found no failure)";
-                }
-                catch (CsCheckException e) { shrunk = e.Message; }
+                string shrunk = Shrink(gen, property, seed, ShrinkIterations).Report;
                 throw new Xunit.Sdk.XunitException($"{name} fails for seed {seed} (campaign {campaign}):\n  {original}\n  {failure}\n" +
                     $"Shrunk ({ShrinkIterations} tries, not necessarily minimal): {shrunk}\n" +
                     $"Replay: G3_PROPERTY_CAMPAIGN=\"{name}\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.{name.Split('(')[0]}\"");
             }
             log.WriteLine($"{name}: passed in {watch.ElapsedMilliseconds} ms");
+        }
+
+        /// <summary>
+        /// Deterministic shrinking of a failing seed. CsCheck's Sample(seed, iter) runs the seed first and draws every
+        /// further iteration from PCG.ThreadPCG, which is seeded differently in each process and shared by every test
+        /// on the thread, so the shrunk seed and the shrink count changed from run to run. Here candidate k comes from
+        /// a PCG whose seed is a SplitMix64 hash of (failing seed, stream, k) only. As in CsCheck, a candidate that is
+        /// not smaller than the current best by CsCheck's size order is skipped unevaluated; a smaller one that fails
+        /// (a non-empty reason or an exception) becomes the new best, one shrink. The reported seed replays the
+        /// shrunk case through gen.Sample(seed: ..., iter: 1).
+        /// </summary>
+        internal static (string Seed, T Value, int Shrinks, int Skipped, string Report) Shrink<T>(Gen<T> gen, Func<T, string> property,
+            string seed, int iterations)
+        {
+            string Fails(T t)
+            {
+                try { return property(t); }
+                catch (Exception e) { return e.GetType().Name + ": " + e.Message; }
+            }
+            PCG root = PCG.Parse(seed);
+            string bestSeed = seed;
+            T best = gen.Generate(PCG.Parse(seed), null, out Size bestSize);
+            string bestReason = Fails(best);
+            int shrinks = 0, skipped = 0;
+            for (int k = 0; k < iterations; ++k) {
+                var pcg = new PCG(root.Stream, SplitMix64(root.Seed ^ ((ulong)root.Stream << 32) ^ SplitMix64((ulong)k + 1)));
+                string candidateSeed = pcg.ToString();
+                T candidate = gen.Generate(pcg, bestSize, out Size size);
+                if (!Size.IsLessThan(size, bestSize)) { skipped++; continue; }
+                string reason = Fails(candidate);
+                if (reason == "") continue;
+                best = candidate; bestSize = size; bestSeed = candidateSeed; bestReason = reason; shrinks++;
+            }
+            string report = $"Set seed: \"{bestSeed}\" to reproduce ({shrinks} shrinks, {skipped} skipped, {iterations} total).\n{best}\n{bestReason}";
+            return (bestSeed, best, shrinks, skipped, report);
+        }
+
+        static T One<T>(Gen<T> gen, string seed)
+        {
+            T value = default(T);
+            gen.Sample(t => { value = t; }, seed: seed, iter: 1, threads: 1);
+            return value;
+        }
+
+        static ulong SplitMix64(ulong x)
+        {
+            unchecked {
+                x += 0x9E3779B97F4A7C15UL;
+                x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9UL;
+                x = (x ^ (x >> 27)) * 0x94D049BB133111EBUL;
+                return x ^ (x >> 31);
+            }
         }
 
         // ---------------------------------------------------------------- properties
@@ -506,6 +553,35 @@ namespace geometry3Sharp.Tests
             BoxCase again = null;
             gen.Sample(c => { again = c; }, seed: original.Groups[1].Value, iter: 1, threads: 1);
             Assert.Equal(first.ToString(), again.ToString());
+        }
+
+        /// <summary>
+        /// The shrink of a failing seed is deterministic: twice the same shrunk seed, case and shrink count, also when
+        /// CsCheck's thread-local generator (the former source of run-to-run differences) is advanced in between.
+        /// </summary>
+        [Fact]
+        public void Shrink_IsDeterministicForAGivenSeed()
+        {
+            var gen = GenCase(GenFamily("general"));
+            string Faulty(BoxCase c)
+            {
+                DMesh3 union = BooleanOracle.Run(c.MeshA(), c.MeshB(), Ops.Union, out string error);
+                if (error != "") return error;
+                if (union.TriangleCount > 12) union.RemoveTriangle(union.TriangleIndices().Last(), true, false);
+                return BooleanOracle.CheckBoxResult(union, c, Ops.Union);
+            }
+            string seed = new PCG(7u, 0).ToString();
+            Assert.NotEqual("", Faulty(One(gen, seed)));
+            var first = Shrink(gen, Faulty, seed, ShrinkIterations);
+            for (int i = 0; i < 17; ++i) PCG.ThreadPCG.Next();
+            var second = Shrink(gen, Faulty, seed, ShrinkIterations);
+            log.WriteLine(first.Report);
+            Assert.True(first.Shrinks > 0, first.Report);
+            Assert.Equal(first.Seed, second.Seed);
+            Assert.Equal(first.Shrinks, second.Shrinks);
+            Assert.Equal(first.Skipped, second.Skipped);
+            Assert.Equal(first.Report, second.Report);
+            Assert.Equal(first.Value.ToString(), One(gen, first.Seed).ToString());
         }
 
         [Fact]

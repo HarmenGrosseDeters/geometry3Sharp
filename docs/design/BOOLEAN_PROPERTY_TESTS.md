@@ -170,7 +170,9 @@ accepted canonical member per family check it more sharply. `overlapping` exclud
 shared boundary planes, so it does not overlap with `coplanar_overlap`.
 Two controlled wrong-operation campaigns prove family-preserving shrinking and
 replay via `Gen.Sample` of the emitted minimized seed; no production mutation is
-needed. The existing analytic oracle checks all operations, partition reconstruction,
+needed. Shrinking is deterministic for a given failing seed (candidate seeds derived
+from it, not from CsCheck's per-process `PCG.ThreadPCG`), checked by
+`Shrink_IsDeterministicForAGivenSeed`. The existing analytic oracle checks all operations, partition reconstruction,
 inclusion-exclusion and commutativity in each directed campaign.
 
 The follow-up also corrects a test-oracle gap: finite/valid checks now precede its
