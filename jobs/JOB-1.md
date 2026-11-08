@@ -4,8 +4,8 @@ Written by the implementing session (Sonnet) for the Haiku runner. Run it litera
 (a command fails, a path is missing, a placeholder below is not filled). No code, docs or PRs; results only, on this branch.
 
 **Placeholders (the implementing session fills them before sending; if one still reads `<...>`, stop and ask):**
-- BASE = `<BASE_SHA>`  (master just before PR #441: the first parent of the merge commit)
-- CAND = `<CAND_SHA>`  (the merge commit of PR #441 on master)
+- BASE = `caa1d518609f28881f85f56ce08de95300e8df6c`  (master just before PR #441: the first parent of the merge commit)
+- CAND = `eccdaf1af481f6d41eb7e9f67abb8879d5d1123b`  (the merge commit of PR #441 on master)
 
 Repository: https://github.com/HarmenGrosseDeters/geometry3Sharp (clone it if it is not there). This data branch is `runs/meshing2d-rule-c`
 (never merged; no meshes, no foreign outputs on it). Use a worktree for the data branch so that checkouts of BASE and CAND do not touch it:
