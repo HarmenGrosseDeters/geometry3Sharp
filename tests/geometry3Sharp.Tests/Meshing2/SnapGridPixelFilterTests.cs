@@ -15,6 +15,25 @@ namespace geometry3Sharp.Tests
         static double Up(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + (x >= 0 ? 1 : -1));
         static double Down(double x) => x == 0 ? -double.Epsilon : BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) - (x > 0 ? 1 : -1));
 
+        /// <summary>Z3Pilot's SAT witness for the test-local f &lt;= r mutant. The
+        /// exact input is the binary64 immediately below 1/2, W=1: the rounded
+        /// sum is 1 but the exact pixel is 0. Replayed through the actual code.</summary>
+        [Fact]
+        public void SmtWitness_IntegralRoundedSumMustTakeTheExactPath()
+        {
+            double x = BitConverter.Int64BitsToDouble(4602678819172646911L);
+            foreach (int exponent in new[] { -500, -10, 0, 10, 500 }) {
+                double width = Math.Pow(2, exponent);
+                double input = x * width;
+                var grid = new SnapGrid(width);
+                Assert.Equal(0, grid.PixelExact(input));
+                Assert.Equal(0, grid.Pixel(input));
+                // Controlled fault, no production mutation: accept f == r too.
+                double r = input / width + 0.5;
+                Assert.Equal(1, (long)Math.Floor(r));
+            }
+        }
+
         [Fact]
         public void Filter_AgreesWithTheExactQuotient()
         {
