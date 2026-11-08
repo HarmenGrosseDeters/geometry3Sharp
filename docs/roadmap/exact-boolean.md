@@ -40,9 +40,11 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 **D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
 
-**Lévy-style classification (owner 2026-11-08, started):** for the self-intersecting, unknown and open cohorts;
+**Lévy-style classification (owner 2026-11-08, queued):** for the self-intersecting, unknown and open cohorts;
 phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue
-clears) in session session_01AaGT5DeCT9eMf9S5jzFrxx (a third large session, owner exception).
+clears). Started and paused the same day (owner: wait); its session is archived, the hand-over note is on branch
+`claude/levy-classification-phase1` (docs/design/LEVY_CLASSIFICATION_HANDOVER.md). A fresh session takes it up once the
+merge queue of the speed levers has cleared.
 
 **Final A/B of the speed levers (runner, 2026-11-08, 42 models x 3 ops, bit-identical):** master 342 s, ops > 5 s 20;
 +#409 -13 %; +#412 -22 %; +#406 +#419 -41 % (rounding -68 %), ops > 5 s 6 (519511 x3, 1517923 union / intersection,
@@ -57,6 +59,11 @@ runner's data branch.
 
 #### Other open items
 
+- **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
+  `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
+  (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
+  other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
+  `WindingContouring`) with a dense-key measurement before changing any.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under
