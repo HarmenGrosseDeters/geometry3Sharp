@@ -11,6 +11,7 @@
 #
 # Two rounds, the four builds alternating per round; nothing else may run on the machine meanwhile.
 # usage: bash runs/boolean2-combined/job.sh [work dir]   (from the repository root; about 1.5 hours on 4 cores)
+# Resumable: rerun the same command after an interruption; finished (build, round, model) files are kept.
 # then:  python3 runs/boolean2-combined/analyze.py <work dir>/out > runs/boolean2-combined/results/summary.md
 #        copy <work dir>/out/*.jsonl to runs/boolean2-combined/results/, commit and push to runs/boolean2-combined
 set -euo pipefail
@@ -28,8 +29,8 @@ for b in $BUILDS; do
     git -C "$ROOT" worktree add -f --detach "$W/src_$name" "$sha"
     dotnet build "$W/src_$name/benchmarks/BooleanComparison" -c Release -f net10.0 -o "$W/tool_$name"
   fi
-  echo "$name $sha" >> "$W/out/builds.txt"
 done
+for b in $BUILDS; do echo "${b%%:*} ${b#*:}"; done > "$W/out/builds.txt"
 
 IDS=$(cat "$J/ids.txt")
 python3 "$J/fetch_thingi.py" "$W/raw" $IDS
@@ -39,15 +40,20 @@ for id in $IDS; do
   dotnet "$W/tool_master/BooleanComparison.dll" export "$f" "$W/cases/$id" > "$W/cases/export_$id.log" 2>&1
 done
 
+# resumable: one file per (build, round, model) with the model's three operations; a file with three result lines is
+# done and skipped, an incomplete one is run again (rerun the script after an interruption)
 for r in 1 2; do
   for b in $BUILDS; do
     name=${b%%:*}
-    out="$W/out/${name}_r$r.jsonl"
-    : > "$out"
+    mkdir -p "$W/out/${name}_r$r"
     for id in $IDS; do
-      timeout 900 dotnet "$W/tool_$name/BooleanComparison.dll" profile --safe-rounding --repeat 1 "$W/cases/$id" >> "$out" 2>> "$out.err" \
-        || echo "{\"case\":\"$id\",\"error\":\"exit $?\"}" >> "$out"
+      f="$W/out/${name}_r$r/$id.jsonl"
+      if [ -f "$f" ] && [ "$(grep -c '"ms"' "$f")" -ge 3 ]; then continue; fi
+      timeout 900 dotnet "$W/tool_$name/BooleanComparison.dll" profile --safe-rounding --repeat 1 "$W/cases/$id" > "$f.tmp" 2> "$f.err" \
+        || echo "{\"case\":\"$id\",\"error\":\"exit $?\"}" >> "$f.tmp"
+      mv "$f.tmp" "$f"
     done
+    cat "$W/out/${name}_r$r"/*.jsonl > "$W/out/${name}_r$r.jsonl"
   done
 done
 echo "done: $(cat "$W"/out/*_r?.jsonl | wc -l) lines (expected 1008)"
