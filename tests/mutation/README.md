@@ -62,22 +62,28 @@ baseline's results can still be out of date for other reasons: see the limits.)
 
 **`BASELINE_FORMAT`** ([the file](BASELINE_FORMAT), an integer) stands in the cache key for the scripts: the key used to
 hash `baseline.py` and `incremental.py`, so any edit of them (a comment, a message) dropped every shard's baseline and
-the next PR ran in full for 4-6 hours. Bump it (and nothing else) when an OLD stored baseline would give other results
-through the new code: the layout that `baseline.py` stores, how `incremental.py` matches, counts or scores mutants, or
-how the mutated spans are read. Then every shard runs in full once and stores a new baseline (the next weekly or
-dispatched run on master seeds them). `test_baseline.py` fingerprints the functions involved
-(`FORMAT_FUNCTIONS`, as ASTs, so comments and formatting do not count) and fails when one changes: decide, bump the
-file if needed, and set `FORMAT_FINGERPRINT` to the value in the message.
+the next PR ran in full for 4-6 hours. The FORMAT of a baseline is what `baseline.py` stores (`relative_key`, `strip`:
+which files, under which keys, with which fields of Stryker's report), how `incremental.py` finds its file in it
+(`baseline_file`), and the fields `plan` and `merge` read of it (`source`, and `status` and `location` lines per mutant).
+Bump the file (and nothing else) when an OLD stored baseline would give other results through the new code, i.e. when
+one of these changes: then every shard runs in full once and stores a new baseline (the next weekly or dispatched run on
+master seeds them). `test_baseline.py` fingerprints the first two and `baseline_file` (as ASTs: comments and docstrings
+do not count) and fails when one changes; `test_incremental.test_plan_and_merge_read_only_these_baseline_fields` pins
+the fields read (a new field fails it). Decide, bump the file if needed, and set `FORMAT_FINGERPRINT` to the value in the
+message. A change of the matching, counting or scoring logic (`changes`, `spans_of`, `touches`, `MIN_UNCHANGED`,
+`COUNTED`, `score`) reads old and new baselines the same way: no bump, but the script rule below applies. A baseline
+without a mutant that counts is not used (the shard runs in full), and a merge without any counted mutant fails.
 
 **Which edits of the workflow run every shard in full.** Only those that can change how a shard runs: the
 runner, the checkout, `setup-dotnet`, `dotnet tool restore`, the Stryker step (its env, run and comments), the
 `path` and `if` of the baseline steps, `strategy.matrix`, workflow-level `env` and `permissions`, unknown jobs, keys
 and steps. These do not: the trigger (`name`, `on:` with the paths, the cron, the dispatch input), `concurrency`, the
 whole `changes` job, `needs`, `if`, `timeout-minutes` and `strategy.fail-fast` / `max-parallel` of the Stryker jobs,
-the reporting steps (Summary, Surviving mutants, upload-artifact) and the cache `key` / `restore-keys` lines (a
+the reporting steps (Summary, Surviving mutants, upload-artifact, but only after the Stryker step, once, with plain keys and a read-only `cat` or `jq` command: they run before "Prepare the baseline", so a step that wrote into `StrykerOutput` would change what is stored) and the cache `key` / `restore-keys` lines (a
 changed key can only lose baselines, and a shard without a baseline runs in full anyway;
 `test_cache_keys_name_the_shard_and_the_format` checks that every key names its config and `BASELINE_FORMAT`). A
-comment or blank line counts with its neighbours. The shards themselves come from the configs (the matrix is
+comment or blank line counts with its neighbours. A workflow that uses YAML anchors, aliases or merge keys is not
+classified: any edit of it runs everything (the real one has none; `test_select_shards` checks that). The shards themselves come from the configs (the matrix is
 `fromJSON` of the selection), so a new or changed shard runs in full through its own config file, and the others do not.
 `max-parallel` is 12: a full run is 12 mesh shards, the arithmetic job and the selection job, which leaves 6 of the
 account's 20 concurrent jobs for CI.
@@ -225,11 +231,37 @@ Things to know:
   but the shard's are then ignored). The tests run on instrumented code, so a shard takes 1 to 5 hours on a
   GitHub runner, most of it in the boolean tests. Locally, `dotnet stryker --config-file stryker-mesh-<shard>.json`
   in this directory.
-- **The splits are character offsets**, not lines: Stryker.NET reads `File.cs{a..b}` as a text span. The offsets
-  are at the start of a method (`build_triangles`, `front_winding`); the second shard runs to the end of the file.
-  After larger changes to the file, move the offset back to the start of that method (both shards of the file
-  must be updated together), else mutants near the boundary are tested twice or not at all.
-  `MutationConfigTests` fails when an offset is not at the start of its method (its attribute line, if any).
+- **The splits are character offsets**, not lines: Stryker.NET reads `File.cs{a..b}` as a text span. A file with
+  several shards (`rounding`, `boolean`, `arrangement`, `envelope`) is cut at the start of a method each (the first
+  attribute or comment line above it, as `MutationConfigTests` reads it, which lists the method of every split in
+  `SplitMethod`); the shards meet there and the last one runs to the end of the file (`1000000`). A mutant that
+  reaches over a split point (a block around the method start) is left out of both parts, which is why the cut is at
+  a method start. Every shard of a file has the same test filter and break threshold unless its own full runs give a
+  reason to change them.
+  **Any edit before a split point moves every later offset**, so after a larger change to the file the test fails
+  until the offsets are moved back to their methods, and every shard of that file whose config changed then runs in
+  full (the baseline of a changed config is not used): with 4 parts, one edit near the top of
+  `ExactMeshArrangement.cs` or `PolyhedralEnvelope.cs` costs three or four full shard runs and loses the incremental
+  mode for them. So keep the number of parts small, and choose the cut points with
+  [suggest_split.py](suggest_split.py) from the report of a full run (below).
+- **`suggest_split.py`** (a manual tool, nothing in CI runs it; tested by `test_suggest_split.py`):
+  `python3 suggest_split.py <report> mesh_ops/File.cs --parts 3` or `--target-minutes 150`. The report is the JSON
+  report of a full run (the cached baseline `stryker-report.json` or the artifact's `mutation-report.json`). It weighs
+  each mutant by its status (a timeout costs `timeout-ratio * b + additional-timeout` seconds, a survivor `b`, a killed
+  mutant `0.3 b`, an uncovered one nothing; `b` is the covering tests' time, 10 s by default, 8 to 20 s measured), cuts at
+  method starts so that the longest part is as short as possible, and estimates each part as its testing time over the
+  concurrency plus the overhead of build and coverage capture (60 minutes). The estimate is a model: look at the real
+  time of each part after the split and move an offset if needed. Each extra part repeats the overhead (56-71
+  minutes of coverage capture for the arrangement), so more parts are not better than needed; the target is a part
+  well under the job's 350 minutes (about 150), because the run time varies by a factor of two between runners.
+  After a split: add the method to `SplitMethod` in `MutationConfigTests`, the config, and the shard to the table.
+- **What runs when a script changes.** `run_stryker.sh`, `incremental.py` and `baseline.py` are in every shard's real
+  Stryker run, which the tests with a fake `dotnet` cannot see: a PR that changes one of them runs the shard `fixed`
+  (the cheapest, about 30 minutes) in full as a representative, besides what its other files select. A bump of
+  `BASELINE_FORMAT` runs nothing by itself (a PR that needs a baseline without one runs in full). `select_shards.py`
+  and the test files run in the `changes` job of every workflow run, which the trigger paths start for any change under
+  `tests/mutation/`. `run_stryker.sh` prints the runner's CPUs and memory at its start (a standard runner of a public
+  repository should show 4 and about 16 GB).
 - **Memory:** a mutant can make a loop allocate without end. `DOTNET_GCHeapHardLimit` (6 GB per process) and
   `concurrency: 2` turn that into an OutOfMemoryException in the test host (the mutant is killed); without them
   the first run lost its runner.

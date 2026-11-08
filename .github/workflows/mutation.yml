@@ -90,6 +90,7 @@ jobs:
           python3 test_select_shards.py
           python3 test_baseline.py
           python3 test_incremental.py
+          python3 test_suggest_split.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}

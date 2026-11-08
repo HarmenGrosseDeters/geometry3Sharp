@@ -40,7 +40,9 @@ ALWAYS = {".config/dotnet-tools.json", WORKFLOW}
 #   not forcing: the header (name, on: with the trigger paths, the cron, the dispatch input), concurrency, the whole
 #     `changes` job, in the two Stryker jobs `needs`, `if`, `timeout-minutes`, `outputs`, `strategy.fail-fast`,
 #     `strategy.max-parallel` (scheduling only), and the steps Summary, Surviving mutants and upload-artifact
-#     (reporting); comment and blank lines whose neighbours are not forcing.
+#     (reporting) if they come after the Stryker step, are the only one of their name, have only the keys name, if, run,
+#     uses, with, continue-on-error, and a run command that only reads (cat or jq); comment and blank lines whose
+#     neighbours are not forcing. A workflow with YAML anchors, aliases or merge keys is not classified (any edit forces).
 #   not forcing, on purpose: the cache key lines of "Restore the baseline" / "Store the baseline". A changed key can only
 #     lose baselines, and a shard in `source` mode without a baseline runs in full (run_stryker.sh), so no result is ever
 #     taken from a wrong baseline by it. That a key still names its shard and the format is checked by
