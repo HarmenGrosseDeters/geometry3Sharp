@@ -243,10 +243,34 @@ finds bugs.
 
 ### 2.6 Coverage in CI
 
-- coverlet (MIT) collects line and branch coverage in the Linux job.
-- ReportGenerator (Apache-2.0) writes a summary per directory into the job summary.
-- At first there is no threshold. Coverage shows where tests are missing, and it is not a goal in itself.
-- A directory whose coverage drops in a PR is a question for the review.
+- coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage during the existing three Linux test runs.
+  The existing Microsoft.NET.Test.Sdk 17.8.0 supplies the integration; Windows/net48 runs do not collect coverage.
+- On pull requests, `tools/changed_line_coverage.py` requires **100% of changed executable lines** in the core
+  library, `addons/geometry3Sharp.Clipper2` and `tools/g3cli` to have at least one hit across those runs. Existing
+  unmodified gaps do not fail the gate. There is no whole-library or branch-coverage threshold.
+- Compare the tested checkout (GitHub's PR merge commit) with its merge base against the event's pinned base SHA.
+  Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line
+  records define executable lines, so comments and whitespace within a measured file need no hits.
+- Missing, malformed, duplicate or empty suite reports fail the gate, including a changed source file absent from
+  all reports. This is deliberately conservative: a new file containing only interfaces/enums, or code excluded
+  from instrumentation, may need investigation rather than silently passing as covered. Tests, benchmark code,
+  documentation examples, assembly metadata and build tools are outside this first gate.
+- The job summary and `linux-results` artifact include the uncovered line numbers per file, the gate JSON and
+  all three raw reports. Master/tag/manual runs collect reports without a PR diff gate.
+- Local reproduction from a clean committed checkout, using the same SDK as CI:
+
+  ```sh
+  rm -rf test-results
+  dotnet test tests/geometry3Sharp.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
+  dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
+  dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
+  python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+  python3 tools/changed_line_coverage.py --base origin/master --coverage-dir test-results --json test-results/changed-line-coverage.json
+  ```
+
+  Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a
+  fresh results directory: multiple reports per suite are rejected to prevent stale coverage masking a gap.
+  Coverage demonstrates execution, not assertion quality; mutation gates remain.
 
 ### 2.7 A small regression corpus as a CI smoke benchmark
 
@@ -596,7 +620,8 @@ not depend on the implementer's own tests. Order of priority:
    threshold is reported. Cross-session numbers drift 20-30 %.
 7. **Reproducible claims**: every number in a PR cites the command and attaches the raw output; the reviewer re-runs
    a sample (as `benchmarks/BooleanComparison/perf/` already allows).
-8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
+8. **Changed-line coverage gate**: new or changed lines must be executed by tests. Implemented for the core,
+   Clipper2 and CLI in normal Linux CI (section 2.6).
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
    replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
@@ -622,7 +647,7 @@ not depend on the implementer's own tests. Order of priority:
 | Differential tests against exact results | High for `math/`, filters | Low | Done for the predicates (#137); boolean identities open |
 | Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing: done for the readers (#127), next for mesh inputs |
 | Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*`, `AdaptivePredicates.cs` and the exact mesh pipeline (sharded) |
-| Coverage in CI | Medium (shows gaps) | Low | Summary, no threshold |
+| Coverage in CI | Medium (shows gaps) | Low | Changed executable lines: 100%; no whole-library threshold |
 | Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |
 | Regression corpus in CI | High for the pipelines | Medium | Done for the defect cases (`RegressionCorpusTests`, 2.7); cube grid and terrain open |
 | API compatibility | High for users | Done (#92) | Keep |

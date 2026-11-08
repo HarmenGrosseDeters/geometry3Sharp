@@ -29,17 +29,30 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The gate compares the tested merge commit with its merge base.
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - name: Build
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release --logger "trx;LogFileName=net10.trx" --results-directory test-results
+        run: dotnet test tests/geometry3Sharp.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=net10.trx" --results-directory test-results/core
       - name: Test CLI / MCP server (tools/g3cli)
-        run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
+        run: dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=g3cli.trx" --results-directory test-results/cli
       - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
-        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --logger "trx;LogFileName=clipper2.trx" --results-directory test-results
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=clipper2.trx" --results-directory test-results/clipper2
+      - name: Test the changed-line coverage gate
+        run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+      - name: Changed-line coverage (all changed executable lines must be hit)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >
+          python3 tools/changed_line_coverage.py --base "$BASE_SHA"
+          --coverage-dir test-results --json test-results/changed-line-coverage.json
+          --summary "$GITHUB_STEP_SUMMARY"
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
       - name: Pack the Clipper2 package
