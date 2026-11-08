@@ -49,8 +49,8 @@ Status on 2026-11-08 (evening, Berlin).
   documented exceptions). Ten PRs are ready or nearly (#397, #398, #406, #409, #412, #419, #420, #424, #425, #426:
   levers −41 % total / −68 % rounding bit-identical, D1 apex rule, scale disparity, empty-union fix, edge-key hash);
   they merge through one combined mutation gate on an integration branch once #403 (shard split) has merged and the
-  master baselines are seeded. Then: L3 work-unit budget, the ±1e308 predicate throw, the final Thingi10K run, the
-  control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
+  master baselines are seeded. Then (the L3 budget was dropped: 119829/119830 take at most 3.7 s, and the effort limit
+  exists): the ±1e308 predicate throw, the final Thingi10K run, the control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
   (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405 (simplification guard), #413
   (quality pass off by default), #422 (Reducer speedups); next #404, #408, #410, #417, #429, then #432 (parallel slab
