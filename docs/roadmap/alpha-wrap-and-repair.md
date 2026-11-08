@@ -37,7 +37,10 @@ Part of the [roadmap](../ROADMAP.md).
   speed budget passed by 24 → 27 → 35 of 100 (median 1.14 → 1.06× budget). Owner 2026-11-08: 4b becomes a PR,
   default on; parallel reducer option (A) is built as a deterministic prototype behind a switch, PR decision from
   its T1 measurement; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
-  19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0);
+  19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0); sharp features (owner 2026-11-08): option 1, the Reducer's feature
+  quadrics (FeatureAngle sweep 30/45/60° on T1 with full fidelity) runs in a Sonnet session now, PR only on a
+  fidelity gain within the floors; option 3, crease-aware Steiner points in the raw wrap (convex creases exact), is a
+  2.x item for the Alpha Wrap session after (A); concave corner recovery is research, not in 2.0;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
