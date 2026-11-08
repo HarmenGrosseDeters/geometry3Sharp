@@ -69,6 +69,40 @@ Raw wrap vs CGAL (12 meshes, behaviour only): p01 17.8 vs 19.6; prototypes: the 
 our manifold extension (large outside cells), not a bug; lever: a two-sided manifold step. Plan, one PR each: A guard
 0.3 + needle handling; B Phi + refinement; C two-sided manifold step (prototype, stop rule); WP3 constant factors.
 
+**Serial Reducer profile (2026-11-08, owner request before any parallel reducer).** `SimplifyWithin` on 5 raw wraps
+(26k-327k triangles: Thingi10K 789071, 102793, 100331, 497978, 65584; the `wrappipe` mode of MeshRepairBenchmark from
+#404 on the unmerged bench branch with A, B and C, plus temporary timers that were not committed; warm, alone): 56-70 µs per collapse; the reduction is about 33 % of the
+pipeline. Two methods: timers per section with counters, and ablations (one component off; the self-intersection check
+refused no collapse on these wraps, so every ablation gave the same mesh, hashes checked). Shares of the reduction:
+
+| part | share | notes |
+|---|---|---|
+| self-intersection check, total | 56-63 % | grid traversal + grid update + new triangles 33-40 %, candidates 22-28 % (exact tri-tri tests 9-17 %), pairs of new triangles 2-9 %; ~45 candidates and ~75 exact tests per collapse, 0 hits |
+| bowtie check | 4-9 % | the raw wraps have no bowties |
+| core: fold/quality guards, quadrics, queue, edit, setup | 35-38 % | ~27 µs per collapse; fold/quality 10-14 %, queue 6-8 % (stale pops 2 %) |
+| GC pauses | ~7 % | 1.2 GB allocated on the 327k wrap |
+
+79 % of the evaluated edges are refused by the fold/quality guard, which already runs before the self-intersection
+check. 55-60 % of the evaluations are re-evaluations after a neighbour's collapse; 89 % of those are refused again
+for the same reason (6-13 %; skipping them is not bit-identical). No published per-collapse figure of meshoptimizer
+or another QEM code could be verified (GitHub returned 504), so none is quoted.
+
+| lever | upper bound | status |
+|---|---|---|
+| 1 grid: cells hold (id, box), reference-cell rule instead of stamps, no key arrays | ~30-35 % | built bit-identical, **slower** (1.02-1.15x): not used. The cost is the cell lookups; base cells of 3 instead of 1.5 mean edge lengths take that lever (bit-identical) |
+| 2 bowtie states per vertex | 4-9 % | built (#422) |
+| 3 self-intersection check without allocations per collapse | ~5 % | built (#422) |
+| 4 cheaper pre-reject before the exact tri-tri test | 9-17 %, realistic ≤ 5-8 % | not built (owner 2026-11-08: ≤ 2 % of the pipeline for a new error bound and an exact-code review) |
+| 5 lazy / version-stamped queue | 2 % (the queue updates in place) | not built |
+| 6 quadrics as struct of arrays | 3-5 % | not built |
+| 7 early-out of the self-intersection query | 0 % (no hits) | n/a |
+| 8 repeated certification | n/a: no per-collapse certification in this path; the final certify (5-10 % of the simplification) runs once | n/a |
+
+Levers 2 + 3 + cells of 3 edge lengths (same setup, old and new binary alternating, median of 4 runs each; the
+output hashes compared): the reduction 0.87-0.91x on the 4 larger wraps (102793 0.87, 100331 0.91,
+497978 0.88, 65584 0.89), allocations -30 %, the same meshes bit for bit. Cells of 4.5 and 6 edge lengths are not
+better; 0.75 is 1.09-1.22x.
+
 #### Other open items
 
 - **`external/cgal_wrap.cpp`** (behaviour comparison with CGAL's alpha wrap; links CGAL, GPL; never distributed
