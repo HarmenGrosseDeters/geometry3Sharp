@@ -36,7 +36,9 @@ Part of the [roadmap](../ROADMAP.md).
   identical, wrap.manifold 32 → 7 s; 4b (local pinch trials) 94/100 identical, 6 marginal changes, pinch 159 → 68 s;
   speed budget passed by 24 → 27 → 35 of 100 (median 1.14 → 1.06× budget). Owner 2026-11-08: 4b becomes a PR,
   default on; parallel reducer option (A) is built as a deterministic prototype behind a switch, PR decision from
-  its T1 measurement; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
+  its T1 measurement; (A) result on T1 100 (4 cores): budget met 46 → 72 of 100, time/budget median 1.02 → 0.84
+  (p90 1.44 → 1.27), same guarantees and floors, deterministic across thread counts (fixed 8 slabs), not
+  bit-identical to the serial reducer; owner 2026-11-08: PR, default on; target (a) met (CGAL 5.6 black box, same 100 T1 meshes: raw p01 median 18.41° vs ours
   19.45°, ours >= CGAL on 73/100, worst mesh 10.12° vs 15.49°, triangles > 170° 5 vs 0); sharp features (owner 2026-11-08): option 1, the Reducer's feature
   quadrics (FeatureAngle sweep 30/45/60° on 20 T1 meshes, full fidelity): no gain (sharp-edge Chamfer and edge F
   within 0.2 %, +2-4 % triangles, band slightly worse; raw rows on runs/alpha-wrap-features), closed; option 3, crease-aware Steiner points in the raw wrap (convex creases exact), is a
