@@ -24,6 +24,10 @@ Small input angles and triangle count:
 - **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
   edge at near-180° triangles.
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
+- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C):** in tools/Z3Pilot,
+  (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
+  decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
+  25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
 - **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
   O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
   small input angles, judged that way by the oracle; design note with the termination argument first, independent
