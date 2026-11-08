@@ -34,7 +34,7 @@ Small input angles and triangle count:
   #441's merge eccdaf1a, 252 runs at 20° and 30°; runs/meshing2d-rule-c a3074096): verdicts 249 ok / 3 unjudged → 250 / 2 (one
   change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
   per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
-  at 20° and 30°). Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
+  at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
 - **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
   `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
   ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
