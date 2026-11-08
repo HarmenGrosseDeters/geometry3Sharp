@@ -26,8 +26,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 #### PaMO, parallel mesh optimization (survey 2026-11-08)
 
-PaMO, by Oh, Yuan, Wei, Shi, Xiang, Liu and Su, [arXiv 2509.05595](https://arxiv.org/abs/2509.05595) v1, 6 Sep
-2025, CC BY 4.0. Read: the full v1 text (HTML), owner request via the coordinator. No code read. Status: paper only; patent check before adopting any idea
+S. Oh, X. Yuan, X. Wei, R. Shi, F. Xiang, M. Liu, H. Su, *PaMO: Parallel Mesh Optimization for Intersection-Free
+Low-Poly Modeling on the GPU*, Pacific Graphics 2025 (Computer Graphics Forum 44(7));
+[arXiv 2509.05595](https://arxiv.org/abs/2509.05595) v1, 6 Sep 2025, CC BY 4.0. Read: the full v1 text (HTML and the
+PDF), owner request via the coordinator. No code read. Status: paper only; patent check before adopting any idea
 (the paper says nothing about patents; its funding note names Hillbot Inc., whose CTO is an author).
 
 The pipeline has three GPU stages (section numbers of the paper):
@@ -56,7 +58,7 @@ faces.
 
 | Method | Time (s) | HD (10⁻²) | CD (10⁻⁴) | min angle (°) | manifold | intersection-free |
 |---|---|---|---|---|---|---|
-| AlphaWrap + GK23 | 56.21 | 3.369 | 0.6451 | 4.081 | 100 % | 85 % |
+| AlphaWrapping, then GK23 | 56.21 | 3.369 | 0.6451 | 4.081 | 100 % | 85 % |
 | PaMO without stage 3 | 0.86 | 3.439 | 0.8468 | 3.317 | 100 % | 100 % |
 | PaMO | 1.95 | 2.294 | 0.1846 | 2.994 | 100 % | 100 % |
 
@@ -84,7 +86,8 @@ Ideas for a CPU probe (none planned; each needs the patent check first):
    that do not depend on thread order. It fits option (A) of the parallel reducer if each collapse keeps our exact
    check, so no rollback is needed. Our serial reducer profile (2026-11-08) puts the self-intersection check at
    56-63 % of the reduction, which is what a parallel round would split.
-2. **The length and shape terms in the cost:** cheap, and their Table 5 shows fewer bad triangles. Our reducer
+2. **The length and shape terms in the cost:** cheap; their Table 5 shows triangles with a minimum angle below 10°
+   going from 13.16 % to 2.81 % (below 1°: 0.56 % to 0.02 %). Our reducer
    rejects bad collapses with a guard instead; a cost term would change the order of collapses (not bit-identical,
    needs the quality and fidelity gates).
 3. **Safe projection:** only reduced: a distance term plus exact rejection of moves that create intersections.
