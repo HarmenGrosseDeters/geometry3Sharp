@@ -13,7 +13,14 @@ arrangement has already resolved every pair of input triangles.
 
 Let `E` be the result triangles that exist when `Apply` starts and whose three vertices are *exact*: their double
 coordinates are the exact coordinates of the result vertex (ExactMeshBoolean: the vertex is an input point, which is a
-double and so rounds to itself). A triangle leaves `E` when an edit touches it (`mark_dirty`) or removes it. The full
+double and so rounds to itself). A triangle leaves `E` when an edit touches it (`mark_dirty`) or removes it, and when any
+of its corners changes position: every position write of the repair goes through `set_vertex` (the only call of
+`DMesh3.SetVertex` in MeshRoundingRepair), which takes the vertex's triangles out of `E` itself, whatever the edit (a
+move, the kept end of a contraction, a separation of a contact). So a corner of a triangle in `E` is an input point at
+its unmoved input double: not rounded, snapped or moved. Which corners are exact is decided once, at the start, by the
+caller (`ExactVertexF`, from the assembly: `vertexPoint >= 0 && inputPoints[vertexPoint]`, the same as `resultFixed`);
+nothing between the assembly and `Apply` changes positions. A new vertex (a crossing, a split midpoint) is never exact,
+even where its rounded double happens to equal its exact point. The full
 search queries the box tree only from the triangles not in `E`, and records every pair it finds with them (both orders);
 pairs of two triangles in `E` are not tested.
 
@@ -38,6 +45,26 @@ vertex of `t` and one of `u` with one exact point; by 3 they have one canonical 
 the two share and the test is false. A common edge: both ends likewise. (The test's own decision is exact, so no
 rounding of the test enters.)
 
+For exact vertices assumption 3 needs no repair counting: by 2 two exact vertices at one double position have one exact
+point (their positions are their exact points), so the contacts the rounding makes (#398) never involve two vertices of
+triangles in `E` only.
+
+### Cases the lemma covers that need a second look
+
+- *A and B touching.* Two triangles in `E`, one from A and one from B, can share a position where the inputs touch (a
+  corner of B on a corner of A, faces touching from outside). Their vertices there are input points of equal doubles,
+  so the arrangement merged them into one point (ExactMeshArrangement merges equal exact points), and the result has one
+  vertex or, where the solid touches itself, duplicated vertices of that point (ExactMeshBoolean keeps such contacts as
+  duplicates). Either way SharedPositionsTouch gives them one canonical id, and the pieces meet only there (assumption 1),
+  so the test is false. Where B's corner lies inside a face of A, that face is cut at it: its pieces have that corner as
+  a vertex and are in `E` (all three corners are input points), and again meet B's triangles only in shared vertices.
+- *Coplanar stacks and duplicated input triangles.* Overlapping coplanar faces (including equal triangles of A and B, or
+  duplicated triangles within one input) are output once, from one stack (assumption 1); the faces not output are not in
+  the result, so no pair of overlapping coplanar triangles is in `E`.
+- *Cut triangles.* "Exact" is a property of the result triangle, not of the input triangle: the pieces of a cut input
+  triangle whose corners are all input points are in `E` (the arrangement resolved them like uncut ones); a piece with a
+  crossing point as a corner is not.
+
 What is *not* claimed: nothing about triangles with a rounded vertex; they are tested as before, against all triangles.
 Triangles that are exact but were created by an edit (eg a contraction joining input vertices) are not in `E` and are
 tested.
@@ -54,6 +81,11 @@ assumption 1 is the arrangement's own guarantee.
 - `CheckOnThisThread`: every full search with the rule also runs the full search without it and compares the pairs
   (`InvalidOperationException` if they differ), as the incremental search is checked today.
 - Bit-identical results: the set of intersecting pairs is the same, and the order (sorted) too.
+- Tests (`RoundingExactPairsTests`): in check mode over boxes with cut and uncut faces, a turned box, a coplanar stack,
+  duplicated input triangles (also at rotated coordinates, cut by a box), A and B touching at a corner and along a face,
+  and the degenerate families of SafeRoundingDegenerateInputTests (contractions free ids that later edits reuse, and
+  full searches run again after many changes); results equal with and without the check, over `Similarity.All()` (the
+  2^k scales bit for bit, with the same skipped count), serial equals parallel, compute twice.
 
 ## 4. Upper bound (probe, 2026-11-08)
 

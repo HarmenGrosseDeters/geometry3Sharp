@@ -14,7 +14,8 @@ namespace geometry3Sharp.Tests
     /// arrangement (three input vertices, unchanged since the start: docs/design/ROUNDING_EXACT_PAIRS.md). With
     /// MeshRoundingRepair.CheckOnThisThread every search, with the skip, is compared with a full search that tests every
     /// pair (it throws if they differ), so the cases here check the lemma: boxes with cut and uncut faces, a turned box
-    /// (rounded crossings), and the degenerate families whose repairs edit many triangles (contractions free triangle
+    /// (rounded crossings), coplanar stacks, duplicated input triangles (also at rounded coordinates), A and B touching
+    /// at a corner and along a face (uncut triangles of both meshes at shared positions), and the degenerate families whose repairs edit many triangles (contractions free triangle
     /// ids that later edits reuse, and searches run again in full after many changes).
     /// </summary>
     public class RoundingExactPairsTests
@@ -32,7 +33,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Cases()
         {
-            foreach (string name in new[] { "boxes", "turned", "Sliver", "Collinear", "Cluster", "FoldedCluster" })
+            foreach (string name in new[] { "boxes", "turned", "coplanar", "duplicate", "duplicateTurned", "corner", "face", "Sliver", "Collinear", "Cluster", "FoldedCluster" })
                 yield return new object[] { name };
         }
 
@@ -43,6 +44,29 @@ namespace geometry3Sharp.Tests
                     return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Grid(new Vector3d(0.9, 0.3, 0.1), new Vector3d(0.6, 0.7, 0.4)), Ops.Union);
                 case "turned":
                     return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Turned(Grid(new Vector3d(0.6, 0.2, 0.1), new Vector3d(0.6, 0.5, 0.35)), new Vector3d(1, 1, 0), 20), Ops.Difference);
+                case "coplanar":
+                    // a coplanar stack: the top and bottom faces of both boxes lie in z = +-0.4 and overlap (output once,
+                    // from one stack), cut by each other's edges
+                    return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Grid(new Vector3d(0.9, 0.3, 0), new Vector3d(0.6, 0.7, 0.4), 9), Ops.Union);
+                case "duplicate":
+                    // every input triangle twice: B is A, so every face is a stack of two equal triangles
+                    return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Ops.Union);
+                case "duplicateTurned":
+                    // duplicated triangles at turned (rounded) coordinates, and a box that cuts them
+                    {
+                        DMesh3 a = Turned(Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), new Vector3d(1, 2, 3), 17);
+                        var both = new DMesh3(a);
+                        MeshEditor.Append(both, a);
+                        return (both, Grid(new Vector3d(0.8, 0.2, 0.1), new Vector3d(0.5, 0.6, 0.3)), Ops.Difference);
+                    }
+                case "corner":
+                    // A and B touch at one corner: uncut triangles of A and of B share a position (one exact point), the
+                    // other triangles are uncut too
+                    return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Grid(new Vector3d(2, 1.4, 0.8), new Vector3d(1, 0.7, 0.4)), Ops.Union);
+                case "face":
+                    // A and B touch along a face from outside (opposite orientations there), shifted: the touching faces
+                    // cut each other, the rest is uncut, and A's and B's triangles meet at shared positions
+                    return (Grid(Vector3d.Zero, new Vector3d(1, 0.7, 0.4)), Grid(new Vector3d(2, 0.3, 0.1), new Vector3d(1, 0.7, 0.4), 10), Ops.Union);
             }
             Family f = (Family)Enum.Parse(typeof(Family), name);
             return (SafeRoundingDegenerateInputTests.Make(f, f == Family.Cluster || f == Family.FoldedCluster ? 36 : 30, 1), new DMesh3(), Ops.Union);
@@ -90,7 +114,10 @@ namespace geometry3Sharp.Tests
             if (name != "FoldedCluster") {
                 // (folded clusters are left unclean, see SafeRoundingDegenerateInputTests)
                 Assert.True(checkedRun.RoundingClean, name);
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(checkedRun.Result));
+                // (where the solid touches itself, corner and face, its vertices share positions, which the
+                // self-intersection check counts as intersecting: see ExactBooleanRoundingContactsTests)
+                bool touches = checkedRun.Result.VertexIndices().GroupBy(v => checkedRun.Result.GetVertex(v)).Any(g => g.Count() > 1);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(checkedRun.Result, checkSelfIntersections: touches == false));
             }
         }
 

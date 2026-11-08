@@ -230,7 +230,10 @@ namespace g3
         bool check;
         // the vertices at their exact position (ExactMeshBoolean: the input points of the result), or null: the full search
         // skips the pairs of two triangles that existed at the start with three such vertices and have not changed since
-        // (the exact arrangement already resolved them, docs/design/ROUNDING_EXACT_PAIRS.md)
+        // (the exact arrangement already resolved them, docs/design/ROUNDING_EXACT_PAIRS.md). The caller's promise holds
+        // at the start of Apply: such a vertex is at its exact point (an input point at its input double, not rounded
+        // or snapped); a vertex the repair moves (set_vertex, the one place that writes positions) takes its triangles
+        // out of the set
         internal Func<int, bool> ExactVertexF = null;
         // per triangle id: its vertices at the start if it is such a triangle (else -1), cleared by mark_dirty
         Index3i[] exactAtStart;
@@ -1681,6 +1684,11 @@ namespace g3
                 position_add(v, p);
             }
             Mesh.SetVertex(v, p);
+            // (the callers mark the triangles dirty as well; here so that no position change keeps a triangle exact)
+            if (exactAtStart != null)
+                foreach (int t in Mesh.VtxTrianglesItr(v))
+                    if (t < exactAtStart.Length)
+                        exactAtStart[t] = new Index3i(-1, -1, -1);
         }
 
         // contract one of the edges of the triangles (shortest first, at most maxLength), the kept vertex at
