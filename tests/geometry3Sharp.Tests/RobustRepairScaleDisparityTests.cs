@@ -85,5 +85,19 @@ namespace geometry3Sharp.Tests
             Assert.False(r.ScaleRetry);
             Assert.DoesNotContain("largest component", r.ExactResolveReason);
         }
+
+        [Fact]
+        public void NotClosedInput_NoRetry()
+        {
+            // the far scene with a sphere triangle removed: the input is not closed by the winding number, which a scale
+            // cannot change, so the exact resolve does not run again relative to the largest component
+            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 10);
+            scene.RemoveTriangle(scene.TriangleIndices().First(), true, false);
+            var r = new MeshRobustRepair(scene);
+            r.Apply();
+            Assert.Contains("not closed (winding number)", r.ExactResolveReason);
+            Assert.False(r.ScaleRetry, r.ExactResolveReason);
+            Assert.DoesNotContain("largest component", r.ExactResolveReason);
+        }
     }
 }

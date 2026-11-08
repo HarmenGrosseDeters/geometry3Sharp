@@ -294,6 +294,7 @@ namespace gs
             scaleOnly = null;
             MaxScaleErosionShare = 0;
             ScaleRetry = false;
+            notClosedFrom = null;
             TopologyChanged = false;
             GenusBefore = GenusAfter = double.NaN;
             ExactResolveRoundsUsed = 0;
@@ -388,7 +389,7 @@ namespace gs
                 if (exact == null && CancelF() == false) {
                     DMesh3 from = solidifyFrom != result || result.TriangleCount == 0 ? solidifyFrom : result;
                     MaxScaleErosionShare = global_scale_share(from);
-                    if (MaxScaleErosionShare > 0) {
+                    if (MaxScaleErosionShare > 0 && from != notClosedFrom) {
                         ScaleRetry = true;
                         string reason = ExactResolveReason;
                         exact = resolve_exactly(from, input, false, true);
@@ -685,6 +686,8 @@ namespace gs
             add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
             if (closed == false) {
                 ExactResolveReason = "not closed (winding number)";
+                // (a scale cannot change that: the retry relative to the largest component is not tried for it)
+                notClosedFrom = from;
                 return null;
             }
             if (ExactResolveMaxPairs > 0) {
@@ -1126,6 +1129,9 @@ namespace gs
         // global_scale_share that decided it (benchmarks)
         internal bool ScaleRetry;
         internal double MaxScaleErosionShare;
+        // the mesh whose exact resolve found it not closed by the winding number in the last Apply() (null: none); its
+        // retry would fail the same way
+        DMesh3 notClosedFrom;
 
         // the largest share, over the connected components, of a component's area in triangles below the degenerate
         // area of NotCleanReason (0 with fewer than two components)
