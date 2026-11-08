@@ -48,12 +48,13 @@ Status on 2026-11-08.
 
 - **Exact Boolean 2.0** (milestone, owner 2026-11-07): every operation of the #385 Thingi10K harness at most 5 s of
   Compute wall time, clean results on closed inputs. Baseline: 81 of 16 239 operations unclean, p95 4.5 s, max 282 s.
-  Work packages (1)-(5) in session session_01AaGT5CTqL86zQ1wj56oXAq. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+  Work packages (1)-(5) in session session_01AaGT5CTqL86zQ1wj56oXAq. WP1 done: 16 ops > 5 s on 4 cores in the
+  selfint = 0 cohort; the rounding projection filter (#397) and the rounding-created contacts fix (#398, M3) are in
+  review, gated by the split rounding mutation shard (#403); then L1 (rounding search only from cut triangles), D1
+  (drift budget), L3. No architecture rewrite (assessment 2026-11-07). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
   are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Open follow-ups: the corner
   choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
-- **Meshing2D coarsening** (owner 2026-11-04: the next mesher project, week of 2026-11-09): the probe (draft #391)
-  gave small gains and was not built (status unclear, check). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
   Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
 - **Alpha wrap and repair:** no active session. Wrap quality (#292), raw-wrap fixes (#311, #317) and the volume check
@@ -87,7 +88,8 @@ Status on 2026-11-08.
 
 Planned, not started.
 
-- Exact booleans: the Thingi10K bugfix task (29 unclean results plus M1), M2 and M3 of the manifold corpus.
+- Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
+  M2 of the manifold corpus remains.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Exact booleans: the `thingi-pairs` class in `BooleanComparison` (local task, owner 2026-11-04). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
@@ -95,7 +97,6 @@ Planned, not started.
 - Meshing2D: the corner choice after #394 (MinSin2 against the exact shortest edge). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: lenses up to 28.6° (Rand, CCCG 2011). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: near-contact inputs (stmlf/1461), not measured. [meshing2d.md](roadmap/meshing2d.md#open)
-- Meshing2D: the docs correction of #390 section 6 (modes paired crossed). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: SplitSegment speed; the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Terrain, after the pause: a DGM reader in the CLI, then the later steps (2)-(8), the §11 follow-ups and the

@@ -26,6 +26,19 @@ Part of the [roadmap](../ROADMAP.md).
 - Open inputs: no degenerate triangles and no crash; closedness is not required.
 Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean, Boolean time median 0.17 s, p95 4.5 s, max 282 s. Work packages: (1) data and a phase profile of the slow tail with upper bounds; (2) root causes and bugfixes for the unclean results; (3) the rounding projection filter (#385 spikes, 20-64 % of rounding time); (4) EMBER ideas 2-4 and allocations, as the data justifies; (5) a control run. Session session_01AaGT5CTqL86zQ1wj56oXAq. Reachability unknown; the stop rule reports the cases the known levers cannot reach.
 
+**Owner decisions 2026-11-07:**
+- Input defects: the criterion is "the result has no defect the input does not already have" (B1 bowties, 47 ops, and D2 degenerate inputs, 11 ops, are not library defects).
+- Hopeless repairs (L3, 119829/119830): a work-unit budget with an honest "not fully repaired" status, shown never to trigger on today's clean cases.
+- 519511, and 1517923 if the levers fall short: documented exceptions to the 5 s target. The architecture assessment (EMBER, octree BSPs, Campen-Kobbelt, Cherchi 2022, Manifold, Trueform, Lévy 2024) found no candidate that produces doubles with a no-intersection guarantee; 5 s on 519511 is unlikely under any architecture because rounding a 520k-triangle result alone costs 3-5 s. No rewrite; L1 and the rounding-search levers survive any architecture.
+- Contacts (self-touching solids): keep the contract (clean = clean in memory, as Manifold) and report a contact count (`ExactMeshBoolean.Contacts`); contacts created by rounding (M3) are defects (#398).
+- SIMD: measured only; vectorized filters at most 2-4 %; a 4-wide BVH only after the algorithmic traversal fixes.
+
+**WP1 result (4 cores):** 16 ops > 5 s in the selfint = 0 cohort (owner data: 31 on the owner machine); rounding 37 % of their time, mostly the full self-intersection search of the result (box-tree traversal up to 76 % of rounding). Other cohorts (owner data, ops > 5 s): self-intersecting 284, unknown 274, open 736; classification is the second lever there (Lévy 2024-style propagation across intersection curves, BSD-3 Geogram).
+
+**WP2 triage of the 81 unclean ops:** B1 47 (input bowties), D2 11 (input degenerate), B2 3 (M3, fixed in #398), D1 20 (SafeRounding's additive drift budget exhausted in clusters; probe of tighter drift accounting next). The 80 empty unions are inside-out inputs (legitimate).
+
+**PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
+
 #### Other open items
 
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
