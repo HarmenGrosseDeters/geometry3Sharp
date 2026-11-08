@@ -16,9 +16,13 @@ def load(path):
     return rows
 
 
+FAILED = ('timeout_or_crash', 'exception', 'load_failed')
+
+
 def verdict(r):
-    if r.get('status') != 'ok':
-        return r.get('status', '?')
+    # (status is the mesh state after the repair, eg closed; only these mean the run failed)
+    if r.get('status') in FAILED:
+        return r.get('status')
     path = 'wrap' if r.get('robust_used_wrap') else 'solidify' if r.get('robust_used_solidify') else \
         'exact' if r.get('robust_used_exact') else 'repair'
     reason = r.get('robust_result_reason')
@@ -31,11 +35,11 @@ def main():
     files = sorted(set(base) | set(pr))
     print('# MeshRobustRepair far parts (#425) against its base (#420 head), 400 set\n')
     print(f'{len(files)} meshes; in base {len(base)}, in pr {len(pr)}\n')
-    print('| build | status ok | timeout or crash | exact | solidify | wrap | repair kept |')
+    print('| build | ran | timeout or crash | exact | solidify | wrap | repair kept |')
     print('|---|---|---|---|---|---|---|')
     for name, rows in (('base', base), ('pr', pr)):
         c = collections.Counter(verdict(r).split(' ')[0] for r in rows.values())
-        print(f"| {name} | {sum(r.get('status') == 'ok' for r in rows.values())} | {c['timeout_or_crash']} | {c['exact']} | "
+        print(f"| {name} | {sum(r.get('status') not in FAILED for r in rows.values())} | {c['timeout_or_crash'] + c['exception'] + c['load_failed']} | {c['exact']} | "
               f"{c['solidify']} | {c['wrap']} | {c['repair']} |")
     retry = [f for f in files if pr.get(f, {}).get('robust_scale_retry')]
     shares = sorted((pr[f].get('robust_scale_erosion_share') or 0) for f in files if f in pr)
