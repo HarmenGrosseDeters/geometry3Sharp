@@ -218,8 +218,9 @@ namespace g3
         TriangleBoxTree tree, dirtyTree;
         List<int> treeTids, dirtyTids;
         // the triangles changed since dirtyTree was built (searched linearly; their boxes in dirtyTree are stale): the
-        // tree of the changed triangles is rebuilt only when these outnumber the triangles in it (amortized: each
-        // rebuild at least doubles it), not after every edit
+        // tree of the changed triangles is rebuilt when more than 256 of them are pending, not after every edit (the
+        // changed triangles stay below max(1024, n / 16) until the main tree is rebuilt, so the rebuilds of the small
+        // tree cost about n^2 / 2^17 box operations per main rebuild of n log n)
         readonly List<int> pending = new List<int>();
         readonly HashSet<int> pendingSet = new HashSet<int>();
         // the box tree's hits of a query in near (reused)
@@ -610,10 +611,16 @@ namespace g3
         // once: compared with a scan of all triangles
         void check_near(AxisAlignedBox3d query, List<int> result)
         {
+            // (the boxes of the current geometry, from the mesh itself: not through pos, so that a proposed position
+            // that leaked into near would show)
             var expected = new List<int>();
-            foreach (int t in Mesh.TriangleIndices())
-                if (closed_overlap(box(Mesh.GetTriangle(t)), query))
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                var b = new AxisAlignedBox3d(Mesh.GetVertex(tv.a));
+                b.Contain(Mesh.GetVertex(tv.b)); b.Contain(Mesh.GetVertex(tv.c));
+                if (closed_overlap(b, query))
                     expected.Add(t);
+            }
             var got = new List<int>(result);
             got.Sort();
             bool same = got.Count == expected.Count;
