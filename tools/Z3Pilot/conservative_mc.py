@@ -7,6 +7,7 @@ import collections
 from fractions import Fraction
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -81,7 +82,7 @@ def source_contracts():
 # Review tripwire, not a semantic check: these whole-file hashes only force a re-review when either file changes.
 # The link between find_iso and the FP model is a review obligation; updating the hashes after a change (eg one
 # that restores the endpoint nudge) keeps this pilot green. The semantic content is the table certificate.
-SOURCE_SHA = {'MarchingCubes': '8b1b66a60797dc7d82722c091801fda47642e84e288623267f24ec6ac4227b86', 'MarchingCubesPro': '41b805f4e1b3128b12bbf9a5cff3dd7edd0c09b4a4fffbafb55d03d569a73042'}
+SOURCE_SHA = {'MarchingCubes': '8b1b66a60797dc7d82722c091801fda47642e84e288623267f24ec6ac4227b86', 'MarchingCubesPro': 'ec9c65452fd65d2993ca14581cfa9c25629323e08f9c3578fd1748f102ca1219'}
 METHOD_SHA = {'MarchingCubes': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50', 'MarchingCubesPro': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50'}  # Reviewed bodies.
 
 
@@ -205,25 +206,120 @@ def lift_obligation(case, row):
 
 
 
-def fp_obligations():
-    """Modular normalized-domain rounding bridge, each operation error <= 2^-52.
-    These are real error-envelope lemmas, NOT monolithic IEEE-754 queries.
-    Standard correctly-rounded binary64 absolute-error envelopes are assumptions.
+UNIT_ROUNDOFF = Fraction(1, 2**53)
+UNDERFLOW_ALLOWANCE = UNIT_ROUNDOFF**2
+PARAMETER_ENVELOPE = 4*UNIT_ROUNDOFF
+POSITION_ENVELOPE = Fraction(1, 2**28)
+
+
+def relative_ratio_obligation(bound=None):
+    """Normalize by the exact positive sample gap; no sample-size/gap floor.
+    Subnormal differences of binary64 inputs are exact. Division uses a relative
+    error plus an absolute underflow allowance; see the reviewed design bridge.
     """
-    u = z.RealVal(1) / 2**52
-    n, d, en, ed, eq = z.Reals('n d en ed eq')
-    t, exact = z.Reals('t exact')
-    assumptions = [d >= z.RealVal(1)/2**20, d <= 2, n >= 0, n <= d,
-                   en >= -u, en <= u, ed >= -u, ed <= u, eq >= -u, eq <= u,
-                   exact*d == n, (t-eq)*(d+ed) == n+en]
-    yield 'fp_ratio_envelope', assumptions, z.Or(t-exact > z.RealVal(1)/2**30, exact-t > z.RealVal(1)/2**30)
+    u = z.RealVal(str(UNIT_ROUNDOFF))
+    uf = z.RealVal(str(UNDERFLOW_ALLOWANCE))
+    exact, dn, dd, dq, eta, t = z.Reals('ratio_exact dn dd dq eta ratio_rounded')
+    assumptions = [exact >= 0, exact <= 1, dn >= -u, dn <= u,
+                   dd >= -u, dd <= u, dq >= -u, dq <= u, eta >= -uf, eta <= uf,
+                   (t-eta)*(1+dd) == exact*(1+dn)*(1+dq)]
+    error = z.RealVal(str(PARAMETER_ENVELOPE if bound is None else bound))
+    bad = z.Or(t-exact > error, exact-t > error)
+    variables = dict(exact=exact, dn=dn, dd=dd, dq=dq, eta=eta, t=t)
+    return assumptions, bad, variables
+
+
+def fp_obligations():
+    """Relative field arithmetic + retained normalized-coordinate envelope.
+    The IEEE rounding models themselves remain explicit mathematical bridges.
+    """
+    assumptions, bad, _ = relative_ratio_obligation()
+    yield 'fp_ratio_envelope', assumptions, bad
+    # Keep the existing coordinate allowances and E; only the parameter bound changes.
+    u = z.RealVal(str(2*UNIT_ROUNDOFF))
+    error = z.RealVal(str(PARAMETER_ENVELOPE))
+    position = z.RealVal(str(POSITION_ENVELOPE))
     a, b, t, exact, es, em, ea, q = z.Reals('a b t exact es em ea q')
     assumptions = [a >= -1, a <= 1, b >= -1, b <= 1, exact >= 0, exact <= 1,
-                   t >= 0, t <= 1, t-exact <= z.RealVal(1)/2**30, exact-t <= z.RealVal(1)/2**30,
+                   t >= 0, t <= 1, t-exact <= error, exact-t <= error,
                    es >= -u, es <= u, em >= -2*u, em <= 2*u, ea >= -2*u, ea <= 2*u,
                    q == a+t*(b-a+es)+em+ea]
     target = a+exact*(b-a)
-    yield 'fp_position_envelope', assumptions, z.Or(q-target > z.RealVal(1)/2**28, target-q > z.RealVal(1)/2**28)
+    yield 'fp_position_envelope', assumptions, z.Or(q-target > position, target-q > position)
+
+
+def relative_ratio_mutant(timeout_ms):
+    """2u is too small for the independent-error envelope, not a source bug."""
+    assumptions, bad, variables = relative_ratio_obligation(2*UNIT_ROUNDOFF)
+    solver = z.Solver()
+    solver.set(timeout=timeout_ms)
+    solver.add(*assumptions, bad)
+    status = solver.check()
+    witness, replayed = None, False
+    if status == z.sat:
+        v = {name: solver.model().eval(var).as_fraction() for name, var in variables.items()}
+        u = UNIT_ROUNDOFF
+        replayed = (0 <= v['exact'] <= 1 and all(abs(v[k]) <= u for k in ('dn', 'dd', 'dq'))
+                    and abs(v['eta']) <= UNDERFLOW_ALLOWANCE
+                    and (v['t']-v['eta'])*(1+v['dd']) == v['exact']*(1+v['dn'])*(1+v['dq'])
+                    and abs(v['t']-v['exact']) > 2*u)
+        witness = {name: str(value) for name, value in v.items()}
+    return dict(name='ratio_bound_two_u', result=str(status), replayed=replayed, witness=witness,
+                scope='independent-error envelope; not necessarily attainable binary64 inputs')
+
+
+def replay_binary64(name, fa, fb, level, a=0.0, b=1.0):
+    """Independent Fraction replay of the source's separately rounded operations.
+    This checks actual binary64 fixtures against the envelopes, not a whole mesh.
+    """
+    if not all(math.isfinite(x) for x in (fa, fb, level, a, b)) or not fa < level <= fb:
+        raise ValueError('finite crossing operands required')
+    n, d = Fraction(level)-Fraction(fa), Fraction(fb)-Fraction(fa)
+    rn, rd = level-fa, fb-fa
+    if not math.isfinite(rn) or not math.isfinite(rd) or not rd > 0:
+        raise ValueError('source rejects an overflowing difference')
+    quotient = Fraction(rn)/Fraction(rd)
+    raw = rn/rd
+    if not math.isfinite(raw):
+        raise ValueError('source rejects a nonfinite quotient')
+    dn, dd = Fraction(rn)/n-1, Fraction(rd)/d-1
+    if quotient == 0 or abs(quotient) < Fraction.from_float(float.fromhex('0x1p-1022')):
+        dq, eta = Fraction(0), Fraction(raw)-quotient
+    else:
+        dq, eta = Fraction(raw)/quotient-1, Fraction(0)
+    exact = n/d
+    clamped = max(0.0, min(1.0, raw))
+    # Separate multiply/add, as in find_iso (no fused contraction).
+    scaled = clamped*(b-a)
+    q = max(min(a, b), min(max(a, b), a+scaled))
+    target = Fraction(a)+exact*(Fraction(b)-Fraction(a))
+    parameter_error, position_error = abs(Fraction(raw)-exact), abs(Fraction(q)-target)
+    model = (all(abs(v) <= UNIT_ROUNDOFF for v in (dn, dd, dq)) and abs(eta) <= UNDERFLOW_ALLOWANCE
+             and (Fraction(raw)-eta)*(1+dd) == exact*(1+dn)*(1+dq))
+    passed = (model and abs(a) <= 1 and abs(b) <= 1 and parameter_error <= PARAMETER_ENVELOPE
+              and abs(Fraction(clamped)-exact) <= PARAMETER_ENVELOPE and position_error <= POSITION_ENVELOPE)
+    return dict(name=name, operands=[v.hex() for v in (fa, fb, level)], rounded_parameter=raw.hex(),
+                sample_gap=str(d), exact_parameter=str(exact), parameter_error=str(parameter_error),
+                position_error=str(position_error), errors={k:str(v) for k,v in dict(dn=dn, dd=dd, dq=dq, eta=eta).items()},
+                pure_relative_division_holds=abs(Fraction(raw)-quotient) <= UNIT_ROUNDOFF*abs(quotient),
+                endpoint_collapsed=q == a or q == b, replayed=bool(passed))
+
+
+def binary64_replays():
+    tiny = float.fromhex('0x0.0000000000001p-1022')
+    big = 2.0**100
+    fixtures = [
+        ('large_samples', big, big+2.0**50, big+2.0**49),
+        ('tiny_sample_gap', 0.0, 2.0**-1020, 2.0**-1021),
+        ('subnormal_differences', tiny, 5*tiny, 3*tiny),
+        ('subnormal_quotient', 0.0, .75, tiny),
+        ('opposite_sign_cancellation', -2.0**900, 2.0**900, 2.0**-100),
+        ('numerator_tie', -1.0, 1.0, 2.0**-53, -1.0, 1.0),
+        ('denominator_tie', -1.0, math.nextafter(1.0, math.inf), 0.0),
+    ]
+    fixtures += [('field_scale_'+str(e), math.ldexp(2.0,e), math.ldexp(6.0,e), math.ldexp(3.0,e))
+                 for e in (-1070, -1000, -500, 0, 500, 1000)]
+    return [replay_binary64(*fixture) for fixture in fixtures]
 
 
 def run(timeout_ms=DEFAULT_TIMEOUT_MS):
@@ -267,13 +363,22 @@ def run(timeout_ms=DEFAULT_TIMEOUT_MS):
         lo, hi, level, parameter = values
         replayed = lo < level < hi and 0 < parameter < 1 and (1-parameter)*lo+parameter*hi < level
         witness = dict(zip(('f0', 'f1', 'sigma', 't'), map(str, values)))
+    fp_mutant = relative_ratio_mutant(timeout_ms)
+    replays = binary64_replays()
+    underflow_replayed = any(r['name'] == 'subnormal_quotient' and r['replayed']
+                             and not r['pure_relative_division_holds'] for r in replays)
     return dict(sources=sources, table=topology, obligations=obligations,
+                fp_profile=dict(unit_roundoff=str(UNIT_ROUNDOFF), underflow_allowance=str(UNDERFLOW_ALLOWANCE),
+                                parameter_envelope=str(PARAMETER_ENVELOPE), position_envelope=str(POSITION_ENVELOPE),
+                                sample_magnitude_bound=None, minimum_sample_gap=None, coordinate_magnitude_bound=1),
+                fp_mutants=[fp_mutant], fp_replays=replays, underflow_control_replayed=underflow_replayed,
                 sharpness_result=sharpness, sharpness_replayed=sharpness_replayed,
                 sharpness_witness=dict(radius=str(r), sigma='sqrt(3)/2 - 1/1000', center=[.5,.5,.5]),
                 wrong_crossing_result=mutant, wrong_crossing_witness=witness, wrong_crossing_replayed=replayed,
                 obligations_passed=all(row['passed'] for row in obligations) and sharpness == 'sat' and mutant == 'sat'
-                    and sharpness_replayed and replayed,
-                scope='discrete lift adapter plus real FP envelopes; continuous enclosure is the paper theorem')
+                    and sharpness_replayed and replayed and fp_mutant['result'] == 'sat' and fp_mutant['replayed']
+                    and all(r['replayed'] for r in replays) and underflow_replayed,
+                scope='discrete lift adapter plus relative field-error envelopes; continuous enclosure is the paper theorem')
 
 
 def direct_query(case, row, timeout_ms):
@@ -323,7 +428,7 @@ def main():
     data = json.dumps(report, indent=2)+'\n'
     if args.out:
         args.out.write_text(data)
-    print(json.dumps({k:v for k,v in report.items() if k not in ('obligations', 'direct_obligations', 'sources')}, indent=2))
+    print(json.dumps({k:v for k,v in report.items() if k not in ('obligations', 'direct_obligations', 'sources', 'fp_replays')}, indent=2))
     return 0 if report['obligations_passed'] else 1
 
 

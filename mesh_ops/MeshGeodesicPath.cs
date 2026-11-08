@@ -484,7 +484,7 @@ namespace gs
             double straight = Math.PI - AngleTolerance;
             var fan = new List<int>(); var cum = new List<double>();
             // joints that could not be shortened, by their two segments; cleared when the path changes
-            var stuck = new HashSet<long>();
+            var stuck = new HashSet<long>(EdgeKeyComparer.Instance);
             GeodesicPathStatus status = GeodesicPathStatus.Success;
             while (true) {
                 if (closed && segs.Count == 0) { status = GeodesicPathStatus.Collapsed; break; }

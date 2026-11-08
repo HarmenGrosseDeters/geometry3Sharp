@@ -23,10 +23,15 @@ Small input angles and triangle count:
 
 - **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
   edge at near-180° triangles.
-- **Lenses up to 28.6°** (cause B of the triangle-count diagnosis): lenses are allowed only up to 25.65°; up to
-  28.6° would be covered by proof (Rand, CCCG 2011). Secondary once A is in (A merged in #394).
-- **Default (conforming) mode near small angles:** needs an owner spec decision on O2 near small angles (owner
-  2026-11-06). #394 covers the cq / constrained mode only.
+- **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
+- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C):** in tools/Z3Pilot,
+  (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
+  decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
+  25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
+- **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
+  O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
+  small input angles, judged that way by the oracle; design note with the termination argument first, independent
+  review; item 4 of the Meshing2D Sonnet bundle.
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.
@@ -34,12 +39,13 @@ Small input angles and triangle count:
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
   quadtree meshing, smoothing) are recorded below, not scheduled.
-- **Coarsening** (owner 2026-11-04: the next mesher project, week of 2026-11-09): the probe (draft #391) gave small
+  (Off-centres, Üngör 2004, are already the default split point, and Erten / Üngör 2007's locally optimal candidates
+  are grading step 2; neither is a new lever.)
+- **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
+  170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
   gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
   check: whether coarsening is still the project for that week.) Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
-- **Docs correction:** #390 section 6 paired the modes crossed; the matched angle-variant recomputation keeps the
-  outliers (stmlf/1461 25.1x constrained vs constrained); a docs correction follows.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
 
@@ -63,10 +69,11 @@ Oracle leftovers (no verdict of ours affected):
 
 Other:
 
-- The provenance delta 6b-3 in the reference session on master d9006aad (status unclear, check).
-- The Phase 4 checkbox "Public exact 2D meshing" is still open and names #272 and the stage 6b provenance check
-  as open; both are done per the session record (#272 merged, 6b in #295 / #296) (status unclear, check: close the
-  checkbox or name what remains).
+- The provenance delta 6b-3 is done: `MESHING2D_PROVENANCE_CHECK.md` (ff0c378) records it on master d9006aa, no (A) finding.
+  Mesher changes after d9006aa (#394, the small-angle rule, and later) have no delta check yet; one is due before a
+  release that relies on the clean-room claim.
+- The Phase 4 checkbox "Public exact 2D meshing" is closed: #272 is merged and stage 6b is done (#295, #296, delta
+  6b-3). What remains of the topic is listed under Open (small angles, default mode, grading, coarsening, speed).
 - Parked: the `.poly` reader limits and the mesh2d report area underflow ([platform.md](platform.md#stage-8-planned-follow-ups)).
 
 ### Done / history
@@ -95,12 +102,12 @@ Stages 4 and 6 are prepared in [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md):
 
 #### Phase 4 item: public exact 2D meshing
 
-  - [ ] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
+  - [x] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
     and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
     behavioural spec [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md) (owner decisions in its §5) and the
     papers only (Ruppert, Chew, Shewchuk 2002, Üngör, Miller-Pav-Walkington, Cheng-Dey-Shewchuk 2012); never
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates. M2 (#233), M3
-    (#252) and the oracle speedup (#265) merged 2026-11-01; open: #272 and the stage 6b provenance check.
+    (#252) and the oracle speedup (#265) merged 2026-11-01; #272 and the stage 6b provenance check are done (#295, #296, delta 6b-3); remaining work: Open.
 
 #### Meshing session record (slot order item 3, 2026-11-01 to 2026-11-07)
 
@@ -187,7 +194,7 @@ Oracle side: #389 (merged 2026-11-05 as 05f078da; owner 2026-11-05: AutoToleranc
 
 - Coarsening after refinement (draft #391, probe): greedy deletion of Steiner vertices, all outputs VALID, but small gains: f-11 -17/-24 %, outliers about -15 %, corpus -3 %, +50 % mesher time. Not built.
 - Cause A: there is no small-angle rule for subsegment encroachment. Hull edges and segments that meet at input angles of 0-5° start a mutual split cascade about 38 octaves deep. A cluster rule after Miller-Pav-Walkington / Shewchuk, measured as a probe in cq mode: island q30 8879 -> 741 triangles (reference 929), cdt -31 %, corpus cq q20 -31 %, stmlf/1461 -7 to -16 %.
-- Cause B: lenses are allowed only up to 25.65°. Up to 28.6° would be covered by proof (Rand, CCCG 2011); secondary once A is in.
+- Cause B: lenses are allowed only up to 25.65°. The 28.6° of Rand (CCCG 2011) does not cover lenses (see Open).
 - Side bug: island cq at 32°/34° without lenses returns Failed.
 - Rest: near-contact or near-coincident input (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent off segments they do not touch), 6.8x the reference even relative to the LFS yardstick. Its own question, not measured.
 

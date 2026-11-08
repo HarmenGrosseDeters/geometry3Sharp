@@ -30,12 +30,12 @@ namespace gs
         readonly Dictionary<int, List<int>> facesOfA = new Dictionary<int, List<int>>(), facesOfB = new Dictionary<int, List<int>>();
         // (shared with the partner of a mixed run, which writes into the same meshes)
         Dictionary<Vector3d, int> regionVerts = new Dictionary<Vector3d, int>(), compVerts = new Dictionary<Vector3d, int>();
-        readonly Dictionary<long, Vector2d> nudged = new Dictionary<long, Vector2d>();
+        readonly Dictionary<long, Vector2d> nudged = new Dictionary<long, Vector2d>(EdgeKeyComparer.Instance);
 
         readonly double minFeature;
         // the realized position of each catch point: snapped to a slope vertex nearer than minFeature, or merged with
         // the catch points nearer than minFeature (TERRAIN.md 5.5: the terrain side absorbs the move)
-        readonly Dictionary<long, Vector3d> catchAt = new Dictionary<long, Vector3d>();
+        readonly Dictionary<long, Vector3d> catchAt = new Dictionary<long, Vector3d>(EdgeKeyComparer.Instance);
 
         public SlopeComposite(SlopeTerrainOverlay overlay, int terrainGroup, double minFeature, Func<bool> cancel)
         {
@@ -61,13 +61,13 @@ namespace gs
         void snap_catch_points()
         {
             var keys = new List<long>();
-            var seen = new HashSet<long>();
+            var seen = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (var f in O.Faces)
                 if (f.Region && f.C0 != -1)
                     foreach (long k in new[] { f.C0, f.C1 })
                         if (seen.Add(k)) keys.Add(k);
             keys.Sort();
-            var snapped = new HashSet<long>();
+            var snapped = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in keys) {
                 Vector3d p;
                 if (catchOwn.TryGetValue(k, out p) == false) {
@@ -121,9 +121,9 @@ namespace gs
         {
             var order = new List<long>(keys);
             order.Sort((x, y) => priority(x) != priority(y) ? priority(x).CompareTo(priority(y)) : x.CompareTo(y));
-            var grid = new Dictionary<long, List<long>>();
+            var grid = new Dictionary<long, List<long>>(EdgeKeyComparer.Instance);
             Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
-            var repOf = new Dictionary<long, long>();
+            var repOf = new Dictionary<long, long>(EdgeKeyComparer.Instance);
             foreach (long k in order) {
                 repOf[k] = k;
                 if (fixedPoints.Contains(k)) continue;
@@ -162,8 +162,8 @@ namespace gs
         static Node C(long k) { return new Node() { Catch = true, Key = k }; }
 
         // catch points that keep their own position: a move made the region boundary of a triangle not simple
-        readonly HashSet<long> noSnap = new HashSet<long>();
-        readonly Dictionary<long, Vector3d> catchOwn = new Dictionary<long, Vector3d>();
+        readonly HashSet<long> noSnap = new HashSet<long>(EdgeKeyComparer.Instance);
+        readonly Dictionary<long, Vector3d> catchOwn = new Dictionary<long, Vector3d>(EdgeKeyComparer.Instance);
         List<long> movedInFailure = new List<long>();
 
         public bool Build()
@@ -317,7 +317,7 @@ namespace gs
         public long[] SegmentOfGroup;
         public double PartnerSnapRadius;
         // (of the partner: its catch points moved onto this one's in this build, and those that keep their position)
-        readonly HashSet<long> partnerSnapped = new HashSet<long>(), partnerNoSnap = new HashSet<long>();
+        readonly HashSet<long> partnerSnapped = new HashSet<long>(EdgeKeyComparer.Instance), partnerNoSnap = new HashSet<long>(EdgeKeyComparer.Instance);
 
         // the partner's catch points on the boundary of its slope surface (the toe, a lateral limit) take the XY of the
         // nearest of this one's there, within minFeature: at a toe crossing both catch lines end at the point where the
@@ -924,7 +924,7 @@ namespace gs
             var edgesOf = new List<List<Vector2d[]>>();
             for (int m = 0; m < meshes.Count; ++m) {
                 var es = new List<Vector2d[]>();
-                var seenE = new HashSet<long>();
+                var seenE = new HashSet<long>(EdgeKeyComparer.Instance);
                 var seenV = new HashSet<int>();
                 foreach (int st in near[m]) {
                     Index3i sv = meshes[m].M.GetTriangle(st);
@@ -1338,7 +1338,7 @@ namespace gs
                 pointOf[i] = pi;
             }
             // the constraints mod 2 (a segment twice is no boundary), without zero-length ones
-            var cset = new HashSet<long>();
+            var cset = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Index2i c in inp.Constraints) {
                 int a = pointOf[c.a], b = pointOf[c.b];
                 if (a == b) continue;
@@ -1394,7 +1394,7 @@ namespace gs
             cdt.MakeDelaunay();
             var tris = new List<Index3i>(cdt.Triangles());
             var label = new int[tris.Count];
-            var edgeTris = new Dictionary<long, List<int>>();
+            var edgeTris = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
             for (int t = 0; t < tris.Count; ++t) {
                 label[t] = -1;
                 Index3i x = tris[t];
@@ -1462,9 +1462,9 @@ namespace gs
         bool edge_sequence(int edgeKind, int edge, List<int> fl, long c0, long c1, List<Node> seq, List<bool> flags)
         {
             // the overlay edges of this edge, each split at its catch point
-            var byStart = new Dictionary<long, SlopeTerrainOverlay.OEdge>();
-            var ends = new HashSet<long>();
-            var region = new Dictionary<long, bool>();
+            var byStart = new Dictionary<long, SlopeTerrainOverlay.OEdge>(EdgeKeyComparer.Instance);
+            var ends = new HashSet<long>(EdgeKeyComparer.Instance);
+            var region = new Dictionary<long, bool>(EdgeKeyComparer.Instance);
             foreach (int fi in fl) {
                 var f = O.Faces[fi];
                 foreach (var oe in f.Edges) {

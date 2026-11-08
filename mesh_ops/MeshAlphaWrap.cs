@@ -14,8 +14,9 @@ namespace gs
     /// clouds. The result is computed, not repaired, so it does not depend on the input being valid.
     ///
     /// The method refines and carves a 3D Delaunay triangulation (Delaunay3), starting from a box around the
-    /// input. A ball of radius Alpha "flows" in from outside through Delaunay facets it fits through (facet
-    /// circumradius above Alpha); a cell it reaches is carved (marked outside), unless
+    /// input. A ball of radius Alpha "flows" in from outside through Delaunay facets it fits through (the smallest
+    /// empty ball through the facet's vertices, the paper's Phi(f), larger than Alpha; TraverseByEmptyBall); a cell it
+    /// reaches is carved (marked outside), unless
     ///   1. the Voronoi edge dual to the facet crosses the offset surface (the points at distance Offset from
     ///      the input): its first crossing, coming from outside, is inserted as a Steiner point;
     ///   2. the cell intersects the input: the projection of its circumcenter onto the offset surface is
@@ -110,6 +111,35 @@ namespace gs
         public bool RefineNonManifold = true;
         const int MaxNonManifoldRounds = 10;
 
+        /// <summary>
+        /// Refine result facets whose smallest angle is below this (degrees; 0 = off) before the manifold step: such a
+        /// facet gets the center of its surface Delaunay ball as a Steiner point (where its dual Voronoi edge crosses the
+        /// offset surface, as rule 1), otherwise the projection of its inside cell's circumcenter onto the offset surface
+        /// (as rule 2), and the refinement continues, up to 10 rounds. This is the quality rule of Delaunay refinement on
+        /// surfaces (Chew 1993; Boissonnat and Oudot 2005), with the separation of the class doc as the guard: a point is
+        /// used only if it is at least min(Offset, Alpha - Offset) from every vertex (the center of an empty ball of that
+        /// radius, or that deep inside an empty circumsphere), so the refinement terminates and the angle bound of the class
+        /// doc holds. Facets that get no such point stay. It runs after RefineNonManifold, which then runs once more (the
+        /// new points can make new pinches). Costs a few percent of triangles (docs/design/ALPHA_WRAP_PAPER_NOTES.md
+        /// section 7: the 1 %-worst angle 17.8 -> 20.4 degrees on Thingi10K meshes, with TraverseByEmptyBall). The extra
+        /// points count against MaxSteinerPoints (PointLimitReached, as RefineNonManifold). 15 is a measured choice
+        /// (section 7: 20 degrees gives more triangles, +6.8 %, and larger largest angles), not a derived bound (Chew's surface bound is 30 degrees); at 60 and
+        /// above every facet counts as poor and the rounds run to their limit; NaN or a value <= 0 turns it off.
+        /// </summary>
+        public double RefineMinAngleDegrees = 15;
+        const int MaxQualityRounds = 10;
+
+        /// <summary>
+        /// (tests) gates by the paper's Phi(f) (Definition 2: the smallest empty ball through the facet's vertices, along
+        /// its dual Voronoi edge) instead of the facet's circumradius (false: the circumradius, as before). Phi(f) is at
+        /// least the circumradius, so more facets are gates: the obtuse facets whose circumcircle is smaller than alpha
+        /// but whose empty balls are not. It removes most result triangles above 150 degrees, and the quality refinement
+        /// needs it (with the circumradius, its points leave such caps, up to 178 degrees). Costs triangles on thin sheets,
+        /// as the paper's wrap does (a plate of thickness 0 at Alpha = diagonal / 300: twice the triangles, like CGAL's
+        /// alpha wrap there; a plate of 1e-3: +24 %)
+        /// </summary>
+        internal bool TraverseByEmptyBall = true;
+
         /// <summary> make the result 2-manifold (otherwise it can have non-manifold edges and vertices, which DMesh3 rejects; for tests) </summary>
         internal bool MakeManifold = true;
         /// <summary> if the result misses the guarantees, wrap once more with a different box margin (off: for tests of the result check) </summary>
@@ -203,6 +233,7 @@ namespace gs
             end_phase("setup");
 
             reset_refinement_counts();
+            labelsManifold = false;
             Status = refine_and_carve();
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -213,9 +244,32 @@ namespace gs
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                     return false;
             }
+            // the quality refinement after the pinches: its points can make new pinches (they are many, and on the offset
+            // surface near the spots the pinch refinement just resolved), so the pinch refinement runs once more after it
+            // (on random soups the manifold step otherwise moved up to 4 times more cells, and the result reached 1.12
+            // (offset + alpha) from the input)
+            if (RefineMinAngleDegrees > 0 && Status == WrapStatus.Success) {
+                Status = refine_quality();
+                end_phase("wrap.quality");
+                if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
+                    return false;
+                if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
+                    Status = refine_non_manifold();
+                    end_phase("wrap.pinches2");
+                    if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
+                        return false;
+                }
+            }
 
-            remove_pockets();
-            WrapStatus manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
+            // (the last trial run of the refinement at non-manifold spots found nothing to move and kept its labels: they
+            // are what remove_pockets and make_manifold would give, see cells_moved_by_manifold_step)
+            WrapStatus manifold = WrapStatus.Success;
+            if (!(labelsManifold && MakeManifold)) {
+                remove_pockets();
+                manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
+            } else {
+                Counts["manifold_reused"] = 1;
+            }
             if (manifold != WrapStatus.Success) {
                 Status = manifold;
                 Error = manifold == WrapStatus.Cancelled ? null : "could not make the result manifold";
@@ -358,8 +412,12 @@ namespace gs
         {
             ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
+            staleGates = requeuedGates = 0;
             steiner = 0;
         }
+
+        // gates whose Phi(f) changed after they were queued (see refine_and_carve): dropped, queued again
+        long staleGates, requeuedGates;
 
         WrapStatus refine_and_carve()
         {
@@ -367,13 +425,20 @@ namespace gs
             while (gates.Count > 0) {
                 if ((++popped & 1023) == 0 && cancelled())
                     return WrapStatus.Cancelled;
-                gates.Pop(out int c, out int i, out int stampC);
+                gates.Pop(out double key, out int c, out int i, out int stampC);
                 if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
                     continue;
                 int n = dt.Neighbour(c, i);
                 if (label_of(n) != Outside)
                     continue;
-                // (traversable: only such gates are queued, and the radius depends on the facet only)
+                // (traversable: only such gates are queued. Phi(f) also depends on the outside cell's circumcenter, and that
+                // cell can have been replaced since the push while c was not: compute it again; a gate that is no longer
+                // traversable is dropped, one whose radius changed goes back into the queue under its new key)
+                if (TraverseByEmptyBall) {
+                    double r = facet_empty_ball(c, i);
+                    if (!(r > alpha)) { staleGates++; continue; }
+                    if (r != key) { requeuedGates++; gates.Push(r, c, i, stampC); continue; }
+                }
                 Vector3d from, to;
                 dual_edge(c, i, out from, out to);
 
@@ -411,8 +476,10 @@ namespace gs
                     continue;
                 }
                 // carve
+                labelsManifold = false;
                 label[c] = Outside;
                 carved++;
+                touched?.Add(c);
                 for (int j = 0; j < 4; ++j) {
                     int m = dt.Neighbour(c, j);
                     if (m >= 0 && label[m] == Inside)
@@ -420,6 +487,8 @@ namespace gs
                 }
             }
             Counts["steiner_points"] = steiner;
+            if (staleGates > 0) Counts["gates_stale"] = staleGates;
+            if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
             Counts["steiner_intersection"] = rule1;
             Counts["steiner_projection"] = rule2;
             // rule 2 points projected from the clamped end of the dual edge (the cell's circumcenter gave no point strictly
@@ -452,11 +521,13 @@ namespace gs
             ticksInsert += Stopwatch.GetTimestamp() - t2;
             if (res != Delaunay3.InsertResult.Inserted)
                 return false;
+            labelsManifold = false;
             steiner++;
             vertexDistance.Add(offset);
             ensure_labels();
             foreach (int nc in addedCells)
                 label[nc] = Inside;
+            touched?.AddRange(addedCells);
             foreach (int nc in addedCells)
                 for (int j = 0; j < 4; ++j)
                     if (label_of(dt.Neighbour(nc, j)) == Outside) push_gate(nc, j);
@@ -465,13 +536,46 @@ namespace gs
 
         void push_gate(int c, int i)
         {
-            double r = facet_radius(c, i);
+            double r = TraverseByEmptyBall ? facet_empty_ball(c, i) : facet_radius(c, i);
             if (r > alpha)
                 gates.Push(r, c, i, dt.CellStamp(c));
         }
 
         /// <summary>
-        /// Circumradius of facet i of cell c: an alpha ball can pass through the facet if it is larger than alpha
+        /// The paper's Phi(f) (Definition 2, Fig. 23): the radius of the smallest empty ball through the vertices of facet i
+        /// of cell c. The balls through the vertices have their centers on the facet's normal line through its
+        /// circumcenter; the empty ones are those with the center on the dual Voronoi edge. So Phi(f) is the facet's
+        /// circumradius if the edge passes through the facet's plane, otherwise the radius at the edge's end nearer to
+        /// it. An alpha ball can pass through the facet if Phi(f) is larger than alpha. At least the circumradius.
+        /// </summary>
+        double facet_empty_ball(int c, int i)
+        {
+            Index3i f = dt.FacetVertices(c, i);
+            dual_edge(c, i, out Vector3d from, out Vector3d to);
+            return EmptyBallRadius(dt.GetVertex(f.a), dt.GetVertex(f.b), dt.GetVertex(f.c), from, to);
+        }
+
+        /// <summary>
+        /// (tests) the smallest radius of the balls through a, b, d whose centers lie on the segment [from, to] of the
+        /// triangle's normal line through its circumcenter (Phi(f) of facet_empty_ball)
+        /// </summary>
+        internal static double EmptyBallRadius(Vector3d a, Vector3d b, Vector3d d, Vector3d from, Vector3d to)
+        {
+            Vector3d u = b - a, v = d - a, w = u.Cross(v);
+            double w2 = w.LengthSquared;
+            Vector3d x = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
+            double R = x.Length;
+            Vector3d fc = a + x, nrm = w / Math.Sqrt(w2);
+            double t0 = (from - fc).Dot(nrm), t1 = (to - fc).Dot(nrm);
+            // (a flat facet: no finite normal; NaN compares false and gives the circumradius, as before)
+            if (!(Math.Min(t0, t1) > 0) && !(Math.Max(t0, t1) < 0))
+                return R;
+            double t = Math.Min(Math.Abs(t0), Math.Abs(t1));
+            return Math.Sqrt(R * R + t * t);
+        }
+
+        /// <summary>
+        /// Circumradius of facet i of cell c
         /// </summary>
         double facet_radius(int c, int i)
         {
@@ -683,13 +787,144 @@ namespace gs
                 if (status != WrapStatus.Success)
                     break;
             }
-            Counts["pinch_rounds"] = rounds;
-            Counts["pinch_points"] = points;
-            Counts["pinch_cells"] = cells;
+            // (totals: the pinch refinement runs again after the quality refinement)
+            add_count("pinch_rounds", rounds);
+            add_count("pinch_points", points);
+            add_count("pinch_cells", cells);
             // cells without a qualifying point (or whose point the triangulation rejected): left to the manifold step
-            Counts["pinch_skipped"] = skipped;
+            add_count("pinch_skipped", skipped);
             return status;
         }
+
+        void add_count(string name, long value)
+        {
+            Counts.TryGetValue(name, out long before);
+            Counts[name] = before + value;
+        }
+
+        // ---- quality refinement of the result facets (RefineMinAngleDegrees) ----
+
+        // cells created or carved since the last round (null: not tracked)
+        List<int> touched;
+
+        // is the smallest angle of facet i of cell c below RefineMinAngleDegrees? sin(min angle) = shortest edge / (2 R)
+        // (scale free; a degenerate facet, R infinite or NaN, counts as bad)
+        bool poor_facet(int c, int i, double sinMin)
+        {
+            Index3i f = dt.FacetVertices(c, i);
+            Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
+            double e = Math.Min(a.Distance(b), Math.Min(b.Distance(d), d.Distance(a)));
+            return !(e >= 2 * facet_radius(c, i) * sinMin);
+        }
+
+        // the result facets (inside cell, facet to an outside cell) of the cells in `cells` (all cells if null) that are poor
+        void poor_facets(List<int> cells, double sinMin, List<int> outCells, List<int> outFacets)
+        {
+            outCells.Clear(); outFacets.Clear();
+            // (a facet is reached from its inside and its outside cell, and a cell can be in the list twice: each facet
+            // once, in the order first reached)
+            var seen = new HashSet<long>();
+            Action<int, int> add = (m, i) => {
+                if (seen.Add(4L * m + i) && poor_facet(m, i, sinMin)) { outCells.Add(m); outFacets.Add(i); }
+            };
+            Action<int> visit = (c) => {
+                if (!dt.IsCell(c)) return;
+                if (label[c] == Inside) {
+                    for (int i = 0; i < 4; ++i)
+                        if (label_of(dt.Neighbour(c, i)) == Outside) add(c, i);
+                } else {
+                    for (int j = 0; j < 4; ++j) {
+                        int m = dt.Neighbour(c, j);
+                        if (m < 0 || label[m] != Inside) continue;
+                        add(m, dt.FacetTo(m, c));
+                    }
+                }
+            };
+            if (cells == null) {
+                foreach (int c in dt.CellIndices())
+                    if (label[c] == Inside) visit(c);
+            } else {
+                foreach (int c in cells) visit(c);
+            }
+        }
+
+        // Rounds of: the poor result facets get a Steiner point (quality_point), then the refinement and carving continue.
+        // The first round looks at every result facet, the later ones at the facets of the cells created or carved since.
+        // Terminates: at most MaxQualityRounds rounds; each inserts a point or ends the loop.
+        WrapStatus refine_quality()
+        {
+            double sinMin = Math.Sin(RefineMinAngleDegrees * MathUtil.Deg2Rad);
+            long rounds = 0, points = 0, facets = 0, skipped = 0;
+            var cs = new List<int>(); var fs = new List<int>(); var stamps = new List<int>();
+            List<int> scan = null;
+            WrapStatus status = WrapStatus.Success;
+            for (int round = 0; round < MaxQualityRounds; ++round) {
+                if (cancelled()) { status = WrapStatus.Cancelled; break; }
+                poor_facets(scan, sinMin, cs, fs);
+                if (cs.Count == 0) break;
+                facets += cs.Count;
+                stamps.Clear();
+                foreach (int c in cs) stamps.Add(dt.CellStamp(c));
+                touched = new List<int>();
+                int inserted = 0;
+                for (int k = 0; k < cs.Count && status == WrapStatus.Success; ++k) {
+                    int c = cs[k], i = fs[k];
+                    // (an earlier point of this round can have replaced the cell)
+                    if (!dt.IsCell(c) || dt.CellStamp(c) != stamps[k] || label[c] != Inside || label_of(dt.Neighbour(c, i)) != Outside)
+                        continue;
+                    if (steiner >= MaxSteinerPoints) { status = WrapStatus.PointLimitReached; break; }
+                    if (quality_point(c, i, out Vector3d p) && insert_steiner(p, c, 4)) inserted++;
+                    else skipped++;
+                }
+                points += inserted;
+                if (inserted > 0) rounds++;
+                // (also after the point limit: the cells of this round's points are carved as far as no further point is
+                // needed, as refine_non_manifold does; the status stays PointLimitReached unless cancelled)
+                if (inserted > 0 && (status == WrapStatus.Success || status == WrapStatus.PointLimitReached)) {
+                    WrapStatus carve = refine_and_carve();
+                    if (status == WrapStatus.Success || carve == WrapStatus.Cancelled) status = carve;
+                }
+                scan = touched;
+                touched = null;
+                if (inserted == 0 || status != WrapStatus.Success) break;
+            }
+            touched = null;
+            // (refine_and_carve sets it; a limit reached in this loop ends it before)
+            Counts["steiner_points"] = steiner;
+            Counts["quality_rounds"] = rounds;
+            Counts["quality_points"] = points;
+            Counts["quality_facets"] = facets;
+            // poor facets without a qualifying point (or whose point the triangulation rejected): they stay
+            Counts["quality_skipped"] = skipped;
+            return status;
+        }
+
+        // a Steiner point for the poor result facet i of the inside cell c, false if none keeps the separation:
+        //   - the first crossing of its dual Voronoi edge with the offset surface (the center of its surface Delaunay ball:
+        //     an empty ball through its vertices), if that ball's radius is at least min(offset, alpha - offset);
+        //   - otherwise the projection of c's circumcenter onto the offset surface, if it lies at least that deep inside
+        //     c's circumsphere (depth in floating point, inside exactly; as pinch_point).
+        bool quality_point(int c, int i, out Vector3d p)
+        {
+            double sep = Math.Min(offset, alpha - offset);
+            dual_edge(c, i, out Vector3d from, out Vector3d to);
+            // (the ball's radius is at least the facet's circumradius R, and a facet below 30 degrees has R > its shortest
+            // edge >= the separation: implied for RefineMinAngleDegrees up to 30, checked for larger values)
+            if (rule_intersection(from, to, out p))
+                return p.Distance(dt.GetVertex(dt.FacetVertices(c, i).a)) >= sep;
+            Vector3d cc = circumcenter(c);
+            if (!(MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)))
+                return false;
+            double r = cc.Distance(dt.GetVertex(dt.CellVertex(c, 0)));
+            return project_to_offset(c, i, cc, out p) && cc.Distance(p) <= r - sep && dt.InCircumsphere(c, p) > 0;
+        }
+
+        // true while the labels are those of a successful make_manifold run without changes since (see
+        // cells_moved_by_manifold_step); cleared by every insertion and carving: refine_non_manifold stops after such a
+        // trial, but the quality refinement (RefineMinAngleDegrees) inserts and carves after it)
+        bool labelsManifold;
+        /// <summary> (tests) false: the manifold step runs again after a trial that moved nothing (the same result) </summary>
+        internal bool ReuseTrialLabels = true;
 
         // the outside cells that remove_pockets and make_manifold would move inside, without the pockets (enclosed outside
         // regions, whose facets do not reach the result); the labels and counts are restored
@@ -706,6 +941,12 @@ namespace gs
             WrapStatus status = make_manifold();
             foreach (int c in dt.CellIndices())
                 if (afterPockets[c] == Outside && label[c] == Inside) moved.Add(c);
+            // nothing moved: make_manifold changed no label, so the labels and counts are those that remove_pockets and
+            // make_manifold give after the refinement: kept (labelsManifold, until a later insertion or carving)
+            if (status == WrapStatus.Success && moved.Count == 0 && ReuseTrialLabels) {
+                labelsManifold = true;
+                return status;
+            }
             Array.Copy(saved, label, n);
             Counts.Clear();
             foreach (var kv in savedCounts)
@@ -1067,9 +1308,9 @@ namespace gs
                 key[i] = k; cell[i] = c; facet[i] = f; stamp[i] = s;
             }
 
-            public void Pop(out int c, out int f, out int s)
+            public void Pop(out double k0, out int c, out int f, out int s)
             {
-                c = cell[0]; f = facet[0]; s = stamp[0];
+                k0 = key[0]; c = cell[0]; f = facet[0]; s = stamp[0];
                 count--;
                 if (count == 0) return;
                 double k = key[count];

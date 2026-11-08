@@ -7,6 +7,17 @@ Part of the [roadmap](../ROADMAP.md).
   the DAP audit, the upstream ledger, the test suite on other locales, and the release.
 - **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
   issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
+- **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
+  visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
+  it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
+  so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
+  when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker).
+- **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+  Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
+  operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
+  conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
+  proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [design/UPSTREAM_LEDGER_PLAN.md](../design/UPSTREAM_LEDGER_PLAN.md), [tools/g3cli](../../tools/g3cli/README.md).

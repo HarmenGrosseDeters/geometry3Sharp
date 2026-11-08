@@ -40,7 +40,16 @@ solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evalua
 corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
 dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
 layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
-where the profiles spend the time (owner 2026-11-08).
+where the profiles spend the time (owner 2026-11-08). It also lists the library's serial loops over single tree
+queries (nearest point, rays, inside tests: repair volume check, MaxDeviation / IsWithin, fidelity metrics,
+deviation maps) with an upper bound each for switching them to the batch queries (research.md, priority 1).
+It also measures the memory layout of the meshes as a lever (owner 2026-11-08): the original order vs a compacted
+and spatially reordered mesh (vertices and triangles in Morton / Hilbert order; free-ID holes removed after many
+edits), on the boolean set and the T1 wrap / repair meshes. Many algorithms break ties by ID, so reordering is either
+internal with a map back where the result does not depend on the order, or a user option whose result holds for the
+reordered input; the owner decides from the upper bound. Smaller candidates in the same profile: GC / allocations
+(about 7 % of the Reducer; `ArrayPool` for the boolean is an open owner decision) and per-vertex small
+`HashSet<int>` / `List<int>` in hot loops.
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
@@ -94,12 +103,20 @@ ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5
 
 #### Other open items
 
+- **Degeneracy criterion (open question for 2.x, owner 2026-11-08):** `DegenerateArea` = 1e-12 × diag² counts
+  well-shaped but tiny triangles as degenerate. 119829/119830 carry about 13.4k of them (longest edge about 3.3e-6 ×
+  diag, shortest / longest edge median 0.15); SafeRounding contracts them as D′ prescribes (union 13 439 edits, about
+  2.3 s) and 23 / 5 stay where the accumulated drift reaches the bound. Leaving well-shaped tiny triangles alone (a
+  shape criterion, eg aspect ratio, next to the area) would make both clean and faster, but reopens D′: an owner
+  decision with data (how many inputs of the Thingi10K run carry such triangles, and what changes) after 2.0.
 - **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
   `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
   (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
   other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
   `WindingContouring`, `DualContouring`'s cell dictionaries) with a dense-key measurement before changing any;
-  taken by the owner locally (2026-11-08).
+  done in #431 (2026-11-08).
+  Audit implementation and measurements: [LongHashAudit](../../benchmarks/LongHashAudit/README.md); packed tables
+  use the existing comparer, linear indices and scalar-only `containerOf` keep the default hash.
 - **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under

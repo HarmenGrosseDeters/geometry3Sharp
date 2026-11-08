@@ -118,6 +118,10 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Follow isosurface components from seed cells, including the upper cell of GridBounds.
+        /// Legacy modes ignore seeds whose cell indices lie outside that grid; LinearEdges rejects them.
+        /// </summary>
         public void GenerateContinuation(IEnumerable<Vector3d> seeds)
         {
             Mesh = new DMesh3();
@@ -132,18 +136,19 @@ namespace gs
             if (RootMode == RootfindingModes.LinearEdges)
                 seeds = check_linear_edges_seeds(seeds);
 
-            if (LastGridBounds != GridBounds) {
-                corner_values_grid = new DenseGrid3f(nx + 1, ny + 1, nz + 1, float.MaxValue);
+            // GridBounds includes cell (nx, ny, nz), whose far corner is (nx+1, ny+1, nz+1).
+            // Generate() may have replaced this cache with its smaller, exclusive-cell grid.
+            if (LastGridBounds != GridBounds || corner_values_grid == null ||
+                corner_values_grid.ni != nx + 2 || corner_values_grid.nj != ny + 2 || corner_values_grid.nk != nz + 2) {
+                corner_values_grid = new DenseGrid3f(nx + 2, ny + 2, nz + 2, float.MaxValue);
                 edge_vertices = new Dictionary<long, int>();
                 corner_values = new Dictionary<long, double>();
-                if (ParallelCompute)
-                    done_cells = new DenseGrid3i(CellDimensions.x, CellDimensions.y, CellDimensions.z, 0);
+                done_cells = new DenseGrid3i(nx + 1, ny + 1, nz + 1, 0);
             } else {
                 edge_vertices.Clear();
                 corner_values.Clear();
                 corner_values_grid.assign(float.MaxValue);
-                if (ParallelCompute)
-                    done_cells.assign(0);
+                done_cells.assign(0);
             }
 
             if (ParallelCompute) {
@@ -553,12 +558,12 @@ namespace gs
             GridCell cell = new GridCell();
             int[] vertlist = new int[12];
 
-            done_cells = new DenseGrid3i(CellDimensions.x, CellDimensions.y, CellDimensions.z, 0);
-
             List<Vector3i> stack = new List<Vector3i>();
 
             foreach (Vector3d seed in seeds) {
                 Vector3i seed_idx = cell_index(seed);
+                if (!GridBounds.Contains(seed_idx))
+                    continue;
                 if (done_cells[seed_idx] == 1)
                     continue;
                 stack.Add(seed_idx);
@@ -599,6 +604,8 @@ namespace gs
             try {
                 gParallel.ForEach(seeds, (seed) => {
                     Vector3i seed_idx = cell_index(seed);
+                    if (!GridBounds.Contains(seed_idx))
+                        return;
                     if (set_cell_if_not_done(ref seed_idx) == false)
                         return;
 
