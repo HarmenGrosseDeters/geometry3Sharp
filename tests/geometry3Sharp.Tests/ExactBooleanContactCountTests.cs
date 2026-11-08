@@ -177,20 +177,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void TouchingAtNegativeZero_OnePosition()
+        public void TouchingTheReflectedBox_AtNegativeZero_OneContact()
         {
             // the second box is the first reflected through the origin: its corner there is (-0.0, -0.0, -0.0), the
-            // first box's (0.0, 0.0, 0.0); one contact (Vector3d's equality and hash take the two as one position)
+            // first box's (0.0, 0.0, 0.0), one exact point (the arrangement merges them): one contact, of the solid.
+            // (count_contacts needs no -0.0 normalization: Vector3d's equality compares with ==, and double's hash is
+            // the same for +0 and -0, on .NET Framework as on .NET)
             DMesh3 a = Box(Vector3d.Zero), b = new DMesh3(a);
             foreach (int v in b.VertexIndices().ToList())
                 b.SetVertex(v, -b.GetVertex(v));
             b.ReverseOrientation();
+            Assert.Contains(b.VertexIndices(), v => BitConverter.DoubleToInt64Bits(b.GetVertex(v).x) == long.MinValue);
             var boolean = new ExactMeshBoolean(a, b, Ops.Union);
             Assert.True(boolean.Compute(), boolean.Error);
-            Assert.Contains(boolean.Result.VertexIndices(), v => BitConverter.DoubleToInt64Bits(boolean.Result.GetVertex(v).x) == long.MinValue);
             Assert.Equal(1, boolean.Contacts);
             Assert.Equal(0, boolean.Rounding.InitialFalseContacts);
             Assert.True(boolean.RoundingClean);
+            Assert.Equal(new Vector3d(0, 0, 0), new Vector3d(-0.0, -0.0, -0.0));
+            Assert.Equal(new Vector3d(0, 0, 0).GetHashCode(), new Vector3d(-0.0, -0.0, -0.0).GetHashCode());
         }
 
         [Theory]
