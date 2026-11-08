@@ -234,6 +234,9 @@ namespace gs
 
             reset_refinement_counts();
             labelsManifold = false;
+            changedSinceTrial = null;
+            lastTrialVertices.Clear();
+            localTrials = localFound = confirmTrials = confirmFound = 0;
             Status = refine_and_carve();
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -276,6 +279,12 @@ namespace gs
                 return false;
             }
             end_phase("manifold");
+            if (LocalPinchTrials) {
+                Counts["local_trials"] = localTrials;
+                Counts["local_trials_found"] = localFound;
+                Counts["local_trials_confirmed"] = confirmTrials;
+                Counts["local_trials_missed"] = confirmFound;
+            }
             if (cancelled()) {
                 Status = WrapStatus.Cancelled;
                 return false;
@@ -479,6 +488,7 @@ namespace gs
                 labelsManifold = false;
                 label[c] = Outside;
                 carved++;
+                changedSinceTrial?.Add(c);
                 touched?.Add(c);
                 for (int j = 0; j < 4; ++j) {
                     int m = dt.Neighbour(c, j);
@@ -527,6 +537,7 @@ namespace gs
             ensure_labels();
             foreach (int nc in addedCells)
                 label[nc] = Inside;
+            changedSinceTrial?.AddRange(addedCells);
             touched?.AddRange(addedCells);
             foreach (int nc in addedCells)
                 for (int j = 0; j < 4; ++j)
@@ -752,9 +763,20 @@ namespace gs
             for (int round = 0; round < MaxNonManifoldRounds && status == WrapStatus.Success; ++round) {
                 if (cancelled())
                     return WrapStatus.Cancelled;
-                WrapStatus trial = cells_moved_by_manifold_step(pinch);
+                WrapStatus trial = cells_moved_by_manifold_step(pinch, out bool local);
                 if (trial == WrapStatus.Cancelled)
                     return trial;
+                if (trial == WrapStatus.Success && pinch.Count > 0 && local) localFound++;
+                // (a local trial that found nothing is confirmed by a full one: a local trial can miss a spot, see
+                // LocalPinchTrials, and the refinement would stop with it left to the manifold step. If the full trial moves
+                // nothing either, its labels are kept as usual)
+                if (trial == WrapStatus.Success && pinch.Count == 0 && local) {
+                    confirmTrials++;
+                    trial = cells_moved_by_manifold_step(pinch, out local, true);
+                    if (trial == WrapStatus.Cancelled)
+                        return trial;
+                    if (pinch.Count > 0) confirmFound++;
+                }
                 // (a failing manifold step fails again after the refinement and reports it)
                 if (trial != WrapStatus.Success || pinch.Count == 0)
                     break;
@@ -923,12 +945,31 @@ namespace gs
         // cells_moved_by_manifold_step); cleared by every insertion and carving: refine_non_manifold stops after such a
         // trial, but the quality refinement (RefineMinAngleDegrees) inserts and carves after it)
         bool labelsManifold;
+
+        /// <summary>
+        /// (Alpha Wrap 2.0 WP3 lever 4b) the trial runs of the manifold step after the first one start only from the vertices
+        /// whose star changed since the last trial (the cells inserted or carved since; an insertion's new cells have every
+        /// vertex of the cells it replaced) and those that trial found non-manifold, instead of every vertex on the result.
+        /// The step processes them in another order, so it can pick other cells, and the refinement other points: not
+        /// bit-identical (T1, 100 Thingi10K meshes: 6 differ, by at most 0.2 % triangles and 0.06 degrees of p01). A local
+        /// trial can also miss a spot (the outer remove_pockets of a trial fills or reopens pockets, which changes stars away
+        /// from the changed cells), so its labels are never kept, and a local trial that finds nothing is confirmed by a full
+        /// trial before the refinement stops (Counts local_trials_confirmed, and local_trials_missed when the full one found
+        /// something). The labels of that full trial are reused when it moved nothing (ReuseTrialLabels); otherwise the
+        /// final manifold step is the full one. The guarantees come from that final step, as before
+        /// </summary>
+        internal bool LocalPinchTrials = true;
+        // cells created or carved since the last trial (null before the first trial of a Compute), the vertices of the cells
+        // the last trial moved, the number of local trials
+        List<int> changedSinceTrial;
+        readonly List<int> lastTrialVertices = new List<int>();
+        long localTrials, localFound, confirmTrials, confirmFound;
         /// <summary> (tests) false: the manifold step runs again after a trial that moved nothing (the same result) </summary>
         internal bool ReuseTrialLabels = true;
 
         // the outside cells that remove_pockets and make_manifold would move inside, without the pockets (enclosed outside
         // regions, whose facets do not reach the result); the labels and counts are restored
-        WrapStatus cells_moved_by_manifold_step(List<int> moved)
+        WrapStatus cells_moved_by_manifold_step(List<int> moved, out bool local, bool full = false)
         {
             moved.Clear();
             int n = dt.MaxCellID;
@@ -938,12 +979,29 @@ namespace gs
             remove_pockets();
             byte[] afterPockets = new byte[n];
             Array.Copy(label, afterPockets, n);
-            WrapStatus status = make_manifold();
+            // (LocalPinchTrials, after a first trial: only the vertices whose star changed since the last trial, or that the
+            // last trial found non-manifold, can be non-manifold: the other ones were manifold there and kept their stars)
+            List<int> seeds = null;
+            if (LocalPinchTrials && changedSinceTrial != null && !full) {
+                seeds = new List<int>(lastTrialVertices);
+                foreach (int c in changedSinceTrial)
+                    if (dt.IsCell(c))
+                        for (int j = 0; j < 4; ++j) seeds.Add(dt.CellVertex(c, j));
+                localTrials++;
+            }
+            local = seeds != null;
+            WrapStatus status = make_manifold(seeds);
             foreach (int c in dt.CellIndices())
                 if (afterPockets[c] == Outside && label[c] == Inside) moved.Add(c);
-            // nothing moved: make_manifold changed no label, so the labels and counts are those that remove_pockets and
-            // make_manifold give after the refinement: kept (labelsManifold, until a later insertion or carving)
-            if (status == WrapStatus.Success && moved.Count == 0 && ReuseTrialLabels) {
+            lastTrialVertices.Clear();
+            foreach (int c in moved)
+                for (int j = 0; j < 4; ++j) lastTrialVertices.Add(dt.CellVertex(c, j));
+            changedSinceTrial = new List<int>();
+            // nothing moved in a full trial: make_manifold changed no label, so the labels and counts are those that
+            // remove_pockets and make_manifold give after the refinement: kept (labelsManifold, until a later insertion or
+            // carving)
+            // (only a full trial: a local one need not have seen every vertex)
+            if (status == WrapStatus.Success && moved.Count == 0 && ReuseTrialLabels && seeds == null) {
                 labelsManifold = true;
                 return status;
             }
@@ -1037,7 +1095,7 @@ namespace gs
         /// vertices on the result, then those of flipped cells).
         /// </summary>
         // Success, Failed (no manifold result within the step limit) or Cancelled
-        WrapStatus make_manifold()
+        WrapStatus make_manifold(List<int> seedVertices = null)
         {
             build_stars();      // (the triangulation does not change here, only labels)
             long flips = 0, processed = 0;
@@ -1049,11 +1107,17 @@ namespace gs
                     if (!queued[v]) { queued[v] = true; work.Enqueue(v); }
                 }
             };
-            // start with the vertices on the result; a flip queues the vertices of the flipped cell again
-            foreach (int c in dt.CellIndices()) {
-                if (label[c] != Inside) continue;
-                for (int i = 0; i < 4; ++i)
-                    if (label_of(dt.Neighbour(c, i)) == Outside) { enqueue_cell(c); break; }
+            // start with the vertices on the result (or the given ones: a local trial); a flip queues the vertices of the
+            // flipped cell again
+            if (seedVertices != null) {
+                foreach (int v in seedVertices)
+                    if (v >= 0 && v < queued.Length && !queued[v]) { queued[v] = true; work.Enqueue(v); }
+            } else {
+                foreach (int c in dt.CellIndices()) {
+                    if (label[c] != Inside) continue;
+                    for (int i = 0; i < 4; ++i)
+                        if (label_of(dt.Neighbour(c, i)) == Outside) { enqueue_cell(c); break; }
+                }
             }
             var edgeCount = new Dictionary<int, int>();
             long limit = 100L * dt.VertexCount + 1000;

@@ -61,8 +61,9 @@ Status on 2026-11-08 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts, envelope thresholds from the first CI run) is running its CI;
   the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
   `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
-- **Meshing2D:** fast oracle (#411, #427) merged; a Sonnet session works on the corner choice (#437) and
-  the small-angle rule for the default mode (O2 unchanged); coarsening waits for a runner re-measurement.
+- **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
+  no verdict worse; Z3 pilot 3 #443). Coarsening re-measured (−4.5 % triangles for +50 % mesher time): owner decision open.
+  Rule C on the snap grid is open.
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
   done (stage 2 after the queue); the rest starts after the 2.0 milestones, next to the CLI / MCP update and a
