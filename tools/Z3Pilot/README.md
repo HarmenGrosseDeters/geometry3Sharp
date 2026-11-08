@@ -289,11 +289,13 @@ vertex of the edit gets `M + δ` (today's rule). The invariant, with `D(T)` the 
 of this lemma.)
 
 Which edits have an apex follows from the triangles the code adds (`apexes()`), not from the edit's name: a move,
-slide, contraction (also of an ear with the kept vertex moved: `try_collapse` then removes and re-adds the kept
-vertex's other triangles), vertex removal and flip have one; a zip (`try_zip`) adds four triangles
-`(c, d, x), (d, b, x), (d, c, y), (c, a, y)` without a common vertex and keeps today's rule; a strip zip has an apex
-only if all its added triangles share their tip; an ear contraction with the kept vertex in place adds none (`A`
-empty).
+slide, contraction, vertex removal and flip have one; a zip (`try_zip`) adds four triangles
+`(c, d, x), (d, b, x), (d, c, y), (c, a, y)` without a common vertex and keeps today's rule; a strip zip
+(`try_strip`) removes the outer triangle at every loop edge and re-adds it split at the chain vertices, so for a
+loop of three vertices `e0, m, e1` (a sliver, also with inner vertices) every added triangle contains the middle
+chain vertex `m`, the apex, and longer loops have none (a common tip of all outer triangles is rejected by the
+code: both chains would create the same directed edge); an ear contraction (`try_collapse` at a vertex with a
+single triangle) adds none, because `collapse_keeps_boundary` never moves the kept boundary vertex (`A` empty).
 
 ```sh
 /tmp/g3-z3/bin/python tools/Z3Pilot/drift_apex.py --out /tmp/z3-drift-apex.json
@@ -323,10 +325,10 @@ empty).
   `R` and `A`; the shape-free rows `generic_*` state exactly that (`D(T) <= M` for a removed `T`, `D'(T') >= d'(c)`
   for an added `T'`, `d(c) <= M`), so boundaries, open fans, ring vertices shared between sides and the like are
   covered without a shape of their own. The shapes: a move or slide of valence 3 to 8 (closed fan); a contraction of
-  `a-b` into `b` with 2 to 6 triangles of `a` and 2 to 6 of `b` besides the two at the edge (25 shapes); an ear
-  contraction with `b` moved (an open fan of 1 to 3 triangles; for 2 the fan's middle vertex is an apex too); a
-  removal of valence 3; a flip; a strip zip with a common tip; and without an apex the zip (4 + 4 triangles) and an
-  ear contraction in place (`A` empty; its points go to the edge across, which lies in an untouched triangle with a
+  `a-b` into `b` with 2 to 6 triangles of `a` and 2 to 6 of `b` besides the two at the edge (25 shapes); a removal of
+  valence 3; a flip; a strip zip with a loop of three vertices (a sliver, and with an inner vertex; apex `m`); and
+  without an apex the zip (4 + 4 triangles), a strip zip with a loop of four vertices (2 + 4 removed, 6 added) and an
+  ear contraction (`A` empty; its points go to the edge across, which lies in an untouched triangle with a
   third vertex outside the edit). Every apex of a shape is checked (the code takes the first in `A[0]`).
 - Non-vacuity: the assumptions of every query are SAT with `δ > 0` (the model replayed with Python fractions), and for
   every apex of every shape a SAT check that the rule really leaves another vertex below `M + δ`.
@@ -342,7 +344,7 @@ empty).
 
 ### Result
 
-All 188 obligations UNSAT (401 queries), their assumptions SAT with `δ > 0` and replayed; 44 non-vacuity checks of
+All 168 obligations UNSAT (386 queries), their assumptions SAT with `δ > 0` and replayed; 38 non-vacuity checks of
 "only the apex" SAT and replayed; 13 mutants SAT with witnesses replayed with fractions:
 
 - charging a vertex that is not an apex: the vanishing `a` of a contraction; the flip's `a`, in one added triangle
@@ -360,8 +362,9 @@ About 3 s of solver time locally (7 s for the run, report `results/drift_apex_20
 
 - (E1) and (E2) per edit type: that every point of an added triangle is within `δ` of a removed one and back, with
   the `δ` each edit computes (SAFE_ROUNDING.md section 1 and the class comment of `MeshRoundingRepair`); for every
-  edit where the code finds an apex (also an ear contraction with the kept vertex moved, a strip zip with a common
-  tip, boundary fans) that (E2) points into `A`; for edits without an apex, that the counterpart is a simplex of the
+  edit where the code finds an apex (also a strip zip, whose apex is the middle chain vertex exactly for a loop of
+  three vertices, and boundary fans) that (E2) points into `A`; that an ear contraction never moves the kept vertex
+  (`collapse_keeps_boundary`), so it has `A` empty; for edits without an apex, that the counterpart is a simplex of the
   edit's vertices in an untouched triangle.
 - Untouched triangles keep their geometry: every triangle of a moved vertex is in `R` (and back in `A`); no edit adds
   vertices or reuses vertex ids.

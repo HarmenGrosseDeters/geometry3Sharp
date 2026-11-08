@@ -6,9 +6,11 @@ start); M is the largest drift over the vertices of R and A; the edit is accepte
 The apex rule charges M + delta to one vertex c that lies in every triangle of A (an apex) and keeps every other
 drift; an edit without an apex keeps today's rule (every vertex of the edit gets M + delta). Which edits have an
 apex is decided by the triangles the code adds, not by the edit's name: zips add four triangles without a common
-vertex (no apex); a contraction of an ear with the kept vertex moved adds the kept vertex's other triangles (apex
-the kept vertex); a strip zip has an apex only if all its added triangles share their tip; an ear contraction with
-the kept vertex in place adds none (A empty, no apex).
+vertex (no apex); a strip zip (try_strip) re-adds the outer triangle at every loop edge, split at the chain
+vertices: for a loop of three vertices e0, m, e1 every added triangle contains the middle chain vertex m (the
+apex), for longer loops there is none (a common tip of all outer triangles is rejected by the code); an ear
+contraction (try_collapse at a vertex with a single triangle) adds none, as collapse_keeps_boundary never moves the
+kept boundary vertex (A empty, no apex).
 The invariant, with D(T) the largest drift of the corners of T and S0 the surface at the start:
   (I1) every point x of a triangle T of S has dist(x, S0) <= D(T);
   (I2) every point y of S0 has a triangle T of S with dist(y, T) <= D(T).
@@ -101,14 +103,6 @@ def contraction(m, n):
     return dict(name=f'contraction_{m + 1}_{n + 1}', R=R, A=A, U=[])
 
 
-def ear_moved(k):
-    """contraction of the ear a (its single triangle a, b, w0) into b with b moved: b's other k triangles (an open
-    fan at the boundary) are removed and added again"""
-    w = [f'w{i}' for i in range(k + 1)]
-    fan = [('b', w[i], w[i + 1]) for i in range(k)]
-    return dict(name=f'ear_moved_b_{k}', R=[('a', 'b', 'w0')] + fan, A=fan, U=[])
-
-
 def removal():
     """removal of v of valence 3 (ring a, b, c): one new triangle"""
     return dict(name='removal_valence_3', R=[('v', 'a', 'b'), ('v', 'b', 'c'), ('v', 'c', 'a')], A=[('a', 'b', 'c')],
@@ -120,11 +114,24 @@ def flip():
     return dict(name='flip', R=[('a', 'b', 'c'), ('b', 'a', 'd')], A=[('c', 'a', 'd'), ('d', 'b', 'c')], U=[])
 
 
-def strip_common_tip():
-    """a strip zip whose added triangles all share their tip x (the rare case with an apex): the sliver m0, m1, m2
-    and the outer triangle m0, m2, x are replaced by m1, m0, x and m2, m1, x"""
-    return dict(name='strip_common_tip', R=[('m0', 'm1', 'm2'), ('m0', 'm2', 'x')],
-                A=[('m1', 'm0', 'x'), ('m2', 'm1', 'x')], U=[])
+def strip_loop3(inner=False):
+    """try_strip with a loop of three vertices e0, m, e1 (m the middle chain vertex): the strip (a sliver, or with an
+    inner vertex i three triangles) and the three outer triangles are removed; the outer triangles at e0-m and m-e1
+    come back unchanged, the one at e1-e0 split at m: all four added triangles contain m (the apex)"""
+    strip = [('e0', 'm', 'i'), ('m', 'e1', 'i'), ('e1', 'e0', 'i')] if inner else [('e0', 'm', 'e1')]
+    outer = [('m', 'e0', 'x0'), ('e1', 'm', 'x1'), ('e0', 'e1', 'x2')]
+    A = [('m', 'e0', 'x0'), ('e1', 'm', 'x1'), ('m', 'e1', 'x2'), ('e0', 'm', 'x2')]
+    return dict(name='strip_loop3_inner' if inner else 'strip_loop3', R=strip + outer, A=A, U=[])
+
+
+def strip_loop4():
+    """try_strip with a loop of four vertices (chains e0, m1, e1 and e0, m2, e1; merged order e0, m1, m2, e1): the
+    outer triangles come back split at the chain vertices; no vertex is in all of them, so today's rule"""
+    strip = [('e0', 'm1', 'e1'), ('e0', 'e1', 'm2')]
+    outer = [('m1', 'e0', 'x0'), ('e1', 'm1', 'x1'), ('m2', 'e1', 'x2'), ('e0', 'm2', 'x3')]
+    A = [('m1', 'e0', 'x0'), ('m2', 'm1', 'x1'), ('e1', 'm2', 'x1'), ('m2', 'e1', 'x2'), ('m1', 'm2', 'x3'),
+         ('e0', 'm1', 'x3')]
+    return dict(name='strip_loop4', R=strip + outer, A=A, U=[])
 
 
 def zip_shape():
@@ -135,7 +142,8 @@ def zip_shape():
 
 
 def ear():
-    """contraction of an ear v (single triangle v, a, b) into a in place: A empty, its points go to the edge a-b,
+    """contraction of an ear v (single triangle v, a, b) into a (the kept vertex is on the boundary and never moved:
+    collapse_keeps_boundary): A empty, its points go to the edge a-b,
     which lies in the untouched triangle a, b, w (w not a vertex of the edit)"""
     return dict(name='ear_in_place', R=[('v', 'a', 'b')], A=[], U=[('a', 'b', 'w')])
 
@@ -146,11 +154,11 @@ def shapes():
     for m in range(1, 6):
         for n in range(1, 6):
             yield contraction(m, n)
-    for k in range(1, 4):
-        yield ear_moved(k)
     yield removal()
     yield flip()
-    yield strip_common_tip()
+    yield strip_loop3()
+    yield strip_loop3(inner=True)
+    yield strip_loop4()
     yield zip_shape()
     yield ear()
 
@@ -363,7 +371,7 @@ def run(timeout_ms=120000):
             replayed = replayed and rep
         # one row per claim: UNSAT only if every query is UNSAT (I1: one query per added triangle)
         worst = next((r for r in results if r != z.unsat), z.unsat)
-        rows.append(dict(rule=label, name=name, claim=claim, queries=len(results), added=len(s['A']),
+        rows.append(dict(rule=label, name=name, shape=s['name'], claim=claim, queries=len(results), added=len(s['A']),
                          result=str(worst), seconds=round(secs, 3),
                          assumptions_result='sat' if all(a == z.sat for a in assumed) else 'unsat or unknown',
                          assumptions_replayed=replayed))

@@ -215,7 +215,7 @@ class DriftApexTests(unittest.TestCase):
         for r in rows:
             if r['claim'] == 'I1' and r['rule'] != 'shape-free':
                 self.assertEqual(r['queries'], r['added'])
-                self.assertEqual(len(shapes[r['name'].rsplit('_', 3)[0]]['A']), r['added'], r['name'])
+                self.assertEqual(len(shapes[r['shape']]['A']), r['added'], r['name'])
         self.assertEqual('unsat', next(r for r in rows if r['name'] == 'chain_step_higham_2_5')['result'])
         self.assertEqual({'zip_all_I1', 'ear_in_place_all_I2'} <= {r['name'] for r in rows}, True)
         self.assertEqual(self.MUTANTS, {m['name'] for m in report['mutants'] if m['result'] == 'sat' and m['replayed']})
@@ -228,11 +228,14 @@ class DriftApexTests(unittest.TestCase):
         for s in names.values():
             for c in drift_apex.apexes(s):
                 self.assertTrue(all(c in t for t in s['A']), (s['name'], c))
-        # the code's zips add four triangles without a common vertex; an ear with b moved has the apex b
+        # the code's zips add four triangles without a common vertex; an ear contraction adds none (the kept boundary
+        # vertex is never moved); a strip zip of a 3-vertex loop has the middle chain vertex as apex, longer loops none
         self.assertEqual([], drift_apex.apexes(names['zip']))
         self.assertEqual([], drift_apex.apexes(names['ear_in_place']))
-        self.assertEqual('b', drift_apex.apexes(names['ear_moved_b_1'])[0])
-        self.assertIn('x', drift_apex.apexes(names['strip_common_tip']))
+        self.assertEqual(['m'], drift_apex.apexes(names['strip_loop3']))
+        self.assertEqual(['m'], drift_apex.apexes(names['strip_loop3_inner']))
+        self.assertEqual([], drift_apex.apexes(names['strip_loop4']))
+        self.assertFalse(any(n.startswith('ear_moved') for n in names))
 
     def test_specification_drives_the_obligations(self):
         # a specification the lemma does not cover is rejected, or fails the proof
