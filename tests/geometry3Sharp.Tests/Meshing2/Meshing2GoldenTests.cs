@@ -55,6 +55,66 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void M3Constrained_RecordedRows_AreReproduced()
+        {
+            string text = File.ReadAllText(Path.Combine(Dir, "m3-constrained.json")).Replace("\r\n", "\n");
+            var file = GoldenFile.Parse(text);
+            var cases = ConstrainedGoldenCases.Ci();
+            Assert.True(cases.Count >= 30, "too few constrained catalogue cases: " + cases.Count);
+            Assert.Equal(cases.Count, file.Rows.Count);
+            Assert.All(file.Rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason), row.Case));
+            Assert.Equal(text, file.Write());
+            var problems = GoldenProcess.Check(file, cases, CandidateRegistry.For(Milestone.M3));
+            Assert.True(problems.Count == 0, string.Join("\n", problems));
+        }
+
+        [Fact]
+        public void M3Constrained_InputsAreDistinct_AndCatalogueIsUnchanged()
+        {
+            var source = Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == Milestone.M3 &&
+                r.State == CaseState.Covered && !r.Slow).Select(r => r.Case).ToDictionary(c => c.Id);
+            var before = source.ToDictionary(p => p.Key, p => TextFormat.WriteInput(p.Value.Input));
+            var angles = source.ToDictionary(p => p.Key, p => p.Value.Expect.AngleGuaranteed);
+            var cases = ConstrainedGoldenCases.Ci();
+            Assert.Equal(source.Values.Where(c => !c.Input.Conforming).Select(c => c.Id).OrderBy(id => id), cases.Select(c => c.Id).OrderBy(id => id));
+            foreach (var c in cases) {
+                Assert.True(c.Input.ConstrainedQuality);
+                Assert.False(c.Input.Conforming);
+                Assert.NotSame(source[c.Id].Input, c.Input);
+                Assert.NotSame(source[c.Id].Expect, c.Expect);
+                Assert.NotEqual(TextFormat.InputSha256(source[c.Id].Input), TextFormat.InputSha256(c.Input));
+            }
+            foreach (string id in new[] { "f-38/a", "f-38/b", "f-38/c", "f-38/d", "f-38/e" })
+                Assert.True(cases.Single(c => c.Id == id).Expect.AngleGuaranteed, id + " must check angles");
+            foreach (var pair in source) {
+                Assert.Equal(before[pair.Key], TextFormat.WriteInput(pair.Value.Input));
+                Assert.Equal(angles[pair.Key], pair.Value.Expect.AngleGuaranteed);
+            }
+            var changed = cases.Single(c => c.Id == "f-38/a");
+            changed.Input.ConstrainedQuality = false;
+            changed.Expect.AngleGuaranteed = false;
+            var fresh = ConstrainedGoldenCases.Ci().Single(c => c.Id == "f-38/a");
+            Assert.True(fresh.Input.ConstrainedQuality);
+            Assert.True(fresh.Expect.AngleGuaranteed);
+            Assert.NotSame(changed.Input, fresh.Input);
+            Assert.NotSame(changed.Expect, fresh.Expect);
+        }
+
+        [Fact]
+        public void M3Constrained_DefaultModeIsDetectedAsADifferentInput()
+        {
+            var cases = ConstrainedGoldenCases.Ci().Where(c => c.Id == "f-38/a").ToList();
+            var input = cases.Single().Input;
+            var file = GoldenFile.Parse(File.ReadAllText(Path.Combine(Dir, "m3-constrained.json")));
+            file.Rows = file.Rows.Where(r => r.Case == "f-38/a").ToList();
+            string hash = TextFormat.InputSha256(input);
+            input.ConstrainedQuality = false; // controlled mode fault, no production change
+            Assert.NotEqual(hash, TextFormat.InputSha256(input));
+            var problems = GoldenProcess.Check(file, cases, CandidateRegistry.For(Milestone.M3));
+            Assert.NotEmpty(problems); // oracle rejection or fingerprint/hash mismatch both block the gate
+        }
+
+        [Fact]
         public void M1_GoldenFile_IsFormattedAsTheToolWritesIt()
         {
             string text = File.ReadAllText(Path.Combine(Dir, "m1.json")).Replace("\r\n", "\n");

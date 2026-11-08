@@ -1,0 +1,76 @@
+{
+  "production_commit": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+  "results_jsonl_sha256": "a7edad643ec44de47fa660fe93aab5d65ecaa6744c8ad1875005f284e23e6a99",
+  "chunks": [
+    {
+      "path": "results-01.jsonl",
+      "sha256": "3310b390d1792cabcdc01e192cc540c7671602b95957c0b83b899c8e3b6bbc80",
+      "records": 20
+    },
+    {
+      "path": "results-02.jsonl",
+      "sha256": "89b110d5e8bc94c0f252ff89a3f230f9ddb4a6b8e2c5906b8e28bdcf87a8d78e",
+      "records": 20
+    },
+    {
+      "path": "results-03.jsonl",
+      "sha256": "bc75714201c87ab4a537285759703ef7ae042a1733873195c253a7537fdbbb75",
+      "records": 20
+    },
+    {
+      "path": "results-04.jsonl",
+      "sha256": "c2efb24a4afad9dd3b4db49ac1afccb9d9d5779907efef124d27b524446b8fc2",
+      "records": 20
+    },
+    {
+      "path": "results-05.jsonl",
+      "sha256": "6da8630fb4832e0606ad88bbec2f8e65df317b800686d6dcfac34d4288a4dc79",
+      "records": 20
+    },
+    {
+      "path": "results-06.jsonl",
+      "sha256": "7d5499ff2090fc8e2d8e4ae5f4787c445fe5ee06e30e4fa434e11c986788e85b",
+      "records": 20
+    },
+    {
+      "path": "results-07.jsonl",
+      "sha256": "57a6eabe0697c094213f953a37861e6e8caf3779139cd10395991d5e2e8ffd81",
+      "records": 20
+    },
+    {
+      "path": "results-08.jsonl",
+      "sha256": "65a96b289d37fe52be4bc0d57007951ed0c68852603336a7c7b3f74a7b0f0e9c",
+      "records": 20
+    },
+    {
+      "path": "results-09.jsonl",
+      "sha256": "97a82276ebdf09b8ec2521d6aa7f2ffa1b9e13d97a11a031b7f26ce7232f47eb",
+      "records": 3
+    }
+  ],
+  "tool_sha256": {
+    "run.py": "5c51178683ba0564aed156ac2b1c34b6bef3fbddbadddca25f615c8e0779a789",
+    "prepare.py": "7a6de603689af5d768fff9acd2b2ba4f94a103fdef70f5c7495710377cd6a8d3",
+    "count_boxes.py": "ac1bd40fd1969603e99e272ba455484fd0171faaaf28dd7fa9347eb5c59baa6f"
+  },
+  "compaction": {
+    "meaning": "The run's records were compacted after the run by run.compact_stage/compact_row (the code run.py now applies before writing): captured stdout/stderr replaced by violation-class counts, line counts and SHA-256; local paths in commands replaced by placeholders; the oracle row's area2 and reason kept as SHA-256 (reason also as class counts). prepared-manifest.json was reduced to case|mode -> input_sha256. tool_sha256 are the tools that produced the run; the hashes below are the uncompacted files they wrote, which are not committed.",
+    "original_results_jsonl_sha256": "c05a8b85ea453ca36130618ef0b1018f39b9ef6e06a589b56f09db52d1fb1c6d",
+    "original_chunk_sha256": {
+      "results-01.jsonl": "cab7e9799d00305008aaadc02abd524dea8677cef5456d2180c37fd4a483a71a",
+      "results-02.jsonl": "e3e9c81954e6b2afdfbb2480b8f9a7f093473298c10334f6ae37b6ba6746a053",
+      "results-03.jsonl": "1afb29f951e495830b33dec16e7f5025d37db12e6d53ec734c54e6612c396ff7",
+      "results-04.jsonl": "07c855a6e6e46839fbcc7953ad3776017d52b3a74b26bdfded622aaf47063af5",
+      "results-05.jsonl": "3960de16cfd70427e287fdcedff5a53c148d4c8fb229a38cd35d7ac4d9b88c4d",
+      "results-06.jsonl": "eb8c5faa434c4b8f680a91684fe520d8205da129fa12b6eca8918b049e0bcca8",
+      "results-07.jsonl": "9741ce9cd413e86aa5b470dcc2015a5f25d6ad8092e1a2b6db47043405d0088d",
+      "results-08.jsonl": "595630d0a26782b408161b2f42f28a1e7cb4d9f74518fbe69bd307e7ee5fd82f",
+      "results-09.jsonl": "03be111cec34874c2ace18289263e3e74ecdafe1ba0539ce9c33dceaa1fdedb4"
+    },
+    "original_prepared_manifest_sha256": "8afe336624cbf5f505436ea1160bdeb7f958b81cef5122b63089d08f56470403",
+    "tool_sha256": {
+      "run.py": "ff166947ccbb87c5ff1c1f36b61bdb2d62e8dc5a61b269ac669ec52143b1d5fc",
+      "prepare.py": "6bbd3a6b87a7422380c061ee2a0ab1db6025440d2ce7f810905da6156d1e9ceb"
+    }
+  }
+}

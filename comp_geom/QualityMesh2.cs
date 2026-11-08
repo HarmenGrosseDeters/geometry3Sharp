@@ -653,9 +653,64 @@ namespace g3
                     // encroaches too
                     if (options.Conforming ? k.IsGhost(t) : !InDomain(t)) continue;
                     int apex = k.V[Next(Next(h))];
-                    if (EncroachesOn(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex))) return true;
+                    if (EncroachesOn(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex))) {
+                        bool exemptHere = ApexExempt(e, apex);
+                        ApexLogForTests?.Add((k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(apex), exemptHere));
+                        if (!exemptHere) return true;
+                    }
                 }
                 return false;
+            }
+
+            /// <summary> tests only: false turns the small-angle exemption of ApexExempt off </summary>
+            [ThreadStatic] internal static bool? SmallAngleExemptionForTests;
+            /// <summary> tests only: every vertex encroachment Encroached looks at (the subsegment's ends, the vertex, whether it is exempt) </summary>
+            [ThreadStatic] internal static List<(Vector2d U, Vector2d W, Vector2d V, bool Exempt)> ApexLogForTests;
+
+            /// <summary>
+            /// The small-angle rule (constrained-quality mode only; MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06): subsegment e is
+            /// not split for vertex v when all of these hold.
+            /// - v is a vertex refinement made on exactly one source c: not an input vertex, not a crossing, no third source (Shewchuk 2002
+            ///   section 6.2 applies its cure only then: not for a parent that "is an input vertex or lies on a nonincident segment").
+            /// - c and a source a of e make an input angle below the bound, their closed input segments meeting exactly (PairOf).
+            /// - (i) an end u of e is a vertex on c too (e starts at the apex, or at the crossing of a and c), and v lies on e's side of u;
+            ///   or (ii) v and an end of e lie at distances from the apex within a factor of 1.5, on the same side (NearSmallAngle).
+            /// Splitting e for such a v is the partner's follow-up in section 6.2's figure-eight cycle (a circumcentre halves a subsegment at
+            /// the apex, the partner follows by encroachment, and the next free edge is shorter; found with ext/cdt/island: 38 octaves of
+            /// splits towards a 2.6 degree apex of a hull edge and a segment). Only this vertex encroachment is exempt: a circumcentre or
+            /// off-centre that is behind e or would encroach it still splits it, and the rule excuses no triangle.
+            /// </summary>
+            bool ApexExempt(int e, int v)
+            {
+                if (options.Conforming || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
+                // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
+                // (Shewchuk 2002 section 6.2 splits for a parent that is an input vertex or lies on a nonincident segment)
+                if (v < firstSteiner) return false;
+                var sv = SourcesAt(v);
+                if (sv.Count != 1) return false;
+                int c = sv[0];
+                foreach (int a in k.Sources[k.Seg[e]]) {
+                    if (a == c) continue;
+                    var pair = PairOf(a, c);
+                    if (!pair.Meets) continue;
+                    for (int end = 0; end < 2; ++end) {
+                        int u = end == 0 ? k.V[e] : k.V[Next(e)], w = end == 0 ? k.V[Next(e)] : k.V[e];
+                        // (i) a shell subsegment: u is on c too, and v on e's side of u (at a crossing the opposite ray is the supplement)
+                        if (DotSign(k.Point(v), k.Point(w), k.Point(u)) > 0 && SourcesAt(u).Contains(c)) { Note(pair.Kind == 1 ? 8 : 9); return true; }
+                        // (ii) matched radii: v and an end of e at distances from the apex within a factor of 1.5, on the same side
+                        if (NearSmallAngle(a, c, k.Point(u), k.Point(v), strict: false)) { Note(pair.Kind == 1 ? 8 : 9); return true; }
+                    }
+                }
+                return false;
+            }
+
+            /// <summary> benchmarks: one more in CountsForBenchmarks[slot] (8 apex exemptions at a shared endpoint, 9 at a T-junction or a
+            /// crossing; 10-12 triangles given up: no circumcentre, a locked or unsplittable subsegment in the way, no vertex made; 13-15
+            /// subsegments left unsplit off the grid: below MinRoundedSplitExponent, no progress, near another source) </summary>
+            static void Note(int slot)
+            {
+                var n = CountsForBenchmarks;
+                if (n != null && slot < n.Length) ++n[slot];
             }
 
             /// <summary> sign of (a - p) . (b - p), exact: a floating-point filter, then integers </summary>
@@ -1059,22 +1114,60 @@ namespace g3
                 if (sp.Count == 0 || sq.Count == 0) return false;
                 var P = k.Point(p); var Qv = k.Point(q);
                 foreach (int a in sp)
-                    foreach (int c in sq) {
-                        if (a == c) continue;
-                        var s1 = b.sources[a]; var s2 = b.sources[c];
-                        // on the grid the input angles are those of the input segments, not of their snapped chains (the oracle judges the
-                        // input; a chain bends by up to half a pixel)
-                        if (grid != null) {
-                            s1 = OriginOf(s1); s2 = OriginOf(s2);
-                            if (s1.AX == s2.AX && s1.AY == s2.AY && s1.BX == s2.BX && s1.BY == s2.BY) continue;
-                        }
-                        // all in a common scale by a power of two (no underflow at small magnitudes, the same bits at any 2^k)
-                        double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY, ox = s2.AX - s1.AX, oy = s2.AY - s1.AY;
-                        int ex = Math.Max(ScaleOf(d1x, d1y, d2x, d2y), ScaleOf(ox, oy, 0, 0));
-                        d1x = ExactPoint3.ScaleB(d1x, -ex); d1y = ExactPoint3.ScaleB(d1y, -ex); d2x = ExactPoint3.ScaleB(d2x, -ex); d2y = ExactPoint3.ScaleB(d2y, -ex);
-                        ox = ExactPoint3.ScaleB(ox, -ex); oy = ExactPoint3.ScaleB(oy, -ex);
-                        double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
-                        if (!(Math.Abs(cross) > 0) || !(l1 > 0) || !(l2 > 0)) continue;
+                    foreach (int c in sq)
+                        if (a != c && NearSmallAngle(a, c, P, Qv)) return true;
+                return false;
+            }
+
+            /// <summary> two sources that make an input angle below the bound: whether and where their input segments meet, in a common
+            /// scale (Small: the strict test in doubles SpansSmallAngle uses; Meets: the exact test ApexExempt uses) </summary>
+            struct SmallPair
+            {
+                internal bool Small;
+                internal bool Meets;   // angle small, and the closed segments meet (exact)
+                internal int Kind;     // 1 a shared endpoint, 2 a T-junction or a crossing
+                internal int Scale;
+                internal Vector2d From, Apex;   // s1's start (unscaled), the apex relative to it (scaled)
+            }
+
+            // per ordered pair of sources (they do not change during refinement): the angle test once, not on every query
+            readonly Dictionary<long, SmallPair> smallPairs = new Dictionary<long, SmallPair>();
+
+            /// <summary> how the closed input segments s1 and s2 meet, exactly: 0 not at all (or collinear), 1 at a shared endpoint, 2 elsewhere
+            /// (an end on the other's interior, or a proper crossing) </summary>
+            static int MeetKind(ConstrainedDelaunayMesh2.Source s1, ConstrainedDelaunayMesh2.Source s2)
+                => MeetKind(new Vector2d(s1.AX, s1.AY), new Vector2d(s1.BX, s1.BY), new Vector2d(s2.AX, s2.AY), new Vector2d(s2.BX, s2.BY));
+
+            internal static int MeetKind(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+            {
+                int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+                int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+                if (o1 == 0 && o2 == 0) return 0;   // collinear: no apex
+                if (o1 * o2 > 0 || o3 * o4 > 0) return 0;
+                return a == c || a == d || b == c || b == d ? 1 : 2;
+            }
+
+            SmallPair PairOf(int a, int c)
+            {
+                long key = ((long)a << 32) | (uint)c;
+                if (smallPairs.TryGetValue(key, out var pair)) return pair;
+                pair = new SmallPair();
+                var s1 = b.sources[a]; var s2 = b.sources[c];
+                // on the grid the input angles are those of the input segments, not of their snapped chains (the oracle judges the
+                // input; a chain bends by up to half a pixel)
+                bool same = false;
+                if (grid != null) {
+                    s1 = OriginOf(s1); s2 = OriginOf(s2);
+                    same = s1.AX == s2.AX && s1.AY == s2.AY && s1.BX == s2.BX && s1.BY == s2.BY;
+                }
+                if (!same) {
+                    // all in a common scale by a power of two (no underflow at small magnitudes, the same bits at any 2^k)
+                    double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY, ox = s2.AX - s1.AX, oy = s2.AY - s1.AY;
+                    int ex = Math.Max(ScaleOf(d1x, d1y, d2x, d2y), ScaleOf(ox, oy, 0, 0));
+                    d1x = ExactPoint3.ScaleB(d1x, -ex); d1y = ExactPoint3.ScaleB(d1y, -ex); d2x = ExactPoint3.ScaleB(d2x, -ex); d2y = ExactPoint3.ScaleB(d2y, -ex);
+                    ox = ExactPoint3.ScaleB(ox, -ex); oy = ExactPoint3.ScaleB(oy, -ex);
+                    double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
+                    if (Math.Abs(cross) > 0 && l1 > 0 && l2 > 0) {
                         double sin = Math.Abs(cross) / (l1 * l2);
                         // small means strictly below the bound by the oracle's slack 2^-30 on sin^2 (its AngleBound), and by 2^-40 more for
                         // the rounding of sin^2 here (about 20 units of 2^-53 by the error analysis; 200k random pairs: at most 2.75): never
@@ -1083,24 +1176,44 @@ namespace g3
                         // bound no longer holds. A relative 1e-9 (2.5e-10 at 30 degrees) was more lenient than the oracle's 9.3e-10, and
                         // triangles at an input angle just below the bound were kept without the oracle's excuse (found by review of the
                         // small-angle design)
-                        if (!(sin * sin < sin2Min - SmallAngleSlack)) continue;
-                        // where the lines meet
-                        double t1 = (ox * d2y - oy * d2x) / cross;
-                        double t2 = (ox * d1y - oy * d1x) / cross;
-                        // the apex is on both segments: an input angle, not two lines that would meet far away
-                        // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
-                        if (t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0) continue;
-                        // p, q and the apex relative to s1's start, in the common scale
-                        var A = new Vector2d(t1 * d1x, t1 * d1y);
-                        var s1A = new Vector2d(s1.AX, s1.AY);
-                        var Pl = ScaleB(P - s1A, -ex) - A; var Ql = ScaleB(Qv - s1A, -ex) - A;
-                        double rp = Pl.LengthSquared, rq = Ql.LengthSquared;
-                        if (!(rp > 0) || !(rq > 0) || rp > 2.24 * rq || rq > 2.24 * rp) continue;
-                        // and p, q lie on the same side of the apex along their lines
-                        if (Pl.Dot(Ql) <= 0) continue;
-                        return true;
+                        if (sin * sin < sin2Min - SmallAngleSlack) {
+                            // where the lines meet
+                            double t1 = (ox * d2y - oy * d2x) / cross;
+                            double t2 = (ox * d1y - oy * d1x) / cross;
+                            // for ApexExempt (which excuses no triangle): the closed segments meet, decided exactly (the oracle's t in
+                            // [0, 1]); the test in doubles below misses a shared endpoint when t rounds to 1 + eps
+                            int kind = MeetKind(s1, s2);
+                            if (kind > 0) {
+                                pair.Meets = true; pair.Kind = kind; pair.Scale = ex;
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                            }
+                            // for SpansSmallAngle: the apex is on both segments, an input angle, not two lines that would meet far away
+                            // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
+                            if (!(t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0)) {
+                                pair.Small = true; pair.Scale = ex;
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                            }
+                        }
                     }
-                return false;
+                }
+                smallPairs.Add(key, pair);
+                return pair;
+            }
+
+            /// <summary>
+            /// sources a and c make a small input angle (strict: Small, otherwise Meets), and p and q lie at distances from its apex within a
+            /// factor of 1.5 of each other (2.24 on the squares; the oracle's SpansSmallInputAngle allows 1.5), on the same side of it
+            /// </summary>
+            bool NearSmallAngle(int a, int c, Vector2d P, Vector2d Qv, bool strict = true)
+            {
+                var pair = PairOf(a, c);
+                if (!(strict ? pair.Small : pair.Meets)) return false;
+                // p, q and the apex relative to s1's start, in the common scale
+                var Pl = ScaleB(P - pair.From, -pair.Scale) - pair.Apex; var Ql = ScaleB(Qv - pair.From, -pair.Scale) - pair.Apex;
+                double rp = Pl.LengthSquared, rq = Ql.LengthSquared;
+                if (!(rp > 0) || !(rq > 0) || rp > 2.24 * rq || rq > 2.24 * rp) return false;
+                // and p, q lie on the same side of the apex along their lines
+                return Pl.Dot(Ql) > 0;
             }
 
             /// <summary> the input segment a snapped source comes from, as a source with its coordinates (itself if unknown) </summary>
@@ -1477,7 +1590,7 @@ namespace g3
             ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
-                if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
+                if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); Note(10); return null; }
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
                 Vector2d oc = default(Vector2d);
                 bool off = tryOffCentre && OffCentre(t, out oc);
@@ -1487,12 +1600,12 @@ namespace g3
                 bool chosen = false;
                 if (bestCandidate && tryOffCentre && BestCandidate(t, c, off, oc, out var picked)) { off = true; oc = picked; chosen = true; }
                 if (off) c = grid != null ? grid.Round(oc) : oc;
-                else if (grid != null && !CircumcentrePixel(t, out c)) { exempt.Add(TriangleKey(t)); return null; }
+                else if (grid != null && !CircumcentrePixel(t, out c)) { exempt.Add(TriangleKey(t)); Note(10); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
-                    if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
-                    if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
+                    if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); Note(11); return null; }   // (the domain is bounded by constraints: not expected)
+                    if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); Note(11); return null; }
                     splitCause = 1;
                     // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
                     // encroachment split (found by lenses on the earcut water corpus input)
@@ -1512,7 +1625,7 @@ namespace g3
                     if (failure != null) return failure;
                     // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
                     // encroachment of an unsplittable subsegment no longer stops its circumcentre, which may still fit on the grid
-                    if (unsplittable.Contains(key) && grid == null) exempt.Add(tKey);
+                    if (unsplittable.Contains(key) && grid == null) { exempt.Add(tKey); Note(11); }
                     return null;
                 }
                 // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)
@@ -1525,7 +1638,7 @@ namespace g3
                 long walked = k.WalkSteps;
                 k.InsertPoint(c.x, c.y);
                 WalkStepsForTests += k.WalkSteps - walked; ++LocationsForTests;
-                if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; return null; }
+                if (k.VertexCount == before) { k.Dirty.Clear(); if (off) return SplitTriangle(t, false); exempt.Add(TriangleKey(t)); if (grid != null) ++GridBlocked; else Note(12); return null; }
                 ++inserted;
                 if (CountsForBenchmarks != null) { int slot = chosen ? 7 : off ? 4 : 3; if (slot < CountsForBenchmarks.Length) ++CountsForBenchmarks[slot]; }
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
@@ -1642,12 +1755,12 @@ namespace g3
                     // the point may lie off the segment by far more than a relative error: outside the domain on the hull, off its source on
                     // a constraint (found with the reference comparison: m1/subnormal-32 with an angle bound). Only a point exactly on the
                     // source, strictly between the piece's ends, is used; otherwise the piece is not split
-                    if (ex < MinRoundedSplitExponent && !ExactlyWithin(A, B, pu, pw, p)) { unsplittable.Add(Key(u, w)); return null; }
+                    if (ex < MinRoundedSplitExponent && !ExactlyWithin(A, B, pu, pw, p)) { unsplittable.Add(Key(u, w)); Note(13); return null; }
                 }
                 // (On the hull a point that rounds to the outside extends the triangulation's hull by a sliver, and Lawson's flips remove
                 // the old hull edge; a point moved inwards instead would leave a sliver at an unconstrained hull edge.)
                 if ((p.x == pu.x && p.y == pu.y) || (p.x == pw.x && p.y == pw.y) || double.IsNaN(p.x) || double.IsNaN(p.y)) {
-                    unsplittable.Add(Key(u, w));
+                    unsplittable.Add(Key(u, w)); Note(14);
                     return null;
                 }
                 // a split point within the tolerance of another constraint would merge the two chains there (O11: nearly coincident
@@ -1655,7 +1768,7 @@ namespace g3
                 // input vertex (found with the corpus run, earcut's water): the piece stays as it is
                 // (on the grid the exact checks of ValidGridSplit take its place: no other constraint in q's pixel, no crossing, and a
                 // vertex already at q, possibly the end of another constraint, is a vertex the chains may share, as hot pixels are)
-                if (grid == null && b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); return null; }
+                if (grid == null && b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); Note(15); return null; }
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 // with lenses, Chew's deletion before the bisection (Shewchuk 2002, section 6.4): the free vertices in the diametral circle
                 // that see its midpoint go; the piece itself is unchanged, its half-edge is found again (deletion renumbers triangles)
@@ -1679,7 +1792,7 @@ namespace g3
                     ++inserted;
                     if (CountsForBenchmarks != null) ++CountsForBenchmarks[splitCause];
                     if (b.heights != null) b.SetHeight(q, u, w);
-                } else if (grid == null || q == u || q == w) unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
+                } else if (grid == null || q == u || q == w) { unsplittable.Add(Key(u, w)); Note(14); }   // no new vertex: no progress from splitting this piece
                 var pending = pendingPieces; pending.Clear();
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = sources });
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(sources) });
