@@ -55,8 +55,7 @@ Status on 2026-11-08.
 - **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle (#411, #427),
   grading and run A are done; the small-angle rule for cq / constrained mode merged in #394. Running (owner
   2026-11-08): a Sonnet session with the #390 docs correction, the corner choice, lenses to 28.6° and the small-angle
-  rule for the default mode (O2 unchanged). Coarsening waits for a runner re-measurement; off-centers are a later
-  candidate. [meshing2d.md](roadmap/meshing2d.md#open)
+  rule for the default mode (O2 unchanged). Coarsening waits for a runner re-measurement. [meshing2d.md](roadmap/meshing2d.md#open)
 - **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
   session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
   #411 (owner's oracle speed-up, certified STRtree pruning as the oracle default) merged 2026-11-08; next (owner 2026-11-08, no dependency on the

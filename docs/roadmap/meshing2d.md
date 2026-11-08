@@ -36,9 +36,8 @@ Small input angles and triangle count:
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
   quadtree meshing, smoothing) are recorded below, not scheduled.
-  Candidate for later (owner 2026-11-08): off-center Steiner points (Üngör 2004/2009; fewer Steiner points and more
-  graded meshes than circumcenters, same termination guarantee), as a prototype behind a switch with an upper bound
-  on f-11 and the run-A triangle counts first.
+  (Off-centres, Üngör 2004, are already the default split point, and Erten / Üngör 2007's locally optimal candidates
+  are grading step 2; neither is a new lever.)
 - **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
   170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
   gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
