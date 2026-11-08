@@ -434,36 +434,7 @@ namespace g3
         // component
         void component_scales()
         {
-            int nv = Mesh.MaxVertexID;
-            var parent = new int[nv];
-            for (int v = 0; v < nv; ++v) parent[v] = v;
-            Func<int, int> find = null;
-            find = (v) => { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
-            foreach (int t in Mesh.TriangleIndices()) {
-                Index3i tv = Mesh.GetTriangle(t);
-                int ra = find(tv.a), rb = find(tv.b), rc = find(tv.c);
-                // (the smaller root wins: the same components for the same mesh)
-                int r = Math.Min(ra, Math.Min(rb, rc));
-                parent[ra] = r; parent[rb] = r; parent[rc] = r;
-            }
-            componentOf = new int[nv];
-            var index = new Dictionary<int, int>();
-            var boxes = new List<AxisAlignedBox3d>();
-            foreach (int t in Mesh.TriangleIndices()) {
-                Index3i tv = Mesh.GetTriangle(t);
-                int r = find(tv.a), c;
-                if (index.TryGetValue(r, out c) == false) {
-                    index[r] = c = boxes.Count;
-                    boxes.Add(AxisAlignedBox3d.Empty);
-                }
-                AxisAlignedBox3d b = boxes[c];
-                b.Contain(Mesh.GetVertex(tv.a)); b.Contain(Mesh.GetVertex(tv.b)); b.Contain(Mesh.GetVertex(tv.c));
-                boxes[c] = b;
-            }
-            for (int v = 0; v < nv; ++v) {
-                int c;
-                componentOf[v] = index.TryGetValue(find(v), out c) ? c : 0;
-            }
+            List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
             int n = Math.Max(boxes.Count, 1);
             areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
             maxLength = 0;
@@ -472,12 +443,7 @@ namespace g3
             // overflows) makes the size NaN, whatever the order of the components: every edit is rejected (the bound is
             // NaN), no component is removed as tiny or thin (an infinite size would remove every closed component as tiny),
             // and the repair is not clean (ScaleNotFinite: by area nothing is degenerate)
-            double size = 0;
-            foreach (AxisAlignedBox3d bx in boxes) {
-                double d = bx.DiagonalLength;
-                if (!(d < double.PositiveInfinity)) size = double.NaN;
-                else if (d > size) size = d;
-            }
+            double size = gs.MeshRepairMetrics.LargestDiagonal(boxes);
             ScaleNotFinite = double.IsNaN(size);
             for (int c = 0; c < boxes.Count; ++c) {
                 AxisAlignedBox3d bounds = boxes[c];

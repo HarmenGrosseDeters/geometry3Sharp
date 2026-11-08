@@ -667,12 +667,16 @@ namespace gs
                 bool editedAfterRounding = false;
                 if (reason == "degenerate triangles") {
                     editedAfterRounding = true;
-                    new MeshPostRepairCleanup(res).Apply();
+                    // (relative to the largest component, as the safe rounding: a small part far from the rest must not
+                    // make every other triangle degenerate and collapse it)
+                    double scale = MeshRepairMetrics.LargestComponentDiagonal(res);
+                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = scale }.Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
                     // the self-intersections that can create are found below and resolved by the next round (so
                     // only when they are checked)
-                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles" && CollapseSlivers(res) > 0)
+                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles"
+                        && collapse_slivers(res, 1e-4, 5, scale > 0 && scale < double.PositiveInfinity ? scale : MeshRepairMetrics.TriangleBounds(res).DiagonalLength) > 0)
                         res = new DMesh3(res, true);
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
@@ -847,7 +851,12 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+            return collapse_slivers(mesh, maxCollapse, maxPasses, MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength);
+        }
+
+        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component)
+        static int collapse_slivers(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
+        {
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
             for (int pass = 0; pass < maxPasses; ++pass) {

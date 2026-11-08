@@ -26,6 +26,12 @@ namespace gs
 
         /// <summary> triangles with area below DegenerateAreaFactor * diag^2 (diagonal of the bounds of the triangles) are degenerate </summary>
         public double DegenerateAreaFactor = 1e-12;
+        /// <summary>
+        /// the diagonal diag of DegenerateAreaFactor instead of that of the bounds of the triangles, if finite and
+        /// positive (NaN, the default: the bounds of the triangles). MeshRobustRepair passes the diagonal of the largest
+        /// connected component, so that a small part far from the rest does not make every triangle degenerate
+        /// </summary>
+        public double ReferenceDiagonal = double.NaN;
         /// <summary> triangles with longest-edge/height ratio above this are treated like degenerate ones </summary>
         public double MaxAspectRatio = 1000;
         /// <summary> edges whose two triangle normals differ by more than this (degrees) are folds </summary>
@@ -52,7 +58,8 @@ namespace gs
         /// </summary>
         public void Apply()
         {
-            double diag = Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
+            double diag = (ReferenceDiagonal > 0 && ReferenceDiagonal < double.PositiveInfinity) ? ReferenceDiagonal
+                : Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
             areaEps = DegenerateAreaFactor * diag * diag;
             foldCos = Math.Cos(FoldAngleDeg * MathUtil.Deg2Rad);
 
