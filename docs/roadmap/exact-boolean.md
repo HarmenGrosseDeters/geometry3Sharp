@@ -42,7 +42,9 @@ with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is bu
 
 **Lévy-style classification (owner 2026-11-08, queued):** for the self-intersecting, unknown and open cohorts;
 phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue
-clears). Started and paused the same day (owner: wait); session session_01AaGT5DeCT9eMf9S5jzFrxx resumes it.
+clears). Started and paused the same day (owner: wait); its session is archived, the hand-over note is on branch
+`claude/levy-classification-phase1` (docs/design/LEVY_CLASSIFICATION_HANDOVER.md). A fresh session takes it up once the
+merge queue of the speed levers has cleared.
 
 **Final A/B of the speed levers (runner, 2026-11-08, 42 models x 3 ops, bit-identical):** master 342 s, ops > 5 s 20;
 +#409 -13 %; +#412 -22 %; +#406 +#419 -41 % (rounding -68 %), ops > 5 s 6 (519511 x3, 1517923 union / intersection,
