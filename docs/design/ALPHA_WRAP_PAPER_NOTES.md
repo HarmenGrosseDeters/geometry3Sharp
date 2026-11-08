@@ -182,9 +182,9 @@ inserted.
 **[library] Where `MeshAlphaWrap` departs from these assumptions** (from `mesh_ops/MeshAlphaWrap.cs` and the
 alpha wrap section of `docs/SOURCES.md`; candidates for the raw-wrap investigation, not verified here):
 
-- Traversability uses the facet's circumradius instead of Φ(f). The circumradius is at most Φ(f), so a remaining gate
-  still has R <= α, and the R1 point (on the dual edge) is still at least Φ(f) > α from the facet's vertices. The
-  bound above is unaffected.
+- Traversability used the facet's circumradius instead of Φ(f) (until Alpha Wrap 2.0, section 7). The circumradius is
+  at most Φ(f), so a remaining gate still has R <= α, and the R1 point (on the dual edge) is still at least Φ(f) > α from
+  the facet's vertices. The bound above is unaffected either way.
 - The removal of enclosed outside pockets and the manifold step move outside cells back inside. Their facets become
   output facets that were never tested as gates, so neither R < α nor the bound applies to them. (The class doc
   already notes the band can grow to about Offset + 2 Alpha there.) The paper has no such step: it leaves pinches in
@@ -251,3 +251,34 @@ accepting the time cost in the table below).
 | Steiner points added by the refinement (share of all) | 16606 (0.03 %) | 1682 (0.4 %) |
 | time per mesh, median / p90 (3 meshes in parallel on 4 cores) | ×1.22 / ×1.44 | ×1.05 / ×1.38 |
 
+
+## 7. Alpha Wrap 2.0: gates by Φ(f) and a quality refinement (2026-11-08)
+
+Owner target: the raw wrap's p01 angle (the 1 %-worst smallest angle) at least that of CGAL's alpha wrap, about 2°
+higher at α = l_b/300, δ = l_b/3000 (#317).
+
+- **What CGAL's output looks like** (behaviour only, CGAL 5.6 as a black box, 12 meshes of the 800 sample): every
+  vertex on the offset surface as ours, about 4 % denser (facet circumradius / α median 0.78 against 0.82), every facet
+  with R <= α, p01 median 19.6° against our 17.8°.
+- **Φ(f).** We used the circumradius (section 5). With the paper's Φ(f), the obtuse facets whose circumcircle is smaller
+  than α but whose empty balls are not become gates: p01 17.8° -> 18.3°, triangles above 150° 11 -> 1 (12 meshes),
+  +0.2 % triangles. On thin sheets it costs what it costs the paper's wrap: a plate of thickness 0 at l_b/300 gets
+  twice the triangles (CGAL the same, 254k against our 249k), a plate of 1e-3 +24 % (CGAL 144k, ours 143k).
+- **Quality refinement** (`RefineMinAngleDegrees`, our addition; Chew 1993, Boissonnat and Oudot 2005): a result facet
+  with a smallest angle below 15° gets the center of its surface Delaunay ball (the crossing of its dual edge with
+  I_δ), otherwise the projection of its inside cell's circumcenter, both only with the separation min(δ, α − δ), so
+  section 6's bound holds and the refinement terminates (and at most 10 rounds). It runs after the pinch refinement,
+  which then runs once more: its points made new pinches on random soups, and the manifold step moved up to 4 times
+  more cells (band 1.12 (δ + α)).
+- **Measured** (12 meshes, 300/3000):
+
+| | p01 median / min | triangles > 150° | max angle | triangles | time |
+|---|---|---|---|---|---|
+| before | 17.8 / 11.6 | 11 | 174.6° | 1.462M | 1 |
+| Φ | 18.7 / 12.1 | 1 | 150.2° | +0.2 % | 0.95 |
+| Φ + refinement 15° | **20.4 / 16.8** | 50 | 156.4° | +2.4 % | 0.93-1.03 |
+| Φ + refinement 20° | 22.3 / 20.2 | 307 | 161.7° | +6.8 % | 1.1 |
+| refinement 15° without Φ | 19.0 / 15.7 | 1232 | 177.7° | +2.4 % | 1.14 |
+| CGAL 5.6 | 19.8 / 11.9 | 1 | 150.1° | +10 % | 5.8 |
+
+  Without the fallback (the circumcenter projection), p01 19.8° and 126 triangles above 150°.
