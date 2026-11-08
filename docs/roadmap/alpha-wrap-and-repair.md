@@ -32,7 +32,11 @@ Part of the [roadmap](../ROADMAP.md).
   pass off, 800): final p01 median 11.53° (min 10.79°, master 7.62°), 0 triangles < 0.5° or > 170°, raw p01 median
   20.11°, F-score / IoU medians not worse, triangles +16.5 %; hd_back mixed per mesh (79-81 worse > 5 %, 124-126 better, medians equal), caused by B's Φ gating (paper
   Definition 2; CGAL shows equal or larger input→result distances on the probed meshes), accepted as paper behaviour
-  (owner 2026-11-08; the circumradius gates would cost the raw p01 gain);
+  (owner 2026-11-08; the circumradius gates would cost the raw p01 gain); T2 (100 T1 meshes, warm): 4a (#417)
+  identical, wrap.manifold 32 → 7 s; 4b (local pinch trials) 94/100 identical, 6 marginal changes, pinch 159 → 68 s;
+  speed budget passed by 24 → 27 → 35 of 100 (median 1.14 → 1.06× budget). Owner 2026-11-08: 4b becomes a PR,
+  default on; parallel reducer option (A) is built as a deterministic prototype behind a switch, PR decision from
+  its T1 measurement;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
