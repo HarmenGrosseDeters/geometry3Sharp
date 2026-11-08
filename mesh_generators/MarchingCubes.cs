@@ -59,8 +59,12 @@ namespace g3
         public bool ParallelCompute = true;
 
 
-        /// <summary> How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, or bisection </summary>
-        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
+        /// <summary>
+        /// LinearEdges uses the original corner samples without endpoint nudging.
+        /// See docs/design/CONSERVATIVE_MC_AUDIT.md for the conditional enclosure recipe;
+        /// this mode alone does not certify an arbitrary field or output mesh.
+        /// </summary>
+        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
         /// <summary>
         /// Which rootfinding method will be used to converge on surface along edges
@@ -356,8 +360,13 @@ namespace g3
             int a = find_or_append_vertex(pa);
             int b = find_or_append_vertex(pb);
             int c = find_or_append_vertex(pc);
-            if (a != b && a != c && b != c)
-                Mesh.AppendTriangle(a, b, c);
+            if (a != b && a != c && b != c) {
+                int tid = Mesh.AppendTriangle(a, b, c);
+                if (RootMode == RootfindingModes.LinearEdges && tid < 0)
+                    throw new InvalidOperationException("LinearEdges: mesh rejected a required triangle");
+            } else if (RootMode == RootfindingModes.LinearEdges) {
+                throw new InvalidOperationException("LinearEdges: a crossing collapsed to a grid corner");
+            }
         }
 
 
@@ -376,20 +385,23 @@ namespace g3
             // repeated nearly-coincident vertices, but the mesh will be manifold.
             // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
             // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
-            const double dt = 0.999999;
-            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
-            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
-            if (Math.Abs(valp1 - valp2) <= tol) {
-                pIso = (p1 + p2) * 0.5;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp1) < tol) {
-                pIso = dt*p1 + (1.0-dt)*p2;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp2) < tol) {
-                pIso = (dt)*p2 + (1.0-dt)*p1;
-                return;
+            // LinearEdges bypasses the endpoint nudges used by the legacy modes.
+            if (RootMode != RootfindingModes.LinearEdges) {
+                const double dt = 0.999999;
+                double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+                if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+                if (Math.Abs(valp1 - valp2) <= tol) {
+                    pIso = (p1 + p2) * 0.5;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp1) < tol) {
+                    pIso = dt*p1 + (1.0-dt)*p2;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp2) < tol) {
+                    pIso = (dt)*p2 + (1.0-dt)*p1;
+                    return;
+                }
             }
 
             // [RMS] if we don't maintain min/max order here, then numerical error means
@@ -399,6 +411,23 @@ namespace g3
             if (valp2 < valp1) {
                 a = p2; b = p1;
                 fb = valp1; fa = valp2;
+            }
+
+            if (RootMode == RootfindingModes.LinearEdges) {
+                double gap = fb - fa;
+                double t = (IsoValue - fa) / gap;
+                if (!(gap > 0) || double.IsInfinity(gap) || double.IsNaN(t) || double.IsInfinity(t))
+                    throw new ArgumentException("LinearEdges requires finite, distinct crossing values");
+                t = Math.Max(0, Math.Min(1, t));
+                for (int d = 0; d < 3; ++d) {
+                    double q = a[d] + t * (b[d] - a[d]);
+                    if (double.IsNaN(q) || double.IsInfinity(q))
+                        throw new ArgumentException("LinearEdges requires finite edge coordinates");
+                    pIso[d] = Math.Max(Math.Min(a[d], b[d]), Math.Min(Math.Max(a[d], b[d]), q));
+                }
+                if (pIso == a || pIso == b)
+                    throw new InvalidOperationException("LinearEdges requires strictly interior edge crossings");
+                return;
             }
 
             // converge on root

@@ -274,3 +274,134 @@ standard model and its variant (2.5)); J. R. Shewchuk, *Adaptive Precision Float
 Robust Geometric Predicates*, DCG 1997 (filters with error bounds of the form `c m~`); M. Attene, *Indirect
 Predicates for Geometric Constructions*, CAD 2020 (the filtered indirect predicates being checked). Only results
 are used, no code.
+
+## Conservative Marching Cubes: source-coupled adapter
+
+```sh
+/tmp/g3-z3/bin/python tools/Z3Pilot/conservative_mc.py --out /tmp/z3-conservative-mc.json
+/tmp/g3-z3/bin/python -m unittest discover -s tools/Z3Pilot -p test_conservative_mc.py -v
+# Optional unreduced nonlinear zero-point experiment, UNKNOWN is a failure:
+/tmp/g3-z3/bin/python tools/Z3Pilot/conservative_mc.py --direct --timeout-ms 1000 --out /tmp/z3-mc-direct.json
+```
+
+Source: only Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
+[arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), sections 1, 3, 3.1.
+[Prerequisite audit and recipe](../../docs/design/CONSERVATIVE_MC_AUDIT.md).
+The default gate is a **modular adapter certificate**, not the initially proposed
+monolithic `x`, eight samples and nonlinear inside query. It reuses the paper's
+continuous-function/convex-lift theorem. Every table row is checked, without a
+15-case symmetry assumption. The optional `--direct` mode does formulate that
+zero-point query, over-approximating the high region by its boundary convex hull.
+Do not count UNKNOWN as evidence. Infeasible zero-point assumptions are listed
+as exclusions, not as SAT-guarded proofs: the all-high case above the threshold
+has no feasible zero point, so requiring SAT assumptions in all 256 such queries
+would itself be incorrect. The default adapter guards are SAT for every row.
+
+### Composition and what Z3 checks
+
+1. Parse the actual active edge/triangle tables of both implementations; verify
+   crossing masks, edge numbering, table identity and full reviewed source hashes.
+   Source drift in classification, corner sampling, grid formation, interpolation
+   or emitted winding must fail before any solver query.
+2. For each row construct the **high-side boundary chain**: reverse the MC
+   triangles and close them with outward-oriented high-side cube-face polygons.
+   Verify the cap arcs form disjoint oriented cycles and every edge cancels.
+   Verify face choices depend only on their four signs and match neighboring
+   cells. All cap vertices are high corners or emitted crossings. A cap polygon
+   can be triangulated as an oriented fan using its boundary vertices; this is a
+   signed chain, so convexity of the polygon is unnecessary.
+3. Z3 checks the linear edge lift identity and nonnegative-product lemma. For
+   each actual table row, abstract each convex weight times its normalized lift
+   as a contribution. A crossing contributes its weight; a high corner
+   contributes at least its weight. Contributions therefore sum to at least one.
+   Each case is a SAT-guarded UNSAT query. This abstraction uses the independently
+   proved product and edge lemmas, not an assumed conclusion about enclosure.
+4. Mathematical bridge (not proved again by SMT): a closed finite oriented
+   boundary chain has winding zero outside its vertices' convex hull. By (3)
+   its hull lies in the paper's projected convex lift `P`. The paper excludes
+   true zero points from that hull above half the cell diagonal. Adding the
+   high chains over the grid cancels internal caps. Require every sample on
+   the actual extraction boundary to be high (`f >= sigma`) and the complete
+   target zero set to lie inside that boundary. The remaining chain is then
+   the full extraction-box boundary minus the MC surface. Thus a true zero point inside the box has MC
+   winding number one. This establishes **winding enclosure**, not embeddedness
+   or a guarantee for every ray-parity implementation on self intersections.
+   Runtime success must retain every required triangle; `LinearEdges` throws on
+   collapsed crossings or rejected triangles. Bounds must fully contain the
+   offset surface AND enclose the bounded low solid, with all extraction-boundary
+   samples high; containing the offset surface alone is insufficient. The field
+   must be deterministic/thread-safe for parallel use,
+   and canceled or failed runs are never certificates. Pro continuation can miss
+   components and is excluded; its 16-bit index hashing requires dimensions
+   below 65536. Use full `Generate()`.
+5. Required SAT controls: the positive-radius cell-center sphere below the
+   threshold, and a deliberately incorrect crossing placement with a lift below
+   sigma. These check satisfiability, not merely absence of counterexamples.
+
+### FP bridge and normalized recipe
+
+The two FP obligations use **real rounding-error envelopes**, as a modular
+Pilot-2-style proof. Standard correctly-rounded IEEE binary64 RNE operations
+without fused contraction are assumptions, not re-proved IEEE lemmas. For
+`|fa|, |fb|, |sigma| <= 1`, exact positive sample gap `d >= 2^-20`, and
+`n = sigma-fa` with `0 <= n <= d`, both differences have absolute rounding error
+at most `u = 2^-52` (including subnormals). The rounded quotient's magnitude is
+below two, giving the same absolute error envelope. Z3 proves the quotient's
+error from the exact interpolation parameter is at most `2^-30`.
+
+Clamping the parameter to `[0,1]` cannot increase this error. With endpoint
+coordinates in `[-1,1]`, subtraction error is at most `u`; the multiply/add
+errors are each at most `2u`. The second obligation proves position error at
+most `E = 2^-28`. Coordinate clamping to the original edge interval cannot
+increase it. On an axis-aligned grid only one coordinate varies, so `E` is also
+a Euclidean error bound. This does not certify construction of the grid itself:
+the recipe requires exactly representable grid nodes, e.g. dyadic origin and
+power-of-two spacing with small integer indices. All generated nodes, including
+the extra boundary cell, must satisfy the coordinate bounds.
+
+For exact 1-Lipschitz samples the linear edge slope has magnitude <= 1, so the
+lift deficit is <= E. High corners and crossings then have lift >= sigma-E.
+The paper's argument applies at that lowered lift. One deliberately loose,
+concrete recipe for an exact dyadic grid with `0 < h <= 1` is:
+
+```cs
+mc.RootMode = MarchingCubes.RootfindingModes.LinearEdges;
+mc.IsoValue = Math.Sqrt(3.0) * mc.CubeSize / 2 + Math.Pow(2, -26);
+mc.Generate(); // Do not use a partial, canceled or failed result.
+```
+
+For Pro use its corresponding enum. `LinearEdges` bypasses Pro's float sample
+cache and evaluates doubles, but double field evaluation is still not exact
+mathematics. The `2^-26` pad dominates `E` and rounding in the displayed level
+formula under these normalized conditions. Require all sample magnitudes and
+crossing gaps to meet the bounds above, no corner exactly at the level, and
+strictly interior representable crossings. Require all samples on the actual extraction boundary (including the extra
+cell) to be high and the entire true zero set to be inside. Check the final mesh
+is closed and valid; a finite mesh is not by itself an enclosure certificate.
+
+For approximate samples with a **proved** absolute evaluation error `e` and a
+bound `S` on the sampled linear edge slopes, use a level strictly above
+`half_diagonal + e + S*E`, also allowing for level computation. One may bound
+`S <= 1 + 2*e/min_edge_length` when a true 1-Lipschitz field underlies the samples.
+An unquantified mesh-SDF approximation or arbitrary additional epsilon is not
+certified by this recipe. Far coordinates, smaller gaps, nonexact grids,
+overflow and other root modes remain outside these FP lemmas.
+
+### Recorded outcome
+
+`results/conservative-mc.json` records the default source-coupled gate: 260
+SAT-guarded UNSAT obligations and both SAT controls with exact-rational replay.
+`results/conservative-mc-direct-summary.json` records the separate short-budget
+experiment (`--direct --timeout-ms 100`): one direct UNSAT with SAT assumptions,
+255 direct UNKNOWN results. This is explicitly **not** a completed direct NRA
+certificate. The modular certificate above is the verification used by the
+conditional recipe; its winding-chain and rounding bridges remain reviewable
+mathematical steps. Independent review found and fixed incomplete source
+coupling and the missing outer-boundary-high precondition.
+
+`results/conservative-mc-validation.json` records native tests, the controlled
+legacy-nudge mutation (two expected failures), all Python pilot tests, both
+library targets, net48 compilation and API package validation. New pilot solver
+tests use child processes to keep their expression context out of existing
+pilots: an initial shared-context run timed out in Pilot 2's product lemma;
+isolated execution passes without changing that lemma or accepting UNKNOWN.

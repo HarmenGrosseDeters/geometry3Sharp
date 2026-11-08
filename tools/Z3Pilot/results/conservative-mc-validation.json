@@ -1,0 +1,49 @@
+{
+  "environment": "Python 3.12, z3-solver 4.15.4.0, .NET SDK 10.0.403, Linux; DOTNET_CLI_HOME and NUGET_PACKAGES under /tmp",
+  "checks": [
+    {
+      "name": "new_dotnet_tests",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~MarchingCubesConservativeTests --nologo -m:1",
+      "exit_code": 0,
+      "output": "  Meshing2Oracle -> /workspace/geometry3Sharp/benchmarks/Meshing2Benchmark/Oracle/bin/Release/netstandard2.0/Meshing2Oracle.dll\n  geometry3Sharp.Tests -> /workspace/geometry3Sharp/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll\nTest run for /workspace/geometry3Sharp/tests/geometry3Sharp.Tests/bin/Release/net10.0/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     8, Skipped:     0, Total:     8, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)"
+    },
+    {
+      "name": "controlled_nudge_mutant",
+      "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~LinearEdges_BypassesNudgeAndIsInvariant --nologo -m:1 (both find_iso legacy-nudge guards temporarily replaced with true, restored in finally)",
+      "exit_code": 1,
+      "output": "  Stack Trace:\n     at geometry3Sharp.Tests.MarchingCubesConservativeTests.LinearEdges_BypassesNudgeAndIsInvariant(Boolean pro) in /workspace/geometry3Sharp/tests/geometry3Sharp.Tests/MarchingCubesConservativeTests.cs:line 37\n   at InvokeStub_MarchingCubesConservativeTests.LinearEdges_BypassesNudgeAndIsInvariant(Object, Span`1)\n   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)\n\nFailed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 38 ms - geometry3Sharp.Tests.dll (net10.0)"
+    },
+    {
+      "name": "all_python_pilots",
+      "command": "python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v",
+      "exit_code": 0,
+      "output": "test_vacuous_obligation_is_not_success (test_pilot.PilotTests.test_vacuous_obligation_is_not_success) ... ok\n\n----------------------------------------------------------------------\nRan 17 tests in 119.590s\n\nOK"
+    },
+    {
+      "name": "new_python_pilot",
+      "command": "python -m unittest discover -s tools/Z3Pilot -p test_conservative_mc.py -v",
+      "exit_code": 0,
+      "output": "test_wrong_winding_breaks_high_cap (test_conservative_mc.ConservativeMcTests.test_wrong_winding_breaks_high_cap) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 2.103s\n\nOK"
+    },
+    {
+      "name": "library_all_targets",
+      "command": "dotnet build geometry3Sharp_netstandard.csproj -c Release --nologo -m:1",
+      "exit_code": 0,
+      "output": "/workspace/geometry3Sharp/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]\n/workspace/geometry3Sharp/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]\n    5 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:01:59.63"
+    },
+    {
+      "name": "net48",
+      "command": "dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true --nologo -m:1",
+      "exit_code": 0,
+      "output": "/workspace/geometry3Sharp/tests/geometry3Sharp.Tests/PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [/workspace/geometry3Sharp/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]\n/workspace/geometry3Sharp/tests/geometry3Sharp.Tests/PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [/workspace/geometry3Sharp/tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj::TargetFramework=net48]\n    8 Warning(s)\n    0 Error(s)\n\nTime Elapsed 00:01:04.13"
+    },
+    {
+      "name": "api_compatibility_pack",
+      "command": "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o /tmp/g3-mc-pack -p:Version=1.0.0-ci.1 --nologo -m:1",
+      "exit_code": 0,
+      "output": "/workspace/geometry3Sharp/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]\n  geometry3Sharp_netstandard -> /workspace/geometry3Sharp/bin/Release/net10.0/geometry3Sharp.dll\n/workspace/geometry3Sharp/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp/geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]\n  geometry3Sharp_netstandard -> /workspace/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.dll\n  Successfully created package '/tmp/g3-mc-pack/geometry3Sharp.1.0.0-ci.1.nupkg'.\n  Successfully created package '/tmp/g3-mc-pack/geometry3Sharp.1.0.0-ci.1.snupkg'."
+    }
+  ],
+  "review": "Independent review completed; source coupling and outer-boundary preconditions corrected. No remaining blockers for conditional winding enclosure.",
+  "limitations": "Draft validation: filtered native tests and all Python pilots; full library/CLI/addon suites remain CI gates. Direct NRA experiment remains incomplete."
+}

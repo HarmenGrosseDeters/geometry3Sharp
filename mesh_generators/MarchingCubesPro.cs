@@ -40,7 +40,12 @@ namespace gs
         /// </summary>
         public bool ParallelCompute = true;
 
-        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
+        /// <summary>
+        /// LinearEdges uses the original corner samples without endpoint nudging.
+        /// See docs/design/CONSERVATIVE_MC_AUDIT.md for the conditional enclosure recipe;
+        /// this mode alone does not certify an arbitrary field or output mesh.
+        /// </summary>
+        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
         /// <summary>
         /// Which rootfinding method will be used to converge on surface along edges
@@ -389,7 +394,10 @@ namespace gs
             cell.i[7] = new Vector3i(idx.x + 0, idx.y + 1, idx.z + 1);
 
             //initialize_cell_values(cell, false);
-            initialize_cell_values_grid(cell, false);
+            if (RootMode == RootfindingModes.LinearEdges)
+                initialize_cell_values_nohash(cell, false);
+            else
+                initialize_cell_values_grid(cell, false);
             //initialize_cell_values_nohash(cell, false);
         }
 
@@ -408,7 +416,10 @@ namespace gs
             cell.i[4].x = xi; cell.i[5].x = xi+1; cell.i[6].x = xi+1; cell.i[7].x = xi;
 
             //initialize_cell_values(cell, true);
-            initialize_cell_values_grid(cell, true);
+            if (RootMode == RootfindingModes.LinearEdges)
+                initialize_cell_values_nohash(cell, true);
+            else
+                initialize_cell_values_grid(cell, true);
             //initialize_cell_values_nohash(cell, true);
         }
 
@@ -633,8 +644,11 @@ namespace gs
                 // if a corner is within tolerance of isovalue, then some triangles
                 // will be degenerate, and we can skip them w/o resulting in cracks (right?)
                 // !! this should never happen anymore...artifact of old hashtable impl
-                if (a == b || a == c || b == c)
+                if (a == b || a == c || b == c) {
+                    if (RootMode == RootfindingModes.LinearEdges)
+                        throw new InvalidOperationException("LinearEdges: a crossing collapsed to a grid corner");
                     continue;
+                }
 
                 /*int tid = */
                 append_triangle(a, b, c);
@@ -682,6 +696,8 @@ namespace gs
             if (lock_taken)
                 mesh_lock.Exit();
 
+            if (RootMode == RootfindingModes.LinearEdges && tid < 0)
+                throw new InvalidOperationException("LinearEdges: mesh rejected a required triangle");
             return tid;
         }
 
@@ -701,20 +717,23 @@ namespace gs
             // repeated nearly-coincident vertices, but the mesh will be manifold.
             // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
             // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
-            const double dt = 0.999999;
-            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
-            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
-            if (Math.Abs(valp1 - valp2) <= tol) {
-                pIso = (p1 + p2) * 0.5;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp1) < tol) {
-                pIso = dt * p1 + (1.0 - dt) * p2;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp2) < tol) {
-                pIso = (dt) * p2 + (1.0 - dt) * p1;
-                return;
+            // LinearEdges bypasses the endpoint nudges used by the legacy modes.
+            if (RootMode != RootfindingModes.LinearEdges) {
+                const double dt = 0.999999;
+                double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+                if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+                if (Math.Abs(valp1 - valp2) <= tol) {
+                    pIso = (p1 + p2) * 0.5;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp1) < tol) {
+                    pIso = dt * p1 + (1.0 - dt) * p2;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp2) < tol) {
+                    pIso = (dt) * p2 + (1.0 - dt) * p1;
+                    return;
+                }
             }
 
             // [RMS] if we don't maintain min/max order here, then numerical error means
@@ -724,6 +743,23 @@ namespace gs
             if (valp2 < valp1) {
                 a = p2; b = p1;
                 fb = valp1; fa = valp2;
+            }
+
+            if (RootMode == RootfindingModes.LinearEdges) {
+                double gap = fb - fa;
+                double t = (IsoValue - fa) / gap;
+                if (!(gap > 0) || double.IsInfinity(gap) || double.IsNaN(t) || double.IsInfinity(t))
+                    throw new ArgumentException("LinearEdges requires finite, distinct crossing values");
+                t = Math.Max(0, Math.Min(1, t));
+                for (int d = 0; d < 3; ++d) {
+                    double q = a[d] + t * (b[d] - a[d]);
+                    if (double.IsNaN(q) || double.IsInfinity(q))
+                        throw new ArgumentException("LinearEdges requires finite edge coordinates");
+                    pIso[d] = Math.Max(Math.Min(a[d], b[d]), Math.Min(Math.Max(a[d], b[d]), q));
+                }
+                if (pIso == a || pIso == b)
+                    throw new InvalidOperationException("LinearEdges requires strictly interior edge crossings");
+                return;
             }
 
             // converge on root

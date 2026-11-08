@@ -4,6 +4,8 @@ on:
     paths:
       - 'tools/Z3Pilot/**'
       - 'comp_geom/SnapRounding2.cs'
+      - 'mesh_generators/MarchingCubes.cs'
+      - 'mesh_generators/MarchingCubesPro.cs'
       - 'benchmarks/Meshing2Benchmark/Oracle/Oracle.cs'
       - 'benchmarks/Meshing2Benchmark/Oracle/Exact.cs'
       # pilot 2: the filter rules of the predicate generator and the generated filters
@@ -30,6 +32,7 @@ jobs:
           Z3_PILOT_TIMEOUT_MS: '120000'
           Z3_PILOT_REPORT: z3-report.json
           Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
+          Z3_CONSERVATIVE_MC_REPORT: z3-conservative-mc-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -37,3 +40,4 @@ jobs:
           path: |
             z3-report.json
             z3-filter-rules-report.json
+            z3-conservative-mc-report.json
