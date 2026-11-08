@@ -73,6 +73,9 @@ class Program
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input; BENCH_REJECT_TOPOLOGY=1: RejectTopologyChange),
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
+            // wrappipe = the wrap fallback's pipeline as MeshRobustRepair runs it: MeshAlphaWrap (BENCH_WRAP_ALPHA / _OFFSET,
+            // default 300 / 3000 as the fallback), SimplifyAlphaWrap and AlphaWrapQualityPass, with the time per phase and
+            // the quality of the raw wrap (raw_*); BENCH_WRAP_SIMPLIFY=0 / BENCH_WRAP_QUALITY=0 leave a step out,
             // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
             // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
@@ -260,6 +263,9 @@ class Program
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
+            } else if (repairMode == "wrappipe") {
+                result = WrapPipeline(original, r);
+                ok = r["wrap_status"].ToString() == "Success" || r["wrap_status"].ToString() == "PointLimitReached";
             } else if (repairMode == "wrap") {
                 result = Wrap(original, r);
                 ok = r["wrap_status"].ToString() == "Success";
@@ -479,6 +485,61 @@ class Program
         r["wrap_counts"] = wrap.Counts;
         r["wrap_phases"] = wrap.PhaseMilliseconds;
         return wrap.Result ?? new DMesh3();
+    }
+
+    // the wrap fallback pipeline of MeshRobustRepair (raw wrap, simplification within half the offset, quality pass), as
+    // MeshRobustRepair.Apply runs it after a failed solidify; pipe_ms is the time of the three steps, pipe_phases their
+    // sub-steps (wrap.* = MeshAlphaWrap.PhaseMilliseconds; simplify.reduce / .check / .certify; quality.pass / .check / .certify)
+    static DMesh3 WrapPipeline(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        double relAlpha = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "300", inv);
+        double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "3000", inv);
+        Func<bool> never = () => false;
+        var phases = new System.Collections.Generic.Dictionary<string, long>();
+        var sw = Stopwatch.StartNew();
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        wrap.Compute();
+        long wrapMs = sw.ElapsedMilliseconds;
+        r["wrap_ms"] = wrapMs;
+        r["wrap_status"] = wrap.Status.ToString();
+        if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        r["wrap_alpha"] = wrap.UsedAlpha;
+        r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_counts"] = wrap.Counts;
+        foreach (var kv in wrap.PhaseMilliseconds) phases[kv.Key.StartsWith("wrap") ? kv.Key : "wrap." + kv.Key] = kv.Value;
+        DMesh3 raw = wrap.Result;
+        if (raw == null || raw.TriangleCount == 0 || (wrap.Status != MeshAlphaWrap.WrapStatus.Success && wrap.Status != MeshAlphaWrap.WrapStatus.PointLimitReached)) {
+            r["pipe_ms"] = sw.ElapsedMilliseconds;
+            r["pipe_phases"] = phases;
+            return raw ?? new DMesh3();
+        }
+        DMesh3 result = raw;
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
+            var sp = new System.Collections.Generic.Dictionary<string, long>();
+            long t0 = sw.ElapsedMilliseconds;
+            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv, sp) ?? raw;
+            phases["simplify"] = sw.ElapsedMilliseconds - t0;
+            foreach (var kv in sp) phases["simplify." + kv.Key] = kv.Value;
+            r["pipe_simplified"] = result != raw;
+        }
+        if (result != raw && Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") != "0") {
+            var qp = new System.Collections.Generic.Dictionary<string, long>();
+            long t0 = sw.ElapsedMilliseconds;
+            DMesh3 improved = MeshRobustRepair.ImproveWrapQuality(result, raw, 0.5 * wrap.UsedOffset, true, never, MeshRobustRepair.DefaultWrapQuality, qp);
+            phases["quality"] = sw.ElapsedMilliseconds - t0;
+            foreach (var kv in qp) phases["quality." + kv.Key] = kv.Value;
+            r["pipe_quality_improved"] = improved != null;
+            if (improved != null) result = improved;
+        }
+        r["pipe_ms"] = sw.ElapsedMilliseconds;
+        r["pipe_phases"] = phases;
+        // the raw wrap's triangle quality (angles only; raw_tris for the size)
+        r["raw_tris"] = raw.TriangleCount;
+        Quality(raw, r, "raw", false);
+        return result;
     }
 
     // CGAL's alpha wrap (external/cgal_wrap.cpp, path in CGAL_WRAP; GPL, for comparison only) on the input file,

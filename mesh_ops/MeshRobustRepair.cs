@@ -525,9 +525,10 @@ namespace gs
 
         /// <summary> SimplifyWithin; hausdorffSubdivisions: the subdivisions of the distance check (for tests) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            out int hausdorffSubdivisions)
+            out int hausdorffSubdivisions, Dictionary<string, long> phases = null)
         {
             hausdorffSubdivisions = 0;
+            Stopwatch timer = Stopwatch.StartNew();
             DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
                 PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
@@ -535,9 +536,13 @@ namespace gs
             };
             reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
             m = new DMesh3(m, true);
+            lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "certify", timer);
+            return within ? m : null;
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
@@ -584,20 +589,36 @@ namespace gs
         /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            Action<AlphaWrapQualityPass> configure = null)
+            Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)
         {
             int subdivisions = 0;
+            Stopwatch timer = Stopwatch.StartNew();
             // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
             // check, which resolves to 1 % of maxDistance, undecided)
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
             configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
-            if (pass.Compute() == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
+            bool computed = pass.Compute();
+            lap(phases, "pass", timer);
+            if (computed == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
                 return null;
             DMesh3 m = new DMesh3(pass.Mesh, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, wrap, maxDistance, cancelF, ref subdivisions);
+            lap(phases, "certify", timer);
+            return within ? m : null;
+        }
+
+        // (benchmarks) adds the time since the last lap to phases[name], if phases is given
+        static void lap(Dictionary<string, long> phases, string name, Stopwatch timer)
+        {
+            if (phases == null)
+                return;
+            phases.TryGetValue(name, out long ms);
+            phases[name] = ms + timer.ElapsedMilliseconds;
+            timer.Restart();
         }
 
         // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?

@@ -2,6 +2,8 @@
 #   data/meshes:       6 defect categories x 60 broken meshes (<= 100k faces) + 40 clean controls
 #   data/meshes_large: 30 broken meshes with 100k..1M faces  (skip with --no-large)
 # --holdout: a disjoint second selection of the same shape (other seeds, the default selection excluded)
+# --sample N [--seed S]: N random models with <= 100k faces (default seed 2611; the alpha wrap sample) in
+#   data/sample<N>_<S>/meshes (selection.csv); run it with BENCH_DATA=sample<N>_<S>
 #   in data/holdout/ (selection_holdout.csv, selection_large_holdout.csv, meshes, meshes_large)
 # Thingi10K models carry individual licenses (mostly Creative Commons), see data/input_summary.csv.
 import csv, json, os, random, re, sys, urllib.request
@@ -51,9 +53,22 @@ def select(seed, seed_large, exclude=frozenset()):
     large = {k: "large:" + "/".join(c for c in cats if s[k][c] == "FALSE") for k in random.sample(pool, 30)}
     return sel, large
 
+def arg(name, default):
+    return int(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
+
 sel, large = select(42, 7)
 prefix, suffix = "", ""
-if "--holdout" in sys.argv:
+if "--sample" in sys.argv:
+    # plain random sample of the dataset (no category stratification), eg the 800 sample of the alpha wrap work
+    n, seed = arg("--sample", 800), arg("--seed", 2611)
+    random.seed(seed)
+    ok = sorted(k for k in s if k in g and k in files and faces(k) <= 100000)
+    sel = {k: "sample" for k in random.sample(ok, n)}
+    large = {}
+    prefix, suffix = f"sample{n}_{seed}/", ""
+    os.makedirs(f"data/sample{n}_{seed}", exist_ok=True)
+    sys.argv.append("--no-large")
+elif "--holdout" in sys.argv:
     # independent test set: other seeds, every mesh of the default selection excluded
     sel, large = select(2026, 2027, set(sel) | set(large))
     prefix, suffix = "holdout/", "_holdout"
