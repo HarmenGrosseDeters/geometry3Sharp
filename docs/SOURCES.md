@@ -562,3 +562,12 @@ J. R. Shewchuk 1997 (see above); results only, no code.
   [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
   3.1. Paper-only mathematical source for the `LinearEdges` adapter and
   `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.
+
+## FPTaylor setup (test/tool only)
+
+[tools/FPTaylorPilot](../tools/FPTaylorPilot/README.md) installs FPTaylor b5a77cae (MIT) from its
+[official repository](https://github.com/soarlab/FPTaylor) for local analysis. It uses OCaml 4.14.2 and
+Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime dependencies; these are not
+ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
+Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
+FM 2015. The smoke example does not certify any geometry predicate.

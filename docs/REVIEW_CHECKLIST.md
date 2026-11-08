@@ -192,6 +192,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 
 ## 12. Test oracles and generators (#229)
 
+- Tool-result validation: parse decimal bounds without binary floating-point underflow masking a negative value;
+  reject malformed, non-finite or missing results.
+
 - Does each generator produce only inputs of the class it claims (eg "clean slivers"), and is that asserted,
   not let through by a relaxed check (`allowDegenerate`, a skipped probe)?
 - A self-test of a test harness (shrinking, replay): does it read the value it means to check (the shrunk seed,
