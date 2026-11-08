@@ -33,7 +33,8 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
 | the config | the whole shard | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
-| `.config/dotnet-tools.json`, the workflow | every config in full; an edit of the workflow that only adds or removes single-quoted items of the trigger `paths` (or comments and blank lines there or in the header before `on:`) runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
+| `.config/dotnet-tools.json` | every config in full | yes |
+| the workflow | every config in full if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
@@ -43,7 +44,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 
 Every full run stores its JSON report as the baseline of its config in the Actions cache
 ([baseline.py](baseline.py) `store`: only the files with tested mutants, keyed by relative paths; cache key
-`mutation-baseline-<config>-<hash of the config and the tools>-<run id>`). A PR that changes a mutated file restores
+`mutation-baseline-<config>-<hash of the config, the tools and `BASELINE_FORMAT`>-<run id>`). A PR that changes a mutated file restores
 the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
 master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
@@ -55,9 +56,31 @@ master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.
    Stryker's formula (killed and timeouts over killed, timeouts, survived and no coverage); below the config's break
    threshold the job fails. The job summary shows the counts.
 
-A changed config, a new Stryker version or a change to `baseline.py` / `incremental.py` changes the cache key, so a
+A changed config, a new Stryker version or a bump of `BASELINE_FORMAT` changes the cache key, so a
 baseline of another config or format is never used; without a baseline the shard runs in full and stores one. (The
 baseline's results can still be out of date for other reasons: see the limits.)
+
+**`BASELINE_FORMAT`** ([the file](BASELINE_FORMAT), an integer) stands in the cache key for the scripts: the key used to
+hash `baseline.py` and `incremental.py`, so any edit of them (a comment, a message) dropped every shard's baseline and
+the next PR ran in full for 4-6 hours. Bump it (and nothing else) when an OLD stored baseline would give other results
+through the new code: the layout that `baseline.py` stores, how `incremental.py` matches, counts or scores mutants, or
+how the mutated spans are read. Then every shard runs in full once and stores a new baseline (the next weekly or
+dispatched run on master seeds them). `test_baseline.py` fingerprints the functions involved
+(`FORMAT_FUNCTIONS`, as ASTs, so comments and formatting do not count) and fails when one changes: decide, bump the
+file if needed, and set `FORMAT_FINGERPRINT` to the value in the message.
+
+**Which edits of the workflow run every shard in full.** Only those that can change how a shard runs: the
+runner, the checkout, `setup-dotnet`, `dotnet tool restore`, the Stryker step (its env, run and comments), the
+`path` and `if` of the baseline steps, `strategy.matrix`, workflow-level `env` and `permissions`, unknown jobs, keys
+and steps. These do not: the trigger (`name`, `on:` with the paths, the cron, the dispatch input), `concurrency`, the
+whole `changes` job, `needs`, `if`, `timeout-minutes` and `strategy.fail-fast` / `max-parallel` of the Stryker jobs,
+the reporting steps (Summary, Surviving mutants, upload-artifact) and the cache `key` / `restore-keys` lines (a
+changed key can only lose baselines, and a shard without a baseline runs in full anyway;
+`test_cache_keys_name_the_shard_and_the_format` checks that every key names its config and `BASELINE_FORMAT`). A
+comment or blank line counts with its neighbours. The shards themselves come from the configs (the matrix is
+`fromJSON` of the selection), so a new or changed shard runs in full through its own config file, and the others do not.
+`max-parallel` is 12: a full run is 12 mesh shards, the arithmetic job and the selection job, which leaves 6 of the
+account's 20 concurrent jobs for CI.
 
 Stryker's own `--with-baseline` (5.0, experimental) is not used: it looks the baseline up by relative path while its
 report stores absolute paths, so it never matches; and it matches mutants by source text and mutator name, which is

@@ -5,9 +5,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
+import ast
+import hashlib
+import inspect
+
 import baseline
+import incremental
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,7 +32,31 @@ REPORT = {"schemaVersion": "2", "thresholds": {"high": 80, "low": 60}, "projectR
 }}
 
 
+# The cache key of a baseline holds BASELINE_FORMAT (a file) instead of the hashes of this script and incremental.py:
+# an edit of a comment, of this file or of an unrelated function then keeps every shard's baseline. The functions below decide
+# what a stored baseline looks like and how incremental.py reads it. When one of them changes (this test fails),
+# decide: does an OLD baseline still give the same results through the new code? If not (layout, keys, how mutants are
+# matched, counted or scored), bump BASELINE_FORMAT, so that every shard runs in full once and stores a new baseline
+# (the next weekly or dispatched run on master seeds them); if so, only update the fingerprint.
+FORMAT_FUNCTIONS = (baseline.relative_key, baseline.strip, incremental.parse_mutate, incremental.baseline_file,
+                    incremental.touches, incremental.counted, incremental.score, incremental.plan, incremental.merge)
+FORMAT_FINGERPRINT = "a7da7b708a6ec1bf"
+
+
+def format_fingerprint():
+    h = hashlib.sha256()
+    for f in FORMAT_FUNCTIONS:
+        h.update(ast.dump(ast.parse(textwrap.dedent(inspect.getsource(f)))).encode())
+    return h.hexdigest()[:16]
+
+
 class Baseline(unittest.TestCase):
+    def test_a_change_of_the_baseline_format_functions_needs_a_decision_on_BASELINE_FORMAT(self):
+        self.assertEqual(FORMAT_FINGERPRINT, format_fingerprint(),
+                         "the functions that write or read the baseline changed: bump tests/mutation/BASELINE_FORMAT if an "
+                         "old baseline would give other results (README, Baseline), then set FORMAT_FINGERPRINT to "
+                         + format_fingerprint())
+
     def test_strip_keeps_only_files_with_tested_mutants_under_relative_keys(self):
         stripped = baseline.strip(REPORT)
         self.assertEqual(["mesh_ops/MeshRoundingRepair.cs"], list(stripped["files"]))

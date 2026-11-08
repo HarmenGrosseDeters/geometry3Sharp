@@ -36,8 +36,9 @@ Read both before you change anything. If anything below conflicts with them, the
 - **Company code** (C:\Projekte\Base) is never a source.
 - **Mutation tooling** (`.github/workflows/mutation.yml`, `tests/mutation/`): name new test classes and files so they
   match a shard's existing `test-case-filter` and workflow `paths`, and do not touch the tooling. An edit is not free:
-  a change to `mutation.yml` beyond its trigger `paths` and comments runs every shard in full (4-5 h of runners; an
-  edit of the `paths` alone runs nothing by itself), and a change to a shard's `stryker-*.json` gives it a new cache
+  a change to `mutation.yml` in a region that can change how a shard runs (the Stryker step, runner, setup, matrix,
+  workflow `env`) runs every shard in full (4-5 h of runners; an edit of the trigger, `max-parallel`, a reporting step or
+  a cache key runs nothing by itself, tests/mutation/README.md), and a change to a shard's `stryker-*.json` gives it a new cache
   key, so that shard runs in full. If a test cannot
   match, extending a filter or `paths` is allowed; say so and why in the PR. Other changes to the workflow or the
   scripts go through the coordinator, as every PR's mutation gate depends on them.
