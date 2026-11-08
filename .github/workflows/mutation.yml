@@ -43,6 +43,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
+      - 'tests/geometry3Sharp.Tests/TriTriPrefilterTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
