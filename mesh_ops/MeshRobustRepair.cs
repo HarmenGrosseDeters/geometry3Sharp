@@ -131,8 +131,8 @@ namespace gs
         /// </summary>
         public bool SimplifyAlphaWrap = true;
         /// <summary>
-        /// alpha wrap fallback: after the simplification, improve the triangle quality (the simplified wrap keeps
-        /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
+        /// alpha wrap fallback: after the simplification, improve the triangle quality (before the simplification's
+        /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
         /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
         /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the

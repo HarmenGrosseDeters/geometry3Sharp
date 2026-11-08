@@ -1,7 +1,8 @@
 # Alpha wrap quality pass (stage 7b)
 
 `MeshRobustRepair`'s alpha wrap fallback simplifies the wrap (`SimplifyAlphaWrap`, certified within half the wrap
-offset, #280). The simplified wrap keeps slivers: the `Reducer` stops at needles and caps of about 1.7 degrees.
+offset, #280). Before the quality guard of Alpha Wrap 2.0 (#405), the simplified wrap kept slivers: the `Reducer` stopped
+at needles and caps of about 1.7 degrees.
 `AlphaWrapQualityPass` (internal; `MeshRobustRepair.AlphaWrapQualityPass`; on by default from #292, off since Alpha Wrap 2.0
 (2026-11-08), when the simplification's quality guard made it nearly redundant) improves the triangle
 quality of the simplified wrap without giving up the certificate.
