@@ -49,8 +49,13 @@ Small input angles and triangle count:
   are grading step 2; neither is a new lever.)
 - **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
   170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
-  gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
-  check: whether coarsening is still the project for that week.) Inputs: the 170 run-A outputs above 1.5x the
+  gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). **Re-measurement
+  2026-11-08** (the #391 probe ported onto master with #394 and rule C, branch claude/coarsening-remeasure, not for merge;
+  public corpus, 252 runs per side, 20° and 30°): default mode −4.5 % (mode 1) / −4.8 % (mode 2) triangles over 235 both-ok
+  runs, none grew, 5 % ratio 0.91, mesher time +54 % / +64 %; constrained mode −3.9 % / −4.1 %, time +52 %; no verdict
+  changed, Steiner-limit runs unchanged. #394 and rule C took the large cases; the gain is the same small slice as before
+  (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. Owner decision
+  open. Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
