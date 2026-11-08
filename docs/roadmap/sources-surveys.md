@@ -19,6 +19,13 @@ Part of the [roadmap](../ROADMAP.md).
   [their section](#rwth-aachen-papers-survey-2026-11-05).
 - **Award-winning papers:** documented only. The affine heat method stopped at its gate (#371); generalized winding
   numbers for rational curves are Phase 5 next research item 3 ([research.md](research.md#phase-5-candidates-from-recent-research)).
+- **Other alpha-wrap implementations (survey 2026-11-08, noted only, owner):**
+  [alecjacobson/alpha-wrap](https://github.com/alecjacobson/alpha-wrap) is a self-declared clean-room, CGAL-free
+  implementation of Portaneri et al. 2022 under MIT (C++17, Python bindings, Shewchuk predicates; very young: 8
+  commits; claims watertight, 2-manifold, oriented, enclosing, no claim of freedom from self-intersections; its
+  optional CGAL backend is GPL and must not be read). Candidate second reference if `external/cgal_wrap.cpp` is
+  removed later; not scheduled. FOSSIL (Fortran; GPL v3 or BSD/MIT) lists alpha wrapping, provenance unverified (its
+  docs host is blocked here). The "Feature-preserving Shrink Wrapping with Adaptive Alpha" code builds on CGAL.
 - **PaMO (survey 2026-11-08):** paper only; a patent check comes before adopting any idea. Probe candidates are listed
   at the end of [its section](#pamo-parallel-mesh-optimization-survey-2026-11-08); none is planned.
 
