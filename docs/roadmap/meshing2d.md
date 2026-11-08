@@ -43,8 +43,6 @@ Small input angles and triangle count:
   gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
   check: whether coarsening is still the project for that week.) Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
-- **Docs correction:** #390 section 6 paired the modes crossed; the matched angle-variant recomputation keeps the
-  outliers (stmlf/1461 25.1x constrained vs constrained); a docs correction follows.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
 
@@ -68,10 +66,11 @@ Oracle leftovers (no verdict of ours affected):
 
 Other:
 
-- The provenance delta 6b-3 in the reference session on master d9006aad (status unclear, check).
-- The Phase 4 checkbox "Public exact 2D meshing" is still open and names #272 and the stage 6b provenance check
-  as open; both are done per the session record (#272 merged, 6b in #295 / #296) (status unclear, check: close the
-  checkbox or name what remains).
+- The provenance delta 6b-3 is done: `MESHING2D_PROVENANCE_CHECK.md` (ff0c378) records it on master d9006aa, no (A) finding.
+  Mesher changes after d9006aa (#394, the small-angle rule, and later) have no delta check yet; one is due before a
+  release that relies on the clean-room claim.
+- The Phase 4 checkbox "Public exact 2D meshing" is closed: #272 is merged and stage 6b is done (#295, #296, delta
+  6b-3). What remains of the topic is listed under Open (small angles, default mode, grading, coarsening, speed).
 - Parked: the `.poly` reader limits and the mesh2d report area underflow ([platform.md](platform.md#stage-8-planned-follow-ups)).
 
 ### Done / history
@@ -100,12 +99,12 @@ Stages 4 and 6 are prepared in [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md):
 
 #### Phase 4 item: public exact 2D meshing
 
-  - [ ] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
+  - [x] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
     and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
     behavioural spec [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md) (owner decisions in its §5) and the
     papers only (Ruppert, Chew, Shewchuk 2002, Üngör, Miller-Pav-Walkington, Cheng-Dey-Shewchuk 2012); never
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates. M2 (#233), M3
-    (#252) and the oracle speedup (#265) merged 2026-11-01; open: #272 and the stage 6b provenance check.
+    (#252) and the oracle speedup (#265) merged 2026-11-01; #272 and the stage 6b provenance check are done (#295, #296, delta 6b-3); remaining work: Open.
 
 #### Meshing session record (slot order item 3, 2026-11-01 to 2026-11-07)
 
