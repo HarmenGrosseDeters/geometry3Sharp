@@ -28,10 +28,14 @@ Part of the [roadmap](../ROADMAP.md).
   **p01 (owner 2026-11-08):** the raw wrap reaches CGAL's p01 (the ~2° gap of #317; behaviour numbers only, CGAL code
   is never read); the final simplified output has p01 >= 10° as the median over the 800 sample (floor confirmed
   after the full-800 data);
-- at most 5 s wall time per mesh on the 4-core cloud machine.
+- speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
+  up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
+  run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
 A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
 phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
-(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`).
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`). Long benchmark runs go to a runner session on Haiku
+(session_01AaGT5AcURraKzWZfZRtW6r, owner 2026-11-08: runs only, no code; raw results on the data branch
+`runs/alpha-wrap-2`, never merged).
 
 **WP1 interim (2026-11-08, 55 meshes, serial):** pipeline median 10.8 s, p90 19.4, max 34.4; > 5 s on 53 of 55 (the
 target needs about 2.2x at the median, 6-7x at the tail). Shares: simplify 39 % (Reducer 29 %), quality pass 27 %, raw
@@ -40,7 +44,19 @@ simplification (976 triangles > 170° on 52 of 55; p01 median 7.8°), whose Redu
 0.05 allows caps up to about 175°. Upper bound on 12 meshes: guard 0.3 gives 0 triangles > 170°, p01 median 10.8°,
 +4 % triangles, 0.92x time, guarantees and band unchanged (F-score pending).
 
+**WP1 report (2026-11-08):** raw wrap alone median 3.7 s, > 5 s on 13 of 55 (about 100 µs per raw triangle, up to
+330k); known levers bring the warm median to about 7 s, the tail needs 3-7x, hence the size-dependent budget. Guard sweep
+on 30 meshes: 0.3 gives 0 triangles > 170°, p01 median 10.7°, +16 % triangles, F-score within 0.1 %, 30/30 guarantees.
+Raw wrap vs CGAL (12 meshes, behaviour only): p01 17.8 vs 19.6; prototypes: the paper's Phi(f) traversal (Def. 2)
+18.3, Phi plus a Chew / Boissonnat-Oudot quality refinement 20.9 (+4 % triangles, +12 % time). Pinch caps: inherent to
+our manifold extension (large outside cells), not a bug; lever: a two-sided manifold step. Plan, one PR each: A guard
+0.3 + needle handling; B Phi + refinement; C two-sided manifold step (prototype, stop rule); WP3 constant factors.
+
 #### Other open items
+
+- **`external/cgal_wrap.cpp`** (behaviour comparison with CGAL's alpha wrap; links CGAL, GPL; never distributed
+  compiled): stays while we compare against CGAL; remove it in its own PR once no comparison needs it (owner
+  2026-11-08).
 
 - **Raw alpha wrap** (now part of Alpha Wrap 2.0): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
