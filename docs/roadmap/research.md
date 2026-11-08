@@ -13,6 +13,21 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
+  each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
+  alongside):**
+  1. Batch ray / point queries (`IntersectBatch`, `IsInsideBatch`; owner idea 2026-11-02), M: every app needs mass
+     ray casts and inside tests; BVH and exact tests exist; SIMD pays off here; existing API unchanged.
+  2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
+     provably correct; Unity, robotics, simulation; nothing comparable in .NET.
+  3. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+     guarantee; additive manufacturing showcase.
+  4. Point clouds in stages: normal orientation first (fast winding numbers exist), then screened Poisson, L.
+  5. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  6. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  Then: quad remeshing (L, licences to check), tetrahedral meshing (#4, L+, paper only), feature-preserving offsets
+  (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
+  Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
