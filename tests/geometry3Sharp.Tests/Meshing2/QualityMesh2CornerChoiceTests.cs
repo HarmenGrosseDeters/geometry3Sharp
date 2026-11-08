@@ -27,8 +27,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ShortestEdgeCorner_ExactTie_TakesTheFirstCorner()
         {
-            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(0, 0), new Vector2d(2, 0), new Vector2d(1, 2)));
-            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(0, 1), new Vector2d(1, 0), new Vector2d(-1, 0)));
+            // |bc|^2 = |ca|^2 = 2 < |ab|^2 = 4: the corners 0 and 1 tie, the first wins
+            Assert.Equal(0, QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(-1, 0), new Vector2d(1, 0), new Vector2d(0, 1)));
+            // |ca|^2 = |ab|^2 = 2 < |bc|^2 = 4: the corners 1 and 2 tie
+            Assert.Equal(1, QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(0, 1), new Vector2d(1, 0), new Vector2d(-1, 0)));
         }
 
         [Fact]
@@ -50,8 +52,8 @@ namespace geometry3Sharp.Tests
                 }
                 int want = 0; if (l[1] < l[want]) want = 1; if (l[2] < l[want]) want = 2;
                 if (l[0] == l[1] || l[1] == l[2] || l[0] == l[2]) ++near;
-                int got = QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d(ax, ay), new Vector2d(bx, by), new Vector2d(cx, cy));
-                Assert.Equal(want, got);
+                int got = QualityMesh2.Refiner.ShortestEdgeCorner(new Vector2d((double)ax, (double)ay), new Vector2d((double)bx, (double)by), new Vector2d((double)cx, (double)cy));
+                Assert.True(want == got, $"{ax},{ay} {bx},{by} {cx},{cy} want {want} got {got}");
             }
             Assert.True(near > 0);
         }
