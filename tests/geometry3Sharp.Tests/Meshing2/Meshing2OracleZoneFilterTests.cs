@@ -21,14 +21,20 @@ namespace geometry3Sharp.Tests
 
         /// <summary>Z3Pilot proves that the final +1e-300 in DistanceQueryBox
         /// changes no binary64 result: Q.Bounds already pads d2hi by 1e-300.
-        /// Replay the equivalent survivor from #376 through the native code.</summary>
+        /// Replay the equivalent survivor from #376 through the native code. The points
+        /// include the origin and tiny coordinates: at UTM magnitudes (ulp ~1e-10) a pad
+        /// changed to 1e-20 or 1e-12 would be absorbed too and the test would not see it;
+        /// near zero, with d2 = 0 (reach ~1e-150), it changes the box bits.</summary>
         [Fact]
         public void SmtEquivalentSurvivor_FinalAbsoluteReachPadChangesNoBits()
         {
-            foreach (int exponent in new[] { -1000, -500, 0, 500, 1000 }) {
+            var points = new[] {
+                Pt.FromDoubles(632117.25, 5712043.5), Pt.FromDoubles(0, 0),
+                Pt.FromDoubles(1e-30, -3e-40), Pt.FromDoubles(-0.375, 0.25) };
+            foreach (int exponent in new[] { -1000, -500, -100, 0, 500, 1000 }) {
                 Q distance2 = Q.FromDouble(Math.Pow(2, exponent));
-                foreach (Q d2 in new[] { Q.Zero, distance2, distance2 / new Q(3, 1) }) {
-                    Pt p = Pt.FromDoubles(632117.25, 5712043.5);
+                foreach (Q d2 in new[] { Q.Zero, distance2, distance2 / new Q(3, 1) })
+                foreach (Pt p in points) {
                     Assert.True(Oracle.DistanceQueryBox(p, d2, out double xl, out double xh, out double yl, out double yh));
                     Assert.True(d2.Bounds(out _, out double hi));
                     Assert.True(p.Bounds(false, out double pxl, out double pxh));

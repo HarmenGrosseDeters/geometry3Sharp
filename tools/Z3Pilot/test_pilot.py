@@ -1,11 +1,23 @@
+import json
+import os
+import pathlib
 import unittest
 from unittest.mock import patch
 import pilot
 
+# Generous per-query timeout: the slowest obligation (pixel_upper) took 8.4 s locally, so the
+# 20 s default of pilot.py leaves too little headroom on a slow CI runner, where a timeout would
+# turn into UNKNOWN (a failure, never a pass). Z3_PILOT_TIMEOUT_MS overrides it.
+TIMEOUT_MS = int(os.environ.get('Z3_PILOT_TIMEOUT_MS', '120000'))
+
 
 class PilotTests(unittest.TestCase):
     def test_all_obligations_and_exact_witness_replay(self):
-        report = pilot.run()
+        report = pilot.run(TIMEOUT_MS)
+        # CI runs the solver only here and uploads this report (Z3_PILOT_REPORT), not a second pilot run.
+        out = os.environ.get('Z3_PILOT_REPORT')
+        if out:
+            pathlib.Path(out).write_text(json.dumps(report, indent=2)+'\n')
         self.assertTrue(report['obligations_passed'], report)
         self.assertEqual(6, len(report['obligations']))
         self.assertEqual(4602678819172646911, report['witness']['x_bits'])

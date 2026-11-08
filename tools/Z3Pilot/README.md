@@ -15,7 +15,7 @@ future .NET verification project, not an additional dependency here.
 
 ```sh
 python3 -m venv /tmp/g3-z3
-/tmp/g3-z3/bin/pip install -r tools/Z3Pilot/requirements.txt
+/tmp/g3-z3/bin/pip install --require-hashes -r tools/Z3Pilot/requirements.txt
 /tmp/g3-z3/bin/python tools/Z3Pilot/pilot.py --out /tmp/z3-report.json
 /tmp/g3-z3/bin/python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v
 # Optional monolithic experiment; UNKNOWN never counts as proof:
@@ -89,7 +89,17 @@ obligation proves for **every binary64 b>=1e-151**, including +infinity, that
 no output bound, and no return value. It is equivalent under the actual caller's
 preconditions; no invented mutant-killing test is needed and no production code
 is deleted. The native test compares all four actual query bounds with the
-single-margin mutant on zero, dyadic and rational squared radii over large scales.
+single-margin mutant on zero, dyadic and rational squared radii over large scales,
+at a UTM-sized point and at the origin and tiny coordinates. The small points matter:
+at UTM magnitudes (ulp about 1e-10) a pad changed to 1e-20 or even 1e-12 would be
+absorbed as well, while near zero with d2=0 such a change alters the box bits, so the
+test fails for those mutants (checked) and passes only for the proved-equivalent one.
+
+Not covered: `Oracle.cs` has two further identical pads,
+`reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300` for the tube in the domain check (around
+line 1820) and in `Filters()` (around line 1847), and a similar one with `1 + 1e-9` (around
+line 2057). The model and the source contract cover only `DistanceQueryBox`; the same
+argument likely applies there (`t2hi` also comes from `Q.Bounds`), but it is not checked.
 
 ### A SAT witness pinned as a regression
 
@@ -105,8 +115,14 @@ This witness concerns a **controlled new fault**, not a discovered production bu
 
 The captured report and validation output live in `results/`. The source/solver
 contracts, negative drift checks, UNKNOWN handling, and actual .NET replay are
-part of acceptance. CI runs the bounded gate for changes to this tool or its
-modeled source files; no solver is required to run the ordinary .NET suite.
+part of acceptance. CI (`.github/workflows/z3-pilot.yml`, read-only token, hash-pinned
+`pip install --require-hashes`) runs the bounded gate for changes to this tool or its
+modeled source files. The solver runs once, inside
+`test_all_obligations_and_exact_witness_replay`, with a 120 s per-query timeout
+(`Z3_PILOT_TIMEOUT_MS`; the slowest query took 8.4 s locally, so the 20 s default of
+`pilot.py` leaves little headroom and a timeout would read UNKNOWN), and its report
+(`Z3_PILOT_REPORT`) is uploaded as an artifact. No solver is required to run the
+ordinary .NET suite.
 
 Recommendation: use this modular method for small FP filters and finite rule
 systems, with explicit source coupling, counterexample replay and independent
