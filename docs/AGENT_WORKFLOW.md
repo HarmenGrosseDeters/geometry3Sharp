@@ -143,6 +143,16 @@ from secret tests, which a public repository cannot keep.
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
+- Runner sessions (owner 2026-11-08): long runs (benchmarks, corpus sweeps, A/B timings, CGAL or other black-box
+  comparisons) go, whenever possible and useful, to a separate runner session on a small model (Haiku) instead of the
+  implementing session. It runs jobs only: no code, docs or design decisions, no PRs; it takes jobs only from its
+  implementing session and the coordinator, one job at a time on its own machine (so timings are alone on the machine),
+  and reports summary tables; raw results go to a data branch `runs/<topic>` (no PR, never merged; no meshes, no
+  foreign outputs). The implementing session writes each job completely (commit, build and run commands, analysis
+  script), because the runner executes literally and asks instead of improvising; analysis logic lives in committed
+  scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
+  profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
+  coordinator starts the runner on request.
 - Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
   - Small, bounded tasks (reading a paper, a license check, one measurement) go to a fresh short session with a
     precise brief, not to a long-running one.
