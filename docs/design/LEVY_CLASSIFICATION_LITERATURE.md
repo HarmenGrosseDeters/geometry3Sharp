@@ -357,6 +357,18 @@ The Manifold Authors. Licensed under the Apache License, Version 2.0".
     propagated combinatorially; only B needs floating point, and it is cheap (boundary edges only). This gives a
     principled hybrid: exact crossings, approximate boundary term, with an error that is easy to bound because B is a
     sum over boundary edges only.
+  * Xie, Hafner, Wojtan, *Fast and Exact Winding Numbers for Triangle Meshes*, ACM TOG 45(4), Article 41 (SIGGRAPH
+    2026), <https://visualcomputing.ist.ac.at/publications/2026/FEWN/> (abstract read; paper not yet read): an
+    analytical reduction of the surface integral to one ray-mesh intersection test plus an elementary sum over the
+    boundary edges per evaluation; no approximation apart from floating-point error; reported orders of magnitude
+    faster than prior methods, aimed at meshes with gaps, self-intersections and open boundaries. The same
+    decomposition as the two papers above, published independently. Source code is linked from the page; its licence
+    is not checked yet (paper only until it is).
+  * Both 2026 methods need no fast-winding precomputation (no far-field coefficients per box), only a ray query tree
+    and the boundary edges. For our open operands that would remove the serial fast-winding tree build (69-82 % of
+    the classification time of the large open cases in benchmarks/LevyClassification/results/trace_split_levers.jsonl)
+    and the approximation of Barill's far field; the integer part could come from our exact ray. Cost per evaluation
+    grows with the number of boundary edges unless they are organised hierarchically (to be read in the papers).
 - Graph-cut alternative: Diazzi & Attene 2021, *Convex polyhedral meshing for robust solid modeling*, ACM TOG 40(6),
   Article 259, DOI [10.1145/3478513.3480564](https://doi.org/10.1145/3478513.3480564), arXiv:2109.14434. Exact BSP of
   the input planes; cells labelled in/out by a min cut on the cell dual graph: data cost = area of black (input-
