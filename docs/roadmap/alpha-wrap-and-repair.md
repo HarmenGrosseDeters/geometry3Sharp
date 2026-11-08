@@ -33,7 +33,9 @@ Part of the [roadmap](../ROADMAP.md).
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
 A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
 phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
-(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`).
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`). Long benchmark runs go to a runner session on Haiku
+(session_01AaGT5AcURraKzWZfZRtW6r, owner 2026-11-08: runs only, no code; raw results on the data branch
+`runs/alpha-wrap-2`, never merged).
 
 **WP1 interim (2026-11-08, 55 meshes, serial):** pipeline median 10.8 s, p90 19.4, max 34.4; > 5 s on 53 of 55 (the
 target needs about 2.2x at the median, 6-7x at the tail). Shares: simplify 39 % (Reducer 29 %), quality pass 27 %, raw
