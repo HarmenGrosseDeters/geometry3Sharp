@@ -34,6 +34,10 @@ is one PR with the AddPoint fix and the parallel fast-winding tree build (bit-id
 has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
+The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
+solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evaluates winding numbers at cell
+corners) and, if the Alpha Wrap session has not covered it, the Reducer's `TriangleHashGrid`; the order follows
+where the profiles spend the time (owner 2026-11-08).
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
