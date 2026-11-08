@@ -743,7 +743,7 @@ namespace g3
                 if (MinCollapseTriangleQuality > 0) {
                     Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
                     double qNew = TriangleQuality(ref na, ref nb, ref nc);
-                    if (qNew < MinCollapseTriangleQuality && qNew < TriangleQuality(ref va, ref vb, ref vc))
+                    if (collapse_quality_rejects(qNew, ref va, ref vb, ref vc))
                         return true;
                 }
                 if (curt.a == vid) va = newv; else if (curt.b == vid) vb = newv; else vc = newv;
@@ -1241,6 +1241,7 @@ namespace g3
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
             // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
             // (with PreventFoldOver in one pass with its check; without it, as before)
+            begin_quality_check(a, b, t0, t1);
             if (refNormals != null && FusedFoldCheck) {
                 if (collapse_creates_flip_invalid_or_fold(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_invalid_or_fold(b, a, ref vNewPos, t0, t1)) {
                     retVal = ProcessResult.Ignored_CreatesFlip;
