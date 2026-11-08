@@ -1,0 +1,34 @@
+{
+  "case": "ext/geos/robust/overlay/TestOverlay-stmlf/1044/q30",
+  "mode": "conforming",
+  "index_environment": {},
+  "timing_environment": {
+    "G3_ORACLE_TIMING": "1"
+  },
+  "exit_code": 0,
+  "verdict": "VALID",
+  "seconds": 67.33582701200066,
+  "oracle_budget": 120,
+  "input_sha256": "0a3aef6881e20b6c9f06bf51e8dcfda12e768d93f5c80785085cd8ec34764223",
+  "output_sha256": "56de8a1b8f6969f2fba35e9950b7bee0a6b746da18df0a00a694f464bacc6521",
+  "entire_row_identical_to_edge_pilot": true,
+  "row_sha256": "93a71bae6e3d7addaa0ac6f12c0f71c8d32e758aea64b8f253667da878701a2a",
+  "benchmark_sha256": "d524edf8011a089a8895eb7c2d3511e8eb19df9ba9b872fcd90bbb957661896c",
+  "oracle_sha256": "ad55a77e41f99c47feb7ad7a112631140e4b2c81d5c641e253c6615120767425",
+  "command": [
+    "dotnet",
+    "<benchmark>/Meshing2Benchmark.dll",
+    "oracle",
+    "--input",
+    "<same-input>",
+    "--output",
+    "<same-mesh>",
+    "--milestone",
+    "M3",
+    "--case",
+    "ext/geos/robust/overlay/TestOverlay-stmlf/1044/q30",
+    "--row",
+    "<row.json>"
+  ],
+  "concurrent_activity": "Local validation builds were active; duration is diagnostic only."
+}

@@ -1,4 +1,4 @@
-name: Oracle index pilot
+name: Oracle indexes
 on:
   pull_request:
     paths:
@@ -17,9 +17,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet run --project benchmarks/OracleIndexPilot -c Release -- selftest
-      - name: Integrated oracle opt-in self-check
-        env:
-          G3_ORACLE_POINT_INDEX: strtree
-          G3_ORACLE_EDGE_INDEX: strtree-hulls
+      - name: Integrated oracle default self-check
         run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- selfcheck
+      - name: Integrated oracle sweep fallback self-check
+        env:
+          G3_ORACLE_POINT_INDEX: sweep
+          G3_ORACLE_EDGE_INDEX: sweep
+        run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- selfcheck
       - run: python3 -m unittest discover -s benchmarks/OracleIndexPilot -p 'test_*.py' -v

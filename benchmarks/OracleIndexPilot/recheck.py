@@ -99,7 +99,7 @@ def judge(base, source_hash, args, environment):
     command[1] = str(args.pilot_benchmark)
     command[command.index('--output')+1] = str(mesh)
     command[command.index('--row')+1] = str(row_path)
-    pilot_environment = dict(environment, G3_ORACLE_POINT_INDEX='strtree', G3_ORACLE_TIMING='1')
+    pilot_environment = dict(environment, G3_ORACLE_POINT_INDEX='strtree', G3_ORACLE_EDGE_INDEX='sweep', G3_ORACLE_TIMING='1')
     record['oracle'] = stage(command, args.oracle_timeout, pilot_environment)
     stderr = record['oracle']['stderr']
     marker = stderr.rfind('ORACLE-JUDGE-BEGIN')
@@ -135,7 +135,7 @@ def run(args):
     metadata = dict(binaries=binaries, baseline_metadata_sha256=digest(args.baseline_metadata),
                     controller_sha256=digest(__file__), working_directory=str(pathlib.Path.cwd()),
                     runtime_files={'mesh':runtime_files(args.mesh_benchmark),'pilot':runtime_files(args.pilot_benchmark)},
-                    inherited_variants=inherited, pilot_environment={'G3_ORACLE_POINT_INDEX':'strtree','G3_ORACLE_TIMING':'1'},
+                    inherited_variants=inherited, pilot_environment={'G3_ORACLE_POINT_INDEX':'strtree','G3_ORACLE_EDGE_INDEX':'sweep','G3_ORACLE_TIMING':'1'},
                     mesh_timeout=args.mesh_timeout, oracle_timeout=args.oracle_timeout,
                     concurrency='one while baseline runs; two after complete baseline summary')
     meta = args.work/'metadata.json'

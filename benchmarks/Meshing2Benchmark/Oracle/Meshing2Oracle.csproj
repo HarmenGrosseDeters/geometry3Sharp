@@ -11,7 +11,7 @@
     <AssemblyName>Meshing2Oracle</AssemblyName>
   </PropertyGroup>
 
-  <!-- Isolated opt-in oracle index pilot; never a geometry3Sharp library dependency. -->
+  <!-- Oracle-only spatial indexes; never a geometry3Sharp library dependency. -->
   <ItemGroup><PackageReference Include="NetTopologySuite" Version="2.6.0" /></ItemGroup>
 
 </Project>

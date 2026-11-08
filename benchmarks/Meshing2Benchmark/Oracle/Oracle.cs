@@ -80,6 +80,15 @@ namespace Meshing2Acceptance
 
         internal static void FastPathDiffers(string what) => throw new InvalidOperationException("fast path differs: " + what);
 
+        // Binary64 outputs use certified geometric pruning by default. Keep the sweep for A/B diagnosis;
+        // exact-coordinate/reference runs always retain their existing independent sweep.
+        internal static bool UseConformityIndex(bool fast, string configured, string indexedName)
+        {
+            if (configured != null && configured != indexedName && configured != "sweep")
+                throw new InvalidOperationException("Oracle index accepts " + indexedName + " or sweep only");
+            return fast && configured != "sweep";
+        }
+
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
         /// <summary> self-checks: the iterated snap-rounded image of a-b among the pixels of the given hot points (of snapping, met by
@@ -1760,8 +1769,7 @@ namespace Meshing2Acceptance
                 // (the pairs come in no particular order: the violations are collected and the first 8 in index order reported)
                 var touching = new List<(int ti, int id)>();
                 string pointIndex = Environment.GetEnvironmentVariable("G3_ORACLE_POINT_INDEX");
-                if (pointIndex != null && pointIndex != "strtree") throw new InvalidOperationException("G3_ORACLE_POINT_INDEX accepts strtree only");
-                if (Fast && pointIndex == "strtree") touching.AddRange(new StrtreePointSearch(o).FindTouches());
+                if (UseConformityIndex(Fast, pointIndex, "strtree")) touching.AddRange(new StrtreePointSearch(o).FindTouches());
                 else OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
                     var t = o.Triangles[ti];
                     int id = used[vi];
@@ -1780,8 +1788,7 @@ namespace Meshing2Acceptance
                     Math.Min(ry[KeyA(k)], ry[KeyB(k)]), Math.Max(ry[KeyA(k)], ry[KeyB(k)]) }).ToArray();
                 var crossing = new List<(long, long)>();
                 string edgeIndex = Environment.GetEnvironmentVariable("G3_ORACLE_EDGE_INDEX");
-                if (edgeIndex != null && edgeIndex != "strtree-hulls") throw new InvalidOperationException("G3_ORACLE_EDGE_INDEX accepts strtree-hulls only");
-                if (Fast && edgeIndex == "strtree-hulls") crossing.AddRange(new StrtreeEdgeSearch(o, keys).FindCrossings());
+                if (UseConformityIndex(Fast, edgeIndex, "strtree-hulls")) crossing.AddRange(new StrtreeEdgeSearch(o, keys).FindCrossings());
                 else OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
                     int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
                     if (a == c || a == d || b == c || b == d) return;

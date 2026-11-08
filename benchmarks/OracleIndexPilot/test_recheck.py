@@ -58,7 +58,7 @@ class RecheckTests(unittest.TestCase):
             def stage(command,timeout,environment):
                 self.assertEqual('oracle',command[2]);self.assertEqual('pilot.dll',command[1])
                 self.assertEqual('strtree',environment['G3_ORACLE_POINT_INDEX'])
-                if self.module is recheck_edges:self.assertEqual('strtree-hulls',environment['G3_ORACLE_EDGE_INDEX'])
+                self.assertEqual('strtree-hulls' if self.module is recheck_edges else 'sweep',environment['G3_ORACLE_EDGE_INDEX'])
                 pathlib.Path(command[command.index('--row')+1]).write_text(json.dumps(dict(input_sha256=base['input_sha256'])))
                 return dict(command=command,exit_code=0,stdout='VALID result',stderr='self-check timing\nORACLE-JUDGE-BEGIN\nORACLE conformity: point-triangle 3.0 ms\n')
             with patch.object(self.module,'stage',stage):result=self.module.judge(base,'baseline-row-hash',args,{})

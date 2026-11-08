@@ -1,5 +1,9 @@
 # Certified edge-hull pilot and timeout recheck, 2026-11-08
 
+This report records the opt-in experiment at commit `db02cfbb`. Both indexes
+were subsequently promoted to binary64 defaults; see the tool README. Frozen
+source/runtime hashes below continue to describe that measured experiment.
+
 The [point-only pilot](../2026-11-08/README.md), commit `4fd98250`, completed
 6 of the 24 oracle timeouts from [baseline QA #402](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/402).
 This second variant enables both point pruning and endpoint-hull edge pruning,

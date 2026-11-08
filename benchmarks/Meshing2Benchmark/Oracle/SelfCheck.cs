@@ -163,6 +163,17 @@ namespace Meshing2Acceptance
         {
             var items = new List<Item>();
             void Must(string name, bool ok, string detail = null) => items.Add(new Item { Name = name, Passed = ok, Detail = ok ? null : detail ?? "failed" });
+            foreach (string index in new[] { "strtree", "strtree-hulls" }) {
+                Must("conformity index " + index + ": default indexed", Oracle.UseConformityIndex(true, null, index));
+                Must("conformity index " + index + ": explicit indexed", Oracle.UseConformityIndex(true, index, index));
+                Must("conformity index " + index + ": explicit sweep", !Oracle.UseConformityIndex(true, "sweep", index));
+                Must("conformity index " + index + ": reference default sweep", !Oracle.UseConformityIndex(false, null, index));
+                Must("conformity index " + index + ": reference ignores index", !Oracle.UseConformityIndex(false, index, index));
+                bool rejected = false;
+                try { Oracle.UseConformityIndex(true, "unknown", index); }
+                catch (InvalidOperationException) { rejected = true; }
+                Must("conformity index " + index + ": reject unknown", rejected);
+            }
             void Accept(string name, Mesh2Input input, Mesh2Output o, OracleExpect e)
             {
                 var report = Oracle.Check(input, o, e);

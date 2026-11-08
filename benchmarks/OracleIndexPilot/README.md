@@ -1,10 +1,14 @@
-# Certified STRtree oracle index pilot
+# Certified STRtree oracle indexes
 
-Tier M, isolated benchmark experiment requested by the owner. Compare the current
-oracle's BoxPairs sweep, plain NetTopologySuite 2.6.0 STRtree queries, and traversal
-of the same STRtree with certified triangle half-plane pruning. The owner then
-requested re-judging current timeouts: this branch also provides an opt-in full
-oracle variant. Mesher, core exact arithmetic and quality contracts are unchanged.
+The independent meshing oracle uses certified STRtree pruning by default for
+binary64 outputs: triangle half-planes exclude point nodes, and exact endpoint
+hulls exclude edge nodes. The previous sweeps remain selectable for diagnosis;
+exact-reference runs retain their sweeps. Mesher, core exact arithmetic and
+quality contracts are unchanged.
+
+This Tier M tool compares the previous BoxPairs sweep, plain NetTopologySuite
+2.6.0 STRtree queries and the certified traversals. It also provides bounded,
+hash-bound controllers for reproducing the original timeout campaigns.
 
 Separate component measurements cover used-point/triangle and proper edge-crossing
 search in Conformity. The full oracle variant can enable either index independently.
@@ -52,14 +56,15 @@ record the completed measurements and full timeout recheck.
 
 ## Full oracle timeout recheck
 
-The experimental `G3_ORACLE_POINT_INDEX=strtree` path replaces only the used-point/
-triangle search in the independent test oracle. The default and exact-reference
-paths retain the existing sweep. NTS is a direct dependency of the test-oracle
+The default binary64 path uses `strtree` for used-point/triangle search and
+`strtree-hulls` for edge crossing search. No environment variables are required.
+Set `G3_ORACLE_POINT_INDEX=sweep` and/or `G3_ORACLE_EDGE_INDEX=sweep` to use the
+previous sweep for diagnosis. The exact-reference path always retains its sweep. NTS is a direct dependency of the test-oracle
 project in this branch, not of geometry3Sharp. All remaining conformity,
 Delaunay, quality, tolerance and budget rules stay in force.
 
 ```sh
-G3_ORACLE_POINT_INDEX=strtree G3_ORACLE_TIMING=1 dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- oracle --milestone M3 --input /tmp/input.txt --output /tmp/output.mesh.txt --row /tmp/pilot-row.json
+G3_ORACLE_TIMING=1 dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- oracle --milestone M3 --input /tmp/input.txt --output /tmp/output.mesh.txt --row /tmp/pilot-row.json
 ```
 
 `recheck.py` selects every current `ORACLE_TIMEOUT` from the baseline QS batch,
@@ -94,8 +99,8 @@ Zero is deliberately permitted here because ProperCross requires strict opposite
 orientation signs. Point/triangle and duplicate-coordinate checks continue to
 handle boundary contacts and overlaps. The leaf crossing predicate is unchanged.
 
-`G3_ORACLE_EDGE_INDEX=strtree-hulls` enables this path for binary64 outputs;
-default and exact-reference paths retain their previous edge sweep. Component
+Binary64 outputs use this path by default; `G3_ORACLE_EDGE_INDEX=sweep` restores
+the previous edge sweep. Exact-reference outputs always retain that sweep. Component
 commands are `edge-boxes`, `edge-nts`, `edge-hulls`; `edge-selftest` compares against
 exact all-pairs evaluation, including shared endpoints, collinearity, T contacts,
 degenerate edges, real line/hull pruning, extreme scales, reuse and parallelism.
@@ -113,8 +118,8 @@ the hull, traversal and certificates are own implementations using the oracle's
 existing certified orientation filter and exact fallback. No external code read.
 
 
-Enable both full-oracle indexes with `G3_ORACLE_POINT_INDEX=strtree` and
-`G3_ORACLE_EDGE_INDEX=strtree-hulls`. `recheck_edges.py` uses the same bounded,
+Both full-oracle indexes run by default. The explicit `G3_ORACLE_POINT_INDEX=strtree`
+and `G3_ORACLE_EDGE_INDEX=strtree-hulls` settings remain accepted. `recheck_edges.py` uses the same bounded,
 hash-bound controller contract as `recheck.py`; supply original baseline records
 selected by the point-only campaign's remaining timeouts. Both controllers have
 procedural regression tests. Edge components accept the same mesh path and optional
@@ -122,3 +127,12 @@ query count as point components; omit the count for all unique edges. Shared
 parsing/exact-point/unique-edge preparation is excluded, while mode-specific
 index, rank, box and hull preparation is included. Result pairs are sorted and
 fingerprinted. See [edge results and full-oracle recheck](results/2026-11-08-edge/README.md).
+
+The point-only historical campaign controller explicitly requests the edge sweep,
+so it remains point-only after default promotion. Historical result directories
+describe their frozen source versions; new selection tests cover defaults, explicit
+indexes, sweep fallback, invalid settings and the exact-reference path.
+
+[Default promotion validation](results/2026-11-08-default/README.md) records the
+selection tests, default/fallback integration checks and identical-row large-case
+recheck after the owner requested standard behavior.
