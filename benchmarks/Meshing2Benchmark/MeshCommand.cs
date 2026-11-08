@@ -136,7 +136,7 @@ namespace Meshing2Acceptance
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
-            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[16] : null;
+            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[17] : null;
             long deleted = 0;
             var thread = new System.Threading.Thread(() => {
                 try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }

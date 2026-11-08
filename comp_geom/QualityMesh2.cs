@@ -657,9 +657,26 @@ namespace g3
                         bool exemptHere = ApexExempt(e, apex);
                         ApexLogForTests?.Add((k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(apex), exemptHere));
                         if (!exemptHere) return true;
+                        // the conforming mode (O2) leaves a subsegment unsplit for an exempt vertex only while it is a Delaunay edge
+                        // (MESHING2D_SMALL_ANGLES_CONFORMING.md, rule C); else the exemption is revoked and the split is needed by every
+                        // conforming solution
+                        if (options.Conforming && !LocallyDelaunayAt(e)) { Note(16); return true; }
                     }
                 }
                 return false;
+            }
+
+            /// <summary>
+            /// the subsegment e is a locally Delaunay edge of the kernel's triangulation: the apex of each of its two triangles (holes and
+            /// outside included, as the conforming mode counts them) is not strictly inside the circumcircle of the other (exact). A ghost
+            /// side counts as Delaunay (a hull edge: the lemma of Delaunay's theorem needs no test there). With every constrained edge
+            /// locally Delaunay at the end, the kernel's triangulation is the Delaunay triangulation of all vertices (O2).
+            /// </summary>
+            bool LocallyDelaunayAt(int e)
+            {
+                int h2 = k.H[e];
+                if (h2 < 0 || k.IsGhost(e / 3) || k.IsGhost(h2 / 3)) return true;
+                return ExactPredicates.InCircle(k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(k.V[Next(Next(e))]), k.Point(k.V[Next(Next(h2))])) <= 0;
             }
 
             /// <summary> tests only: false turns the small-angle exemption of ApexExempt off </summary>
@@ -668,7 +685,7 @@ namespace g3
             [ThreadStatic] internal static List<(Vector2d U, Vector2d W, Vector2d V, bool Exempt)> ApexLogForTests;
 
             /// <summary>
-            /// The small-angle rule (constrained-quality mode only; MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06): subsegment e is
+            /// The small-angle rule (MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06; in the conforming mode with the Delaunay check of Encroached, MESHING2D_SMALL_ANGLES_CONFORMING.md, owner decision 2026-11-08): subsegment e is
             /// not split for vertex v when all of these hold.
             /// - v is a vertex refinement made on exactly one source c: not an input vertex, not a crossing, no third source (Shewchuk 2002
             ///   section 6.2 applies its cure only then: not for a parent that "is an input vertex or lies on a nonincident segment").
@@ -682,7 +699,8 @@ namespace g3
             /// </summary>
             bool ApexExempt(int e, int v)
             {
-                if (options.Conforming || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
+                // the conforming mode (rule C) has no lenses and no Chew deletion; with lenses forced on by a benchmark the rule stays off there
+                if (options.Conforming && lenses || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
                 // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
                 // (Shewchuk 2002 section 6.2 splits for a parent that is an input vertex or lies on a nonincident segment)
                 if (v < firstSteiner) return false;
@@ -706,7 +724,8 @@ namespace g3
 
             /// <summary> benchmarks: one more in CountsForBenchmarks[slot] (8 apex exemptions at a shared endpoint, 9 at a T-junction or a
             /// crossing; 10-12 triangles given up: no circumcentre, a locked or unsplittable subsegment in the way, no vertex made; 13-15
-            /// subsegments left unsplit off the grid: below MinRoundedSplitExponent, no progress, near another source) </summary>
+            /// subsegments left unsplit off the grid: below MinRoundedSplitExponent, no progress, near another source; 16 exemptions revoked in the
+            /// conforming mode because the subsegment was not locally Delaunay) </summary>
             static void Note(int slot)
             {
                 var n = CountsForBenchmarks;
