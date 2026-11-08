@@ -90,6 +90,30 @@ all 400 results the same (`after_hash`); repair time 456 s on both (−0.4 %, no
 the rotated rounding (42327 takes 1 s there), so the gain is on `ExactMeshBoolean` with general double input.
 What is left on the rotated cases is mostly the evaluation budget (the last row of the first table).
 
+### Projection filter in SafeRounding's pair test (November 2026, Exact Boolean 2.0 WP3)
+
+On the Thingi10K corpus (#385, harness pairing: B rotated by 20° about (1, 1, 0) and shifted by a quarter of the
+extent) rounding is the largest phase of the operations over 5 s (37-44 %), and most of it is pair tests: the first
+full exact self-intersection search of the result, then the evaluations of the edits. `MeshRoundingRepair.intersects`
+now asks `TriangleTriangleFilter` (#261, exact Orient2d only, no error bound of its own) before
+`ExactTriangleIntersection.IntersectsBeyondShared`; the decisions are those of the exact test (checked per pair with
+`CheckOnThisThread` in the tests), so the results are bit-identical.
+
+`profile --safe-rounding --repeat 1` per model (all three operations), 4 cores, master ef946d0 against 2baf0f0,
+two rounds (master, filter, master, filter), the faster of the two rounds per operation: the 12 models of the closed,
+self-intersection free cohort with an operation over 5 s here (36 operations) and 30 random models of that cohort
+(seed 20261107, 90 operations). Raw output: [perf/rounding_filter_2026-11-07.jsonl](../../benchmarks/BooleanComparison/perf/rounding_filter_2026-11-07.jsonl).
+
+| set | operations | hashes different | rounding | whole boolean | median per operation |
+|---|---:|---:|---|---|---|
+| slow models | 36 | 0 | 100.1 → 84.5 s (−15.6 %) | 259.4 → 242.2 s (−6.6 %) | 0.947 |
+| 30 random models | 90 | 0 | 3.30 → 2.76 s (−16.3 %) | 21.3 → 21.0 s (−1.2 %) | 1.000 |
+
+Largest gains on CAD parts with axis-plane faces: 1517923 union rounding 2.69 → 1.15 s, difference 1.80 → 0.60 s.
+Operations over 5 s in the slow set: 14 → 12. The #385 spike measured −20..−64 % on the rounding of three selected
+cases, Apply only; on the cohort's slow operations the gain is smaller, as most of their pair tests are general
+position pairs that the filter leaves to the exact test.
+
 ## 1. Current profile
 
 State: master after #181 plus #183. Warm runs: the booleans run in one process after a warm-up, the best of 3
