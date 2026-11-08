@@ -175,15 +175,15 @@ differences), and the invariant is `|e~ - e| <= c m~` and `|e~| <= m~`. `u = 2^-
 |---|---|---|---|---|
 | R0 value rule | `value_bounds` | `|x| <= Mx, |y| <= My => |x +- y| <= Mx + My, |x y| <= Mx My` | reals (NRA) | product bound `Mx + My` |
 | R1 input | `c = 0`, `m~ = |x|` | definitional (`e~ = e = x`), no lemma | | |
-| R2 leaf (input +- input) | `c = u`, `m~ = |e~|` | `e = e~ (1 + d), |d| <= u => |e~ - e| <= u |e~|` | NRA, Higham (2.5) | `c` one ulp below u (and the tight binary64 case `1 + 2^-53 -> 1`, error exactly `u |e~|`) |
+| R2 leaf (input +- input) | `c = u`, `m~ = |e~|` | `e = e~ (1 + d), |d| <= u => |e~ - e| <= u |e~|` | NRA, Higham (2.5) | `c` one ulp below u (and the tight binary64 case `1 + 2^-53 -> 1`, error exactly `u |e~|`); the leaf rule applied to an operand with an error (`cx > 0`: cancellation) |
 | R3 sum / difference | `c = (u + max(cx, cy)) / (1 - u)`, `m~ = fl(m~x + m~y)` | operand invariants, `e~ = (x~ +- y~)(1 + d1)`, `m~ = (m~x + m~y)(1 + d2)`, `|di| <= u`, `M >= cx, cy` => `|e~ - e| <= (u + M) / (1 - u) m~` (one obligation each for + and -) | NRA, Higham (2.4) | without `/ (1 - u)`; `cx` instead of the max |
 | R4 product | `c = (u + cx + cy + cx cy) / (1 - u)`, `m~ = fl(m~x m~y)` | operand invariants, `e~ = x~ y~ (1 + d1)`, `m~ = m~x m~y (1 + d2)` => `|e~ - e| <= c m~` | NRA, Higham (2.4) | without `cx cy`; without `/ (1 - u)` |
 | M magnitude | `|e~| <= m~` ("rounding is monotone") | `|x~| <= m~x, |y~| <= m~y => |RN(x~ +- y~)| <= RN(m~x + m~y)`, `|RN(x~ y~)| <= RN(m~x m~y)`; plus, bit-precise in binary64: `-RN(a + b) = RN(-a + -b)`, `|RN(a b)| = RN(|a| |b|)` | reals with RN uninterpreted, monotone and odd (quantified); binary64 RNE | magnitude of a difference taken as `fl(m~x - m~y)` (binary64) |
 | R5 decision | `if (!(Math.Abs(e~) > K * m~)) return 2;`, `K = CeilDouble(c / (1 - u))` | `|e~ - e| <= c m~, m~ > 0, K (1 - u) >= c, |e~| > K m~ (1 + d), |d| <= u => e e~ > 0` | NRA | `K = c`; `>=` instead of `>` |
-| R6 zero shortcut | `if (m~ == 0) return 0;` | `|e~ - e| <= c m~, |e~| <= m~, m~ = 0 => e = 0` | LRA | testing `e~ == 0` instead of `m~` |
+| R6 zero shortcut | `if (m~ == 0) return 0;` | `|e~ - e| <= c m~, |e~| <= m~, m~ = 0 => e = 0` | NRA (`c m~`) | testing `e~ == 0` instead of `m~` |
 | E gate exponents | `GateLow = 960 / k - 52`, `K >= 2^-62` | `k >= 1, 1 <= j <= k, a = 960 div k - 52 >= 1 => j (a + 52) <= 960` and `-62 - 960 >= -1022` | integers (NIA) | `GateLow` one larger; `K >= 2^-63` |
 | G grid (no underflow) | the comment "No underflow" | binary64 `|x| >= 2^52 => x` integral; with precision 53 and a 15-bit exponent: `x, y` integral => `RN(x + y)`, `RN(x - y)`, `RN(x y)` integral (or infinite) | binary64 / (15, 53) RNE | threshold `2^51`; the frame without its range assumption (a subnormal product differs) |
-| O overflow | "an overflow would give inf or NaN in m~" | binary64: `m~x, m~y >= 0` and `fl(m~x + m~y)` (or `fl(m~x m~y)`) finite => `m~x, m~y` finite; `m~ = +inf` or NaN, `K > 0` finite => neither `m~ == 0` nor `|e~| > fl(K m~)` | binary64 RNE | NaN counted as finite (`0 * inf`); the test written `<=` (a NaN magnitude would decide) |
+| O overflow | "an overflow would give inf or NaN in m~" | binary64: `m~x, m~y >= 0` or NaN, and `fl(m~x + m~y)` (or `fl(m~x m~y)`) finite => `m~x, m~y` finite and not NaN; `m~ = +inf` or NaN, `K > 0` finite => neither `m~ == 0` nor `|e~| > fl(K m~)` | binary64 RNE | NaN counted as finite (`0 * inf`); the test written `<=` (a NaN magnitude would decide) |
 
 What the lemmas give together, by structural induction over the expression graph in topological order (a shared
 value is one node, so the invariant of a value is used by all its users): for every value whose `m~` is finite,
@@ -196,15 +196,31 @@ So every exact result of an operation is 0 or at least `2^-960` in magnitude and
 without an underflow term (a product of nonzero values is nonzero), also for the decision product `K m~ >= 2^-1022`
 (E). The overflow part does not need `GateHigh` at all: if an `m~` overflows, every `m~` it feeds is infinite or NaN
 (O), and such a factor never decides (O); a finite `m~` has only finite `m~` (and so finite `e~`, by M) below it.
-`GateHigh` (the value rule R0 with every bound below `2^1000`) only keeps the filter useful.
+`GateHigh` (the value rule R0 with every bound below `2^1000`) only keeps the filter useful. The decision product
+`fl(K m~)` cannot overflow for a finite `m~` (every `K` is below 1, about `1e-15`), and if it did, `|e~| > inf` would
+be false and the factor would not decide.
 
 `composition_check` re-derives, from the generated code alone and with Python fractions (a third implementation
 next to `Compiler.cs` and `GeneratedPredicatesIndirectTests`): the `m~` expression of every value line (the rule
 shape of R1-R4), its `c` against the `// c = ... u` comment, every `K` as the smallest double at or above
-`c / (1 - u)` and at least `2^-62`, the `m~ == 0` test before each decision, homogeneity, the degree, and both gate
-exponents (`[2^-108, 2^164]` for LPI, degree 6, `K` = 18 u and 9 u; `[2^-54, 2^109]` for TPI, degree 9, `K` = 28 u
-and 17 u). It covers the unsplit `NameFilter` methods only; that `NameFilterPrepared` equals them bit for bit is
-tested in .NET (`Prepared_EqualsUnsplit`).
+`c / (1 - u)` and at least `2^-62`, homogeneity and the degree. Every line of a filter body must be one of the
+expected forms, in order: the value lines (operators `+`, `-`, `*` only), `int __r = 1;`, per sign factor the
+comment, `if (m~ == 0) return 0;`, the `K` test and `if (e~ < 0) __r = -__r;`, then `return __r;` (an inserted
+`return` fails). The gate exponents come from the rules (`960 / k - 52`, and the value rule for the upper end), and
+are checked against the literals that run: the `__gate(x, lo, hi)` conjunction of the entry on doubles (over every
+point, right before the call of the filter), the `__s.Gate` of `NamePrepare` (over the prepared points, followed by
+`if (!__s.Gate) return;`) and the gate of the prepared call (over the other points, with `__s.Gate`), plus the
+generated `__in` / `__gate` helpers verbatim; the doc comment must agree as well. The result:
+`[2^-108, 2^164]` for LPI, degree 6, `K` = 18 u and 9 u; `[2^-54, 2^109]` for TPI, degree 9, `K` = 28 u and 17 u.
+The values of the unsplit `NameFilter` methods only are re-derived; that `NameFilterPrepared` equals them bit for bit
+is tested in .NET (`Prepared_EqualsUnsplit`).
+
+The drift check compares `filter_bounds`, `emit_filter_value` and `emit_filter_decision` verbatim and, line by line,
+the rule code around them: `Rational.U`, `Node.Leaf`, `Rational.Max`, the degree and homogeneity lines, the `__in`
+and `__gate` helpers and the three gate emitters with their `lo` / `hi` literals. Not compared: `CeilDouble`,
+`lit` and `InUnitsOfU` (formatting and rounding up of `K`); `composition_check` re-derives the leaf decision, every
+`K` and the homogeneity from the generated code instead, and the .NET tests (`GeneratedPredicatesIndirectTests`)
+fail when the checked-in generated code differs from what the generator emits.
 
 ### Model choices, and what Z3 did not prove
 
@@ -238,11 +254,12 @@ tested in .NET (`Prepared_EqualsUnsplit`).
 
 ### Pilot 2 result
 
-All 20 obligations UNSAT with SAT assumptions, all 16 mutants SAT with replayed witnesses, source contracts and
+All 20 obligations UNSAT with SAT assumptions, all 17 mutants SAT with replayed witnesses, source contracts and
 composition check pass; the captured report is `results/filter_rules_2026-11-08.json` (Z3 4.15.4, one local run,
-84 s of solver time in all). The slow queries: the sum rule 14.1 s each for + and -, the product rule 15.9 s, the
-grid lemmas in the (15, 53) format 9.3-12.1 s, `rn_odd_sum` 3.6 s; every other obligation and every mutant is below
-3 s. In CI
+about 84 s of solver time in all). The times are local and vary between machines and runs (the grid product lemma
+took about 13 s here and 31.6 s on a reviewer's machine): the slow queries are the sum rule (about 14 s each for + and -),
+the product rule (about 16 s), the grid lemmas in the (15, 53) format (about 9-32 s) and `rn_odd_sum` (about 4 s);
+every other obligation and every mutant took below 3 s here. In CI
 both pilots run in one job (`.github/workflows/z3-pilot.yml`, read-only token), which now also triggers on
 `Compiler.cs` and `IndirectPredicates.cs`.
 

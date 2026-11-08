@@ -27,7 +27,8 @@
           "c_over_u": 9.000000000000005,
           "K": "9.992007221626417e-16"
         }
-      ]
+      ],
+      "prepared_points": 5
     },
     "Orient3dTPI": {
       "degree": 9,
@@ -47,7 +48,8 @@
           "c_over_u": 17.000000000000018,
           "K": "1.8873791418627685e-15"
         }
-      ]
+      ],
+      "prepared_points": 9
     }
   },
   "obligations": [
@@ -56,7 +58,7 @@
       "name": "value_rule",
       "model": "NRA",
       "result": "unsat",
-      "seconds": 0.003,
+      "seconds": 0.005,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -65,7 +67,7 @@
       "name": "leaf_input_pm_input",
       "model": "NRA, fl(s) = s / (1 + d)",
       "result": "unsat",
-      "seconds": 0.002,
+      "seconds": 0.003,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -74,7 +76,7 @@
       "name": "sum_add",
       "model": "NRA, fl(s) = s (1 + d)",
       "result": "unsat",
-      "seconds": 14.131,
+      "seconds": 14.069,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -83,7 +85,7 @@
       "name": "sum_sub",
       "model": "NRA, fl(s) = s (1 + d)",
       "result": "unsat",
-      "seconds": 14.101,
+      "seconds": 14.198,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -92,7 +94,7 @@
       "name": "product",
       "model": "NRA, fl(p) = p (1 + d)",
       "result": "unsat",
-      "seconds": 15.854,
+      "seconds": 16.144,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -110,7 +112,7 @@
       "name": "magnitude_sum",
       "model": "reals, RN monotone and odd (quantified)",
       "result": "unsat",
-      "seconds": 0.001,
+      "seconds": 0.014,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -119,7 +121,7 @@
       "name": "magnitude_difference",
       "model": "reals, RN monotone and odd (quantified)",
       "result": "unsat",
-      "seconds": 0.001,
+      "seconds": 0.002,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -128,14 +130,14 @@
       "name": "magnitude_product",
       "model": "reals, RN monotone and odd (quantified)",
       "result": "unsat",
-      "seconds": 0.006,
+      "seconds": 0.014,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
     {
       "rule": "R6 zero shortcut",
       "name": "zero_magnitude",
-      "model": "LRA",
+      "model": "NRA (c m~)",
       "result": "unsat",
       "seconds": 0.001,
       "assumptions_result": "sat",
@@ -146,7 +148,7 @@
       "name": "gate_exponents",
       "model": "NIA (integer division)",
       "result": "unsat",
-      "seconds": 0.001,
+      "seconds": 0.002,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -155,7 +157,7 @@
       "name": "rn_odd_sum",
       "model": "binary64 RNE",
       "result": "unsat",
-      "seconds": 3.589,
+      "seconds": 4.217,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -164,7 +166,7 @@
       "name": "rn_odd_product",
       "model": "binary64 RNE",
       "result": "unsat",
-      "seconds": 0.432,
+      "seconds": 0.799,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -173,7 +175,7 @@
       "name": "grid_input",
       "model": "binary64",
       "result": "unsat",
-      "seconds": 0.022,
+      "seconds": 0.034,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -182,7 +184,7 @@
       "name": "grid_sum",
       "model": "precision 53, exponent 15 bits, RNE",
       "result": "unsat",
-      "seconds": 10.536,
+      "seconds": 8.489,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -191,7 +193,7 @@
       "name": "grid_difference",
       "model": "precision 53, exponent 15 bits, RNE",
       "result": "unsat",
-      "seconds": 9.267,
+      "seconds": 10.732,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -200,7 +202,7 @@
       "name": "grid_product",
       "model": "precision 53, exponent 15 bits, RNE",
       "result": "unsat",
-      "seconds": 12.069,
+      "seconds": 13.072,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -209,7 +211,7 @@
       "name": "overflow_sum",
       "model": "binary64 RNE",
       "result": "unsat",
-      "seconds": 0.02,
+      "seconds": 0.022,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -218,7 +220,7 @@
       "name": "overflow_product",
       "model": "binary64 RNE",
       "result": "unsat",
-      "seconds": 0.097,
+      "seconds": 0.113,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     },
@@ -227,7 +229,7 @@
       "name": "overflow_never_decides",
       "model": "binary64 RNE",
       "result": "unsat",
-      "seconds": 0.098,
+      "seconds": 0.196,
       "assumptions_result": "sat",
       "assumptions_replayed": true
     }
@@ -237,29 +239,44 @@
       "rule": "R0 value rule",
       "name": "value_product_as_sum",
       "result": "sat",
-      "seconds": 0.003,
-      "x": "2",
-      "y": "-3",
-      "Mx": "5/2",
-      "My": "3",
+      "seconds": 0.005,
+      "x": "-2",
+      "y": "3",
+      "Mx": "9/4",
+      "My": "7/2",
       "replayed": true
     },
     {
       "rule": "R2 leaf",
       "name": "leaf_c_one_ulp_below_u",
       "result": "sat",
-      "seconds": 0.002,
-      "e": "162259276829213345377179500806145/162259276829213363391578010288128",
+      "seconds": 0.005,
+      "e": "162259276829213381405976519770111/162259276829213363391578010288128",
       "et": "1",
-      "d": "-18014398509481983/162259276829213363391578010288128",
+      "d": "18014398509481983/162259276829213363391578010288128",
       "m": "1",
+      "replayed": true
+    },
+    {
+      "rule": "R2 leaf",
+      "name": "leaf_rule_on_inexact_operand",
+      "result": "sat",
+      "seconds": 0.004,
+      "x": "-1",
+      "xt": "0",
+      "y": "0",
+      "et": "0",
+      "d": "0",
+      "m": "0",
+      "cx": "2",
+      "mx": "1",
       "replayed": true
     },
     {
       "rule": "R3 sum",
       "name": "sum_without_div_1_minus_u",
       "result": "sat",
-      "seconds": 0.003,
+      "seconds": 0.005,
       "ex": "0",
       "ey": "162259276829213363391578010288127/162259276829213363391578010288128",
       "ax": "0",
@@ -277,7 +294,7 @@
       "rule": "R3 sum",
       "name": "sum_cx_instead_of_max",
       "result": "sat",
-      "seconds": 0.003,
+      "seconds": 0.004,
       "ex": "0",
       "ey": "-2",
       "ax": "0",
@@ -295,7 +312,7 @@
       "rule": "R4 product",
       "name": "product_without_cx_cy",
       "result": "sat",
-      "seconds": 0.007,
+      "seconds": 0.006,
       "ex": "-7/2",
       "ey": "-7/4",
       "ax": "0",
@@ -312,7 +329,7 @@
       "rule": "R4 product",
       "name": "product_without_div_1_minus_u",
       "result": "sat",
-      "seconds": 0.01,
+      "seconds": 0.009,
       "ex": "-118571099379011770949700230079251003405269665644648305084183073521503449827508223/1461501637330902918203684832716283019655932542976",
       "ey": "-237142198758023568227473377297792835283496928595231875152809132048206089502588927/26328072917139296674479506920917608079723773850137277813577744384",
       "ax": "0",
@@ -342,7 +359,7 @@
       "rule": "R5 decision",
       "name": "decision_ge_instead_of_gt",
       "result": "sat",
-      "seconds": 0.003,
+      "seconds": 0.002,
       "e": "0",
       "et": "-1",
       "m": "1",
@@ -384,18 +401,18 @@
       "rule": "M magnitude",
       "name": "magnitude_difference_as_difference",
       "result": "sat",
-      "seconds": 0.162,
-      "ax": 1.508437714108799e-262,
-      "ay": -8.234043240129642e-269,
-      "mx": 1.508437714108799e-262,
-      "my": 3.640921264708838e-262,
+      "seconds": 0.046,
+      "ax": -2.0483917709801537e-293,
+      "ay": -9.68520209557515e+250,
+      "mx": 2.0156455797064623e-32,
+      "my": 2.3103018441188224e+275,
       "replayed": true
     },
     {
       "rule": "G grid",
       "name": "grid_input_threshold_2_51",
       "result": "sat",
-      "seconds": 0.042,
+      "seconds": 0.036,
       "x": "0x1.fffffffffffffp+51",
       "replayed": true
     },
@@ -403,30 +420,30 @@
       "rule": "G grid",
       "name": "frame_product_subnormal",
       "result": "sat",
-      "seconds": 2.792,
-      "a": "0x1.f53dfb8806c1cp-127",
-      "b": "0x1.65f4149fcaee8p-935",
-      "product": "0x0.0000000002bcep-1022",
+      "seconds": 1.145,
+      "a": "-0x0.3720d00490db3p-1022",
+      "b": "-0x1.efbf282d4e7d3p-40",
+      "product": "0x0.00000000006acp-1022",
       "replayed": true
     },
     {
       "rule": "O overflow",
       "name": "overflow_nan_counted_as_finite",
       "result": "sat",
-      "seconds": 0.087,
-      "m1": 0.0,
-      "m2": Infinity,
-      "product": NaN,
+      "seconds": 0.633,
+      "m1": "2.2430847880221631e-10",
+      "m2": "nan",
+      "product": "nan",
       "replayed": true
     },
     {
       "rule": "O overflow",
       "name": "overflow_test_le_instead_of_not_gt",
       "result": "sat",
-      "seconds": 0.108,
-      "K": 9.178922589000463e+229,
+      "seconds": 0.906,
+      "K": 1.929097885586241e-308,
       "m": "nan",
-      "et": Infinity,
+      "et": 0.0,
       "replayed": true
     }
   ],
@@ -436,7 +453,7 @@
     "rounded": "0x1.0000000000000p+0",
     "error_over_u_m": "1"
   },
-  "total_seconds": 83.464,
+  "total_seconds": 84.943,
   "obligations_passed": true,
   "proof_scope": "Local rule lemmas of the PredicateCompiler filter; the rounding model (Higham 2.4/2.5) and the structural induction over the expression graph are assumptions, see README."
 }

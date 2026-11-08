@@ -112,6 +112,27 @@ FILTER_DECISION = """static void emit_filter_decision(Predicate p, StringBuilder
 
 UNIT_ROUNDOFF = 'public static readonly Rational U = new Rational(1, BigInteger.Pow(2, 53));'
 GATE_HELPER = 'static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }'
+# further rule code outside the three methods, with the number of times it must occur in Compiler.cs
+RULE_LINES = [
+    (UNIT_ROUNDOFF, 1, 'Rational.U'),
+    (GATE_HELPER, 1, 'the gate helper __in'),
+    ('static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }',
+     1, 'the gate helper __gate'),
+    ('string lo = lit(Math.ScaleB(1.0, -p.GateLow)), hi = lit(Math.ScaleB(1.0, p.GateHigh));', 2, 'the gate literals'),
+    ('sb.Append($"{I2}if ({string.Join(" && ", p.Points.Select(x => $"__gate({x}, {lo}, {hi})"))}) {{\\n");', 1,
+     'the gate of the entry'),
+    ('sb.Append($"{I2}__s.Gate = {string.Join(" && ", p.Prepare.Select(x => $"__gate({x}, {lo}, {hi})"))};\\n");', 1,
+     'the gate of Prepare'),
+    ('sb.Append($"{I2}if (__s.Gate && {string.Join(" && ", others.Select(x => $"__gate({x}, {lo}, {hi})"))}) {{\\n");', 1,
+     'the gate of the prepared call'),
+    ('public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;', 1, 'Node.Leaf'),
+    ('public static Rational Max(Rational a, Rational b) => a >= b ? a : b;', 1, 'Rational.Max'),
+    ('n.Degree = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? n.A.Degree + n.B.Degree : Math.Max(n.A.Degree, n.B.Degree);', 1,
+     'the degree'),
+    ('p.Homogeneous = p.Nodes.All(n => n.Op == Op.Input || n.Op == Op.Mul || n.A.Degree == n.B.Degree);', 1,
+     'the homogeneity'),
+    ('p.Degree = p.Nodes.Max(n => n.Degree);', 1, 'the degree of a predicate'),
+]
 
 
 def source_contracts():
@@ -122,8 +143,8 @@ def source_contracts():
                                       ('static void emit_filter_decision(', FILTER_DECISION, 'emit_filter_decision')]:
         if _normalize(_method(text, signature)) != _normalize(expected):
             raise ValueError(f'Compiler.cs {what} changed; review the lemmas of tools/Z3Pilot/filter_rules.py')
-    for line, what in [(UNIT_ROUNDOFF, 'Rational.U'), (GATE_HELPER, 'the gate helper __in')]:
-        if _normalize(line) not in _normalize(text):
+    for line, count, what in RULE_LINES:
+        if _normalize(text).count(_normalize(line)) != count:
             raise ValueError(f'Compiler.cs {what} changed; review the lemmas of tools/Z3Pilot/filter_rules.py')
     # the constants of the lemmas, read back from the checked source (a second guard next to the text comparison)
     found = dict(u=Fraction(1, 2**int(re.search(r'Rational U = new Rational\(1, BigInteger\.Pow\(2, (\d+)\)\)', text).group(1))),
@@ -143,7 +164,6 @@ def source_contracts():
 
 class ZB:
     """Z3 backend"""
-    u = z.RealVal(f'1/{2**53}')
     And, Or, Not = staticmethod(z.And), staticmethod(z.Or), staticmethod(z.Not)
     idiv = staticmethod(lambda a, b: a / b)       # Z3 integer division (floor for positive operands)
 
@@ -154,7 +174,6 @@ class ZB:
 
 class QB:
     """exact rational backend (the replay)"""
-    u = U
     And = staticmethod(lambda *a: all(a))
     Or = staticmethod(lambda *a: any(a))
     Not = staticmethod(lambda a: not a)
@@ -163,6 +182,11 @@ class QB:
     @staticmethod
     def const(q):
         return q
+
+
+def unit(B):
+    """u in the backend, from the module constant U (which the drift check ties to Compiler.cs)"""
+    return B.const(U)
 
 
 def le_abs(B, a, b):
@@ -179,15 +203,24 @@ class Vars(dict):
 
 def leaf_rule(B, v, c=None):
     """R2, a sum or difference of two inputs: m~ = |e~|, c = u. Model: e = e~ (1 + d), |d| <= u (Higham (2.5))."""
-    c = B.u if c is None else c
-    hyps = [le_abs(B, v.d, B.u), v.e == v.et * (1 + v.d), v.m >= 0, B.Or(v.m == v.et, v.m == -v.et)]
+    c = unit(B) if c is None else c
+    hyps = [le_abs(B, v.d, unit(B)), v.e == v.et * (1 + v.d), v.m >= 0, B.Or(v.m == v.et, v.m == -v.et)]
     return hyps, gt_abs(B, v.et - v.e, c * v.m)
+
+
+def leaf_on_inexact_operand(B, v):
+    """mutant of R2: the leaf rule (c = u, m~ = |e~|) applied to x~ + y with an operand that carries an error
+    (|x~ - x| <= cx m~x, cx > 0): under cancellation the error is not bounded by u |e~|"""
+    u = unit(B)
+    hyps = [v.cx > 0, le_abs(B, v.xt - v.x, v.cx * v.mx), le_abs(B, v.xt, v.mx), le_abs(B, v.d, u),
+            v.xt + v.y == v.et * (1 + v.d), v.m >= 0, B.Or(v.m == v.et, v.m == -v.et)]
+    return hyps, gt_abs(B, v.et - (v.x + v.y), u * v.m)
 
 
 def sum_rule(B, v, sign, variant=None):
     """R3, x +- y unless both are inputs: e~ = fl(x~ +- y~), m~ = fl(m~x + m~y), c = (u + max(cx, cy)) / (1 - u).
     Model: fl(s) = s (1 + d), |d| <= u (Higham (2.4)). M is any upper bound of cx and cy (the generator: the max)."""
-    u = B.u
+    u = unit(B)
     hyps = [v.cx >= 0, v.cy >= 0, le_abs(B, v.ax - v.ex, v.cx * v.mx), le_abs(B, v.ay - v.ey, v.cy * v.my),
             le_abs(B, v.ax, v.mx), le_abs(B, v.ay, v.my), le_abs(B, v.d1, u), le_abs(B, v.d2, u)]
     if variant != 'cx_only':
@@ -201,7 +234,7 @@ def sum_rule(B, v, sign, variant=None):
 
 def mul_rule(B, v, variant=None):
     """R4, x y: e~ = fl(x~ y~), m~ = fl(m~x m~y), c = (u + cx + cy + cx cy) / (1 - u)."""
-    u = B.u
+    u = unit(B)
     hyps = [v.cx >= 0, v.cy >= 0, le_abs(B, v.ax - v.ex, v.cx * v.mx), le_abs(B, v.ay - v.ey, v.cy * v.my),
             le_abs(B, v.ax, v.mx), le_abs(B, v.ay, v.my), le_abs(B, v.d1, u), le_abs(B, v.d2, u)]
     e = v.ex * v.ey
@@ -214,7 +247,7 @@ def mul_rule(B, v, variant=None):
 
 def decision_rule(B, v, variant=None):
     """R5: |e~ - e| <= c m~, m~ > 0, K >= c / (1 - u), |e~| > fl(K m~) = K m~ (1 + d)  =>  sign(e) = sign(e~) != 0."""
-    u = B.u
+    u = unit(B)
     t = v.K * v.m * (1 + v.d)
     hyps = [v.c >= 0, v.m > 0, le_abs(B, v.et - v.e, v.c * v.m), le_abs(B, v.d, u),
             v.K >= v.c if variant == 'k_is_c' else v.K * (1 - u) >= v.c,
@@ -304,7 +337,7 @@ def real_obligations():
         yield ('M magnitude', nm, 'reals, RN monotone and odd (quantified)', real_vars('ax ay mx my'),
                (lambda o: lambda B, v: magnitude_rule(B, v, o))(op),
                dict(ax=-1, ay=Fraction(1, 2), mx=1, my=1))
-    yield ('R6 zero shortcut', 'zero_magnitude', 'LRA', real_vars('e et m c'), lambda B, v: zero_rule(B, v),
+    yield ('R6 zero shortcut', 'zero_magnitude', 'NRA (c m~)', real_vars('e et m c'), lambda B, v: zero_rule(B, v),
            dict(e=0, et=0, m=0, c=18 * u))
     yield ('E gate exponents', 'gate_exponents', 'NIA (integer division)', int_vars('k j'),
            lambda B, v: exponent_rule(B, v), dict(k=6, j=6))
@@ -316,6 +349,7 @@ def real_mutants():
     yield 'R0 value rule', 'value_product_as_sum', real_vars('x y Mx My'), lambda B, v: value_rule(B, v, 'product_as_sum')
     yield ('R2 leaf', 'leaf_c_one_ulp_below_u', real_vars('e et d m'),
            lambda B, v: leaf_rule(B, v, B.const(one_ulp_below_u)))
+    yield 'R2 leaf', 'leaf_rule_on_inexact_operand', real_vars('x xt y et d m cx mx'), leaf_on_inexact_operand
     yield 'R3 sum', 'sum_without_div_1_minus_u', real_vars(SUM_VARS), lambda B, v: sum_rule(B, v, 1, 'no_div')
     yield 'R3 sum', 'sum_cx_instead_of_max', real_vars(SUM_VARS), lambda B, v: sum_rule(B, v, -1, 'cx_only')
     yield 'R4 product', 'product_without_cx_cy', real_vars(MUL_VARS), lambda B, v: mul_rule(B, v, 'no_cross')
@@ -367,11 +401,13 @@ def fp_obligations():
         yield 'G grid', nm, 'precision 53, exponent 15 bits, RNE', grid + [z.Not(z.fpIsInf(r))], z.Not(_integral(r)), w_grid
     # O: overflow is harmless (an infinite or NaN magnitude never decides)
     m1, m2 = _fp('m1'), _fp('m2')
-    nonneg = [z.Not(z.fpIsNaN(m1)), z.Not(z.fpIsNaN(m2)), z.fpGEQ(m1, _val(0.0)), z.fpGEQ(m2, _val(0.0))]
+    # magnitudes are >= 0 or NaN (a NaN operand is allowed; the claim excludes it)
+    nonneg = [z.Or(z.fpIsNaN(m1), z.fpGEQ(m1, _val(0.0))), z.Or(z.fpIsNaN(m2), z.fpGEQ(m2, _val(0.0)))]
     w_nn = z.And(z.fpEQ(m1, _val(2.0**1000)), z.fpEQ(m2, _val(2.0**20)))
     for op, nm in [(z.fpAdd, 'overflow_sum'), (z.fpMul, 'overflow_product')]:
         r = op(RNE, m1, m2)
-        yield ('O overflow', nm, 'binary64 RNE', nonneg + _finite(r), z.Or(z.fpIsInf(m1), z.fpIsInf(m2)), w_nn)
+        yield ('O overflow', nm, 'binary64 RNE', nonneg + _finite(r),
+               z.Or(z.fpIsInf(m1), z.fpIsInf(m2), z.fpIsNaN(m1), z.fpIsNaN(m2)), w_nn)
     K, m, et = _fp('K'), _fp('m'), _fp('et')
     yield ('O overflow', 'overflow_never_decides', 'binary64 RNE',
            _finite(K) + [z.fpGT(K, _val(0.0)), z.Or(z.fpIsNaN(m), z.fpEQ(m, z.fpPlusInfinity(F64)))],
@@ -442,11 +478,12 @@ def fp_mutants():
     def replay_overflow(model):
         v1, v2 = _double(model, m1), _double(model, m2)
         p = v1 * v2
-        return dict(m1=v1, m2=v2, product=p, replayed=not math.isinf(p) and (math.isinf(v1) or math.isinf(v2)))
-    # 'finite' read as 'not infinite': 0 * inf = NaN would pass
+        return dict(m1=repr(v1), m2=repr(v2), product=repr(p),
+                    replayed=not math.isinf(p) and any(math.isinf(x) or math.isnan(x) for x in (v1, v2)))
+    # 'finite' read as 'not infinite': 0 * inf = NaN (or a NaN operand) would pass
     yield ('O overflow', 'overflow_nan_counted_as_finite',
-           [z.Not(z.fpIsNaN(m1)), z.Not(z.fpIsNaN(m2)), z.fpGEQ(m1, _val(0.0)), z.fpGEQ(m2, _val(0.0)), z.Not(z.fpIsInf(rp))],
-           z.Or(z.fpIsInf(m1), z.fpIsInf(m2)), replay_overflow)
+           [z.Or(z.fpIsNaN(m1), z.fpGEQ(m1, _val(0.0))), z.Or(z.fpIsNaN(m2), z.fpGEQ(m2, _val(0.0))), z.Not(z.fpIsInf(rp))],
+           z.Or(z.fpIsInf(m1), z.fpIsInf(m2), z.fpIsNaN(m1), z.fpIsNaN(m2)), replay_overflow)
     K, m, et = _fp('K'), _fp('m'), _fp('et')
 
     def replay_le(model):
@@ -470,8 +507,14 @@ def leaf_tightness():
 # ---------------------------------------------------------------------------------------------------------------
 # composition: the generated filters re-derived from the generated code with the same rules (not with Z3)
 
-LINE = re.compile(r'^\s*double (\w+) = ([^,]+), m(\w+) = ([^;]+);\s*// c = ([0-9.]+) u\s*$')
-DECIDE = re.compile(r'if \(!\(Math\.Abs\((\w+)\) > ([0-9.e+-]+) \* m(\w+)\)\) return 2;')
+LINE = re.compile(r'^double (\w+) = ([^,]+), m(\w+) = ([^;]+);\s*// c = ([0-9.]+) u$')
+DECIDE = re.compile(r'^if \(!\(Math\.Abs\((\w+)\) > ([0-9.e+-]+) \* m(\w+)\)\) return 2;$')
+COMMENT = re.compile(r'^// .*: \|e~ - e\| <= ([0-9.]+) u m~ \(K = c / \(1 - u\), rounded up\)$')
+GATE = re.compile(r'__gate\((\w+), ([0-9.e+-]+), ([0-9.e+-]+)\)')
+# the gate helpers of the generated class, exactly as Compiler.cs emits them (DoubleHelpers)
+GENERATED_GATE_HELPERS = [
+    'static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }',
+    'static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }']
 
 
 def ceil_double(q):
@@ -484,12 +527,45 @@ def ceil_double(q):
     return d
 
 
+def _params(sig):
+    """the point names of a parameter list 'Vector3d p, Vector3d q, ...'"""
+    names = []
+    for part in sig.split(','):
+        m = re.fullmatch(r'\s*Vector3d (\w+)\s*', part)
+        if m:
+            names.append(m.group(1))
+    return names
+
+
+def _check_gates(name, where, code, points, lo, hi):
+    """code is exactly the conjunction of __gate(x, lo, hi) over points, with the rule's lo and hi"""
+    gates = GATE.findall(code)
+    if [g[0] for g in gates] != points:
+        raise ValueError(f'{name}: the gate of {where} covers {[g[0] for g in gates]}, expected {points}')
+    for x, glo, ghi in gates:
+        if float(glo) != lo or float(ghi) != hi:
+            raise ValueError(f'{name}: the gate of {where} for {x} is [{glo}, {ghi}], the rules give [{lo!r}, {hi!r}]')
+    if code != ' && '.join(f'__gate({x}, {glo}, {ghi})' for x, glo, ghi in gates):
+        raise ValueError(f'{name}: the gate condition of {where} is not a plain conjunction: {code}')
+
+
+def _method_body(text, signature_regex):
+    m = re.search(signature_regex + r'\n        \{\n(?P<body>.*?)\n        \}\n', text, re.S)
+    return m and m.group('body')
+
+
 def composition_check(text=None):
-    """For every generated XFilter: each value line applies R1-R4 to its operands (m~ form and c), every K is the
-    smallest double >= c / (1 - u) and >= 2^-62, each decided factor is tested for m~ == 0 first, the formula is
-    homogeneous and the gate is [2^-(960 / k - 52), 2^b] with b from the value rule. Raises on any difference."""
+    """For every generated XFilter: every body line is one of the expected forms; each value line applies R1-R4
+    to its operands (m~ form and c); every K is the smallest double >= c / (1 - u) and >= 2^-62, each sign factor
+    is tested for m~ == 0 first and then for the sign; the formula is homogeneous; and the gate that runs at run
+    time (the entry, Prepare and the prepared call) is [2^-(960 / k - 52), 2^b] with b from the value rule, over
+    every point. Raises on any difference."""
     if text is None:
         text = (ROOT / GENERATED).read_text(encoding='utf-8-sig').replace('\r\n', '\n')
+    helper_lines = [line.strip() for line in text.split('\n')]
+    for helper in GENERATED_GATE_HELPERS:
+        if helper not in helper_lines:
+            raise ValueError(f'generated gate helper changed: {helper}')
     out = {}
     filters = list(re.finditer(r'every coordinate 0 or of magnitude in \[2\^-(\d+), 2\^(\d+)\] </summary>\n'
                                r'\s*\[MethodImpl\(JitHints\.Optimize\)\]\n\s*internal static int (\w+)Filter\(([^)]*)\)\n\s*\{\n(.*?)\n        \}',
@@ -497,58 +573,71 @@ def composition_check(text=None):
     if len(filters) < 2:
         raise ValueError('generated filters not found')
     for f in filters:
-        low, high, name, body = int(f.group(1)), int(f.group(2)), f.group(3), f.group(5)
+        low, high, name, params, body = int(f.group(1)), int(f.group(2)), f.group(3), f.group(4), f.group(5)
         c, kind, deg, bound = {}, {}, {}, {}
-        lines = body.split('\n')
+        lines = [line.strip() for line in body.split('\n')]
         decisions = []
-        for i, line in enumerate(lines):
-            mm = LINE.match(line)
-            if mm:
-                v, e, mv, me, shown = mm.groups()
-                if mv != v:
-                    raise ValueError(f'{name}: magnitude name of {v}')
-                e = e.strip()
-                me = me.strip()
-                parts = e.split()
-                if len(parts) == 1:
-                    if not re.fullmatch(r'\w+\.[xyz]', e) or me != f'Math.Abs({v})':
-                        raise ValueError(f'{name}: input line {v}')
-                    c[v], kind[v], deg[v], bound[v] = Fraction(0), 'input', 1, 'm'
+        i = 0
+        while i < len(lines) and lines[i].startswith('double '):
+            mm = LINE.match(lines[i])
+            if not mm:
+                raise ValueError(f'{name}: unexpected value line: {lines[i]}')
+            v, e, mv, me, shown = mm.groups()
+            if mv != v or v in c:
+                raise ValueError(f'{name}: magnitude name of {v}')
+            e = e.strip()
+            me = me.strip()
+            parts = e.split()
+            if len(parts) == 1:
+                if not re.fullmatch(r'\w+\.[xyz]', e) or me != f'Math.Abs({v})':
+                    raise ValueError(f'{name}: input line {v}')
+                c[v], kind[v], deg[v], bound[v] = Fraction(0), 'input', 1, 'm'
+            else:
+                if len(parts) != 3 or parts[1] not in ('+', '-', '*') or parts[0] not in c or parts[2] not in c:
+                    raise ValueError(f'{name}: unexpected operation in {v}: {e}')
+                a, op, b = parts
+                leaf = op in '+-' and kind[a] == 'input' and kind[b] == 'input'
+                if leaf:
+                    want_m, cv = f'Math.Abs({v})', U
+                elif op == '*':
+                    want_m, cv = f'm{a} * m{b}', (U + c[a] + c[b] + c[a] * c[b]) / (1 - U)
                 else:
-                    a, op, b = parts
-                    leaf = op in '+-' and kind[a] == 'input' and kind[b] == 'input'
-                    if leaf:
-                        want_m, cv = f'Math.Abs({v})', U
-                    elif op == '*':
-                        want_m, cv = f'm{a} * m{b}', (U + c[a] + c[b] + c[a] * c[b]) / (1 - U)
-                    else:
-                        want_m, cv = f'm{a} + m{b}', (U + max(c[a], c[b])) / (1 - U)
-                    if me != want_m:
-                        raise ValueError(f'{name}: magnitude of {v} is {me}, the rule gives {want_m}')
-                    if op in '+-' and deg[a] != deg[b]:
-                        raise ValueError(f'{name}: not homogeneous at {v}')
-                    c[v], kind[v] = cv, 'op'
-                    deg[v] = deg[a] + deg[b] if op == '*' else deg[a]
-                    bound[v] = (a, op, b)
-                if abs(float(c[v] / U) - float(shown)) > 1e-6:
-                    raise ValueError(f'{name}: c of {v} shown as {shown} u, the rules give {float(c[v] / U)} u')
-                continue
-            dm = DECIDE.search(line)
-            if dm:
-                v, k, mv = dm.groups()
-                if mv != v or lines[i - 1].strip() != f'if (m{v} == 0) return 0;':
-                    raise ValueError(f'{name}: decision of {v}')
-                want = ceil_double(c[v] / (1 - U))
-                if float(k) != want:
-                    raise ValueError(f'{name}: K of {v} is {k}, the rules give {want!r}')
-                if want < 2.0**K_MIN_EXPONENT:
-                    raise ValueError(f'{name}: K below 2^{K_MIN_EXPONENT}')
-                decisions.append(dict(value=v, c_over_u=float(c[v] / U), K=k))
-        if not decisions:
-            raise ValueError(f'{name}: no decision found')
+                    want_m, cv = f'm{a} + m{b}', (U + max(c[a], c[b])) / (1 - U)
+                if me != want_m:
+                    raise ValueError(f'{name}: magnitude of {v} is {me}, the rule gives {want_m}')
+                if op in '+-' and deg[a] != deg[b]:
+                    raise ValueError(f'{name}: not homogeneous at {v}')
+                c[v], kind[v] = cv, 'op'
+                deg[v] = deg[a] + deg[b] if op == '*' else deg[a]
+                bound[v] = (a, op, b)
+            if abs(float(c[v] / U) - float(shown)) > 1e-6:
+                raise ValueError(f'{name}: c of {v} shown as {shown} u, the rules give {float(c[v] / U)} u')
+            i += 1
+        # the decision: 'int __r = 1;', per sign factor four lines, then 'return __r;' and nothing else
+        if i >= len(lines) or lines[i] != 'int __r = 1;':
+            raise ValueError(f'{name}: expected the decision after the values, found {lines[i:i+1]}')
+        i += 1
+        while i < len(lines) - 1:
+            group = lines[i:i+4]
+            cm = COMMENT.match(group[0]) if group else None
+            dm = DECIDE.match(group[2]) if len(group) == 4 else None
+            if not cm or not dm:
+                raise ValueError(f'{name}: unexpected decision lines: {group}')
+            v, k, mv = dm.groups()
+            if mv != v or v not in c or kind[v] != 'op' or group[1] != f'if (m{v} == 0) return 0;' \
+                    or group[3] != f'if ({v} < 0) __r = -__r;':
+                raise ValueError(f'{name}: decision of {v}: {group}')
+            want = ceil_double(c[v] / (1 - U))
+            if float(k) != want:
+                raise ValueError(f'{name}: K of {v} is {k}, the rules give {want!r}')
+            if want < 2.0**K_MIN_EXPONENT:
+                raise ValueError(f'{name}: K below 2^{K_MIN_EXPONENT}')
+            decisions.append(dict(value=v, c_over_u=float(c[v] / U), K=k))
+            i += 4
+        if i != len(lines) - 1 or lines[i] != 'return __r;' or not decisions:
+            raise ValueError(f'{name}: the filter must end with the decisions and return __r;')
         degree = max(deg.values())
-        if low != GRID_EXPONENT // degree - INPUT_ULP_BITS:
-            raise ValueError(f'{name}: gate low 2^-{low}, the rule gives 2^-{GRID_EXPONENT // degree - INPUT_ULP_BITS}')
+        rule_low = GRID_EXPONENT // degree - INPUT_ULP_BITS
 
         def at(b):
             vals = {}
@@ -559,12 +648,49 @@ def composition_check(text=None):
                     a, op, w = x
                     vals[v] = vals[a] * vals[w] if op == '*' else vals[a] + vals[w]
             return vals
-        gate_high = 0
-        while gate_high < BOUND_BITS and all(x.bit_length() <= BOUND_BITS for x in at(gate_high + 1).values()):
-            gate_high += 1
-        if high != gate_high:
-            raise ValueError(f'{name}: gate high 2^{high}, the value rule gives 2^{gate_high}')
-        out[name] = dict(degree=degree, gate=[-low, high], values=len(c), decisions=decisions)
+        rule_high = 0
+        while rule_high < BOUND_BITS and all(x.bit_length() <= BOUND_BITS for x in at(rule_high + 1).values()):
+            rule_high += 1
+        if (low, high) != (rule_low, rule_high):
+            raise ValueError(f'{name}: documented gate [2^-{low}, 2^{high}], the rules give [2^-{rule_low}, 2^{rule_high}]')
+        lo, hi = 2.0**-rule_low, 2.0**rule_high
+        # the gates that run: the entry on doubles
+        points = _params(params)
+        m = _method_body(text, rf'internal static int {name}\({re.escape(params)}\)')
+        if not m:
+            raise ValueError(f'{name}: entry on doubles not found')
+        entry = [line.strip() for line in m.split('\n')]
+        gate_lines = [line for line in entry if '__gate' in line]
+        call = f'int __r = {name}Filter({", ".join(points)});'
+        if len(gate_lines) != 1 or not gate_lines[0].startswith('if (') or not gate_lines[0].endswith(') {') \
+                or entry[entry.index(gate_lines[0]) + 1] != call:
+            raise ValueError(f'{name}: the entry must call the filter under one gate')
+        _check_gates(name, 'the entry', gate_lines[0][4:-3], points, lo, hi)
+        prepared = 0
+        mp = _method_body(text, rf'internal static void {name}Prepare\(([^)]*), out {name}Prepared __s\)')
+        if mp:
+            prep = _params(re.search(rf'internal static void {name}Prepare\(([^)]*), out', text).group(1))
+            body_p = [line.strip() for line in mp.split('\n')]
+            gl = [line for line in body_p if '__gate' in line]
+            if len(gl) != 1 or not gl[0].startswith('__s.Gate = ') or not gl[0].endswith(';') \
+                    or body_p[body_p.index(gl[0]) + 1] != 'if (!__s.Gate) return;':
+                raise ValueError(f'{name}: Prepare must set __s.Gate from one gate and return if it fails')
+            _check_gates(name, 'Prepare', gl[0][len('__s.Gate = '):-1], prep, lo, hi)
+            others = [x for x in points if x not in prep]
+            sig = ', '.join(f'Vector3d {x}' for x in others)
+            mc = _method_body(text, rf'internal static int {name}\(ref {name}Prepared __s, {re.escape(sig)}\)')
+            if not mc:
+                raise ValueError(f'{name}: prepared call not found')
+            body_c = [line.strip() for line in mc.split('\n')]
+            gl = [line for line in body_c if '__gate' in line]
+            call = f'int __r = {name}FilterPrepared(ref __s, {", ".join(others)});'
+            if len(gl) != 1 or not gl[0].startswith('if (__s.Gate && ') or not gl[0].endswith(') {') \
+                    or body_c[body_c.index(gl[0]) + 1] != call:
+                raise ValueError(f'{name}: the prepared call must call the filter under __s.Gate and one gate')
+            _check_gates(name, 'the prepared call', gl[0][len('if (__s.Gate && '):-3], others, lo, hi)
+            prepared = len(prep)
+        out[name] = dict(degree=degree, gate=[-rule_low, rule_high], values=len(c), decisions=decisions,
+                         prepared_points=prepared)
     return out
 
 

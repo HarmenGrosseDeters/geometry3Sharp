@@ -87,10 +87,16 @@ class FilterRuleTests(unittest.TestCase):
                               ('new Rational(1, BigInteger.Pow(2, 53))', 'new Rational(1, BigInteger.Pow(2, 52))'),
                               ('if (m{val(n)} == 0) return 0;', 'if ({val(n)} == 0) return 0;'),
                               ('$"m{val(n.A)} * m{val(n.B)}"', '$"m{val(n.A)} + m{val(n.B)}"'),
-                              ('return x == 0 || (a >= lo && a <= hi);', 'return a <= hi;')]:
+                              ('return x == 0 || (a >= lo && a <= hi);', 'return a <= hi;'),
+                              # review of #407: the gate literals of emit_double only, the __gate helper, the leaf test
+                              ('lit(Math.ScaleB(1.0, -p.GateLow))', 'lit(Math.ScaleB(1.0, -p.GateLow - 20))'),
+                              ('&& __in(p.z, lo, hi); }', '; }'),
+                              ('$"__gate({x}, {lo}, {hi})"))};', '$"__gate({x}, {lo}, {lo})"))};'),
+                              ('&& A.Op == Op.Input && B.Op == Op.Input;', '&& A.Op == Op.Input;'),
+                              ('|| n.A.Degree == n.B.Degree);', '|| true);')]:
             with self.subTest(before=before):
                 def changed(path, *args, **kwargs):
-                    return original(path, *args, **kwargs).replace(before, after)
+                    return original(path, *args, **kwargs).replace(before, after, 1)
                 with patch.object(pilot.pathlib.Path, 'read_text', changed):
                     with self.assertRaises(ValueError):
                         filter_rules.source_contracts()
@@ -106,16 +112,29 @@ class FilterRuleTests(unittest.TestCase):
         filter_rules.composition_check(text)
         k = '1.998401444325284e-15'
         below = repr(filter_rules.math.nextafter(float(k), 0.0))
-        for before, after in [(f'> {k} *', f'> {below} *'),
+        for before, after, *rest in [(f'> {k} *', f'> {below} *'),
                               ('m_v90 = m_v89 + m_v88;', 'm_v90 = m_v89 * m_v88;'),
                               ('// c = 18 u', '// c = 17 u'),
                               ('[2^-108, 2^164] </summary>', '[2^-109, 2^164] </summary>'),
                               ('[2^-54, 2^109] </summary>', '[2^-54, 2^110] </summary>'),
-                              ('            if (m_v46 == 0) return 0;\n', '')]:
+                              ('            if (m_v46 == 0) return 0;\n', ''),
+                              # review of #407: the gate literals that run, the __gate helper, an extra line, an operator
+                              ('3.0814879110195774e-33', '2.938735877055719e-39', -1),
+                              ('&& __in(p.z, lo, hi); }', '; }'),
+                              ('            int __r = 1;\n            // ((t1 - t2) + t3)',
+                               '            if (m_v90 > 1) return 1;\n            int __r = 1;\n            // ((t1 - t2) + t3)'),
+                              ('            return __r;\n        }\n\n        /// <summary> the exact stage of Orient3dLPI',
+                               '            if (_v90 > 0) return 1;\n            return __r;\n        }\n\n        /// <summary> the exact stage of Orient3dLPI'),
+                              ('if (_v90 < 0) __r = -__r;', 'if (_v90 > 0) __r = -__r;'),
+                              ('_v15 = _v5 * _v14', '_v15 = _v5 / _v14'),
+                              ('__s.Gate = __gate(p, ', '__s.Gate = true || __gate(p, '),
+                              ('if (__s.Gate && __gate(a, 3.0814879110195774e-33', 'if (__s.Gate && __gate(a, 3.0814879110195774e-30'),
+                              ('if (__gate(a1, 5.551115123125783e-17, 6.490371073168535e+32) && ',
+                               'if (__gate(a1, 5.551115123125783e-17, 6.490371073168535e+32) || ')]:
             with self.subTest(before=before):
                 self.assertIn(before, text)
                 with self.assertRaises(ValueError):
-                    filter_rules.composition_check(text.replace(before, after, 1))
+                    filter_rules.composition_check(text.replace(before, after, *rest))
 
     def _only_zero_rule(self, obligation, mutant):
         empty = lambda: iter([])
