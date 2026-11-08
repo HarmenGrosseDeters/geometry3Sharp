@@ -19,6 +19,10 @@ public sealed class StrtreePointSearch
     readonly int[] used;
     public StrtreePointSearch(Mesh2Output mesh)
     {
+        // These throws are self-checks, not verdicts: inside the oracle they cannot fire. Conformity calls this only on the fast path
+        // (ExactVertices == null, Oracle.UseConformityIndex); Run.Vertices() has already rejected non-finite coordinates (Execute
+        // returns before here), and Execute returns after Orientation() when !r.Ok, so every triangle is positive by then. A throw
+        // here therefore means that coupling broke, and it must surface rather than become a silent verdict.
         if (mesh.ExactVertices != null) throw new ArgumentException("Pilot accepts binary64 output only");
         if (mesh.VX.Concat(mesh.VY).Any(x => double.IsNaN(x) || double.IsInfinity(x))) throw new ArgumentException("Non-finite vertex");
         this.mesh = mesh;

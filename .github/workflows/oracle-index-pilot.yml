@@ -7,6 +7,8 @@ on:
       - 'benchmarks/Meshing2Benchmark/Program.cs'
       - '.github/workflows/oracle-index-pilot.yml'
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   equivalence:
     runs-on: ubuntu-latest
