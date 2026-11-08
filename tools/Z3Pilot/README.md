@@ -274,3 +274,14 @@ standard model and its variant (2.5)); J. R. Shewchuk, *Adaptive Precision Float
 Robust Geometric Predicates*, DCG 1997 (filters with error bounds of the form `c m~`); M. Attene, *Indirect
 Predicates for Geometric Constructions*, CAD 2020 (the filtered indirect predicates being checked). Only results
 are used, no code.
+
+## Pilot 3: the Devillers-Guigue prefilter of the arrangement
+
+`tritri_prefilter.py` checks the lemma of docs/design/TRITRI_PREFILTER.md over the reals (the code's predicates,
+`ExactPredicates.Orient3d` on doubles, are exact, so no rounding is modelled). `U` is normalized to
+`(0,0,0), (1,0,0), (0,1,0)` by an affine map with positive determinant (the bridge in the note), `T`'s nine
+coordinates are free. The segments `T n plane(U)` and `U n plane(T)` are built from their definitions, not from the
+predicates. UNSAT: the order of each segment's ends along `d = nT x nU`, each predicate's equivalence with one
+comparison of ends, and the lemma both ways. SAT: the assumptions, both decisions, touching (no vacuous proof), and
+four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
+that the model describes). All 14 queries take well under a second.

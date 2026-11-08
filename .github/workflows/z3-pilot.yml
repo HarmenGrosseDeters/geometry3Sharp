@@ -9,6 +9,8 @@ on:
       # pilot 2: the filter rules of the predicate generator and the generated filters
       - 'tools/PredicateCompiler/Compiler.cs'
       - 'math/Generated/IndirectPredicates.cs'
+      # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
+      - 'mesh_ops/ExactMeshArrangement.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -30,6 +32,7 @@ jobs:
           Z3_PILOT_TIMEOUT_MS: '120000'
           Z3_PILOT_REPORT: z3-report.json
           Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
+          Z3_TRITRI_REPORT: z3-tritri-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -37,3 +40,4 @@ jobs:
           path: |
             z3-report.json
             z3-filter-rules-report.json
+            z3-tritri-report.json

@@ -50,16 +50,23 @@ Proof.
    are disjoint, `c = 0` iff they share exactly one point, `c < 0` iff they overlap in a segment.
 3. *The predicates* (Devillers and Guigue 2002, section 3). After the swaps, `p1` lies on the positive side of the
    oriented plane `(p2, q2, r2)` and `p2` on the positive side of `(p1, q1, r1)`; a swap only reverses a triangle's
-   orientation, so `σT`, `σU` and `L` are unchanged. Orient `L` accordingly and write `σT = [i, j]`, `σU = [k, l]`
-   along it (`i` on `p1r1`, `j` on `p1q1`, `k` on `p2r2`, `l` on `p2q2`, in the paper's naming). The paper shows that
-   `[p1, q1, p2, q2] <= 0` iff `k <= j` and `[p1, r1, r2, p2] <= 0` iff `i <= l`: the plane through `p1, q1, p2`
-   contains `j` and `p2`, and which side of it `q2` lies on decides whether the edge `p2q2` crosses `L` (at `l`)
-   before or after `j`; likewise with `p1, r1, r2`. So the segments share a point iff both predicates are `<= 0`, and
-   are disjoint iff one is `> 0`. A predicate 0 is a coinciding end, a common point, which the prefilter leaves to
-   the construction (`c = 0`, a point). (Which end each predicate compares is written here from the paper's
-   argument; the review checks it against RR-4488. The equivalence as a whole, apart iff disjoint, is what the code
-   relies on, and the tests below check it directly.)
+   orientation, so `σT`, `σU` and `L` are unchanged. Along `d = nT x nU` (`nT = (q1 - p1) x (r1 - p1)`,
+   `nU = (q2 - p2) x (r2 - p2)`) write `i`, `j` for the ends of `σT` on `p1r1`, `p1q1` and `l`, `k` for the ends of
+   `σU` on `p2q2`, `p2r2`. Then, checked by Z3 (section 5):
+   - `i <= j` and `l <= k` (so `σT = [i, j]`, `σU = [l, k]`);
+   - `[p1, q1, p2, q2] <= 0` iff `l <= j`;
+   - `[p1, r1, r2, p2] <= 0` iff `i <= k`.
+   The segments share a point iff `l <= j` and `i <= k`, so iff both predicates are `<= 0`; they are disjoint iff one
+   is `> 0`. A predicate 0 is a coinciding end, a common point, which the prefilter leaves to the construction
+   (`c = 0`, a point).
 4. Together: apart (prefilter) ⇔ σT ∩ σU = ∅ ⇔ `c > 0` (construction). ∎
+
+*Bridge for the Z3 check.* An affine map with positive determinant keeps every `Orient3d` sign, maps segments to
+segments and keeps their order along the line (with the direction mapped accordingly, `d` transforms by the cofactor
+matrix, which keeps the orientation for a positive determinant). One such map takes `(p2, q2, r2)` to
+`(0,0,0), (1,0,0), (0,1,0)` and `p1` to a point with `z > 0` (`p1` is on the positive side, as normalized). So
+without loss of generality `U` is that triangle and `T`'s nine coordinates are free; Z3 checks the claims for all of
+them.
 
 The sign convention is the paper's: `[a, b, c, d]` positive when `d` is on the side the normal of the
 counter-clockwise triangle `(a, b, c)` points to, which is `ExactPredicates.Orient3d`. This is not taken on trust:
@@ -72,10 +79,18 @@ the swaps reversed, the orders reversed, a predicate dropped or `>= 0` instead o
 
 The prefilter evaluates two more `Orient3d` on the input doubles; the six side signs are computed before it anyway.
 `Orient3d` is exact (filtered, exact fallback), so the prefilter's decision is exact. No constructed point, no
-rounding, no new error bound, nothing for the bound review or Z3 beyond the combinatorial lemma above. Floating
+rounding, no new error bound, nothing for the bound review; the combinatorial lemma above is checked by Z3. Floating
 point appears nowhere in the decision.
 
 ## 5. Verification
+
+- Z3 (`tools/Z3Pilot/tritri_prefilter.py`, run by `test_tritri_prefilter.py` in the Z3 pilot workflow), over the reals
+  (the code's predicates are exact, so no rounding is modelled), with `U` normalized as in the bridge above and the
+  segments built from their definitions (edge parameters where an edge crosses the other plane, positions along `d`),
+  not from the predicates: the two orders, the two predicate equivalences, and the lemma in both directions (apart
+  but overlapping; not apart but disjoint) are UNSAT; the assumptions, both decisions and touching are SAT (not
+  vacuous); four mutants (`>= 0`, either predicate alone, the opposite sign) are SAT. The test also checks that the
+  code's normalization and predicates are the ones modelled (a source contract on `apart_on_the_line`).
 
 - Check mode (`ExactMeshArrangement.CheckPrefilterOnThisThread`, read on the calling thread when the intersections
   are searched): every proper pair is decided by both, and a difference throws.
