@@ -5,6 +5,8 @@ ROADMAP's 2026-11-04 SMT pilot: SnapGrid.Pixel's fast branch, and one documented
 surviving boundary-margin mutant from #376. No geometry, arithmetic, error bounds,
 API or mutation tooling changes. Stop after these tasks; do not generalize to
 large Orient/InCircle bounds or whole Boolean correctness.
+Pilot 2 (step 2, section "Pilot 2" below, `filter_rules.py`) adds the per-operation error-bound rules of
+`tools/PredicateCompiler`, one lemma per rule; still no whole predicate.
 
 The pinned `z3-solver==4.15.4.0` package is MIT, in this separate Python tool only.
 It bundles a native Linux solver; neither a NuGet reference nor a native solver
@@ -140,3 +142,135 @@ Prior art / building-block check:
   status, FP constructors/operators and exact IEEE-bit extraction.
 - [Z3 source/license](https://github.com/Z3Prover/z3): MIT; only public API and
   package metadata are used. No external geometry implementation was read.
+
+## Pilot 2: the error-bound rules of the predicate generator
+
+Step (2) of pilot 2 (docs/roadmap/research.md, "SMT checks with Z3"): the rules from which
+`tools/PredicateCompiler` derives the static error bounds of its floating-point filters
+(`Compiler.cs`, `filter_bounds`, `emit_filter_value`, `emit_filter_decision`; today the filters of
+`Orient3dLPI` and `Orient3dTPI` in `math/Generated/IndirectPredicates.cs`) are stated one lemma per rule and
+checked by Z3 (`filter_rules.py`). No whole predicate is proved; the composition over an expression graph is
+stated below and checked without Z3. No library or generator code changed: every rule held.
+
+```sh
+/tmp/g3-z3/bin/python tools/Z3Pilot/filter_rules.py --out /tmp/z3-filter-rules.json
+```
+
+The acceptance is the same as in pilot 1: every obligation (assumptions AND NOT claim) returns UNSAT, its
+assumptions return SAT on a fixed witness (and the real-arithmetic witnesses also hold when re-evaluated with
+Python fractions), and every rule has at least one controlled mutant that returns SAT with a witness that is
+replayed outside Z3 (exact fractions, or Python's own binary64 arithmetic). SAT on an obligation, UNKNOWN anywhere,
+an UNSAT mutant or a witness that does not replay all fail the run. Before any solver call the rule code of
+`Compiler.cs` is compared with the transcription in `filter_rules.py` (`source_contracts`; the constants
+u = 2^-53, 960, 52, -62 and 1000 are read back from it), and the generated filters are re-derived from the
+generated code (`composition_check`).
+
+### The rules and their lemmas
+
+Notation: for every value of the filter, `e` is the exact value of the formula on the (exact double) inputs, `e~`
+the computed double, `m~` the computed magnitude (the permanent: the same graph on absolute values, sums for
+differences), and the invariant is `|e~ - e| <= c m~` and `|e~| <= m~`. `u = 2^-53`.
+
+| rule | Compiler.cs | lemma (assumptions => claim) | model | mutants (SAT, replayed) |
+|---|---|---|---|---|
+| R0 value rule | `value_bounds` | `|x| <= Mx, |y| <= My => |x +- y| <= Mx + My, |x y| <= Mx My` | reals (NRA) | product bound `Mx + My` |
+| R1 input | `c = 0`, `m~ = |x|` | definitional (`e~ = e = x`), no lemma | | |
+| R2 leaf (input +- input) | `c = u`, `m~ = |e~|` | `e = e~ (1 + d), |d| <= u => |e~ - e| <= u |e~|` | NRA, Higham (2.5) | `c` one ulp below u (and the tight binary64 case `1 + 2^-53 -> 1`, error exactly `u |e~|`); the leaf rule applied to an operand with an error (`cx > 0`: cancellation) |
+| R3 sum / difference | `c = (u + max(cx, cy)) / (1 - u)`, `m~ = fl(m~x + m~y)` | operand invariants, `e~ = (x~ +- y~)(1 + d1)`, `m~ = (m~x + m~y)(1 + d2)`, `|di| <= u`, `M >= cx, cy` => `|e~ - e| <= (u + M) / (1 - u) m~` (one obligation each for + and -) | NRA, Higham (2.4) | without `/ (1 - u)`; `cx` instead of the max |
+| R4 product | `c = (u + cx + cy + cx cy) / (1 - u)`, `m~ = fl(m~x m~y)` | operand invariants, `e~ = x~ y~ (1 + d1)`, `m~ = m~x m~y (1 + d2)` => `|e~ - e| <= c m~` | NRA, Higham (2.4) | without `cx cy`; without `/ (1 - u)` |
+| M magnitude | `|e~| <= m~` ("rounding is monotone") | `|x~| <= m~x, |y~| <= m~y => |RN(x~ +- y~)| <= RN(m~x + m~y)`, `|RN(x~ y~)| <= RN(m~x m~y)`; plus, bit-precise in binary64: `-RN(a + b) = RN(-a + -b)`, `|RN(a b)| = RN(|a| |b|)` | reals with RN uninterpreted, monotone and odd (quantified); binary64 RNE | magnitude of a difference taken as `fl(m~x - m~y)` (binary64) |
+| R5 decision | `if (!(Math.Abs(e~) > K * m~)) return 2;`, `K = CeilDouble(c / (1 - u))` | `|e~ - e| <= c m~, m~ > 0, K (1 - u) >= c, |e~| > K m~ (1 + d), |d| <= u => e e~ > 0` | NRA | `K = c`; `>=` instead of `>` |
+| R6 zero shortcut | `if (m~ == 0) return 0;` | `|e~ - e| <= c m~, |e~| <= m~, m~ = 0 => e = 0` | NRA (`c m~`) | testing `e~ == 0` instead of `m~` |
+| E gate exponents | `GateLow = 960 / k - 52`, `K >= 2^-62` | `k >= 1, 1 <= j <= k, a = 960 div k - 52 >= 1 => j (a + 52) <= 960` and `-62 - 960 >= -1022` | integers (NIA) | `GateLow` one larger; `K >= 2^-63` |
+| G grid (no underflow) | the comment "No underflow" | binary64 `|x| >= 2^52 => x` integral; with precision 53 and a 15-bit exponent: `x, y` integral => `RN(x + y)`, `RN(x - y)`, `RN(x y)` integral (or infinite) | binary64 / (15, 53) RNE | threshold `2^51`; the frame without its range assumption (a subnormal product differs) |
+| O overflow | "an overflow would give inf or NaN in m~" | binary64: `m~x, m~y >= 0` or NaN, and `fl(m~x + m~y)` (or `fl(m~x m~y)`) finite => `m~x, m~y` finite and not NaN; `m~ = +inf` or NaN, `K > 0` finite => neither `m~ == 0` nor `|e~| > fl(K m~)` | binary64 RNE | NaN counted as finite (`0 * inf`); the test written `<=` (a NaN magnitude would decide) |
+
+What the lemmas give together, by structural induction over the expression graph in topological order (a shared
+value is one node, so the invariant of a value is used by all its users): for every value whose `m~` is finite,
+`|e~ - e| <= c m~` and `|e~| <= m~` with the `c` of the generator; a sign factor is then decided only if its sign is
+right (R5, R6), so the product of the decided factors' signs is the predicate's sign. The no-underflow part: the
+gate admits inputs 0 or of magnitude in `[2^-a, 2^b]`; a nonzero input is then a multiple of `2^-(a + 52)` (G,
+scaled by a power of two); a value of degree `j` is a sum (homogeneous: equal degrees) of products of `j` such
+inputs, so by G it is a multiple of `2^-(j (a + 52))`, and nonzero values and magnitudes are at least `2^-960` (E).
+So every exact result of an operation is 0 or at least `2^-960` in magnitude and the rounding model of R2-R5 holds
+without an underflow term (a product of nonzero values is nonzero), also for the decision product `K m~ >= 2^-1022`
+(E). The overflow part does not need `GateHigh` at all: if an `m~` overflows, every `m~` it feeds is infinite or NaN
+(O), and such a factor never decides (O); a finite `m~` has only finite `m~` (and so finite `e~`, by M) below it.
+`GateHigh` (the value rule R0 with every bound below `2^1000`) only keeps the filter useful. The decision product
+`fl(K m~)` cannot overflow for a finite `m~` (every `K` is below 1, about `1e-15`), and if it did, `|e~| > inf` would
+be false and the factor would not decide.
+
+`composition_check` re-derives, from the generated code alone and with Python fractions (a third implementation
+next to `Compiler.cs` and `GeneratedPredicatesIndirectTests`): the `m~` expression of every value line (the rule
+shape of R1-R4), its `c` against the `// c = ... u` comment, every `K` as the smallest double at or above
+`c / (1 - u)` and at least `2^-62`, homogeneity and the degree. Every line of a filter body must be one of the
+expected forms, in order: the value lines (operators `+`, `-`, `*` only), `int __r = 1;`, per sign factor the
+comment, `if (m~ == 0) return 0;`, the `K` test and `if (e~ < 0) __r = -__r;`, then `return __r;` (an inserted
+`return` fails). The gate exponents come from the rules (`960 / k - 52`, and the value rule for the upper end), and
+are checked against the literals that run: the `__gate(x, lo, hi)` conjunction of the entry on doubles (over every
+point, right before the call of the filter), the `__s.Gate` of `NamePrepare` (over the prepared points, followed by
+`if (!__s.Gate) return;`) and the gate of the prepared call (over the other points, with `__s.Gate`), plus the
+generated `__in` / `__gate` helpers verbatim; the doc comment must agree as well. The result:
+`[2^-108, 2^164]` for LPI, degree 6, `K` = 18 u and 9 u; `[2^-54, 2^109]` for TPI, degree 9, `K` = 28 u and 17 u.
+The values of the unsplit `NameFilter` methods only are re-derived; that `NameFilterPrepared` equals them bit for bit
+is tested in .NET (`Prepared_EqualsUnsplit`).
+
+The drift check compares `filter_bounds`, `emit_filter_value` and `emit_filter_decision` verbatim and, line by line,
+the rule code around them: `Rational.U`, `Node.Leaf`, `Rational.Max`, the degree and homogeneity lines, the `__in`
+and `__gate` helpers and the three gate emitters with their `lo` / `hi` literals. Not compared: `CeilDouble`,
+`lit` and `InUnitsOfU` (formatting and rounding up of `K`); `composition_check` re-derives the leaf decision, every
+`K` and the homogeneity from the generated code instead, and the .NET tests (`GeneratedPredicatesIndirectTests`)
+fail when the checked-in generated code differs from what the generator emits.
+
+### Model choices, and what Z3 did not prove
+
+- **The rounding model itself.** R2-R5 use the standard model of Higham (2002, section 2.2, (2.4) and (2.5)):
+  for a binary64 result whose exact value is 0 or of magnitude at least `2^-1022` and that does not overflow,
+  `fl(s) = s (1 + d) = s / (1 + d')` with `|d|, |d'| <= u`. A bit-precise binary64 proof of this was tried and is
+  not counted: with `fp.to_real` Z3 returns UNKNOWN (incomplete arithmetic) within a second, and a bracket of the
+  exact result in a wider format (binary128, directed roundings) did not finish in 15 minutes (95 s already for
+  binary16 with a binary64 bracket). The model's tightness is shown instead: the binary64 case `1 + 2^-53`
+  rounds to 1 with an error of exactly `u |e~|`, so the leaf constant cannot be smaller.
+- **Monotonicity of rounding.** M models round to nearest as a monotone odd function of the exact result: that
+  is the definition of an IEEE 754 operation (the exact result rounded by one rounding function). Oddness is
+  also checked bit-precisely for binary64 sums and products. A bit-precise binary64 query of M itself (four
+  operands) returned UNKNOWN after 300 s and is not counted (the sum query for binary16 is UNSAT in 13 s, an
+  experiment, not part of the gate).
+- **The grid frame.** G is stated for integers in a format with binary64's precision and a 15-bit exponent, so
+  that scaling a multiple of `2^-s` to an integer is exact for every exponent the gate admits (a binary64 value
+  of degree 9 times `2^960` would overflow binary64). The bridge: an operation whose exact result is 0 or of
+  magnitude at least `2^-1022` and below the overflow threshold rounds the same in binary64 and in that format
+  (both round the exact value to 53 significant bits). The bridge needs the range of the *exact* result: Z3
+  finds a binary64 product that rounds up to `2^-1022` (normal) from an exact value below it, where the two
+  formats differ (an experiment, SAT: `0x1.179a11596a923p+0 * 0x0.ea63f4f9b1461p-1022`, exact value about
+  `0.9999999999999999 * 2^-1022`, binary64 result `2^-1022`). The derivation only uses exact results of at least `2^-960`.
+  A bit-precise proof of the bridge was too slow (over 7 minutes per query) and is not counted.
+- **The composition.** The structural induction above is stated and reviewed, not proved by Z3; its application to
+  the generated code is re-derived by `composition_check`. Also by review only: the product of the decided sign
+  factors, and that the runtime evaluates every operation in strict binary64 (no FMA contraction, no x87 extended
+  precision; RyuJIT on SSE2, the same assumption as `AdaptivePredicates`).
+- **Not in scope.** The length rule of `FixedArith` (scratch limbs) and the expansion lengths: they bound memory,
+  not signs, and are tested in .NET (`GeneratedPredicatesTests`, `GeneratedPredicatesIndirectTests`).
+
+### Pilot 2 result
+
+All 20 obligations UNSAT with SAT assumptions, all 17 mutants SAT with replayed witnesses, source contracts and
+composition check pass; the captured report is `results/filter_rules_2026-11-08.json` (Z3 4.15.4, one local run,
+about 84 s of solver time in all). The times are local and vary between machines and runs (the grid product lemma
+took about 13 s here and 31.6 s on a reviewer's machine): the slow queries are the sum rule (about 14 s each for + and -),
+the product rule (about 16 s), the grid lemmas in the (15, 53) format (about 9-32 s) and `rn_odd_sum` (about 4 s);
+every other obligation and every mutant took below 3 s here. In CI
+both pilots run in one job (`.github/workflows/z3-pilot.yml`, read-only token), which now also triggers on
+`Compiler.cs` and `IndirectPredicates.cs`.
+
+Recommendation: the rule-per-lemma method works for the generator: small NRA lemmas with the standard rounding
+model are fast and their mutants are found at once; bit-precise binary64 works for symmetry, integrality and
+special values, but not for statements that mix the exact real result with binary64 (rounding model,
+monotonicity), which stay textbook assumptions. A new rule of the generator (a division, a square root, an
+expansion stage) gets its lemma and mutant here, and the transcription in `filter_rules.py` changes with it.
+
+Sources: N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2 (the
+standard model and its variant (2.5)); J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast
+Robust Geometric Predicates*, DCG 1997 (filters with error bounds of the form `c m~`); M. Attene, *Indirect
+Predicates for Geometric Constructions*, CAD 2020 (the filtered indirect predicates being checked). Only results
+are used, no code.

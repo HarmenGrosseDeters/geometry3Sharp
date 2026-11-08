@@ -1,0 +1,459 @@
+{
+  "z3": "4.15.4",
+  "timeout_ms": 120000,
+  "source_contracts": {
+    "u": "1/9007199254740992",
+    "grid": "960",
+    "ulp": "52",
+    "kmin": "-62",
+    "bound": "1000"
+  },
+  "composition": {
+    "Orient3dLPI": {
+      "degree": 6,
+      "gate": [
+        -108,
+        164
+      ],
+      "values": 91,
+      "decisions": [
+        {
+          "value": "_v90",
+          "c_over_u": 18.000000000000018,
+          "K": "1.998401444325284e-15"
+        },
+        {
+          "value": "_v46",
+          "c_over_u": 9.000000000000005,
+          "K": "9.992007221626417e-16"
+        }
+      ],
+      "prepared_points": 5
+    },
+    "Orient3dTPI": {
+      "degree": 9,
+      "gate": [
+        -54,
+        109
+      ],
+      "values": 172,
+      "decisions": [
+        {
+          "value": "_v171",
+          "c_over_u": 28.000000000000043,
+          "K": "3.108624468950444e-15"
+        },
+        {
+          "value": "_v130",
+          "c_over_u": 17.000000000000018,
+          "K": "1.8873791418627685e-15"
+        }
+      ],
+      "prepared_points": 9
+    }
+  },
+  "obligations": [
+    {
+      "rule": "R0 value rule",
+      "name": "value_rule",
+      "model": "NRA",
+      "result": "unsat",
+      "seconds": 0.005,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R2 leaf",
+      "name": "leaf_input_pm_input",
+      "model": "NRA, fl(s) = s / (1 + d)",
+      "result": "unsat",
+      "seconds": 0.003,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R3 sum",
+      "name": "sum_add",
+      "model": "NRA, fl(s) = s (1 + d)",
+      "result": "unsat",
+      "seconds": 14.069,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R3 sum",
+      "name": "sum_sub",
+      "model": "NRA, fl(s) = s (1 + d)",
+      "result": "unsat",
+      "seconds": 14.198,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R4 product",
+      "name": "product",
+      "model": "NRA, fl(p) = p (1 + d)",
+      "result": "unsat",
+      "seconds": 16.144,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R5 decision",
+      "name": "decision",
+      "model": "NRA, fl(K m~) = K m~ (1 + d)",
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "magnitude_sum",
+      "model": "reals, RN monotone and odd (quantified)",
+      "result": "unsat",
+      "seconds": 0.014,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "magnitude_difference",
+      "model": "reals, RN monotone and odd (quantified)",
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "magnitude_product",
+      "model": "reals, RN monotone and odd (quantified)",
+      "result": "unsat",
+      "seconds": 0.014,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "R6 zero shortcut",
+      "name": "zero_magnitude",
+      "model": "NRA (c m~)",
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "E gate exponents",
+      "name": "gate_exponents",
+      "model": "NIA (integer division)",
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "rn_odd_sum",
+      "model": "binary64 RNE",
+      "result": "unsat",
+      "seconds": 4.217,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "rn_odd_product",
+      "model": "binary64 RNE",
+      "result": "unsat",
+      "seconds": 0.799,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "grid_input",
+      "model": "binary64",
+      "result": "unsat",
+      "seconds": 0.034,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "grid_sum",
+      "model": "precision 53, exponent 15 bits, RNE",
+      "result": "unsat",
+      "seconds": 8.489,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "grid_difference",
+      "model": "precision 53, exponent 15 bits, RNE",
+      "result": "unsat",
+      "seconds": 10.732,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "grid_product",
+      "model": "precision 53, exponent 15 bits, RNE",
+      "result": "unsat",
+      "seconds": 13.072,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "O overflow",
+      "name": "overflow_sum",
+      "model": "binary64 RNE",
+      "result": "unsat",
+      "seconds": 0.022,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "O overflow",
+      "name": "overflow_product",
+      "model": "binary64 RNE",
+      "result": "unsat",
+      "seconds": 0.113,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "O overflow",
+      "name": "overflow_never_decides",
+      "model": "binary64 RNE",
+      "result": "unsat",
+      "seconds": 0.196,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    }
+  ],
+  "mutants": [
+    {
+      "rule": "R0 value rule",
+      "name": "value_product_as_sum",
+      "result": "sat",
+      "seconds": 0.005,
+      "x": "-2",
+      "y": "3",
+      "Mx": "9/4",
+      "My": "7/2",
+      "replayed": true
+    },
+    {
+      "rule": "R2 leaf",
+      "name": "leaf_c_one_ulp_below_u",
+      "result": "sat",
+      "seconds": 0.005,
+      "e": "162259276829213381405976519770111/162259276829213363391578010288128",
+      "et": "1",
+      "d": "18014398509481983/162259276829213363391578010288128",
+      "m": "1",
+      "replayed": true
+    },
+    {
+      "rule": "R2 leaf",
+      "name": "leaf_rule_on_inexact_operand",
+      "result": "sat",
+      "seconds": 0.004,
+      "x": "-1",
+      "xt": "0",
+      "y": "0",
+      "et": "0",
+      "d": "0",
+      "m": "0",
+      "cx": "2",
+      "mx": "1",
+      "replayed": true
+    },
+    {
+      "rule": "R3 sum",
+      "name": "sum_without_div_1_minus_u",
+      "result": "sat",
+      "seconds": 0.005,
+      "ex": "0",
+      "ey": "162259276829213363391578010288127/162259276829213363391578010288128",
+      "ax": "0",
+      "ay": "0",
+      "mx": "0",
+      "my": "1",
+      "cx": "0",
+      "cy": "1",
+      "M": "649037107316853453566312041152513/649037107316853453566312041152512",
+      "d1": "0",
+      "d2": "-36028797018963967/324518553658426726783156020576256",
+      "replayed": true
+    },
+    {
+      "rule": "R3 sum",
+      "name": "sum_cx_instead_of_max",
+      "result": "sat",
+      "seconds": 0.004,
+      "ex": "0",
+      "ey": "-2",
+      "ax": "0",
+      "ay": "0",
+      "mx": "0",
+      "my": "1",
+      "cx": "0",
+      "cy": "3",
+      "M": "0",
+      "d1": "0",
+      "d2": "0",
+      "replayed": true
+    },
+    {
+      "rule": "R4 product",
+      "name": "product_without_cx_cy",
+      "result": "sat",
+      "seconds": 0.006,
+      "ex": "-7/2",
+      "ey": "-7/4",
+      "ax": "0",
+      "ay": "0",
+      "mx": "1",
+      "my": "1",
+      "cx": "4",
+      "cy": "2",
+      "d1": "0",
+      "d2": "0",
+      "replayed": true
+    },
+    {
+      "rule": "R4 product",
+      "name": "product_without_div_1_minus_u",
+      "result": "sat",
+      "seconds": 0.009,
+      "ex": "-118571099379011770949700230079251003405269665644648305084183073521503449827508223/1461501637330902918203684832716283019655932542976",
+      "ey": "-237142198758023568227473377297792835283496928595231875152809132048206089502588927/26328072917139296674479506920917608079723773850137277813577744384",
+      "ax": "0",
+      "ay": "0",
+      "mx": "1",
+      "my": "1",
+      "cx": "81129638414606672688589750403074",
+      "cy": "9007199254740992",
+      "d1": "0",
+      "d2": "-730750818665451459101842416358141509827966271487/6582018229284824168619876730229402019930943462534319453394436096",
+      "replayed": true
+    },
+    {
+      "rule": "R5 decision",
+      "name": "decision_k_equals_c",
+      "result": "sat",
+      "seconds": 0.003,
+      "e": "0",
+      "et": "-1",
+      "m": "1",
+      "c": "9007199254740993/9007199254740992",
+      "K": "324518553658426762811953039540225/324518553658426726783156020576256",
+      "d": "-18014398509481983/162259276829213363391578010288128",
+      "replayed": true
+    },
+    {
+      "rule": "R5 decision",
+      "name": "decision_ge_instead_of_gt",
+      "result": "sat",
+      "seconds": 0.002,
+      "e": "0",
+      "et": "-1",
+      "m": "1",
+      "c": "1",
+      "K": "9007199254740992/9007199254740991",
+      "d": "-1/9007199254740992",
+      "replayed": true
+    },
+    {
+      "rule": "R6 zero shortcut",
+      "name": "zero_tests_value_not_magnitude",
+      "result": "sat",
+      "seconds": 0.002,
+      "e": "1/2",
+      "et": "0",
+      "m": "1",
+      "c": "1",
+      "replayed": true
+    },
+    {
+      "rule": "E gate exponents",
+      "name": "gate_low_one_too_large",
+      "result": "sat",
+      "seconds": 0.002,
+      "k": "1",
+      "j": "1",
+      "replayed": true
+    },
+    {
+      "rule": "E gate exponents",
+      "name": "k_min_one_too_small",
+      "result": "sat",
+      "seconds": 0.002,
+      "k": "1",
+      "j": "1",
+      "replayed": true
+    },
+    {
+      "rule": "M magnitude",
+      "name": "magnitude_difference_as_difference",
+      "result": "sat",
+      "seconds": 0.046,
+      "ax": -2.0483917709801537e-293,
+      "ay": -9.68520209557515e+250,
+      "mx": 2.0156455797064623e-32,
+      "my": 2.3103018441188224e+275,
+      "replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "grid_input_threshold_2_51",
+      "result": "sat",
+      "seconds": 0.036,
+      "x": "0x1.fffffffffffffp+51",
+      "replayed": true
+    },
+    {
+      "rule": "G grid",
+      "name": "frame_product_subnormal",
+      "result": "sat",
+      "seconds": 1.145,
+      "a": "-0x0.3720d00490db3p-1022",
+      "b": "-0x1.efbf282d4e7d3p-40",
+      "product": "0x0.00000000006acp-1022",
+      "replayed": true
+    },
+    {
+      "rule": "O overflow",
+      "name": "overflow_nan_counted_as_finite",
+      "result": "sat",
+      "seconds": 0.633,
+      "m1": "2.2430847880221631e-10",
+      "m2": "nan",
+      "product": "nan",
+      "replayed": true
+    },
+    {
+      "rule": "O overflow",
+      "name": "overflow_test_le_instead_of_not_gt",
+      "result": "sat",
+      "seconds": 0.906,
+      "K": 1.929097885586241e-308,
+      "m": "nan",
+      "et": 0.0,
+      "replayed": true
+    }
+  ],
+  "leaf_tightness": {
+    "x": "0x1.0000000000000p+0",
+    "y": "0x1.0000000000000p-53",
+    "rounded": "0x1.0000000000000p+0",
+    "error_over_u_m": "1"
+  },
+  "total_seconds": 84.943,
+  "obligations_passed": true,
+  "proof_scope": "Local rule lemmas of the PredicateCompiler filter; the rounding model (Higham 2.4/2.5) and the structural induction over the expression graph are assumptions, see README."
+}
