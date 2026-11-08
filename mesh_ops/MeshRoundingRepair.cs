@@ -55,7 +55,13 @@ namespace g3
     /// SharedPositionsTouch, vertices at the same position count as shared, so that sheets which touch at
     /// duplicated vertices (ExactMeshBoolean splits where solids touch) do not count as intersecting there; then
     /// no edit moves a vertex onto a position where other vertices are (which would make a new, uncounted
-    /// contact), and a contraction keeps the contact points as they are (the kept vertex at its own position).
+    /// contact), and a contraction keeps the contact points as they are (the kept vertex at its own position). Where the
+    /// caller knows the exact point of each vertex (ExactMeshBoolean), vertices of different exact points that the
+    /// rounding put at one position are not a contact of the solid but a defect: after the passes, the vertices of the
+    /// other points are moved off the position, one at a time (towards its neighbours or along its normal, a few units in
+    /// the last place first), checked like every edit, so that they then meet the other sheet nowhere; the point with the
+    /// most vertices there stays, and a point with several vertices there is not moved apart, so a contact of one exact
+    /// point is kept (InitialFalseContacts, RemainingFalseContacts; IsClean requires none left).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -191,8 +197,19 @@ namespace g3
         /// diagonal
         /// </summary>
         public double MaxDrift;
-        /// <summary> no self-intersections and no degenerate triangles remain </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0; } }
+        /// <summary>
+        /// with SharedPositionsTouch and the exact points of the vertices known (ExactMeshBoolean): positions where the
+        /// rounding put vertices of different exact points, before and after the repair. Unlike vertices of one exact
+        /// point (where solids touch), these are contacts the exact solid does not have; the repair separates them by
+        /// tiny moves of a vertex, checked exactly like every edit. 0 when the exact points are not known
+        /// </summary>
+        public int InitialFalseContacts, RemainingFalseContacts;
+        /// <summary> no self-intersections, no degenerate triangles and no contacts made by the rounding remain </summary>
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0; } }
+
+        // the id of the exact point of a vertex (vertices of one exact point have the same id), -1 if not known;
+        // ExactMeshBoolean sets it (see InitialFalseContacts)
+        internal Func<int, int> PointIdF = null;
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
@@ -313,10 +330,21 @@ namespace g3
             InitialIntersections = pairs.Count;
             InitialDegenerate = bad.Count;
             evaluations = pairTests = 0;
-            maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count);
+            InitialFalseContacts = RemainingFalseContacts = 0;
+            if (PointIdF != null && atPosition != null)
+                InitialFalseContacts = false_contacts().Count;
+            // (the contacts the rounding made are defects of their own: they count into the budget)
+            maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
             EvaluationLimitReached = false;
             frozenMost = null;
             repair_passes(ref pairs, ref bad);
+            // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
+            // passes again where the moves changed the mesh)
+            if (InitialFalseContacts > 0 && EvaluationLimitReached == false && separate_false_contacts() > 0) {
+                bad = degenerate_triangles();
+                pairs = intersecting_pairs();
+                repair_passes(ref pairs, ref bad);
+            }
             // vertices that the rounding put onto the position of another (they touch: SharedPositionsTouch takes them as
             // shared, MeshRobustRepair.NotCleanReason as intersecting): a vertex of valence 3 there is removed, if the
             // result improves. Only where the coordinates are coarse (the ulp term of the bound is active): elsewhere
@@ -334,9 +362,13 @@ namespace g3
             }
             RemainingIntersections = pairs.Count;
             RemainingDegenerate = bad.Count;
+            List<List<int>> contactsLeft = PointIdF != null && atPosition != null ? false_contacts() : null;
+            RemainingFalseContacts = contactsLeft != null ? contactsLeft.Count : 0;
             int at = bad.Count > 0 ? bad[0] : pairs.Count > 0 ? pairs[0].a : -1;
             if (at >= 0 && Mesh.IsTriangle(at))
                 RemainingDefectAt = Mesh.GetTriCentroid(at);
+            else if (RemainingFalseContacts > 0)
+                RemainingDefectAt = Mesh.GetVertex(contactsLeft[0][0]);
             return IsClean;
         }
 
@@ -1468,6 +1500,114 @@ namespace g3
                 : e > 0 ? BitConverter.Int64BitsToDouble(1L << (e - 1)) : double.Epsilon;
         }
 
+        // the positions with vertices of different exact points (PointIdF), each as its vertices in id order; in order
+        // of their smallest vertex id (deterministic)
+        List<List<int>> false_contacts()
+        {
+            var groups = new List<List<int>>();
+            foreach (List<int> list in atPosition.Values) {
+                if (list.Count < 2)
+                    continue;
+                int first = -1;
+                bool differ = false;
+                foreach (int v in list) {
+                    int id = PointIdF(v);
+                    if (id < 0) continue;
+                    if (first < 0) first = id;
+                    else if (id != first) differ = true;
+                }
+                if (differ) {
+                    var g = new List<int>(list);
+                    g.Sort();
+                    groups.Add(g);
+                }
+            }
+            groups.Sort((x, y) => x[0].CompareTo(y[0]));
+            return groups;
+        }
+
+        // separate the contacts the rounding made: move one vertex of a contact off its position, towards the centroid
+        // of its neighbours or along its normal (both ways), from a few units in the last place up to maxLength; a move
+        // is applied if it adds neither an intersection nor a degenerate triangle (improves, as every edit), so the
+        // vertex then meets the other sheet nowhere. Vertices that are not fixed first; a fixed vertex (FixedVertexF,
+        // eg an input point) is moved only as a fallback, where no vertex of the contact that is not fixed could be
+        // moved (its double is then no longer its exact point, by a few units in the last place: a contact counts as a
+        // defect, a moved input point does not). Returns the moves applied
+        int separate_false_contacts()
+        {
+            int moved = 0;
+            // a vertex whose moves all failed is not tried again (a later move elsewhere rarely frees it, and each try
+            // costs up to three directions per step)
+            var failed = new HashSet<int>();
+            for (bool again = true; again && EvaluationLimitReached == false; ) {
+                again = false;
+                foreach (List<int> g in false_contacts()) {
+                    // the exact point with the most vertices here stays (where the solid touches itself, its vertices
+                    // must keep sharing the position; ties: the point of the smallest vertex); of the others only a
+                    // point with a single vertex here is moved, so no contact of one exact point is broken up (a point
+                    // with several vertices here stays, and the position is counted as left)
+                    var count = new Dictionary<int, int>();
+                    foreach (int v in g) {
+                        int c;
+                        count.TryGetValue(PointIdF(v), out c);
+                        count[PointIdF(v)] = c + 1;
+                    }
+                    int keep = PointIdF(g[0]);
+                    foreach (int v in g)
+                        if (count[PointIdF(v)] > count[keep]) keep = PointIdF(v);
+                    var movable = new List<int>();
+                    foreach (int v in g)
+                        if (PointIdF(v) != keep && count[PointIdF(v)] == 1) movable.Add(v);
+                    var order = new List<int>();
+                    foreach (int v in movable) if (FixedVertexF == null || FixedVertexF(v) == false) order.Add(v);
+                    foreach (int v in movable) if (FixedVertexF != null && FixedVertexF(v)) order.Add(v);
+                    foreach (int v in order) {
+                        if (failed.Contains(v) || Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v) || Mesh.GetVtxEdgeCount(v) == 0)
+                            continue;
+                        if (try_separate(v)) {
+                            moved++;
+                            again = true;
+                            break;
+                        }
+                        failed.Add(v);
+                    }
+                }
+            }
+            return moved;
+        }
+
+        bool try_separate(int v)
+        {
+            Vector3d c = Mesh.GetVertex(v), ctr = Vector3d.Zero, n = Vector3d.Zero;
+            int k = 0;
+            foreach (int u in Mesh.VtxVerticesItr(v)) { ctr += Mesh.GetVertex(u); k++; }
+            foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                Index3i tv = Mesh.GetTriangle(t);
+                Vector3d a = Mesh.GetVertex(tv.a);
+                n += (Mesh.GetVertex(tv.b) - a).Cross(Mesh.GetVertex(tv.c) - a);
+            }
+            var dirs = new List<Vector3d>();
+            if (k > 0) dirs.Add(unit(ctr / k - c));
+            dirs.Add(unit(n));
+            dirs.Add(-unit(n));
+            double largest = Math.Max(Math.Abs(c.x), Math.Max(Math.Abs(c.y), Math.Abs(c.z)));
+            // the first step: a few units in the last place of the position; at the origin (no such unit) the unit of
+            // maxLength, as in fix_intersection (so the steps do not start in the subnormals)
+            double s0 = largest > 0 ? 4 * ulp(largest) : ulp(maxLength);
+            if (!(s0 > 0 && s0 < double.PositiveInfinity))
+                return false;
+            for (double s = s0; s <= maxLength; s *= 4)
+                foreach (Vector3d d in dirs) {
+                    if (d == Vector3d.Zero)
+                        continue;
+                    if (try_move(v, c + s * d, removesContact: true))
+                        return true;
+                    if (EvaluationLimitReached)
+                        return false;
+                }
+            return false;
+        }
+
         // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
         // first vertex of valence 3 whose removal improves; repeated while it removes some (at most once per vertex)
         [MethodImpl(JitHints.Optimize)]
@@ -1611,7 +1751,7 @@ namespace g3
 
         // move v to p (a boundary vertex only by try_slide)
         [MethodImpl(JitHints.Optimize)]
-        bool try_move(int v, Vector3d p)
+        bool try_move(int v, Vector3d p, bool removesContact = false)
         {
             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
                 return false;
@@ -1645,7 +1785,7 @@ namespace g3
                 addedFrom.Add(removed.Count - 1);
             }
             movedV = v; movedPos = p;
-            bool ok = improves(p.Distance(Mesh.GetVertex(v)));
+            bool ok = improves(p.Distance(Mesh.GetVertex(v)), removesContact: removesContact);
             movedV = -1;
             if (ok == false)
                 return false;

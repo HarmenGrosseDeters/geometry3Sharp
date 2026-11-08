@@ -91,7 +91,11 @@ run the edge the same way are not joined, and the result is open along the edge;
 - **Solids that touch along an edge give a result that is non-manifold there**, as in Manifold. The union of two
   boxes that share only an edge is two solids meeting in a line: the four triangles at the edge are split into two
   manifold pairs, with copies of the edge's vertices (`NonManifoldEdges` counts these edges), so the `DMesh3` is
-  closed and manifold, but welded by position the edge has four triangles.
+  closed and manifold, but welded by position the edge has four triangles. `Contacts` counts the positions with two or
+  more vertices (points and edges where the solid touches itself), so that a caller that welds (eg writes STL) knows;
+  the in-memory result is the clean one (owner decision 2026-11-07, as Manifold). Two *different* exact points that
+  round to one double are not such a contact: `SafeRounding` separates them by a tiny, exactly checked move, and
+  `RoundingClean` requires none left (`Rounding.InitialFalseContacts`, `RemainingFalseContacts`).
   `MeshRobustRepair.SeparateTouchingVertices` moves such contacts apart if a strictly manifold mesh is needed.
 
 ## The examples
