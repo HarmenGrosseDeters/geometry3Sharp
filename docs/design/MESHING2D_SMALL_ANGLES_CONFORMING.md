@@ -12,13 +12,13 @@ that is fine: s is a constraint and need not be a Delaunay edge. In the conformi
 edge: the apex angles of its two triangles must add up to at most 180°. A vertex v in the diametral circle has an angle above 90° at s, and the
 other apex can make the sum exceed 180°.
 
-**Probe 1 (throwaway, not in a PR; master 6f8a1b0 plus the change "ApexExempt also in the conforming mode").** Catalogue rows in the default mode,
-`Meshing2Benchmark rows`, F-4, F-5, F-22, F-26, F-27, F-38, F-39, F-42:
+**Probe 1 (throwaway, not in a PR; master 243b685 plus the change "ApexExempt also in the conforming mode").** Catalogue rows in the default mode,
+`Meshing2Benchmark rows`, filters F-4, F-5, F-22, F-26, F-27, F-38, F-39, F-42 (prefix matches, so 28 rows including F-40, F-41, F-43, F-44, F-48, F-55, F-58):
 
 | | rows ok | rows FAIL |
 |---|---|---|
-| master | all 19 | 0 |
-| the rule unchanged in the conforming mode | 10 | 9: F-4/a, b, c, F-5, F-22/a, F-26, F-27, F-38/d, F-38/e, F-39, F-42 (`NotDelaunayLocal`; F-38/e also `NotDelaunayGlobal`) |
+| master | 28 | 0 |
+| the rule unchanged in the conforming mode | 17 | 11: F-4/a, b, c, F-5, F-22/a, F-26, F-27, F-38/d, F-38/e, F-39, F-42 (`NotDelaunayLocal`; F-38/e also `NotDelaunayGlobal`) |
 
 So the rule alone breaks O2 in the default mode, as expected.
 
@@ -43,7 +43,7 @@ The kernel's triangulation is a triangulation of the convex hull of all vertices
 the Delaunay triangulation of all vertices: every circumcircle is empty, across holes and the outside too, since those triangles are in the kernel.
 That is O2, up to the existing clauses (collinear within a few ulps, the merge zones, the grid's unsplittable pieces), which rule C does not touch.
 
-Probe 2 (same rows, same state, rule C added): **all 19 rows ok.** Triangle counts, default mode:
+Probe 2 (same state, rule C added; filters F-4/, F-5, F-22, F-26, F-27, F-38, F-39, F-42, so 19 rows, including all 11 that failed in probe 1): **all 19 rows ok.** Triangle counts, default mode:
 
 | row | master | rule C |
 |---|---|---|
