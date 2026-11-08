@@ -629,8 +629,9 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 5. **Margin constant (bit-precise, FP only):** for `rival` in `(1e-280, 1e140)`, `rival * 2^-40` is exact in binary64.
 6. **(b1) the lens predicate:** for `a = (-1, 0)`, `c = (1, 0)` and `p` not an end of `ac`: the predicate of `InLens`
    (`dot < 0` and `4 dot^2 >= |pa|^2 |pc|^2`) holds iff the angle `apc` is at least 120 degrees (`dot <= -|pa||pc|/2`) iff `p` is in both disks of radius
-   `|ac| / sqrt 3` through `a` and `c`. **This proves the code's predicate equals the derived form `sin^2 theta <= 3/16` family (120 degree lens),
-   not Shewchuk's termination theorem (2002, section 6.4)**, which is not encoded.
+   `|ac| / sqrt 3` through `a` and `c`. **This proves that the code's predicate is the 120 degree lens, not
+   Shewchuk's termination theorem (2002, section 6.4) and not the link between that lens and the bound `sin^2 theta <= 3/16` (25.65 degrees),
+   which is Shewchuk's analysis and is not encoded.**
 7. **(b2) the O2 step of rule C:** `u = (-1, 0)`, `w = (1, 0)`, apexes `p` above and `q` below the line: if neither apex is strictly inside the
    diametral circle (angles at most 90 degrees), `q` is not strictly inside the circumcircle of `u w p` (locally Delaunay).
 8. **(b3) the arithmetic of the factor 1.5 in #394:** ends at radii `r1 <= r2 <= 2 r1` and a vertex at radius `rho` between them: `rho` is within
