@@ -24,7 +24,9 @@ def main():
     out = sys.argv[1]
     share = json.load(open(sys.argv[2])) if len(sys.argv) > 2 else {}
     here = os.path.dirname(os.path.abspath(__file__))
-    cohort = dict(l.split() for l in open(os.path.join(here, 'sample.txt')) if l.strip())
+    cohort = {}
+    for f in ('sample.txt', 'sample_random.txt'):
+        cohort.update(l.split() for l in open(os.path.join(here, f)) if l.strip())
     builds = [l.split()[0] for l in open(os.path.join(out, 'builds.txt'))]
     for b in builds:
         p = os.path.join(out, b + '.jsonl')
@@ -36,7 +38,7 @@ def main():
         print('|---|---|---|---|---|---|---|')
         agg = collections.defaultdict(collections.Counter)
         for r in rows:
-            c = cohort[r['case']].replace('_rand', '')
+            c = cohort[r['case']].split('_')[0]
             cl = r['phases_ms'].get('classification', 0)
             f = share.get(c, 1.0)
             for key in (c, 'all'):

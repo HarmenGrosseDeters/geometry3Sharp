@@ -6,15 +6,19 @@
 #
 # Builds (pinned):  master = the commit this script is run from (HEAD's library);
 #                   levers = 53665116 (#409 + #412 + #406 + #419, the queued speed levers, runs/b2-all)
-# usage: bash benchmarks/LevyClassification/job.sh [work dir]   (from the repository root)
+# usage: bash benchmarks/LevyClassification/job.sh [work dir] [sample file]   (from the repository root)
+#        sample file: sample.txt (default, the slow tail) or sample_random.txt (a seeded random sample of the cohorts);
+#        results go to <work dir>/out (sample.txt) or <work dir>/out_<sample name>
 # Resumable: rerun after an interruption; finished (build, model) files with three result lines are kept.
 # then:  python3 benchmarks/LevyClassification/analyze.py <work dir>/out > benchmarks/LevyClassification/results/summary.md
 set -euo pipefail
 ROOT=$(git rev-parse --show-toplevel)
 J=$ROOT/benchmarks/LevyClassification
 W=${1:-$HOME/levy-phase1}
-mkdir -p "$W/out" "$W/cases"
-BUILDS="master:$(git -C "$ROOT" rev-parse HEAD) levers:536651163b9c351103bdaa9b846d872926b2a97b"
+SAMPLE=${2:-sample.txt}
+O=out; [ "$SAMPLE" = sample.txt ] || O=out_$(basename "$SAMPLE" .txt)
+mkdir -p "$W/$O" "$W/cases"
+BUILDS="master:$(git -C "$W/src_master" rev-parse HEAD 2>/dev/null || git -C "$ROOT" rev-parse HEAD) levers:536651163b9c351103bdaa9b846d872926b2a97b"
 for b in $BUILDS; do
   name=${b%%:*}; sha=${b#*:}
   if [ ! -f "$W/tool_$name/LevyClassification.dll" ]; then
@@ -28,9 +32,9 @@ done
 if [ ! -f "$W/tool_export/BooleanComparison.dll" ]; then
   dotnet build "$W/src_master/benchmarks/BooleanComparison" -c Release -f net10.0 -o "$W/tool_export"
 fi
-for b in $BUILDS; do echo "${b%%:*} ${b#*:}"; done > "$W/out/builds.txt"
+for b in $BUILDS; do echo "${b%%:*} ${b#*:}"; done > "$W/$O/builds.txt"
 
-IDS=$(cut -d' ' -f1 "$J/sample.txt")
+IDS=$(cut -d' ' -f1 "$J/$SAMPLE")
 python3 "$J/fetch_thingi.py" "$W/raw" $IDS
 for id in $IDS; do
   [ -f "$W/cases/$id/B.off" ] && continue
@@ -40,14 +44,14 @@ done
 
 for b in $BUILDS; do
   name=${b%%:*}
-  mkdir -p "$W/out/$name"
+  mkdir -p "$W/$O/$name"
   for id in $IDS; do
-    f="$W/out/$name/$id.jsonl"
+    f="$W/$O/$name/$id.jsonl"
     if [ -f "$f" ] && [ "$(grep -c '"ms"' "$f")" -ge 3 ]; then continue; fi
     timeout 1200 dotnet "$W/tool_$name/LevyClassification.dll" "$W/cases/$id" > "$f.tmp" 2> "$f.err" \
       || echo "{\"case\":\"$id\",\"error\":\"exit $?\"}" >> "$f.tmp"
     mv "$f.tmp" "$f"
   done
-  cat "$W/out/$name"/*.jsonl > "$W/out/$name.jsonl"
+  cat "$W/$O/$name"/*.jsonl > "$W/$O/$name.jsonl"
 done
-echo "done: $(cat "$W"/out/*.jsonl | wc -l) lines"
+echo "done: $(cat "$W/$O"/*.jsonl | wc -l) lines"
