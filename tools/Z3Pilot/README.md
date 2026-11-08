@@ -376,25 +376,55 @@ would itself be incorrect. The default adapter guards are SAT for every row.
 
 ### FP bridge and normalized recipe
 
-The two FP obligations use **real rounding-error envelopes**, as a modular
-Pilot-2-style proof. Standard correctly-rounded IEEE binary64 RNE operations
-without fused contraction are assumptions, not re-proved IEEE lemmas. For
-`|fa|, |fb|, |sigma| <= 1`, exact positive sample gap `d >= 2^-20`, and
-`n = sigma-fa` with `0 <= n <= d`, both differences have absolute rounding error
-at most `u = 2^-52` (including subnormals). The rounded quotient's magnitude is
-below two, giving the same absolute error envelope. Z3 proves the quotient's
-error from the exact interpolation parameter is at most `2^-30`.
+The two FP obligations use **relative rounding errors for sample arithmetic**
+and the existing absolute coordinate envelope. This removes the old
+`|sample| <= 1` and `sample gap >= 2^-20` conditions. There is no replacement
+sample-magnitude ceiling or positive gap floor. Samples and level must be finite;
+a sorted crossing still has a strictly positive exact gap, by definition.
+The [relative-error design](../../docs/design/CONSERVATIVE_MC_RELATIVE_ERROR.md)
+gives the complete algebraic bridge and the scope of the independent bounds review.
 
-Clamping the parameter to `[0,1]` cannot increase this error. With endpoint
-coordinates in `[-1,1]`, subtraction error is at most `u`; the multiply/add
-errors are each at most `2u`. The second obligation proves position error at
-most `E = 2^-28`. Coordinate clamping to the original edge interval cannot
-increase it. On an axis-aligned grid only one coordinate varies, so `E` is also
-a Euclidean error bound. This does not certify construction of the grid itself:
-the recipe requires exactly representable grid nodes, e.g. an origin whose
-coordinates are integer multiples of a power-of-two spacing, with all node
-integer coordinates small enough to be represented exactly. All generated nodes, including
-the extra boundary cell, must satisfy the coordinate bounds.
+Let `u = 2^-53`, exact `n = sigma-fa`, `d = fb-fa > 0`, and `T = n/d` in [0,1].
+For finite rounded differences, `RN(n) = n(1+dn)` and `RN(d) = d(1+dd)`, with
+`|dn|, |dd| <= u`. This includes subnormal differences: binary64 operands are
+integer multiples of `2^-1074`, so an exact difference below the normal range is
+itself exactly representable. Cancellation therefore needs no minimum gap.
+
+Division needs a small absolute underflow allowance as well:
+`RN(z) = z(1+dq) + eta`, with `|dq| <= u`, `|eta| <= u^2`. For a normal exact
+result choose eta=0; for a subnormal exact result choose dq=0 and use the absolute
+rounding bound `2^-1075 < u^2`. The loose `u^2 = 2^-106` bound is on the
+dimensionless parameter; it is not a sample-gap condition. A purely relative
+model is false even for a nonzero quotient: `RN(2^-1074 / 0.75) = 2^-1074`
+has relative error 1/4. An actual binary64 replay pins this case.
+
+Canceling positive d yields the normalized equation checked by Z3:
+
+```
+(t_raw - eta)(1 + dd) = T(1 + dn)(1 + dq)
+```
+
+For all T in [0,1] and allowed errors, `|t_raw - T| <= 4u`. The query has no
+sample-magnitude or gap parameters to restrict. This normalization is an explicit
+algebraic bridge to the source, not a proof that an arbitrary floating expression
+matches it. Clamping the parameter to [0,1] cannot increase its error.
+
+The coordinate obligation keeps the previous loose operation allowances for
+endpoints in [-1,1]: subtraction error <= 2u and product/addition error each
+<= 4u, including underflow. With the improved `4u` parameter bound it proves the
+same `E = 2^-28` position envelope. Projection to the original edge interval
+cannot increase the error; only one coordinate varies on an axis-aligned grid,
+so E is a Euclidean bound. All grid nodes, including the extra boundary cell,
+must still lie in [-1,1] and be exactly representable; for example, an origin
+whose coordinates are integer multiples of a power-of-two spacing, with all
+node integer coordinates small enough to be represented exactly.
+
+Standard binary64 RNE with gradual underflow (no FTZ/DAZ), no fused contraction
+and no extended intermediates are assumptions, not re-proved IEEE lemmas.
+Nonfinite samples are excluded. Existing `LinearEdges` guards reject overflowing
+differences/nonfinite quotients and collapsed crossings; failed runs never
+certify a mesh. Thus successful extraction does not need a magnitude ceiling to
+make the subtraction model valid.
 
 For exact 1-Lipschitz samples the linear edge slope has magnitude <= 1, so the
 lift deficit is <= E. High corners and crossings then have lift >= sigma-E.
@@ -410,9 +440,9 @@ mc.Generate(); // Do not use a partial, canceled or failed result.
 For Pro use its corresponding enum. `LinearEdges` bypasses Pro's float sample
 cache and evaluates doubles, but double field evaluation is still not exact
 mathematics. The `2^-26` pad dominates `E` and rounding in the displayed level
-formula under these normalized conditions. Require all sample magnitudes and
-crossing gaps to meet the bounds above, no corner exactly at the level, and
-strictly interior representable crossings. Require all samples on the actual extraction boundary (including the extra
+formula under these coordinate conditions. There is no sample-magnitude bound
+or minimum sample gap. Require finite samples/level, no corner exactly at the
+level, and strictly interior representable crossings. Require all samples on the actual extraction boundary (including the extra
 cell) to be high and the entire true zero set to be inside. Check the final mesh
 is closed and valid; a finite mesh is not by itself an enclosure certificate.
 
@@ -421,16 +451,29 @@ bound `S` on the sampled linear edge slopes, use a level strictly above
 `half_diagonal + e + S*E`, also allowing for level computation. One may bound
 `S <= 1 + 2*e/min_edge_length` when a true 1-Lipschitz field underlies the samples.
 An unquantified mesh-SDF approximation or arbitrary additional epsilon is not
-certified by this recipe. Far coordinates, smaller gaps, nonexact grids,
-overflow and other root modes remain outside these FP lemmas.
+certified by this recipe. Far coordinates, nonexact grids and other root modes
+remain outside these FP lemmas. Overflow remains a rejected extraction, not a
+certified output.
 
 ### Recorded outcome
 
-`results/conservative-mc.json` records the default gate: the table certificate
+`results/conservative-mc.json` records the original #423 absolute-envelope gate: the table certificate
 (256 rows, closed high chains, matching neighbour faces), 260 UNSAT queries with
 SAT assumptions (the edge-identity and product lemmas, the 256 instances of the
 same trivial lift lemma described in step 3, and the two FP envelopes) and both
 SAT controls with exact-rational replay.
+`results/conservative-mc-relative.json` records the relative-model follow-up:
+the same 260 SAT-guarded UNSAT obligations, a required SAT `2u`-bound mutant
+replayed with exact fractions (a counterexample to the independent-error
+envelope, not necessarily an attainable C# input), and actual binary64 replays for large samples,
+tiny/subnormal differences, subnormal division, subtraction ties, and field
+scalings from `2^-1070` through `2^1000`. Removing the division underflow
+allowance can leave the abstract real lemmas true; the actual subnormal replay
+then fails and the gate rejects the model. A too-small parameter bound and an
+UNKNOWN control are likewise rejected. The level pad and coordinate profile
+are unchanged. `results/conservative-mc-relative-validation.json` records the
+commands and verification results, including the initial unrelated timeout and
+successful repeat without changing the older rule or its timeout.
 `results/conservative-mc-direct-summary.json` records the separate short-budget
 experiment (`--direct --timeout-ms 100`): one direct UNSAT with SAT assumptions,
 255 direct UNKNOWN results. This is explicitly **not** a completed direct NRA

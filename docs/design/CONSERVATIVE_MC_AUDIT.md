@@ -124,6 +124,12 @@ reported exclusions.
 
 Use full, uncanceled `Generate()`, a box containing the complete zero set and offset surface, with every sample
 on the actual extraction boundary high,
-consistent field evaluations, the stated grid/sample/gap bounds, and a closed,
+consistent finite field evaluations, the stated grid conditions, and a closed,
 valid resulting mesh. Do not apply the normalized FP recipe to arbitrary world
 coordinates or claim a bound for unquantified approximate mesh-SDFs.
+
+The [relative-error follow-up](CONSERVATIVE_MC_RELATIVE_ERROR.md) replaces the
+original sample-arithmetic envelope: neither `|sample| <= 1` nor the `2^-20`
+sample-gap floor is needed. Normalized coordinates, exact grid formation, finite
+samples and the treatment of field-evaluation errors remain prerequisites. The
+position envelope and level pad are unchanged.
