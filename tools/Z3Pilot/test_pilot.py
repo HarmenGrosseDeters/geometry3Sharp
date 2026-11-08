@@ -3,6 +3,7 @@ import os
 import pathlib
 import unittest
 from unittest.mock import patch
+import drift_apex
 import filter_rules
 import pilot
 
@@ -184,6 +185,72 @@ class FilterRuleTests(unittest.TestCase):
                                    + [patch.object(filter_rules, '_check', unknown)])
         self.assertEqual('unknown', report['obligations'][0]['result'])
         self.assertFalse(report['obligations_passed'])
+
+
+
+class DriftApexTests(unittest.TestCase):
+    """Pilot 2, step 1: the D1 drift lemma of SafeRounding (drift_apex.py, README section 'Pilot 2, step 1')."""
+
+    def test_drift_lemma_obligations_mutants_and_replays(self):
+        report = drift_apex.run(TIMEOUT_MS)
+        out = os.environ.get('Z3_DRIFT_APEX_REPORT')
+        if out:
+            pathlib.Path(out).write_text(json.dumps(report, indent=2)+'\n')
+        self.assertTrue(report['obligations_passed'], json.dumps(report, indent=2))
+        rows = report['obligations']
+        self.assertTrue(all(r['result'] == 'unsat' and r['assumptions_result'] == 'sat' and r['assumptions_replayed']
+                            for r in rows))
+        # every apex shape: the four claims; today's rule for the ear and three apex shapes; the chain step
+        self.assertEqual(4 * (6 + 25 + 3 + 2) + 3 + 3 * 4 + 1, len(rows))
+        self.assertEqual('unsat', next(r for r in rows if r['name'] == 'chain_step_higham_2_5')['result'])
+        names = {m['name'] for m in report['mutants'] if m['result'] == 'sat' and m['replayed']}
+        self.assertEqual({'contraction_charges_vanishing_a', 'flip_charges_a_in_one_added_triangle',
+                          'move_charges_ring_vertex', 'move_charges_M_without_delta', 'flip_charges_M_without_delta_I2',
+                          'contraction_M_over_A_only', 'removal_M_over_A_only', 'ear_charges_only_vanishing_v',
+                          'chain_step_with_2_4_model_only'}, names)
+        self.assertTrue(all(p['result'] == 'sat' and p['replayed'] for p in report['partial_charge_nonvacuity']))
+
+    def test_apex_is_in_every_added_triangle(self):
+        for s in drift_apex.shapes():
+            for c in s['apexes']:
+                self.assertTrue(all(c in t for t in s['A']), (s['name'], c))
+            self.assertTrue(s['apexes'])
+
+    def _run_with(self, obligation):
+        flip = drift_apex.flip()
+        mutant = ('apex rule', 'flip_charges_a', flip, 'I1', 'a', None, 'RA')
+        with patch.object(drift_apex, 'obligations', lambda: iter([obligation])), \
+                patch.object(drift_apex, 'mutants', lambda: iter([mutant])), \
+                patch.object(drift_apex, 'shapes', lambda: iter([flip])):
+            return drift_apex.run(TIMEOUT_MS)
+
+    def test_controls_pass(self):
+        report = self._run_with(('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'apex', 'c'))
+        self.assertTrue(report['obligations_passed'], report)
+
+    def test_false_rule_is_not_success(self):
+        # charging M without delta as if it were the rule: an obligation that is SAT must fail the run
+        report = self._run_with(('apex rule', 'flip_I1_no_delta', drift_apex.flip(), 'I1', 'no_delta', 'c'))
+        self.assertEqual('sat', report['obligations'][0]['result'])
+        self.assertFalse(report['obligations_passed'])
+
+    def test_unknown_is_not_success(self):
+        original = drift_apex._check
+        def unknown(assumptions, bad, timeout_ms):
+            if drift_apex.z.is_true(bad):
+                return original(assumptions, bad, timeout_ms)
+            return None, drift_apex.z.unknown, 0.0
+        with patch.object(drift_apex, '_check', unknown):
+            report = self._run_with(('apex rule', 'flip_I1', drift_apex.flip(), 'I1', 'apex', 'c'))
+        self.assertEqual('unknown', report['obligations'][0]['result'])
+        self.assertFalse(report['obligations_passed'])
+
+    @unittest.skip('TODO(D1): the apex rule is not implemented yet. The implementation PR adds the source contract: '
+                   'the drift accounting of mesh_ops/MeshRoundingRepair.cs (improves, within_bound, commit_drift) '
+                   'must match drift_apex.CHARGING (only the apex gets M + delta with an apex; every vertex without '
+                   'one; acceptance M + delta <= maxLength with M over R and A), and fail on drift.')
+    def test_source_contract_against_the_apex_rule(self):
+        pass
 
 
 if __name__ == '__main__':

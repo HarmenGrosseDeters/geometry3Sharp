@@ -1,0 +1,1972 @@
+{
+  "z3": "4.15.4",
+  "timeout_ms": 120000,
+  "specification": {
+    "with_apex": "apex",
+    "without_apex": "all",
+    "acceptance": "M + delta <= L",
+    "M_over": "R and A"
+  },
+  "obligations": [
+    {
+      "rule": "apex rule",
+      "name": "move_valence_3_apex_v_I1",
+      "claim": "I1",
+      "queries": 3,
+      "result": "unsat",
+      "seconds": 0.007,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_3_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.004,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_3_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_3_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_4_apex_v_I1",
+      "claim": "I1",
+      "queries": 4,
+      "result": "unsat",
+      "seconds": 0.011,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_4_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.005,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_4_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_4_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_5_apex_v_I1",
+      "claim": "I1",
+      "queries": 5,
+      "result": "unsat",
+      "seconds": 0.016,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_5_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.006,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_5_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_5_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_6_apex_v_I1",
+      "claim": "I1",
+      "queries": 6,
+      "result": "unsat",
+      "seconds": 0.024,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_6_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.011,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_6_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_6_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_7_apex_v_I1",
+      "claim": "I1",
+      "queries": 7,
+      "result": "unsat",
+      "seconds": 0.036,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_7_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.016,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_7_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_7_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_8_apex_v_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.05,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_8_apex_v_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.02,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_8_apex_v_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_valence_8_apex_v_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_2_apex_b_I1",
+      "claim": "I1",
+      "queries": 4,
+      "result": "unsat",
+      "seconds": 0.016,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_2_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.007,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_2_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_2_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 5,
+      "result": "unsat",
+      "seconds": 0.023,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.012,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_4_apex_b_I1",
+      "claim": "I1",
+      "queries": 6,
+      "result": "unsat",
+      "seconds": 0.038,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_4_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.018,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_4_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_4_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_5_apex_b_I1",
+      "claim": "I1",
+      "queries": 7,
+      "result": "unsat",
+      "seconds": 0.054,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_5_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.02,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_5_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_5_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_6_apex_b_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.07,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_6_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.028,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_6_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_2_6_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_2_apex_b_I1",
+      "claim": "I1",
+      "queries": 5,
+      "result": "unsat",
+      "seconds": 0.024,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_2_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.014,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_2_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_2_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 6,
+      "result": "unsat",
+      "seconds": 0.041,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.017,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_4_apex_b_I1",
+      "claim": "I1",
+      "queries": 7,
+      "result": "unsat",
+      "seconds": 0.051,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_4_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.015,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_4_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_4_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_5_apex_b_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.071,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_5_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.024,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_5_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_5_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_6_apex_b_I1",
+      "claim": "I1",
+      "queries": 9,
+      "result": "unsat",
+      "seconds": 0.085,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_6_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.043,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_6_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_3_6_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_2_apex_b_I1",
+      "claim": "I1",
+      "queries": 6,
+      "result": "unsat",
+      "seconds": 0.032,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_2_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.017,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_2_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_2_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 7,
+      "result": "unsat",
+      "seconds": 0.045,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.015,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_4_apex_b_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.07,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_4_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.022,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_4_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_4_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_5_apex_b_I1",
+      "claim": "I1",
+      "queries": 9,
+      "result": "unsat",
+      "seconds": 0.109,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_5_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.026,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_5_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_5_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_6_apex_b_I1",
+      "claim": "I1",
+      "queries": 10,
+      "result": "unsat",
+      "seconds": 0.112,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_6_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.036,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_6_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_4_6_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_2_apex_b_I1",
+      "claim": "I1",
+      "queries": 7,
+      "result": "unsat",
+      "seconds": 0.042,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_2_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.015,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_2_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_2_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.061,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.025,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_4_apex_b_I1",
+      "claim": "I1",
+      "queries": 9,
+      "result": "unsat",
+      "seconds": 0.093,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_4_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.029,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_4_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_4_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_5_apex_b_I1",
+      "claim": "I1",
+      "queries": 10,
+      "result": "unsat",
+      "seconds": 0.14,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_5_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.055,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_5_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_5_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_6_apex_b_I1",
+      "claim": "I1",
+      "queries": 11,
+      "result": "unsat",
+      "seconds": 0.182,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_6_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.05,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_6_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_5_6_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_2_apex_b_I1",
+      "claim": "I1",
+      "queries": 8,
+      "result": "unsat",
+      "seconds": 0.078,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_2_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.023,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_2_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_2_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 9,
+      "result": "unsat",
+      "seconds": 0.119,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.037,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_4_apex_b_I1",
+      "claim": "I1",
+      "queries": 10,
+      "result": "unsat",
+      "seconds": 0.124,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_4_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.056,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_4_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_4_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_5_apex_b_I1",
+      "claim": "I1",
+      "queries": 11,
+      "result": "unsat",
+      "seconds": 0.176,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_5_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.052,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_5_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_5_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_6_apex_b_I1",
+      "claim": "I1",
+      "queries": 12,
+      "result": "unsat",
+      "seconds": 0.222,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_6_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.096,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_6_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_6_6_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_a_I1",
+      "claim": "I1",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_a_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_a_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_a_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_b_I1",
+      "claim": "I1",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_b_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_b_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_b_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_c_I1",
+      "claim": "I1",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_c_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_c_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_valence_3_apex_c_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_c_I1",
+      "claim": "I1",
+      "queries": 2,
+      "result": "unsat",
+      "seconds": 0.003,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_c_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_c_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_c_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_d_I1",
+      "claim": "I1",
+      "queries": 2,
+      "result": "unsat",
+      "seconds": 0.003,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_d_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_d_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_apex_d_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "ear_all_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "ear_all_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "ear_all_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "flip_all_I1",
+      "claim": "I1",
+      "queries": 2,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "flip_all_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "flip_all_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "flip_all_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "removal_valence_3_all_I1",
+      "claim": "I1",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "removal_valence_3_all_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "removal_valence_3_all_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "removal_valence_3_all_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "contraction_2_2_all_I1",
+      "claim": "I1",
+      "queries": 4,
+      "result": "unsat",
+      "seconds": 0.014,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "contraction_2_2_all_I2",
+      "claim": "I2",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.008,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "contraction_2_2_all_monotone",
+      "claim": "monotone",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "today's rule",
+      "name": "contraction_2_2_all_bound",
+      "claim": "bound",
+      "queries": 1,
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "rule": "rounding chain",
+      "name": "chain_step_higham_2_5",
+      "claim": "d <= d_h (1 + u)^k + k eps",
+      "result": "unsat",
+      "seconds": 0.003,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    }
+  ],
+  "partial_charge_nonvacuity": [
+    {
+      "name": "move_valence_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "move_valence_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "move_valence_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "move_valence_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "move_valence_7",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "move_valence_8",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_2_2",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_2_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_2_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_2_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_2_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_3_2",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_3_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_3_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_3_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_3_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_4_2",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_4_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_4_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_4_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_4_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_5_2",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_5_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_5_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_5_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_5_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_6_2",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_6_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_6_4",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_6_5",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "contraction_6_6",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "removal_valence_3",
+      "result": "sat",
+      "replayed": true
+    },
+    {
+      "name": "flip",
+      "result": "sat",
+      "replayed": true
+    }
+  ],
+  "mutants": [
+    {
+      "rule": "apex rule",
+      "name": "contraction_charges_vanishing_a",
+      "result": "sat",
+      "seconds": 0.003,
+      "replayed": true,
+      "witness": {
+        "d_l": "1/2",
+        "d_p0": "1/4",
+        "d_r": "3/8",
+        "d_b": "1/8",
+        "d_q0": "1/4",
+        "delta": "1/8",
+        "M": "1/2",
+        "L": "5/8",
+        "xz_0": "1/8",
+        "dz_0": "1/2",
+        "dx_0": "5/8",
+        "dz_1": "1/2",
+        "dx_1": "1/2",
+        "dz_2": "1/2",
+        "dx_2": "1/2",
+        "xz_3": "1/8",
+        "dz_3": "1/2",
+        "dx_3": "5/8"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_charges_a_in_one_added_triangle",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "d_a": "1/8",
+        "d_c": "3/8",
+        "d_d": "1/4",
+        "delta": "1/8",
+        "M": "3/8",
+        "L": "1/2",
+        "xz_0": "1/8",
+        "dz_0": "3/8",
+        "dx_0": "1/2",
+        "xz_1": "1/8",
+        "dz_1": "3/8",
+        "dx_1": "1/2"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_charges_ring_vertex",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "d_r0": "1/4",
+        "d_r1": "3/8",
+        "d_r2": "1/8",
+        "delta": "1/8",
+        "M": "3/8",
+        "L": "1/2",
+        "xz_0": "1/8",
+        "dz_0": "3/8",
+        "dx_0": "1/2",
+        "xz_1": "1/8",
+        "dz_1": "3/8",
+        "dx_1": "1/2",
+        "xz_2": "1/8",
+        "dz_2": "3/8",
+        "dx_2": "1/2"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "move_charges_M_without_delta",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "d_v": "1/4",
+        "d_r0": "1/2",
+        "delta": "1/4",
+        "M": "1/2",
+        "L": "3/4",
+        "xz_0": "1/4",
+        "dz_0": "1/2",
+        "dx_0": "3/4",
+        "xz_1": "1/4",
+        "dz_1": "1/2",
+        "dx_1": "3/4",
+        "xz_2": "1/4",
+        "dz_2": "1/2",
+        "dx_2": "3/4"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "flip_charges_M_without_delta_I2",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "d_b": "1/4",
+        "d_c": "1/2",
+        "delta": "1/4",
+        "M": "1/2",
+        "L": "3/4",
+        "yz": "1/2",
+        "zt_0": "1/4",
+        "yt_0": "3/4",
+        "zt_1": "1/2",
+        "yt_1": "3/4"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "contraction_M_over_A_only",
+      "result": "sat",
+      "seconds": 0.02,
+      "replayed": true,
+      "witness": {
+        "d_a": "1/2",
+        "d_l": "3/8",
+        "d_p0": "1/4",
+        "d_b": "1/8",
+        "d_q0": "1/4",
+        "delta": "1/8",
+        "M": "3/8",
+        "L": "1/2",
+        "xz_0": "1/8",
+        "dz_0": "1/2",
+        "dx_0": "5/8",
+        "xz_1": "1/8",
+        "dz_1": "1/2",
+        "dx_1": "5/8",
+        "xz_2": "1/8",
+        "dz_2": "1/2",
+        "dx_2": "5/8",
+        "xz_3": "1/8",
+        "dz_3": "1/2",
+        "dx_3": "5/8"
+      }
+    },
+    {
+      "rule": "apex rule",
+      "name": "removal_M_over_A_only",
+      "result": "sat",
+      "seconds": 0.003,
+      "replayed": true,
+      "witness": {
+        "d_v": "1/2",
+        "d_a": "1/4",
+        "M": "1/4",
+        "L": "1/2",
+        "dz_0": "1/2",
+        "dx_0": "1/2"
+      }
+    },
+    {
+      "rule": "today's rule",
+      "name": "ear_charges_only_vanishing_v",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "d_a": "1/8",
+        "d_b": "1/4",
+        "d_w": "3/8",
+        "delta": "1/4",
+        "M": "1/4",
+        "L": "1/2",
+        "yz": "1/4",
+        "zt_0": "1/4",
+        "yt_0": "1/2"
+      }
+    },
+    {
+      "rule": "rounding chain",
+      "name": "chain_step_with_2_4_model_only",
+      "result": "sat",
+      "seconds": 0.003,
+      "replayed": true,
+      "witness": {
+        "M_t": "324518553658426726783156020576255/162259276829213363391578010288128",
+        "M_h": "1",
+        "g": "2",
+        "eta": "-18014398509481983/162259276829213363391578010288128"
+      }
+    }
+  ],
+  "total_seconds": 3.185,
+  "obligations_passed": true,
+  "proof_scope": "One edit of each listed shape, distances as real variables (README); (E1), (E2), the point/triangle distance model, I1/I2 => Hausdorff and the induction over edits are review-only."
+}

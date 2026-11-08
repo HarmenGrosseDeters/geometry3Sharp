@@ -274,3 +274,76 @@ standard model and its variant (2.5)); J. R. Shewchuk, *Adaptive Precision Float
 Robust Geometric Predicates*, DCG 1997 (filters with error bounds of the form `c m~`); M. Attene, *Indirect
 Predicates for Geometric Constructions*, CAD 2020 (the filtered indirect predicates being checked). Only results
 are used, no code.
+
+## Pilot 2, step 1: the D1 drift lemma of SafeRounding (apex rule)
+
+Step (1) of pilot 2: the lemma of `docs/design/ROUNDING_DRIFT_APEX.md` (branch `claude/d1-drift-lemma`, 880f2a9a,
+sections 2-4), checked before the rule is built (`drift_apex.py`). The rule: an edit that removes the triangles `R`,
+adds `A` and moves the surface by at most `δ` is accepted if `M + δ <= maxLength` (`M` the largest drift over the
+vertices of `R` and `A`, unchanged); with an **apex** `c` (a vertex in every triangle of `A`) only `c` gets
+`d'(c) = M + δ`, every other drift is kept; without one (`A` empty: ears, zips, strip zips) every vertex of the edit
+gets `M + δ` (today's rule). The invariant, with `D(T)` the largest drift of the corners of `T`: (I1) every point `x`
+of a triangle `T` of `S` has `dist(x, S0) <= D(T)`; (I2) every point `y` of `S0` has a `T` in `S` with
+`dist(y, T) <= D(T)`. Claim of one edit, given (E1) and (E2): `I(S', d')`, `d' >= d`, `max d' <= maxLength`.
+(No new intersection and no degeneracy are checked exactly in `improves()`; they are not part of this lemma.)
+
+```sh
+/tmp/g3-z3/bin/python tools/Z3Pilot/drift_apex.py --out /tmp/z3-drift-apex.json
+```
+
+### Model
+
+- The distances are real variables and the geometry enters as hypotheses, per point the note's proof uses:
+  (I1) for a point `x` of an added triangle `T'`: the (E1) witness `z` in some removed triangle with
+  `|x - z| <= δ` (which removed triangle is a disjunction), (I1) before at `z`, and the triangle inequality
+  `dist(x, S0) <= |x - z| + dist(z, S0)`; claim `dist(x, S0) <= D'(T')`. One query per added triangle (the claim
+  is a conjunction over them; together the queries are the same check, and the larger contractions take 0.2 s
+  instead of 50 s). (I2) for `y` of `S0` near a removed triangle: (I2) before gives `z` in a removed triangle with
+  `|y - z| <= D(T)`, (E2) gives an added triangle (for `A` empty: an untouched triangle that holds the counterpart
+  simplex) within `δ` of `z`, the triangle inequality per target; claim: some target `T'` has
+  `dist(y, T') <= D'(T')`. An untouched triangle keeps its bound by `d' >= d` (a claim of its own).
+- `M` is the maximum over the vertices of `R` and `A` (`M >= d(v)` for each, equal to one), `d(v) <= maxLength`
+  before the edit, `M + δ <= maxLength`. Linear real arithmetic (the maxima as `If` terms).
+- Edit shapes, one per combinatorial type with an apex: a move or slide of a vertex of valence 3 to 8 (closed fan,
+  apex the vertex); a contraction of `a-b` into `b` with 2 to 6 triangles of `a` and 2 to 6 of `b` besides the two at the
+  edge (25 shapes, apex `b`); a removal of a vertex of
+  valence 3 (each of the three corners as apex); a flip `ab -> cd` (apex `c` or `d`). Today's rule is checked for
+  an ear (A empty; its points go to the edge across, which lies in an untouched triangle with a third vertex outside
+  the edit), and for the flip, the removal and the smallest contraction. `drift_apex.CHARGING` is the specification
+  of the rule.
+- The rounding of the stored drift, one step `k -> k + 1` of the chain bound `d <= d̂ (1 + u)^k + k ε`: true
+  `M <= M̂ g + k ε` with `g = (1 + u)^k >= 1`, true `δ <= δ̂ + ε`, stored `fl(M̂ + δ̂)` (`M̂` is an exact maximum in the
+  code); claim `M + δ <= fl(M̂ + δ̂) g (1 + u) + (k + 1) ε`. The model is Higham (2.5), `fl(s) = s / (1 + η)`,
+  `|η| <= u`, valid for round to nearest. Its first version used (2.4), `fl(s) = s (1 + η)`, and with that the step
+  is **SAT** (kept as a witness mutant: `k = 0`, `g = 1`, `M = M̂ = 1`, `η = -u` gives a true drift 1 above the bound
+  `(1 - u)(1 + u)`): (2.4) allows rounding down by `(1 - u)`, which needs `(1 - u)^-k`; round to nearest rounds down
+  by at most `1 / (1 + u)`, so the bound `(1 + u)^k` holds. The note's section 3 is being corrected to (2.5) by its
+  author.
+
+### Result
+
+All 160 obligations UNSAT (367 queries), their assumptions SAT with the model replayed by Python fractions; for every
+apex shape a SAT check that the rule really leaves a non-apex vertex below `M + δ` (so "only the apex" is not
+vacuous). 9 mutants SAT with witnesses replayed with fractions: charging the vanishing `a` in a contraction, the
+vertex `a` that is in only one added triangle of a flip, a ring vertex of a move; `M` without `δ` (I1 of a move, I2
+of a flip); `M` over `A` only (a contraction, a removal: only there `R` has a vertex outside `A`, for moves and flips
+the mutant is equivalent); an ear charging only its vanishing vertex (why edits without an apex keep today's rule);
+and the chain step in the (2.4) model. About 3 s of solver time locally (7 s for the run, report
+`results/drift_apex_2026-11-08.json`). Rows that ran several queries (I1) count as UNSAT only if every query is.
+
+### Review only (not checked by Z3)
+
+- (E1) and (E2) per edit type: that every point of an added triangle is within `δ` of a removed one and back, with
+  the `δ` each edit computes (SAFE_ROUNDING.md section 1 and the class comment of `MeshRoundingRepair`); for edits
+  without an apex, that the counterpart is a simplex of the edit's vertices in an untouched triangle.
+- The point/triangle distance model: that a point of a triangle, `dist` to a closed set and the triangle
+  inequality capture the geometry (the shapes fix the combinatorics only; positions are not modelled).
+- I1 and I2 together give `H(S, S0) <= MaxDrift` (the definition of the Hausdorff distance), and the induction over
+  the edits from `I(S0, 0)`.
+- The chain: one counter `k` for every vertex, taken as the largest number of edits on a chain through any vertex
+  (the step lemma holds for that `k`; per-vertex counters would need their own induction).
+- That the code's apex is in every added triangle (the note's check mode, section 6) and that the implementation
+  charges as `CHARGING` says: TODO(D1), the skipped test `test_source_contract_against_the_apex_rule`; the
+  implementation PR adds the source contract against `improves` / `within_bound` / `commit_drift`. Today's code
+  still charges every vertex and is deliberately not pinned here.
+- `ε` itself (a few ulps of the largest coordinate per distance computation): stated, not derived.
