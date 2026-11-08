@@ -1,7 +1,0 @@
-{
-  "reason": "Owner requested timeout-case rechecks. Stop the optional extended full comparison to free the second CPU; completed 128/4096 three-repeat comparisons and full pruned component result are retained. Incomplete full baseline is cancelled, not a timeout and not used for a full-mesh speedup claim.",
-  "stopped_processes": [
-    20224,
-    20893
-  ]
-}

@@ -1,1 +1,0 @@
-{"repetition": 0, "mode": "pruned", "command": ["dotnet", "<pilot>/OracleIndexPilot.dll", "pruned", "<mesh>", "0"], "exit_code": 0, "result": {"Mode": "pruned", "Queries": 301453, "Seconds": 4.2568473, "CpuSeconds": 3.032623, "Candidates": 2118919, "Nodes": 31837286, "Pruned": 8025751, "Hits": 0, "Fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}

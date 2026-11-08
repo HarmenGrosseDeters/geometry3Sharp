@@ -1,8 +1,0 @@
-before-1 dotnet run --project benchmarks\MarchingCubesBenchmark -c Release --no-build -- 48 3
-runtime=10.0.12; processors=12; OS=Microsoft Windows NT 10.0.26300.0; tiered_compilation=0
-after-1 dotnet run --project benchmarks\MarchingCubesBenchmark -c Release --no-build -- 48 3
-runtime=10.0.12; processors=12; OS=Microsoft Windows NT 10.0.26300.0; tiered_compilation=0
-after-2 dotnet run --project benchmarks\MarchingCubesBenchmark -c Release --no-build -- 48 3
-runtime=10.0.12; processors=12; OS=Microsoft Windows NT 10.0.26300.0; tiered_compilation=0
-before-2 dotnet run --project benchmarks\MarchingCubesBenchmark -c Release --no-build -- 48 3
-runtime=10.0.12; processors=12; OS=Microsoft Windows NT 10.0.26300.0; tiered_compilation=0
