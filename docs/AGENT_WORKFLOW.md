@@ -72,7 +72,7 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
   checks and record them in the design note or PR:
   1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
-     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in ROADMAP.md, OPERATIONS.md).
+     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in [roadmap/hotspots.md](roadmap/hotspots.md), OPERATIONS.md).
      Today's examples: the boolean's kernel B and the self-intersection filter hit the same exact-`Orient3d` hotspot,
      and the envelope reused the indirect predicates.
   2. **The literature:** papers, standards and documentation on the problem (e.g. the normal-cone culling for
@@ -104,11 +104,12 @@ from secret tests, which a public repository cannot keep.
 ## 6. Context and sessions
 
 - One session per PR-sized topic. Prefer fresh sessions over long ones. One large session at a time.
-- The plan lives in the repository ([ROADMAP.md](ROADMAP.md)), not in chat. Results live in PRs and READMEs.
+- The plan lives in the repository ([ROADMAP.md](ROADMAP.md), details in [roadmap/](roadmap/)), not in chat. Results live in PRs and READMEs.
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
 - A bugfix must not run into a fundamental problem that a planned concept will solve (owner 2026-11-02). Before
-  fixing, check [ROADMAP.md](ROADMAP.md) (Phase 5, Shared hotspots, Open tasks) for a concept that covers the same
+  fixing, check the roadmap ([Phase 5](roadmap/research.md#phase-5-candidates-from-recent-research), [shared hotspots and open
+  tasks](roadmap/hotspots.md)) for a concept that covers the same
   cause, eg inside / outside of broken inputs (Phase 5 #5), exact predicates and symbolic perturbation, scale-relative
   tolerances, envelope / `IsWithin` fidelity. If one exists: make the smallest fix that is correct on its own and
   compatible with that concept (no second, competing mechanism), say so in the PR, and leave the general solution to
@@ -141,7 +142,57 @@ from secret tests, which a public repository cannot keep.
   targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
+- Messages (owner 2026-11-08): sessions write to the coordinator only for results, decisions needed or blockers, not
+  for progress; several items go in one message. A session with nothing to do while its PRs wait pauses (no
+  check-ins, no polling) until the coordinator messages it.
+- Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
+  integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
+  one PR from the integration branch merges into master (owner 2026-11-08: so master gets exactly the tree the gate
+  tested, including any conflict resolutions; the queued PRs then show as merged). Survivors are attributed by line
+  to the PR that changed it. A gate
+  whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
+  thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
+- Medium sessions on a mid-size model (Sonnet, owner 2026-11-08) take bounded, well-specified tasks (benchmark
+  classes, gates, small fixes). They escalate hard or risky decisions (correctness arguments, error bounds, licences,
+  protocol choices) to the coordinator with the options and their leaning, instead of guessing; the coordinator asks
+  them proactively, too.
+- Runner sessions (owner 2026-11-08): long runs (benchmarks, corpus sweeps, A/B timings, CGAL or other black-box
+  comparisons) go, whenever possible and useful, to a separate runner session on a small model (Haiku) instead of the
+  implementing session. It runs jobs only: no code, docs or design decisions, no PRs; it takes jobs only from its
+  implementing session and the coordinator, one job at a time on its own machine (so timings are alone on the machine),
+  and reports summary tables; raw results go to a data branch `runs/<topic>` (no PR, never merged; no meshes, no
+  foreign outputs). The implementing session writes each job completely (commit, build and run commands, analysis
+  script), because the runner executes literally and asks instead of improvising; analysis logic lives in committed
+  scripts. Baseline and candidate of a timing comparison run in the same job on the same runner. Not for diagnosis,
+  profiling interpretation or anything that needs judgement; small probes stay in the implementing session. The
+  coordinator starts the runner on request.
+  The owner's machine (owner 2026-11-08; i7-8700K, 6 cores / 12 threads, 16 GB) can serve as a runner: the owner
+  starts a Claude Code session there (desktop app in the repository folder, or `claude remote-control`), which then
+  takes runner jobs under the same rules. Good for long result-only runs (CsCheck campaigns, fuzzing, local Stryker
+  runs to set thresholds) and for relative timings with baseline and candidate in the same job; acceptance timings
+  stay on the cloud reference machine. Never a self-hosted GitHub runner for this public repository (fork PRs could
+  run code on it).
+  Hand-over to the owner's machine goes only through the repository (owner 2026-11-08): no trust cards
+  (confirm_repository_trust) for cloud sessions, because a session allowed to reach the owner's machine is then
+  limited to trusted devices for good and normal cloud sessions can no longer message it, while the messaging to the
+  local session still did not work. Instead: jobs are files on a `runs/` branch (`jobs/JOB-<n>.md`, complete and
+  literal); the local session waits for a new job file with one harness-tracked background task (a `git fetch`
+  loop that exits when the file appears; waiting costs nothing) and starts it; results and a `REPORT-<n>.md` go to
+  the same branch, and the coordinator reads them there at its check-ins. A message to a cloud session is sent
+  only if the local session's tools allow it.
+  On the owner's machine (no container recycling) a job step longer than the 2-h limit of a harness-tracked task may
+  run as a detached process (owner 2026-11-08): record its PIDs and start time, keep every step resumable, and write
+  `.exit` / `.end` files when it ends; the local session evaluates when the owner asks or when the step has ended.
+  For local Stryker runs, `--open-report` shows the live HTML dashboard in the owner's browser.
+  A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
+  under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
+  Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
+  resumable (one result line or file per case; a rerun skips finished cases; a timing job reruns an interrupted
+  pair), the runner pushes partial raw results to its data branch about every hour, keeps a self check-in
+  (`send_later`, every 15 min, owner 2026-11-08) while a job runs, and on every wake, including a restart notice, checks
+  whether the job's process still runs and its output still grows; if not, it resumes the job and reports the
+  restart and the cases rerun.
 - Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
   - Small, bounded tasks (reading a paper, a license check, one measurement) go to a fresh short session with a
     precise brief, not to a long-running one.
@@ -154,4 +205,16 @@ from secret tests, which a public repository cannot keep.
   - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
     coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
   - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+  - Standing cost rules (owner 2026-11-08, for all future work):
+    - Model by task: long runs on a Haiku runner, bounded medium tasks on Sonnet, design, exact code and their
+      reviews on the large model.
+    - Reviews: the first review is a fresh agent on the full diff; re-reviews of fixes resume that reviewer with the
+      delta only.
+    - Mutation gate: no push while a full mutation run is in flight on the PR (it cancels it); queued PRs on the same
+      shards share one combined gate; a thresholds-only commit is gated on the run that measured the same code
+      (see the merge-queue rule above).
+    - Waiting is free, polling is not: sessions with nothing on the critical path pause until messaged; check-ins
+      follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
+    - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
+      valid result for the owner).
 

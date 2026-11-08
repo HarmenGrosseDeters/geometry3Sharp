@@ -70,7 +70,10 @@ jobs:
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
       - name: Test the benchmark analysis
-        run: python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+        run: |
+          python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+          python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
+          TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

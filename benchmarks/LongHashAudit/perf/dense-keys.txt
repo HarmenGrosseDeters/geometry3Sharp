@@ -1,0 +1,12 @@
+edge32 (Terrain map/composite, geodesic path): keys=48641, default=63, mixed=48641
+edge31 (Terrain overlay/catch): keys=48641, default=27178, mixed=48641
+safety (min * int.MaxValue + max): keys=48641, default=16383, mixed=48641
+geodesic weights/fans (a * N + b): keys=48641, default=48641, mixed=48641
+Terrain scalar A/B vertices: keys=32768, default=32768, mixed=32767
+Terrain corners (I * (NY+2) + J): keys=16384, default=16384, mixed=16383
+Terrain merge grid (x * 0x100000007 + y): keys=16384, default=1017, mixed=16384
+Winding ancestors compact: keys=262144, default=262144, mixed=262132
+Winding ancestors wide: keys=524288, default=262144, mixed=524247
+Dual cells compact: keys=262144, default=262144, mixed=262137
+Dual cells wide: keys=131072, default=65536, mixed=131071
+Dual coarse/fine same nodes: keys=131072, default=131072, mixed=131069

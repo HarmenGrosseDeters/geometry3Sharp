@@ -1,0 +1,31 @@
+{
+ "measured": "2026-11-07",
+ "sdk": "10.0.403",
+ "baseline_commit": "a482d490716d6ad9fc3c91c9d2f3776070014de8",
+ "note": "Commands run from the repository root; <pkg> is a scratch package directory. Exit code 0 for every command; build logs are not kept (existing compiler warnings only, no new ones).",
+ "targeted_tests": {
+  "command": "dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~TerrainDistanceMetric",
+  "passed": 9, "failed": 0, "skipped": 0,
+  "mutations": "closest_mutations_2026-11-07.json"
+ },
+ "python_tests": {
+  "command": "TERRAIN_BENCHMARK_DLL=benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v",
+  "passed": ["test_analysis.AnalysisTests.test_old_and_new_rows", "test_analysis.IntegrationTests.test_procedural_grid_json"],
+  "failed": []
+ },
+ "benchmark_ab": {
+  "command": "python3 benchmarks/TerrainBenchmark/verify_closest.py --dotnet <dotnet> --base <base.dll> --current <current.dll> --out <out>",
+  "summary": "48 synthetic rows; all pre-existing non-timing fields identical",
+  "runs": "closest_runs_2026-11-07.json"
+ },
+ "builds": [
+  "dotnet build benchmarks/TerrainBenchmark -c Release",
+  "dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true",
+  "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <pkg> -p:Version=1.0.0-ci.1",
+  "dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true",
+  "dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o <pkg> -p:Version=1.0.0-ci.1",
+  "dotnet run --project tests/PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<pkg> -- <pkg>/geometry3Sharp.1.0.0-ci.1.nupkg",
+  "dotnet run --project tests/Clipper2PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<pkg> -- <pkg>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg"
+ ],
+ "package_smoke_tests": {"geometry3Sharp": "all checks ok", "geometry3Sharp.Clipper2": "all checks ok"}
+}

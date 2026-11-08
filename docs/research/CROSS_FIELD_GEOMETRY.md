@@ -36,7 +36,7 @@ Process tier: **S, research/documentation only**. Any implementation changing ex
 
 The following were inspected, selectively where large. They are local evidence, not new literature claims:
 
-- [ROADMAP.md](../ROADMAP.md): open-task connections and existing building blocks.
+- [ROADMAP.md](../ROADMAP.md) and [roadmap/hotspots.md](../roadmap/hotspots.md): open-task connections and existing building blocks.
 - [SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md), especially the evaluation and final verdict: A and whole-mesh B are closed as default approaches. The patch timing excludes fitting, global defect discovery, and repeated rounds; it is not a predicted pipeline speedup.
 - [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md), and [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md): all output vertices are hot; restore vertices belong to input rounding, not refinement; the no-coincident-chain-edge guard does not settle vertex-only pinches. A coarse rule based only on which original links hit a pixel was already tried and over-rejected acute corners.
 - [ENVELOPE.md](../design/ENVELOPE.md): the later prototype is more informative than the initial slow clipping result. Its important cost is the facet-pair loop, not frequent arbitrary precision. Its low acceptance is a polyhedron-shape problem. Ordinary subdivision, local-nearest guesses, a hash grid, and repeated-triangle caching are not unexplored solutions.

@@ -293,6 +293,33 @@ Oracle time only (`oracle --input --output`, one process each, this 4-core conta
 
 `Segments` (13.6 s here) keeps its own filters (`InTube`, with a far side only).
 
+### Conformity searches: certified STRtree pruning (2026-11-08, #411)
+
+On the fast path (binary64 output) `Conformity` finds the used vertices that touch a triangle and the properly crossing edge pairs with
+NetTopologySuite STRtrees (an oracle-only dependency) and certified pruning: a point node is skipped when the affine maximum of a triangle
+edge's orientation over its closed box is negative; an edge node when its containing polygon (the exact endpoint hull up to 16 vertices,
+else its box corners) lies on one closed side of the query line, or the query segment on the closed outer side of a polygon edge. The leaf
+tests are the oracle's unchanged `OrientV` filter with the exact fallback. The reference path keeps the sweep (`BoxPairs`). Proofs,
+controls and measurements: [OracleIndexPilot](../OracleIndexPilot/README.md).
+
+What it costs and gains (edge component, one 2-CPU container): where edge boxes overlap massively the sweep is quadratic and the hull
+search wins (a 301 453-triangle former timeout: 5.9 s against 1.7 s for 4096 sampled queries; a comb of 8000 diagonal chains: 6.4 s
+against 1.4 s); on convex boundaries, where few nodes can be pruned, it stays about 3-4 times slower than the sweep (a 60 000-point
+lens: 0.25 s against 0.93 s), growing like n log n.
+
+| Variable | Values | Default |
+|---|---|---|
+| `G3_ORACLE_POINT_INDEX` | `strtree`, `sweep` | `strtree` |
+| `G3_ORACLE_EDGE_INDEX` | `strtree-hulls`, `sweep` | `strtree-hulls` |
+
+Unset, empty or blank means the default; case and surrounding blanks do not matter. Any other value stops the command at its start
+(exit code 2) and `Oracle.Check` before any work, with the variable, the value and the accepted values. With
+`Oracle.CheckFastPathForTests` (the oracle tests) both searches are compared with the sweep pair for pair
+(`Meshing2OracleStrtreeTests`, `Meshing2OracleFastPathCheckTests`).
+
+`G3_ORACLE_TIMING` laps: the former `conformity` lap is now `conformity: point-triangle`, `conformity: edge-crossings` and
+`conformity: remaining` (duplicate and unused vertices, the domain). `recheck.py` reads lap names generically (`ORACLE <name> <ms> ms`).
+
 ## Herne ratchet and the snapped-area report (2026-11-03)
 
 `herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them
@@ -345,3 +372,32 @@ report 2.3 to 3.6 times on the large runs.
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.ele    # ours.node, .ele, .poly
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.poly --output lake_ours.ele --min-angle 30
   ```
+
+## Constrained-quality golden gate
+
+The default M3 golden file and `golden/m3-constrained.json` are separate suites.
+The constrained suite contains all 52 covered, non-slow M3 catalogue cases that
+do not explicitly require Conforming. It creates fresh canonical inputs with
+`mode constrained`, so their hashes differ from the default inputs. F-38/a–e run
+with the angle check enabled, as in #394. The independent oracle must accept each
+result before it is recorded, and it is rerun on every check; matching a stored
+fingerprint alone cannot excuse an invalid output.
+
+```sh
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden check --milestone M3 --mode constrained
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden update --milestone M3 --mode constrained --reasons /tmp/reasons.tsv
+```
+
+Updates require a per-row reason, just like the default suite. `--mode constrained`
+requires M3; a missing or unknown mode value is a usage error. `ci` checks this
+suite as well as default M1/M2/M3. `Meshing2GoldenTests` runs it on net10.0 and
+net48, including negative mode selection and fresh-instance isolation controls.
+No default golden row or production mesher is changed by this addition.
+
+Two rows intentionally record a reached Steiner limit (f-12/b and f-37); their
+limit/bad-triangle fields are protected too. An oracle-valid limited output is
+not a claim that every requested quality bound was achieved.
+
+The [reference recheck tools](rechecks/README.md) separately regenerate historical
+exceptions against pinned public inputs. They retain failures/timeouts and do not
+promote reference rows into golden truth.

@@ -283,6 +283,7 @@ class Program
         R["missed"] = miss;
         Checks.Stats(err, "dz", R);
         R["check_s"] = Secs(sw);
+        AddClosest(g, res);
     }
 
 
@@ -320,6 +321,8 @@ class Program
         R["missed"] = miss;
         Checks.Stats(err, "dz", R);
         R["check_s"] = Secs(sw);
+        AddClosest(g, res);
+        sw.Restart();
         if (Arg("fidelity", "0") == "1") {
             // against the TIN of all grid nodes (open: no volume IoU); relative to the window's size (1 km: 1.4e3)
             FidelityFields.Add(g.BuildMesh(origin), res, R, false, 50000, 0);
@@ -327,6 +330,17 @@ class Program
         }
     }
 
+
+    static void AddClosest(Grid grid, DMesh3 result)
+    {
+        var sw = Stopwatch.StartNew();
+        DMesh3 reference = grid.BuildMesh(origin);
+        R["closest_reference_s"] = sw.Elapsed.TotalSeconds;
+        R["closest_missing_grid_triangles"] = 2L * (grid.NX - 1) * (grid.NY - 1) - reference.TriangleCount;
+        ClosestFields.Add(reference, result, R, int.Parse(Arg("closest_samples", "10000"), CultureInfo.InvariantCulture));
+        if ((long)R["closest_missing_grid_triangles"] > 0 && (string)R["closest_status"] == "ok")
+            R["closest_status"] = "partial";
+    }
 
     // ---------------------------------------------------------------- offset
     static void Offset(double[] w)
