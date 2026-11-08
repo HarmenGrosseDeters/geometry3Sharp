@@ -86,10 +86,55 @@ namespace geometry3Sharp.Tests
         [InlineData("grid", 1500)]
         [InlineData("slivers", 1500)]
         [InlineData("magnitudes", 1500)]
+        [InlineData("grid", 6000)]
+        [InlineData("slivers", 6000)]
+        [InlineData("magnitudes", 6000)]
         public void QueriesAndPairs_AsAScan(string kind, int n)
         {
             for (int seed = 1; seed <= 3; ++seed)
                 AssertExact(Boxes(n, seed, kind), seed);
+        }
+
+        // groups of 16 boxes, each a point cluster of 8 and 8 points at x offsets 2^-1 .. 2^-8 from it: along the Morton
+        // curve every highest-bit split of a group peels one point off, unless each side must hold some (the min-side rule)
+        static List<AxisAlignedBox3d> Peeling(int groups)
+        {
+            var boxes = new List<AxisAlignedBox3d>();
+            int side = (int)Math.Ceiling(Math.Pow(groups, 1.0 / 3));
+            for (int g = 0; g < groups; ++g) {
+                var o = new Vector3d(g % side, (g / side) % side, g / (side * side));
+                for (int k = 0; k < 8; ++k)
+                    boxes.Add(new AxisAlignedBox3d(o, o));
+                for (int j = 1; j <= 8; ++j) {
+                    Vector3d p = o + new Vector3d(Math.Pow(2, -j), 0, 0);
+                    boxes.Add(new AxisAlignedBox3d(p, p));
+                }
+            }
+            return boxes;
+        }
+
+        [Theory]
+        [InlineData(400)]
+        [InlineData(12500)]
+        public void SkewedInput_NodesAndDepthWithinTheBounds(int groups)
+        {
+            // the nodes fit the capacity (at most n / 2 - 1) and the depth stays below log(n / 4) / log(8 / 7) + 1, the
+            // bound the query stack (256) is sized for; and the queries are a scan's
+            List<AxisAlignedBox3d> boxes = Peeling(groups);
+            int n = boxes.Count;
+            var tree = new TriangleBoxTree(boxes);
+            Assert.True(tree.NodeCount <= n / 2 - 1 && tree.NodeCount <= tree.NodeCapacity, $"{tree.NodeCount} nodes for {n} boxes");
+            double bound = Math.Log(n / 4.0) / Math.Log(8.0 / 7) + 1;
+            Assert.True(tree.Depth() <= bound, $"depth {tree.Depth()}, bound {bound:F1}");
+            var rand = new Random(3);
+            for (int q = 0; q < 50; ++q) {
+                AxisAlignedBox3d query = boxes[rand.Next(n)];
+                query.Expand(0.3);
+                var got = new List<int>();
+                tree.Query(query, got);
+                var expected = Enumerable.Range(0, n).Where(i => closed_overlap(boxes[i], query)).ToList();
+                Assert.Equal(expected, got.OrderBy(x => x).ToList());
+            }
         }
 
         [Fact]

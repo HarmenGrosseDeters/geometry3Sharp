@@ -2390,11 +2390,17 @@ namespace g3
                         int mid = (lo + hi) >> 1;
                         if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
                     }
-                    // (each side at least LeafSize / 2: the leaves hold 4 or more, so the nodes fit the capacity; and an
-                    // eighth: the depth stays below log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack)
+                    // Stryker restore all
+                    // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
+                    // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
+                    // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
+                    // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
+                    // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
+                    // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
                     int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
                     if (h >= least && count - h >= least)
                         half = h;
+                    // Stryker disable all
                 }
             }
             // Stryker restore all
@@ -2403,6 +2409,26 @@ namespace g3
             nodeLeft[node] = left;
             nodeRight[node] = right;
             return node;
+        }
+
+        // tests: the nodes, their capacity, and the depth of the tree (the root at depth 1)
+        internal int NodeCount { get { return nodeCount; } }
+        internal int NodeCapacity { get { return nodeStart.Length; } }
+        internal int Depth()
+        {
+            int depth = 0;
+            var stack = new Stack<(int node, int depth)>();
+            if (nodeCount > 0)
+                stack.Push((0, 1));
+            while (stack.Count > 0) {
+                var (node, d) = stack.Pop();
+                depth = Math.Max(depth, d);
+                if (nodeLeft[node] >= 0) {
+                    stack.Push((nodeLeft[node], d + 1));
+                    stack.Push((nodeRight[node], d + 1));
+                }
+            }
+            return depth;
         }
 
         // tests: the nodes a query visits (the traversal of Query, counted; not on the hot path)
