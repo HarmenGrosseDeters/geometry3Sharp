@@ -1,0 +1,42 @@
+== results/t2_ABC.jsonl: 100 rows, 100 with a result, timeouts / crashes / exceptions 0
+guarantees met: 100 / 100 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 0, failed: 0
+band (hd fwd upper bound / (alpha + offset)): median 0.982 p90 1.090 max 1.195; > 1: 39; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 0, upper bound above it 24
+hd_back_hi_rel: median 0.0056 p10 0.0039 p90 0.0343
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 8.967; max global 168.17 median 153.87; p01 median 19.47 min 15.49; > 150: 571; tris median 121760
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 9.024; max global 161.88 median 152.44; p01 median 11.67 min 10.92; > 150: 736; tris median 35298
+pipeline time (s, warm): median 7.33 p90 17.26 p99 28.95 max 52.02; over the budget max(5 s, 50 µs x raw triangles): 76 of 100 (+ 0 without a result); pass 24
+  over: 222695.stl 52.0/35.9, 66112.stl 28.9/15.0, 65584.stl 28.5/16.4, 270322.stl 25.8/12.5, 1601406.stl 25.0/13.2, 42179.stl 24.5/11.8, 51705.stl 23.4/11.5, 61198.stl 23.1/13.3, 124185.stl 18.9/12.1, 503407.stl 18.8/15.0, 76685.stl 17.3/8.5, 1038438.stl 16.1/11.9, 509315.stl 14.9/10.1, 92896.stl 14.4/10.6, 43390.stl 14.0/11.4
+phases (all, 100 meshes, sum 931 s): simplify 40.7%, wrap 35.5%
+  parts: simplify.reduce 32.4%, wrap.insert 10.0%, wrap.pinches 9.0%, wrap.intersection 9.0%, wrap.touch 8.7%, wrap.pinches2 8.0%, simplify.certify 6.4%, wrap.manifold 3.4%, simplify.check 1.9%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+phases (over the budget, 76 meshes, sum 846 s): simplify 40.0%, wrap 35.7%
+  parts: simplify.reduce 32.2%, wrap.insert 10.0%, wrap.pinches 9.3%, wrap.intersection 9.2%, wrap.touch 8.7%, wrap.pinches2 8.3%, simplify.certify 6.0%, wrap.manifold 3.4%, simplify.check 1.8%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.setup 0.6%
+== results/t2_ABCL0.jsonl: 100 rows, 100 with a result, timeouts / crashes / exceptions 0
+guarantees met: 100 / 100 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 0, failed: 0
+band (hd fwd upper bound / (alpha + offset)): median 0.982 p90 1.090 max 1.195; > 1: 39; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 0, upper bound above it 24
+hd_back_hi_rel: median 0.0056 p10 0.0039 p90 0.0343
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 8.967; max global 168.17 median 153.87; p01 median 19.47 min 15.49; > 150: 571; tris median 121760
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.815 median 9.024; max global 161.88 median 152.44; p01 median 11.67 min 10.92; > 150: 736; tris median 35298
+pipeline time (s, warm): median 7.08 p90 17.40 p99 29.64 max 51.58; over the budget max(5 s, 50 µs x raw triangles): 73 of 100 (+ 0 without a result); pass 27
+  over: 222695.stl 51.6/35.9, 65584.stl 29.6/16.4, 270322.stl 25.3/12.5, 1601406.stl 24.7/13.2, 42179.stl 24.4/11.8, 51705.stl 24.0/11.5, 66112.stl 23.6/15.0, 61198.stl 22.2/13.3, 503407.stl 18.1/15.0, 124185.stl 18.1/12.1, 76685.stl 17.4/8.5, 92896.stl 14.9/10.6, 1038438.stl 14.9/11.9, 43390.stl 14.5/11.4, 509315.stl 14.5/10.1
+phases (all, 100 meshes, sum 909 s): simplify 42.1%, wrap 36.1%
+  parts: simplify.reduce 33.5%, wrap.insert 10.2%, wrap.pinches 9.3%, wrap.intersection 9.1%, wrap.touch 8.9%, wrap.pinches2 8.2%, simplify.certify 6.6%, simplify.check 2.0%, wrap.quality 1.5%, wrap.extract 1.0%, wrap.manifold 0.8%, wrap.setup 0.6%
+phases (over the budget, 73 meshes, sum 812 s): simplify 41.1%, wrap 36.4%
+  parts: simplify.reduce 33.2%, wrap.insert 10.2%, wrap.pinches 9.7%, wrap.intersection 9.4%, wrap.touch 8.9%, wrap.pinches2 8.6%, simplify.certify 6.0%, simplify.check 1.9%, wrap.quality 1.4%, wrap.extract 1.0%, wrap.manifold 0.8%, wrap.setup 0.6%
+== results/t2_ABCL1.jsonl: 100 rows, 100 with a result, timeouts / crashes / exceptions 0
+guarantees met: 100 / 100 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 0, failed: 0
+band (hd fwd upper bound / (alpha + offset)): median 0.982 p90 1.090 max 1.195; > 1: 39; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 0, upper bound above it 24
+hd_back_hi_rel: median 0.0056 p10 0.0039 p90 0.0343
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.756 median 8.967; max global 168.17 median 153.87; p01 median 19.47 min 15.49; > 150: 573; tris median 121760
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 2.960 median 9.024; max global 161.88 median 152.44; p01 median 11.66 min 10.93; > 150: 732; tris median 35298
+pipeline time (s, warm): median 6.81 p90 15.53 p99 23.40 max 50.87; over the budget max(5 s, 50 µs x raw triangles): 65 of 100 (+ 0 without a result); pass 35
+  over: 222695.stl 50.9/35.9, 65584.stl 23.4/16.4, 66112.stl 22.2/15.0, 1601406.stl 20.6/13.2, 61198.stl 20.0/13.3, 270322.stl 18.4/12.5, 42179.stl 18.4/11.8, 51705.stl 16.4/11.5, 124185.stl 16.2/12.1, 503407.stl 15.9/15.0, 1038438.stl 15.5/11.9, 43390.stl 13.8/11.4, 509315.stl 12.8/10.1, 92896.stl 12.5/10.6, 79961.stl 11.3/10.7
+phases (all, 100 meshes, sum 819 s): simplify 46.6%, wrap 40.2%
+  parts: simplify.reduce 37.1%, wrap.insert 11.4%, wrap.intersection 10.2%, wrap.touch 9.9%, simplify.certify 7.3%, wrap.pinches 5.6%, wrap.pinches2 2.6%, simplify.check 2.2%, wrap.quality 1.7%, wrap.extract 1.1%, wrap.manifold 1.0%, wrap.setup 0.7%
+phases (over the budget, 65 meshes, sum 679 s): simplify 45.2%, wrap 41.2%
+  parts: simplify.reduce 36.4%, wrap.insert 11.5%, wrap.intersection 10.7%, wrap.touch 10.2%, simplify.certify 6.7%, wrap.pinches 5.6%, wrap.pinches2 2.8%, simplify.check 2.1%, wrap.quality 1.7%, wrap.manifold 1.2%, wrap.extract 1.2%, wrap.setup 0.7%
+== paired (100): time ratio median 0.973 p10 0.914 p90 1.048; identical results 100
+== paired (100): time ratio median 0.910 p10 0.779 p90 0.984; identical results 94
+== paired (100): time ratio median 0.939 p10 0.805 p90 1.028; identical results 94
