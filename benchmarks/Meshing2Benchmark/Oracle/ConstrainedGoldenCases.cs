@@ -15,6 +15,9 @@ namespace Meshing2Acceptance
                 var original = r.Case;
                 var input = TextFormat.ReadInput(TextFormat.WriteInput(original.Input));
                 input.ConstrainedQuality = true;
+                // WithGlobalDelaunayLimit with the unchanged limit serves as a clone, so that AngleGuaranteed below does not
+                // change the M3 case. The copy is shallow (MemberwiseClone): Removed and Kept are shared with the original,
+                // which is harmless because neither list is modified here.
                 var expect = original.Expect.WithGlobalDelaunayLimit(original.Expect.GlobalDelaunayLimit);
                 // #394 already validates these small-angle rows with quality enabled.
                 // The golden gate must not silently skip their angle checks.

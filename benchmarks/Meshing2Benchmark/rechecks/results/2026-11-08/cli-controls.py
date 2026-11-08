@@ -1,11 +1,21 @@
+"""CLI controls of the golden gate, run against a temporary copy of the golden files.
+
+Usage: python cli-controls.py <Meshing2Benchmark.dll> <log-dir>
+The SDK is $DOTNET (default: dotnet on PATH); the repository is found from this file's location.
+Commands are recorded with the placeholders <dotnet> and <benchmark>.
+"""
 import json
+import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 
-repo = pathlib.Path('/workspace/geometry3Sharp-meshing-qa')
-dll = '/workspace/meshing-qa-final-artifacts/bin/Meshing2Benchmark/release_net10.0/Meshing2Benchmark.dll'
+repo = pathlib.Path(__file__).resolve().parents[5]
+dll = sys.argv[1]
+logs = pathlib.Path(sys.argv[2]); logs.mkdir(parents=True, exist_ok=True)
+dotnet = os.environ.get('DOTNET', 'dotnet')
 records = []
 with tempfile.TemporaryDirectory(prefix='g3-golden-cli-') as tmp:
     root = pathlib.Path(tmp)
@@ -13,10 +23,9 @@ with tempfile.TemporaryDirectory(prefix='g3-golden-cli-') as tmp:
     golden = root/'benchmarks/Meshing2Benchmark/golden'
     shutil.copytree(repo/'benchmarks/Meshing2Benchmark/golden', golden)
     def check(name, args, expected, needle=None):
-        cmd = ['/workspace/dotnet/dotnet', dll] + args
-        r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=300)
-        pathlib.Path('/tmp/meshing-cli-'+name+'.log').write_text(r.stdout+r.stderr)
-        records.append(dict(name=name, command=cmd, expected=expected, actual=r.returncode,
+        r = subprocess.run([dotnet, dll] + args, cwd=root, capture_output=True, text=True, timeout=300)
+        (logs/('meshing-cli-'+name+'.log')).write_text(r.stdout+r.stderr)
+        records.append(dict(name=name, command=['<dotnet>', '<benchmark>'] + args, expected=expected, actual=r.returncode,
                             diagnostic_present=needle is None or needle in r.stdout+r.stderr))
         print(json.dumps(records[-1]), flush=True)
         assert r.returncode == expected and records[-1]['diagnostic_present'], name
@@ -31,4 +40,4 @@ with tempfile.TemporaryDirectory(prefix='g3-golden-cli-') as tmp:
     path.write_text(json.dumps(data))
     check('ci-constrained-row-mutated', ['ci'], 1, 'f-3/c')
     assert (repo/'benchmarks/Meshing2Benchmark/golden/m3-constrained.json').read_bytes() == original
-pathlib.Path('/tmp/meshing-cli-validation.json').write_text(json.dumps(records, indent=2)+'\n')
+(logs/'meshing-cli-validation.json').write_text(json.dumps(records, indent=2)+'\n')

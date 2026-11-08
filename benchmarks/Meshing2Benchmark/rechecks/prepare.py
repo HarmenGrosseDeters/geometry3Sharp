@@ -11,6 +11,7 @@ import subprocess
 import urllib.request
 import xml.etree.ElementTree as ET
 from shapely import from_wkt, from_wkb
+from run import input_name, job_key
 
 def canonical(case):
  points=[]; ids={}; segments=[]
@@ -56,7 +57,7 @@ def variant(base, job):
 def prepare(args):
     spec=json.loads(args.manifest.read_text())
     args.data.mkdir(parents=True,exist_ok=True);args.inputs.mkdir(parents=True,exist_ok=True)
-    trees={};golden={};seen=set()
+    trees={};golden={};seen=set();prepared={}
     for job in spec['jobs']:
         key=(job['case'],job['mode'])
         if key in seen:raise ValueError('Duplicate job: '+str(key))
@@ -83,10 +84,11 @@ def prepare(args):
                 golden[id]=path.read_text()
             base=golden[id]
         text,sha=variant(base,job)
-        name=hashlib.sha256((job['case']+'|'+job['mode']).encode()).hexdigest()+'.input.txt'
-        path=args.inputs/name;path.write_text(text)
-        job['input_path']=str(path.resolve());job['input_sha256']=sha
-    args.out.write_text(json.dumps(spec,indent=2)+'\n')
+        (args.inputs/input_name(job['case'],job['mode'])).write_text(text)
+        prepared[job_key(job)]=sha
+    # Only case|mode -> input_sha256: everything else is in the historical manifest, and the
+    # inputs directory (named by input_name) stays local, so no local path is recorded.
+    args.out.write_text(json.dumps(prepared,indent=2)+'\n')
     print('Prepared',len(seen),'jobs;',sum(bool(j.get('expected_input_hash')) for j in spec['jobs']),'full historical variant hashes checked')
 
 

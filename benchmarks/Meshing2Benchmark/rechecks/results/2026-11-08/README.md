@@ -128,9 +128,15 @@ unchanged binaries/manifest and the original process's empty variant environment
 the prefix hash and audit are retained. A later resume retained all durable rows.
 
 `results-*.jsonl` concatenate byte-for-byte to the hash in `evidence.json` and
-contain the commands, diagnostics, fingerprints and oracle rows. `verdicts.csv`
-is the compact per-operation view. `prepared-manifest.json` preserves the exact
-manifest bound by metadata, including local paths (data files are not committed).
+contain the commands, fingerprints, oracle rows and per-violation-class counts.
+They were compacted after the run with the code `run.py` now applies before
+writing: captured stdout/stderr became class counts, line counts and SHA-256,
+local paths placeholders, and the oracle row's area and reason text digests.
+`evidence.json` keeps the hashes of the uncompacted files and of the tools that
+wrote them. `verdicts.csv` is the per-operation view, regenerated from the records
+by `run.write_verdicts`. `prepared-manifest.json` maps `case|mode` to the input
+SHA-256; the full manifest the run bound (`metadata.json`, `manifest_sha256`) was
+this map joined with `historical-exceptions.json` plus local input paths.
 `selection-audit.json` records the selection/hash checks. `validation.txt` and
 `cli-controls.json` record 81 passing native tests, nine passing Python tests,
 all-target builds/API-validating packs, clean CI gates and the controlled golden

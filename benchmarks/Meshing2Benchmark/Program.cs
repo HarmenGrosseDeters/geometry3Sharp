@@ -20,8 +20,9 @@ namespace Meshing2Acceptance
   golden check [--milestone M1] [--mode constrained]     recompute the golden rows and compare
   golden update --milestone M1 [--mode constrained] --reasons <file>
                                     rewrite the rows; <file> has one line per changed case: <case><TAB><reason>
-  golden verify-changes --base <old.json> [--current <new.json>]
-                                    every changed row states a new reason (the gate on a pull request)
+  golden verify-changes --base <old.json> [--current <new.json>] [--milestone M1] [--mode constrained]
+                                    every changed row states a new reason (the gate on a pull request); without --current,
+                                    the golden file of --milestone/--mode is compared
   oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--stated-area <a> [--stated-area-tolerance <t>]] [--case <id>] [--row <file>] [--snapped-area]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format

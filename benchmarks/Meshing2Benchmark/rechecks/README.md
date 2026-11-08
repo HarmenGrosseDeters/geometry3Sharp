@@ -58,10 +58,15 @@ dotnet build benchmarks/Meshing2Benchmark -c Release
   --data /tmp/g3-geos-data --inputs /tmp/g3-recheck-inputs --out /tmp/g3-prepared.json \
   --dotnet /path/to/dotnet --benchmark /path/to/Meshing2Benchmark.dll
 python3 benchmarks/Meshing2Benchmark/rechecks/run.py \
-  --manifest /tmp/g3-prepared.json --dotnet /path/to/dotnet \
+  --manifest benchmarks/Meshing2Benchmark/rechecks/historical-exceptions.json \
+  --prepared /tmp/g3-prepared.json --inputs /tmp/g3-recheck-inputs --dotnet /path/to/dotnet \
   --benchmark /path/to/Meshing2Benchmark.dll --work /tmp/g3-recheck-run \
   --mesh-timeout 60 --oracle-timeout 120
 ```
+
+`prepare.py` writes only `case|mode -> input_sha256` to `--out`; the inputs are
+named by a hash of `case|mode` in `--inputs`, so no local path is recorded. The
+runner joins this map with the historical manifest.
 
 The runner is sequential and resumes only from durably completed records. Keep
 its benchmark binaries fixed for a run; do not build into that directory while
@@ -77,10 +82,13 @@ historical mesher budget was 600 s, and its oracle budget changed from 600 to
 by itself a speed regression. Timings are diagnostic single runs, not benchmark
 speedup evidence.
 
-`results.jsonl` records commands, input/output fingerprints, exit codes, oracle
-rows and diagnostics. It is flushed/fsynced before releasing large regenerable
+`results.jsonl` records commands (local paths as `<dotnet>`, `<benchmark>`,
+`<inputs>`, `<work>`), input/output fingerprints, exit codes and oracle rows.
+Captured stdout/stderr are not stored: each stage keeps per-violation-class counts,
+line counts and SHA-256 digests; the oracle row keeps its area and reason text as
+digests (the reason also as class counts). Single triangles are not named. It is flushed/fsynced before releasing large regenerable
 mesh artifacts. Temporary per-attempt output/row files are cleared before retry.
-`summary.json` lists verdicts and separately counts oracle-valid outputs at the
+`summary.json` lists verdicts and `verdicts.csv` one line per operation; the summary separately counts oracle-valid outputs at the
 Steiner limit. Such outputs are valid under the operation's bounded contract;
 they do not certify that every requested angle was achieved.
 

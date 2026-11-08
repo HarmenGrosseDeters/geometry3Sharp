@@ -5,6 +5,11 @@ on:
       - 'benchmarks/Meshing2Benchmark/rechecks/**'
       - '.github/workflows/meshing-recheck-tools.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: meshing-recheck-tools-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   unit:
     runs-on: ubuntu-latest

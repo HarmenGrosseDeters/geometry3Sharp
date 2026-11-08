@@ -1,12 +1,12 @@
 {
   "command": [
-    "/workspace/dotnet/dotnet",
-    "/workspace/geometry3Sharp-meshing-qa/benchmarks/Meshing2Benchmark/bin/Release/net10.0/Meshing2Benchmark.dll",
+    "<dotnet>",
+    "<benchmark>",
     "oracle",
     "--input",
-    "/tmp/meshing-oracle-profile.input.txt",
+    "<work>/meshing-oracle-profile.input.txt",
     "--output",
-    "/tmp/meshing-oracle-profile.mesh.txt",
+    "<work>/meshing-oracle-profile.mesh.txt",
     "--milestone",
     "M3",
     "--case",

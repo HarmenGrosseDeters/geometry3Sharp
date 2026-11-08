@@ -10,7 +10,7 @@
   "command": [
     "python",
     "benchmarks/Meshing2Benchmark/rechecks/count_boxes.py",
-    "/tmp/meshing-oracle-profile.mesh.txt"
+    "<work>/meshing-oracle-profile.mesh.txt"
   ],
   "mesh_sha256": "56de8a1b8f6969f2fba35e9950b7bee0a6b746da18df0a00a694f464bacc6521",
   "meaning": "Closed bounding-box candidates only, not actual geometric intersections or a finer Conformity phase profile."
