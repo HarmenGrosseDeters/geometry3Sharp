@@ -131,8 +131,8 @@ namespace gs
         /// </summary>
         public bool SimplifyAlphaWrap = true;
         /// <summary>
-        /// alpha wrap fallback: after the simplification, improve the triangle quality (the simplified wrap keeps
-        /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
+        /// alpha wrap fallback: after the simplification, improve the triangle quality (before the simplification's
+        /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
         /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
         /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
@@ -141,9 +141,12 @@ namespace gs
         /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
         /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
         /// moves may raise it locally).
-        /// On by default; false keeps the simplified wrap as it is.
+        /// Off by default (owner decision 2026-11-08, Alpha Wrap 2.0; on by default from #292 until then): since the
+        /// simplification no longer creates caps (its quality guard), the pass adds little (the 1 %-worst angle about
+        /// 0.15 degrees, no triangle below 0.5 or above 170 degrees either way) at about 30 % of the pipeline's time
+        /// (benchmarks/MeshRepairBenchmark README, "Alpha wrap quality pass"). true runs it as before.
         /// </summary>
-        public bool AlphaWrapQualityPass = true;
+        public bool AlphaWrapQualityPass = false;
         /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
         internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 

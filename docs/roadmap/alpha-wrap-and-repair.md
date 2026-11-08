@@ -126,6 +126,10 @@ Order: (1) the MeshRepair wrap-resolution session first, since it changes 7b's i
 
 Tier: L. Parallel: 1 large session, after the wrap-resolution session **Owner 2026-11-02:** acceptance (c) replaced by per-mesh floors (no triangle < 0.5°, global min / max not worse than the simplified wrap, share > 170° ≤ 0.1 %) plus relative improvement and the reported distribution (literature: Shewchuk 2002, Babuška–Aziz 1976, Morvan–Thibert 2004, Hu et al. 2017); G1 (D0.1 + cap-flip exemption + guarded cap split) accepted after one last variant, (d) misses documented, ON by default in the wrap fallback with a switch. Follow-up: degenerate triangles of the raw alpha wrap itself (eg 59196, where the simplification falls back to the unsimplified wrap).
 
+**Owner decision 2026-11-08 (Alpha Wrap 2.0):** the quality pass is off by default (`MeshRobustRepair.AlphaWrapQualityPass
+= false`, #413, after the simplification's quality guard #405): with the guard it adds little (p01 about 0.15° better,
+no triangle below 0.5° or above 170° either way) at about 30 % of the pipeline's time.
+
 #### Remesher (slot order item 1)
 
 1. Remesher done (medium): not replaced.

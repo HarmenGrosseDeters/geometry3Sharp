@@ -165,8 +165,8 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
-                // BENCH_WRAP_QUALITY=0: without the quality pass (on by default in the library)
-                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") != "0";
+                // BENCH_WRAP_QUALITY=1: with the quality pass (off by default in the library since Alpha Wrap 2.0)
+                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
                 // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
                 string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
                 // (the input as given: the repair may change mesh in place)
