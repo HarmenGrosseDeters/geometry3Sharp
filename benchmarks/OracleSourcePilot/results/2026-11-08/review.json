@@ -1,0 +1,37 @@
+{
+  "independent_of_author": true,
+  "scope": [
+    "source and budget equivalence",
+    "reference/exact/control behavior",
+    "state and stamp reuse",
+    "full report serialization",
+    "numeric source/runtime/fixture/report hashes",
+    "timeout and Amdahl scopes",
+    "machine-verifiable acceptance"
+  ],
+  "open_blocking_findings": 0,
+  "resolved_finding": "Reproduction lacked automatic cross-variant complete report and expected phase fingerprint gates; verify_results.py, 5 negative/positive tests, commands/CI/checklist now enforce them.",
+  "sample": {
+    "points": 512,
+    "phase_constraint_edges_each": 512,
+    "phase_fingerprint": "9ef6f8e16e6b9782cf04bfa8ec7d8d1dc73e88b76b1becae31390f867e102ea2",
+    "original_source_seconds": 1.4639079,
+    "indexed_source_seconds": 0.0105187,
+    "scope": "one independent diagnostic sample; excluded from performance medians",
+    "indexed_candidate_visits": 9540,
+    "full_reports_byte_equal": true,
+    "full_report_sha256": "b599b98a32a12ea475cf84d79f335f0f2e2b6ef9c336c2c547893679c9ba6142",
+    "all_sample_exit_codes": 0
+  },
+  "python_tests_passed": 5,
+  "actual_dataset_acceptance": "3 complete small-report cases,25 phase records,large semantic reports equal",
+  "commands": [
+    "<dotnet> <before-pilot> phase <input-512> <mesh-512>",
+    "G3_ORACLE_SOURCE_INDEX=grid <dotnet> <after-pilot> phase <input-512> <mesh-512>",
+    "<dotnet> <before-pilot> full <input-512> <mesh-512> <review-work>/before.report.json",
+    "G3_ORACLE_SOURCE_INDEX=grid <dotnet> <after-pilot> full <input-512> <mesh-512> <review-work>/after.report.json",
+    "cmp <review-work>/before.report.json <review-work>/after.report.json",
+    "python3 -m unittest discover -s benchmarks/OracleSourcePilot -p test_*.py -v",
+    "python3 benchmarks/OracleSourcePilot/verify_results.py --runs <runs> --boundary <control>"
+  ]
+}

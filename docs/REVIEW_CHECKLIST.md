@@ -156,6 +156,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
   freezing an A/B candidate; do not label measurements by source changes alone.
+- An indexed existence query can defeat a scan's early exit by materializing every candidate first. Test dense/unknown
+  boxes and clusters beside outliers; bound extra enumeration and keep an exact scan fallback.
+- Reproduction commands must fail on unequal required reports/fingerprints. Saving hashes or relying on a one-off
+  manual comparison is not an acceptance gate; verify completed records again after resuming a campaign.
 
 ## 10a. The oracle itself
 
