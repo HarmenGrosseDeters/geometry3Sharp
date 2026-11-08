@@ -9,15 +9,19 @@
 #   not closed  a result is not closed in the winding sense (some edge not used equally often in both directions)
 #   volume      closed, but a volume identity or an analytically known volume is off by more than 1e-6 (relative)
 #   self-int.   correct, but a result has self-intersections (after rounding to double, or touching parts)
+#   degenerate  (classes with NotCleanReason as oracle: thingi-pairs) correct, but NotCleanReason reports degenerate triangles
+#               (area < 1e-12 * diagonal^2), bowties or inconsistent orientation
 #   non-manif.  correct, no self-intersections, but non-manifold edges
 #   clean       correct, closed manifold, no self-intersections
 import argparse, collections, json, statistics as st
 
 OPS = ["union", "intersection", "difference"]
-OUTCOMES = ["clean", "non-manif.", "self-int.", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
-CORRECT = {"clean", "non-manif.", "self-int."}
+OUTCOMES = ["clean", "degenerate", "non-manif.", "self-int.", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
+CORRECT = {"clean", "degenerate", "non-manif.", "self-int."}
 NAMES = {"ours": "ExactMeshBoolean", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
 TOL = 1e-6
+# the relative tolerance of the volume identities per class (README.md, "Thingi10K pairs", justifies 1e-7)
+CLASS_TOL = {"thingi-pairs": 1e-7, "thingi-pairs-size": 1e-7}
 
 def status(r, op):
     s = r.get(f"{op}_status")
@@ -42,12 +46,16 @@ def outcome(r):
         return "crash"
     if not all(r.get(f"{op}_wclosed") for op in ops):
         return "not closed"
-    if any(e > TOL for e in volume_errors(r)):
+    if any(e > CLASS_TOL.get(r.get("class"), TOL) for e in volume_errors(r)):
         return "volume"
     if any(r.get(f"{op}_selfint", 0) != 0 for op in ops):
         return "self-int."
     if not all(r.get(f"{op}_manifold_closed") for op in ops):
         return "non-manif."
+    # NotCleanReason as the oracle: "" is clean, "empty" is correct (the volume identities above hold, so the
+    # result is empty because the solid is), a defect the manifold and self-intersection checks do not name is not
+    if any(r.get(f"{op}_clean_reason") not in (None, "", "empty") for op in ops):
+        return "degenerate"
     return "clean"
 
 def ms(r):
@@ -77,7 +85,7 @@ def time_table(cases, methods):
         rows.append([NAMES.get(m, m), f"{st.median(t):.0f}", f"{sum(t) / 1000:.1f}", f"{st.median(rel):.2f}" if rel else "–"])
     return table(["method", "median ms", "total s", "median time relative to ours"], rows), len(common)
 
-SHORT = {"clean": "clean", "non-manif.": "non-manif.", "self-int.": "self-int.", "volume": "**volume**", "not closed": "**not closed**",
+SHORT = {"clean": "clean", "degenerate": "degenerate", "non-manif.": "non-manif.", "self-int.": "self-int.", "volume": "**volume**", "not closed": "**not closed**",
          "failed": "failed", "timeout": "timeout", "crash": "**crash**", "rejected": "rejected"}
 
 def case_table(cases, methods):

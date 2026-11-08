@@ -7,6 +7,10 @@
 #     line with "class", "name" and one of: "mesh" (A with a rotated, shifted copy), "a" + "b" (two meshes as
 #     given), "case" (a directory with A.off, B.off, info.json) or "sequence" (a directory with an Open Boolean
 #     Benchmark request.json and info.json: a list of booleans, of which the final result is evaluated).
+#     "thingi_pair" (class thingi-pairs: [meshA, meshB, qx, qy, qz, qw, tx, ty, tz]: both meshes normalized to the unit
+#     box, B rotated and translated; data/thingi_pairs.py writes these manifests).
+# --resume: cases that have a result row for every requested method in the output file are skipped, so an
+# interrupted run continues where it stopped (the file is appended to).
 # Results are evaluated by BooleanComparison eval (closedness, manifoldness, exact self-intersections, volume
 # identities, analytically known volumes) and deleted.
 # Each run gets a status: ok, rejected (the tool refuses the input), failed (the tool reports a failure on an
@@ -194,6 +198,11 @@ def process(case, methods, timeout):
             for f in ("A.off", "B.off", "info.json"):
                 shutil.copy(os.path.join(case["case"], f), d)
             info = json.load(open(os.path.join(d, "info.json")))
+        elif "thingi_pair" in case:
+            e = subprocess.run(tool + ["thingi-pair"] + case["thingi_pair"][:2] + [d] + case["thingi_pair"][2:], capture_output=True, text=True, timeout=3600)
+            info = json.loads(e.stdout.strip().splitlines()[-1])
+            if "error" in info:
+                raise RuntimeError(info["error"])
         else:
             cmd = tool + (["export", case["mesh"], d] if "mesh" in case else ["pair", case["a"], case["b"], d])
             e = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
@@ -224,12 +233,28 @@ if __name__ == "__main__":
     ap.add_argument("--timeout", type=int, default=300, help="seconds per boolean, or per sequence")
     ap.add_argument("-j", type=int, default=1)
     ap.add_argument("--class", dest="cls", default="thingi10k", help="data class of a list or directory of meshes")
+    ap.add_argument("--resume", action="store_true", help="skip the cases that the output file has results of for all methods")
     ap.add_argument("--only", help="comma-separated case names to run")
     args = ap.parse_args()
     cases = read_cases(args.inputs, args.cls)
     if args.only:
         cases = [c for c in cases if c["name"] in args.only.split(",")]
     methods = args.methods.split(",")
+    if args.resume and os.path.exists(args.out):
+        have = {}
+        with open(args.out, "rb+") as f:    # a line cut off by an interrupted run: end it, so that the next row starts a new line
+            data = f.read()
+            if data and not data.endswith(b"\n"):
+                f.write(b"\n")
+        for l in open(args.out):
+            try:
+                r = json.loads(l)
+            except ValueError:
+                continue                   # ... and ignore it (its case runs again)
+            have.setdefault((r["class"], r["file"]), set()).add(r["method"])
+        finished = {k for k, v in have.items() if set(methods) <= v}
+        cases = [c for c in cases if (c["class"], c["name"]) not in finished]
+        print(f"resume: {len(finished)} cases finished, {len(cases)} to run", flush=True)
     with open(args.out, "a") as f, ThreadPoolExecutor(args.j) as ex:
         for rows in ex.map(lambda c: process(c, methods, args.timeout), cases):
             for r in rows:
