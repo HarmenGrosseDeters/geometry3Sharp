@@ -28,10 +28,13 @@ Small input angles and triangle count:
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
   decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
   25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
-- **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
-  O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
-  small input angles, judged that way by the oracle; design note with the termination argument first, independent
-  review; item 4 of the Meshing2D Sonnet bundle.
+- **Default (conforming) mode near small angles:** rule C (owner decision 2026-11-08,
+  [design/MESHING2D_SMALL_ANGLES_CONFORMING.md](../design/MESHING2D_SMALL_ANGLES_CONFORMING.md)): #394's rule with an exact
+  local Delaunay check, so O2 holds; off the snap grid only (#441). Open: the corpus / Herne measurement on a runner, including
+  the refused forced splits (counters 13-15).
+- **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
+  `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
+  ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.

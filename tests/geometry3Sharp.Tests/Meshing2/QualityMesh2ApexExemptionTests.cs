@@ -167,11 +167,14 @@ namespace geometry3Sharp.Tests
             Assert.Contains(log, l => l.Exempt && (l.U == apex || l.W == apex));
         }
 
-        /// <summary> the conforming mode is unchanged: no exemption, the same mesh as without the rule </summary>
+        /// <summary>
+        /// the conforming mode on the snap grid is unchanged: no exemption, the same mesh as without the rule (off the grid the conforming mode
+        /// has rule C, MESHING2D_SMALL_ANGLES_CONFORMING.md; QualityMesh2ConformingSmallAngleTests)
+        /// </summary>
         [Fact]
-        public void ConformingMode_IsUnchanged()
+        public void ConformingModeOnTheGrid_IsUnchanged()
         {
-            var input = QualityMesh2SmallAngleRuleTests.HullWedge(25, 5.0);
+            var input = QualityMesh2SmallAngleRuleTests.HullWedge(25, 5.0, 1.0 / 256);
             input.ConstrainedQuality = false;
             var log = Log(input, out var on);
             Assert.DoesNotContain(log, l => l.Exempt);
