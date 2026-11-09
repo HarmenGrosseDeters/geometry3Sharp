@@ -285,7 +285,8 @@ Ordered by expected value for the library.
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
    - Needed: a tighter drift accounting, stated as a lemma and checked with Z3 before it is built.
-   - Status: the lemma waits for the Boolean session's design note
+   - Status: started 2026-11-09 (owner) as a Fable research session (session_01AaGT5BXr9voD6SYy7KhQDs): design note
+     docs/design/SAFE_ROUNDING_D1_DRIFT.md, the lemma checked with Z3, an upper bound on the D1 cases; no library code
      ([exact-boolean.md](exact-boolean.md), D1 order).
 3. **Rounding cost on large or rotated results.**
    - Measured:
