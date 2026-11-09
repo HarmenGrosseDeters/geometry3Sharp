@@ -18,6 +18,10 @@ Part of the [roadmap](../ROADMAP.md).
 - **Restart design (owner 2026-11-08):** the DGM-to-TIN step with breaklines is constrained quality meshing in
   2.5D; design it with `QualityMesh2` (its oracle and golden tests) instead of a new triangulator.
 
+- **DGM reader (owner 2026-11-09):** `HeightGrid`, `HeightGridReader` (XYZ ASCII and ESRI ASCII Grid), `HeightGridWriter`
+  and the grid TIN `HeightGrid.BuildMesh` are in the library (`io/`); the CLI command comes through the CLI / MCP session;
+  GeoTIFF is left to the owner (own implementation, or LibTiff.Net, BSD, in an optional package).
+
 - **Restart:** first a DGM reader in the CLI (owner 2026-11-03: after the pause). The terrain mutation shards (#302)
   wait for the restart.
 - **Later steps** (owner 2026-11-02, replaces TERRAIN.md §11 step 8's order): (1) docs and CLI / MCP for terrain:

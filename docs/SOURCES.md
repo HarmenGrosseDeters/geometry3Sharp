@@ -621,3 +621,12 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 | Restricted Delaunay for smooth surfaces | J.-D. Boissonnat, S. Oudot 2005; S. Oudot, L. Rineau, M. Yvinec, *Meshing volumes bounded by smooth surfaces*, IMR 2005 |
 | Sliver removal | S.-W. Cheng, T. K. Dey, H. Edelsbrunner, M. A. Facello, S.-H. Teng, *Sliver exudation*, J. ACM 2000; J. Tournois, R. Srinivasan, P. Alliez, *Perturbing slivers in 3D Delaunay meshes*, IMR 2009; J. Tournois, C. Wormser, P. Alliez, M. Desbrun, *Interleaving Delaunay refinement and optimization for practical isotropic tetrahedron mesh generation*, ACM TOG 28(3), 2009; B. M. Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007; J. R. Shewchuk, *Two discrete optimization algorithms for the topological improvement of tetrahedral meshes* |
 | Envelope and lattice approaches | Y. Hu et al., *Tetrahedral meshing in the wild*, ACM TOG 37(4), 2018; Y. Hu, T. Schneider, B. Wang, D. Zorin, D. Panozzo, *Fast tetrahedral meshing in the wild*, ACM TOG 39(4), 2020 (arXiv 1908.03581, abstract read); F. Labelle, J. R. Shewchuk, *Isosurface stuffing: fast tetrahedral meshes with good dihedral angles*, ACM TOG 26(3), 2007 |
+## Height grid readers (DGM)
+
+`HeightGridReader` / `HeightGridWriter` / `HeightGrid` (`io/`). Format descriptions only, no code read or ported:
+
+| Topic | Source |
+|---|---|
+| ESRI ASCII Grid (.asc) | ESRI, *ASCII to Raster* tool documentation (header ncols / nrows / xllcorner | xllcenter / yllcorner | yllcenter / cellsize / NODATA_value; north row first); the GDAL AAIGrid driver page describes the same format, including dx / dy |
+| XYZ ASCII DGM (Geobasis NRW `dgm1_xyz`) | the open-data product description of the Land NRW DGM1 (one "x y z" point per line on a regular 1 m grid); the reader accepts any regular square lattice |
+| Grid TIN with a fixed diagonal | Garland, Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 (regular grid triangulation as the full-resolution reference); the interpolation on the TIN is the library's own definition (`HeightGrid.Height`) |

@@ -345,5 +345,74 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
         }
+
+        // ---- height grids (HeightGridReader: XYZ and ESRI ASCII), text read from strings ----
+
+        static string ValidHeightGridFile(string kind)
+        {
+            var g = new HeightGrid(new double[12 * 9], 12, 9, 350000.5, 5600000.25, 0.5);
+            for (int j = 0; j < g.NY; ++j)
+                for (int i = 0; i < g.NX; ++i)
+                    g[i, j] = 100 + 0.25 * i - 0.5 * j + (i * 7 + j * 3) % 5;
+            g[4, 4] = double.NaN;
+            var sw = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+            if (kind == "xyz") HeightGridWriter.WriteXyz(sw, g); else HeightGridWriter.WriteEsriAscii(sw, g);
+            return sw.ToString();
+        }
+
+        /// <summary>"" if the reader returned within the budget without throwing, and an Ok result is a valid grid bounded by the input; else the problem.</summary>
+        static string CheckHeightGridFile(string kind, string text)
+        {
+            HeightGridReadResult r = default(HeightGridReadResult);
+            long allocated = 0;
+            Exception thrown = null;
+            bool finished = Timed.Finishes(() => {
+                try {
+#if NETCOREAPP
+                    long before = GC.GetAllocatedBytesForCurrentThread();
+#endif
+                    var reader = new StringReader(text);
+                    r = kind == "xyz" ? HeightGridReader.ReadXyz(reader) : HeightGridReader.ReadEsriAscii(reader);
+#if NETCOREAPP
+                    allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+#endif
+                } catch (Exception e) {
+                    thrown = e;
+                }
+            }, TimeBudget);
+            if (!finished) return "no result within " + TimeBudget.TotalSeconds + " s";
+            // the readers report bad input by status: any exception is a crash on the input
+            if (thrown != null) return "threw " + thrown.GetType().Name + ": " + thrown.Message;
+            if (allocated > 64L * 1024 * 1024 + 4000L * text.Length)
+                return $"allocated {allocated / (1024 * 1024)} MB for {text.Length} characters ({r.Status})";
+            if (r.Status == HeightGridStatus.Ok) {
+                HeightGrid g = r.Grid;
+                if (g == null || g.Z == null || g.Z.Length != (long)g.NX * g.NY || g.NX < 1 || g.NY < 1) return "Ok with an inconsistent grid";
+                if (!(g.CellSize > 0) || double.IsInfinity(g.CellSize) || double.IsNaN(g.X0) || double.IsInfinity(g.X0) || double.IsNaN(g.Y0) || double.IsInfinity(g.Y0)) return "Ok with a non-finite origin or cell size";
+                if (g.Z.Any(double.IsInfinity)) return "Ok with an infinite height";
+                if (g.Z.Length > Math.Max(1024, 64L * text.Length)) return $"Ok with {g.Z.Length} nodes from {text.Length} characters";
+            } else if (r.Grid != null || r.Message == null) {
+                return "a failure " + r.Status + " with a grid or without a message";
+            }
+            return "";
+        }
+
+        [Theory]
+        [InlineData("xyz")]
+        [InlineData("esri")]
+        public void MutatedHeightGridFiles_ReadSafely(string kind)
+        {
+            string valid = ValidHeightGridFile(kind);
+            Assert.Equal("", CheckHeightGridFile(kind, valid));
+            var failures = new List<string>();
+            for (int seed = 0; seed < CasesPerFormat; ++seed) {
+                var rand = new Random(seed * 7919 + kind.Sum(c => (int)c) + 29);
+                byte[] data = Mutate(Encoding.ASCII.GetBytes(valid), true, rand, out string what);
+                string failure = CheckHeightGridFile(kind, Encoding.ASCII.GetString(data));
+                if (failure != "") failures.Add($"{kind} seed {seed} ({what}): {failure}");
+                if (failure.StartsWith("no result")) break;
+            }
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+        }
     }
 }
