@@ -44,6 +44,8 @@ namespace gs
         public int BeforeOverlaps { get; private set; }
         public int AfterOverlaps { get; private set; }
         public bool RequireHeightField = true;
+        /// <summary> the most cells (a polygon that touches many cells holds one small record per cell until the merge, and the outputs take 7 doubles per cell) </summary>
+        public const int MaxCells = 1 << 20;
 
         public TerrainCellVolumes(DMesh3 before, DMesh3 after, double x0, double y0, double dx, double dy, int nx, int ny)
         {
@@ -74,7 +76,7 @@ namespace gs
         {
             CutVolume = FillVolume = CutArea = FillArea = OverlapArea = null;
             TotalCutVolume = TotalFillVolume = TotalOverlapArea = 0;
-            if (Before == null || After == null || !(DX > 0) || !(DY > 0) || double.IsInfinity(DX) || double.IsInfinity(DY) || NX < 1 || NY < 1 || (long)NX * NY > (1L << 26)
+            if (Before == null || After == null || !(DX > 0) || !(DY > 0) || double.IsInfinity(DX) || double.IsInfinity(DY) || NX < 1 || NY < 1 || (long)NX * NY > MaxCells
                 || double.IsNaN(X0) || double.IsNaN(Y0) || double.IsInfinity(X0) || double.IsInfinity(Y0))
                 return false;
             var diff = new TerrainVolumeDifference(Before, After) {

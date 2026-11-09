@@ -139,7 +139,7 @@ namespace gs
             for (int j = j0; j <= j1; ++j)
                 for (int i = i0; i <= i1; ++i) {
                     double xa = lx0 + i * lat.DX, xb = lx0 + (i + 1) * lat.DX, ya = ly0 + j * lat.DY, yb = ly0 + (j + 1) * lat.DY;
-                    List<Vector2d> piece = (i0 == i1 && j0 == j1) ? poly
+                    List<Vector2d> piece = (fi0 == fi1 && fj0 == fj1) ? poly      // (the polygon lies in this cell; tested on the unclamped indices: a polygon that crosses the lattice border has parts outside)
                         : clip_convex(poly, new List<Vector2d>(4) { new Vector2d(xa, ya), new Vector2d(xb, ya), new Vector2d(xb, yb), new Vector2d(xa, yb) });
                     if (piece.Count < 3) continue;
                     var one = new double[1, 5];

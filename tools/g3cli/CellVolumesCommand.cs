@@ -49,7 +49,7 @@ namespace g3cli
                 AxisAlignedBox3d b = before.GetBounds(); b.Contain(after.GetBounds());
                 double x0 = args.Has("x0") ? args.Number("x0") : b.Min.x, y0 = args.Has("y0") ? args.Number("y0") : b.Min.y;
                 double nxd = args.Has("nx") ? args.Integer("nx") : Math.Max(1, Math.Ceiling((b.Max.x - x0) / dx)), nyd = args.Has("ny") ? args.Integer("ny") : Math.Max(1, Math.Ceiling((b.Max.y - y0) / dy));
-                if (!(nxd * nyd <= (1 << 26))) throw new CommandException(ResultCodes.InvalidArguments, $"the lattice has too many cells ({nxd} x {nyd}, at most 2^26): enlarge cell_size");
+                if (!(nxd * nyd <= TerrainCellVolumes.MaxCells)) throw new CommandException(ResultCodes.InvalidArguments, $"the lattice has too many cells ({nxd} x {nyd}, at most 2^20): enlarge cell_size");
                 int nx = (int)nxd, ny = (int)nyd;
                 var cv = new TerrainCellVolumes(before, after, x0, y0, dx, dy, nx, ny);
                 if (cv.Compute() == false) {

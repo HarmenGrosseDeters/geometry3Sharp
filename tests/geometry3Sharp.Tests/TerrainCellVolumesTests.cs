@@ -115,6 +115,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EdgeCells_GetOnlyTheirOwnPart_NotThePartOutsideTheLattice()
+        {
+            // before z = 0, after z = 1 over [0, 10]^2 (two triangles each, so a polygon spans the whole square): fill = area of the cell
+            DMesh3 before = Grid(0, 0, 10, 10, 2, (x, y) => 0), after = Grid(0, 0, 10, 10, 2, (x, y) => 1, true);
+            // a lattice [-3, 5] x [-3, 5] of 4 x 4 cells of 2: only the cells at x, y >= 0 have a footprint; the overlay polygons cross the lattice border
+            TerrainCellVolumes c = Run(before, after, -3, -3, 2, 2, 4, 4);
+            for (int j = 0; j < 4; ++j)
+                for (int i = 0; i < 4; ++i) {
+                    double wx = Math.Max(0, Math.Min(-3 + 2 * (i + 1), 10) - Math.Max(-3 + 2 * i, 0)), wy = Math.Max(0, Math.Min(-3 + 2 * (j + 1), 10) - Math.Max(-3 + 2 * j, 0));
+                    Assert.Equal(wx * wy, c.FillVolume[i + 4 * j], 12);
+                    Assert.Equal(wx * wy, c.OverlapArea[i + 4 * j], 12);
+                }
+            Assert.Equal(75, c.OutsideFillVolume, 9);      // the cells cover [0, 5]^2 = 25 of the 100
+        }
+
+        [Fact]
         public void HeightGrids_AreTheirGridTins()
         {
             var g1 = new HeightGrid(Enumerable.Range(0, 81).Select(k => Math.Sin(k * 0.3)).ToArray(), 9, 9, 100, 200, 2);
