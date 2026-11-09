@@ -2475,11 +2475,11 @@ namespace Meshing2Acceptance
                         bool found = false;
                         foreach (var (a, b) in boundary) if (Exact.Dist2ToSegment(v[a], v[b], p) <= tube2Grid) { found = true; break; }
                         if (found) continue;
-                        // collapsed or merged: another input edge within the tube of p (not the edge itself, nor a neighbour near their common vertex)
+                        // collapsed or merged: another input edge within two tubes of p
                         for (int j = 0; j < inputEdges.Count && !found; ++j) {
                             if (j == i) continue;
                             var other = inputEdges[j];
-                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid) continue;
+                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid * 4) continue;   // both sides of a collapsed feature moved by up to a pixel: it vanishes up to two pixels wide
                             found = true;
                         }
                         if (!found && reports++ < 8) r.Add(Violation.BoundaryOutsideTube, "the input boundary near " + p + " has no output boundary within " + GridTubePixels + " pixel");
