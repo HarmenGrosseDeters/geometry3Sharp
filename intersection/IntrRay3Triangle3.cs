@@ -117,6 +117,15 @@ namespace g3
             Vector3d diff = ray.Origin - V0;
             Vector3d edge1 = V1 - V0;
             Vector3d edge2 = V2 - V0;
+            // (the products below are cubes of the coordinates: they underflow to 0 below about 1e-103 and overflow above
+            // about 1e102, which made t 0 or infinite for a triangle of that size. Scaled by a power of two the rounding
+            // is the same, and t is scaled back: t' = s t, as the numerator is cubic and the denominator quadratic in s)
+            int scaleExp = ScaleExponent(ref diff, ref edge1, ref edge2);
+            if (scaleExp != 0) {
+                diff = ScaledBy(diff, scaleExp);
+                edge1 = ScaledBy(edge1, scaleExp);
+                edge2 = ScaledBy(edge2, scaleExp);
+            }
             Vector3d normal = edge1.Cross(ref edge2);
             // the hit is exact for the line through ray.Origin and secondPoint (ray.Direction rounded by about 2^-51
             // relative), so the true t, b1, b2 of that line are >= 0 and a negative rounded value is tiny: their magnitudes (the same doubles as upstream's
@@ -132,6 +141,10 @@ namespace g3
                     // D . N rounded to 0 (a ray within about 1e-16 of the plane): the projection of the centroid
                     Vector3d c = (V0 + V1 + V2) / 3.0;
                     rayT = Math.Max(0, (c - ray.Origin).Dot(ray.Direction) / ray.Direction.LengthSquared);
+                } else if (scaleExp != 0) {
+                    rayT = ScaledBy(rayT, -scaleExp);
+                    if (double.IsInfinity(rayT))
+                        rayT = double.MaxValue;      // (farther than the doubles reach)
                 }
             }
             if (bary) {
@@ -154,5 +167,35 @@ namespace g3
             return true;
         }
 
+
+        // the power of two 2^-e that brings the largest component of the three vectors to [1, 2), or 0 if it is within
+        // [2^-100, 2^100] (or all zero or not finite): cubes of those components neither underflow nor overflow
+        static int ScaleExponent(ref Vector3d a, ref Vector3d b, ref Vector3d c)
+        {
+            double m = Math.Max(MaxAbs(ref a), Math.Max(MaxAbs(ref b), MaxAbs(ref c)));
+            if (!(m > 0) || !(m <= double.MaxValue) || (m >= 7.8886090522101181e-31 && m <= 1.2676506002282294e30))
+                return 0;
+            int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
+            if (e == 0)
+                e = (int)((BitConverter.DoubleToInt64Bits(m * 18446744073709551616.0) >> 52) & 0x7FF) - 64;      // subnormal
+            return -(e - 1023);
+        }
+
+        static double MaxAbs(ref Vector3d v)
+        {
+            return Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+        }
+
+        // x * 2^e, exactly unless the result is subnormal or overflows (in two steps: 2^e itself is out of range beyond +-1023)
+        static double ScaledBy(double x, int e)
+        {
+            int half = e / 2;
+            return x * Math.Pow(2, half) * Math.Pow(2, e - half);
+        }
+
+        static Vector3d ScaledBy(Vector3d v, int e)
+        {
+            return new Vector3d(ScaledBy(v.x, e), ScaledBy(v.y, e), ScaledBy(v.z, e));
+        }
     }
 }

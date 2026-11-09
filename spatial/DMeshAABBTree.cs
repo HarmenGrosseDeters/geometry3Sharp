@@ -1765,6 +1765,17 @@ namespace g3
                 // triangle of such a mesh was skipped)
                 bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
                     && Math.Abs(centroid.z) <= double.MaxValue);
+                if (bInvalid) {
+                    // (the sum of three finite corners above about 6e307 overflows: a third of each corner first, which
+                    // is not the same double as the sum's third, so only here; before, such triangles were skipped)
+                    Index3i f = mesh.GetTriangle(ti);
+                    Vector3d a = mesh.GetVertex(f.a), b = mesh.GetVertex(f.b), c = mesh.GetVertex(f.c);
+                    double third = 1.0 / 3.0;
+                    centroid = new Vector3d(a.x * third + b.x * third + c.x * third, a.y * third + b.y * third + c.y * third,
+                        a.z * third + b.z * third + c.z * third);
+                    bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                        && Math.Abs(centroid.z) <= double.MaxValue);
+                }
                 if (bInvalid == false) {
                     triangles[i] = ti;
                     centers[i] = centroid;
