@@ -29,6 +29,10 @@ namespace gs
     ///   - closed, consistently oriented (outwards), 2-manifold, no self-intersections;
     ///   - the input is strictly inside: no outside cell comes closer than 1e-6 * Offset to it (the margin of
     ///     the floating-point distance tests);
+    ///   - no triangle of the result touches or crosses a triangle of the input (exact tests; measured: 0 of 2.67M triangles
+    ///     on 20 Thingi10K meshes), and the vertices keep the Offset from it (minimum 1.000 Offset measured);
+    ///     MeshRobustRepair's simplification (SimplifyAlphaWrap) and quality pass keep the first part (they skip an operation
+    ///     whose new triangles touch the input), their vertices stay at least about 0.35 Offset away (measured);
     ///   - the vertices lie on the offset surface (up to rounding), so between them the result can come closer
     ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
     ///     where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
