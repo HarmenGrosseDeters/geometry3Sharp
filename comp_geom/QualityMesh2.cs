@@ -592,6 +592,12 @@ namespace g3
             {
                 if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
                 var inside = b.InsideFromScratch();
+                // The rule "a ghost neighbour counts as outside" in Collect reads -1 and not the ghost's stored tag, because every ghost's tag
+                // is -1; with that invariant the two are the same (so are ignoring the ghost, since the sliver is also tagged from the sides
+                // of the lifted piece: both mutants survive the tag tests, evidence in the PR #447). A change that breaks it fails here.
+                for (int t = 0; t < inside.Length; ++t)
+                    if (k.IsGhost(t) && k.Tag[t] != -1)
+                        throw new InvalidOperationException("tag of ghost triangle " + t + " is " + k.Tag[t] + ", not -1, after operation " + operations + ": " + lastOperation);
                 for (int t = 0; t < inside.Length; ++t)
                     if (!k.IsGhost(t) && (k.Tag[t] >= 0) != inside[t])
                         throw new InvalidOperationException("tag of triangle " + t + " (" + string.Join(" ", new[] { k.V[3 * t], k.V[3 * t + 1], k.V[3 * t + 2] }.Select(q => q + "=(" + k.X[q].ToString("R") + ", " + k.Y[q].ToString("R") + ")")) + ") is " + k.Tag[t]
