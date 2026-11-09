@@ -131,19 +131,23 @@ namespace gs
         /// </summary>
         public bool SimplifyAlphaWrap = true;
         /// <summary>
-        /// alpha wrap fallback: after the simplification, improve the triangle quality (the simplified wrap keeps
-        /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
+        /// alpha wrap fallback: after the simplification, improve the triangle quality (before the simplification's
+        /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
         /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
-        /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
-        /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
+        /// self-intersection (exact). Every changed triangle is certified within the distance when it is made, the
+        /// others keep the simplification's certificate, so the improved mesh is within half the offset by
+        /// construction; it is kept only if it is clean, otherwise the simplified one (AlphaWrapQualityImproved false).
         /// The default settings (DefaultWrapQuality) also split caps above 160 degrees (at most 5 % more triangles),
         /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
         /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
         /// moves may raise it locally).
-        /// On by default; false keeps the simplified wrap as it is.
+        /// Off by default (owner decision 2026-11-08, Alpha Wrap 2.0; on by default from #292 until then): since the
+        /// simplification no longer creates caps (its quality guard), the pass adds little (the 1 %-worst angle about
+        /// 0.15 degrees, no triangle below 0.5 or above 170 degrees either way) at about 30 % of the pipeline's time
+        /// (benchmarks/MeshRepairBenchmark README, "Alpha wrap quality pass"). true runs it as before.
         /// </summary>
-        public bool AlphaWrapQualityPass = true;
+        public bool AlphaWrapQualityPass = false;
         /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
         internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 
@@ -534,28 +538,65 @@ namespace gs
 
         /// <summary> SimplifyWithin; hausdorffSubdivisions: the subdivisions of the distance check (for tests) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            out int hausdorffSubdivisions)
+            out int hausdorffSubdivisions, Dictionary<string, long> phases = null)
         {
-            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions, WrapSimplifyMinQuality, true);
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, WrapSimplifySlabs, 0, phases);
         }
 
-        /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
-        /// AlphaWrapQualityPass is tested on) </summary>
+        /// <summary> SimplifyWithin with the quality guard given, one serial Reducer run (tests: the earlier 0.05 per triangle
+        /// leaves the caps that AlphaWrapQualityPass is tested on, the inputs those tests were chosen on) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst)
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, Dictionary<string, long> phases = null)
+        {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                minQuality, qualityAgainstWorst, 0, 0, phases);
+        }
+
+        /// <summary>
+        /// the slabs of the wrap simplification (PartitionedReduction; Alpha Wrap 2.0 option A, owner decision 2026-11-08).
+        /// Fixed, not the core count: the partition decides the result
+        /// </summary>
+        internal const int WrapSimplifySlabs = 8;
+
+        /// <summary>
+        /// SimplifyWithin on slabs (0: one serial Reducer run) with at most maxThreads threads (0: the platform default; the
+        /// result does not depend on it)
+        /// </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, int slabs, int maxThreads)
+        {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, slabs, maxThreads);
+        }
+
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
+            Dictionary<string, long> phases = null)
         {
             hausdorffSubdivisions = 0;
+            Stopwatch timer = Stopwatch.StartNew();
             DMesh3 m = new DMesh3(mesh);
-            Reducer reducer = new Reducer(m) {
-                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minQuality, CollapseQualityAgainstWorst = qualityAgainstWorst,
-                EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            Action<Reducer> configure = (r) => {
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
-            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
-            m = new DMesh3(m, true);
+            if (slabs > 0) {
+                m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);
+            } else {
+                Reducer reducer = new Reducer(m);
+                configure(reducer);
+                reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+                m = new DMesh3(m, true);
+            }
+            lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "certify", timer);
+            return within ? m : null;
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
@@ -599,23 +640,60 @@ namespace gs
 
         /// <summary>
         /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
-        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// nothing, was cancelled, or its result is not clean.
+        /// simplified must be certified within maxDistance of wrap (SimplifyWithin does that). The result is then
+        /// certified within maxDistance by construction, without a second Hausdorff check: every operation of the pass
+        /// certifies each of its new triangles, exactly as it puts them into the mesh, within 0.95 maxDistance of wrap
+        /// (AlphaWrapQualityPass.accept, TriangleDeviationBounds.IsWithin), and the triangles it does not touch keep the
+        /// certificate of simplified (AlphaWrapQualityPassTests.ImproveWrapQuality_CertifiedByConstruction checks it). If
+        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before.
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            Action<AlphaWrapQualityPass> configure = null)
+            Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)
         {
-            int subdivisions = 0;
-            // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
-            // check, which resolves to 1 % of maxDistance, undecided)
+            bool hausdorffChecked;
+            return ImproveWrapQuality(simplified, wrap, maxDistance, checkSelfIntersections, cancelF, configure, out hausdorffChecked, phases);
+        }
+
+        /// <summary> ImproveWrapQuality; hausdorffChecked: whether the final Hausdorff check ran (tests) </summary>
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            Action<AlphaWrapQualityPass> configure, out bool hausdorffChecked, Dictionary<string, long> phases = null)
+        {
+            hausdorffChecked = false;
+            Stopwatch timer = Stopwatch.StartNew();
+            // (the operations within 0.95 of maxDistance, by default: a margin below the distance that the result is
+            // certified within; it also lets the Hausdorff check decide when a configuration widens the tolerance)
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
             configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
-            if (pass.Compute() == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
+            bool computed = pass.Compute();
+            lap(phases, "pass", timer);
+            if (computed == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
                 return null;
             DMesh3 m = new DMesh3(pass.Mesh, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
+            lap(phases, "check", timer);
+            // (a configuration that widened the operations' tolerance beyond 0.95 maxDistance: no certificate by
+            // construction, the Hausdorff check decides)
+            if (!(pass.Tolerance <= 0.95 * maxDistance)) {
+                hausdorffChecked = true;
+                int subdivisions = 0;
+                bool within = certified_within(m, wrap, maxDistance, cancelF, ref subdivisions);
+                lap(phases, "certify", timer);
+                return within ? m : null;
+            }
+            return m;
+        }
+
+        // (benchmarks) adds the time since the last lap to phases[name], if phases is given
+        static void lap(Dictionary<string, long> phases, string name, Stopwatch timer)
+        {
+            if (phases == null)
+                return;
+            phases.TryGetValue(name, out long ms);
+            phases[name] = ms + timer.ElapsedMilliseconds;
+            timer.Restart();
         }
 
         // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?

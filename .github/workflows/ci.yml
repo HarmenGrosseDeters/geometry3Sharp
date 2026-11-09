@@ -67,6 +67,10 @@ jobs:
           dotnet run --project tests/Clipper2PackageSmokeTest -c Release
           -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
           -- artifacts/geometry3Sharp.Clipper2.1.0.0-ci.${{ github.run_number }}.nupkg
+      - name: Test the reader fuzz harness (without a fuzz campaign)
+        run: |
+          dotnet build tools/ReaderFuzzPilot -c Release
+          READER_FUZZ_DLL="$PWD/tools/ReaderFuzzPilot/bin/Release/net10.0/ReaderFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/ReaderFuzzPilot -p 'test_*.py' -v
       - name: Build the benchmarks and the predicate compiler
         run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)

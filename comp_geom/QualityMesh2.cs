@@ -215,7 +215,7 @@ namespace g3
                     if (!worstFirst) { fifo.Enqueue(t); return; }
                     // (a slot that is no real triangle now goes to the FIFO; the main loop drops it)
                     if (t >= r.k.TriangleSlots || r.k.IsGhost(t)) { fifo.Enqueue(t); return; }
-                    double key = r.MinSin2(t, out _);
+                    double key = r.MinSin2(t);
                     // (a needle whose squared edges underflow even in the scaled frame gives 0/0: the worst, and a NaN would break the order)
                     if (double.IsNaN(key)) key = 0;
                     // only triangles below the angle bound are ordered; the others (bad by size, or not bad: most of those queued) wait in
@@ -657,10 +657,36 @@ namespace g3
                         bool exemptHere = ApexExempt(e, apex);
                         ApexLogForTests?.Add((k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(apex), exemptHere));
                         if (!exemptHere) return true;
+                        // the conforming mode (O2) leaves a subsegment unsplit for an exempt vertex only while it is a Delaunay edge
+                        // (MESHING2D_SMALL_ANGLES_CONFORMING.md, rule C); else the exemption is revoked and the split is needed by every
+                        // conforming solution
+                        if (options.Conforming && ConformingDelaunayCheckForTests != false && !LocallyDelaunayAt(e)) { Note(16); return true; }
                     }
                 }
                 return false;
             }
+
+            /// <summary>
+            /// the subsegment e is a locally Delaunay edge of the kernel's triangulation: the apex of each of its two triangles (holes and
+            /// outside included, as the conforming mode counts them) is not strictly inside the circumcircle of the other (exact). A ghost
+            /// side counts as Delaunay (a hull edge: the lemma of Delaunay's theorem needs no test there). With every constrained edge
+            /// locally Delaunay at the end, the kernel's triangulation is the Delaunay triangulation of all vertices (O2).
+            /// </summary>
+            bool LocallyDelaunayAt(int e)
+            {
+                int h2 = k.H[e];
+                if (h2 < 0 || k.IsGhost(e / 3) || k.IsGhost(h2 / 3)) return true;
+                return IsLocallyDelaunay(k.Point(k.V[e]), k.Point(k.V[Next(e)]), k.Point(k.V[Next(Next(e))]), k.Point(k.V[Next(Next(h2))]));
+            }
+
+            /// <summary>
+            /// the edge ab with the apexes c and d on its two sides is locally Delaunay: d is not strictly inside the circumcircle of abc
+            /// (exact; a cocircular pair counts as Delaunay, as in the oracle and in the Delaunay lemma)
+            /// </summary>
+            internal static bool IsLocallyDelaunay(Vector2d a, Vector2d b, Vector2d c, Vector2d d) => ExactPredicates.InCircle(a, b, c, d) <= 0;
+
+            /// <summary> tests only: false drops the Delaunay check of rule C in the conforming mode (the exemption then breaks O2; the tests show it) </summary>
+            [ThreadStatic] internal static bool? ConformingDelaunayCheckForTests;
 
             /// <summary> tests only: false turns the small-angle exemption of ApexExempt off </summary>
             [ThreadStatic] internal static bool? SmallAngleExemptionForTests;
@@ -668,7 +694,7 @@ namespace g3
             [ThreadStatic] internal static List<(Vector2d U, Vector2d W, Vector2d V, bool Exempt)> ApexLogForTests;
 
             /// <summary>
-            /// The small-angle rule (constrained-quality mode only; MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06): subsegment e is
+            /// The small-angle rule (MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06; in the conforming mode with the Delaunay check of Encroached, MESHING2D_SMALL_ANGLES_CONFORMING.md, owner decision 2026-11-08): subsegment e is
             /// not split for vertex v when all of these hold.
             /// - v is a vertex refinement made on exactly one source c: not an input vertex, not a crossing, no third source (Shewchuk 2002
             ///   section 6.2 applies its cure only then: not for a parent that "is an input vertex or lies on a nonincident segment").
@@ -682,7 +708,10 @@ namespace g3
             /// </summary>
             bool ApexExempt(int e, int v)
             {
-                if (options.Conforming || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
+                // the conforming mode (rule C) has no lenses and no Chew deletion; with lenses forced on by a benchmark the rule stays off there, and
+                // on the snap grid (a split that rule C forces late can be refused there where the oracle still demands it: Oracle.GridUnsplittable
+                // says so itself, and the zigzag of QualityMesh2CollapsedPartsTests ends INVALID; MESHING2D_SMALL_ANGLES_CONFORMING.md section 8)
+                if (options.Conforming && (lenses || grid != null) || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
                 // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
                 // (Shewchuk 2002 section 6.2 splits for a parent that is an input vertex or lies on a nonincident segment)
                 if (v < firstSteiner) return false;
@@ -706,7 +735,8 @@ namespace g3
 
             /// <summary> benchmarks: one more in CountsForBenchmarks[slot] (8 apex exemptions at a shared endpoint, 9 at a T-junction or a
             /// crossing; 10-12 triangles given up: no circumcentre, a locked or unsplittable subsegment in the way, no vertex made; 13-15
-            /// subsegments left unsplit off the grid: below MinRoundedSplitExponent, no progress, near another source) </summary>
+            /// subsegments left unsplit off the grid: below MinRoundedSplitExponent, no progress, near another source; 16 exemptions revoked in the
+            /// conforming mode because the subsegment was not locally Delaunay) </summary>
             static void Note(int slot)
             {
                 var n = CountsForBenchmarks;
@@ -816,10 +846,10 @@ namespace g3
 
             static Vector2d Corner(int j, Vector2d q0, Vector2d r0) { j %= 3; return j == 0 ? Vector2d.Zero : j == 1 ? q0 : r0; }
 
-            /// <summary> sin^2 of the smallest angle, and the corner it is at </summary>
-            double MinSin2(int t, out int corner)
+            /// <summary> sin^2 of the smallest angle </summary>
+            double MinSin2(int t)
             {
-                double best = double.MaxValue; corner = 0;
+                double best = double.MaxValue;
                 Local(t, out var q0, out var r0, out _);
                 double area2 = 2 * LocalArea(q0, r0);
                 for (int j = 0; j < 3; ++j) {
@@ -827,13 +857,51 @@ namespace g3
                     var p = Corner(j, q0, r0); var q = Corner(j + 1, q0, r0); var r = Corner(j + 2, q0, r0);
                     double l1 = (q - p).LengthSquared, l2 = (r - p).LengthSquared;
                     double s2 = area2 * area2 / (l1 * l2);
-                    if (s2 < best) { best = s2; corner = j; }
+                    if (s2 < best) best = s2;
                 }
                 return best;
             }
 
+            /// <summary>
+            /// the corner of the smallest angle (ties to the first). sin^2 of that angle is the same to a few ulps whichever of two nearly
+            /// equal shortest edges is taken, but the corner is not: at a near-180 degree triangle the rounded products l1 l2 can order
+            /// the two small angles the wrong way, or tie, and the oracle takes the exactly shortest edge (SpansSmallInputAngle), so the
+            /// corner is chosen exactly
+            /// </summary>
+            int SmallestAngleCorner(int t) => ShortestEdgeCorner(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]));
+
+            /// <summary>
+            /// the corner opposite the shortest edge of the triangle abc, ie the corner of its smallest angle, exact (ties: the first). A
+            /// floating-point filter, then integers when the two shortest squared lengths are within 2^-40 of each other or out of range
+            /// </summary>
+            internal static int ShortestEdgeCorner(Vector2d a, Vector2d b, Vector2d c)
+            {
+                double l0 = (b - c).LengthSquared, l1 = (c - a).LengthSquared, l2 = (a - b).LengthSquared;
+                int j = l1 < l0 ? 1 : 0;
+                double lj = j == 1 ? l1 : l0;
+                if (l2 < lj) { j = 2; lj = l2; }
+                // the nearest rival of the minimum (the squared lengths each carry a relative error of a few ulps)
+                double rival = j == 0 ? Math.Min(l1, l2) : j == 1 ? Math.Min(l0, l2) : Math.Min(l0, l1);
+                bool inRange = l0 > 1e-280 && l1 > 1e-280 && l2 > 1e-280 && l0 < 1e140 && l1 < 1e140 && l2 < 1e140;
+                if (inRange && rival - lj > rival * (1.0 / (1L << 40))) return j;
+                double[] v = { a.x, a.y, b.x, b.y, c.x, c.y };
+                var m = new BigInteger[6];
+                var ex = new int[6];
+                int emin = int.MaxValue;
+                for (int i = 0; i < 6; ++i) { ExactPoint3.Decompose(v[i], out m[i], out ex[i]); if (!m[i].IsZero) emin = Math.Min(emin, ex[i]); }
+                if (emin == int.MaxValue) return 0;
+                var q = new BigInteger[6];
+                for (int i = 0; i < 6; ++i) q[i] = m[i].IsZero ? BigInteger.Zero : m[i] << (ex[i] - emin);
+                BigInteger Len2(int p1, int p2) { var dx = q[2 * p1] - q[2 * p2]; var dy = q[2 * p1 + 1] - q[2 * p2 + 1]; return dx * dx + dy * dy; }
+                BigInteger e0 = Len2(1, 2), e1 = Len2(2, 0), e2 = Len2(0, 1);
+                int best = 0; BigInteger bl = e0;
+                if (e1 < bl) { best = 1; bl = e1; }
+                if (e2 < bl) best = 2;
+                return best;
+            }
+
             /// <summary> for the output's list of bad triangles: below the minimum angle </summary>
-            internal bool BelowAngle(int t) => options.MinAngle > 0 && MinSin2(t, out _) < sin2Min;
+            internal bool BelowAngle(int t) => options.MinAngle > 0 && MinSin2(t) < sin2Min;
 
             /// <summary> the squared length of the longest locked edge of t, in the scale of <see cref="Local"/> </summary>
             double LongestLocked2(int t, Vector2d q, Vector2d r)
@@ -878,7 +946,8 @@ namespace g3
             bool BadByAngle(int t)
             {
                 if (options.MinAngle <= 0) return false;
-                if (MinSin2(t, out int corner) >= sin2Min) return false;
+                if (MinSin2(t) >= sin2Min) return false;
+                int corner = SmallestAngleCorner(t);
                 // the small angle lies between two constrained edges: forced by the input (O3)
                 int ea = 3 * t + corner, eb = 3 * t + (corner + 2) % 3;
                 if (k.Seg[ea] >= 0 && k.Seg[eb] >= 0) return false;

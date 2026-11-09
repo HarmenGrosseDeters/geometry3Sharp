@@ -13,10 +13,12 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class MutationConfigTests
     {
-        // the method each split is at
-        static readonly Dictionary<string, string> SplitMethod = new Dictionary<string, string>() {
-            ["mesh_ops/ExactMeshArrangement.cs"] = "void build_triangles(",
-            ["mesh_ops/ExactMeshBoolean.cs"] = "int front_winding(",
+        // the methods the splits of a file are at, in order
+        static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
+            ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
+            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "List<Index2i> intersecting_pairs(", "static bool flat_convex(", "bool try_zip(", "bool zip_strip(", "internal static Vector3d unit(", "bool collapse_any(" },
+            ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
 
         static string RepoRoot()
@@ -44,6 +46,7 @@ namespace geometry3Sharp.Tests
                 string text = File.ReadAllText(Path.Combine(root, kv.Key)).Replace("\r\n", "\n");
                 var s = kv.Value.OrderBy(x => x.a).ToList();
                 Assert.Equal(0, s[0].a);
+                Assert.Equal(SplitMethod[kv.Key].Length, s.Count - 1);
                 Assert.True(s[s.Count - 1].b >= text.Length, kv.Key + ": the last shard does not reach the end");
                 for (int i = 1; i < s.Count; ++i) {
                     Assert.True(s[i - 1].b == s[i].a, kv.Key + ": shards do not meet");
@@ -54,7 +57,8 @@ namespace geometry3Sharp.Tests
                     int k = 0;
                     while (lines[k].StartsWith("[") || lines[k].StartsWith("//"))
                         ++k;
-                    Assert.True(lines[k].StartsWith(SplitMethod[kv.Key]), kv.Key + ": split " + off + " is at \"" + lines[0] + "\", not at " + SplitMethod[kv.Key]);
+                    string method = SplitMethod[kv.Key][i - 1];
+                    Assert.True(lines[k].StartsWith(method), kv.Key + ": split " + off + " is at \"" + lines[k] + "\", not at " + method);
                 }
             }
         }

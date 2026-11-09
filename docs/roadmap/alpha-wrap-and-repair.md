@@ -44,7 +44,8 @@ Part of the [roadmap](../ROADMAP.md).
   within 0.2 %, +2-4 % triangles, band slightly worse; raw rows on runs/alpha-wrap-features), closed; option 3, crease-aware Steiner points: upper bound on 100 meshes says no (convex creases
   already 0.56δ from the input edges; concave creases 4.7δ, set by the empty α-ball, about 0.45δ better than the
   α limit (α+δ)/sin(θ/2) − α; only a locally smaller α, option 4, could change that), not built; #405 (A, the
-  simplification guard) merged 2026-11-08; concave corner recovery is research, not in 2.0;
+  simplification guard), #413 (quality pass off by default) and #422 (bit-identical Reducer speedups, T3:
+  reduce 0.906, pipeline 0.975 per mesh) merged 2026-11-08; concave corner recovery is research, not in 2.0;
 - speed (owner 2026-11-08, revised after WP1): per mesh, wall time <= max(5 s, 50 µs × raw-wrap triangles), i.e. 5 s
   up to 100k raw triangles and 2x today's per-triangle speed above that; measured in a warm process (after a warm-up
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
@@ -69,6 +70,40 @@ Raw wrap vs CGAL (12 meshes, behaviour only): p01 17.8 vs 19.6; prototypes: the 
 our manifold extension (large outside cells), not a bug; lever: a two-sided manifold step. Plan, one PR each: A guard
 0.3 + needle handling; B Phi + refinement; C two-sided manifold step (prototype, stop rule); WP3 constant factors.
 
+**Serial Reducer profile (2026-11-08, owner request before any parallel reducer).** `SimplifyWithin` on 5 raw wraps
+(26k-327k triangles: Thingi10K 789071, 102793, 100331, 497978, 65584; the `wrappipe` mode of MeshRepairBenchmark from
+#404 on the unmerged bench branch with A, B and C, plus temporary timers that were not committed; warm, alone): 56-70 µs per collapse; the reduction is about 33 % of the
+pipeline. Two methods: timers per section with counters, and ablations (one component off; the self-intersection check
+refused no collapse on these wraps, so every ablation gave the same mesh, hashes checked). Shares of the reduction:
+
+| part | share | notes |
+|---|---|---|
+| self-intersection check, total | 56-63 % | grid traversal + grid update + new triangles 33-40 %, candidates 22-28 % (exact tri-tri tests 9-17 %), pairs of new triangles 2-9 %; ~45 candidates and ~75 exact tests per collapse, 0 hits |
+| bowtie check | 4-9 % | the raw wraps have no bowties |
+| core: fold/quality guards, quadrics, queue, edit, setup | 35-38 % | ~27 µs per collapse; fold/quality 10-14 %, queue 6-8 % (stale pops 2 %) |
+| GC pauses | ~7 % | 1.2 GB allocated on the 327k wrap |
+
+79 % of the evaluated edges are refused by the fold/quality guard, which already runs before the self-intersection
+check. 55-60 % of the evaluations are re-evaluations after a neighbour's collapse; 89 % of those are refused again
+for the same reason (6-13 %; skipping them is not bit-identical). No published per-collapse figure of meshoptimizer
+or another QEM code could be verified (GitHub returned 504), so none is quoted.
+
+| lever | upper bound | status |
+|---|---|---|
+| 1 grid: cells hold (id, box), reference-cell rule instead of stamps, no key arrays | ~30-35 % | built bit-identical, **slower** (1.02-1.15x): not used. The cost is the cell lookups; base cells of 3 instead of 1.5 mean edge lengths take that lever (bit-identical) |
+| 2 bowtie states per vertex | 4-9 % | built (#422) |
+| 3 self-intersection check without allocations per collapse | ~5 % | built (#422) |
+| 4 cheaper pre-reject before the exact tri-tri test | 9-17 %, realistic ≤ 5-8 % | not built (owner 2026-11-08: ≤ 2 % of the pipeline for a new error bound and an exact-code review) |
+| 5 lazy / version-stamped queue | 2 % (the queue updates in place) | not built |
+| 6 quadrics as struct of arrays | 3-5 % | not built |
+| 7 early-out of the self-intersection query | 0 % (no hits) | n/a |
+| 8 repeated certification | n/a: no per-collapse certification in this path; the final certify (5-10 % of the simplification) runs once | n/a |
+
+Levers 2 + 3 + cells of 3 edge lengths (same setup, old and new binary alternating, median of 4 runs each; the
+output hashes compared): the reduction 0.87-0.91x on the 4 larger wraps (102793 0.87, 100331 0.91,
+497978 0.88, 65584 0.89), allocations -30 %, the same meshes bit for bit. Cells of 4.5 and 6 edge lengths are not
+better; 0.75 is 1.09-1.22x.
+
 #### Other open items
 
 - **`external/cgal_wrap.cpp`** (behaviour comparison with CGAL's alpha wrap; links CGAL, GPL; never distributed
@@ -79,6 +114,15 @@ our manifold extension (large outside cells), not a bug; lever: a two-sided mani
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
+- **Reducer / Remesher 2.0 (milestone idea, owner 2026-11-08; after Alpha Wrap 2.0, upper bounds first):**
+  (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
+  quality guard (compare with the worst triangle around the edge) to the general `Reducer` as options, since today
+  both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
+  `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
+  and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
+  "status unclear" items below (the Remesher session, shared BVH queries per collapse). The Alpha Wrap session writes a
+  hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
@@ -125,6 +169,10 @@ Then, in the same session, the upper bound and literature step of Phase 5 #5 (in
 Order: (1) the MeshRepair wrap-resolution session first, since it changes 7b's input; (2) then 7b as a bounded diagnosis of the failing local patches of the hard-feature policy, no threshold tuning, starting with whether the trials on `fix/alpha-wrap-simplification-quality` already guarded their operations by a deviation check; (3) only then a quality pass with every operation guarded by `IsWithin` against the wrap tolerance. The exact envelope serves tests only as a sufficient check
 
 Tier: L. Parallel: 1 large session, after the wrap-resolution session **Owner 2026-11-02:** acceptance (c) replaced by per-mesh floors (no triangle < 0.5°, global min / max not worse than the simplified wrap, share > 170° ≤ 0.1 %) plus relative improvement and the reported distribution (literature: Shewchuk 2002, Babuška–Aziz 1976, Morvan–Thibert 2004, Hu et al. 2017); G1 (D0.1 + cap-flip exemption + guarded cap split) accepted after one last variant, (d) misses documented, ON by default in the wrap fallback with a switch. Follow-up: degenerate triangles of the raw alpha wrap itself (eg 59196, where the simplification falls back to the unsimplified wrap).
+
+**Owner decision 2026-11-08 (Alpha Wrap 2.0):** the quality pass is off by default (`MeshRobustRepair.AlphaWrapQualityPass
+= false`, #413, after the simplification's quality guard #405): with the guard it adds little (p01 about 0.15° better,
+no triangle below 0.5° or above 170° either way) at about 30 % of the pipeline's time.
 
 #### Remesher (slot order item 1)
 

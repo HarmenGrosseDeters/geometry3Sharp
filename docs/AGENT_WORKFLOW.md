@@ -147,7 +147,9 @@ from secret tests, which a public repository cannot keep.
   check-ins, no polling) until the coordinator messages it.
 - Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
   integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
-  the PRs merge one by one with normal CI only. Survivors are attributed by line to the PR that changed it. A gate
+  one PR from the integration branch merges into master (owner 2026-11-08: so master gets exactly the tree the gate
+  tested, including any conflict resolutions; the queued PRs then show as merged). Survivors are attributed by line
+  to the PR that changed it. A gate
   whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
   thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
@@ -171,6 +173,18 @@ from secret tests, which a public repository cannot keep.
   runs to set thresholds) and for relative timings with baseline and candidate in the same job; acceptance timings
   stay on the cloud reference machine. Never a self-hosted GitHub runner for this public repository (fork PRs could
   run code on it).
+  Hand-over to the owner's machine goes only through the repository (owner 2026-11-08): no trust cards
+  (confirm_repository_trust) for cloud sessions, because a session allowed to reach the owner's machine is then
+  limited to trusted devices for good and normal cloud sessions can no longer message it, while the messaging to the
+  local session still did not work. Instead: jobs are files on a `runs/` branch (`jobs/JOB-<n>.md`, complete and
+  literal); the local session waits for a new job file with one harness-tracked background task (a `git fetch`
+  loop that exits when the file appears; waiting costs nothing) and starts it; results and a `REPORT-<n>.md` go to
+  the same branch, and the coordinator reads them there at its check-ins. A message to a cloud session is sent
+  only if the local session's tools allow it.
+  On the owner's machine (no container recycling) a job step longer than the 2-h limit of a harness-tracked task may
+  run as a detached process (owner 2026-11-08): record its PIDs and start time, keep every step resumable, and write
+  `.exit` / `.end` files when it ends; the local session evaluates when the owner asks or when the step has ended.
+  For local Stryker runs, `--open-report` shows the live HTML dashboard in the owner's browser.
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are

@@ -1,0 +1,3 @@
+#2	INITED cov: 2 ft: 487 corp: 1/134b exec/s: 0 rss: 25Mb
+#1000	DONE   cov: 2 ft: 1077 corp: 36/3407b lim: 134 exec/s: 0 rss: 25Mb
+Done 1000 runs in 0 second(s)
