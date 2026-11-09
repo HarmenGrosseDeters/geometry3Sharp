@@ -33,7 +33,7 @@ namespace geometry3Sharp.Tests
             var p = new Vector3d(0.3, -1.7, 2.9);
             foreach (Xform x in Xform.All()) {
                 Vector3d q = x.Inverse(x.Apply(p));
-                Assert.True(p.Distance(q) < 1e-9, x.Name);
+                Assert.True(p.Distance(q) < 1e-5, x.Name);      // rounding of the UTM translation at scale 1e-3 is about 1e-6
             }
             Assert.Equal(new[] { "identity", "scale 2^-10", "scale 2^10" }, Xform.All().Where(x => x.IsPowerOfTwoScaling).Select(x => x.Name).ToArray());
             Assert.Equal(8, Xform.All().Count());
@@ -46,7 +46,8 @@ namespace geometry3Sharp.Tests
             string hash = MeshHash.Of(m);
             foreach (Xform x in Xform.All().Where(x => x.IsPowerOfTwoScaling))
                 Assert.Equal(hash, MeshHash.Of(x.MapBack(x.Transform(m))));
-            Assert.NotEqual(hash, MeshHash.Of(Xform.All().First(x => x.Name == "rotated").Let(x => x.MapBack(x.Transform(m)))));
+            Xform rotated = Xform.All().First(x => x.Name == "rotated");
+            Assert.NotEqual(hash, MeshHash.Of(rotated.MapBack(rotated.Transform(m))));
             Assert.Equal(hash, MeshHash.Of(m));      // the input is not modified
         }
 
@@ -114,10 +115,5 @@ namespace geometry3Sharp.Tests
             Assert.Equal((4 + Math.Sqrt(2)) / 5, Inputs.MeanEdge(m), 12);
             Assert.Equal(0, Inputs.MeanEdge(new DMesh3()));
         }
-    }
-
-    static class BaselineHarnessExtensions
-    {
-        public static R Let<T, R>(this T x, Func<T, R> f) => f(x);
     }
 }

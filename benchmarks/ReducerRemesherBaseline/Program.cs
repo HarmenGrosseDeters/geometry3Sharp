@@ -7,6 +7,7 @@
 //
 //   dotnet run -c Release --project benchmarks/ReducerRemesherBaseline -- [thingi=<dir>] [only=<regex>] [procedural=1]
 //       [runs=2] [si_max=30000] [inv_max=30000] [invariance=1] [fidelity=1] [ops=reduce,remesh] [json=<file>]
+//       [profile=1] [reduce_q=<q>] [remesh_q=<q>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
 // One JSON line per case and variant on stdout (or json=<file>), then the summary tables as Markdown.
 using System;
 using System.Collections.Generic;
@@ -39,17 +40,26 @@ static class Program
         public string Op, Variant, Group, Case, TargetLabel;
         public Dictionary<string, object> Fields = new Dictionary<string, object>();
         public double D(string k) { return Fields.TryGetValue(k, out object v) ? (v is double d ? d : v is int i ? i : double.NaN) : double.NaN; }
-        public int I(string k) { return Fields.TryGetValue(k, out object v) && v is int d ? d : 0; }
+        public int I(string k) { return Fields.TryGetValue(k, out object v) ? (v is int d ? d : v is double e ? (int)e : 0) : 0; }
         public bool B(string k) { return Fields.TryGetValue(k, out object v) && v is bool d && d; }
     }
 
     // an operation: input mesh, target (reduce: triangle count; remesh: edge length), self-intersection check, parallel
     delegate DMesh3 Operation(DMesh3 input, double target, bool si, bool parallel);
 
+    static double ReduceQuality, RemeshQuality;      // reduce_q / remesh_q: Reducer.MinCollapseTriangleQuality / Remesher.MinTriangleQuality (0: library default, off)
+    static bool Profile;      // profile=1: Remesher.ENABLE_PROFILING (per pass phase times on stdout, for the upper bounds of the design note)
+
     static int Main(string[] args)
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         string get(string k, string d) { return A.ContainsKey(k) ? A[k] : d; }
+        if (A.ContainsKey("summary")) {
+            Summary(LoadRows(A["summary"]), null);
+            return 0;
+        }
+        Profile = get("profile", "0") == "1";
+        ReduceQuality = double.Parse(get("reduce_q", "0"), CultureInfo.InvariantCulture); RemeshQuality = double.Parse(get("remesh_q", "0"), CultureInfo.InvariantCulture);
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
         int runs = Math.Max(1, int.Parse(get("runs", "2")));
         int siMax = int.Parse(get("si_max", "30000")), invMax = int.Parse(get("inv_max", "30000"));
@@ -118,7 +128,7 @@ static class Program
     static DMesh3 Reduce(DMesh3 input, double targetTriangles, bool si, bool parallel)
     {
         var m = new DMesh3(input);
-        new Reducer(m) { PreventSelfIntersections = si }.ReduceToTriangleCount((int)targetTriangles);
+        new Reducer(m) { PreventSelfIntersections = si, MinCollapseTriangleQuality = ReduceQuality }.ReduceToTriangleCount((int)targetTriangles);
         return m;
     }
 
@@ -127,7 +137,7 @@ static class Program
     static DMesh3 Remesh(DMesh3 input, double targetEdge, bool si, bool parallel)
     {
         var m = new DMesh3(input);
-        var r = new Remesher(m) { SmoothSpeedT = 0.5, PreventSelfIntersections = si, EnableParallelSmooth = parallel, EnableParallelProjection = parallel };
+        var r = new Remesher(m) { SmoothSpeedT = 0.5, MinTriangleQuality = RemeshQuality, PreventSelfIntersections = si, EnableParallelSmooth = parallel, EnableParallelProjection = parallel, ENABLE_PROFILING = Profile };
         r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
         r.SetTargetEdgeLength(targetEdge);
@@ -221,10 +231,41 @@ static class Program
 
     // ---- summary ----
 
+    // the rows of an earlier run's JSON lines (numbers as double, which D() and I() accept)
+    static List<Run> LoadRows(string file)
+    {
+        var rows = new List<Run>();
+        foreach (string line in File.ReadLines(file)) {
+            if (line.Trim().Length == 0) continue;
+            using (JsonDocument doc = JsonDocument.Parse(line)) {
+                var r = new Run();
+                foreach (JsonProperty p in doc.RootElement.EnumerateObject()) {
+                    switch (p.Name) {
+                        case "op": r.Op = p.Value.GetString(); break;
+                        case "variant": r.Variant = p.Value.GetString(); break;
+                        case "target": r.TargetLabel = p.Value.GetString(); break;
+                        case "group": r.Group = p.Value.GetString(); break;
+                        case "case": r.Case = p.Value.GetString(); break;
+                        default:
+                            if (p.Value.ValueKind == JsonValueKind.Number) r.Fields[p.Name] = p.Value.GetDouble();
+                            else if (p.Value.ValueKind == JsonValueKind.True || p.Value.ValueKind == JsonValueKind.False) r.Fields[p.Name] = p.Value.GetBoolean();
+                            else if (p.Value.ValueKind == JsonValueKind.String) {
+                                string t = p.Value.GetString();
+                                r.Fields[p.Name] = t == "NaN" ? double.NaN : t == "Infinity" ? double.PositiveInfinity : t == "-Infinity" ? double.NegativeInfinity : (object)t;
+                            }
+                            break;
+                    }
+                }
+                rows.Add(r);
+            }
+        }
+        return rows;
+    }
+
     static void Summary(List<Run> all, List<Case> cases)
     {
         Console.WriteLine();
-        Console.WriteLine($"Inputs: {string.Join(", ", cases.Select(c => $"{c.Name} ({c.Input.TriangleCount} tris{(c.Closed ? "" : ", open")}, genus {c.Topology.Genus:F0}, {c.SelfPairs} self-int. pairs)"))}");
+        if (cases != null) Console.WriteLine($"Inputs: {string.Join(", ", cases.Select(c => $"{c.Name} ({c.Input.TriangleCount} tris{(c.Closed ? "" : ", open")}, genus {c.Topology.Genus:F0}, {c.SelfPairs} self-int. pairs)"))}");
         string pct(IEnumerable<double> v) { var l = v.Where(x => double.IsFinite(x)).ToList(); return l.Count == 0 ? "-" : $"{Stats.Median(l):G3} ({Stats.Percentile(l, 0.1):G3}-{Stats.Percentile(l, 0.9):G3})"; }
         string max(IEnumerable<double> v) { var l = v.Where(x => double.IsFinite(x)).ToList(); return l.Count == 0 ? "-" : l.Max().ToString("G3", CultureInfo.InvariantCulture); }
         foreach (var g in all.Where(r => r.Fields.ContainsKey("error") == false).GroupBy(r => (r.Op, r.Variant, r.TargetLabel, r.Group)).OrderBy(g => g.Key.Op).ThenBy(g => g.Key.TargetLabel).ThenBy(g => g.Key.Variant).ThenBy(g => g.Key.Group)) {
@@ -232,9 +273,9 @@ static class Program
             Console.WriteLine();
             Console.WriteLine($"### {g.Key.Op} {g.Key.TargetLabel} {g.Key.Variant}, {g.Key.Group} ({l.Count} cases)");
             Console.WriteLine();
-            Console.WriteLine("| time s median (p10-p90) | us per input tri | out/target tris | p01 deg (input) | min angle deg | slivers <0.5 / >170 deg (cases) | hd in->out (max) | hd out->in (max) | F 0.1% | F 0.5% | vol. IoU | topology changed | new self-int. cases | not clean | repeat / serial differ | invariance: pow2 differ (cases) |");
+            Console.WriteLine("| time s median (p10-p90) | us per input tri | out tris / target (reduce) or input tris (remesh) | p01 deg (input) | min angle deg | slivers <0.5 / >170 deg (cases) | hd in->out (max) | hd out->in (max) | F 0.1% | F 0.5% | vol. IoU | topology changed | new self-int. cases | not clean | repeat / serial differ | invariance: pow2 differ (cases) |");
             Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
-            Console.WriteLine($"| {pct(l.Select(r => r.D("seconds")))} | {pct(l.Select(r => r.D("us_per_in_tri")))} | {pct(l.Select(r => r.D("out_tris") / r.D("target_value")))} | " +
+            Console.WriteLine($"| {pct(l.Select(r => r.D("seconds")))} | {pct(l.Select(r => r.D("us_per_in_tri")))} | {pct(l.Select(r => r.D("out_tris") / (r.Op == "reduce" ? r.D("target_value") : r.D("in_tris"))))} | " +
                 $"{pct(l.Select(r => r.D("p01")))} ({pct(l.Select(r => r.D("in_p01")))}) | {pct(l.Select(r => r.D("min_angle")))} | " +
                 $"{l.Sum(r => r.I("below05"))} / {l.Sum(r => r.I("above170"))} ({l.Count(r => r.I("below05") + r.I("above170") > 0)}) | " +
                 $"{pct(l.Select(r => r.D("hd_in_to_out")))} ({max(l.Select(r => r.D("hd_in_to_out")))}) | {pct(l.Select(r => r.D("hd_out_to_in")))} ({max(l.Select(r => r.D("hd_out_to_in")))}) | " +
