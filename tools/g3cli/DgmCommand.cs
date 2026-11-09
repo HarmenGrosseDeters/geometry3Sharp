@@ -134,13 +134,27 @@ namespace g3cli
             int valid = 0;
             foreach (double z in g.Z)
                 if (HeightGrid.IsData(z)) { ++valid; zmin = Math.Min(zmin, z); zmax = Math.Max(zmax, z); }
+            long cells = 0;
+            for (int j = 0; j + 1 < g.NY; ++j)
+                for (int i = 0; i + 1 < g.NX; ++i)
+                    if (HeightGrid.IsData(g[i, j]) && HeightGrid.IsData(g[i + 1, j]) && HeightGrid.IsData(g[i, j + 1]) && HeightGrid.IsData(g[i + 1, j + 1])) ++cells;
             var o = new JsonObject() {
+                ["grid_cells_with_data"] = cells, ["grid_triangles"] = 2 * cells,
                 ["nx"] = g.NX, ["ny"] = g.NY, ["cell_size"] = MeshReport.Num(g.CellSize),
                 ["x0"] = MeshReport.Num(g.X0), ["y0"] = MeshReport.Num(g.Y0), ["x1"] = MeshReport.Num(g.X1), ["y1"] = MeshReport.Num(g.Y1),
                 ["nodes"] = (long)g.NX * g.NY, ["valid_nodes"] = valid, ["no_data_nodes"] = (long)g.NX * g.NY - valid,
             };
             if (valid > 0) { o["z_min"] = MeshReport.Num(zmin); o["z_max"] = MeshReport.Num(zmax); }
             return o;
+        }
+
+        // true if the first or last row or column holds no data at all (an XYZ file then loses the extent)
+        static bool BorderHasNoData(HeightGrid g)
+        {
+            bool row0 = false, row1 = false, col0 = false, col1 = false;
+            for (int i = 0; i < g.NX; ++i) { row0 |= HeightGrid.IsData(g[i, 0]); row1 |= HeightGrid.IsData(g[i, g.NY - 1]); }
+            for (int j = 0; j < g.NY; ++j) { col0 |= HeightGrid.IsData(g[0, j]); col1 |= HeightGrid.IsData(g[g.NX - 1, j]); }
+            return !(row0 && row1 && col0 && col1);
         }
 
         static Command Dgm()
@@ -165,30 +179,52 @@ namespace g3cli
                 var o = new JsonObject() { ["input"] = args.String("input") };
                 JsonObject report = DgmReport(g);
                 foreach (var kv in report.ToList()) { report.Remove(kv.Key); o[kv.Key] = kv.Value; }
+                var warnings = new List<string>();
+                // everything that can fail is checked before a file is written: the mesh, the output path, the serialized grid
+                DMesh3 mesh = null;
+                if (args.Has("mesh")) {
+                    mesh = g.BuildMesh();
+                    if (mesh.TriangleCount == 0) throw new CommandException(ResultCodes.EmptyMesh, "the grid has no cell with data");
+                }
+                string text = null, outPath = null, fmt = null;
                 if (args.Has("output")) {
-                    string path = args.String("output"), fmt = args.String("output_format");
-                    if (fmt == "auto") fmt = Path.GetExtension(path).Equals(".asc", StringComparison.OrdinalIgnoreCase) ? "esri" : "xyz";
-                    string dir = Path.GetDirectoryName(Path.GetFullPath(path));
-                    if (Directory.Exists(dir) == false) throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+                    outPath = args.String("output");
+                    fmt = args.String("output_format");
+                    if (fmt == "auto") fmt = Path.GetExtension(outPath).Equals(".asc", StringComparison.OrdinalIgnoreCase) ? "esri" : "xyz";
+                    string full, dir;
                     try {
-                        using (var w = new StreamWriter(path, false, new System.Text.UTF8Encoding(false))) {
-                            if (fmt == "esri") HeightGridWriter.WriteEsriAscii(w, g, args.Number("output_no_data"));
-                            else HeightGridWriter.WriteXyz(w, g);
-                        }
+                        full = Path.GetFullPath(outPath); dir = Path.GetDirectoryName(full);
+                    } catch (Exception e) when (e is ArgumentException || e is NotSupportedException || e is PathTooLongException) {
+                        throw new CommandException(ResultCodes.InvalidArguments, $"'output' is not a valid path: {e.Message}");
+                    }
+                    if (string.Equals(full, Path.GetFullPath(args.String("input")), StringComparison.Ordinal))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'output' is the input file");
+                    if (Directory.Exists(dir) == false) throw new CommandException(ResultCodes.WriteError, $"cannot write '{outPath}': directory does not exist");
+                    try {
+                        var sw = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+                        if (fmt == "esri") HeightGridWriter.WriteEsriAscii(sw, g, args.Number("output_no_data"));
+                        else HeightGridWriter.WriteXyz(sw, g);
+                        text = sw.ToString();
                     } catch (ArgumentException e) {
                         throw new CommandException(ResultCodes.InvalidArguments, "cannot write the grid: " + e.Message);
-                    } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
-                        throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
                     }
-                    o["output"] = path; o["output_format"] = fmt;
+                    if (fmt == "xyz" && BorderHasNoData(g))
+                        warnings.Add("xyz_border_no_data: a border row or column of the grid has no data, so the XYZ file (which has no header) reads back as a smaller grid; write ESRI ASCII Grid to keep the extent");
                 }
-                if (args.Has("mesh")) {
-                    DMesh3 mesh = g.BuildMesh();
-                    if (mesh.TriangleCount == 0) throw new CommandException(ResultCodes.EmptyMesh, "the grid has no cell with data");
+                if (text != null) {
+                    try {
+                        File.WriteAllText(outPath, text, new System.Text.UTF8Encoding(false));
+                    } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                        throw new CommandException(ResultCodes.WriteError, $"cannot write '{outPath}': {e.Message}");
+                    }
+                    o["output"] = outPath; o["output_format"] = fmt;
+                }
+                if (mesh != null) {
                     MeshFiles.Write(args.String("mesh"), mesh, args.Bool("binary"));
                     o["mesh_file"] = args.String("mesh");
                     o["mesh"] = MeshReport.Metrics(mesh, false);
                 }
+                o["warnings"] = Warnings(warnings);
                 return o;
             };
             return c;
@@ -247,8 +283,7 @@ namespace g3cli
                 o["breakline_edges"] = tin.BreaklineEdges.Count;
                 o["dropped_breakline_segments"] = tin.DroppedBreaklineSegments;
                 o["locked_creases"] = tin.LockedCreases;
-                o["grid_triangles"] = g.BuildMesh().TriangleCount;
-                o["mesh"] = MeshReport.Metrics(tin.Result, false);
+                                o["mesh"] = MeshReport.Metrics(tin.Result, false);
                 return o;
             };
             return c;

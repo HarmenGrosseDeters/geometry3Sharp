@@ -103,6 +103,37 @@ namespace g3cli.Tests
             Assert.Equal(ResultCodes.EmptyMesh, S(Run("dgm", line, "--mesh", m.Path_("l.g3mesh")).result["code"]));
         }
 
+        [Fact]
+        public void Dgm_NeverDamagesTheInput_AndWritesNothingWhenItFails()
+        {
+            HeightGrid g = Grid(8);
+            string input = WriteGrid("keep.asc", g, true);
+            byte[] before = File.ReadAllBytes(input);
+            // output is the input; a NODATA value equal to a height (the writer refuses it)
+            Assert.Equal(ResultCodes.InvalidArguments, S(Run("dgm", input, input).result["code"]));
+            double z = g.Z[3];
+            Assert.Equal(ResultCodes.InvalidArguments, S(Run("dgm", input, input + ".copy.asc", "--output-no-data", F(z)).result["code"]));
+            Assert.False(File.Exists(input + ".copy.asc"));
+            Assert.Equal(before, File.ReadAllBytes(input));
+            Assert.Equal(ResultCodes.InvalidArguments, S(Run("dgm", input, "").result["code"]));
+            // no cell with data: the mesh fails, and the grid is not written either
+            string line = m.Path_("line2.xyz"); File.WriteAllText(line, "0 0 1\n1 0 1\n0 1 NaN\n1 1 NaN\n");
+            string o = m.Path_("line2_out.xyz");
+            Assert.Equal(ResultCodes.EmptyMesh, S(Run("dgm", line, o, "--mesh", m.Path_("line2.g3mesh")).result["code"]));
+            Assert.False(File.Exists(o)); Assert.False(File.Exists(m.Path_("line2.g3mesh")));
+        }
+
+        [Fact]
+        public void Dgm_XyzOutput_WarnsWhenTheBorderHasNoData()
+        {
+            string path = m.Path_("border.asc");
+            File.WriteAllText(path, "ncols 3\nnrows 3\nxllcenter 0\nyllcenter 0\ncellsize 1\nNODATA_value -9999\n-9999 -9999 -9999\n1 2 3\n4 5 6\n");
+            var (exit, r) = Run("dgm", path, m.Path_("border.xyz"));
+            Assert.True(exit == 0, r.ToJsonString());
+            Assert.Contains("xyz_border_no_data", r["warnings"].ToJsonString());
+            Assert.Empty(Run("dgm", path, m.Path_("border2.asc")).result["warnings"].AsArray());
+        }
+
         static string Pos(double x, double y, double? z = null) => "[" + F(x) + ", " + F(y) + (z.HasValue ? ", " + F(z.Value) : "") + "]";
 
         static string LineGeoJson(HeightGrid g, bool withZ, double offset = 0)
@@ -132,7 +163,7 @@ namespace g3cli.Tests
             Assert.Equal(lib.SurfaceError, D(r["surface_error"])); Assert.Equal(lib.NodeError, D(r["node_error"]));
             Assert.True(D(r["surface_error"]) <= 0.05);
             Assert.Equal(lib.Rounds, I(r["rounds"])); Assert.Equal(1, I(r["breaklines"])); Assert.Equal(lib.BreaklineEdges.Count, I(r["breakline_edges"]));
-            Assert.True(I(r["mesh"]["triangles"]) < I(r["grid_triangles"]));
+            Assert.True(I(r["mesh"]["triangles"]) < I(r["grid"]["grid_triangles"]));
             // the inline form gives the same, and a second run the same again
             string output2 = m.Path_("t2.g3mesh");
             var (exit2, r2) = Run("dgm_tin", input, output2, "--epsilon", "0.05", "--breaklines-geojson", LineGeoJson(g, false));
