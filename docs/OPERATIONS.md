@@ -195,7 +195,7 @@ With the defaults (as upstream) the remeshers check no move for flipped triangle
 creases. For flat, coarse or creased inputs constrain the features with `MeshConstraintUtil.PreserveBoundaryAndFeatures`
 and set `PreventNormalFlips` (edge flips and collapses) and `MinTriangleQuality` (also the smoothing and projection
 moves); without them a coarse L-shaped part loses a leg and a flat fan folds (docs/ISSUE_CASE_FINDINGS.md, S2 and S3).
-`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
+`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2, the recommended robust setting: on 20 Thingi10K meshes remeshed at the mean edge length it removed all degenerate triangles, raised the median p01 minimum angle from 1.3 to 5.7 degrees and cut the slivers by 80 %, at +40 % time; higher values gain nothing, [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 7) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
 `MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of

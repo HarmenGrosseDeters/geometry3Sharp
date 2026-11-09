@@ -129,6 +129,37 @@ then the option; (3) T2: preset / default `MinTriangleQuality`, probe of the Wan
 3. **Order**, one PR per target, each with tests per CLAUDE.md, an upper-bound check before each lever, before / after numbers from this harness and an
    independent review: T5 (bit-identical 2^k, smallest), T2, T1, T3, T6. API compatible with 1.0.324; the test time limit holds.
 
+## 7. T2 probe results (2026-11-09, upper-bound check before a lever)
+
+20 Thingi10K meshes, Remesher with the `g3cli` settings, `MinTriangleQuality` (the existing opt-in) and the crease angle varied
+(`remesh_q`, `remesh_crease` of the benchmark; fidelity on; raw rows not committed):
+
+| setting | x1: p01 median, meshes < 5° / < 10° | slivers (< 0.5° plus > 170°), meshes not clean | x1: Hausdorff median (max), F 0.1 % median |
+|---|---|---|---|
+| default (quality 0) | 1.3°, - | 6213, 17 | 2.2 % (24 %), 0.76 |
+| quality 0.2, creases 30° | 5.65°, 9 / 14 | 1263, 0 | 1.9 % (24 %), 0.77 |
+| quality 0.3 / 0.4, creases 30° | 6.4° / 6.0°, 8 / 14 | 1375 / 1209, 0 / 1 | not measured |
+| quality 0.2, no creases (boundary only) | 12.0°, 6 / 10 | 136, 0 | 7.6 % (38 %), 0.38 |
+
+At x2 (coarsening) the median p01 is 1.8° with creases (3.5° without).
+
+Reading:
+- The committed T2 targets are met by the existing option at 0.2: 0 degenerate triangles on 20 of 20 (17 before), x1 p01 median 5.65° (>= 5°), slivers 6213 -> 1263 (the target),
+  at +40 % time. Raising the threshold does not help (it saturates at about 6°).
+- The remaining slivers sit at the crease constraints: without them the slivers fall to 136 and p01 to 12°, but the fidelity halves (F-score 0.77 -> 0.38, Hausdorff x4),
+  so that is the upper bound of the quality in this setting, not a usable one. The stretch target of 10° with creases kept has no bound from the
+  probes: it needs operators that act along the feature curves (Wang et al. 2019, section 1.2), whose bound has to be measured on 10 meshes first (not done).
+- 5 of 20 meshes (104582, 125069, 135363, 196126, 105686) hold most of the remaining slivers; 135363 and 196126 are the thin-walled, ill-posed cases (Hausdorff 15-24 %).
+
+Proposal for the T2 PR: no new code path; document 0.2 as the recommended robust setting in the class doc and OPERATIONS, add the knobs and these numbers
+to the benchmark, and move on to T1. The stretch target and the x2 quality go to a follow-up after T1 / T3 if the owner wants them.
+
+### Research note (owner 2026-11-09, not scheduled)
+
+Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along the feature curves) for the crease slivers with creases kept
+(x1 p01 5.65° -> 10° stretch) and the coarsening quality (x2 p01 median 1.8°). Before anything is built: a bound from a probe on 10 meshes
+(5 of 20 meshes hold most of the remaining slivers), and a check that the Hausdorff / F-score stay at the level of the creases-kept row above.
+
 ## 8. T1 probe results (2026-11-09, upper-bound check before a lever; stop rule applied)
 
 20 Thingi10K meshes, `ReduceToTriangleCount` to 10 % and 1 %, no projection (`reduce_q`, `reduce_fold`, `reduce_worst` of the benchmark; the guard
