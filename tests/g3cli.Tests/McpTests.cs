@@ -79,6 +79,10 @@ namespace g3cli.Tests
             Assert.Equal(new[] { "cut", "fill", "auto" }, slope["inputSchema"]["properties"]["direction"]["enum"].AsArray().Select(S).ToArray());
             Assert.Contains("used_origin", S(slope["description"]));
             Assert.Contains("local frame", S(slope["description"]));
+            // (dgm_tin: the output and epsilon are required; the breakline heights are a choice)
+            JsonNode dgmTin = tools.First(t => S(t["name"]) == "dgm_tin");
+            Assert.Equal(new[] { "input", "output", "epsilon" }, dgmTin["inputSchema"]["required"].AsArray().Select(S).OrderBy(x => x == "input" ? 0 : x == "output" ? 1 : 2).ToArray());
+            Assert.Equal(new[] { "grid", "input" }, dgmTin["inputSchema"]["properties"]["breakline_heights"]["enum"].AsArray().Select(S).ToArray());
 
             r = Handle(server, Request(4, "ping"));
             Assert.NotNull(r["result"]);
