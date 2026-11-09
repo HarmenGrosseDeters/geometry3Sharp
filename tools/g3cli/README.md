@@ -17,6 +17,8 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
 | `slope` | slope design from toe lines (GeoJSON) to a terrain (a TIN mesh file): cut, fill or mixed (`--direction auto`), never steeper than the given slopes (every triangle checked exactly); the composite terrain or only its replacement, the slope surface and region, catch lines and target-height level lines (GeoJSON), cut / fill volumes and areas; `--local-frame` for finer guaranteed features at UTM (local outputs plus `used_origin`) | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
+| `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
+| `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 
 ## Build and run
 
@@ -133,6 +135,18 @@ g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --cat
 g3cli slope dgm_tin.ply dump_toe.geojson dump_part.g3mesh --tolerance 0.05 --direction fill --composite replacement --target-heights 120,110 --target-lines benches.geojson
 # at UTM: compute in a local frame (outputs local; add used_origin to x and y)
 g3cli slope dgm_tin.ply pit_toe.geojson pit_local.g3mesh --tolerance 0.05 --local-frame
+
+# fidelity of a simplified mesh against the original (sampled with a fixed seed, so reproducible; distances are relative to "size")
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [0.93, 0.99, 1.0], "chamfer": 0.0007, "normal_consistency": 0.98, "edge_recall": [...], "volume_iou": 0.996,
+#      "outer": {...}, "curvature": {...}, "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvature --seed 7
+# in the result: distances and lengths are relative to "size" (mesh units), curvatures are H*size and K*size^2, angles in degrees;
+# null = not available (NaN), the string "infinity" = infinite (eg edge_chamfer if only one mesh has sharp edges, the aspect ratio of a zero-area triangle)
+
+# quality and topology of one mesh
+g3cli quality part.stl
+#   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation

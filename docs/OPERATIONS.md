@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity` and `quality`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -557,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -628,6 +628,20 @@ cat > l.poly <<'POLY'
 POLY
 g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
 #   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
+```
+
+**Evaluation metrics** (`fidelity`, `MeshFidelityMetrics`; `quality`, `TriangleQualityStatistics` and `MeshTopologySummary`):
+`fidelity` compares a mesh with a reference by what Hausdorff distance and volume IoU miss (lost features, reversed patches,
+changed topology); sampling uses a fixed seed (`--seed`), so a call is reproducible, and all distances are relative to the
+reported `size` (the reference's bounding box diagonal, in mesh units); curvatures are H*size and K*size^2, angles in degrees, `null` is not
+available and the string `"infinity"` is infinite (eg `edge_chamfer` when only one mesh has sharp edges). `quality` reports one mesh's triangle quality distributions and topology:
+
+```
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [...], "chamfer": ..., "normal_consistency": ..., "edge_recall": [...], "volume_iou": ...,
+#      "outer": {...}, "curvature": {...}, "reference_quality" / "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli quality simplified.stl
+#   -> "quality": { "min_angle": { "worst": ..., "worst_1_percent": ..., "median": ... }, ... }, "topology": { "genus": 0, ... }
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
