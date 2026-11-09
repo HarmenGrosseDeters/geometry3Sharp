@@ -36,7 +36,7 @@ dotnet run -c Release --project benchmarks/ReducerRemesherBaseline -- summary=al
 Options: `only=<regex>`, `procedural=0`, `runs=<n>` (default 2), `si_max`, `inv_max`, `invariance=0`, `fidelity=0`,
 `ops=reduce,remesh`, `hd_tol=<f>` (tolerance of the Hausdorff bounds relative to the diagonal, default 0.001: the bounds can be that much too high; use 0.0001 to compare small differences). Knobs for the probes of the design note, off in the baseline: `profile=1` (`Remesher.ENABLE_PROFILING`,
 the phase times of each pass on stdout), `reduce_q=<q>` (`Reducer.MinCollapseTriangleQuality`), `remesh_q=<q>`
-(`Remesher.MinTriangleQuality`). The logic that is not a measurement (statistics, similarities, mesh hash, angle
+(`Remesher.MinTriangleQuality`), `reduce_fold=0` (`Reducer.PreventFoldOver` off), `reduce_worst=1` (the internal `CollapseQualityAgainstWorst`, set by reflection). The logic that is not a measurement (statistics, similarities, mesh hash, angle
 counts, procedural inputs) is in `Harness.cs` and tested by `BaselineHarnessTests`.
 
 Inputs: 4 procedural meshes (a bumpy sphere of 95052 triangles, a torus of genus 1 with 67600, an open terrain with 96800,
