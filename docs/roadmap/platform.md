@@ -12,9 +12,14 @@ Part of the [roadmap](../ROADMAP.md).
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
   so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
   when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Analyst's findings
-  (follow-up PR #445, draft): (1) debug/trace log no per-test line during capture, so the ticker shows elapsed time only;
-  (2) and (3) are in; (4) `dots` prints nothing without a terminal.
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (draft, measured 8 November 2026): (1) `--verbosity debug` / `trace` log no line per test during capture
+  (a 51-test filter: the capture test host logs `InProgressTests is null` / `Sending test run statistics` lines in batches,
+  20 and 6 of them after 10 min), so the ticker shows elapsed time only; (2) the Stryker logs are uploaded with `if: always()`
+  (`mutation-logs-mesh-<shard>`, 7 days); (3) `run_stryker.sh` stops a shard early when the projection after the capture
+  exceeds the limit by 15 % on two ticks in a row (exit 3, `StrykerOutput/stopped-early`, step summary); (4) `dots` prints
+  nothing without a terminal. Open from the analysis: per-part reduced test filters (`exclusive_kills.py`), a `gate` mode
+  that fingerprints without thresholds, a two-tier test split, a timeout A/B (`timeout-ratio`), tests for the envelope
+  survivors that look real, baseline import through a data branch.
 - **#403 merged (2026-11-09, 1fad195d):** its last run was green on all 14 shards within 350 min (rounding parts
   145-294 min, margin >= 56 min). Master baselines dispatched for the 14 non-rounding shards; the rounding baselines are
   seeded after the integration PR (it changes the rounding code, so earlier baselines would be stale at once).

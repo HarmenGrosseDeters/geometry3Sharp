@@ -164,11 +164,13 @@ def plan(config, baseline, repo_root):
     """(run mutate entries, per file: (path, new ranges, old ranges)) or None when the baseline cannot be used"""
     entries = [parse_mutate(e) for e in config["mutate"]]
     mutate, files = [], []
+    scored = 0
     for path, span in entries:
         bf = baseline_file(baseline, path)
         full = os.path.join(repo_root, path)
         if bf is None or "source" not in bf or not os.path.isfile(full):
             return None
+        scored += sum(counted(bf.get("mutants", [])))
         # (Stryker reads the file like File.ReadAllText: without a byte order mark, as read_text, but with every
         # character of the line breaks; the spans are character offsets, so a file with \r runs in full)
         new_text = read_text(full)
@@ -178,6 +180,8 @@ def plan(config, baseline, repo_root):
         files.append((path, new_ranges, old_ranges))
         for s, e in spans_of(new_text, new_ranges, span):
             mutate.append("**/%s{%d..%d}" % (path, s, e))
+    if not scored:
+        return None                     # a baseline without a mutant that counts gives no score to combine: run in full
     return mutate, files
 
 
@@ -259,7 +263,11 @@ def main(argv):
         if len(argv) == 5:
             with open(argv[4], "a", encoding="utf-8") as f:
                 f.write(text)
-        if s is not None and s < brk:
+        if s is None:
+            print("::error::no mutant counts for the score of %s (none from the run, none from the baseline): "
+                  "the shard has no result" % os.path.basename(argv[1]))
+            return 1
+        if s < brk:
             print("::error::mutation score %.2f %% is below the break threshold %s" % (s, brk))
             return 1
         return 0
