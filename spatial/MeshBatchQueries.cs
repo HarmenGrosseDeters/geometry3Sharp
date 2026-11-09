@@ -198,7 +198,7 @@ namespace g3
         /// <summary>
         /// For every point whether it is inside the mesh: results[i] is Inside or Outside as tree.IsInside(p)
         /// (method Crossings, the default: exact, for closed meshes) or as tree.FastWindingNumber(p) &gt; 0.5 (method
-        /// WindingNumber: for any mesh), Invalid for a point that is not finite. options.MaxDistance does not apply. An empty
+        /// WindingNumber: for any mesh), Invalid for a point that is not finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty
         /// mesh has no inside. The winding number cache is built once before the parallel part.
         /// </summary>
         public static BatchStatus IsInsideBatch(DMeshAABBTree3 tree, Vector3d[] points, InsideStatus[] results, InsideMethod method = InsideMethod.Crossings, BatchOptions options = null)
@@ -213,6 +213,8 @@ namespace g3
             if (bs != BatchStatus.Ok)
                 return bs;
             bool empty = tree.Mesh.TriangleCount == 0;
+            if (options.Cancel.IsCancellationRequested)
+                return BatchStatus.Cancelled;      // (before the cache build)
             if (method == InsideMethod.WindingNumber && !empty) {
                 // (built under a lock on first use anyway; once here, so that the workers do not queue up on it)
                 for (int i = 0; i < points.Length; ++i)
