@@ -277,15 +277,15 @@ Measured, replacing the planning numbers:
 | `Delaunay3` insertion, random order | 26 us (20k) .. 68 us (400k) per point: point location dominates | not considered |
 | Validity of the inside cells | 8 of 8 procedural wraps valid, exactly | expected |
 | Interior of the wrap | only 1.4k .. 5k tets per wrap (all vertices lie on the surface) | expected: coarse |
-| Tets with radius-edge above 2 | **87-99 %** of the tets; median 1.6 .. 8.8; worst 4.8 .. 18 | quality missing |
-| Smallest dihedral angle per mesh | 4e-11 .. 0.46 degrees; 5 % percentile 1.0 .. 9.6 degrees; median 4 .. 31 degrees | slivers expected |
-| Tets with a dihedral above 170 degrees | 0.8 % (box) .. 58 % (sphere n=40) | |
+| Tets with radius-edge above 2 | **28 % (box) .. 99 %** of the tets (88 % sphere n=6, 69 % cylinder, 79 % torus); median 1.6 .. 8.8; worst 4.8 .. 18 | quality missing |
+| Smallest dihedral angle per mesh | 3e-14 .. 0.46 degrees; 5 % percentile 1.0 .. 9.6 degrees; median 4 .. 31 degrees | slivers expected |
+| Tets with a dihedral above 170 degrees | 0.6 % (box) .. 58 % (sphere n=40) | |
 | Surface dihedral angles (alpha 20, offset 600) | minimum 86.4 .. 170.7 degrees; only 3 of 20k edges below 90 | risk of acute angles (5.2) |
 | Surface triangle min angle | 8.6 .. 30 degrees | wrap bound 0.95 degrees |
 
 Consequences for the stage-1 decisions:
 
-1. **Raw inside cells are not usable as an FEM mesh**: almost every tet violates the radius-edge bound and the dihedral
+1. **Raw inside cells are not usable as an FEM mesh**: most tets violate the radius-edge bound (28-99 %) and the dihedral
    tails reach 0 and 180 degrees. Stage 1 is needed, as planned.
 2. **The termination risk of 5.2 is smaller than feared on this set**: the wrap surfaces have no acute dihedral angles
    to speak of (86 degrees at the worst) and triangle angles of at least 8.6 degrees, so Shewchuk's 90-degree condition holds to
