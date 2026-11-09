@@ -7,14 +7,39 @@ using g3;
 
 namespace gs
 {
+    /// <summary> where the heights of a <see cref="TerrainBreakline"/> in the TIN come from (decision D4 of docs/design/TERRAIN_DGM_TO_TIN.md) </summary>
+    public enum TerrainBreaklineHeights
+    {
+        /// <summary> the grid surface (the grid is the truth); the surface error bound holds along the breakline; a z of the input is ignored </summary>
+        FromGrid = 0,
+        /// <summary>
+        /// the z of the input points (a survey line), linearly between them; the TIN follows the line exactly, so the vertical distance of the
+        /// line to the grid surface cannot be reduced by refinement: it is measured (<see cref="TerrainGridTin.BreaklineError"/>) and must be within
+        /// <see cref="TerrainGridTin.Epsilon"/> for the guarantee to hold, else the status is <see cref="TerrainGridTinStatus.BreaklineHeightDeviates"/>
+        /// </summary>
+        FromInput = 1
+    }
+
     /// <summary>
     /// A breakline for <see cref="TerrainGridTin"/>: a polyline in plan (x, y in the coordinates of the <see cref="HeightGrid"/>);
-    /// the TIN contains it as a chain of edges. The heights come from the grid (the grid is the truth), the z of a point is ignored.
+    /// the TIN contains it as a chain of edges. The heights come from the grid (the grid is the truth, <see cref="TerrainBreaklineHeights.FromGrid"/>,
+    /// the z of a point is ignored) or, for a survey line, from the input (<see cref="TerrainBreaklineHeights.FromInput"/>).
+    /// Where two <c>FromInput</c> breaklines cross or touch with different heights, the one given first wins at the common vertex.
     /// </summary>
     public sealed class TerrainBreakline
     {
         public IReadOnlyList<Vector2d> Points { get; }
+        /// <summary> the heights of the points (same length as <see cref="Points"/>) for <see cref="TerrainBreaklineHeights.FromInput"/>, else null </summary>
+        public IReadOnlyList<double> Z { get; }
+        public TerrainBreaklineHeights Heights { get { return Z != null ? TerrainBreaklineHeights.FromInput : TerrainBreaklineHeights.FromGrid; } }
         public TerrainBreakline(IEnumerable<Vector2d> points) { Points = points.ToList(); }
+        /// <summary> a breakline of 3D points; with <see cref="TerrainBreaklineHeights.FromGrid"/> the z is ignored </summary>
+        public TerrainBreakline(IEnumerable<Vector3d> points, TerrainBreaklineHeights heights = TerrainBreaklineHeights.FromGrid)
+        {
+            List<Vector3d> list = points.ToList();
+            Points = list.Select(p => new Vector2d(p.x, p.y)).ToList();
+            if (heights == TerrainBreaklineHeights.FromInput) Z = list.Select(p => p.z).ToList();
+        }
     }
 
     public enum TerrainGridTinStatus
@@ -28,7 +53,12 @@ namespace gs
         MesherFailed,
         /// <summary> MaxRounds reached or no progress; Mesh is the last valid TIN and SurfaceError says what it achieves </summary>
         NotConverged,
-        Cancelled
+        Cancelled,
+        /// <summary>
+        /// the refinement converged away from the breaklines, but a <see cref="TerrainBreaklineHeights.FromInput"/> breakline is further than Epsilon from
+        /// the grid surface somewhere (<see cref="TerrainGridTin.BreaklineError"/>); Result is that TIN (it follows the survey line), SurfaceError says what it achieves
+        /// </summary>
+        BreaklineHeightDeviates
     }
 
     /// <summary>
@@ -36,6 +66,8 @@ namespace gs
     /// The guarantee is the **surface error**: the exact maximum of |TIN - S| over the whole TIN, where S is the grid TIN
     /// (<see cref="HeightGrid.Height"/>: fixed diagonal, no-data cells have no surface), at most <see cref="Epsilon"/>.
     /// The TIN is a height field (counter-clockwise from above), has an edge chain for every breakline, and covers exactly the cells with data.
+    /// Breaklines take their heights from the grid or, for survey lines, from the input (<see cref="TerrainBreaklineHeights"/>): a survey line is
+    /// followed exactly, its distance to the grid surface is <see cref="BreaklineError"/> and must be within <see cref="Epsilon"/> (else <see cref="TerrainGridTinStatus.BreaklineHeightDeviates"/>).
     /// <para>Method: a constrained Delaunay triangulation (<see cref="QualityMesh2"/>, no refinement) of the selected nodes and the breaklines in grid
     /// index coordinates (exact and independent of origin and cell size), then rounds of an exact error scan of the real triangulation: the
     /// overlay vertices of every triangle with S (grid nodes inside, its corners, the crossings of its edges with the lines x = i, y = j and the
@@ -64,6 +96,12 @@ namespace gs
         /// <summary> max |TIN - z| over the grid nodes inside the TIN (never above SurfaceError) </summary>
         public double NodeError { get; private set; }
         public int Rounds { get; private set; }
+        /// <summary>
+        /// max |TIN - S| over the edges of <see cref="TerrainBreaklineHeights.FromInput"/> breaklines and their vertices (0 if there are none): the distance of the survey
+        /// lines to the grid surface, which refinement cannot reduce. The guarantee <see cref="SurfaceError"/> &lt;= <see cref="Epsilon"/> holds with status Ok only
+        /// when it is within Epsilon (an upper bound, with the rounding margin).
+        /// </summary>
+        public double BreaklineError { get; private set; }
         /// <summary> the edges of Result (pairs of vertex ids) that belong to breaklines </summary>
         public IReadOnlyList<Index2i> BreaklineEdges { get; private set; } = new Index2i[0];
         /// <summary> creases of the grid surface locked as constraints (cell sides and diagonals), the cost of the surface guarantee </summary>
@@ -81,7 +119,7 @@ namespace gs
         /// <summary> Computes the TIN. Returns true on Ok. </summary>
         public bool Compute()
         {
-            Result = null; BreaklineEdges = new Index2i[0]; Rounds = 0; SurfaceError = double.NaN; NodeError = double.NaN; LockedCreases = 0; DroppedBreaklineSegments = 0; CreaseConflicts = 0;
+            Result = null; BreaklineEdges = new Index2i[0]; Rounds = 0; SurfaceError = double.NaN; NodeError = double.NaN; LockedCreases = 0; DroppedBreaklineSegments = 0; CreaseConflicts = 0; BreaklineError = 0;
             Message = "";
             HeightGrid g = Grid;
             if (g == null || g.Z == null || g.NX < 2 || g.NY < 2 || g.Z.Length != (long)g.NX * g.NY || !(g.CellSize > 0))
@@ -96,8 +134,9 @@ namespace gs
             if ((long)nx * ny > (1L << 26))
                 return Fail(TerrainGridTinStatus.InvalidInput, "the grid is too large (more than 2^26 nodes)");
             foreach (TerrainBreakline bl in Breaklines ?? new List<TerrainBreakline>())
-                if (bl == null || bl.Points.Any(p => double.IsNaN(p.x) || double.IsNaN(p.y) || double.IsInfinity(p.x) || double.IsInfinity(p.y)))
-                    return Fail(TerrainGridTinStatus.InvalidInput, "a breakline is null or has a non-finite point");
+                if (bl == null || bl.Points.Any(p => double.IsNaN(p.x) || double.IsNaN(p.y) || double.IsInfinity(p.x) || double.IsInfinity(p.y))
+                    || (bl.Z != null && (bl.Z.Count != bl.Points.Count || bl.Z.Any(z => double.IsNaN(z) || double.IsInfinity(z)))))
+                    return Fail(TerrainGridTinStatus.InvalidInput, "a breakline is null or has a non-finite point or height");
 
             // cells with data
             var cellOk = new bool[(nx - 1) * (ny - 1)];
@@ -111,8 +150,9 @@ namespace gs
             bool Ok(int ci, int cj) { return ci >= 0 && cj >= 0 && ci < nx - 1 && cj < ny - 1 && cellOk[ci + (nx - 1) * cj]; }
 
             var pts = new List<Vector2d>();
+            var ptsZ = new List<double>();            // survey height of a point of a FromInput breakline, else NaN (the grid surface)
             var nodeId = new Dictionary<int, int>();
-            int AddNode(int i, int j) { int k = i + nx * j; int id; if (nodeId.TryGetValue(k, out id)) return id; id = pts.Count; nodeId[k] = id; pts.Add(new Vector2d(i, j)); return id; }
+            int AddNode(int i, int j) { int k = i + nx * j; int id; if (nodeId.TryGetValue(k, out id)) return id; id = pts.Count; nodeId[k] = id; pts.Add(new Vector2d(i, j)); ptsZ.Add(double.NaN); return id; }
             var segs = new List<(int a, int b)>();        // constraints other than plain creases; marker = index + 1
             var segKind = new List<int>();
             void AddSeg(int a, int b, int kind) { segs.Add((a, b)); segKind.Add(kind); }
@@ -137,14 +177,16 @@ namespace gs
             // breaklines in index coordinates; segments with an end point or the middle outside the cells with data are dropped
             foreach (TerrainBreakline bl in Breaklines ?? new List<TerrainBreakline>()) {
                 int prev = -1; Vector2d prevP = default(Vector2d); bool hasPrev = false;
-                foreach (Vector2d w in bl.Points) {
+                for (int bi = 0; bi < bl.Points.Count; ++bi) {
+                    Vector2d w = bl.Points[bi];
+                    double bz = bl.Z != null ? bl.Z[bi] : double.NaN;
                     Vector2d p = new Vector2d((w.x - g.X0) / g.CellSize, (w.y - g.Y0) / g.CellSize);
                     bool inside = InCell(p, nx, ny, Ok);
                     bool joined = false;
                     if (inside && !(prev >= 0 && p == prevP)) {
                         int id = pts.Count;
-                        if (prev >= 0 && SegmentInData(prevP, p, nx, ny, Ok)) { pts.Add(p); AddSeg(prev, id, KindBreakline); joined = true; }
-                        else if (prev < 0 || true) { pts.Add(p); }
+                        pts.Add(p); ptsZ.Add(bz);
+                        if (prev >= 0 && SegmentInData(prevP, p, nx, ny, Ok)) { AddSeg(prev, id, KindBreakline); joined = true; }
                         if (prev >= 0 && !joined) ++DroppedBreaklineSegments;
                         else if (prev < 0 && hasPrev) ++DroppedBreaklineSegments;
                         prev = id; prevP = p;
@@ -167,12 +209,15 @@ namespace gs
                 return Fail(TerrainGridTinStatus.InvalidInput, "Epsilon " + Epsilon + " is below the rounding margin of the computation (" + 2 * margin + ")");
             double act = Epsilon - margin;               // a violation is an error above this
             List<int> keptTris = null; ConstrainedMesh2 lastMesh = null; double lastSurf = double.NaN, lastNode = double.NaN;
-            List<int> lastKinds = null;
+            List<int> lastKinds = null; double[] lastVz = null; double lastDev = 0; bool converged = false;
+            bool hasInput = Breaklines != null && Breaklines.Any(b => b.Z != null);
 
-            int AddPoint(double x, double y)
+            // a point on a segment: a lattice node, or a new point; on a FromInput breakline segment always a new point with the interpolated survey height
+            int AddPoint(double x, double y, int segA = -1, int segB = -1)
             {
-                if (x == Math.Floor(x) && y == Math.Floor(y) && x >= 0 && y >= 0 && x <= nx - 1 && y <= ny - 1) return AddNode((int)x, (int)y);
-                pts.Add(new Vector2d(x, y)); return pts.Count - 1;
+                double z = segA >= 0 ? SplitZ(pts, ptsZ, segA, segB, new Vector2d(x, y)) : double.NaN;
+                if (double.IsNaN(z) && x == Math.Floor(x) && y == Math.Floor(y) && x >= 0 && y >= 0 && x <= nx - 1 && y <= ny - 1) return AddNode((int)x, (int)y);
+                pts.Add(new Vector2d(x, y)); ptsZ.Add(z); return pts.Count - 1;
             }
 
             for (int round = 0; round < MaxRounds; ++round) {
@@ -193,6 +238,8 @@ namespace gs
                     else if (ss.Marker > 0) edgeSeg[Key(ss.A, ss.B)] = ss.Marker - 1;
                 Array.Clear(sel, 0, sel.Length);
                 foreach (var kv in nodeId) sel[kv.Key] = true;
+                double[] vz = null; HashSet<long> fixedEdges = null;
+                if (hasInput) SurveyHeights(m, pts, ptsZ, segs, segKind, out vz, out fixedEdges);
 
                 // the triangles over cells with data (the boundary of the data is made of constraint edges: a triangle is on one side)
                 var kept = new List<int>();
@@ -211,17 +258,25 @@ namespace gs
 
                 int nt = kept.Count;
                 var reqs = new List<Req>[nt];
-                double nodeMax = 0, surfMax = 0; object mx = new object();
-                Parallel.For(0, nt, () => new double[2], (k, st, loc) => {
+                double nodeMax = 0, surfMax = 0, loopMax = 0, devMax = 0; object mx = new object();
+                Parallel.For(0, nt, () => new double[4], (k, st, loc) => {
                     Index3i tr = m.Triangles[kept[k]];
-                    reqs[k] = ScanTriangle(g, m.Vertices[tr.a], m.Vertices[tr.b], m.Vertices[tr.c], new[] { tr.a, tr.b, tr.c }, sel, edgeSeg, lockedCreases, chainCreases, act, out double wn, out double ws, null, round < SingleRequestRounds ? 1 : MaxRequestsPerTriangle);
-                    loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws);
+                    double[] zs = null;
+                    if (vz != null && (!double.IsNaN(vz[tr.a]) || !double.IsNaN(vz[tr.b]) || !double.IsNaN(vz[tr.c]))) {
+                        zs = new double[3];
+                        for (int c = 0; c < 3; ++c) {
+                            int v = c == 0 ? tr.a : c == 1 ? tr.b : tr.c;
+                            zs[c] = double.IsNaN(vz[v]) ? VertexZ(g, m.Vertices[v].x, m.Vertices[v].y) : vz[v];
+                        }
+                    }
+                    reqs[k] = ScanTriangle(g, m.Vertices[tr.a], m.Vertices[tr.b], m.Vertices[tr.c], new[] { tr.a, tr.b, tr.c }, sel, edgeSeg, lockedCreases, chainCreases, act, out double wn, out double ws, out double wl, out double wd, zs, round < SingleRequestRounds ? 1 : MaxRequestsPerTriangle, fixedEdges);
+                    loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws); loc[2] = Math.Max(loc[2], wl); loc[3] = Math.Max(loc[3], wd);
                     return loc;
-                }, loc => { lock (mx) { nodeMax = Math.Max(nodeMax, loc[0]); surfMax = Math.Max(surfMax, loc[1]); } });
+                }, loc => { lock (mx) { nodeMax = Math.Max(nodeMax, loc[0]); surfMax = Math.Max(surfMax, loc[1]); loopMax = Math.Max(loopMax, loc[2]); devMax = Math.Max(devMax, loc[3]); } });
                 Rounds = round + 1;
-                lastMesh = m; keptTris = kept; lastSurf = surfMax + margin; lastNode = nodeMax + margin;
+                lastMesh = m; keptTris = kept; lastSurf = surfMax + margin; lastNode = nodeMax + margin; lastVz = vz; lastDev = devMax + margin;
                 lastKinds = segKind.ToList();
-                if (surfMax <= act) break;
+                if (loopMax <= act) { converged = true; break; }
 
                 // act on the violations, in triangle order (deterministic)
                 int added = 0;
@@ -247,7 +302,7 @@ namespace gs
                                 if (x.seg >= 0) {
                                     splitDone.Add(x.seg); blocked.Add(x.seg);
                                     var (sa, sb) = segs[x.seg];
-                                    id = AddPoint(x.pt.x, x.pt.y);
+                                    id = AddPoint(x.pt.x, x.pt.y, segs[x.seg].a, segs[x.seg].b);
                                     int kind = segKind[x.seg];
                                     segs[x.seg] = (sa, id); AddSeg(id, sb, kind);
                                 } else id = x.vertex;
@@ -269,7 +324,7 @@ namespace gs
                     bool first = true;
                     foreach (var c in cuts) {
                         if (c.t - prevT < 1e-12 && !first) continue;
-                        int id = AddPoint(c.pt.x, c.pt.y);
+                        int id = AddPoint(c.pt.x, c.pt.y, sa, sb);
                         if (id == prevId || id == sb) continue;
                         if (first) { segs[kv.Key] = (prevId, id); first = false; } else AddSeg(prevId, id, kind);
                         prevId = id; prevT = c.t; ++added;
@@ -287,7 +342,7 @@ namespace gs
             {
                 if (vmap[v] < 0) {
                     Vector2d p = lastMesh.Vertices[v];
-                    vmap[v] = mesh.AppendVertex(new Vector3d(g.X0 + p.x * g.CellSize, g.Y0 + p.y * g.CellSize, VertexZ(g, p.x, p.y)));
+                    vmap[v] = mesh.AppendVertex(new Vector3d(g.X0 + p.x * g.CellSize, g.Y0 + p.y * g.CellSize, lastVz != null && !double.IsNaN(lastVz[v]) ? lastVz[v] : VertexZ(g, p.x, p.y)));
                 }
                 return vmap[v];
             }
@@ -300,6 +355,9 @@ namespace gs
             Result = mesh; BreaklineEdges = edges;
             SurfaceError = lastSurf; NodeError = lastNode;
             LockedCreases = lockedCreases.Count + chainCreases.Count;
+            BreaklineError = hasInput ? lastDev : 0;
+            if (lastSurf > Epsilon && converged && hasInput && lastDev > Epsilon)
+                return Fail(TerrainGridTinStatus.BreaklineHeightDeviates, "a breakline with heights from the input is up to " + lastDev + " from the grid surface, above Epsilon " + Epsilon, false);
             if (lastSurf > Epsilon)
                 return Fail(TerrainGridTinStatus.NotConverged, "the surface error " + lastSurf + " is above Epsilon after " + Rounds + " rounds", false);
             Status = TerrainGridTinStatus.Ok;
@@ -331,6 +389,53 @@ namespace gs
                     if (j + 1 < ny && HeightGrid.IsData(g[i, j + 1])) d = Math.Max(d, Math.Abs(g[i, j + 1] - z));
                 }
             return 2 * Math.Sqrt(2) * d / g.CellSize * delta;
+        }
+
+        static IEnumerable<int> Marks(Mesh2Subsegment ss)
+        {
+            if (ss.Markers != null && ss.Markers.Length > 0) return ss.Markers;
+            return ss.Marker > 0 ? new[] { ss.Marker } : new int[0];
+        }
+
+        /// <summary>
+        /// The heights of the mesher's vertices that lie on FromInput breaklines (NaN elsewhere: the grid surface), and the edges that belong to such a
+        /// breakline. A vertex at an input point (or a split point of the loop) takes its survey height; a vertex the mesher made at a crossing, or a node on the
+        /// line, the height interpolated along the breakline segment with the lowest index.
+        /// </summary>
+        static void SurveyHeights(ConstrainedMesh2 m, List<Vector2d> pts, List<double> ptsZ, List<(int a, int b)> segs, List<int> segKind, out double[] vz, out HashSet<long> fixedEdges)
+        {
+            var posZ = new Dictionary<(double, double), double>();
+            for (int i = 0; i < pts.Count; ++i)
+                if (!double.IsNaN(ptsZ[i]) && !posZ.ContainsKey((pts[i].x, pts[i].y))) posZ[(pts[i].x, pts[i].y)] = ptsZ[i];
+            vz = new double[m.Vertices.Count];
+            for (int v = 0; v < vz.Length; ++v) vz[v] = posZ.TryGetValue((m.Vertices[v].x, m.Vertices[v].y), out double z) ? z : double.NaN;
+            fixedEdges = new HashSet<long>();
+            var best = new int[vz.Length];
+            for (int v = 0; v < best.Length; ++v) best[v] = int.MaxValue;
+            foreach (Mesh2Subsegment ss in m.Subsegments) {
+                int low = int.MaxValue;
+                foreach (int mk in Marks(ss)) {
+                    int si = mk - 1;
+                    if (si >= 0 && si < segs.Count && segKind[si] == KindBreakline && !double.IsNaN(ptsZ[segs[si].a]) && !double.IsNaN(ptsZ[segs[si].b])) low = Math.Min(low, si);
+                }
+                if (low == int.MaxValue) continue;
+                fixedEdges.Add(Key(ss.A, ss.B));
+                foreach (int v in new[] { ss.A, ss.B }) {
+                    if (!double.IsNaN(vz[v]) && best[v] == int.MaxValue) continue;      // at an input point
+                    if (low < best[v]) { best[v] = low; vz[v] = SplitZ(pts, ptsZ, segs[low].a, segs[low].b, m.Vertices[v]); }
+                }
+            }
+        }
+
+        /// <summary> the survey height at a point of the segment a-b if both its end points have one (a FromInput breakline), else NaN (the grid surface) </summary>
+        static double SplitZ(List<Vector2d> pts, List<double> ptsZ, int a, int b, Vector2d p)
+        {
+            double za = ptsZ[a], zb = ptsZ[b];
+            if (double.IsNaN(za) || double.IsNaN(zb)) return double.NaN;
+            Vector2d d = pts[b] - pts[a];
+            double len2 = d.LengthSquared;
+            double t = len2 > 0 ? Math.Min(1, Math.Max(0, (p - pts[a]).Dot(d) / len2)) : 0;
+            return za + t * (zb - za);
         }
 
         bool Fail(TerrainGridTinStatus status, string message, bool clear = true)
@@ -492,7 +597,7 @@ namespace gs
                 Index3i tv = tin.GetTriangle(tris[k]);
                 Vector3d p0 = tin.GetVertex(tv.a), p1 = tin.GetVertex(tv.b), p2 = tin.GetVertex(tv.c);
                 Vector2d a = ToIndex(grid, p0), b = ToIndex(grid, p1), c = ToIndex(grid, p2);
-                ScanTriangle(grid, a, b, c, new[] { tv.a, tv.b, tv.c }, sel, none, empty, empty, double.PositiveInfinity, out double wn, out double ws, new[] { p0.z, p1.z, p2.z });
+                ScanTriangle(grid, a, b, c, new[] { tv.a, tv.b, tv.c }, sel, none, empty, empty, double.PositiveInfinity, out double wn, out double ws, out _, out _, new[] { p0.z, p1.z, p2.z });
                 loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws);
                 return loc;
             }, loc => { lock (mx) { nm = Math.Max(nm, loc[0]); sm = Math.Max(sm, loc[1]); } });
@@ -507,6 +612,7 @@ namespace gs
         }
 
         const int MaxRequestsPerTriangle = 16;
+        const double NearCorner = 1e-12;
 
         /// <summary>
         /// The worst violations of a triangle, at most 16, at least <see cref="MinRequestDistance"/> grid cells apart (one insertion near a violation usually fixes its neighbours, so
@@ -547,11 +653,12 @@ namespace gs
         /// zs: the heights of the corners (null: the grid surface there).
         /// </summary>
         static List<Req> ScanTriangle(HeightGrid g, Vector2d a, Vector2d b, Vector2d c, int[] vid, bool[] sel, Dictionary<long, int> edgeSeg, HashSet<int> lockedSet, HashSet<int> chainSet,
-            double act, out double nodeErr, out double surfErr, double[] zs = null, int maxRequests = MaxRequestsPerTriangle)
+            double act, out double nodeErr, out double surfErr, out double loopErr, out double devErr, double[] zs = null, int maxRequests = MaxRequestsPerTriangle, HashSet<long> fixedEdges = null)
         {
+            bool devMode = fixedEdges != null;
             int nx = g.NX;
             double za = zs != null ? zs[0] : VertexZ(g, a.x, a.y), zb = zs != null ? zs[1] : VertexZ(g, b.x, b.y), zc = zs != null ? zs[2] : VertexZ(g, c.x, c.y);
-            nodeErr = 0; surfErr = 0;
+            nodeErr = 0; surfErr = 0; loopErr = 0; devErr = 0;
             var top = new Top(nx, maxRequests);
             double det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
             if (det == 0 || double.IsNaN(za) || double.IsNaN(zb) || double.IsNaN(zc)) return top.List;
@@ -562,7 +669,7 @@ namespace gs
                     double sz = VertexZ(g, v.x, v.y);
                     if (double.IsNaN(sz)) continue;
                     double e = Math.Abs(zs[k] - sz);
-                    surfErr = Math.Max(surfErr, e);
+                    if (devMode) devErr = Math.Max(devErr, e); else { surfErr = Math.Max(surfErr, e); loopErr = Math.Max(loopErr, e); }
                     if (v.x == Math.Floor(v.x) && v.y == Math.Floor(v.y)) nodeErr = Math.Max(nodeErr, e);
                 }
             }
@@ -576,12 +683,15 @@ namespace gs
                     double o2 = (c.x - b.x) * (j - b.y) - (c.y - b.y) * (i - b.x);
                     double o3 = (a.x - c.x) * (j - c.y) - (a.y - c.y) * (i - c.x);
                     if (!((o1 >= 0 && o2 >= 0 && o3 >= 0) || (o1 <= 0 && o2 <= 0 && o3 <= 0))) continue;
+                    if (devMode && ((i == a.x && j == a.y) || (i == b.x && j == b.y) || (i == c.x && j == c.y))) continue;      // a corner: counted with the corners
                     double zg = g[i, j];
                     if (!HeightGrid.IsData(zg)) continue;
                     double e = Math.Abs(za + gx * (i - a.x) + gy * (j - a.y) - zg);
                     if (e > nodeErr) nodeErr = e;
+                    int onEdge = o1 == 0 ? 0 : o2 == 0 ? 1 : o3 == 0 ? 2 : -1;
+                    if (devMode && onEdge >= 0 && fixedEdges.Contains(Key(vid[onEdge], vid[(onEdge + 1) % 3]))) { devErr = Math.Max(devErr, e); continue; }      // on a survey line: not reducible
+                    if (e > loopErr) loopErr = e;
                     if (e > act) {
-                        int onEdge = o1 == 0 ? 0 : o2 == 0 ? 1 : o3 == 0 ? 2 : -1;
                         int seg = -1;
                         if (onEdge >= 0 && edgeSeg.TryGetValue(Key(vid[onEdge], vid[(onEdge + 1) % 3]), out int sg)) seg = sg;
                         if (seg >= 0) top.Offer(new Req { Kind = 2, Seg = seg, X = i, Y = j, Err = e });
@@ -594,6 +704,7 @@ namespace gs
                 double zp = ed == 0 ? za : ed == 1 ? zb : zc, zq = ed == 0 ? zb : ed == 1 ? zc : za;
                 int segOfEdge = -1;
                 bool isLocked = edgeSeg.TryGetValue(Key(vid[ed], vid[(ed + 1) % 3]), out segOfEdge);
+                bool onSurvey = devMode && fixedEdges.Contains(Key(vid[ed], vid[(ed + 1) % 3]));
                 double dx = q.x - p.x, dy = q.y - p.y;
                 for (int kind = 0; kind < 3; ++kind) {
                     double f0 = kind == 0 ? p.x : kind == 1 ? p.y : p.x - p.y;
@@ -608,7 +719,11 @@ namespace gs
                         double sz = SurfaceZ(g, x, y, kind == 0, kind == 1);
                         if (double.IsNaN(sz)) continue;
                         double e = Math.Abs(tz - sz);
+                        // on a survey line, or at a corner (a crossing at the end of the edge within the rounding of the parameter is the corner, whose error is a
+                        // survey deviation if the corner has a survey height): not reducible by refinement
+                        if (onSurvey || (devMode && (s < NearCorner || s > 1 - NearCorner))) { if (e > devErr) devErr = e; continue; }
                         if (e > surfErr) surfErr = e;
+                        if (e > loopErr) loopErr = e;
                         if (!(e > act)) continue;
                         if (isLocked) { top.Offer(new Req { Kind = 2, Seg = segOfEdge, X = x, Y = y, Err = e }); continue; }
                         int ci = Math.Min((int)Math.Floor(x), g.NX - 2), cj = Math.Min((int)Math.Floor(y), g.NY - 2);
@@ -636,6 +751,7 @@ namespace gs
                     }
                 }
             }
+            surfErr = Math.Max(surfErr, devErr);
             return top.List;
         }
     }
