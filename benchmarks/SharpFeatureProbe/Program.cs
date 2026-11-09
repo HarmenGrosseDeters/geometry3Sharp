@@ -50,7 +50,7 @@ class Program
             Wrapped aCached = null;
             foreach (string v in variants) {
                 if (done.Contains(name + "|" + v)) continue;
-                if (aCached == null) aCached = Pipeline(input, 300, 3000);
+                if (aCached == null) aCached = Pipeline(input, double.Parse(Environment.GetEnvironmentVariable("PROBE_REL") ?? "300"), 10 * double.Parse(Environment.GetEnvironmentVariable("PROBE_REL") ?? "300"), Environment.GetEnvironmentVariable("PROBE_CLEAR") == "1");
                 var r = new Dictionary<string, object>();
                 r["file"] = name; r["variant"] = v;
                 try { Run(v, input, aCached, r); } catch (Exception e) { r["status"] = "exception"; r["error"] = e.GetType().Name + ": " + e.Message; }
@@ -76,7 +76,7 @@ class Program
     class Wrapped { public DMesh3 Raw, Final; public double Alpha, Delta; public long Ms, RawMs; public string Status; }
 
     // the pipeline as MeshRobustRepair runs it (benchmarks/MeshRepairBenchmark WrapPipeline, quality pass off)
-    static Wrapped Pipeline(DMesh3 input, double relAlpha, double relOffset)
+    static Wrapped Pipeline(DMesh3 input, double relAlpha, double relOffset, bool clear = false)
     {
         var sw = Stopwatch.StartNew();
         var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
@@ -85,14 +85,15 @@ class Program
         if (wrap.Result == null || wrap.Result.TriangleCount == 0 || (wrap.Status != MeshAlphaWrap.WrapStatus.Success && wrap.Status != MeshAlphaWrap.WrapStatus.PointLimitReached)) {
             w.Ms = sw.ElapsedMilliseconds; return w;
         }
-        w.Final = Simplify(w.Raw, w.Delta);
+        w.Final = Simplify(w.Raw, w.Delta, clear ? input : null);
         w.Ms = sw.ElapsedMilliseconds;
         return w;
     }
 
-    static DMesh3 Simplify(DMesh3 raw, double delta)
+    static DMesh3 Simplify(DMesh3 raw, double delta, DMesh3 clearOf = null)
     {
-        return MeshRobustRepair.SimplifyWithin(raw, 0.5 * delta, 0.5 * delta, true, never, out int subdiv, new Dictionary<string, long>()) ?? raw;
+        return MeshRobustRepair.SimplifyWithin(raw, 0.5 * delta, 0.5 * delta, true, never, out int subdiv, MeshRobustRepair.WrapSimplifyMinQuality, true,
+            MeshRobustRepair.WrapSimplifySlabs, 0, new Dictionary<string, long>(), clearOf) ?? raw;
     }
 
     static void Run(string variant, DMesh3 input, Wrapped a, Dictionary<string, object> r)
@@ -115,6 +116,17 @@ class Program
                 Audit(a.Raw, "raw", oriented, inputTree, inGrid2, a.Delta, r);
                 Audit(a.Final, "fin", oriented, inputTree, inGrid2, a.Delta, r);
                 r["delta"] = a.Delta; r["alpha"] = a.Alpha; r["status"] = "ok"; r["tris"] = a.Final.TriangleCount; r["ms"] = a.Ms;
+                return;
+            }
+            case "GQ": {
+                // audit of the quality pass (MeshRobustRepair.AlphaWrapQualityPass) on top of the simplified wrap
+                DMesh3 q = MeshRobustRepair.ImproveWrapQuality(a.Final, a.Raw, 0.5 * a.Delta, true, never, (p) => { MeshRobustRepair.DefaultWrapQuality(p); if (Environment.GetEnvironmentVariable("PROBE_CLEAR") == "1") p.KeepClearOf = new DMeshAABBTree3(input, true); });
+                if (q == null) { r["status"] = "quality_unchanged"; return; }
+                var inGrid3 = new TriangleHashGrid(oriented.CachedBounds.Min, Math.Max(a.Alpha, 1e-12));
+                foreach (int tid in oriented.TriangleIndices()) inGrid3.Insert(tid, Snap.Box(Snap.Tri(oriented, tid)));
+                Audit(a.Final, "pre", oriented, inputTree, inGrid3, a.Delta, r);
+                Audit(q, "fin", oriented, inputTree, inGrid3, a.Delta, r);
+                r["delta"] = a.Delta; r["alpha"] = a.Alpha; r["status"] = "ok"; r["tris"] = q.TriangleCount; r["ms"] = a.Ms;
                 return;
             }
             case "R": result = a.Raw; ms = a.RawMs; break;
@@ -186,7 +198,7 @@ class Program
     {
         int vLt05 = 0, vLt025 = 0, vInside = 0, tLt05 = 0, tLt025 = 0, tInside = 0, tCross = 0, nv = 0;
         double minV = double.MaxValue, minT = double.MaxValue;
-        var vd = new List<double>();
+        var vd = new List<double>(); var depths = new List<double>();
         foreach (int vid in m.VertexIndices()) {
             Vector3d p = m.GetVertex(vid);
             double d2; tree.FindNearestTriangle(p, out d2);
@@ -214,9 +226,20 @@ class Program
                 if (ExactTriangleIntersection.IsDegenerate(ref u)) return;
                 if (ExactTriangleIntersection.Intersects(ref t, ref u)) cross = true;
             });
-            if (cross) tCross++;
+            if (cross) {
+                tCross++;
+                // penetration depth: the deepest sample of a 16x16 barycentric grid inside the input's solid, its distance to the surface (offsets)
+                double depth = 0;
+                for (int i = 0; i <= 16; ++i) for (int j = 0; i + j <= 16; ++j) {
+                    Vector3d p = (i * t.V0 + j * t.V1 + (16 - i - j) * t.V2) / 16;
+                    if (tree.FastWindingNumber(p) > 0.5) { double d2; tree.FindNearestTriangle(p, out d2); depth = Math.Max(depth, Math.Sqrt(d2) / delta); }
+                }
+                depths.Add(depth);
+            }
         }
-        vd.Sort();
+        vd.Sort(); depths.Sort();
+        r["au_" + tag + "_depth_max"] = depths.Count > 0 ? depths[depths.Count - 1] : 0.0; r["au_" + tag + "_depth_p50"] = depths.Count > 0 ? depths[depths.Count / 2] : 0.0;
+        r["au_" + tag + "_depth_pos"] = depths.Count(d => d > 0);
         r["au_" + tag + "_verts"] = nv; r["au_" + tag + "_tris"] = m.TriangleCount;
         r["au_" + tag + "_v_min"] = minV; r["au_" + tag + "_v_p001"] = vd[(int)(0.001 * (vd.Count - 1))]; r["au_" + tag + "_v_p01"] = vd[(int)(0.01 * (vd.Count - 1))]; r["au_" + tag + "_v_med"] = vd[vd.Count / 2];
         r["au_" + tag + "_v_lt05"] = vLt05; r["au_" + tag + "_v_lt025"] = vLt025; r["au_" + tag + "_v_inside"] = vInside;
