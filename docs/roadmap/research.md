@@ -62,6 +62,14 @@ Part of the [roadmap](../ROADMAP.md).
      Design note 2026-11-09: [design/TET_MESHING.md](../design/TET_MESHING.md): recommended = wrap, then Delaunay
      refinement of its inside cells (they already are a conforming tet mesh); MVP stages 0+1 about 3 weeks, owner
      decisions in section 9; the boundary is the wrap surface, not the input.
+     Targets (owner 2026-11-09), set against fTetWild's published Thingi10K results: 100 % valid tet meshes, minimum
+     dihedral angle >= 10°, time in the same order of magnitude; option (a) (alpha wrap + Delaunay refinement, wrap
+     surface as boundary), stage 0 running. Sharp features are the main gap for FEM on CAD parts: shared item with
+     Alpha Wrap 3.0 (lever 6, dual contouring).
+     Status 2026-11-09: stage 0 done (#487: inside cells exactly valid on 40/40 Thingi meshes, raw quality not FEM-ready,
+     wrap surfaces on real meshes down to 12° dihedral). Owner: stage 1 waits for the fTetWild black-box comparison on
+     the same 40 meshes (runner job on runs/tet-meshing) and for sharp features in the alpha wrap; without sharp edges
+     probably not worth building.
   4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point

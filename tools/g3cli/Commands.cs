@@ -227,7 +227,13 @@ namespace g3cli
                     if (repair.Apply() == false)
                         throw new CommandException(ResultCodes.OperationFailed,
                             "MeshRobustRepair failed" + (repair.ResultReason == MeshRobustRepair.ScaleDisparity || repair.ResultReason == MeshRobustRepair.ScaleNotFinite ? ": " + repair.ResultReason
-                                : repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
+                                : repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""),
+                            new JsonObject() {
+                                ["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason, ["result_code"] = ReasonCode(repair.ResultReason),
+                                ["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason,
+                                ["exact_resolve_reason"] = repair.ExactResolveReason == "" ? null : repair.ExactResolveReason,
+                                ["exact_resolve_code"] = ReasonCode(repair.ExactResolveReason),
+                            });
                     result = repair.Mesh;
                     o["used_exact_resolve"] = repair.UsedExactResolve;
                     // genus of the mesh the exact stage resolved and of its result (null without the exact stage or where
@@ -248,6 +254,9 @@ namespace g3cli
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
                     o["wrap_reason"] = repair.WrapReason == "" ? null : repair.WrapReason;
                     o["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason;
+                    // (the short codes of the two scale reasons, whose texts are long; null for any other reason)
+                    o["result_code"] = ReasonCode(repair.ResultReason);
+                    o["exact_resolve_code"] = ReasonCode(repair.ExactResolveReason);
                     // the SafeRounding repairs of the exact stage's last round (null if not run)
                     o["strict_rounding"] = repair.StrictRounding;
                     o["exact_resolve_rounding"] = RoundingInfo(repair.ExactResolveRounding);
@@ -286,7 +295,40 @@ namespace g3cli
                 ["rounding_max_pair_tests"] = op.RoundingMaxPairTests,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
+                // (the status of the exact operation, positions where the solid touches itself, reoriented input triangles, the library's counters)
+                ["status"] = ToSnake(op.Status.ToString()),
+                // (set by a successful Compute only: null after a failure, where the library stopped before it counted them)
+                ["contacts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.Contacts : (JsonNode)null,
+                ["reoriented_triangles"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.ReorientedTriangles : (JsonNode)null,
+                ["counts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? CountsInfo(op.Counts) : null,
             };
+        }
+
+        static JsonObject CountsInfo(Dictionary<string, long> counts)
+        {
+            var o = new JsonObject();
+            if (counts != null)
+                foreach (var kv in counts.OrderBy(k => k.Key, StringComparer.Ordinal)) o[kv.Key] = kv.Value;
+            return o;
+        }
+
+        /// <summary> data of a failed boolean / resolve: the status and the library's message </summary>
+        static JsonObject BooleanFailure(ExactMeshBoolean op)
+        {
+            return new JsonObject() {
+                ["boolean_status"] = ToSnake(op.Status.ToString()), ["boolean_error"] = op.Error,
+                ["boolean"] = BooleanInfo(op),
+            };
+        }
+
+        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite / ScaleDisparity reasons, else null </summary>
+        static JsonNode ReasonCode(string reason)
+        {
+            // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
+            if (string.IsNullOrEmpty(reason)) return null;
+            if (reason.Contains(MeshRobustRepair.ScaleNotFinite)) return "scale_not_finite";
+            if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
+            return null;
         }
 
         /// <summary> the counts of a SafeRounding repair (MeshRoundingRepair), null if it did not run </summary>
@@ -316,6 +358,13 @@ namespace g3cli
                 ["absolute_tolerance"] = r.AbsoluteTolerance,
                 ["max_pair_tests"] = r.MaxPairTests,
                 ["evaluation_limit_reached"] = r.EvaluationLimitReached,
+                ["initial_false_contacts"] = r.InitialFalseContacts,
+                ["remaining_false_contacts"] = r.RemainingFalseContacts,
+                ["vertex_removals"] = r.VertexRemovals,
+                // (infinity: no edit was rejected by the bound)
+                ["smallest_rejected_drift"] = double.IsPositiveInfinity(r.SmallestRejectedDrift) ? null : MeshReport.Num(r.SmallestRejectedDrift),
+                // (only where a defect is left: a scale problem alone has no position)
+                ["remaining_defect_at"] = r.RemainingIntersections + r.RemainingDegenerate + r.RemainingFalseContacts > 0 ? MeshReport.Vec(r.RemainingDefectAt) : null,
             };
         }
 
@@ -442,7 +491,7 @@ namespace g3cli
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
@@ -483,7 +532,7 @@ namespace g3cli
                 };
                 ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed (" + op.Status + "): " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
                 o["exact_winding"] = op.ExactWindingA;

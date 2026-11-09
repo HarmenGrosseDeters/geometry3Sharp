@@ -46,7 +46,12 @@ batched queries on the input tree (#448), cheap prefilters, per-facet caching; (
 (BRIO / Hilbert) order with a compact tetrahedron layout and fewer allocations; (3) parallelism: evaluate the carving
 candidates' gate tests in parallel batches and apply them serially in a fixed order (deterministic), certification in
 parallel batches; (4) pinch passes more local (on #429); (5) reduction via PartitionedReducer (#470) and an incremental
-tree (shared with Reducer / Remesher 2.x). Process: a Sonnet session measures a per-phase profile, an upper bound per
+tree (shared with Reducer / Remesher 2.x); (6) sharp features via dual contouring (owner question 2026-11-09): the
+library already has manifold DC (mesh_generators/DualContouring.cs, Schaefer et al. 2007, QEF vertex per patch, Hermite
+data projected onto the input) and WindingContouring (DC on the winding number, robust to soups, with a
+self-intersection check); measure sharp-edge Chamfer and edge F-score (the option-1 metrics) on the 20 T1 meshes for
+the wrap, WindingContouring, and a wrap post-pass that moves boundary vertices toward the DC QEF points under exact
+validity checks (closed, manifold, no self-intersection, angle bounds). Process: a Sonnet session measures a per-phase profile, an upper bound per
 lever, a short literature check (papers only, never CGAL code) and proposes targets (e.g. 95 % of the 800 within budget,
 guarantees and angles unchanged, deterministic); the owner sets them; one PR per lever, measured with the 800 harness on
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
