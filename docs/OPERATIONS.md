@@ -205,6 +205,10 @@ to tip), so the remeshers neither move them nor join the fans; the `Reducer` kee
 `Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
 to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
 
+`PartitionedReducer` (opt-in) is `Reducer.ReduceToMaxQuadricError` on 8 fixed slabs in parallel: deterministic for any thread count, not the serial Reducer's result, the main use is
+`PreventSelfIntersections` (on 60 to 100k triangles 1.3 to 2.4 x the plain time instead of 4 to 5 x, 4 cores; no gain below about 20k triangles, where it reduces serially; the result has no
+attributes and does not keep the boundary shape; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 9).
+
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
 

@@ -188,3 +188,51 @@ Reading:
   target (guards, genus minimum), callers check `TriangleCount`; and the recommendation to use `FeatureAngle`, `MaxDeviation` or `ReduceToMaxQuadricError` when a quality criterion rather than a count is meant.
 
 Proposal: T1 closed with this note (no code); T3 next (`PreventSelfIntersections` is the lever for the self-intersection columns above).
+
+## 9. T3: `PartitionedReducer` (the public partitioned Reducer; owner decision 2026-11-09, option A)
+
+New public sealed class `PartitionedReducer` (`mesh_ops/PartitionedReducer.cs`, purely additive): `PartitionedReduction` (#432) on 8 fixed slabs, with
+`Reduce(mesh, maxQuadricError)`, `Configure(Action<Reducer>)`, `MaxThreads`, `CancelF`, `MinTriangles` (default 20000: below it one serial Reducer run), `UsedPartition`.
+The contract (deterministic for any thread count, not the serial result, no attributes and no isolated vertices in the result, `PreserveBoundaryShape = false`, thread-safe `Configure` and `CancelF`,
+`MaxDeviation` and external constraints in `Configure` refused, `AggregateException` for every `MaxThreads`, the two serial fallbacks) is in the class documentation and pinned by `PartitionedReducerTests`. No triangle-count target in v1. Opt-in; the plain reduction stays serial.
+
+Measured (`ReducerRemesherBaseline partition=1 min_tris=0`, 24 inputs, `ReduceToMaxQuadricError` at 0.003 of the box diagonal, `AreaWeightedQuadrics = false`,
+`PreserveBoundaryShape = false`, 4 cores, warm, one run each; the partition forced on). Time of the plain Reducer, of `PreventSelfIntersections` serial, and of the same on 8 slabs:
+
+| mesh | triangles | plain s (tris) | si serial s (tris) | si on 8 slabs s (tris) | si / plain | slabs / plain | slabs speed-up over si serial | used partition | Hausdorff si serial / slabs (of diagonal) |
+|---|---|---|---|---|---|---|---|---|---|
+| bumpy_sphere | 95052 | 0.34 (4792) | 1.35 (4792) | 0.69 (4820) | 4.0 x | 2.0 x | 1.97 x | yes | 0.0012 / 0.0013 |
+| torus | 67600 | 0.19 (4328) | 0.96 (4328) | 0.45 (4354) | 5.1 x | 2.4 x | 2.16 x | yes | 0.0012 / 0.0013 |
+| terrain | 96800 | 0.35 (7121) | 1.45 (7121) | 0.46 (7109) | 4.1 x | 1.3 x | 3.14 x | yes | 0.0190 / 0.0190 |
+| box | 57132 | 1.06 (12) | 57.87 (12) | 10.23 (14) | 54.7 x | 9.7 x | 5.65 x | yes | 0.0005 / 0.0004 |
+| 1043471 | 20204 | 0.05 (1044) | 0.30 (1044) | 0.32 (1060) | 5.5 x | 5.9 x | 0.93 x | yes | 0.0020 / 0.0020 |
+| 104582 | 39608 | 0.17 (3908) | 0.91 (3912) | 0.90 (3930) | 5.5 x | 5.5 x | 1.00 x | yes | 0.0025 / 0.0025 |
+| 1053376 | 42612 | 0.15 (5592) | 0.78 (5756) | 0.33 (5724) | 5.2 x | 2.2 x | 2.37 x | yes | 0.0074 / 0.0067 |
+| 78295 | 42492 | 0.15 (4018) | 1.10 (4018) | 0.67 (4080) | 7.4 x | 4.5 x | 1.65 x | yes | 0.0016 / 0.0021 |
+| 93370 | 45694 | 0.12 (12078) | 1.20 (12080) | 0.53 (11560) | 9.8 x | 4.4 x | 2.25 x | yes | 0.0022 / 0.0022 |
+
+Below 20000 triangles (15 meshes, 2.4k to 18k): the slabs take 0.8 to 1.5 x the serial `si` time (no gain; setup and the serial last pass dominate), at most 0.2 s, which is why
+`MinTriangles` defaults to 20000.
+
+Totals over the 24 meshes: plain 2.8 s, `si` serial 67.4 s (23.7 x), slabs 16.0 s (5.6 x plain, 4.2 x faster than `si` serial). Without the box (a closed box with large coplanar faces
+makes the self-intersection check 55 x the plain time): plain 1.8 s, `si` 9.5 s (5.4 x), slabs 5.7 s (3.2 x, 1.7 x faster). Result sizes agree within 1 to 4 % (93370: 12080 against 11560;
+the box: 12 against 14; 63709, whose input has 1298 self-intersecting pairs: 4506 against 4390). The certified one-sided Hausdorff distance to the input is equal or within 0.0008 of the
+diagonal (78295: 0.0016 / 0.0021; 118679: 0.0015 / 0.0032; 1053376: 0.0074 / 0.0067). Not bit-identical to the serial run (as #432).
+
+Reading against the target (T3, Reducer: `si` at <= 4 x the plain time): reached on the large smooth meshes (sphere 2.0 x, torus 2.4 x, terrain 1.3 x, against 4.0 to 5.1 x serial), not on
+CAD-like inputs with large flat faces (box 9.7 x, against 55 x) and not below 20k triangles (5 to 24 x, but at most 0.2 s). An earlier scratch probe (area-weighted quadrics, 1.2 to 1.6 x) used a lighter reduction; these numbers are with the settings of the class documentation. The Remesher part of T3 is in the next subsection.
+
+### Remesher part of T3: upper-bound probe (stop rule applied, not built)
+
+The target was `PreventSelfIntersections` at <= 8 x the plain Remesher time (today 12.6 x at the median for x1, 12.3 x for x2; 20 Thingi10K meshes, `g3cli` settings, 16 of
+them up to 30000 triangles with `si`). Probe: the phase profile of the `si` run (`profile=1`, 4 cores; 3 meshes) and the required speed-up per mesh from the baseline rows.
+- Share of the serial edge operations (collapse, flip, split) in the `si` run: 73 % (78295, 15 s), 70 % (93370, 69 s), 44 % (299291, 3.9 s); smoothing and projection
+  (with the move check) 27 / 30 / 56 %. With the default (no `si`) the operations are 66-88 %.
+- Needed speed-up of the `si` run to reach 8 x the plain time: 1.58 x at the median (x1; 1.54 x for x2); 2 of 16 meshes are there already; one of the 16 (49 x) needs more than 4 x, more than 4 cores can give (the profiled 93370, 46k triangles, is at 64 x: 69 s against 1.07 s).
+- Bound for slabs on 4 cores: partitioning only the operations (share 0.7) gives at most 1 / (0.3 + 0.7 / 4) = 2.1 x; the Reducer's slabs realised 2.0 to 3.1 x over serial `si` on 60-100k triangles
+  and nothing below 20k, which is where 15 of the 16 meshes with `si` are. So the target is reachable, if at all, on the few large meshes, with a large build (slab limits for smoothing and
+  projection, the iterative passes, constraints across slab borders, flips of border edges) and an unknown effect on the result.
+- The absolute cost is small for most inputs: `si` takes 1.6 s at the median (x1) and 42 s at the maximum of the 16 meshes (and 69 s on the 46k-triangle 93370).
+
+Result: no lever worth its cost on the evidence; T3 for the Remesher is closed with this note (owner decision 2026-11-09: T4 / Remesher speed is re-measured later anyway). What exists today:
+`PreventSelfIntersections` is opt-in and removes the added self-intersections completely (0 of 16 meshes with more pairs than the input, against 14 of 19 without it), at 12 x the time.
