@@ -43,9 +43,14 @@ namespace geometry3Sharp.Tests
             // (no bowties either, and every vertex has triangles)
             Assert.True(r.CheckValidity(false, FailMode.ReturnOnly), what + ": invalid DMesh3");
             Assert.True(r.VertexIndices().All(v => r.GetVtxEdgeCount(v) > 0), what + ": vertex without triangles");
-            // the edges left open where the pieces do not fit together are counted
-            if (conflicts)
+            // the edges left open where the pieces do not fit together are counted (the union of these inputs has them;
+            // with the per-piece classification of the open input, the intersection and the difference do not)
+            if (conflicts && op.Operation == ExactMeshBoolean.Operations.Union)
                 Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
+            // every result triangle on the side of the other input that the operation keeps (its generalized winding
+            // number at the triangle, ExactBooleanOpenPerPieceTests)
+            ExactBooleanOpenPerPieceTests.AssertPieces(op.MeshA, op.MeshB, op, op.Operation, what);
+            Assert.Equal(0, MeshIterators.BowtieVertices(r).Count());
             Assert.True(r.Vertices().All(v => v.IsFinite), what + ": non-finite coordinates");
         }
 
