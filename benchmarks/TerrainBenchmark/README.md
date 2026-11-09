@@ -627,3 +627,27 @@ be locked, each adds its two corners. (3) Against the stop rule of D8 (more than
 guarantee is at 2.06-2.14x the vertices and 10.8x the time of the plain greedy, and 5.3x the vertices of greedy with `RemoveVertices` (the
 fair comparison for a minimum); the node guarantee is at 1.3-1.6x and 5.7x. Not measured: real DGM data (the Hambach data need the download of `fetch_data.py`),
 breaklines, gaps, 12 km^2 windows, the surface error of the greedy results.
+
+### Variant (c): greedy selection, one constrained Delaunay pass, surface correction (owner choice 2026-11-09)
+
+`tinspikec n=513 eps=0.1 [remove=0|1] [breaklines=0|1] [gaps=0|1]`: `TerrainGreedyTIN` (with or without `RemoveVertices`) selects the nodes, `QualityMesh2`
+triangulates them once (constrained Delaunay, locked breaklines, a hole for gaps), then the correction pass judges the **final mesh** with the exact overlay scan
+and adds a node of the cell, splits a breakline / hole-boundary segment at the violating crossing, or locks the cell's diagonal (as a chain through the
+breakline crossings if the diagonal crosses a breakline), until the surface error is within `eps`. Same pit grid (513 x 513), eps 0.1 m, single runs, cloud runner. Breaklines: 4 circles
+(radii 135, 96, 58, 19 cells; the cliff lines of the pit's benches) at 2 cells spacing, 1 800 segments. Gaps: a 39 x 29 node no-data block, greedy runs on a filled copy.
+
+| Case | Selected by greedy | Round 0 (the CDT of the selection): surface / node error | Final vertices | Rounds | Time (greedy + mesher + scan) | Final surface / node error |
+|---|---|---|---|---|---|---|
+| plain, greedy + remove | 1958 | 2.207 / 2.203 | 9961 (5.1x the selection, 2.0x plain greedy, 0.93x B2 surface) | 13 | 2.1 s (0.58 + 1.07 + 0.40) | 0.09999 / 0.09999 |
+| plain, greedy | 5019 | 1.929 / 1.929 | 10 320 (0.96x B2 surface) | 14 | 1.8 s (0.13 + 1.44 + 0.22) | 0.09999 / 0.09999 |
+| gaps, greedy + remove | 1956 | 2.207 / 2.203 | 9987 | 13 | 2.3 s | 0.09999 / 0.09999 |
+| breaklines, greedy + remove | 1958 | 2.207 / 2.203 | 12 726 (not converged) | 12 | 2.5 s | **0.52** / 0.09999 (stuck) |
+| gaps + breaklines, greedy + remove | 1956 | 2.207 / 2.203 | 12 722 (not converged) | 13 | 2.6 s | **0.52** / 0.09999 (stuck) |
+
+Findings: (1) The CDT of greedy's selection is far from the guarantee: 22x eps (2.2 m), because the mesher's diagonals at the cocircular grid points differ from greedy's own
+triangulation (and greedy with `RemoveVertices` is not Delaunay at all). The correction pass then adds 8 000 vertices (1 460 locked diagonals, each with its two corners),
+so (c) ends at the vertex count of B2 (9 961 against 10 748), not near greedy's 1 958 / 5 019, and the time (2.1 s) is not below B2's best (1.6 s). (2) Gaps work
+(hole boundary refined by splitting its segments). (3) With breaklines the correction does not converge in this implementation: it stops at 0.52 m with 56 triangles above
+eps (node error is within eps); the stuck triangles have breakline chords crossing grid lines inside cells whose diagonals are already locked; the
+cause is not found (the breakline splits at the chord's grid-line crossings are requested, but a few violations are on unlocked edges of fully resolved cells).
+Not measured: real DGM data, large windows.
