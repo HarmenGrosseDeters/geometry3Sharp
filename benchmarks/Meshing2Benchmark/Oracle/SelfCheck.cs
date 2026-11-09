@@ -270,6 +270,27 @@ namespace Meshing2Acceptance
                 Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
             }
 
+            // ---- the shortest edge of a triangle spans an input angle below 60 degrees (owner decision 2026-11-09, Shewchuk 2002 section
+            // 6.2: refinement towards the apex of such an angle may not terminate). A hull domain of A = (0, 0), E1 = (30, 0) and E2, a bound
+            // of 20 degrees, and the triangle p E1 q with p = (1, 0) and q on A-E2 at a distance within 1.5 of p's: its shortest edge p-q
+            // spans the hull angle at A, and its angle at E1 is 1.5 degrees. Excused at the input angle of 36.87 degrees (E2 = (24, 18)),
+            // reported at 63.43 degrees (E2 = (12, 24)), where the old threshold (the bound, 20 degrees) excused neither
+            {
+                Mesh2Input SpanIn(double ex, double ey) => new Mesh2Input { X = new[] { 0, 30, ex }, Y = new[] { 0, 0, ey }, MinAngleDeg = 20 };
+                Mesh2Output SpanOut(double ex, double ey, double qx, double qy) {
+                    var tris = new[] { new[] { 0, 3, 4 }, new[] { 3, 1, 4 }, new[] { 4, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 30, ex, 1, qx }, VY = new[] { 0, 0, ey, 0, qy },
+                        InputToVertex = new[] { 0, 1, 2 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 1 } };
+                }
+                var small = Oracle.Check(SpanIn(24, 18), SpanOut(24, 18, 1, 0.75), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the shortest edge spans an input angle of 36.87 degrees, above the bound of 20 and below 60", !small.Has(Violation.AngleBelowBound), "report: " + small);
+                var nearly = Oracle.Check(SpanIn(16, 27), SpanOut(16, 27, 0.64, 1.08), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the same at an input angle of 59.34 degrees, just below 60", !nearly.Has(Violation.AngleBelowBound), "report: " + nearly);
+                var wide = Oracle.Check(SpanIn(12, 24), SpanOut(12, 24, 0.5, 1), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed
