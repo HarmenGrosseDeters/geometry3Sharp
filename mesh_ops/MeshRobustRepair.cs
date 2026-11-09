@@ -1285,12 +1285,30 @@ namespace gs
             return "";
         }
 
-        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
+        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
+        // [2^-100, 2^100] the test runs on the coordinates scaled by a power of two to an extent in [1, 2) (exact,
+        // MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges inside)
+        // underflowed below edges of about 2^-255, so well-shaped triangles were degenerate; below a diagonal of about
+        // 2^-517 the threshold underflowed to 0 and no triangle was, not even an exactly flat one; above about 1e154 the
+        // diagonal overflowed and every triangle was. 2^k scales give the same answer
         static bool has_degenerate_triangles(DMesh3 mesh)
         {
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
-            double areaEps = 1e-12 * diag * diag;
-            return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            double s = MeshRepairMetrics.unit_scale(MeshRepairMetrics.TriangleBounds(mesh), -100, 100);
+            if (s == 1) {
+                double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+                double areaEps = 1e-12 * diag * diag;
+                return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            }
+            AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);
+            double d = new AxisAlignedBox3d(s * box.Min, s * box.Max).DiagonalLength, eps = 1e-12 * d * d;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d sa = s * a, sb = s * b, sc = s * c;
+                if (MathUtil.Area(ref sa, ref sb, ref sc) < eps)
+                    return true;
+            }
+            return false;
         }
     }
 }

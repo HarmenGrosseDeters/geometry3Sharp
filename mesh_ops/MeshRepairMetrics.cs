@@ -312,6 +312,29 @@ namespace gs
             return s;
         }
 
+        /// <summary>
+        /// The power of two that brings the largest extent of box (or, if that is not finite, its largest coordinate)
+        /// into [1, 2) when the extent lies outside [2^lowExp, 2^highExp], otherwise 1; also 1 if the scaled
+        /// coordinates would not be finite. Exact scaling (see normalizing_scale)
+        /// </summary>
+        internal static double unit_scale(AxisAlignedBox3d box, int lowExp, int highExp)
+        {
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            if (ext >= BitConverter.Int64BitsToDouble((long)(1023 + lowExp) << 52) && ext <= BitConverter.Int64BitsToDouble((long)(1023 + highExp) << 52))
+                return 1;
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            int e = Math.Min(1023, -exponent(r));
+            double sc = BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+            if (!(largest * sc <= double.MaxValue / 64))
+                return 1;
+            return sc;
+        }
+
         // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
         static int exponent(double x)
         {
