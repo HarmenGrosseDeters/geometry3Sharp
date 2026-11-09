@@ -120,7 +120,7 @@ namespace g3
             // (the products below are cubes of the coordinates: they underflow to 0 below about 1e-103 and overflow above
             // about 1e102, which made t 0 or infinite for a triangle of that size. Scaled by a power of two the rounding
             // is the same, and t is scaled back: t' = s t, as the numerator is cubic and the denominator quadratic in s)
-            int scaleExp = ScaleExponent(ref edge1, ref edge1, ref edge2);   // (by the edges: a far origin against a small triangle keeps its range)
+            int scaleExp = ScaleExponent(ref edge1, ref edge1, ref edge2);   // (by the edges: a far origin against a small triangle keeps its range; a ratio of diff to the edges beyond about 1e300 is not handled)
             if (scaleExp != 0) {
                 diff = ScaledBy(diff, scaleExp);
                 edge1 = ScaledBy(edge1, scaleExp);

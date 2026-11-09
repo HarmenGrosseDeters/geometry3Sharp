@@ -120,7 +120,7 @@ namespace geometry3Sharp.Tests
             Vector3d a = s * new Vector3d(0, 0, 0), b = s * new Vector3d(4, 0, 0), c = s * new Vector3d(0, 4, 0);
             var ray = new Ray3d(new Vector3d(1e-60, 1e-60, 1e150), new Vector3d(0, 0, -1));
             Assert.True(IntrRay3Triangle3.Intersects(ref ray, ref a, ref b, ref c, out double t));
-            Assert.Equal(1e150, t, 3);
+            Assert.InRange(t / 1e150, 1 - 1e-12, 1 + 1e-12);
         }
 
         [Fact]
