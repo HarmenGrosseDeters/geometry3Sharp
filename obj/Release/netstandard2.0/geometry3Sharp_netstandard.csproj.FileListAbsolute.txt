@@ -1,0 +1,13 @@
+/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.deps.json
+/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.dll
+/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.pdb
+/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.xml
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.csproj.AssemblyReference.cache
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.GeneratedMSBuildEditorConfig.editorconfig
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.AssemblyInfoInputs.cache
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.AssemblyInfo.cs
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.csproj.CoreCompileInputs.cache
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp_netstandard.sourcelink.json
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp.dll
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp.xml
+/home/user/geometry3Sharp/obj/Release/netstandard2.0/geometry3Sharp.pdb

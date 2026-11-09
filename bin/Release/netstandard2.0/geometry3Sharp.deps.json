@@ -1,0 +1,24 @@
+{
+  "runtimeTarget": {
+    "name": ".NETStandard,Version=v2.0/",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETStandard,Version=v2.0": {},
+    ".NETStandard,Version=v2.0/": {
+      "geometry3Sharp/1.0.0-ci.1": {
+        "runtime": {
+          "geometry3Sharp.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "geometry3Sharp/1.0.0-ci.1": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
