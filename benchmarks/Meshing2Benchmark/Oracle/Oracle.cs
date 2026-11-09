@@ -2489,6 +2489,12 @@ namespace Meshing2Acceptance
                     foreach (var f in EighthPoints) {
                         var p = new Pt(ed.a.Qx + (ed.b.Qx - ed.a.Qx) * f, ed.a.Qy + (ed.b.Qy - ed.a.Qy) * f);
                         if (NearOutput(p)) continue;
+                        // a part of a ring edge outside the domain (a hole reaching beyond the outer ring, D5) bounds nothing: the domain has
+                        // no interior just beside p on either side
+                        Q eps = new Q(1, 1 << 20);
+                        var side = new Pt(p.Qx - (ed.b.Qy - ed.a.Qy) * eps, p.Qy + (ed.b.Qx - ed.a.Qx) * eps);
+                        var other2 = new Pt(p.Qx + (ed.b.Qy - ed.a.Qy) * eps, p.Qy - (ed.b.Qx - ed.a.Qx) * eps);
+                        if (domain.Classify(side) != Where.Inside && domain.Classify(other2) != Where.Inside) continue;
                         // collapsed or merged: another input edge within two tubes of p (also a neighbour at an acute corner: a wedge up to two
                         // pixels wide collapses onto it; the area tolerance, measured on the output boundary, bounds what that can hide)
                         bool collapsed = false;
