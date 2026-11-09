@@ -1,6 +1,6 @@
 # DGM to TIN with breaklines: constrained quality meshing in 2.5D
 
-Status: **proposal for the owner** (2026-11-09). Design only; no code. Part of the terrain restart
+Status: **implemented as `gs.TerrainGridTin`** (`mesh_ops/TerrainGridTin.cs`, owner decisions 2026-11-09: D1 surface error, B2 chosen over greedy+correction); the sections below are the design it follows. Measured cost: section 11. Design only; no code. Part of the terrain restart
 ([roadmap/terrain.md](../roadmap/terrain.md)); follows the DGM reader (`HeightGrid`, `HeightGridReader`, PR #479).
 Owner decision 2026-11-08: the step is built on `QualityMesh2` (its exact predicates, oracle and golden tests), not on a
 new triangulator.
@@ -30,10 +30,22 @@ new triangulator.
   diagonals. The node error is **not** a bound for it: along a grid edge the difference has kinks where TIN edges cross, and there it can exceed
   the node bound (the bound is only at the nodes).
 
-Proposal: **guarantee the node error** (`AchievedNodeError <= Epsilon`), and **compute the surface error exactly in a verification
-routine** (the overlay vertices above, `O(edges x cells crossed)`), reported in the result and used by tests and the benchmark.
-The spike measures `surface / node`; if it is far from 1, an option `GuaranteeSurface` adds the nodes next to violating overlay vertices
-until the exact surface error is within `Epsilon`.
+**Decision (owner 2026-11-09, D1): the guarantee is the surface error.** `AchievedSurfaceError <= Epsilon`, the exact maximum of
+`|T - S|` over the whole TIN (overlay vertices included); the node error is reported as well (it is never larger than the surface error,
+since the nodes are among the overlay vertices).
+
+**Exact evaluation.** On every overlay cell `T - S` is linear, so its maximum is at an overlay vertex, and the overlay vertices of a TIN
+triangle `t` with the grid triangles are: (1) the grid nodes inside `t`, (2) the corners of `t` (S evaluated there), (3) the crossings of the
+edges of `t` with the grid lines `x = i`, `y = j` and the diagonals `x - y = c` (index space: integers, so the crossings are cheap).
+Along an edge of `t` the difference is piecewise linear with breaks exactly at (3), which is why no other point is needed. In double
+arithmetic the crossings carry a rounding error of a few ulp of the index coordinates; the reported value adds that bound, so that
+`AchievedSurfaceError` is an upper bound of the exact value. Cost: `O(sum over triangles of the cells they cover + crossings)`, a small multiple
+of the node scan (the spike measures the factor).
+
+**Insertion rule.** A violating overlay vertex `p` (error above the round's threshold) inserts the grid node of its grid cell that is
+nearest to `p` and not yet a vertex (breakline vertices: the point of the breakline nearest to `p`). Termination: with all four corners of a
+cell present, the mesher's diagonal may differ from the fixed diagonal of `S` (cocircular corners; F-63). If such a cell still violates, its
+diagonal is added to the mesher as a locked segment (at most one per cell, only where needed). With all nodes and the needed diagonals present, `T = S` and the error is 0.
 
 ## 3. Pipeline
 
@@ -42,8 +54,8 @@ HeightGrid + breaklines
   1. domain       cell mask -> boundary rings and holes (cells with all four corners valid)   [new, small]
   2. index space  coordinates (i, j) in cell units, exact small numbers                          [decision D3]
   3. seed         domain corners/ring nodes + breakline vertices (z from the grid TIN)
-  4. loop         ConstrainedMesh2 (QualityMesh2, MinAngle 0, no refinement)  ->  node errors on the real output
-                  -> insert the worst node of every triangle above the round's threshold      -> repeat until max <= Epsilon
+  4. loop         ConstrainedMesh2 (QualityMesh2, MinAngle 0, no refinement)  ->  exact surface errors on the real output (section 2)
+                  -> insert the nodes next to the worst violations of every triangle above the round's threshold      -> repeat until max <= Epsilon
   5. output       DMesh3 (x = X0 + i * Cell, z = grid), edge flags for breaklines, result record
 ```
 
@@ -102,35 +114,34 @@ mesher is deterministic, spec O22; the error scan may be parallel per triangle w
 v1: forward selection only (the rounds above). `TerrainGreedyTIN.RemoveVertices` removes another 31-46 % of the vertices at the same
 bound, at 5-7x the time. Plan: build v1, compare the vertex count with `TerrainGreedyTIN` (with and without removal) in the benchmark;
 a removal pass (vertex removal by ear clipping, breakline edges and ring vertices not removable) is added only if the count is above
-1.3x the greedy count or the owner wants the minimum. A removal pass has to re-verify the node error and, by D2, runs on the
+1.3x the greedy count or the owner wants the minimum. A removal pass has to re-verify the surface error and, by D2, runs on the
 `DMesh3` result, not inside the mesher.
 
 ## 8. Tests (acceptance)
 
 Procedural terrains only (no geodata): a paraboloid pit with benches (breaklines along crest and toe), a ridge/valley terrain, a terrain with holes.
 
-* Node error `<= Epsilon` by brute force for several `Epsilon`; the exact surface error equals an independent sampling bound from above (sampled maximum <= exact).
+* Surface error `<= Epsilon` for several `Epsilon`: the exact value is checked against a dense sampling of `T - S` (sampled maximum <= exact <= reported), and the node error is reported and never above the surface error.
 * Height field: all triangles CCW, no XY overlap (the exact overlap check of the slope code), mesh closed except at the domain boundary.
 * Every breakline subsegment is an edge chain; the chain lies on the breakline within the stated tolerance (exactly in `FromInput` XY).
 * Invariance over `Similarity.All()` where meaningful (2^k scales and translations: bit for bit; rotations: grid not rotatable, so not applicable).
 * Reuse (compute twice on one instance), determinism (repeated, parallel scan equals serial).
 * Mutation checks of the loop (threshold, insertion rule, error scan), `Slow` trait if a case needs more than 5 s.
 * Golden: the pit terrain's vertex/triangle counts pinned in the format of MESHING2D_GOLDEN_FORMAT.md; end-to-end with the slope design on the pit.
-* Differential: vertex count and node error against `TerrainGreedyTIN` on the benchmark windows (fetch_data.py data, not committed).
+* Differential: vertex count and surface and node error against `TerrainGreedyTIN` on the benchmark windows (fetch_data.py data, not committed).
 
 ## 9. Plan
 
-1. **Spike** (benchmark only, `benchmarks/TerrainBenchmark`): rounds/threshold, vertex count and time against `TerrainGreedyTIN`, ratio surface/node
-   error, memory. Upper-bound check first: the sequential greedy numbers are the reference; stop if the vertex count is above 2x
+1. **Spike** (benchmark only, `benchmarks/TerrainBenchmark`): rounds/threshold, vertex count and time against `TerrainGreedyTIN`, the cost of the surface guarantee against a node-only guarantee (vertices, time), memory. Upper-bound check first: the sequential greedy numbers are the reference; stop if the vertex count is above 2x
    of the greedy count or the time above 5x, and report.
 2. Library PR (one): domain extraction, loop, breaklines, result record, tests above. Additive API only.
-3. Docs and CLI/MCP command through the CLI/MCP session. Later: `GuaranteeSurface`, removal pass, `MinAngle` quality option (must re-verify the bound).
+3. Docs and CLI/MCP command through the CLI/MCP session. Later: removal pass, `MinAngle` quality option (must re-verify the bound).
 
 ## 10. Decisions for the owner
 
 | # | Decision | Recommendation |
 |---|---|---|
-| D1 | Bound: node error guaranteed + exact surface error reported, or surface error guaranteed | Node error guaranteed, surface error reported; `GuaranteeSurface` later if the spike shows a large ratio |
+| D1 | Bound: node error guaranteed + exact surface error reported, or surface error guaranteed | **Decided (owner 2026-11-09): the surface error is the guarantee**, the node error is reported too. The spike reports what the surface guarantee costs against the node guarantee |
 | D2 | Triangulator: B2 (rounds around `QualityMesh2`), B1 (size field), or port greedy with constraints | B2 |
 | D3 | Mesh in grid index space (exact, origin- and scale-free) | Yes |
 | D4 | Breakline z: from the grid (bound holds) or from the survey (reported deviation) | `FromGrid` default, `FromInput` as option |
@@ -153,3 +164,31 @@ Procedural terrains only (no geodata): a paraboloid pit with benches (breaklines
   exactly where this design measures the real output (F-63, MESHING2D_SPEC).
 * Not found: a published method that gives a *guaranteed* vertical bound together with locked breaklines on a constrained Delaunay engine; the guarantee here comes from the a-posteriori check of each round.
   (Searched: "terrain TIN grid DEM breaklines vertical error bound", "Fowler Little very important points".)
+
+## 11. Implemented: `TerrainGridTin` and what the surface guarantee costs
+
+API (additive): `TerrainGridTin { Grid, Epsilon, Breaklines, MaxRounds, CancelF; Compute(); Status, Message, Result (DMesh3), SurfaceError, NodeError, Rounds, BreaklineEdges, LockedCreases, DroppedBreaklineSegments }`,
+`TerrainBreakline(points)`, `TerrainGridTinStatus`, and `TerrainGridTin.ErrorOfTin(grid, tin, out nodeError, out surfaceError)` (the exact scan of any TIN, eg `TerrainGreedyTIN`'s result).
+Differences from the proposal: breaklines take their heights from the grid only (D4 `FromGrid`; `FromInput` is not implemented); the domain is every cell with all four
+corners valid: the boundary runs are locked segments and the triangles over cells without data are dropped (a breakline segment must lie in the data over its whole length, else it is dropped); creases of the grid surface (cell diagonals and cell sides) are locked
+where a violation sits on them and all corners are selected (cell sides are needed as soon as breakline vertices lie off the lattice); the error scan runs in parallel, the
+violations are acted on in triangle order.
+
+Measured (pit terrain of `benchmarks/TerrainBenchmark` `tinspike`, 513 x 513 nodes, cloud runner, single runs, `Epsilon` 0.1 unless noted; `TerrainGreedyTIN` has the node guarantee only,
+and its own surface error is 0.19 / 0.44 / 1.55 for the 3 m / 8 m / 30 m terrains):
+
+| Terrain | TerrainGridTin vertices (surface error) | time | Rounds | TerrainGreedyTIN vertices (time) | Ratio |
+|---|---|---|---|---|---|
+| 3 m hills | 4991 (0.0999) | 0.84 s | 17 | 3042 (0.08 s) | 1.64x |
+| 8 m | 6679 (0.1000) | 1.06 s | 19 | 3908 (0.09 s) | 1.71x |
+| 30 m, cliffs | 10 988 (0.1000) | 1.64 s | 19 | 4896 (0.11 s) | 2.24x |
+| 30 m, eps 0.2 | 6863 (0.1993) | 0.94 s | 17 | 3958 (0.09 s) | 1.73x |
+| 30 m + 4 breaklines (1800 segments) | 14 040 (0.1000) | 2.35 s | 14 | | |
+| 30 m + breaklines + 39 x 29 gap | 14 006 (0.1000) | 2.10 s | 13 | | |
+
+Rounds: the first 6 rounds act on the worst violation of each triangle, later rounds on up to 16 separated ones (at least 16 cells apart); without the later multiple requests a long straight step needs
+rounds in proportion to its length (300 cells: more than 200), with them 7-20 rounds (steps of 300-1000 cells), and the vertex count on the pit terrains grows by 3 % (acting on several violations from the first round
+would double it).
+
+Cost of the surface guarantee: against a node-only guarantee in the same method +10 % vertices on gentle terrain and +33 % on the cliff terrain (spike, benchmarks/TerrainBenchmark README); against `TerrainGreedyTIN`
+1.6-2.2x the vertices and about 10-20x the time (the time is the constrained Delaunay of every round, 90 %). Decimation (D5) is not part of it.

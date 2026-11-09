@@ -130,6 +130,7 @@ namespace geometry3Sharp.Tests
             Assert.True(differ == 0, $"{differ} points classified differently");     // heights relative to a local reference
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void DeepPit_ClothReachesTheRim()
         {

@@ -105,6 +105,7 @@ namespace geometry3Sharp.Tests
             AssertValid(r.Mesh, name);
         });
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void MeshRobustRepair_DefectInput_CleanWhenReportedClean(string name) => Check(name, input => {

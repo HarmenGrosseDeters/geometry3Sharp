@@ -45,6 +45,7 @@ namespace geometry3Sharp.Tests
             return new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1.5f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Shapes))]
         public void SimplifyWithin_AlphaWrap_NoCapsCertifiedClean(string shape)
@@ -132,6 +133,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SimplifyWithin_SliverOfTheWrap_Removed()
         {

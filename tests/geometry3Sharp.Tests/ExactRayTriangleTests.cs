@@ -100,6 +100,7 @@ namespace geometry3Sharp.Tests
             .Select(i => new Vector3d(i % 3 - 1, (i / 3) % 3 - 1, i / 9 - 1))
             .Concat(new[] { new Vector3d(1, 2, 0), new Vector3d(2, -1, 1), new Vector3d(-1, 1, 2) }).ToArray();
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RaysThroughVerticesAndEdgesOfAClosedMesh_ParityAndHitsRight()
         {

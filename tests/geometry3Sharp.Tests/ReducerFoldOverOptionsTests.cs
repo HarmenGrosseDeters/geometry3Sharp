@@ -156,6 +156,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(off, on));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void FusedPass_SameReductionsAsTwoPasses()
         {

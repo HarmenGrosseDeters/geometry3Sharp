@@ -56,6 +56,8 @@ class Program
                 case "repair": stage = kase; Repair(w); break;
                 case "tdc": stage = kase; Tdc(w); break;
                 case "gtin": stage = kase; GreedyTin(w); break;
+                case "tinspike": stage = kase; TinSpikeCase(); break;
+                case "tinspikec": stage = kase; TinSpikeCCase(); break;
                 case "offset": stage = kase; Offset(w); break;
                 case "safety": stage = kase; Safety(w); break;
                 case "geodesic": stage = kase; Geodesic(w); break;
@@ -288,6 +290,58 @@ class Program
 
 
     // ---------------------------------------------------------------- greedy insertion TIN
+    // docs/design/TERRAIN_DGM_TO_TIN.md, method B2 vs TerrainGreedyTIN on the same (procedural) grid: n=, eps=, amp=
+    static void TinSpikeCase()
+    {
+        int n = (int)ArgD("n", 257);
+        double eps = ArgD("eps", 0.1), amp = ArgD("amp", 30);
+        HeightGrid g = TinSpike.Pit(n, amp, 1);
+        R["nodes"] = g.Z.Length;
+        var sw = Stopwatch.StartNew();
+        var gt = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps };
+        gt.Compute();
+        R["greedy_vertices"] = gt.Result.VertexCount; R["greedy_s"] = Secs(sw);
+        TinSpikeC.ErrorsOfMesh(g, gt.Result, out double gne, out double gse);
+        R["greedy_node_error"] = gne; R["greedy_surface_error"] = gse;
+        sw.Restart();
+        var gr = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps, RemoveVertices = true };
+        gr.Compute();
+        R["greedy_remove_vertices"] = gr.Result.VertexCount; R["greedy_remove_s"] = Secs(sw);
+        TinSpikeC.ErrorsOfMesh(g, gr.Result, out double rne, out double rse);
+        R["greedy_remove_node_error"] = rne; R["greedy_remove_surface_error"] = rse;
+        foreach (bool surface in new[] { false, true }) {
+            TinSpike.Result r = TinSpike.Run(g, eps, surface, ArgD("frac", 0.5));
+            string k = surface ? "surface" : "node";
+            R[k + "_ok"] = r.Ok; R[k + "_note"] = r.Note;
+            R[k + "_vertices"] = r.Vertices; R[k + "_triangles"] = r.Triangles; R[k + "_rounds"] = r.Rounds;
+            R[k + "_s"] = r.Seconds; R[k + "_mesh_s"] = r.MeshSeconds; R[k + "_scan_s"] = r.ScanSeconds;
+            R[k + "_node_error"] = r.NodeError; R[k + "_surface_error"] = r.SurfaceError; R[k + "_locked_diagonals"] = r.LockedDiagonals;
+        }
+    }
+
+    // variant (c): greedy selects, QualityMesh2 triangulates with locked breaklines / a hole, a correction pass enforces the surface error
+    // n=, eps=, remove=0|1, breaklines=0|1, gaps=0|1, spacing= (breakline vertex spacing in cells)
+    static void TinSpikeCCase()
+    {
+        int n = (int)ArgD("n", 257);
+        double eps = ArgD("eps", 0.1), amp = ArgD("amp", 30);
+        HeightGrid g = TinSpike.Pit(n, amp, 1);
+        int[] hole = null;
+        if (Arg("gaps", "0") == "1") {
+            hole = new[] { 31, 31, 69, 59 };   // no-data nodes; the hole polygon is one node larger on every side
+            for (int j = hole[1]; j <= hole[3]; ++j) for (int i = hole[0]; i <= hole[2]; ++i) g[i, j] = double.NaN;
+        }
+        var bl = Arg("breaklines", "0") == "1" ? TinSpikeC.Circles(n, ArgD("spacing", 2)) : null;
+        R["nodes"] = g.Z.Length; R["valid_nodes"] = g.ValidNodeCount();
+        TinSpikeC.Result r = TinSpikeC.Run(g, eps, Arg("remove", "1") == "1", bl, hole, Arg("select", "greedy") == "greedy");
+        R["ok"] = r.Ok; R["note"] = r.Note; R["selected_by_greedy"] = r.Selected;
+        R["vertices"] = r.Vertices; R["triangles"] = r.Triangles; R["rounds"] = r.Rounds;
+        R["round0_surface_error"] = r.Round0Surface; R["round0_node_error"] = r.Round0Node;
+        R["surface_error"] = r.SurfaceError; R["node_error"] = r.NodeError;
+        R["locked_diagonals"] = r.LockedDiagonals; R["skipped_locks"] = r.SkippedLocks; R["segments"] = r.BreaklineSegments; R["splits"] = r.SplitsDone;
+        R["greedy_s"] = r.GreedySeconds; R["mesh_s"] = r.MeshSeconds; R["scan_s"] = r.ScanSeconds; R["spike_s"] = r.TotalSeconds;
+    }
+
     static void GreedyTin(double[] w)
     {
         var sw = Stopwatch.StartNew();

@@ -156,6 +156,7 @@ namespace geometry3Sharp.Tests
             Assert.True(env.ContainsTriangle(a, b, new Vector3d(0.2, 0.45, 0)), "collinear, left of the hole");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Fuzz_ContainedMeansWithinEpsilon_NotContainedHasAWitness()
         {

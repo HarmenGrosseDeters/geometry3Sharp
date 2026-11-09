@@ -723,6 +723,7 @@ namespace geometry3Sharp.Tests
             Assert.InRange(f.VolumeIoU, 0.85, 0.88);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Curvature_IdenticalAndRefinedSpheres()
         {
@@ -767,6 +768,7 @@ namespace geometry3Sharp.Tests
             Assert.True(fe.GaussianCurvatureDistance > 10 * r4.GaussianCurvatureDistance, $"{fe.GaussianCurvatureDistance} vs {r4.GaussianCurvatureDistance}");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Curvature_PlaneAndCylinder_OpenAndDegenerate()
         {
@@ -834,6 +836,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void OuterVolumeIoU_NotConverged_NaN()
         {
@@ -1050,6 +1053,7 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(mesh, s2);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Invariance_SimilarityAll()
         {
@@ -1094,6 +1098,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Determinism_ParallelEqualsSerial_RepeatedRuns()
         {
@@ -1116,6 +1121,7 @@ namespace geometry3Sharp.Tests
             Assert.InRange(other.Chamfer, p.Chamfer * 0.95, p.Chamfer * 1.05);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reuse_SecondComputeEqualsFreshInstance()
         {

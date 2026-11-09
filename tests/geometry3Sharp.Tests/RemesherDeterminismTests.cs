@@ -58,6 +58,7 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Remesher_ParallelSmoothing_MatchesSequential()
         {
@@ -86,6 +87,7 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RemesherPro_ParallelSmoothing_MatchesSequential()
         {

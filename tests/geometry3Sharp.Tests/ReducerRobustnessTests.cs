@@ -69,6 +69,7 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(hs - h) <= 0.05 * h, $"deviation {hs:E3} at scale {scale} vs {h:E3}");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(0.05)]
         [InlineData(0.2)]
@@ -90,6 +91,7 @@ namespace geometry3Sharp.Tests
             Assert.True(hf.LowerBound > eps, "test does not exercise the limit");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void MaxDeviation_RepeatedReductions_StayWithinToleranceOfTheOriginal()
         {
@@ -104,6 +106,7 @@ namespace geometry3Sharp.Tests
             Assert.True(h.UpperBound <= 0.1 + 1e-4, $"deviation {h.UpperBound}");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void MaxDeviation_FastCollapsePass()
         {
@@ -131,6 +134,7 @@ namespace geometry3Sharp.Tests
             Assert.True(h.UpperBound <= 0.3 + 1e-4, $"deviation {h.UpperBound}");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void NoisyFlatSurface_NoSpikes()
         {
