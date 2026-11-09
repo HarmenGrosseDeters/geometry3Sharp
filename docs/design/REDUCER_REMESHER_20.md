@@ -160,6 +160,35 @@ Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along
 (x1 p01 5.65° -> 10° stretch) and the coarsening quality (x2 p01 median 1.8°). Before anything is built: a bound from a probe on 10 meshes
 (5 of 20 meshes hold most of the remaining slivers), and a check that the Hausdorff / F-score stay at the level of the creases-kept row above.
 
+## 8. T1 probe results (2026-11-09, upper-bound check before a lever; stop rule applied)
+
+20 Thingi10K meshes, `ReduceToTriangleCount` to 10 % and 1 %, no projection (`reduce_q`, `reduce_fold`, `reduce_worst` of the benchmark; the guard
+by reflection; raw rows not committed). `missed` = result above 1.1 x the target; slivers = triangles < 0.5° plus > 170°.
+
+| setting | 10 %: missed, p01 median, slivers | 1 %: missed, p01, slivers | 1 %: Hausdorff median (max), F 0.1 %, IoU | meshes with more self-int. pairs than the input (10 % / 1 %) |
+|---|---|---|---|---|
+| input | - | - | - | 22654 slivers |
+| default | 1, 0.61°, 3440 | 8, 2.5°, 885 | 7.0 % (30 %), 0.17, 0.62 | 4 / 9 |
+| `PreventFoldOver` off | 1, 0.85°, 2768 | 5, 3.0°, 582 | 6.0 % (19 %), 0.17, 0.60 | 5 / 11 |
+| `MinCollapseTriangleQuality` 0.3 plus the internal "against the worst" form | 18, 0.26°, 12719 | 20, 0.26°, 12719 | 3.0 % (11 %), 0.75, 0.91 | 5 / 6 |
+| `MinCollapseTriangleQuality` 0.3 plain, 0.1 plain / worst | 19-20 missed, p01 0.1-0.3° in all (earlier probe, 6 settings) | | | |
+
+Reading:
+- **The sliver part of T1 is met by the default**: on every one of the 20 meshes the result has fewer triangles < 0.5° or > 170° than the input
+  (22654 in the input, 3440 at 10 %, 885 at 1 %). The target "no more than the input" does not need a lever.
+- **The quality guard is not a lever for real meshes**, plain or "against the worst": it misses the count on 18-20 of 20 meshes (the inputs contain triangles below
+  the threshold, so the collapses around them are refused and the reduction stops early with the input's slivers still in place), and p01 gets worse, not better
+  (0.26° against 0.61°). On clean meshes it works (p01 8° -> 12.8°, earlier probe), which is why #405 uses it inside `SimplifyWithin`.
+- **Why the count is missed at 1 %** (8 of 20): 4 targets are below the minimum triangle count of the mesh's genus (a closed genus-g mesh needs at least 2V - 4 + 4g triangles
+  with V >= (7 + sqrt(1 + 48g)) / 2: 196126, 118679, 237642, 267659), 93370 sits at that minimum, and the rest are stopped by the
+  reference-normal guard `PreventFoldOver`: with it off, 39460, 63709 and 104582 reach the target (5 meshes still miss). But switching it off is no gain in quality
+  (p01 +0.5°, Hausdorff and F-score about the same, more meshes with extra self-intersections 11 against 9) and it is the guard against folded surfaces; the
+  1 % results of these small, detailed meshes (30 to 400 triangles from 2.4k to 46k) are poor either way (IoU 0.6).
+- **No safe lever found**, so by the stop rule T1 is reported and not built: nothing to change in the Reducer. What remains is documentation: `ReduceToTriangleCount` can stop above the
+  target (guards, genus minimum), callers check `TriangleCount`; and the recommendation to use `FeatureAngle`, `MaxDeviation` or `ReduceToMaxQuadricError` when a quality criterion rather than a count is meant.
+
+Proposal: T1 closed with this note (no code); T3 next (`PreventSelfIntersections` is the lever for the self-intersection columns above).
+
 ## 9. T3: `PartitionedReducer` (the public partitioned Reducer; owner decision 2026-11-09, option A)
 
 New public sealed class `PartitionedReducer` (`mesh_ops/PartitionedReducer.cs`, purely additive): `PartitionedReduction` (#432) on 8 fixed slabs, with

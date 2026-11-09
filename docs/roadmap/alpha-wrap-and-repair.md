@@ -39,6 +39,15 @@ genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by de
 slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
 flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
 until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
+**Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
+PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
+60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
+rest in smoothing / projection (12.6x plain at the median). Levers by expected gain: (1) a local check against an
+incrementally updated tree instead of rebuilds (both, core-count independent); (2) the orientation prefilter of #419
+(Devillers-Guigue) in front of the triangle-triangle test; (3) the Remesher projection through NearestPointBatch (#448,
+3.7-7.2x, bit-identical; the caller switch after Lévy phase 2); (4) slabs for the Remesher's edge operations (<= 2.1x on
+4 cores, large meshes only, a big build). First step: a per-operation profile of the plain Remesher (T4). Synergy with
+Alpha Wrap 3.0 (an incremental tree helps all three).
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
