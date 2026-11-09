@@ -58,8 +58,9 @@ diagonal (a box of pieces side by side must not make them coarser: a small real 
 far-part cases (1e4 to 1e12 away): their results were degenerate by the box under either rule, but with it the rounding
 tried to fix every triangle, took seconds instead of tens of milliseconds, and deformed a small far sphere within its ulp
 bound (7e-5 of volume at 1e12). The first threshold, 8 (#474), left 14 target operations degenerate: results
-broken into 29 to 785 fragments, box / largest 8.05 to 15.9 (no part far away). 100 leaves room above them and far below
-the far parts (1e4).
+broken into 29 to 785 fragments, box / largest 8.05 to 15.9 (no part far away). 100 leaves room above them (about 6 times) and
+below the far parts of the tests (box / largest about 430 for a part 1e3 away, `RobustRepairFarPartTests`; about 5e3
+and more from 1e4 on).
 
 **The bounds δ per edit** (proofs in the code comments of `MeshRoundingRepair`):
 
