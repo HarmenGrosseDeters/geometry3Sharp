@@ -41,6 +41,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
 | `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>`; one pass over all meshes: `BooleanComparison nary` (below) |
 | `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
+| `thingi-pairs` | 1000 pairs of different clean Thingi10K models (1k-100k triangles each) after the EMBER protocol, B randomly rotated and shifted; `thingi-pairs-size`: 100 pairs of models with 100k-1M triangles | the performance and correctness of the three operations on real models at scale, with `NotCleanReason` and the volume identities as the oracle | `python3 data/thingi_pairs.py fetch/filter/manifest` ([below](#thingi10k-pairs-after-the-ember-protocol)); the pair lists are `thingi-pairs/pairs.csv` and `pairs_size.csv` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
 data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
@@ -50,6 +51,124 @@ In a sequence, ExactMeshBoolean and Manifold keep the intermediate results in me
 an Open Boolean Benchmark request, see below), CGAL keeps them in memory as well (`cgal_bool seq`, so EPECK stays
 exact between the steps), Cherchi et al. run one process per boolean and pass the results as OBJ files (its
 program has no other interface).
+
+## Thingi10K pairs after the EMBER protocol
+
+The classes `thingi-pairs` (1000 pairs) and `thingi-pairs-size` (100 pairs) are a reproducible boolean benchmark on
+real models after the protocol of EMBER (Trettner, Nehring-Wirxel, Kobbelt, *EMBER: Exact Mesh Booleans via Efficient
+& Robust Local Arrangements*, SIGGRAPH 2022: random pairs of Thingi10K solids, a random rotation, boxes that overlap,
+all operations; read from the paper only, EMBER's code is commercial and was not used). Only the pair lists are in the
+repository (`thingi-pairs/`), never meshes: the models are fetched at run time from the Thingi10K dataset on
+huggingface into a directory outside the repository (individual licences, mostly Creative Commons; see
+`docs/SOURCES.md`).
+
+**Files** (`thingi-pairs/`, all generated, small):
+
+| file | content |
+|---|---|
+| `clean_models.csv` | the 3236 models (of 3399 candidates) that pass the filter below: id and triangle count |
+| `pairs.csv` | 1000 pairs, seed 20261104: model ids a and b, quaternion q (x y z w) and translation t of B |
+| `pairs_cgal_sample.csv` | 100 of the 1000 pairs (same rows and pair numbers), seed 20261106, partial Fisher-Yates over the list: the pairs CGAL EPECK runs on |
+| `pairs_size.csv` | the size class, 100 pairs, seed 20261105, models with 100 001-1 000 000 triangles |
+
+**Filter** (which models may be drawn): Thingi10K's own metadata first (`geometry_data.csv`, `input_summary.csv`:
+closed, edge manifold, vertex manifold, no degenerate faces, no duplicated faces, PWN, zero self-intersections, 1k-1M
+triangles: 3399 models), then our own check on the mesh as `StandardMeshReader` reads it (`BooleanComparison
+thingi-filter`): `MeshRobustRepair.NotCleanReason(mesh) == ""` and a positive volume. The check removed 163 of the 3399:
+122 degenerate triangles (area < 1e-12 diagonal²), 34 inside-out components, 7 self-intersections (that the metadata
+does not report). The 3065 models with 1k-100k triangles are the pool of `pairs.csv`, the 171 with 100k-1M of
+`pairs_size.csv` (so the size class uses most models about once, some twice: the pool is small). Models with several connected components are allowed.
+`python3 data/thingi_pairs.py filter` rebuilds `clean_models.csv`; it depends on the library's `NotCleanReason`, so the
+file is committed, not recomputed per run.
+
+**Pairs** (`python3 data/thingi_pairs.py generate`, a pure function of `clean_models.csv` and the seeds, own PRNG
+SplitMix64, values written with 12 decimals: running it again gives the identical files, a test checks it): per pair
+two different models drawn uniformly with replacement across pairs; a uniformly distributed rotation
+(Shoemake's quaternion) and a translation uniform in [-0.5, 0.5]³ for B. `BooleanComparison thingi-pair` turns this
+into the case: A and B are each moved so that the centre of their bounding box is the origin and scaled so that the
+longest side is 1 (the probe of 2026-11-04 did the same), then B is rotated about the origin and translated. The
+boxes of A and B are therefore always within half a unit in every axis, so they overlap in the usual case, as EMBER
+draws them; a thin model can still miss (an empty intersection is then correct and counted). A.off / B.off are written
+with round-trip precision, so all tools read the same doubles.
+
+**Oracle** (`eval`, for results of all tools alike; the case's `info.json` has `notclean`): per result
+- `clean_reason`: `MeshRobustRepair.NotCleanReason` of the result welded by exact position (closed, manifold, no
+  degenerate triangles (area < 1e-12 diagonal²), consistent orientation, no inside-out components, no
+  self-intersections: found by `MeshRepairMetrics.SelfIntersections` on any size, `eval` otherwise stops at 400k triangles);
+  `""` is clean, `"empty"` is an empty result;
+- the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` (relative to V(A) + V(B)) and `V(A−B) = V(A) − V(A∩B)`
+  (relative to V(A)) on the doubles of the written results, volumes relative to the centre of A. An empty result is
+  not an error by itself (A∩B of two apart models, A−B of A inside B), and an empty union, or an empty difference with
+  V(A−B) > 0, fails the identity. But the identities alone do not make an empty result correct: a method that returns
+  A and B concatenated as the union, nothing as the intersection and A as the difference passes both. Its union
+  self-intersects, which for clean inputs in random poses a correct result does not, so in these classes a result with
+  self-intersections (or inside-out components) is not correct (`analyze.py`), and the summary counts an empty result
+  as volume-consistent only if no result of the pair self-intersects.
+
+`analyze.py` (outcome per pair and method as everywhere, `degenerate` is new: correct but NotCleanReason names degenerate
+triangles, bowties or inconsistent orientation) uses the tolerance **1e-7** for these classes (1e-6 elsewhere).
+Why: the only error a correct boolean has is the rounding of the result's vertices to double and of the volume sum.
+A vertex is moved by at most half an ulp (1e-16 of the box), the volume by about surface area × that, so the relative
+error is about 1e-16 × area × size / volume (an estimate, not a bound; larger for thin models; the probe of 2026-11-04
+saw 5e-10 on 30 pairs; the trial below at most 1.1e-11 for our results and 1.6e-14 for the others, which do not round
+a new vertex). 1e-7 is 100× the largest value seen and still catches a displaced sheet of a result
+(a moved vertex of 1e-4 in a unit box gives 1e-5 in a test). A limit of a volume oracle: a small closed part of the
+union that is dropped whole (the rest closed and clean) is seen only if its volume is above 1e-7 (V(A) + V(B)), about a
+cube of 3.7e-3 of the box; the triangle counts of the methods are in the raw rows. The tolerance is `CLASS_TOL` in
+`analyze.py`; change it only with the numbers of a run. Reported per method (`python3 data/thingi_pairs.py summary results.jsonl`): the
+operations by status, clean / empty / unclean (with the reasons), the largest volume error, the time of the boolean
+alone (median, geometric mean, p95, max, as every class) and the median result triangles. A result with
+`degenerate triangles` is an outcome of the check, not necessarily a defect that matters; the table says it, the reader decides.
+
+**Running** (all commands from `benchmarks/BooleanComparison`; the tools as in [Running](#running)):
+
+```sh
+D=/path/outside/the/repo/thingi            # about 2.5 GB of STL for the models of the lists
+python3 data/thingi_pairs.py fetch $D --pairs
+python3 data/thingi_pairs.py manifest thingi-pairs/pairs.csv $D $D/cases.jsonl
+python3 data/thingi_pairs.py manifest thingi-pairs/pairs_size.csv $D $D/cases_size.jsonl
+
+cp -r bin/Release/net10.0 /some/where/frozen; export BOOLCMP_TOOL=/some/where/frozen/BooleanComparison.dll
+export MANIFOLD_PYTHON=...    # as above; CGAL_BOOL only for the sample run
+
+# the full run, ours + Manifold (1000 pairs, then the size class; 3 operations each, -j 1 for timings)
+python3 compare.py $D/cases.jsonl results-pairs.jsonl --methods ours,manifold --timeout 300 -j 1 --resume
+python3 compare.py $D/cases_size.jsonl results-size.jsonl --methods ours,manifold --timeout 900 -j 1 --resume
+
+# the CGAL sample: EPECK on 100 of the 1000 pairs (same case names as in the full run)
+python3 data/thingi_pairs.py manifest thingi-pairs/pairs_cgal_sample.csv $D $D/cases_cgal.jsonl
+export CGAL_BOOL=/path/to/cgal_bool
+python3 compare.py $D/cases_cgal.jsonl results-cgal.jsonl --methods cgal_epeck --timeout 300 -j 1 --resume
+
+python3 analyze.py results-pairs.jsonl results-size.jsonl results-cgal.jsonl
+python3 data/thingi_pairs.py summary results-pairs.jsonl results-size.jsonl results-cgal.jsonl
+```
+
+One result line is one pair and one method (with the three operations); `--resume` skips the pairs that have a line for every
+method of `--methods` (a cut-off last line is ignored, its pair runs again), so an interrupted run loses at most the
+pair under way. Pair `NNNN` is the case `pNNNN_<idA>+<idB>`; `--only` runs single ones. `manifest ... --limit N` takes the
+first N pairs (the trial below). All three commands are resumable (rerun the same command). The CGAL sample is a separate run and output file, because the full run does not include CGAL; its rows have the same class and case names as the full run's. `--methods` may include `cgal_epick` and `cherchi` as well (not tried here). `analyze.py` tables compare methods on the cases they share, so read the CGAL column on the sample only. The
+results of the other tools are not committed (CGAL is GPL; `cgal_bool` stays an external, non-distributed binary).
+
+### Trial run (2026-11-08, not the full run)
+
+The first 20 pairs of `pairs.csv` (60 booleans) and the first 3 of `pairs_size.csv` (9 booleans), tool built from this
+branch, 4 cores, `-j 1`, timeout 300 s, `--methods ours,manifold,cgal_epeck` (Manifold 3.x from pip, CGAL 6.0 from the
+Ubuntu package, `cgal_bool` built from `external/cgal_bool.cpp`), `python3 data/thingi_pairs.py summary`:
+
+| class | method | pairs | operations | ok | rejected | failed / crash / timeout | clean | empty (volume-consistent) | unclean | max volume error | median ms | geomean ms | p95 ms | max ms | median result triangles |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| thingi-pairs | cgal_epeck | 20 | 60 | 60 | 0 | 0 | 49 | 6 | degenerate triangles 5 | 1.20e-14 | 52 | 40 | 268 | 284 | 5417 |
+| thingi-pairs | manifold | 20 | 60 | 60 | 0 | 0 | 43 | 6 | degenerate triangles 11 | 1.57e-14 | 29 | 24 | 123 | 174 | 5308 |
+| thingi-pairs | ours | 20 | 60 | 60 | 0 | 0 | 54 | 6 | – | 1.13e-11 | 190 | 163 | 746 | 970 | 5373 |
+| thingi-pairs-size | cgal_epeck | 3 | 9 | 9 | 0 | 0 | 3 | 0 | degenerate triangles 6 | 4.91e-14 | 1520 | 1385 | 2682 | 2682 | 253792 |
+| thingi-pairs-size | manifold | 3 | 9 | 9 | 0 | 0 | 0 | 0 | degenerate triangles 9 | 4.47e-14 | 499 | 364 | 686 | 686 | 253486 |
+| thingi-pairs-size | ours | 3 | 9 | 9 | 0 | 0 | 9 | 0 | – | 3.39e-12 | 2608 | 2401 | 4749 | 4749 | 253574 |
+
+Times of `ours` are cold (one process per boolean, as everywhere), the booleans alone. Of 23 pairs, ExactMeshBoolean's results
+are all clean or correctly empty; Manifold and CGAL EPECK results contain triangles below 1e-12 diagonal² (the
+oracle's degenerate-triangle threshold; their volumes are exact to 1e-14). Six of the 60 operations are empty intersections
+(models that do not touch), consistent with the volumes.
 
 ## Open Boolean Benchmark runner
 
