@@ -71,6 +71,18 @@ incrementally updated tree instead of rebuilds (both, core-count independent); (
 3.7-7.2x, bit-identical; the caller switch after Lévy phase 2); (4) slabs for the Remesher's edge operations (<= 2.1x on
 4 cores, large meshes only, a big build). First step: a per-operation profile of the plain Remesher (T4). Synergy with
 Alpha Wrap 3.0 (an incremental tree helps all three).
+**Status 2026-11-09 (T4, [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 12):** profiled; the flip test of the plain Remesher was the hotspot (40 % of the run, 256 bytes
+allocated per edge, because the closed-mesh hint was never set): fixed in PR 1, plain Remesher 1.49x (x1) / 1.29x (x2), bit-identical, `si` +3-5 %. Levers (1)-(3) measured and not built: the grid for the edge checks was incremental
+already, the move check rebuilds because every vertex moves, #419's filter is in place, and `NearestPointBatch` is slower than the parallel loop on coherent vertex order. (4), slabs, not started: the plain profile has no serial share above 25 % left.
+**T4 closed 2026-11-09:** the remaining levers were measured and none pays (section 12.4: warm-started projection
+1-5 % overall, pair-test order, flip pre-test, guard arrays, `NearestPointBatch`, tree refit <= 2.5 % of `si`); only
+PR 1 (#484) is built. Left open: the `RejectInvertingPasses` snapshot (6-19 % of the run) needs component labels that
+survive the edge operations, i.e. a correctness argument (research). Crease-sliver probe (#492, docs and harness
+only): 87 % of the slivers have two or more pinned vertices at the span ends and junctions of noisy crease networks;
+unpinning free ends gives p01 2.54° -> 3.41° (slivers -3 %, fidelity equal); dropping crease fragments shorter than
+4-16 edges removes 58 % of the slivers but drops F 0.67 -> 0.5 and doubles the outward Hausdorff (outside the T6 gate).
+**Parked (owner 2026-11-09):** feature-curve operators (Wang-style) and merging noisy crease fragments, a research
+item; not built until a variant is shown to keep the T6 fidelity gate.
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):

@@ -381,6 +381,7 @@ namespace geometry3Sharp.Tests
             return new TrivialBox3Generator() { Box = new Box3d(min + 0.5 * size * Vector3d.One, 0.5 * size * Vector3d.One) }.Generate().MakeDMesh();
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ManyComponents_InsideOutOneFound()
         {

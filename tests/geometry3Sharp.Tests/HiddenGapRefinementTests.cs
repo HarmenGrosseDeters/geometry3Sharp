@@ -54,6 +54,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the hidden gap edge count grows ~4x per level while a gap is still hidden: refinement must go on
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(0.3)]
         [InlineData(0.2)]
@@ -68,6 +69,7 @@ namespace geometry3Sharp.Tests
         }
 
         // nearly parallel faces (0.5 degrees): their planes meet far outside the parts, it is a gap
+        [Trait("Category", "Slow")]
         [Fact]
         public void NearlyParallelGap_IsDetected()
         {

@@ -8,7 +8,9 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
+  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow)
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   workflow_dispatch:
 
@@ -21,10 +23,38 @@ concurrency:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Two tiers (docs/QA.md, "Test tiers"): the library tests of a draft PR skip the tests tagged [Trait("Category", "Slow")]
+  # (5 s and more); a PR that is ready for review, master and manual runs run all of them.
+  FULL_TIER: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
 
 jobs:
+  # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
+  # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
+  # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      library: ${{ steps.scope.outputs.library }}
+      g3cli: ${{ steps.scope.outputs.g3cli }}
+      ps1: ${{ steps.scope.outputs.ps1 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            # the checkout is the merge commit of the PR into the base: its first parent is the base
+            git diff --name-only --no-renames HEAD^1 HEAD | tee changed.txt
+            python3 tools/ci_scope.py < changed.txt | tee -a "$GITHUB_OUTPUT"
+          else
+            python3 tools/ci_scope.py --all | tee -a "$GITHUB_OUTPUT"
+          fi
+
   # net10.0 build of the library, all tests, NuGet package and package smoke test
   linux:
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -35,10 +65,23 @@ jobs:
       - name: Build
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release --logger "trx;LogFileName=net10.trx" --results-directory test-results
+        if: needs.scope.outputs.library == 'true'
+        run: |
+          filter=()
+          if [ "$FULL_TIER" != true ]; then filter=(--filter "Category!=Slow"); fi
+          dotnet test tests/geometry3Sharp.Tests -c Release "${filter[@]}" --logger "trx;LogFileName=net10.trx" --results-directory test-results
+      - name: Slow tests are tagged (report; fails for an untagged test of 60 s or more)
+        if: needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
+        # the durations are those of this run on a shared runner, so the report alone would be noisy to gate on; 60 s
+        # untagged is far beyond noise (the tag threshold is 5 s) and means a test grew without anyone tagging it
+        run: |
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
+          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --fail-above 60 --summary "$GITHUB_STEP_SUMMARY"
       - name: Test CLI / MCP server (tools/g3cli)
+        if: needs.scope.outputs.g3cli == 'true'
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
       - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
+        if: needs.scope.outputs.library == 'true'
         run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --logger "trx;LogFileName=clipper2.trx" --results-directory test-results
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
@@ -77,9 +120,14 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
+      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py)
+        run: |
+          python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
+          python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+          python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
           python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
           TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
@@ -98,6 +146,7 @@ jobs:
   # (shard a had grown to 40 min with the mesher tests, shard b was at 20-26 min).
   netstandard:
     name: ${{ matrix.name }}
+    needs: scope
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -106,22 +155,30 @@ jobs:
         include:
           - name: netstandard
             shard: a
-            filter: FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2
+            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain)
           - name: netstandard-b
             shard: b
-            filter: FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2
+            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain)
+    # (2026-11-09: the terrain tests moved to shard a; the mesher tests got cheaper (sparse tag check), shard a was at 14 min and
+    # shard b at 32. Summed net10.0 durations of the full run: a 2050 s, b 2113 s.)
+    # (the draft tier adds &Category!=Slow to the shard's filter: the shards stay complementary. A PR that changes only
+    # tools, benchmarks or docs the tests do not read skips the library tests; the job still starts, as the check names
+    # are fixed, and runs the PowerShell regression of shard a when benchmarks/MeshRepairBenchmark changed.)
     steps:
       - uses: actions/checkout@v4
+        if: needs.scope.outputs.library == 'true' || (matrix.shard == 'a' && needs.scope.outputs.ps1 == 'true')
       - uses: actions/setup-dotnet@v4
+        if: needs.scope.outputs.library == 'true' || (matrix.shard == 'a' && needs.scope.outputs.ps1 == 'true')
         with:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
+        if: needs.scope.outputs.library == 'true'
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}${{ env.FULL_TIER != 'true' && '&Category!=Slow' || '' }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
       - name: Test the Clipper2 package (net48 / netstandard2.0)
-        if: matrix.shard == 'a'
+        if: needs.scope.outputs.library == 'true' && matrix.shard == 'a'
         run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results
       - name: Benchmark reporting regression (MeshRepairBenchmark)
-        if: matrix.shard == 'a'
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1
       - uses: actions/upload-artifact@v4

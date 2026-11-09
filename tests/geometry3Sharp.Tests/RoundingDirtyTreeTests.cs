@@ -80,6 +80,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(checkedMesh));
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData("utm Cluster 0 4 0")]
         [InlineData("utm Cluster 0 9 1")]
@@ -113,6 +114,7 @@ namespace geometry3Sharp.Tests
             Assert.True(checks > 0);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ManySlivers_Similarities_Pow2BitIdentical()
         {

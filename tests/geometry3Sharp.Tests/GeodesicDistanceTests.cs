@@ -367,6 +367,7 @@ namespace geometry3Sharp.Tests
         }
         static int NearestVertexFast(DMesh3 m, int n, int i, int j) { return i + n * j; }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void CapsAlongAFeatureLine_ConvergeWithTheSameDistances()
         {
@@ -431,6 +432,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 2.0, $"{p}: {geo.Distance[vid]} vs {exact}");
             }
         }
+        [Trait("Category", "Slow")]
         [Fact]
         public void SingleSource_RoughTerrain_NotPinned()
         {

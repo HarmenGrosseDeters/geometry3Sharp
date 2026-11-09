@@ -24,6 +24,7 @@ namespace geometry3Sharp.Tests
             return slab;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ThinSlab_PlainReducerIntersects_CheckedOneDoesNot()
         {
@@ -319,6 +320,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(UnionQueryCases))]
         public void UnionQuery_SameReductionAsAQueryPerTriangle(string name, int target)
@@ -335,6 +337,7 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual("", Invariance.Difference(unchecked_, union));
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void UnionQuery_SameReductionAsAQueryPerTriangle_UnderSimilarity(string name)
