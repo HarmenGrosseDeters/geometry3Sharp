@@ -60,5 +60,30 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, tree.WindingNumber(new Vector3d(2, 0.5, 0.25) * scale), 9);
             Assert.Equal(1.0, m.WindingNumber(new Vector3d(0.1, 0.05, 0.02) * scale), 9);
         }
+
+        // the winding number of the mesh and of the tree under every similarity (bit for bit for the powers of two)
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void WindingNumber_IsInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m = Octahedron(1);
+            DMesh3 t = Invariance.Transformed(m, sim);
+            var tree = new DMeshAABBTree3(m, true);
+            var treeT = new DMeshAABBTree3(t, true);
+            foreach (var p in new[] { new Vector3d(0.1, 0.05, 0.02), new Vector3d(0.2, -0.1, 0.3), new Vector3d(2, 0.5, 0.25), new Vector3d(-0.7, 0.1, 0.1) }) {
+                Vector3d q = sim.Apply(p);
+                double a = tree.WindingNumber(p), b = treeT.WindingNumber(q), c = m.WindingNumber(p), d = t.WindingNumber(q);
+                if (sim.IsExact) {
+                    Assert.Equal(a, b);
+                    Assert.Equal(c, d);
+                } else {
+                    Assert.Equal(a, b, 6);
+                    Assert.Equal(c, d, 6);
+                }
+            }
+        }
+
+        public static System.Collections.Generic.IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }
