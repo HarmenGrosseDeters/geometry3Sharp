@@ -6,7 +6,7 @@ the library test suites (net10.0, net48 shards, Clipper2): the library is the sa
 benchmark that changed run anyway (tool tests, benchmark builds, the package checks). Anything not known to be
 irrelevant counts as relevant: a path is "tool only" only if it is under tools/, benchmarks/ or docs/ and is not
 one the test projects read (SHARED below; test_ci_scope.py checks that every path a tests/*.csproj includes from
-there is listed). Markdown files outside docs/design are not CI triggers at all (the paths filter of ci.yml).
+there is listed; a test that opens a file there by path needs a hand-made entry). Markdown files outside docs/design are not CI triggers at all (the paths filter of ci.yml).
 
 Prints key=value lines for $GITHUB_OUTPUT:
     library=true|false    the library test suites run (net10.0, net48, Clipper2)

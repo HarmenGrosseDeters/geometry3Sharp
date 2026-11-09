@@ -46,7 +46,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
             # the checkout is the merge commit of the PR into the base: its first parent is the base
-            git diff --name-only HEAD^1 HEAD | tee changed.txt
+            git diff --name-only --no-renames HEAD^1 HEAD | tee changed.txt
             python3 tools/ci_scope.py < changed.txt | tee -a "$GITHUB_OUTPUT"
           else
             python3 tools/ci_scope.py --all | tee -a "$GITHUB_OUTPUT"

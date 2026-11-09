@@ -567,7 +567,7 @@ namespace g3
             }
 
             /// <summary>
-            /// tests only: after every operation compare the tags with domain membership computed from scratch (slow). Per thread, so
+            /// tests only: after operations compare the tags with domain membership computed from scratch (slow). Per thread, so
             /// that a test switching it on does not reach meshers that other tests run in parallel (refinement runs on the calling thread)
             /// </summary>
             [ThreadStatic] internal static bool CheckTagsForTests;
@@ -577,7 +577,7 @@ namespace g3
             long operations;
 
             // tests only: the check recomputes the domain from scratch, so it is quadratic in the number of operations when it runs after
-            // each one. On meshes of this many triangles or more it runs after operations 1, 2, 4, 8, ... and at the end of refinement
+            // each one. On meshes of this many triangles or more it runs after operations 1, 2, 4, 8, ... and at the end of refinement (a wrong tag that heals between two checks goes unseen there; smaller meshes are checked after every operation)
             const int DenseCheckBelowTriangles = 2000;
 
             void CheckTags()
