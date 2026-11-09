@@ -25,6 +25,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
+| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
 
 ## Build and run
 
@@ -190,6 +191,13 @@ g3cli fit pipe.stl --primitive cylinder --inlier-distance 0.05
 g3cli fit unknown.stl --primitive all
 #   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
 
+# 2D polygons (GeoJSON Polygon / MultiPolygon, x and y): booleans and offsets with Clipper2; the result is a GeoJSON file or inline
+g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
+#   -> "result": { "polygons": 2, "holes": 0, "area": 812.5, "bounds": {...} }, "frame": { "resolution": 1.1e-11, ... }
+g3cli polygon2d footprints.geojson --op union                       # merges the overlapping polygons of one file
+g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --miter-limit 2
+g3cli polygon2d --subject-geojson '{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}' --op offset --delta -1 --return-geojson
+
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
 # the guard against poor and flat triangles is on by default (--min-quality 0.2, Remesher.MinTriangleQuality;
@@ -313,6 +321,22 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   the meshes, the catch and target lines (whose GeoJSON also carries `used_origin`). Add `used_origin` to x and y for the
   input's frame; that rounds each coordinate by up to half an ulp and is not covered by the exact checks.
   `local_frame_fallback` true: a coordinate could not be translated exactly, and the design ran in the input's frame.
+
+## Result fields of repair, boolean, resolve and mesh2d (additive)
+
+- `boolean` / `resolve`: `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`), `boolean.contacts` (positions where the
+  solid touches itself, or that the rounding made), `boolean.reoriented_triangles` (input triangles flipped to a consistent orientation) and
+  `boolean.counts` (the library's counters, eg `intersecting_pairs`, `points`, `pieces`); these three are `null` in the `boolean` object of a failed call
+  (the library stopped before counting them). A failed call (`operation_failed`) carries
+  `boolean_status`, `boolean_error` (the library's text, eg the defects left and the drift the smallest rejected edit needed with `--strict-rounding`)
+  and the `boolean` object.
+- The SafeRounding repair counts (`boolean.rounding`, `exact_resolve_rounding`, `separated_rounding` of `repair`): also `initial_false_contacts`,
+  `remaining_false_contacts`, `vertex_removals`, `smallest_rejected_drift` (`null`: no edit was rejected by the bound) and `remaining_defect_at`
+  (`[x, y, z]` of an intersection, degenerate triangle or false contact left, `null` if none is left).
+- `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is, or contains, the
+  long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
+- `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
+  triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).
 
 ## MCP server
 

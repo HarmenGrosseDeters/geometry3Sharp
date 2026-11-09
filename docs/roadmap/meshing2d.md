@@ -60,6 +60,11 @@ Small input angles and triangle count:
   (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. **Closed
   (owner 2026-11-09):** about 4 % fewer triangles do not pay for over 50 % more mesher time; not built. Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
+- **Small-angle exemption up to 60° (owner 2026-11-09, from the QA 2.0 T5 campaign):** input angles between the
+  bound and 60° can make the refinement cascade (smallest case: two segments at 26.6°, refined to ~1e-12, one
+  triangle left below 20°). Decision: the documented exemption covers input angles below 60° (Ruppert / Shewchuk
+  terminate only from 60°); such triangles are reported and the oracle excuses them by the same rule (T5 session).
+  The grid findings of the campaign (AreaMismatch, missing chains, also in plain M2) are handled as a bug.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
 

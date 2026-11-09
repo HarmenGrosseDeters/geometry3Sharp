@@ -424,6 +424,7 @@ namespace gs
 
             IEnumerable<int> edgesItr = EdgesIterator();
             if (modified_edges == null) {
+                detect_closed_mesh();       // the full pass after construction or ResetQueue() (required after an external edit): detect the boundary again
                 modified_edges = new HashSet<int>();
             } else {
                 order_queued_edges();

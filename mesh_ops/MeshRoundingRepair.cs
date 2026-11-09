@@ -110,7 +110,7 @@ namespace g3
         public DMesh3 Mesh;
         /// <summary>
         /// a triangle is degenerate below this area, relative to the squared diagonal of the box of all triangles, as
-        /// MeshRobustRepair.NotCleanReason, unless the components lie far apart (that diagonal above 8 times the largest
+        /// MeshRobustRepair.NotCleanReason, unless the components lie far apart (that diagonal above 100 times the largest
         /// connected component's): then relative to the largest component's diagonal (a part far from the rest would
         /// make every triangle of the rest degenerate), and NotCleanReason may still call the result degenerate
         /// </summary>
@@ -273,7 +273,7 @@ namespace g3
         int editApex;
         // components whose box (all triangles) has a diagonal above this many times the largest component's are far
         // apart: the degenerate area is then relative to the largest component, not to the box (component_scales)
-        const double FarApart = 8;
+        const double FarApart = 100;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -385,6 +385,17 @@ namespace g3
                 return true;
             }
             component_scales();
+            // a vertex of a triangle that is not finite (NaN or infinite): nothing to repair or to certify; the exact
+            // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
+            // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
+            foreach (int tid in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(tid);
+                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false) {
+                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                    ScaleNotFinite = true;
+                    return false;
+                }
+            }
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
                 canonId = new int[Mesh.MaxVertexID];
@@ -549,7 +560,8 @@ namespace g3
             // the degenerate area: relative to the diagonal of all triangles, as MeshRobustRepair.NotCleanReason, while
             // the components lie close together (that box at most FarApart times the largest component's diagonal):
             // the repair then never calls clean what the evaluator calls degenerate. With the largest component's
-            // diagonal, components side by side (eg the pieces of an intersection, box / largest 1.6) made the test
+            // diagonal, components side by side (eg the pieces of an intersection, box / largest 1.6, or the 29 to 785
+            // fragments of a Thingi10K intersection or difference, up to 16) made the test
             // weaker by (box / largest)^2 and the slivers between the two areas stayed. Components far apart (a part
             // 1e4 to 1e12 away) keep the largest component's: with the box's, every triangle of the parts is
             // "degenerate", and the edits that try to fix them deform the far part within its ulp bound (a radius 0.1

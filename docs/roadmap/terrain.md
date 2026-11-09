@@ -17,8 +17,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Restart design (owner 2026-11-08):** the DGM-to-TIN step with breaklines is constrained quality meshing in
   2.5D; design it with `QualityMesh2` (its oracle and golden tests) instead of a new triangulator.
-  Proposal for the owner (2026-11-09): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
+  Proposal for the owner (2026-11-09; D1 decided: surface error is the guarantee, D2-D8 as proposed): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
 
+- **DGM to TIN (owner 2026-11-09):** `gs.TerrainGridTin` (library): TIN of a `HeightGrid` with a guaranteed surface error and locked breaklines, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md); the CLI command comes through the CLI / MCP session.
 - **DGM reader (owner 2026-11-09):** `HeightGrid`, `HeightGridReader` (XYZ ASCII and ESRI ASCII Grid), `HeightGridWriter`
   and the grid TIN `HeightGrid.BuildMesh` are in the library (`io/`); the CLI command comes through the CLI / MCP session;
   GeoTIFF is left to the owner (own implementation, or LibTiff.Net, BSD, in an optional package).
