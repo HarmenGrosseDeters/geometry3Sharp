@@ -120,7 +120,7 @@ namespace g3
             // (the products below are cubes of the coordinates: they underflow to 0 below about 1e-103 and overflow above
             // about 1e102, which made t 0 or infinite for a triangle of that size. Scaled by a power of two the rounding
             // is the same, and t is scaled back: t' = s t, as the numerator is cubic and the denominator quadratic in s)
-            int scaleExp = ScaleExponent(ref diff, ref edge1, ref edge2);
+            int scaleExp = ScaleExponent(ref edge1, ref edge1, ref edge2);   // (by the edges: a far origin against a small triangle keeps its range)
             if (scaleExp != 0) {
                 diff = ScaledBy(diff, scaleExp);
                 edge1 = ScaledBy(edge1, scaleExp);
@@ -181,6 +181,12 @@ namespace g3
             return -(e - 1023);
         }
 
+        // 2^e exactly, e in [-1022, 1023] (not Math.Pow: its exactness is the platform's)
+        static double Pow2(int e)
+        {
+            return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+        }
+
         static double MaxAbs(ref Vector3d v)
         {
             return Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
@@ -190,7 +196,7 @@ namespace g3
         static double ScaledBy(double x, int e)
         {
             int half = e / 2;
-            return x * Math.Pow(2, half) * Math.Pow(2, e - half);
+            return x * Pow2(half) * Pow2(e - half);
         }
 
         static Vector3d ScaledBy(Vector3d v, int e)

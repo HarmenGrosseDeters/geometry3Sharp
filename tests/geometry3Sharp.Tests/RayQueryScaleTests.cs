@@ -112,6 +112,28 @@ namespace geometry3Sharp.Tests
             Assert.True(hits > 250);
         }
 
+        // a far origin against a small triangle: the cubes are fine, scaling by the origin's distance would underflow the normal
+        [Fact]
+        public void RayParameter_FarOriginSmallTriangle_IsRight()
+        {
+            double s = 1e-60;
+            Vector3d a = s * new Vector3d(0, 0, 0), b = s * new Vector3d(4, 0, 0), c = s * new Vector3d(0, 4, 0);
+            var ray = new Ray3d(new Vector3d(1e-60, 1e-60, 1e150), new Vector3d(0, 0, -1));
+            Assert.True(IntrRay3Triangle3.Intersects(ref ray, ref a, ref b, ref c, out double t));
+            Assert.Equal(1e150, t, 3);
+        }
+
+        [Fact]
+        public void NoLimit_InfinityAndNaN_AreNoLimit()
+        {
+            var tree = new DMeshAABBTree3(Octahedron(), true);
+            var ray = new Ray3d(Vector3d.Zero, new Vector3d(0.6, 0, 0.8));
+            int hit = tree.FindNearestHitTriangle(ray);
+            Assert.NotEqual(DMesh3.InvalidID, hit);
+            Assert.Equal(hit, tree.FindNearestHitTriangle(ray, double.PositiveInfinity));
+            Assert.Equal(hit, tree.FindNearestHitTriangle(ray, double.NaN));
+        }
+
         // above 6e307 the sum of the three corners overflows: the build left such a triangle out, and no query found it
         [Fact]
         public void Tree_TriangleAbove6e307_IsInTheTree()

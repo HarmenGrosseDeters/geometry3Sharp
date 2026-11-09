@@ -318,7 +318,7 @@ namespace g3
 
             // (no limit is double.MaxValue: a missed box is +infinity (box_ray_intersect_t), so it is skipped by the <=
             // test; a float.MaxValue limit lost every hit farther than 3.4e38, ie any mesh of that size)
-            double fNearestT = fMaxDist;
+            double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             int tNearID = DMesh3.InvalidID;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             find_hit_triangle(root_index, ref ray, ref p, ref fNearestT, ref tNearID);
@@ -420,7 +420,7 @@ namespace g3
                 throw new Exception("DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized");
 
             // (no limit is double.MaxValue, see FindNearestHitTriangle)
-            double fUseMaxDist = fMaxDist;
+            double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, ref p, fUseMaxDist, false);
             return nCount;
