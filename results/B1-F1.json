@@ -1,0 +1,10 @@
+﻿{
+ "label": "B1-F1",
+ "run_dir": "tests/mutation/StrykerOutput\\2026-11-09.03-50-24",
+ "tests": "171",
+ "mutants_created": "128351",
+ "to_test": null,
+ "elapsed": null,
+ "created_at": "03:56:47",
+ "capture_end_at": null
+}

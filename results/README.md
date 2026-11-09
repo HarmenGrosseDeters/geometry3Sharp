@@ -44,6 +44,9 @@ the CI reference machine).
   mutant phase.
 - **Labels B1, B2:** the run is stopped as soon as Stryker logs `total mutants will be tested` (the job's stop rule); the
   process is found by its config name. The exit code is then the stop code, which the job allows.
+- **Label B1 was stopped manually** at 07:20 (Berlin) by the owner, before its capture finished (3 h 24 min, lower bound).
+  The stop used the process IDs of the Stryker runs matched by their config name (`job1-B1-F1.json`). No capture end, no
+  mutant phase, no score. `B1-F1.exit` = 127 is the code of the stopped run, not a result. See `REPORT-B1-F1.md`.
 - **Label C:** a full run; it was started only if the controller clock was before 02:00 (Berlin), to keep it inside the
   window before 07:00.
 - The controller and the label scripts are not part of the repository; they run Stryker with the job's commands.
