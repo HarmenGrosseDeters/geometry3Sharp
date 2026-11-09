@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, `geodesic`, the batch queries `query3d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -557,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `WrapPartitionedCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `WrapPartitionedCliTests`, `GeodesicQueryCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -653,6 +653,18 @@ distance) and gives the same result for every `--threads`, not that of one seria
 ```
 g3cli wrap assembly.off wrapped.stl --relative-alpha 40 --relative-offset 1000
 g3cli simplify big.ply small.ply --max-error 1e-6 --partitioned --threads 4
+```
+
+**Geodesics and batch queries** (`geodesic`: `MeshGeodesicDistance`, `MeshGeodesicPath`; `query3d`: `MeshBatchQueries`): distances
+from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
+components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
+mesh as read. `query3d` answers each query as the single query would (a ray's `t` is in mesh units; the direction is normalized);
+`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh:
+
+```
+g3cli geodesic terrain.ply --sources 0 --targets 120,4711
+g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
 ```
 
 **Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /

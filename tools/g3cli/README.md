@@ -20,6 +20,8 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
+| `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
+| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings or winding number); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
@@ -161,6 +163,19 @@ g3cli wrap scan.obj wrapped.stl --alpha 0.5 --offset 0.02 --max-steiner-points 5
 # simplify a large closed mesh with slabs in parallel (max_error is a squared distance; the result does not depend on --threads)
 g3cli simplify big.ply big_small.ply --max-error 1e-6 --partitioned --threads 4
 #   -> "used_partition": true (false below 20000 triangles: one serial run, with a warning)
+
+# geodesics: distance from vertex 0 (heat method, about 2 % plus half an edge accurate), and a geodesic path between two vertices
+# (vertex ids are 0-based in the order of the mesh as read; the lists are cut at --max-results, the counts are not)
+g3cli geodesic terrain.ply --sources 0 --targets 120,4711
+#   -> "distance_statistics": { "max": ... }, "targets": [ { "vertex": 120, "distance": 41.2 }, ... ]
+g3cli geodesic part.ply --from 12 --to 3401            # or --through 12,800,3401 [--closed]
+#   -> "path_status": "success", "length": 88.3, "path_vertices": [12, 77, 3401], "path": [[x, y, z], ...]
+
+# batch queries: rays 'ox,oy,oz,dx,dy,dz;...', points 'x,y,z;...' (or @file with one entry per line)
+g3cli query3d part.stl --rays "0,0,-10,0,0,1;5,5,-10,0,0,1" --points "0,0,0;50,0,0" --nearest --inside crossings
+#   -> "rays": { "hits": 2, "results": [ { "triangle": 31, "t": 9.5, "point": [...] }, ... ] },
+#      "points": { "inside_count": 1, "results": [ { "point": [...], "nearest": {...}, "inside": "inside" }, ... ] }
+g3cli query3d part.stl --rays @rays.txt --any-hit --max-distance 100
 
 # deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
 g3cli deviation simplified.stl original.stl --certified
