@@ -30,6 +30,14 @@ namespace gs
     /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
     /// a cell or the offset, and lose parts smaller than that).
     ///
+    /// Components far apart compared to their size (eg a part 1e8 away from parts of size 1): the degenerate area of
+    /// NotCleanReason, 1e-12 of the squared diagonal of all triangles, then covers their real triangles, and the cleanups
+    /// of the exact resolve collapse them. If the exact resolve fails and some component has triangles below that area,
+    /// it runs once more with the cleanups relative to the diagonal of the largest component; if that resolve is clean
+    /// but for the area of NotCleanReason, Apply() returns false with the resolved mesh in Mesh and ResultReason
+    /// ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the parts). A resolve the
+    /// first attempts accept is unchanged.
+    ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
     /// removed, they are no part of the solid), so pass a copy if
@@ -135,8 +143,9 @@ namespace gs
         /// quality guard of Alpha Wrap 2.0, the simplified wrap kept slivers down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
         /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
         /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
-        /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
-        /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
+        /// self-intersection (exact). Every changed triangle is certified within the distance when it is made, the
+        /// others keep the simplification's certificate, so the improved mesh is within half the offset by
+        /// construction; it is kept only if it is clean, otherwise the simplified one (AlphaWrapQualityImproved false).
         /// The default settings (DefaultWrapQuality) also split caps above 160 degrees (at most 5 % more triangles),
         /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
         /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
@@ -286,6 +295,10 @@ namespace gs
             WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
+            scaleOnly = null;
+            MaxScaleErosionShare = 0;
+            ScaleRetry = false;
+            notClosedFrom = null;
             TopologyChanged = false;
             GenusBefore = GenusAfter = double.NaN;
             ExactResolveRoundsUsed = 0;
@@ -373,6 +386,23 @@ namespace gs
                     if (exact == null && reason != "")
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
+                // components far apart compared to their size: the degenerate area of NotCleanReason (relative to the
+                // diagonal of all triangles) also covers real triangles, and the cleanups above collapse them. Once
+                // more, with the cleanups relative to the largest component (only where the resolves above failed, so a
+                // result they accept is unchanged)
+                if (exact == null && CancelF() == false) {
+                    DMesh3 from = solidifyFrom != result || result.TriangleCount == 0 ? solidifyFrom : result;
+                    MaxScaleErosionShare = global_scale_share(from);
+                    if (MaxScaleErosionShare > 0 && from != notClosedFrom) {
+                        ScaleRetry = true;
+                        string reason = ExactResolveReason;
+                        exact = resolve_exactly(from, input, false, true);
+                        if (exact == null)
+                            ExactResolveReason = reason + "; relative to the largest component: " + ExactResolveReason;
+                        else
+                            fromResult = from == result;
+                    }
+                }
                 end_phase("exact");
                 if (CancelF())
                     return false;
@@ -382,6 +412,18 @@ namespace gs
                     UsedInput = !fromResult;
                     ResultReason = "";
                     return true;
+                }
+                // resolved, and clean but for the degenerate area of NotCleanReason, which components far apart make
+                // too large: not repaired (NotCleanReason rejects it), but the resolved mesh is returned, not the
+                // solidify's or the wrap's, which cannot keep the parts at that scale
+                if (scaleOnly != null) {
+                    Mesh = scaleOnly;
+                    UsedExactResolve = true;
+                    UsedInput = scaleOnlyFromInput;
+                    ResultReason = ScaleDisparity;
+                    TopologyChanged = false;
+                    GenusBefore = GenusAfter = double.NaN;
+                    return false;
                 }
                 // the topology outputs describe the returned mesh only (a rejection stays in ExactResolveReason)
                 TopologyChanged = false;
@@ -458,6 +500,15 @@ namespace gs
         }
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+        /// <summary>
+        /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
+        /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
+        /// larger than their triangles. Apply() returns false with the resolved mesh, not the solidify's or the wrap's
+        /// </summary>
+        public const string ScaleDisparity = "scale disparity: degenerate triangles only by the diagonal of all triangles (components far apart compared to their size); clean by the diagonal of the largest component";
+        // the exact resolve that is clean but for that (null: none), and whether it came from the input
+        DMesh3 scaleOnly;
+        bool scaleOnlyFromInput;
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the
         // volume check of the exact stage rejects, but the solidify and the wrap do not check): then the fallbacks start
@@ -537,28 +588,65 @@ namespace gs
 
         /// <summary> SimplifyWithin; hausdorffSubdivisions: the subdivisions of the distance check (for tests) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            out int hausdorffSubdivisions)
+            out int hausdorffSubdivisions, Dictionary<string, long> phases = null)
         {
-            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions, WrapSimplifyMinQuality, true);
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, WrapSimplifySlabs, 0, phases);
         }
 
-        /// <summary> SimplifyWithin with the quality guard given (tests: the earlier 0.05 per triangle leaves the caps that
-        /// AlphaWrapQualityPass is tested on) </summary>
+        /// <summary> SimplifyWithin with the quality guard given, one serial Reducer run (tests: the earlier 0.05 per triangle
+        /// leaves the caps that AlphaWrapQualityPass is tested on, the inputs those tests were chosen on) </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst)
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, Dictionary<string, long> phases = null)
+        {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                minQuality, qualityAgainstWorst, 0, 0, phases);
+        }
+
+        /// <summary>
+        /// the slabs of the wrap simplification (PartitionedReduction; Alpha Wrap 2.0 option A, owner decision 2026-11-08).
+        /// Fixed, not the core count: the partition decides the result
+        /// </summary>
+        internal const int WrapSimplifySlabs = 8;
+
+        /// <summary>
+        /// SimplifyWithin on slabs (0: one serial Reducer run) with at most maxThreads threads (0: the platform default; the
+        /// result does not depend on it)
+        /// </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, int slabs, int maxThreads)
+        {
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out hausdorffSubdivisions,
+                WrapSimplifyMinQuality, true, slabs, maxThreads);
+        }
+
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
+            Dictionary<string, long> phases = null)
         {
             hausdorffSubdivisions = 0;
+            Stopwatch timer = Stopwatch.StartNew();
             DMesh3 m = new DMesh3(mesh);
-            Reducer reducer = new Reducer(m) {
-                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minQuality, CollapseQualityAgainstWorst = qualityAgainstWorst,
-                EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            Action<Reducer> configure = (r) => {
+                r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
+                r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
+                r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
-            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
-            m = new DMesh3(m, true);
+            if (slabs > 0) {
+                m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);
+            } else {
+                Reducer reducer = new Reducer(m);
+                configure(reducer);
+                reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+                m = new DMesh3(m, true);
+            }
+            lap(phases, "reduce", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "certify", timer);
+            return within ? m : null;
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
@@ -602,23 +690,60 @@ namespace gs
 
         /// <summary>
         /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
-        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// nothing, was cancelled, or its result is not clean.
+        /// simplified must be certified within maxDistance of wrap (SimplifyWithin does that). The result is then
+        /// certified within maxDistance by construction, without a second Hausdorff check: every operation of the pass
+        /// certifies each of its new triangles, exactly as it puts them into the mesh, within 0.95 maxDistance of wrap
+        /// (AlphaWrapQualityPass.accept, TriangleDeviationBounds.IsWithin), and the triangles it does not touch keep the
+        /// certificate of simplified (AlphaWrapQualityPassTests.ImproveWrapQuality_CertifiedByConstruction checks it). If
+        /// configure widens the operations' tolerance beyond that, the Hausdorff check decides as before.
         /// </summary>
         internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
-            Action<AlphaWrapQualityPass> configure = null)
+            Action<AlphaWrapQualityPass> configure = null, Dictionary<string, long> phases = null)
         {
-            int subdivisions = 0;
-            // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
-            // check, which resolves to 1 % of maxDistance, undecided)
+            bool hausdorffChecked;
+            return ImproveWrapQuality(simplified, wrap, maxDistance, checkSelfIntersections, cancelF, configure, out hausdorffChecked, phases);
+        }
+
+        /// <summary> ImproveWrapQuality; hausdorffChecked: whether the final Hausdorff check ran (tests) </summary>
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            Action<AlphaWrapQualityPass> configure, out bool hausdorffChecked, Dictionary<string, long> phases = null)
+        {
+            hausdorffChecked = false;
+            Stopwatch timer = Stopwatch.StartNew();
+            // (the operations within 0.95 of maxDistance, by default: a margin below the distance that the result is
+            // certified within; it also lets the Hausdorff check decide when a configuration widens the tolerance)
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
             configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
-            if (pass.Compute() == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
+            bool computed = pass.Compute();
+            lap(phases, "pass", timer);
+            if (computed == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
                 return null;
             DMesh3 m = new DMesh3(pass.Mesh, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
+            lap(phases, "check", timer);
+            // (a configuration that widened the operations' tolerance beyond 0.95 maxDistance: no certificate by
+            // construction, the Hausdorff check decides)
+            if (!(pass.Tolerance <= 0.95 * maxDistance)) {
+                hausdorffChecked = true;
+                int subdivisions = 0;
+                bool within = certified_within(m, wrap, maxDistance, cancelF, ref subdivisions);
+                lap(phases, "certify", timer);
+                return within ? m : null;
+            }
+            return m;
+        }
+
+        // (benchmarks) adds the time since the last lap to phases[name], if phases is given
+        static void lap(Dictionary<string, long> phases, string name, Stopwatch timer)
+        {
+            if (phases == null)
+                return;
+            phases.TryGetValue(name, out long ms);
+            phases[name] = ms + timer.ElapsedMilliseconds;
+            timer.Restart();
         }
 
         // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?
@@ -641,7 +766,9 @@ namespace gs
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
-        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
+        // (largestScale: the cleanups relative to the diagonal of the largest component, and a resolve clean but for the
+        // degenerate area of NotCleanReason kept as scaleOnly)
+        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput, bool largestScale = false)
         {
             var timer = Stopwatch.StartNew();
             // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
@@ -655,6 +782,8 @@ namespace gs
             add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
             if (closed == false) {
                 ExactResolveReason = "not closed (winding number)";
+                // (a scale cannot change that: the retry relative to the largest component is not tried for it)
+                notClosedFrom = from;
                 return null;
             }
             if (ExactResolveMaxPairs > 0) {
@@ -688,12 +817,17 @@ namespace gs
                 bool editedAfterRounding = false;
                 if (reason == "degenerate triangles") {
                     editedAfterRounding = true;
-                    new MeshPostRepairCleanup(res).Apply();
+                    // (relative to the largest component, as the safe rounding, where the diagonal of all triangles would
+                    // collapse real surface: a small part far from the rest must not make every other triangle
+                    // degenerate; elsewhere relative to all triangles, as NotCleanReason, as before)
+                    double scale = largestScale ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
+                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = largestScale ? scale : double.NaN }.Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
                     // the self-intersections that can create are found below and resolved by the next round (so
                     // only when they are checked)
-                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles" && CollapseSlivers(res) > 0)
+                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles"
+                        && collapse_slivers(res, 1e-4, 5, scale > 0 && scale < double.PositiveInfinity ? scale : MeshRepairMetrics.TriangleBounds(res).DiagonalLength) > 0)
                         res = new DMesh3(res, true);
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
@@ -728,6 +862,10 @@ namespace gs
                     ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.VertexRemovals + first.RemovedTriangles, edits));
                 }
                 reason = NotCleanReason(res, false);
+                // (clean but for the degenerate area of NotCleanReason: the rest of the checks as for a clean one)
+                bool onlyScale = largestScale && reason == "degenerate triangles" && not_clean_reason_at_scale(res) == "";
+                if (onlyScale)
+                    reason = "";
                 if (reason == "" && CheckSelfIntersections) {
                     if (si < 0)
                         si = MeshRepairMetrics.SelfIntersections(res);
@@ -762,6 +900,15 @@ namespace gs
                     }
                     if (MinVolumeIoU > 0)
                         RepairVolumeIoU = iou;
+                }
+                if (onlyScale) {
+                    // (the first one: the repair result's before the input's)
+                    if (scaleOnly == null) {
+                        scaleOnly = res;
+                        scaleOnlyFromInput = from == input;
+                    }
+                    ExactResolveReason = ScaleDisparity;
+                    return null;
                 }
                 ExactResolveReason = "";
                 return res;
@@ -868,7 +1015,12 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+            return collapse_slivers(mesh, maxCollapse, maxPasses, MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength);
+        }
+
+        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component)
+        static int collapse_slivers(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
+        {
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
             for (int pass = 0; pass < maxPasses; ++pass) {
@@ -1068,6 +1220,57 @@ namespace gs
             new KeyValuePair<Defects, string>(Defects.InsideOutComponents, "inside-out components"),
             new KeyValuePair<Defects, string>(Defects.SelfIntersections, "self-intersections"),
         };
+
+        // the last Apply(): whether the exact resolve ran once more relative to the largest component, and the share of
+        // global_scale_share that decided it (benchmarks)
+        internal bool ScaleRetry;
+        internal double MaxScaleErosionShare;
+        // the mesh whose exact resolve found it not closed by the winding number in the last Apply() (null: none); its
+        // retry would fail the same way
+        DMesh3 notClosedFrom;
+
+        // the largest share, over the connected components, of a component's area in triangles below the degenerate
+        // area of NotCleanReason (0 with fewer than two components)
+        static double global_scale_share(DMesh3 mesh)
+        {
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+            double areaEps = 1e-12 * diag * diag;
+            int[] componentOf;
+            List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(mesh, out componentOf);
+            if (boxes.Count < 2)
+                return 0;
+            var total = new double[boxes.Count];
+            var below = new double[boxes.Count];
+            foreach (int t in mesh.TriangleIndices()) {
+                int c = componentOf[mesh.GetTriangle(t).a];
+                double a = mesh.GetTriArea(t);
+                total[c] += a;
+                if (a < areaEps)
+                    below[c] += a;
+            }
+            double share = 0;
+            for (int c = 0; c < boxes.Count; ++c)
+                if (below[c] > 0)
+                    share = Math.Max(share, below[c] / total[c]);
+            return share;
+        }
+
+        // NotCleanReason without self-intersections, the degenerate area relative to the diagonal of the largest
+        // connected component (MeshRepairMetrics.LargestComponentDiagonal), NotCleanReason's if that is not finite
+        static string not_clean_reason_at_scale(DMesh3 mesh)
+        {
+            string reason = NotCleanReason(mesh, false);
+            if (reason != "degenerate triangles")
+                return reason;
+            double scale = MeshRepairMetrics.LargestComponentDiagonal(mesh);
+            if (!(scale > 0 && scale < double.PositiveInfinity))
+                return reason;
+            double areaEps = 1e-12 * scale * scale;
+            if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
+            if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
+            if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
+            return "";
+        }
 
         // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
         static bool has_degenerate_triangles(DMesh3 mesh)

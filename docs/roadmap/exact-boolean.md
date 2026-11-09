@@ -40,7 +40,16 @@ solidify fallback, `MeshWindingNumberBoolean` and `WindingContouring`; it evalua
 corners), `DualContouring` in its sparse mode (fed by the octree's node values; its per-cell `long`-keyed
 dictionaries); the Reducer's `TriangleHashGrid` is already examined (#422: hierarchical, cell size 3.0, rebuilt
 layouts slower; at most 3-5 % of the wrap pipeline left), so it is not repeated; the order follows
-where the profiles spend the time (owner 2026-11-08).
+where the profiles spend the time (owner 2026-11-08). It also lists the library's serial loops over single tree
+queries (nearest point, rays, inside tests: repair volume check, MaxDeviation / IsWithin, fidelity metrics,
+deviation maps) with an upper bound each for switching them to the batch queries (research.md, priority 1).
+It also measures the memory layout of the meshes as a lever (owner 2026-11-08): the original order vs a compacted
+and spatially reordered mesh (vertices and triangles in Morton / Hilbert order; free-ID holes removed after many
+edits), on the boolean set and the T1 wrap / repair meshes. Many algorithms break ties by ID, so reordering is either
+internal with a map back where the result does not depend on the order, or a user option whose result holds for the
+reordered input; the owner decides from the upper bound. Smaller candidates in the same profile: GC / allocations
+(about 7 % of the Reducer; `ArrayPool` for the boolean is an open owner decision) and per-vertex small
+`HashSet<int>` / `List<int>` in hot loops.
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
@@ -58,6 +67,21 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 **Owner decisions 2026-11-07:**
 - Input defects: the criterion is "the result has no defect the input does not already have" (B1 bowties, 47 ops, and D2 degenerate inputs, 11 ops, are not library defects).
 - Hopeless repairs (L3, 119829/119830): a work-unit budget with an honest "not fully repaired" status, shown never to trigger on today's clean cases.
+  **Owner decision 2026-11-08: no L3 budget** (dropped). Finding (integration build d1b73d6c): neither case is hopeless
+  or slow any more.
+  - Times: union 3.5 / 3.7 s, difference 1.4 s, intersection 0.8 s (clean). The rounding was 21 s and became 3.1 s with
+    the dirty-tree change (`perf/rounding_dirty_tree_2026-11-08.jsonl`).
+  - The inputs carry about 13.4k tiny but well-shaped triangles each (edge ratio about 0.15, longest edge about 3.3e-6
+    of the diagonal). Their area is just under `DegenerateArea` times the result's squared diagonal, so SafeRounding
+    contracts them as decided (D', design/SAFE_ROUNDING.md section 1): union 13439 edits.
+  - The 23 (union) and 5 (difference) triangles left are where the drift accumulated in the patch reaches the bound:
+    the smallest rejected edit needs 1.01 times it. No effort limit is reached, and the result reports it honestly
+    (`RoundingClean` false; `RoundingNotClean` with `StrictRounding`).
+  - The effort budget for hopeless inputs already exists (`MaxPairTests`, `MaxEvaluationsPerDefect`,
+    `EvaluationLimitReached`).
+  - A procedural patch (`RoundingDenseTessellationTests`) scales about linearly, roughly 50 us of rounding per tiny
+    triangle: 0.9k / 8.5k / 33k / 130k tiny triangles gave 0.16 / 0.6 / 1.7 / 6.6 s of rounding. Only the largest
+    reached the existing limit.
 - 519511, and 1517923 if the levers fall short: documented exceptions to the 5 s target. The architecture assessment (EMBER, octree BSPs, Campen-Kobbelt, Cherchi 2022, Manifold, Trueform, Lévy 2024) found no candidate that produces doubles with a no-intersection guarantee; 5 s on 519511 is unlikely under any architecture because rounding a 520k-triangle result alone costs 3-5 s. No rewrite; L1 and the rounding-search levers survive any architecture.
 - Contacts (self-touching solids): keep the contract (clean = clean in memory, as Manifold) and report a contact count (`ExactMeshBoolean.Contacts`); contacts created by rounding (M3) are defects (#398).
 - SIMD: measured only; vectorized filters at most 2-4 %; a 4-wide BVH only after the algorithmic traversal fixes.
@@ -87,13 +111,19 @@ runner's data branch.
 
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
 #425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
-the PRs merge one by one with normal CI. Open library items after the queue: L3 work-unit budget, the
-ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5 s (1517923, 519507).
+the PRs merge one by one with normal CI. Open library items after the queue (the L3 budget was dropped, see the owner
+decisions above): the ExactPredicates throw near ±1e308, a re-measurement of the remaining ops over 5 s (1517923, 519507).
 
 **PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
 
 #### Other open items
 
+- **Degeneracy criterion (open question for 2.x, owner 2026-11-08):** `DegenerateArea` = 1e-12 × diag² counts
+  well-shaped but tiny triangles as degenerate. 119829/119830 carry about 13.4k of them (longest edge about 3.3e-6 ×
+  diag, shortest / longest edge median 0.15); SafeRounding contracts them as D′ prescribes (union 13 439 edits, about
+  2.3 s) and 23 / 5 stay where the accumulated drift reaches the bound. Leaving well-shaped tiny triangles alone (a
+  shape criterion, eg aspect ratio, next to the area) would make both clean and faster, but reopens D′: an owner
+  decision with data (how many inputs of the Thingi10K run carry such triangles, and what changes) after 2.0.
 - **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
   `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
   (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the

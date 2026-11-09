@@ -133,6 +133,12 @@ from secret tests, which a public repository cannot keep.
 
 - Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
   only go up (a ratchet).
+- Full runs after the merge (owner 2026-11-09): only the incremental run (changed lines against the master baseline)
+  gates a PR. A PR that would need full shard runs (no master baseline, a changed config or mutation tooling, an
+  integration PR) merges on green CI and review; the coordinator cancels its PR mutation run and dispatches the full
+  run of the same shards on master, which seeds the baselines and is the gate (below a threshold: a follow-up PR with
+  tests; a revert only for a real defect). Reason: a full rounding part takes up to 5 h, and the PR run and the master
+  baseline would test nearly the same tree twice.
 - Stryker runs locally once per shard, to set its threshold; after that the CI mutation run on the PR is the gate.
   Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the baseline of the last
   full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline still runs in
@@ -147,7 +153,9 @@ from secret tests, which a public repository cannot keep.
   check-ins, no polling) until the coordinator messages it.
 - Merge queues behind the mutation gate (owner 2026-11-08): when several ready PRs touch the same shards, one
   integration branch from master merges them all and gets one mutation run for the affected shards; if it is green,
-  the PRs merge one by one with normal CI only. Survivors are attributed by line to the PR that changed it. A gate
+  one PR from the integration branch merges into master (owner 2026-11-08: so master gets exactly the tree the gate
+  tested, including any conflict resolutions; the queued PRs then show as merged). Survivors are attributed by line
+  to the PR that changed it. A gate
   whose new thresholds come from a run on exactly the PR's code may be decided on that run without a rerun after a
   thresholds-only commit (#403).
 - Near the usage limit, finish running work only and start nothing new.
@@ -179,6 +187,10 @@ from secret tests, which a public repository cannot keep.
   loop that exits when the file appears; waiting costs nothing) and starts it; results and a `REPORT-<n>.md` go to
   the same branch, and the coordinator reads them there at its check-ins. A message to a cloud session is sent
   only if the local session's tools allow it.
+  On the owner's machine (no container recycling) a job step longer than the 2-h limit of a harness-tracked task may
+  run as a detached process (owner 2026-11-08): record its PIDs and start time, keep every step resumable, and write
+  `.exit` / `.end` files when it ends; the local session evaluates when the owner asks or when the step has ended.
+  For local Stryker runs, `--open-report` shows the live HTML dashboard in the owner's browser.
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are

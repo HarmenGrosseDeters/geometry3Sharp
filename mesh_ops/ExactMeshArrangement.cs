@@ -207,6 +207,13 @@ namespace g3
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
+        // tests (counted in check mode only): candidate pairs the Devillers-Guigue test rejected, and proper pairs whose
+        // decision was compared with the construction's
+        internal int PrefilterRejected, PrefilterChecked;
+        // tests: every proper pair is decided both ways, the prefilter's decision compared with the construction's
+        // (InvalidOperationException if they differ); read when the intersections are searched, on the calling thread
+        [ThreadStatic] internal static bool CheckPrefilterOnThisThread;
+        bool checkPrefilter;
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
         /// <summary> segment pairs and segment-point pairs examined in the triangles (for tests: about linear in their number) </summary>
         public long CandidateTests;
@@ -1461,6 +1468,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void find_intersections(PhaseClock clock)
         {
+            checkPrefilter = CheckPrefilterOnThisThread;
             // boxes of the exact input coordinates
             var boxes = new List<AxisAlignedBox3d>[Meshes.Count];
             var trees = Trees = new TriangleBoxTree[Meshes.Count];
@@ -1797,6 +1805,17 @@ namespace g3
                 intersect_coplanar(ti, ui);
                 return;
             }
+            // the proper case (no vertex in the other plane): decided by the signs alone, without the points
+            // (docs/design/TRITRI_PREFILTER.md); other cases, and pairs that meet, take the construction below
+            bool proper = sT[0] != 0 && sT[1] != 0 && sT[2] != 0 && sU[0] != 0 && sU[1] != 0 && sU[2] != 0;
+            bool apart = proper && apart_on_the_line(t0, t1, t2, sT, u0, u1, u2, sU);
+            if (apart) {
+                // Stryker disable once all: without the early return the construction below decides the same (slower)
+                if (checkPrefilter == false)
+                    return;
+                // (counted in check mode only: these pairs are most of the candidates, a shared counter would cost)
+                System.Threading.Interlocked.Increment(ref PrefilterRejected);
+            }
 
             List<int> pT = plane_points(T, sT, 4 * ui), pU = plane_points(U, sU, 4 * ti);
             var d = new Direction(T.NY * U.NZ - T.NZ * U.NY, T.NZ * U.NX - T.NX * U.NZ, T.NX * U.NY - T.NY * U.NX);
@@ -1806,6 +1825,10 @@ namespace g3
             int lo = (compare_along(d, loT, loU) >= 0) ? loT : loU;
             int hi = (compare_along(d, hiT, hiU) <= 0) ? hiT : hiU;
             int c = compare_along(d, lo, hi);
+            if (checkPrefilter && proper)
+                System.Threading.Interlocked.Increment(ref PrefilterChecked);
+            if (checkPrefilter && proper && apart != (c > 0))
+                throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -1816,6 +1839,31 @@ namespace g3
                 lock (T) T.AddSegment(new Segment(lo, hi, 4 * ui));
                 lock (U) U.AddSegment(new Segment(lo, hi, 4 * ti));
             }
+        }
+
+        // Devillers and Guigue (2002), the proper case: the triangles t and u each have their vertices strictly on both
+        // sides of the other's plane (sT[k] = Orient3d(u0, u1, u2, t_k), sU[k] = Orient3d(t0, t1, t2, u_k), all non-zero).
+        // Both triangles meet the line L of the two planes in a segment; they intersect iff the segments overlap. With
+        // p1 the vertex of t alone on its side and p2 the one of u (q, r follow in cyclic order), and q2, r2 swapped where
+        // p1 is below u's plane, q1, r1 where p2 is below t's plane, the segments overlap iff
+        // Orient3d(p1, q1, p2, q2) <= 0 and Orient3d(p1, r1, r2, p2) <= 0. True: they are apart (no common point)
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool apart_on_the_line(Vector3d t0, Vector3d t1, Vector3d t2, int[] sT, Vector3d u0, Vector3d u1, Vector3d u2, int[] sU)
+        {
+            int i = (sT[0] != sT[1] && sT[0] != sT[2]) ? 0 : (sT[1] != sT[0] && sT[1] != sT[2]) ? 1 : 2;
+            int j = (sU[0] != sU[1] && sU[0] != sU[2]) ? 0 : (sU[1] != sU[0] && sU[1] != sU[2]) ? 1 : 2;
+            Vector3d p1 = pick(t0, t1, t2, i), q1 = pick(t0, t1, t2, i + 1), r1 = pick(t0, t1, t2, i + 2);
+            Vector3d p2 = pick(u0, u1, u2, j), q2 = pick(u0, u1, u2, j + 1), r2 = pick(u0, u1, u2, j + 2);
+            // (a cyclic order keeps the plane's orientation: the sign of p1 to (p2, q2, r2) is sT[i], of p2 to (p1, q1, r1) sU[j])
+            if (sT[i] < 0) { Vector3d w = q2; q2 = r2; r2 = w; }
+            if (sU[j] < 0) { Vector3d w = q1; q1 = r1; r1 = w; }
+            return ExactPredicates.Orient3d(p1, q1, p2, q2) > 0 || ExactPredicates.Orient3d(p1, r1, r2, p2) > 0;
+        }
+
+        static Vector3d pick(Vector3d a, Vector3d b, Vector3d c, int k)
+        {
+            k %= 3;
+            return k == 0 ? a : k == 1 ? b : c;
         }
 
         // the points where the boundary of t meets the plane (key; t is not in the plane)
@@ -2295,14 +2343,25 @@ namespace g3
 
     /// <summary>
     /// Bounding volume hierarchy of boxes with closed overlap tests and no padding, so that it never
-    /// misses a pair of touching boxes (for exact computations).
+    /// misses a pair of touching boxes (for exact computations). Above MedianSplitBelow boxes they are sorted once along
+    /// a Morton curve of their centres (as Geogram's MeshFacetsAABB, Lévy; Lauterbach et al. 2009; the coordinates as
+    /// ranks where one far box would squeeze the others into a few cells) and every range splits where the highest
+    /// differing bit of its codes changes (Karras 2012); smaller trees keep the median split on the longest axis. On
+    /// Thingi10K this gives tighter nodes than the median split on the longest axis used before
+    /// (docs/perf/EXACT_BOOLEAN_PERFORMANCE.md). The order only steers which boxes share a node: the boxes a query
+    /// finds, and the pairs, are the same.
     /// </summary>
     internal class TriangleBoxTree
     {
         readonly List<AxisAlignedBox3d> boxes;
         readonly int[] order;
-        readonly double[] keys;     // sort keys while building
         const int LeafSize = 8;
+        // small trees (eg SafeRounding's tree of the changed triangles, rebuilt often) take the median split on the
+        // longest axis per node, which is cheaper to build; larger ones the Morton order
+        const int MedianSplitBelow = 4096;
+        readonly bool median;
+        readonly double[] keys;     // the median split's sort keys while building
+        long[] sortedCodes;         // the Morton codes in order (while building)
         // nodes (in the order of construction, the root first): box (min x, y, z, max x, y, z), first index into
         // order and count, children (-1 for a leaf)
         int nodeCount;
@@ -2319,13 +2378,21 @@ namespace g3
             order = new int[n];
             for (int i = 0; i < n; ++i)
                 order[i] = i;
-            keys = new double[n];
+            median = n <= MedianSplitBelow;
+            // Stryker disable all: the order only decides which boxes share a node (performance, not results)
+            if (median) {
+                keys = new double[n];
+                permute_for_tests(n);
+            } else
+                morton_order(n);
+            // Stryker restore all
             // (at most 2 n / LeafSize * 2 + 1 nodes: every inner node splits a range of more than LeafSize in halves)
             int cap = 4 * (n / LeafSize) + 3;
             nodeBox = new double[6 * cap];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
             if (n > 0)
                 build(0, n);
+            sortedCodes = null;
             leafBox = new double[6 * n];
             for (int i = 0; i < n; ++i)
                 put(leafBox, i, boxes[order[i]]);
@@ -2349,17 +2416,87 @@ namespace g3
             nodeStart[node] = start; nodeSize[node] = count; nodeLeft[node] = -1; nodeRight[node] = -1;
             if (count <= LeafSize)
                 return node;
-            Vector3d d = box.Diagonal;
-            int axis = (d.x >= d.y && d.x >= d.z) ? 0 : (d.y >= d.z) ? 1 : 2;
-            for (int i = start; i < start + count; ++i)
-                keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
             int half = count / 2;
-            select(start, start + count - 1, start + half);
+            // Stryker disable all: the split only decides which boxes share a node (performance, not results)
+            if (median) {
+                Vector3d d = box.Diagonal;
+                int axis = (d.x >= d.y && d.x >= d.z) ? 0 : (d.y >= d.z) ? 1 : 2;
+                for (int i = start; i < start + count; ++i)
+                    keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
+                select(start, start + count - 1, start + half);
+            }
+            else {
+                // the boxes are in Morton order: split where the highest bit in which the range's codes differ changes,
+                // so that the halves are octree cells and not the two ends of a jump of the curve; equal codes, or a
+                // split that leaves too little on a side: the middle
+                long a = sortedCodes[start], b = sortedCodes[start + count - 1];
+                if (a != b) {
+                    long bit = highest_bit(a ^ b);
+                    int lo = start, hi = start + count - 1;
+                    // (the codes ascend and share the bits above: the first one with the bit set)
+                    while (lo < hi) {
+                        int mid = (lo + hi) >> 1;
+                        if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
+                    }
+                    // Stryker restore all
+                    // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
+                    // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
+                    // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
+                    // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
+                    // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
+                    // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
+                    int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
+                    if (h >= least && count - h >= least)
+                        half = h;
+                    // Stryker disable all
+                }
+            }
+            // Stryker restore all
             int left = build(start, half);
             int right = build(start + half, count - half);
             nodeLeft[node] = left;
             nodeRight[node] = right;
             return node;
+        }
+
+        // tests: the nodes, their capacity, and the depth of the tree (the root at depth 1)
+        internal int NodeCount { get { return nodeCount; } }
+        internal int NodeCapacity { get { return nodeStart.Length; } }
+        internal int Depth()
+        {
+            int depth = 0;
+            var stack = new Stack<(int node, int depth)>();
+            if (nodeCount > 0)
+                stack.Push((0, 1));
+            while (stack.Count > 0) {
+                var (node, d) = stack.Pop();
+                depth = Math.Max(depth, d);
+                if (nodeLeft[node] >= 0) {
+                    stack.Push((nodeLeft[node], d + 1));
+                    stack.Push((nodeRight[node], d + 1));
+                }
+            }
+            return depth;
+        }
+
+        // tests: the nodes a query visits (the traversal of Query, counted; not on the hot path)
+        internal long VisitedNodes(AxisAlignedBox3d query)
+        {
+            if (nodeCount == 0)
+                return 0;
+            double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
+            long visited = 0;
+            var stack = new Stack<int>();
+            stack.Push(0);
+            while (stack.Count > 0) {
+                int node = stack.Pop();
+                visited++;
+                if (overlaps(nodeBox, node, x0, y0, z0, x1, y1, z1) == false || nodeLeft[node] < 0)
+                    continue;
+                stack.Push(nodeLeft[node]);
+                stack.Push(nodeRight[node]);
+            }
+            return visited;
         }
 
         /// <summary> call f for every box that the segment p-q intersects, with all boxes expanded by pad </summary>
@@ -2407,6 +2544,125 @@ namespace g3
             }
             return true;
         }
+
+        // Stryker disable all: an ordering heuristic; any permutation gives the same queries and pairs (performance only,
+        // measured in docs/perf/EXACT_BOOLEAN_PERFORMANCE.md; BoxTreeOrderTests check the results under random orders)
+        // sort order by the Morton code of the box centres: their coordinates over the box of all centres, 21 bits per
+        // axis; if that squeezes the boxes into few cells (one far box), the coordinates as ranks instead: per axis the
+        // centres in sorted order (as Array.Sort orders doubles: NaN first; equal values get equal ranks), the rank
+        // scaled to 21 bits, so a far box only takes the last rank. Ties of the code: the box index
+        [MethodImpl(JitHints.Optimize)]
+        void morton_order(int n)
+        {
+            // the coordinates over the box of all centres first (cheap); if one far box squeezes the others into a few
+            // cells (fewer than n / 4 distinct codes), the ranks
+            var codes = new long[n];
+            var all = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < n; ++i)
+                all.Contain(boxes[i].Center);
+            Vector3d lo = all.Min, ext = all.Max - all.Min;
+            const double cells = 2097151;   // 2^21 - 1
+            double sx = ext.x > 0 ? cells / ext.x : 0, sy = ext.y > 0 ? cells / ext.y : 0, sz = ext.z > 0 ? cells / ext.z : 0;
+            for (int i = 0; i < n; ++i) {
+                Vector3d c = boxes[i].Center;
+                codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
+            }
+            sort_codes(codes, n);
+            int distinct = 1;
+            for (int k = 1; k < n; ++k)
+                if (codes[k] != codes[k - 1]) distinct++;
+            if (4 * distinct < n) {
+                for (int i = 0; i < n; ++i)
+                    order[i] = i;
+                var rx = ranks(n, 0);
+                var ry = ranks(n, 1);
+                var rz = ranks(n, 2);
+                for (int i = 0; i < n; ++i)
+                    codes[i] = spread(rx[i]) << 2 | spread(ry[i]) << 1 | spread(rz[i]);
+                sort_codes(codes, n);
+            }
+            sortedCodes = codes;
+            permute_for_tests(n);
+        }
+
+        static long highest_bit(long x)
+        {
+            long b = 1;
+            while ((x >>= 1) != 0) b <<= 1;
+            return b;
+        }
+
+        // sort order (and codes) by code; equal codes by box index, the same order on every runtime (only the
+        // results' order could depend on it, across net48 and net10, not the results; the runs are short)
+        void sort_codes(long[] codes, int n)
+        {
+            Array.Sort(codes, order);
+            for (int s0 = 0, s1; s0 < n; s0 = s1) {
+                for (s1 = s0 + 1; s1 < n && codes[s1] == codes[s0]; ++s1) { }
+                if (s1 - s0 > 1)
+                    Array.Sort(order, s0, s1 - s0);
+            }
+        }
+
+        // a coordinate scaled to the grid; not finite (NaN, an infinite extent): the low end
+        static uint quantize(double t)
+        {
+            return (t >= 0) ? (t < 2097151 ? (uint)t : 2097151u) : 0u;
+        }
+
+        // tests (PermutationSeedForTests): a random order, to show that the results do not depend on it
+        void permute_for_tests(int n)
+        {
+            int seed = PermutationSeedForTests;
+            if (seed == 0)
+                return;
+            var rand = new Random(seed);
+            for (int i = n - 1; i > 0; --i) {
+                int k = rand.Next(i + 1);
+                int t = order[i]; order[i] = order[k]; order[k] = t;
+            }
+            PermutedTrees++;
+        }
+
+        // per box, the rank of its centre's coordinate on the axis among all centres, scaled to 0 .. 2^21 - 1
+        uint[] ranks(int n, int axis)
+        {
+            var c = new double[n];
+            var idx = new int[n];
+            for (int i = 0; i < n; ++i) {
+                c[i] = boxes[i].Center[axis];
+                idx[i] = i;
+            }
+            // (the order among equal values does not matter: they get one rank)
+            Array.Sort(c, idx);
+            var rank = new uint[n];
+            int first = 0;
+            for (int k = 0; k < n; ++k) {
+                if (k > 0 && c[k].CompareTo(c[k - 1]) != 0)
+                    first = k;
+                rank[idx[k]] = (uint)((long)first * 2097151 / Math.Max(1, n - 1));
+            }
+            return rank;
+        }
+
+        // tests only: if not 0, the boxes are put in a random order of this seed after sorting (process-wide: the trees
+        // are built on worker threads; tests that set it run alone, see BoxTreeMortonTests)
+        internal static volatile int PermutationSeedForTests;
+        // tests: trees built in a random order (PermutationSeedForTests), to show the hook ran
+        internal static long PermutedTrees;
+
+        // the 21 bits of v at every third bit position
+        static long spread(uint v)
+        {
+            ulong x = v & 0x1fffff;
+            x = (x | x << 32) & 0x1f00000000ffffUL;
+            x = (x | x << 16) & 0x1f0000ff0000ffUL;
+            x = (x | x << 8) & 0x100f00f00f00f00fUL;
+            x = (x | x << 4) & 0x10c30c30c30c30c3UL;
+            x = (x | x << 2) & 0x1249249249249249UL;
+            return (long)x;
+        }
+        // Stryker restore all
 
         // partial sort of order[lo..hi] by keys so that position k holds its element and the halves are split
         // there (Hoare quickselect)
@@ -2555,8 +2811,8 @@ namespace g3
             if (nodeCount == 0)
                 return;
             double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
-            // (at most depth + 1 entries; the depth is below log2(n) + 1: the halves of a range differ by at most one)
-            int[] stack = queryStack ?? (queryStack = new int[128]);
+            // (at most depth + 1 entries; the depth is below log(n / 4) / log(8 / 7) + 1: every split leaves an eighth on a side)
+            int[] stack = queryStack ?? (queryStack = new int[256]);
             int top = 0;
             stack[top++] = 0;
             while (top > 0) {

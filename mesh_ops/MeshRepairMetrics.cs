@@ -661,6 +661,63 @@ namespace gs
             return box;
         }
 
+        // the connected components (vertices joined by triangles, union-find; the smaller root wins, so the same mesh
+        // gives the same components) and the bounds of each one's triangles, in the order of their first triangle;
+        // componentOf (if not null) per vertex id its component, 0 for a vertex in no triangle
+        internal static List<AxisAlignedBox3d> ComponentBoxes(DMesh3 mesh, out int[] componentOf)
+        {
+            int nv = mesh.MaxVertexID;
+            var parent = new int[nv];
+            for (int v = 0; v < nv; ++v) parent[v] = v;
+            Func<int, int> find = (v) => { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int ra = find(tv.a), rb = find(tv.b), rc = find(tv.c);
+                int r = Math.Min(ra, Math.Min(rb, rc));
+                parent[ra] = r; parent[rb] = r; parent[rc] = r;
+            }
+            componentOf = new int[nv];
+            var index = new Dictionary<int, int>();
+            var boxes = new List<AxisAlignedBox3d>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int r = find(tv.a), c;
+                if (index.TryGetValue(r, out c) == false) {
+                    index[r] = c = boxes.Count;
+                    boxes.Add(AxisAlignedBox3d.Empty);
+                }
+                AxisAlignedBox3d b = boxes[c];
+                b.Contain(mesh.GetVertex(tv.a)); b.Contain(mesh.GetVertex(tv.b)); b.Contain(mesh.GetVertex(tv.c));
+                boxes[c] = b;
+            }
+            for (int v = 0; v < nv; ++v) {
+                int c;
+                componentOf[v] = index.TryGetValue(find(v), out c) ? c : 0;
+            }
+            return boxes;
+        }
+
+        // the largest diagonal of the boxes (0 for none); NaN if one is not finite (coordinates that are not, or an
+        // extent that overflows), whatever the order: tolerances relative to it are then NaN
+        internal static double LargestDiagonal(List<AxisAlignedBox3d> boxes)
+        {
+            double size = 0;
+            foreach (AxisAlignedBox3d bx in boxes) {
+                double d = bx.DiagonalLength;
+                if (!(d < double.PositiveInfinity)) size = double.NaN;
+                else if (d > size) size = d;
+            }
+            return size;
+        }
+
+        // the diagonal of the largest connected component (see ComponentBoxes, LargestDiagonal): the scale of tolerances
+        // that a small part far from the rest must not widen (SafeRounding, the cleanups of MeshRobustRepair)
+        internal static double LargestComponentDiagonal(DMesh3 mesh)
+        {
+            int[] componentOf;
+            return LargestDiagonal(ComponentBoxes(mesh, out componentOf));
+        }
+
         // uniform random points in a union of boxes: a box picked by volume, a point in it, kept if no earlier box
         // contains it (so every point of the union has the same density); one box: a point in it, as before
         internal sealed class SampleRegion

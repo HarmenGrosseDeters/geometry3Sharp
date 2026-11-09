@@ -89,6 +89,8 @@ Implemented from the papers, no code taken over.
 | Constrained Delaunay triangulation (constraint insertion by flips) | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993; C. L. Lawson 1977 (flips) |
 | Vertex deletion in the constrained Delaunay kernel (`DelaunayKernel2.DeleteVertex`): ear clipping of the star's link, Lawson flips inside it | O. Devillers, *On deletion in Delaunay triangulations*, IJCGA 12, 2002 (arXiv cs/9907023, 1999): only the star changes; G. H. Meisters, *Polygons have ears*, 1975; C. L. Lawson 1977 and, for constraints, D. T. Lee, A. K. Lin 1986, L. P. Chew 1989 (the flip algorithm reaches the constrained Delaunay triangulation) |
 | Removal of unneeded vertices in flat regions (`ExactPlanarSimplify`): ear clipping of the hole, Lawson flips | G. H. Meisters, *Polygons have ears*, American Mathematical Monthly 1975 (ear clipping); C. L. Lawson, *Software for C1 surface interpolation*, 1977 (flips towards Delaunay) |
+| Box tree of the pair searches (`TriangleBoxTree`): above 4096 boxes sorted along a Morton curve of their centres (coordinates over the centres' box, or their ranks per axis where one far box would squeeze the others), each range split where the highest differing bit of the codes changes; small trees keep the median split (no code taken over; the layout of Geogram's `MeshFacetsAABB` was read, BSD-3) | C. Lauterbach, M. Garland, S. Sengupta, D. Luebke, D. Manocha, *Fast BVH Construction on GPUs*, Computer Graphics Forum (Eurographics) 2009; T. Karras, *Maximizing Parallelism in the Construction of BVHs, Octrees, and k-d Trees*, HPG 2012 (the split at the highest differing bit); B. Lévy, Geogram `mesh_AABB` (Inria, BSD-3) |
+| Candidate triangle pairs in the proper case (`ExactMeshArrangement.apart_on_the_line`): decided by orientation signs alone before any point is constructed (docs/design/TRITRI_PREFILTER.md) | O. Devillers, P. Guigue, *Faster Triangle-Triangle Intersection Tests*, INRIA Research Report RR-4488, 2002 (J. Graphics Tools 8(1), 2003) |
 | Generalized winding number for open meshes | A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 (via the existing `FastWindingNumber`, Barill et al. 2018) |
 | Open inputs where an open boundary lies on an edge that other pieces meet (`ConflictEdges`): the jumps of the winding numbers around the edge do not add up to zero, so no labelling of the regions around it fits all pieces (the input is not PWN there, the condition of Zhou et al. 2016); pieces that run the edge the same way are not joined | own reasoning |
 
@@ -118,6 +120,7 @@ Implemented from the papers, no code taken over. Read for the design (what the e
 | Part | Source |
 |---|---|
 | Local edits after rounding, each accepted only if it creates no intersection: contraction of short edges (link condition), flips of skinny triangles; removal of components thinner than the rounding distance; the d-separation argument (why rounding a separated mesh is safe) | V. Milenkovic, E. Sacks, *Geometric rounding and feature separation in meshes*, Computer-Aided Design 108, 2019 (arXiv 1805.03252). Their expansion and optimization stages (linear programs that separate the remaining close features before rounding) are not implemented in the default; instead single vertices are moved by tiny amounts after rounding, accepted under the same rule (a prototype of the expansion, after rounding, is the next row) |
+| Contacts made by the rounding (`MeshRoundingRepair`, with the exact point id per vertex from `ExactMeshBoolean`): vertices of different exact points at one double position, separated after the passes by moving one of them a few ulps towards its neighbours or along its normal, accepted by the same exact rule as every edit | own construction; the idea that rounding must not create contacts the exact arrangement does not have is the feature separation of Milenkovic and Sacks 2019 (above); the contract for contacts the exact solid has (duplicated vertices, manifold in memory) is that of Manifold (Apache-2.0, documentation only: duplicate vertices allowed as a geometric property) |
 | Separation prototype (option A of the snap-rounding experiment, measured and closed, on the branch `claude/snap-rounding-A-archive` only, `MeshRoundingRepair.Separate`): sequential linear programs over the vertices around a defect, slab constraints between vertex-disjoint near pairs, Δ-box trust region, maximize separation then minimize displacement; the exact d-separation certificate of the experiment (`tests/.../Harness/SeparationCertificate.cs`) | Milenkovic and Sacks 2019 (above), section 4 (expansion) [read in full, arXiv]. The area rows (each triangle around a defect kept above the degenerate area along a reference normal) after L. A. Freitag, P. Plassmann, *Local optimization-based simplicial mesh untangling and improvement*, IJNME 49, 2000 (the idea of maximizing the smallest signed area by a linear program; cited by Milenkovic and Sacks; paper not re-read in this session). One slack per row instead of one common s: own choice. No code exists to take over |
 | Small dense LP solver (`math/DenseSimplex.cs`, with option A on the branch `claude/snap-rounding-A-archive` only): tableau simplex, slack basis, Dantzig's rule, Bland's rule against cycling | V. Chvátal, *Linear Programming*, Freeman 1983, chapters 2-3 (from memory, the cycling example of the tests is his); R. G. Bland, *New finite pivoting rules for the simplex method*, Mathematics of Operations Research 2(2), 1977. Textbook method, no code taken over. Considered and not needed (the result is checked exactly afterwards): D. Applegate, W. Cook, S. Dash, D. Espinoza, *Exact solutions to linear programming problems*, ORL 35, 2007; A. Gleixner, D. Steffy, K. Wolter, *Iterative refinement for linear programming*, INFORMS JoC 28, 2016; A. Neumaier, O. Shcherbina, *Safe bounds in linear and mixed-integer linear programming*, Math. Prog. 99, 2004 (references from the handoff, not checked here) |
 | Snap fallback prototype (option B, `benchmarks/SnapRoundingExperiment/SnapFallback.cs`): vertices of the triangles still defective snapped to a grid, resolved again, iterated | L. Valque, S. Lazard, *Resolving self-intersections in 3D meshes while preserving floating-point coordinates*, CGF 44(5), 2025, and L. Valque, *3D Snap rounding*, thesis, Université de Lorraine, 2024 (the first version from the abstracts; the full texts were read by other sessions, SAFE_ROUNDING.md section 7, and the paper's fixed grid with hot voxels was added from those notes). CGAL's implementation is GPL and was not read |
@@ -174,9 +177,10 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
 | Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
 
-Choices described in the code: traversability by the circumradius of the facet (an alpha ball passes through
-its circumcircle; the variant with the smallest empty circumscribing ball was tried and refines thin sheets
-down to the scale of the offset), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
+Choices described in the code: traversability by the paper's Phi(f), the smallest empty ball through the facet's
+vertices (Definition 2, Fig. 23; Alpha Wrap 2.0. Before, the circumradius of the facet, which refines thin sheets
+less; Phi(f) doubles the triangles on a sheet of thickness 0, as CGAL's wrap does there, and the quality refinement needs
+it), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
 enclosed outside pockets, the manifold step (around a non-manifold edge or vertex the outside part connected
 to the box stays outside), and the contact margin of the intersection test (1e-6 of the offset).
 
@@ -194,6 +198,12 @@ Before the manifold step, it inserts offset-surface points into the outside cell
 inside, with the same separation guards, and carves again. The idea that a dense enough offset sample makes the
 restricted Delaunay surface a manifold is from J.-D. Boissonnat, S. Oudot 2005 (above). Measurements are in
 `docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 6.
+
+The quality refinement of the result facets (`RefineMinAngleDegrees`) is the quality rule of Chew 1993 and Boissonnat,
+Oudot 2005 (above): a facet with a smallest angle below the bound gets the center of its surface Delaunay ball (the
+crossing of its dual Voronoi edge with the offset surface), here otherwise the projection of its inside cell's
+circumcenter (as rule 2), each only with the separation min(offset, alpha - offset). Measurements are in
+`docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 7.
 
 ## Alpha wrap quality pass (`AlphaWrapQualityPass`, `MeshRobustRepair.AlphaWrapQualityPass`)
 
@@ -571,3 +581,10 @@ Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime 
 ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
+
+## Coverage-guided reader fuzzing (test/tool only)
+
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) uses [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
+(MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
+LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
+ported into geometry3Sharp and no dependency is added to the library package.

@@ -79,7 +79,11 @@ the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIS
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
 `mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the mutation workflow (`tests/mutation`) must stay above its threshold.
+the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
+stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
+(workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
+a revert only for a real defect (owner 2026-11-09).
 
 Performance or quality claims are backed by a benchmark (`benchmarks/`), with before/after numbers in the
 benchmark README or the PR.
