@@ -7,11 +7,11 @@
 #                  downloaded and exported once here to learn its class; the others are only classified.
 #   phase control  the #385 baseline build cd7fb8ab on the target class, same machine (timing comparison)
 #   phase rest     master on the other classes: closed self-intersecting, closed with unknown selfint, open
-#                  (on 48cb8c9a: master with #474, SafeRounding's degenerate area; target and control ran before on
+#                  (on 79a2c1ab: master with #474 and #483, SafeRounding's degenerate area; target and control ran before on
 #                  1fd946aa, the target class's unclean models again on #474: results/target_rerun_pr474.jsonl)
 #
 # Builds (pinned commits):
-#   master   48cb8c9a  master with #474 (the target phase ran on 1fd946aa, master with #449); a runner built from
+#   master   79a2c1ab  master with #474 and #483 (the target phase ran on 1fd946aa, master with #449); a runner built from
 #            another commit is rebuilt (runner_<name>/build.sha)
 #   base385  cd7fb8ab  the #385 baseline
 # The export (input classes, A.off / B.off) always comes from BooleanComparison of the first master build
@@ -29,7 +29,7 @@ ROOT=$(git rev-parse --show-toplevel)
 J=$ROOT/runs/final
 W=${2:-$HOME/boolean2-final-run}
 mkdir -p "$W/out/$PHASE" "$W/out/class" "$W/raw" "$W/cases"
-BUILDS="master:48cb8c9add8e64b51de2a73f2ebd4114cce6dd3d base385:cd7fb8abba0af09d5725b60c700dfec95234e7ad"
+BUILDS="master:79a2c1ab15d3ce9e419b2a994af343e32877881c base385:cd7fb8abba0af09d5725b60c700dfec95234e7ad"
 
 git -C "$ROOT" fetch -q origin master
 for b in $BUILDS; do
