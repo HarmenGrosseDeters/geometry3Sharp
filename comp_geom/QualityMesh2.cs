@@ -1176,6 +1176,10 @@ namespace g3
 
             /// <summary> the slack below the angle bound's sin^2 under which an input angle counts as small: the oracle's 2^-30 plus 2^-40 for
             /// rounding </summary>
+            /// <summary> the sine squared of 60 degrees: two input segments at a smaller angle make a small pair, whatever the angle bound
+            /// (owner decision 2026-11-09; refinement towards an apex at less than 60 degrees may not terminate, Shewchuk 2002, 6.2) </summary>
+            internal const double SmallPairSin2 = 0.75;
+
             internal const double SmallAngleSlack = 1.0 / (1L << 30) + 1.0 / (1L << 40);
 
             bool SpansSmallAngle(int p, int q)
@@ -1246,7 +1250,7 @@ namespace g3
                         // bound no longer holds. A relative 1e-9 (2.5e-10 at 30 degrees) was more lenient than the oracle's 9.3e-10, and
                         // triangles at an input angle just below the bound were kept without the oracle's excuse (found by review of the
                         // small-angle design)
-                        if (sin * sin < sin2Min - SmallAngleSlack) {
+                        if (sin * sin < SmallPairSin2 - SmallAngleSlack) {
                             // where the lines meet
                             double t1 = (ox * d2y - oy * d2x) / cross;
                             double t2 = (ox * d1y - oy * d1x) / cross;
