@@ -34,7 +34,7 @@ namespace geometry3Sharp.Tests
                 var ab = new AxisAlignedBox3d(A.V0); ab.Contain(A.V1); ab.Contain(A.V2);
                 bool hit = false;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (bx, d) => !hit && bx.Intersects(ab),
+                    NextBoxDF = (bx, d) => !hit && bx.Min.x <= ab.Max.x && bx.Max.x >= ab.Min.x && bx.Min.y <= ab.Max.y && bx.Max.y >= ab.Min.y && bx.Min.z <= ab.Max.z && bx.Max.z >= ab.Min.z,
                     NextTriangleF = (it) => {
                         if (hit) return;
                         Triangle3d B = new Triangle3d(input.GetVertex(input.GetTriangle(it).a), input.GetVertex(input.GetTriangle(it).b), input.GetVertex(input.GetTriangle(it).c));
