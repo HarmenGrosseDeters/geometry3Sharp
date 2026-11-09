@@ -174,6 +174,13 @@ and the test tiers and time limit (#447, the backlog program).
   - every floating-point filter has a tool-checked bound (FPTaylor) and every filter or termination rule a Z3 lemma;
   - every robustness-critical module has a property campaign and a mutation shard;
   - the changed-line coverage gate is active.
+- **First results (mesh-ops fuzz pilot, Boolean session, 2026-11-09, 45 min, 3 workers):** two real defects, each
+  in a bugfix PR: #451 (`DMeshAABBTree3` top-down build: stack overflow / IndexOutOfRange when extreme centroids are
+  adjacent doubles, and every triangle dropped above ~1e154 by an overflowing `LengthSquared`), #452
+  (`MeshRoundingRepair.fix_degenerate` hang for components below ~1e-154). Sweep list, not fixed yet:
+  `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
+  `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
+  triangle inputs through the wrap / solidify fallbacks (performance, not a hang).
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 
