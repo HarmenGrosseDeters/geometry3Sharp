@@ -7,7 +7,7 @@
 //
 //   dotnet run -c Release --project benchmarks/ReducerRemesherBaseline -- [thingi=<dir>] [only=<regex>] [procedural=1]
 //       [runs=2] [si_max=30000] [inv_max=30000] [invariance=1] [fidelity=1] [ops=reduce,remesh] [json=<file>]
-//       [hd_tol=<f>] [profile=1] [reduce_q=<q>] [remesh_q=<q>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
+//       [hd_tol=<f>] [profile=1] [reduce_q=<q>] [remesh_q=<q>] [remesh_crease=<deg>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
 // One JSON line per case and variant on stdout (or json=<file>), then the summary tables as Markdown.
 using System;
 using System.Collections.Generic;
@@ -48,6 +48,7 @@ static class Program
     delegate DMesh3 Operation(DMesh3 input, double target, bool si, bool parallel);
 
     static double ReduceQuality, RemeshQuality;      // reduce_q / remesh_q: Reducer.MinCollapseTriangleQuality / Remesher.MinTriangleQuality (0: library default, off)
+    static double RemeshCrease = 30;      // remesh_crease=<deg>: the crease angle of PreserveBoundaryAndFeatures (0: the boundary only)
     static double HdTolerance = 0.001;      // hd_tol: tolerance of the certified Hausdorff bounds, relative to the box diagonal
     static bool Profile;      // profile=1: Remesher.ENABLE_PROFILING (per pass phase times on stdout, for the upper bounds of the design note)
 
@@ -60,6 +61,7 @@ static class Program
             return 0;
         }
         Profile = get("profile", "0") == "1";
+        RemeshCrease = double.Parse(get("remesh_crease", "30"), CultureInfo.InvariantCulture);
         HdTolerance = double.Parse(get("hd_tol", "0.001"), CultureInfo.InvariantCulture);
         ReduceQuality = double.Parse(get("reduce_q", "0"), CultureInfo.InvariantCulture); RemeshQuality = double.Parse(get("remesh_q", "0"), CultureInfo.InvariantCulture);
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
@@ -141,7 +143,7 @@ static class Program
         var m = new DMesh3(input);
         var r = new Remesher(m) { SmoothSpeedT = 0.5, MinTriangleQuality = RemeshQuality, PreventSelfIntersections = si, EnableParallelSmooth = parallel, EnableParallelProjection = parallel, ENABLE_PROFILING = Profile };
         r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
-        MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+        if (RemeshCrease > 0) MeshConstraintUtil.PreserveBoundaryAndFeatures(r, RemeshCrease); else MeshConstraintUtil.PreserveBoundaryLoops(r);
         r.SetTargetEdgeLength(targetEdge);
         for (int k = 0; k < 20; ++k)
             r.BasicRemeshPass();
