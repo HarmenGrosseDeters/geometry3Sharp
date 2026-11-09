@@ -1762,23 +1762,26 @@ namespace g3
             Vector3d[] centers = new Vector3d[mesh.TriangleCount];
             foreach ( int ti in mesh.TriangleIndices()) {
                 Vector3d centroid = mesh.GetTriCentroid(ti);
-                double d2 = centroid.LengthSquared;
-                bool bInvalid = double.IsNaN(d2) || double.IsInfinity(d2);
-                Debug.Assert(bInvalid == false);
+                // (each coordinate: the squared length overflowed for finite centroids above about 1e154, and every
+                // triangle of such a mesh was skipped)
+                bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                    && Math.Abs(centroid.z) <= double.MaxValue);
                 if (bInvalid == false) {
                     triangles[i] = ti;
-                    centers[i] = mesh.GetTriCentroid(ti);
+                    centers[i] = centroid;
                     i++;
                 } // otherwise skip this tri
             }
+            // (the triangles kept: before, the skipped ones' slots were split too, as triangle 0 at the origin)
+            int count = i;
 
             boxes_set tris = new boxes_set();
             boxes_set nodes = new boxes_set();
             AxisAlignedBox3d rootBox;
             int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);    // a set is a leaf if its count is below this; below 2 the split never ends
             int rootnode = (bSorted) ?
-                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox)
-                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox);
+                split_tri_set_sorted(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox)
+                : split_tri_set_midpoint(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox);
 
             box_to_index = tris.box_to_index;
             box_centers = tris.box_centers;
@@ -1930,9 +1933,11 @@ namespace g3
                     // [RMS] is <= right here? if v.axis == midpoint, then this loop
                     //   can get stuck unless one of these has an equality test. But
                     //   I did not think enough about if this is the right thing to do...
-                    while (centers[iStart + l][axis] <= midpoint)
+                    // (bounded: when the extremes are adjacent doubles, the midpoint can round to the larger one, so
+                    // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
+                    while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
-                    while (centers[iStart + r][axis] > midpoint)
+                    while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)
                         break;      //done!
@@ -1943,7 +1948,13 @@ namespace g3
 
                 n0 = l;
                 n1 = iCount - n0;
-                Debug.Assert(n0 >= 1 && n1 >= 1);
+                // a side left empty (every center on one side of the rounded midpoint): half and half, as for a
+                // near-empty interval (before, the same set recursed with the next axis, without end on all three:
+                // a stack overflow)
+                if (n0 < 1 || n1 < 1) {
+                    n0 = iCount / 2;
+                    n1 = iCount - n0;
+                }
             } else {
                 // interval is near-empty, so no point trying to do sorting, just split half and half
                 n0 = iCount / 2;
