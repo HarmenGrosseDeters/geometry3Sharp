@@ -385,6 +385,17 @@ namespace g3
                 return true;
             }
             component_scales();
+            // a vertex of a triangle that is not finite (NaN or infinite): nothing to repair or to certify; the exact
+            // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
+            // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
+            foreach (int tid in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(tid);
+                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false) {
+                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                    ScaleNotFinite = true;
+                    return false;
+                }
+            }
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
                 canonId = new int[Mesh.MaxVertexID];
