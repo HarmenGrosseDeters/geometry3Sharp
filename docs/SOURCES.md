@@ -573,9 +573,10 @@ J. R. Shewchuk 1997 (see above); results only, no code.
   3.1. Paper-only mathematical source for the `LinearEdges` adapter and
   `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.
 
-## Coverage-guided reader fuzzing (test/tool only)
+## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
 
-[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) uses [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) and [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (the
+mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
 (MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
 LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
 ported into geometry3Sharp and no dependency is added to the library package.
