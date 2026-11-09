@@ -347,4 +347,8 @@ Ordered by expected value for the library.
     - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
       ([platform.md](platform.md)).
 
+13. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
+    form needs component labels that survive the edge operations, with a correctness argument
+    ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
+
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
