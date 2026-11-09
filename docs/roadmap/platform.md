@@ -34,6 +34,11 @@ Part of the [roadmap](../ROADMAP.md).
   draft tier (~6-8 min) and the full suite on ready-for-review and master, path-based CI for tools/benchmark/docs PRs;
   then #434 (coverage gate) as its own job over the fast tier. Follow-up candidate: catalogue row F-37 takes ~300 s in
   the tag check alone (a test-oracle cost, like the conformity sweep in #392); profile before deciding.
+- **Test time limit (owner 2026-11-09, CLAUDE.md):** <= 5 s per test, exceptions up to 10 s with Slow and a reason,
+  nothing above. Backlog on master before #447: 113 tests at 5-10 s, 44 at 10-30 s, 14 above 30 s (68 classes).
+  Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
+  area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
+  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
