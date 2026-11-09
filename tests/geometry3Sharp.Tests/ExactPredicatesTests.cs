@@ -449,6 +449,7 @@ namespace geometry3Sharp.Tests
             Assert.True(ExactPredicates.InCircle(c, b, a, new Vector2d(0, 0.5)) > 0);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void NearlyCollinearPointsOfDifferentMagnitude_NoErrorsAndExact()
         {

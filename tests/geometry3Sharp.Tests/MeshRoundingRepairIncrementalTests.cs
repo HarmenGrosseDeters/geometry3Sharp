@@ -104,6 +104,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.FullPairSearches >= 1);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Searches_IncrementalAfterEdits()
         {

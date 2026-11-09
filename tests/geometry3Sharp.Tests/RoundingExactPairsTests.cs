@@ -191,6 +191,7 @@ namespace geometry3Sharp.Tests
             Assert.True(full > 12, $"no search ran again in full ({full} full searches in 12 runs)");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void Similarities_SameResult_Pow2BitIdentical(string name)
@@ -207,6 +208,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void SerialEqualsParallel_ComputeTwice(string name)
