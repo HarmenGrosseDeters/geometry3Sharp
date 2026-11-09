@@ -379,6 +379,51 @@ namespace geometry3Sharp.Tests
             Assert.True(t.Result.VertexCount < 4000);
         }
 
+        /// <summary>A random small terrain with crossing breaklines: a crease request meets a breakline segment that is split in the same round.</summary>
+        static TerrainGridTin ConflictCase(int seed)
+        {
+            var r = new Random(seed);
+            int n = 6 + r.Next(10);
+            var z = new double[n * n];
+            int style = seed % 3;
+            for (int k = 0; k < z.Length; ++k) z[k] = style == 0 ? r.NextDouble() * 4 : style == 1 ? (r.Next(3) == 0 ? 3 : 0) : Math.Round(r.NextDouble()) * 2;
+            var g = new HeightGrid(z, n, n, 0, 0, 1);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.05 + r.NextDouble() * 0.3 };
+            int nl = 1 + r.Next(3);
+            for (int l = 0; l < nl; ++l) {
+                int np = 2 + r.Next(3);
+                t.Breaklines.Add(new TerrainBreakline(Enumerable.Range(0, np).Select(_ => new Vector2d(0.2 + r.NextDouble() * (n - 1.4), 0.2 + r.NextDouble() * (n - 1.4)))));
+            }
+            return t;
+        }
+
+        [Theory]
+        [InlineData(1, 10, 76, 125)]
+        [InlineData(3, 9, 80, 130)]
+        [InlineData(4, 11, 223, 401)]
+        public void CreaseConflicts_AreRetriedInTheNextRound_AndTheGuaranteeHolds(int seed, int rounds, int vertices, int triangles)
+        {
+            TerrainGridTin t = ConflictCase(seed);
+            Assert.True(t.Compute(), t.Status + " " + t.Message);
+            Assert.True(t.CreaseConflicts > 0, "the case no longer reaches the guard (a crease request next to a segment split in the same round)");
+            // golden counts: deferring the crease to the next round (the guard) changes the course of the rounds; without it the case ends in fewer rounds with other counts
+            Assert.Equal((rounds, vertices, triangles), (t.Rounds, t.Result.VertexCount, t.Result.TriangleCount));
+            HeightGrid g = t.Grid;
+            Assert.True(t.SurfaceError <= t.Epsilon);
+            TerrainGridTin.ErrorOfTin(g, t.Result, out _, out double surf);
+            Assert.True(surf <= t.Epsilon);
+            AssertHeightField(t.Result);
+            AssertCoversExactlyTheData(g, t.Result);
+            Assert.True(SampledError(g, t.Result, 2000, seed) <= surf + 1e-9);
+            // every breakline segment is still an edge chain
+            foreach (TerrainBreakline line in t.Breaklines)
+                for (int k = 0; k + 1 < line.Points.Count; ++k)
+                    Assert.Contains(t.BreaklineEdges, e => {
+                        Vector3d a = t.Result.GetVertex(e.a), b = t.Result.GetVertex(e.b);
+                        return DistanceToSegment(new Vector2d(a.x, a.y), line.Points[k], line.Points[k + 1]) < 1e-9 && DistanceToSegment(new Vector2d(b.x, b.y), line.Points[k], line.Points[k + 1]) < 1e-9;
+                    });
+        }
+
         [Fact]
         public void Epsilon_BelowTheRoundingMargin_IsRejected()
         {

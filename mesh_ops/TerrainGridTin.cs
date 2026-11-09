@@ -70,6 +70,8 @@ namespace gs
         public int LockedCreases { get; private set; }
         /// <summary> breakline segments dropped because an end point or the middle is outside the cells with data </summary>
         public int DroppedBreaklineSegments { get; private set; }
+        /// <summary> number of crease requests deferred to the next round because a segment next to the crease was split in the same round (diagnostics, tests) </summary>
+        internal int CreaseConflicts { get; private set; }
 
         sealed class Req { public int Kind; public int Node = -1; public int Crease = -1; public int Seg = -1; public double X, Y, Err, Px, Py; }
         // Kind: 0 nothing to do, 1 select a node, 2 split a segment at (X, Y), 3 lock a crease
@@ -79,7 +81,7 @@ namespace gs
         /// <summary> Computes the TIN. Returns true on Ok. </summary>
         public bool Compute()
         {
-            Result = null; BreaklineEdges = new Index2i[0]; Rounds = 0; SurfaceError = double.NaN; NodeError = double.NaN; LockedCreases = 0; DroppedBreaklineSegments = 0;
+            Result = null; BreaklineEdges = new Index2i[0]; Rounds = 0; SurfaceError = double.NaN; NodeError = double.NaN; LockedCreases = 0; DroppedBreaklineSegments = 0; CreaseConflicts = 0;
             Message = "";
             HeightGrid g = Grid;
             if (g == null || g.Z == null || g.NX < 2 || g.NY < 2 || g.Z.Length != (long)g.NX * g.NY || !(g.CellSize > 0))
@@ -236,7 +238,7 @@ namespace gs
                         } else if (q.Kind == 3 && !lockedCreases.Contains(q.Crease) && !chainCreases.Contains(q.Crease)) {
                             var e = CreaseEnds(q.Crease, nx);
                             var xs = CreaseCrossings(pts, segs, buckets, nx, blocked, new Vector2d(e.a.x, e.a.y), new Vector2d(e.b.x, e.b.y), out bool conflict);
-                            if (conflict) continue;      // a segment near it is split in this round: retried in the next round
+                            if (conflict) { ++CreaseConflicts; continue; }      // a segment near it is split in this round: retried in the next round
                             if (xs.Count == 0) { AddNode(e.a.x, e.a.y); AddNode(e.b.x, e.b.y); lockedCreases.Add(q.Crease); ++added; continue; }
                             int prev = AddNode(e.a.x, e.a.y), last = AddNode(e.b.x, e.b.y);
                             foreach (var x in xs.OrderBy(x => x.s)) {
