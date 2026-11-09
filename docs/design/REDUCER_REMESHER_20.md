@@ -153,3 +153,9 @@ Reading:
 
 Proposal for the T2 PR: no new code path; document 0.2 as the recommended robust setting in the class doc and OPERATIONS, add the knobs and these numbers
 to the benchmark, and move on to T1. The stretch target and the x2 quality go to a follow-up after T1 / T3 if the owner wants them.
+
+### Research note (owner 2026-11-09, not scheduled)
+
+Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along the feature curves) for the crease slivers with creases kept
+(x1 p01 5.65° -> 10° stretch) and the coarsening quality (x2 p01 median 1.8°). Before anything is built: a bound from a probe on 10 meshes
+(5 of 20 meshes hold most of the remaining slivers), and a check that the Hausdorff / F-score stay at the level of the creases-kept row above.
