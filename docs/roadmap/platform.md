@@ -22,6 +22,13 @@ Part of the [roadmap](../ROADMAP.md).
   measurement: all 282 mutants Timeout in about 5 s of mutant phase (the Windows test runner most likely failed; the log
   was overwritten). Its capture took 6 h 34 min, about 2x CI. F1 has 171 tests, so a reduced filter barely shortens
   capture; B2 dropped. Decision: no kill measurements on the owner's machine; kills only in CI.
+- **CI speed (owner 2026-11-09; Sonnet session, branch claude/ci-test-tiers):** master suite 8133 tests, 23 min wall,
+  5296 s summed; tests >= 5 s are 171 tests and 67 % of the time; xunit runs one class serially, so the 753 s
+  `TagCheck_HoldsOnTheCoveredCatalogueRows` was the critical path. Plan: split the long tests into classes (same checks,
+  a test proves the partition), remove a duplicated oracle run in `ExtremeScales` (-48 %), a `Slow` trait with a fast
+  draft tier (~6-8 min) and the full suite on ready-for-review and master, path-based CI for tools/benchmark/docs PRs;
+  then #434 (coverage gate) as its own job over the fast tier. Follow-up candidate: catalogue row F-37 takes ~300 s in
+  the tag check alone (a test-oracle cost, like the conformity sweep in #392); profile before deciding.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
