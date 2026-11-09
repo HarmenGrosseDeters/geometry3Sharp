@@ -15,19 +15,26 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2OracleCoincidenceTests
     {
-        /// <summary> the refinement without the pinch rule (a split may route a chain through another chain's vertex of refinement) </summary>
+        /// <summary>
+        /// the refinement without the pinch rule (a split may route a chain through another chain's vertex of refinement). Also without the
+        /// small-angle exemption of rule C: the seeds of these tests were found where the conforming mode on the grid had none, and rule C
+        /// (on the grid since the oracle judges chain identity) changes which splits happen, so these meshes would no longer show the
+        /// mechanism. The mechanisms are pinned as before; rule C on the grid is covered by the ratchets below, which run with it
+        /// </summary>
         static Mesh2Output WithoutThePinchRule(Mesh2Input input)
         {
             QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;
             try { return new QualityMesh2Candidate().Run(input); }
-            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
+            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         static Mesh2Output WithoutTheChainRule(Mesh2Input input)
         {
             QualityMesh2.Refiner.KeepChainsApartForTests = false;
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;
             try { return new QualityMesh2Candidate().Run(input); }
-            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         /// <summary>

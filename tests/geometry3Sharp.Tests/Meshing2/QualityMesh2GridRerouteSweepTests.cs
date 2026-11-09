@@ -26,13 +26,17 @@ namespace geometry3Sharp.Tests
         [InlineData(2384, 0.0)]
         public void SplitOntoAVertexAlreadyThere_TakesTheReroutePath(int which, double angle)
         {
-            QualityMesh2.Refiner.ReroutesForTests = 0;
-            QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle));
-            Assert.Equal(0, QualityMesh2.Refiner.ReroutesForTests);
-            QualityMesh2.Refiner.KeepPinchFreeForTests = false;
-            try { QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle)); }
-            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
-            Assert.True(QualityMesh2.Refiner.ReroutesForTests > 0, "the case no longer reroutes a piece through a vertex already there");
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;   // the pinned cases were found without rule C (on the grid since the oracle judges chain identity)
+            try {
+                QualityMesh2.Refiner.ReroutesForTests = 0;
+                QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle));
+                Assert.Equal(0, QualityMesh2.Refiner.ReroutesForTests);
+                QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+                try { QualityMesh2GridRerouteTests.RunChecked(QualityMesh2GridRerouteTests.Case(which, angle)); }
+                finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
+                Assert.True(QualityMesh2.Refiner.ReroutesForTests > 0, "the case no longer reroutes a piece through a vertex already there");
+            }
+            finally { QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         /// <summary>
@@ -46,17 +50,21 @@ namespace geometry3Sharp.Tests
         [InlineData(292, 20.0)]
         public void SplitOntoAnotherChain_IsRefused(int which, double angle)
         {
-            var input = QualityMesh2GridRerouteTests.Case(which, angle);
-            QualityMesh2.Refiner.ReroutesForTests = 0;
-            var o = QualityMesh2GridRerouteTests.RunChecked(input);
-            long withRule = QualityMesh2.Refiner.ReroutesForTests;
-            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
-            QualityMesh2.Refiner.KeepChainsApartForTests = false;
-            QualityMesh2.Refiner.ReroutesForTests = 0;
-            try { QualityMesh2GridRerouteTests.RunChecked(input); }
-            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
-            Assert.True(QualityMesh2.Refiner.ReroutesForTests > withRule, "the old refinement rerouted " + QualityMesh2.Refiner.ReroutesForTests + ", now " + withRule);
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;   // the pinned cases were found without rule C (on the grid since the oracle judges chain identity)
+            try {
+                var input = QualityMesh2GridRerouteTests.Case(which, angle);
+                QualityMesh2.Refiner.ReroutesForTests = 0;
+                var o = QualityMesh2GridRerouteTests.RunChecked(input);
+                long withRule = QualityMesh2.Refiner.ReroutesForTests;
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.True(report.Ok, report.ToString());
+                QualityMesh2.Refiner.KeepChainsApartForTests = false;
+                QualityMesh2.Refiner.ReroutesForTests = 0;
+                try { QualityMesh2GridRerouteTests.RunChecked(input); }
+                finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+                Assert.True(QualityMesh2.Refiner.ReroutesForTests > withRule, "the old refinement rerouted " + QualityMesh2.Refiner.ReroutesForTests + ", now " + withRule);
+            }
+            finally { QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         /// <summary>
@@ -67,17 +75,21 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void HullTipOfRefinement_IsKept()
         {
-            var input = QualityMesh2HullGridTests.Moved(QualityMesh2HullGridTests.Fuzz(11), Similarity.ByName("rotated"));
-            System.Collections.Generic.List<string> Diagnostics()
-                => new QualityMesh2 { MinAngle = input.MinAngleDeg.Value, SnapTolerance = input.SnapTolerance, SteinerLimit = input.SteinerLimit, Conforming = true }
-                    .Compute(ConstrainedDelaunayMesh2Candidate.Convert(input)).Diagnostics.ToList();
-            Assert.DoesNotContain(Diagnostics(), d => d.Contains("vertices of the hull chains in no triangle"));
-            var o = new Meshing2Acceptance.QualityMesh2Candidate().Run(input);
-            var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-            Assert.True(report.Ok, report.ToString());
-            QualityMesh2.Refiner.KeepChainsApartForTests = false;
-            try { Assert.Contains(Diagnostics(), d => d.Contains("vertices of the hull chains in no triangle")); }
-            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;   // the pinned cases were found without rule C (on the grid since the oracle judges chain identity)
+            try {
+                var input = QualityMesh2HullGridTests.Moved(QualityMesh2HullGridTests.Fuzz(11), Similarity.ByName("rotated"));
+                System.Collections.Generic.List<string> Diagnostics()
+                    => new QualityMesh2 { MinAngle = input.MinAngleDeg.Value, SnapTolerance = input.SnapTolerance, SteinerLimit = input.SteinerLimit, Conforming = true }
+                        .Compute(ConstrainedDelaunayMesh2Candidate.Convert(input)).Diagnostics.ToList();
+                Assert.DoesNotContain(Diagnostics(), d => d.Contains("vertices of the hull chains in no triangle"));
+                var o = new Meshing2Acceptance.QualityMesh2Candidate().Run(input);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                Assert.True(report.Ok, report.ToString());
+                QualityMesh2.Refiner.KeepChainsApartForTests = false;
+                try { Assert.Contains(Diagnostics(), d => d.Contains("vertices of the hull chains in no triangle")); }
+                finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+            }
+            finally { QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         /// <summary>

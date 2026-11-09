@@ -10,7 +10,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// The small-angle rule in the conforming (default) mode, "rule C" (MESHING2D_SMALL_ANGLES_CONFORMING.md): a partner vertex exempts a
-    /// subsegment only while the subsegment is a locally Delaunay edge, so O2 holds; off the snap grid only.
+    /// subsegment only while the subsegment is a locally Delaunay edge, so O2 holds; on the snap grid too.
     /// </summary>
     public class QualityMesh2ConformingSmallAngleTests
     {
@@ -131,21 +131,97 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// on the snap grid the rule stays off in the conforming mode (a split that rule C forces late can be refused there where the
-        /// oracle still demands it: the zigzag of QualityMesh2CollapsedPartsTests ended INVALID with it): the mesh is the one without the rule
+        /// on the snap grid rule C fires as well: the oracle accepts the mesh (a forced split the mesher's pinch rule refuses is excused by
+        /// the oracle's chain identity, Oracle.OwnStretch), with fewer triangles than without the rule and exemptions counted
         /// </summary>
         [Theory]
         [InlineData(20)]
         [InlineData(30)]
-        public void OnTheGrid_TheRuleStaysOff(double angle)
+        public void OnTheGrid_TheRuleFires(double angle)
         {
             var input = Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(angle, 2.6, 1.0 / 256));
             var on = Run(input); var off = Run(input, false);
+            Assert.True(off.Report.Ok, off.Report.ToString());
             Assert.True(on.Report.Ok, on.Report.ToString());
-            Assert.Equal(off.Output.VX, on.Output.VX);
-            Assert.Equal(off.Output.VY, on.Output.VY);
-            Assert.Equal(off.Output.Triangles.SelectMany(t => t), on.Output.Triangles.SelectMany(t => t));
-            Assert.Equal(0, on.Counts[8] + on.Counts[9] + on.Counts[16]);
+            Assert.True(on.Output.Triangles.Length < off.Output.Triangles.Length, on.Output.Triangles.Length + " against " + off.Output.Triangles.Length);
+            Assert.True(on.Counts[8] + on.Counts[9] > 0);
+        }
+
+        /// <summary>
+        /// the zigzag of Q17 (a domain 7 mm wide on a grid of 1 cm) with rule C: the late forced splits that the mesher's pinch rule refuses
+        /// are exactly the subsegments the oracle excuses (it ended INVALID while the oracle judged chain identity by envelope: two chains
+        /// within a pixel of each other along the piece counted as one chain). VALID, the rule fires, fewer triangles than without it
+        /// </summary>
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        public void Zigzag_OnTheGrid_IsValid_WithTheRule(int which)
+        {
+            var input = Conforming(QualityMesh2CollapsedPartsTests.Zigzag(which, 20));
+            var on = Run(input); var off = Run(input, false);
+            Assert.True(on.Report.Ok, on.Report.ToString());
+            Assert.True(on.Counts[8] + on.Counts[9] > 0);
+            Assert.True(on.Output.Triangles.Length < off.Output.Triangles.Length, on.Output.Triangles.Length + " against " + off.Output.Triangles.Length);
+        }
+
+
+        /// <summary>
+        /// rule C on the grid under every similarity: accepted in every frame, and at the 2^k scales the mesh is the same bit for bit (the
+        /// grid scales with the input), repeated runs give the same mesh
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(Similarities))]
+        public void OnTheGrid_Invariance(string name)
+        {
+            var s = Similarity.ByName(name);
+            var plain = Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, 2.6, 1.0 / 16));
+            var moved = Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, 2.6, 1.0 / 16));
+            for (int i = 0; i < plain.Count; ++i) { var q = s.Apply(new Vector3d(plain.X[i], plain.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
+            moved.SnapTolerance = plain.SnapTolerance * s.Scale;
+            var a = Run(plain); var b = Run(moved);
+            Assert.True(b.Report.Ok, name + ": " + b.Report);
+            Assert.True(b.Counts[8] + b.Counts[9] > 0, name);
+            if (!s.IsExact) return;
+            Assert.Equal(a.Output.VX.Select(v => v * s.Scale), b.Output.VX);
+            Assert.Equal(a.Output.VY.Select(v => v * s.Scale), b.Output.VY);
+            Assert.Equal(a.Output.Triangles.SelectMany(t => t), b.Output.Triangles.SelectMany(t => t));
+            Assert.Equal(b.Output.Triangles.SelectMany(t => t), Run(moved).Output.Triangles.SelectMany(t => t));
+        }
+
+        /// <summary>
+        /// the oracle's chain identity against its former envelope approximation (Oracle.OwnStretch): over the same meshes (the star and
+        /// segment fuzz, the small-angle wedges and pairs on the grid, the zigzags; rule C on and off) every mesh the envelope oracle
+        /// accepted is accepted, and the one verdict that changes is the zigzag with rule C: INVALID before, VALID now
+        /// </summary>
+        [Fact]
+        public void OracleChainIdentity_AcceptsWhatTheEnvelopeAccepted()
+        {
+            var changed = new List<string>();
+            int judged = 0;
+            var inputs = new List<(string, Func<Mesh2Input>)>();
+            for (int seed = 0; seed < 14; ++seed) { int sd = seed; inputs.Add(("star " + sd, () => StarPolygonFuzz.Make(sd))); inputs.Add(("seg " + sd, () => QualityMesh2PinchFreeTests.Segments(sd, 20))); }
+            foreach (double deg in new[] { 2.6, 10.0 }) { double dg = deg; inputs.Add(("wedge " + dg, () => Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, dg, 1.0 / 64)))); }
+            foreach (int kind in new[] { 0, 2 }) { int kd = kind; inputs.Add(("pair " + kd, () => { var i = Conforming(QualityMesh2ApexExemptionTests.Pair(kd, 20)); i.SnapTolerance = 1.0 / 64; return i; })); }
+            inputs.Add(("zigzag 0", () => Conforming(QualityMesh2CollapsedPartsTests.Zigzag(0, 20))));
+            foreach (var (name, make) in inputs)
+                foreach (bool rule in new[] { true, false }) {
+                    var input = make();
+                    QualityMesh2.Refiner.SmallAngleExemptionForTests = rule ? (bool?)null : false;
+                    Mesh2Output output;
+                    try { output = new QualityMesh2Candidate().Run(input); }
+                    finally { QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
+                    if (output.Status != Mesh2Status.Success) continue;
+                    Oracle.LegacyEnvelopeChainForDifferential = true;
+                    bool before;
+                    try { before = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3 }).Ok; }
+                    finally { Oracle.LegacyEnvelopeChainForDifferential = false; }
+                    bool now = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3 }).Ok;
+                    ++judged;
+                    if (before && !now) Assert.Fail(name + (rule ? " (rule C)" : " (no rule)") + ": accepted by the envelope oracle, rejected by chain identity");
+                    if (before != now) changed.Add(name + (rule ? " (rule C)" : " (no rule)"));
+                }
+            Assert.True(judged > 50, judged.ToString());
+            Assert.Equal(new[] { "zigzag 0 (rule C)" }, changed);
         }
 
         /// <summary> the in-circle test of rule C: a cocircular pair of apexes is Delaunay (the exemption stays), strictly inside is not </summary>
