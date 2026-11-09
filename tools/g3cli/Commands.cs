@@ -20,7 +20,7 @@ namespace g3cli
     {
         public static readonly List<Command> All = new List<Command>() {
             Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope(),
-            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit()
+            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap()
         };
 
         public static Command Find(string name)
@@ -659,11 +659,20 @@ namespace g3cli
             c.Params.Add(new Param("edge_length", ParamType.Number, "collapse edges shorter than this"));
             c.Params.Add(new Param("preserve_boundary", ParamType.Boolean, "keep the shape of boundary loops") { Default = true });
             c.Params.Add(new Param("crease_angle", ParamType.Number, "keep edges whose dihedral angle exceeds this (degrees, 0 = off)") { Default = 0.0 });
+            c.Params.Add(new Param("partitioned", ParamType.Boolean, "use PartitionedReducer: the mesh is cut into 8 slabs that are reduced in parallel and then stitched; the result is deterministic and independent of 'threads', but not the result of one serial run. Needs the target max_error; the boundary shape is not preserved and normals, colours, UVs and groups are dropped. Meshes below 20000 triangles run serially") { Default = false });
+            c.Params.Add(new Param("threads", ParamType.Integer, "partitioned: threads for the slabs (0 = platform default, 1 = serial); never changes the result") { Default = 0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
+                bool partitioned = args.Bool("partitioned");
+                if (partitioned && args.Has("max_error") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'partitioned' needs the target max_error");
+                if (partitioned && !(args.Number("max_error") > 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_error' must be > 0");
+                if (args.Integer("threads") < 0 || args.Integer("threads") > 256)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'threads' must be in 0..256");
                 string[] targets = new[] { "triangles", "ratio", "max_error", "edge_length" }.Where(args.Has).ToArray();
                 if (targets.Length != 1)
                     throw new CommandException(ResultCodes.InvalidArguments,
@@ -675,7 +684,20 @@ namespace g3cli
                     PreserveBoundaryShape = args.Bool("preserve_boundary"),
                     FeatureAngle = Math.Max(0, args.Number("crease_angle")),
                 };
-                switch (targets[0]) {
+                bool usedPartition = false;
+                if (partitioned) {
+                    if (args.Number("max_error") <= 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'max_error' must be > 0");
+                    double featureAngle = Math.Max(0, args.Number("crease_angle"));
+                    var pr = new PartitionedReducer() { MaxThreads = args.Integer("threads"), Configure = rr => rr.FeatureAngle = featureAngle };
+                    mesh = pr.Reduce(input, args.Number("max_error"));
+                    usedPartition = pr.UsedPartition;
+                    if (MeshIterators.BoundaryEdges(input).Any())
+                        warnings.Add("partitioned: the shape of boundary loops is not preserved");
+                    if (usedPartition == false)
+                        warnings.Add("partitioned: the mesh is below 20000 triangles or the slabs could not be kept apart: one serial run was used");
+                }
+                else switch (targets[0]) {
                     case "triangles":
                         if (args.Integer("triangles") < 1)
                             throw new CommandException(ResultCodes.InvalidArguments, "'triangles' must be >= 1");
@@ -705,6 +727,7 @@ namespace g3cli
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output"), ["target"] = targets[0] };
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
+                if (partitioned) o["used_partition"] = usedPartition;
                 if (args.Bool("deviation"))
                     o["hausdorff"] = Hausdorff(input, mesh);
                 o["warnings"] = Warnings(warnings);
