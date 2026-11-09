@@ -1,0 +1,129 @@
+FIX 13 [3,14,11]
+collapse 11-14
+collapsed
+FIX 23 [14,3,20]
+collapse 14-20
+collapsed
+FIX 27 [3,21,22]
+flip e46
+R6
+zip e46
+flip e49
+R6
+zip e49
+flip e48
+R1
+zip e48
+strip 27
+FIX 7 [9,10,0]
+flip e18
+R6
+zip e18
+flip e16
+R1
+zip e16
+flip e17
+R1
+zip e17
+strip 7
+move v10 d=6.07E-011
+FIX 14 [15,6,16]
+collapse 15-6
+collapsed
+FIX 10 [3,20,9]
+collapse 20-3
+collapsed
+FIX 15 [6,5,13]
+flip e6
+R7
+zip e6
+flip e32
+R6
+zip e32
+flip e26
+R1
+zip e26
+strip 15
+R7
+R7
+move v13 d=3.83E-011
+R7
+move v13 d=1.53E-010
+R7
+move v13 d=6.13E-010
+R7
+move v13 d=2.45E-009
+R7
+move v13 d=9.81E-009
+R7
+move v13 d=3.92E-008
+R7
+move v13 d=1.57E-007
+R7
+move v13 d=6.28E-007
+R7
+move v13 d=2.51E-006
+R7
+move v13 d=1.00E-005
+R7
+FIX 16 [6,13,16]
+flip e32
+R6
+zip e32
+flip e33
+R1
+zip e33
+flip e30
+R1
+zip e30
+strip 16
+R7
+R7
+move v16 d=4.88E-011
+FIX 9 [0,3,9]
+flip e4
+zip e4
+flip e18
+R6
+zip e18
+flip e20
+zip e20
+strip 9
+move v9 d=3.83E-011
+R6
+move v9 d=1.53E-010
+FIX 20 [7,6,19]
+flip e8
+FIX 15 [6,5,13]
+flip e6
+R7
+zip e6
+flip e32
+R6
+zip e32
+flip e26
+R1
+zip e26
+strip 15
+R7
+R7
+move v13 d=3.83E-011
+R7
+move v13 d=1.53E-010
+R7
+move v13 d=6.13E-010
+R7
+move v13 d=2.45E-009
+R7
+move v13 d=9.81E-009
+R7
+move v13 d=3.92E-008
+R7
+move v13 d=1.57E-007
+R7
+move v13 d=6.28E-007
+R7
+move v13 d=2.51E-006
+R7
+move v13 d=1.00E-005
+R7
