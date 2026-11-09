@@ -1,6 +1,6 @@
 # DGM to TIN with breaklines: constrained quality meshing in 2.5D
 
-Status: **proposal for the owner** (2026-11-09). Design only; no code. Part of the terrain restart
+Status: **implemented as `gs.TerrainGridTin`** (`mesh_ops/TerrainGridTin.cs`, owner decisions 2026-11-09: D1 surface error, B2 chosen over greedy+correction); the sections below are the design it follows. Measured cost: section 11. Design only; no code. Part of the terrain restart
 ([roadmap/terrain.md](../roadmap/terrain.md)); follows the DGM reader (`HeightGrid`, `HeightGridReader`, PR #479).
 Owner decision 2026-11-08: the step is built on `QualityMesh2` (its exact predicates, oracle and golden tests), not on a
 new triangulator.
@@ -153,3 +153,27 @@ Procedural terrains only (no geodata): a paraboloid pit with benches (breaklines
   exactly where this design measures the real output (F-63, MESHING2D_SPEC).
 * Not found: a published method that gives a *guaranteed* vertical bound together with locked breaklines on a constrained Delaunay engine; the guarantee here comes from the a-posteriori check of each round.
   (Searched: "terrain TIN grid DEM breaklines vertical error bound", "Fowler Little very important points".)
+
+## 11. Implemented: `TerrainGridTin` and what the surface guarantee costs
+
+API (additive): `TerrainGridTin { Grid, Epsilon, Breaklines, MaxRounds, CancelF; Compute(); Status, Message, Result (DMesh3), SurfaceError, NodeError, Rounds, BreaklineEdges, LockedCreases, DroppedBreaklineSegments }`,
+`TerrainBreakline(points)`, `TerrainGridTinStatus`, and `TerrainGridTin.ErrorOfTin(grid, tin, out nodeError, out surfaceError)` (the exact scan of any TIN, eg `TerrainGreedyTIN`'s result).
+Differences from the proposal: breaklines take their heights from the grid only (D4 `FromGrid`; `FromInput` is not implemented); the domain is every cell with all four
+corners valid, with boundary runs and the hull edges as locked segments and one seed per component of cells without data; creases of the grid surface (cell diagonals and cell sides) are locked
+where a violation sits on them and all corners are selected (cell sides are needed as soon as breakline vertices lie off the lattice); the error scan runs in parallel, the
+violations are acted on in triangle order.
+
+Measured (pit terrain of `benchmarks/TerrainBenchmark` `tinspike`, 513 x 513 nodes, cloud runner, single runs, `Epsilon` 0.1 unless noted; `TerrainGreedyTIN` has the node guarantee only,
+and its own surface error is 0.19 / 0.44 / 1.55 for the 3 m / 8 m / 30 m terrains):
+
+| Terrain | TerrainGridTin vertices (surface error) | time | Rounds | TerrainGreedyTIN vertices (time) | Ratio |
+|---|---|---|---|---|---|
+| 3 m hills | 4854 (0.0999) | 0.78 s | 22 | 3042 (0.08 s) | 1.60x |
+| 8 m | 6506 (0.0994) | 0.93 s | 21 | 3908 (0.09 s) | 1.66x |
+| 30 m, cliffs | 10 607 (0.0999) | 1.97 s | 25 | 4896 (0.11 s) | 2.17x |
+| 30 m, eps 0.2 | 6622 (0.1999) | 1.13 s | 23 | 3958 (0.10 s) | 1.67x |
+| 30 m + 4 breaklines (1800 segments) | 13 917 (0.0999) | 2.35 s | 14 | | |
+| 30 m + breaklines + 39 x 29 gap | 13 889 (0.0999) | 2.36 s | 14 | | |
+
+Cost of the surface guarantee: against a node-only guarantee in the same method +10 % vertices on gentle terrain and +33 % on the cliff terrain (spike, benchmarks/TerrainBenchmark README); against `TerrainGreedyTIN`
+1.6-2.2x the vertices and about 10-18x the time (the time is the constrained Delaunay of every round, 90 %). Decimation (D5) is not part of it.
