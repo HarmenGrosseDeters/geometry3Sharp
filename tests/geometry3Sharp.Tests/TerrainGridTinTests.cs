@@ -519,6 +519,22 @@ namespace geometry3Sharp.Tests
             Assert.True(grid.SurfaceError <= 0.1);
         }
 
+        [Theory]
+        [InlineData(0.3, 8)]
+        [InlineData(0.0, 8)]
+        public void FromInput_SparseSurveyLine_EndsWithTheDeviationStatus_NotWithoutProgress(double offset, int spacing)
+        {
+            HeightGrid g = Smooth(65);
+            // vertices every `spacing` cells: the TIN edges from a survey vertex to far nodes carry its deviation
+            var pts = Enumerable.Range(0, 5).Select(q => { double x = 108 + q * spacing, y = 210 + q * 0.7 * spacing; return new Vector3d(x, y, g.Height(x, y) + offset); });
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.1, Breaklines = { new TerrainBreakline(pts, TerrainBreaklineHeights.FromInput) } };
+            bool ok = t.Compute();
+            Assert.True(t.Rounds < 60, "rounds " + t.Rounds);
+            // (even at offset 0 the straight survey segments of 8 cells are further than Epsilon from the curved surface)
+            Assert.False(ok); Assert.Equal(TerrainGridTinStatus.BreaklineHeightDeviates, t.Status);
+            Assert.True(t.BreaklineError > 0.1 && t.SurfaceError >= t.BreaklineError);
+        }
+
         [Fact]
         public void FromInput_TheZOfAFromGridBreaklineIsIgnored_AndMixedLinesWork()
         {

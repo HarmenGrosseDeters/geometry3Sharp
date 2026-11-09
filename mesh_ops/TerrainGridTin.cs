@@ -24,7 +24,7 @@ namespace gs
     /// A breakline for <see cref="TerrainGridTin"/>: a polyline in plan (x, y in the coordinates of the <see cref="HeightGrid"/>);
     /// the TIN contains it as a chain of edges. The heights come from the grid (the grid is the truth, <see cref="TerrainBreaklineHeights.FromGrid"/>,
     /// the z of a point is ignored) or, for a survey line, from the input (<see cref="TerrainBreaklineHeights.FromInput"/>).
-    /// Where two <c>FromInput</c> breaklines cross or touch with different heights, the one given first wins at the common vertex.
+    /// Where two <c>FromInput</c> breaklines cross or share a vertex with different heights, the one given first wins at the common vertex; an input point of a later line that lies inside a segment of an earlier one keeps its own height (the earlier line bends there, which <see cref="TerrainGridTin.BreaklineError"/> shows). Consecutive identical x, y points are merged (the first height stays).
     /// </summary>
     public sealed class TerrainBreakline
     {
@@ -302,7 +302,7 @@ namespace gs
                                 if (x.seg >= 0) {
                                     splitDone.Add(x.seg); blocked.Add(x.seg);
                                     var (sa, sb) = segs[x.seg];
-                                    id = AddPoint(x.pt.x, x.pt.y, segs[x.seg].a, segs[x.seg].b);
+                                    id = AddPoint(x.pt.x, x.pt.y, segKind[x.seg] == KindBreakline ? segs[x.seg].a : -1, segs[x.seg].b);
                                     int kind = segKind[x.seg];
                                     segs[x.seg] = (sa, id); AddSeg(id, sb, kind);
                                 } else id = x.vertex;
@@ -324,7 +324,7 @@ namespace gs
                     bool first = true;
                     foreach (var c in cuts) {
                         if (c.t - prevT < 1e-12 && !first) continue;
-                        int id = AddPoint(c.pt.x, c.pt.y, sa, sb);
+                        int id = AddPoint(c.pt.x, c.pt.y, segKind[kv.Key] == KindBreakline ? sa : -1, sb);      // (only a breakline segment has a survey height; a crease piece between two survey points does not)
                         if (id == prevId || id == sb) continue;
                         if (first) { segs[kv.Key] = (prevId, id); first = false; } else AddSeg(prevId, id, kind);
                         prevId = id; prevT = c.t; ++added;
