@@ -16,20 +16,6 @@ static class Procedural
             case "octant": return PolyCube(8, 8, 8, (x, y, z) => !(x >= 4 && y >= 4 && z >= 4));
             // a slot 2 wide and 2 deep along x in the top face (two re-entrant 90 degree edges at its bottom, convex rim)
             case "slot": return PolyCube(12, 8, 4, (x, y, z) => !(y >= 3 && y < 5 && z >= 2));
-            case "plates": {
-                // the thin plates of MeshRobustRepairTests.ThinPlates(6)
-                var rnd = new Random(6);
-                DMesh3 m = new DMesh3();
-                for (int i = 0; i < 12; ++i) {
-                    var c = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
-                    var e = new Vector3d(0.3 + 0.2 * rnd.NextDouble(), 0.02 + 0.03 * rnd.NextDouble(), 0.3);
-                    var b = new TrivialBox3Generator() { Box = new Box3d(c, e) }.Generate().MakeDMesh();
-                    var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
-                    MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(axis, 360 * rnd.NextDouble()));
-                    MeshEditor.Append(m, b);
-                }
-                return m;
-            }
             case "vnotch": return Prism(new List<Vector2d> { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 6), new Vector2d(6, 6),
                 new Vector2d(5, 3), new Vector2d(4, 6), new Vector2d(0, 6) }, 4);
             case "chamfer": return Prism(new List<Vector2d> { new Vector2d(1.5, 0), new Vector2d(8.5, 0), new Vector2d(10, 1.5), new Vector2d(10, 4.5),
