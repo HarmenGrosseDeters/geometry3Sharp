@@ -597,6 +597,17 @@ About 3 s of solver time locally (7 s for the run, report `results/drift_apex_20
   still charges every vertex and is deliberately not pinned here.
 - `ε` itself (a few ulps of the largest coordinate per distance computation): stated, not derived.
 
+## Pilot 4: the Devillers-Guigue prefilter of the arrangement
+
+`tritri_prefilter.py` checks the lemma of docs/design/TRITRI_PREFILTER.md over the reals (the code's predicates,
+`ExactPredicates.Orient3d` on doubles, are exact, so no rounding is modelled). `U` is normalized to
+`(0,0,0), (1,0,0), (0,1,0)` by an affine map with positive determinant (the bridge in the note), `T`'s nine
+coordinates are free. The segments `T n plane(U)` and `U n plane(T)` are built from their definitions, not from the
+predicates. UNSAT: the order of each segment's ends along `d = nT x nU`, each predicate's equivalence with one
+comparison of ends, and the lemma both ways. SAT: the assumptions, both decisions, touching (no vacuous proof), and
+four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
+that the model describes). All 14 queries take well under a second.
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and

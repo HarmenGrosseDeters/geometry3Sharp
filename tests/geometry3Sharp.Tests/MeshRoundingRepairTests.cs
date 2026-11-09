@@ -284,6 +284,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Degenerate(m), repair.RemainingDegenerate);
             Assert.True(repair.RemainingDegenerate > 0 && repair.RemainingDegenerate < before);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            // reused on an empty mesh: the limit is not reported again (the early return resets it)
+            repair.Mesh = new DMesh3();
+            Assert.True(repair.Apply());
+            Assert.False(repair.EvaluationLimitReached);
         }
 
         [Fact]
@@ -316,12 +320,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Repair_TinyClosedComponent_Removed()
         {
-            // a sphere and, apart from it, a closed cube of edge 1.9e-4 with a needle: tiny (area below 1e4 times the
-            // degenerate area of 2.4e-11) but not thin (thickness 2 V / A = edge / 3 = 6e-5 above 1e-5 of the
-            // diagonal, 4.9e-5): removed as tiny once the needle is contracted (an edited component)
+            // a sphere and, apart from it, a closed cube of edge 1.2e-4 with a needle: tiny (area below 1e4 times the
+            // degenerate area, of the largest component's diagonal, the sphere's) but not thin (thickness 2 V / A =
+            // edge / 3 = 4e-5 above 1e-5 of that diagonal): removed as tiny once the needle is contracted (an edited
+            // component)
             DMesh3 m = Sphere(6);
             int n = m.TriangleCount;
-            DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(3, 0, 0), 0.95e-4 * Vector3d.One) }.Generate().MakeDMesh();
+            double diag = m.CachedBounds.DiagonalLength, areaEps = 1e-12 * diag * diag;
+            DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(3, 0, 0), 0.6e-4 * Vector3d.One) }.Generate().MakeDMesh();
             int eid = cube.EdgeIndices().First();
             Index2i ev = cube.GetEdgeV(eid);
             Vector3d a = cube.GetVertex(ev.a), b = cube.GetVertex(ev.b);
@@ -329,9 +335,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshResult.Ok, cube.SplitEdge(eid, out split));
             cube.SetVertex(split.vNew, a + 1e-12 * (b - a).Normalized);
             new MeshEditor(m).AppendMesh(cube);
-            double diag = m.CachedBounds.DiagonalLength, areaEps = 1e-12 * diag * diag;
-            Assert.True(6 * 1.9e-4 * 1.9e-4 < 1e4 * areaEps);
-            Assert.True(1.9e-4 / 3 > 1e-5 * diag);
+            Assert.True(6 * 1.2e-4 * 1.2e-4 < 1e4 * areaEps);
+            Assert.True(1.2e-4 / 3 > 1e-5 * diag);
             var repair = new MeshRoundingRepair(m);
             Assert.True(repair.Apply());
             Assert.Equal(1, repair.RemovedComponents);

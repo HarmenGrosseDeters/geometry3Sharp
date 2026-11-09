@@ -253,6 +253,11 @@ class Program
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
+                // (the exact resolve once more relative to the largest component, after the others failed, and the
+                // largest share of a component below the degenerate area of all triangles that triggered it)
+                r["robust_scale_retry"] = robust.ScaleRetry;
+                r["robust_scale_erosion_share"] = robust.MaxScaleErosionShare;
+                r["robust_result_reason"] = robust.ResultReason;
                 r["robust_phases"] = robust.PhaseMilliseconds;
                 // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
                 // sampled and the known volume (relative to the estimated union), the cells, and the times
