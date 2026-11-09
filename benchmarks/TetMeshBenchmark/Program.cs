@@ -44,9 +44,9 @@ static class Program
         foreach (var (name, order) in new[] { ("random order", pts), ("grid-sorted", sorted) }) {
             var dt = new Delaunay3(new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One));
             var sw = Stopwatch.StartNew();
-            int hint = -1, ok = 0;
+            int ok = 0;
             foreach (var p in order) {
-                if (dt.Insert(p, hint, 0, out int v) == Delaunay3.InsertResult.Inserted) { ok++; hint = dt.CellCount > 0 ? hint : -1; }
+                if (dt.Insert(p, -1, 0, out int v) == Delaunay3.InsertResult.Inserted) ok++;   // Locate starts from the last cell by itself
             }
             sw.Stop();
             Console.WriteLine($"insert,{name},{n},{ok},{dt.CellCount},{sw.Elapsed.TotalMilliseconds.ToString("F1", Inv)} ms,{(sw.Elapsed.TotalMilliseconds * 1000 / n).ToString("F2", Inv)} us/point,{(sw.Elapsed.TotalMilliseconds * 1000 / dt.CellCount).ToString("F3", Inv)} us/cell");
@@ -102,7 +102,7 @@ static class Program
             F(wrapMs * 1000 / t.Tets.Count), F(extractMs * 1000 / t.Tets.Count),
             F(q.RadiusEdge.Worst), F(q.RadiusEdge.Worst1Percent), F(q.RadiusEdge.Worst5Percent), F(q.RadiusEdge.Median), q.RadiusEdgeAbove2,
             F(q.MinDihedral.Worst), F(q.MinDihedral.Worst1Percent), F(q.MinDihedral.Worst5Percent), F(q.MinDihedral.Median), F(q.MaxDihedral.Worst),
-            q.MinDihedralBelow10, q.MinDihedralBelow5, q.MinDihedralBelow1, q.MaxDihedralAbove170, bad == null ? "yes" : bad, SurfaceStats()));
+            q.MinDihedralBelow10, q.MinDihedralBelow5, q.MinDihedralBelow1, q.MaxDihedralAbove170, bad == null ? "yes" : bad.Replace(",", ";"), SurfaceStats()));
     }
 
     static DMesh3 Sphere(int n) => new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();

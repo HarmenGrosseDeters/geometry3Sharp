@@ -9,8 +9,9 @@ namespace gs
     /// Shape quality of the tetrahedra of a mesh: radius-edge ratio (circumradius over shortest edge; sqrt(6)/4 = 0.612
     /// for the regular tetrahedron) and the dihedral angles in degrees (70.5 for the regular one), the measures of
     /// Delaunay refinement theory (Shewchuk 1998; Cheng, Dey, Shewchuk 2012) and of sliver detection. Distributions
-    /// read from the bad side (QualityDistribution); all measures are scale invariant. Tetrahedra with a volume that is
-    /// not positive or not finite are counted as Degenerate (radius-edge infinity, dihedral min 0, max 180).
+    /// read from the bad side (QualityDistribution); all measures are scale invariant. Tetrahedra whose exact orientation
+    /// is not positive are counted as Degenerate (a positive one that is flat in floating point is measured as radius-edge infinity,
+    /// dihedral 0 and 180 and counts as a sliver) (radius-edge infinity, dihedral min 0, max 180).
     /// </summary>
     public class TetQualityStatistics
     {
@@ -125,7 +126,8 @@ namespace gs
                 Vector3d f0 = p[Delaunay3.FacetIndices[i, 0]], f1 = p[Delaunay3.FacetIndices[i, 1]], f2 = p[Delaunay3.FacetIndices[i, 2]];
                 n[i] = (f1 - f0).Cross(f2 - f0);
             }
-            if (!(Volume(a, b, c, d) > 0)) return false;
+            if (ExactPredicates.Orient3d(a, b, c, d) <= 0) return false;      // exact: a positive but nearly flat tet is a sliver, not degenerate
+            if (!(Volume(a, b, c, d) > 0)) { radiusEdge = double.PositiveInfinity; minDihedral = 0; maxDihedral = 180; return true; }   // flat in floating point
             double mn = double.MaxValue, mx = 0;
             for (int i = 0; i < 4; ++i)
                 for (int j = i + 1; j < 4; ++j) {

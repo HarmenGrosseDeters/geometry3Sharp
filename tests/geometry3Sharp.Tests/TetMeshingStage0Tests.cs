@@ -171,6 +171,57 @@ namespace geometry3Sharp.Tests
             return t;
         }
 
+        [Theory]
+        [InlineData(1000)]
+        [InlineData(-1070)]
+        public void Oracle_ExtremeExponents_CubeStaysValid(int exp)
+        {
+            // 2^1000 and a subnormal scale (2^-1070): the oracle's integer conversion must stay exact
+            TetMesh3 t = Cube6();
+            double f = Math.Pow(2, exp);
+            for (int i = 0; i < t.Vertices.Count; ++i) t.Vertices[i] = new Vector3d(t.Vertices[i].x * f, t.Vertices[i].y * f, t.Vertices[i].z * f);
+            Assert.Null(TetOracle.Check(t, null));
+            t.Vertices[7] = new Vector3d(0.5 * f, 0.5 * f, 0);               // flat tet
+            Assert.NotNull(TetOracle.Check(t, null));
+        }
+
+        [Fact]
+        public void ValidityChecks_RejectPinchedBoundaryDuplicateVerticesAndNonFinite()
+        {
+            // two tets that touch only at the origin: every facet matches nothing, the boundary is closed per tet but not a manifold at vertex 0
+            var m = new TetMesh3();
+            m.Vertices.AddRange(new[] { Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ, -Vector3d.AxisX, -Vector3d.AxisY, -Vector3d.AxisZ });
+            m.Tets.Add(new Index4i(0, 1, 2, 3));
+            m.Tets.Add(ExactPredicates.Orient3d(m.Vertices[0], m.Vertices[4], m.Vertices[5], m.Vertices[6]) > 0 ? new Index4i(0, 4, 5, 6) : new Index4i(0, 5, 4, 6));
+            foreach (Index4i q in m.Tets)
+                for (int i = 0; i < 4; ++i)
+                    m.BoundaryTriangles.Add(new Index3i(q[Delaunay3.FacetIndices[i, 0]], q[Delaunay3.FacetIndices[i, 1]], q[Delaunay3.FacetIndices[i, 2]]));
+            string reason = TetMeshQuality.NotValidReason(m);
+            Assert.NotNull(reason); Assert.Contains("manifold at vertex", reason);
+
+            var dupVertex = Cube6(); dupVertex.Vertices.Add(dupVertex.Vertices[0]);
+            Assert.NotNull(TetOracle.Check(dupVertex, null));
+
+            var inf = Cube6(); inf.Vertices[3] = new Vector3d(double.NaN, 0, 0);
+            Assert.NotNull(TetMeshQuality.NotValidReason(inf));
+
+            var dupBoundary = Cube6(); dupBoundary.BoundaryTriangles[1] = dupBoundary.BoundaryTriangles[0];   // same count, one triangle missing
+            Assert.NotNull(TetMeshQuality.NotValidReason(dupBoundary)); Assert.NotNull(TetOracle.Check(dupBoundary, null));
+        }
+
+        [Fact]
+        public void Measure_PositiveButFlatInFloatingPoint_IsASliverNotDegenerate()
+        {
+            var t = new TetMesh3();
+            double e = 1e-170;                                               // the triple product underflows to 0, the exact orientation is positive
+            t.Vertices.AddRange(new[] { new Vector3d(1, 0, e), new Vector3d(-1, 0, e), new Vector3d(0, 1, -e), new Vector3d(0, -1, -e) });
+            t.Tets.Add(new Index4i(0, 1, 2, 3));
+            Assert.True(ExactPredicates.Orient3d(t.Vertices[0], t.Vertices[1], t.Vertices[2], t.Vertices[3]) > 0);
+            TetQualityStatistics q = TetMeshQuality.Measure(t);
+            Assert.Equal(0, q.Degenerate);
+            Assert.Equal(1, q.MinDihedralBelow1);
+        }
+
         [Fact]
         public void ValidityChecks_AcceptACubeAndRejectMutants()
         {
