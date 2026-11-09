@@ -303,7 +303,6 @@ namespace geometry3Sharp.Tests
         // ---- expected failures: "operation|case" -> finding id in docs/ROBUSTNESS_SWEEP.md ("hang R..": not run) ----
 
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            { "DMeshAABBTree3|scale 2^-24", "R17" },
             { "LaplacianMeshSmoother|rotated", "R21" },
             { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R21" },
             { "MeshBoolean|rotated", "R6" },
@@ -312,7 +311,6 @@ namespace geometry3Sharp.Tests
             { "MeshBoolean|scale 2^-10", "R6" },
             { "MeshBoolean|scale 2^-24", "R6" },
             { "MeshGeodesicDistance|rotated, scale 1e-3, utm", "R16" },
-            { "MeshICP|scale 2^-24", "R8" },
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },

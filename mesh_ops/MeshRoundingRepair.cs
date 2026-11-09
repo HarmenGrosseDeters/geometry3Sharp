@@ -109,10 +109,10 @@ namespace g3
         /// <summary> the mesh, repaired in place </summary>
         public DMesh3 Mesh;
         /// <summary>
-        /// a triangle is degenerate below this area, relative to the squared diagonal of the size of the mesh: the
-        /// diagonal of its largest connected component (not of the box of all components: a part far from the rest would
-        /// make every triangle of the rest degenerate). MeshRobustRepair.NotCleanReason uses the box of all triangles; the
-        /// two agree unless the components lie far apart compared to their size
+        /// a triangle is degenerate below this area, relative to the squared diagonal of the box of all triangles, as
+        /// MeshRobustRepair.NotCleanReason, unless the components lie far apart (that diagonal above 8 times the largest
+        /// connected component's): then relative to the largest component's diagonal (a part far from the rest would
+        /// make every triangle of the rest degenerate), and NotCleanReason may still call the result degenerate
         /// </summary>
         public double DegenerateArea = 1e-12;
         /// <summary>
@@ -252,11 +252,15 @@ namespace g3
         // their bound coarse. Per vertex its component; per component the degenerate area, the drift bound and whether
         // the ulp term of the bound is active (see UlpFactor). maxLength is the largest bound, for MaxLength
         int[] componentOf;
-        double[] areaEpsC, maxLengthC;
+        double[] areaEpsC, sizeAreaC, maxLengthC;
         bool[] coarseC;
         double maxLength;
         bool anyCoarse;
         double areaEps_of(int v) { return areaEpsC[componentOf[v]]; }
+        // DegenerateArea times the largest component's diagonal squared: the scale of the guards that are not the
+        // degenerate test (tiny components, triangles that may turn over in an edit), which a box of components side by
+        // side must not make coarser
+        double sizeArea_of(int v) { return sizeAreaC[componentOf[v]]; }
         double maxLength_of(int v) { return maxLengthC[componentOf[v]]; }
         bool coarse_at(int v) { return coarseC[componentOf[v]]; }
         // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
@@ -267,6 +271,9 @@ namespace g3
         // the proposed edit's apex, a vertex of every triangle it adds (-1: none, or nothing added): only the apex gets
         // the edit's drift (docs/design/ROUNDING_DRIFT_APEX.md)
         int editApex;
+        // components whose box (all triangles) has a diagonal above this many times the largest component's are far
+        // apart: the degenerate area is then relative to the largest component, not to the box (component_scales)
+        const double FarApart = 8;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -519,15 +526,18 @@ namespace g3
         }
 
         // the components (union-find over the triangles' vertices) and their tolerances: degenerate area DegenerateArea
-        // size^2 and bound max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance),
-        // with size the largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
+        // box^2 (box: the diagonal of all triangles, the largest component's if they are far apart; for the degenerate
+        // test and the steps that aim at it), the area of the other guards DegenerateArea size^2 (tiny components,
+        // triangles that may turn over) and bound
+        // max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance), with size the
+        // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
         // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
         // component
         void component_scales()
         {
             List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
             int n = Math.Max(boxes.Count, 1);
-            areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
+            areaEpsC = new double[n]; sizeAreaC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
             maxLength = 0;
             // the size: the largest component's diagonal (not the box of all: components far apart would inflate it).
             // A diagonal that is not finite (NaN or infinite: coordinates that are not finite, or finite ones whose extent
@@ -536,10 +546,26 @@ namespace g3
             // and the repair is not clean (ScaleNotFinite: by area nothing is degenerate)
             double size = gs.MeshRepairMetrics.LargestDiagonal(boxes);
             ScaleNotFinite = double.IsNaN(size);
+            // the degenerate area: relative to the diagonal of all triangles, as MeshRobustRepair.NotCleanReason, while
+            // the components lie close together (that box at most FarApart times the largest component's diagonal):
+            // the repair then never calls clean what the evaluator calls degenerate. With the largest component's
+            // diagonal, components side by side (eg the pieces of an intersection, box / largest 1.6) made the test
+            // weaker by (box / largest)^2 and the slivers between the two areas stayed. Components far apart (a part
+            // 1e4 to 1e12 away) keep the largest component's: with the box's, every triangle of the parts is
+            // "degenerate", and the edits that try to fix them deform the far part within its ulp bound (a radius 0.1
+            // sphere 1e12 away lost 7e-5 of volume) and cost seconds, while the result stays degenerate by the box
+            // anyway (MeshRobustRepair's ScaleDisparity). Not finite (an overflowing box): the largest component's
+            var all = AxisAlignedBox3d.Empty;
+            foreach (AxisAlignedBox3d bx in boxes)
+                all.Contain(bx);
+            double areaSize = all.DiagonalLength;
+            if (boxes.Count == 0 || double.IsNaN(size) || !(areaSize <= FarApart * size))
+                areaSize = size;
             for (int c = 0; c < boxes.Count; ++c) {
                 AxisAlignedBox3d bounds = boxes[c];
                 double diag = size;
-                areaEpsC[c] = DegenerateArea * diag * diag;
+                areaEpsC[c] = DegenerateArea * areaSize * areaSize;
+                sizeAreaC[c] = DegenerateArea * diag * diag;
                 // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit;
                 // a bound that is not finite has no ulp term)
                 double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
@@ -1055,7 +1081,7 @@ namespace g3
                 // (slivers just above the degenerate area, and triangles not higher than twice the displacement
                 // of the edit, may turn over: tiny folds, intersections are checked)
                 double longest = Math.Max(T.V0.Distance(T.V1), Math.Max(T.V1.Distance(T.V2), T.V2.Distance(T.V0)));
-                if (oldCross[i].Length < 2 * OrientedArea * areaEps_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
+                if (oldCross[i].Length < 2 * OrientedArea * sizeArea_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
                     oldCross[i] = Vector3d.Zero;
                 else
                     crossSum += oldCross[i];
@@ -2121,9 +2147,21 @@ namespace g3
                 return;
             // height for the degenerate area, and more
             double h = 2 * areaEps_of(apex) / -len[0], bound = maxLength_of(apex);
+            // the first step: twice that height; where it underflows to 0 (a component of about 2^-537 to 2^-517: its
+            // degenerate area is 0 while its edges are not, and an exactly degenerate triangle is left; before, s stayed
+            // 0 and the loop never ended), a few units in the last place of the apex, or at the origin the unit of the
+            // bound, as the contact separation does
+            double s0 = 2 * h;
+            if (!(s0 > 0)) {
+                Vector3d ca = pos(apex);
+                double largest = Math.Max(Math.Abs(ca.x), Math.Max(Math.Abs(ca.y), Math.Abs(ca.z)));
+                s0 = largest > 0 ? 4 * ulp(largest) : ulp(bound);
+                if (!(s0 > 0))
+                    return;
+            }
             if (Mesh.IsBoundaryVertex(apex)) {
                 // along the boundary
-                for (double s = 2 * h; s <= bound; s *= 4)
+                for (double s = s0; s <= bound; s *= 4)
                     if (try_slide(apex, s))
                         return;
                 return;
@@ -2144,7 +2182,7 @@ namespace g3
             off = unit(off);
             if (off == Vector3d.Zero)
                 return;
-            for (double s = 2 * h; s <= bound; s *= 4)
+            for (double s = s0; s <= bound; s *= 4)
                 if (try_move(apex, c + s * off))
                     return;
         }
@@ -2231,7 +2269,7 @@ namespace g3
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
                 int v0 = Mesh.GetTriangle(comp.Indices[0]).a;
-                bool tiny = sum < 1e4 * areaEps_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
+                bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
                 if (closed == false || (tiny == false && thin == false))
                     continue;
                 // never as thin a component that holds real volume for its area (a sphere has |V| = 0.094 A^1.5, a slab

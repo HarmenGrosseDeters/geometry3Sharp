@@ -132,7 +132,8 @@ Tier: S, M. Parallel: up to 2 sessions
     (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
   - [ ] CsCheck property campaigns beyond the boolean (owner 2026-11-08; after the exact-boolean merge queue; one
     bounded Sonnet task per area, test-only, findings go as bugfixes to the owning session), in this order:
-    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`): a generator of multi-component inputs with
+    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`; done 2026-11-09 as QA 2.0 T3:
+       `RepairCampaignTests`, findings F1-F3 in `RepairCampaignFindings`): a generator of multi-component inputs with
        very different sizes and distances (it would have found #420 and #425); properties: no defect the input does
        not have, `Apply() == true` implies clean by `NotCleanReason`, every vertex displacement <= MaxDrift, 2^k
        scale invariance.
@@ -154,6 +155,10 @@ Tier: S, M. Parallel: up to 2 sessions
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
       long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
       STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
+    - Coverage-guided fuzzing of the mesh operations (owner 2026-11-09): [MeshFuzzPilot](../../tools/MeshFuzzPilot/README.md)
+      decodes bytes into small closed meshes at every binary scale and runs ExactMeshBoolean, MeshRobustRepair and
+      MeshRoundingRepair; a finding is an exception, a timeout or a result that contradicts its own claim, and becomes
+      a procedural regression test in its own bugfix PR.
 
 #### QA 2.0 milestone
 

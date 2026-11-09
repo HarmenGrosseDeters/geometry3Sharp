@@ -312,6 +312,67 @@ namespace gs
             return s;
         }
 
+        /// <summary>
+        /// The power of two (a normal double) that brings the largest extent of box (or, if that is not finite, its
+        /// largest coordinate) to about 1 (into [1, 4), or below 1 for an extent below 2^-1022) when the extent lies
+        /// outside [2^lowExp, 2^highExp], otherwise 1 (also for an empty box or one with a coordinate that is not
+        /// finite). Exact scaling (see normalizing_scale). The scaled coordinates themselves can overflow (a tiny
+        /// extent far from the origin): scale differences of coordinates, not coordinates
+        /// </summary>
+        internal static double unit_scale(AxisAlignedBox3d box, int lowExp, int highExp)
+        {
+            if (!(box.Max.x >= box.Min.x && box.Max.y >= box.Min.y && box.Max.z >= box.Min.z))
+                return 1;
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            if (ext >= BitConverter.Int64BitsToDouble((long)(1023 + lowExp) << 52) && ext <= BitConverter.Int64BitsToDouble((long)(1023 + highExp) << 52))
+                return 1;
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // (2^e normal: e in [-1022, 1023]; an extent of 2^1023 or more is scaled into [2, 4))
+            int e = Math.Max(-1022, Math.Min(1023, -exponent(r)));
+            return BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+        }
+
+        /// <summary>
+        /// The power of two that brings the extent of the triangles of mesh into [1, 4) when it lies outside
+        /// [2^-100, 2^100] (where the squares of lengths and the products of areas overflow or underflow, and an
+        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. Also 1 if scaling the coordinates would
+        /// overflow or leave the normal range (a tiny extent far from the origin, subnormal coordinates): then the
+        /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
+        /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
+        /// </summary>
+        internal static double unit_scale_for_mesh(DMesh3 mesh)
+        {
+            AxisAlignedBox3d box = TriangleBounds(mesh);
+            double s = unit_scale(box, -100, 100);
+            if (s == 1)
+                return 1;
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest * s <= 1e300))
+                return 1;
+            // (exact both ways only if no non-zero coordinate is subnormal before or after scaling)
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                for (int k = 0; k < 3; ++k) {
+                    double x = Math.Abs(p[k]);
+                    if (x != 0 && (x < 2.2250738585072014e-308 || x * s < 2.2250738585072014e-308))
+                        return 1;
+                }
+            }
+            return s;
+        }
+
+        /// <summary> the vertices of mesh times s (a power of two from unit_scale_for_mesh: exact) </summary>
+        internal static void ScaleVertices(DMesh3 mesh, double s)
+        {
+            foreach (int v in mesh.VertexIndices())
+                mesh.SetVertex(v, s * mesh.GetVertex(v));
+        }
+
         // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
         static int exponent(double x)
         {

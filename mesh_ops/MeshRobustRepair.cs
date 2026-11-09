@@ -1028,11 +1028,27 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            return collapse_slivers(mesh, maxCollapse, maxPasses, MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength);
+            return collapse_slivers(mesh, maxCollapse, maxPasses, double.NaN);
         }
 
-        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component)
+        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component; NaN: that of
+        // the bounds of the triangles, taken after the scaling below, as the diagonal itself overflows above about 1e154)
         static int collapse_slivers(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
+        {
+            // outside an extent of [2^-100, 2^100] the squares of the lengths and areas overflow or underflow: work on
+            // the mesh scaled by a power of two to an extent of about 1 (exact) and scale it back
+            double s = MeshRepairMetrics.unit_scale_for_mesh(mesh);
+            if (s == 1)
+                return collapse_slivers_unit(mesh, maxCollapse, maxPasses, double.IsNaN(diag) ? MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength : diag);
+            MeshRepairMetrics.ScaleVertices(mesh, s);
+            try {
+                return collapse_slivers_unit(mesh, maxCollapse, maxPasses, double.IsNaN(diag) ? MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength : s * diag);
+            } finally {
+                MeshRepairMetrics.ScaleVertices(mesh, 1 / s);
+            }
+        }
+
+        static int collapse_slivers_unit(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
         {
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
@@ -1285,12 +1301,41 @@ namespace gs
             return "";
         }
 
-        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
+        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
+        // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
+        // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
+        // inside) underflowed below edges of about 2^-255, so well-shaped triangles were degenerate; below a diagonal
+        // of about 2^-517 the threshold underflowed to 0 and no triangle was, not even an exactly flat one. Differences,
+        // not coordinates: a tiny extent far from the origin would overflow when its coordinates are scaled up. 2^k
+        // scales give the same answer
         static bool has_degenerate_triangles(DMesh3 mesh)
         {
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
-            double areaEps = 1e-12 * diag * diag;
-            return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);
+            double s = MeshRepairMetrics.unit_scale(box, -100, 100);
+            if (s == 1) {
+                double diag = box.DiagonalLength;
+                double areaEps = 1e-12 * diag * diag;
+                return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            }
+            double d = scaled_difference(box.Max, box.Min, s).Length, eps = 1e-12 * d * d;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                if (0.5 * scaled_difference(b, a, s).Cross(scaled_difference(c, a, s)).Length < eps)
+                    return true;
+            }
+            return false;
+        }
+
+        // s * (p - q), exact for a power of two s unless subnormal: the difference first (it cannot overflow where the
+        // scaled coordinates would, a tiny extent far from the origin), or, where the difference overflows (an extent
+        // above 2^1024), the difference of the scaled coordinates
+        static Vector3d scaled_difference(Vector3d p, Vector3d q, double s)
+        {
+            Vector3d d = p - q;
+            if (Math.Abs(d.x) <= double.MaxValue && Math.Abs(d.y) <= double.MaxValue && Math.Abs(d.z) <= double.MaxValue)
+                return s * d;
+            return s * p - s * q;
         }
     }
 }

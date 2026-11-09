@@ -31,7 +31,36 @@ within max(5 s, 50 µs × raw triangles), 92 of the 189 others within 10 %, 168 
 189 over budget ~60 % of the time is the wrap itself (intersection oracle 14 %, Delaunay insertion 13 %, touch 12 %,
 the two pinch passes 18 %), reduction 17 %, certification 7 %; together with parallelism. The Reducer / Remesher 2.0
 hand-over is docs/design/PARTITIONED_REDUCTION_HANDOVER.md (#454).
-Reducer / Remesher 2.0: a Sonnet session measures the baseline and proposes targets first (started 2026-11-09).
+**Reducer / Remesher 2.0 (owner 2026-11-09):** baseline in #457 (benchmarks/ReducerRemesherBaseline,
+docs/design/REDUCER_REMESHER_20.md): topology kept and deterministic everywhere; Reducer 3.2 µs/tri, p01 0.6° on real
+meshes, self-intersections created in 9 of 19 clean inputs; Remesher 11-23 µs/tri, degenerate triangles in 17 of 20,
+self-intersections in 14 of 19, not bit-identical under 2^k in 4 cases. Targets: T1 Reducer quality / target within the
+genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by default at <= 4x / <= 8x (via #432's
+slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
+flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
+until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
+**Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed):** speed and parallelism on top of 2.0.
+Starting point (final 800 run, the 189 meshes over budget): pinch passes 18 %, reduction 17 %, intersection oracle 14 %,
+Delaunay insertion 13 %, touch test 12 %, certification 7 %. Levers: (1) intersection oracle and touch test through
+batched queries on the input tree (#448), cheap prefilters, per-facet caching; (2) Delaunay insertion in spatial
+(BRIO / Hilbert) order with a compact tetrahedron layout and fewer allocations; (3) parallelism: evaluate the carving
+candidates' gate tests in parallel batches and apply them serially in a fixed order (deterministic), certification in
+parallel batches; (4) pinch passes more local (on #429); (5) reduction via PartitionedReducer (#470) and an incremental
+tree (shared with Reducer / Remesher 2.x). Process: a Sonnet session measures a per-phase profile, an upper bound per
+lever, a short literature check (papers only, never CGAL code) and proposes targets (e.g. 95 % of the 800 within budget,
+guarantees and angles unchanged, deterministic); the owner sets them; one PR per lever, measured with the 800 harness on
+the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
+and memory): both use "evaluate in parallel, apply serially".
+
+**Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
+PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
+60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
+rest in smoothing / projection (12.6x plain at the median). Levers by expected gain: (1) a local check against an
+incrementally updated tree instead of rebuilds (both, core-count independent); (2) the orientation prefilter of #419
+(Devillers-Guigue) in front of the triangle-triangle test; (3) the Remesher projection through NearestPointBatch (#448,
+3.7-7.2x, bit-identical; the caller switch after Lévy phase 2); (4) slabs for the Remesher's edge operations (<= 2.1x on
+4 cores, large meshes only, a big build). First step: a per-operation profile of the plain Remesher (T4). Synergy with
+Alpha Wrap 3.0 (an incremental tree helps all three).
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
@@ -127,7 +156,8 @@ better; 0.75 is 1.09-1.22x.
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
-- **Reducer / Remesher 2.0 (milestone idea, owner 2026-11-08; after Alpha Wrap 2.0, upper bounds first):**
+- **Reducer / Remesher 2.0: done 2026-11-09** (baseline, T5, T2, T1, T3, T6; results, measured limits and open items T4 / feature-curve operators in
+  [design/REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) sections 6 to 11; no default changed). The milestone idea as first written (owner 2026-11-08, upper bounds first):
   (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
   quality guard (compare with the worst triangle around the edge) to the general `Reducer` as options, since today
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
