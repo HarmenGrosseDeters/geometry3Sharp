@@ -127,6 +127,8 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
+- Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
+  [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 started, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)

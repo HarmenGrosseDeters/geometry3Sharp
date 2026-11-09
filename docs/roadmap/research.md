@@ -257,3 +257,94 @@ Problems where the library already has a head start and that could be researched
   which API patterns (result codes, `NotCleanReason`, options objects) actually help them.
 - **Showcase domains with error bounds.** Terrain: DEM → TIN with guaranteed error, exact cut / fill volumes.
   Orthotics: geodesic cut lines, wall thickness, feature-preserving offsets.
+
+#### Hard open problems (candidates for a stronger model)
+
+Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
+solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
+up *selectively*, as a bounded investigation:
+- it reads the linked notes first and does not repeat a closed measurement;
+- it starts with a prior-art check (papers only; the licence rules of CLAUDE.md hold) and an upper bound or a
+  falsification run on real data;
+- it ends with a design note and a recommendation to the owner, not with library code;
+- building follows the normal process (tiers, review, mutation), on the model the task needs.
+
+Ordered by expected value for the library.
+
+1. **Practical 3D snap rounding with a guarantee.**
+   - Problem: round exact results to doubles with no new self-intersections, bounded displacement and practical speed.
+   - Tried: `SafeRounding` verifies and repairs; option B (Valque-Lazard) closed in #313; Devillers et al. 2018 is
+     impractical.
+   - Open leads:
+     - the certified empty-ball filter (lower distance bound from a completed BVH search);
+     - ideas 1 and 3 of #368;
+     - Z3 as the rule checker (see "Open research questions" above).
+   - Why a stronger model: proof-level reasoning over cascades of moves and termination.
+   - Payoff: exact booleans, repair and tet meshing at once.
+2. **D1: SafeRounding's additive drift budget runs out in clusters.**
+   - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
+     rejected edit needs 1.01 times the bound.
+   - Needed: a tighter drift accounting, stated as a lemma and checked with Z3 before it is built.
+   - Status: the lemma waits for the Boolean session's design note
+     ([exact-boolean.md](exact-boolean.md), D1 order).
+3. **Rounding cost on large or rotated results.**
+   - Measured:
+     - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
+     - rounding a 520k-triangle result costs 3-5 s, so 519511 / 1517923 are documented exceptions to the 5 s target.
+   - The architecture survey (EMBER, BSPs, Cherchi 2022, Manifold, Lévy 2024) found no candidate that produces doubles
+     with a no-intersection guarantee.
+   - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
+     self-intersection search, certified clearances)? Shares leads with item 1.
+4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
+   - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
+   - Closed without gain:
+     - feature quadrics in the Reducer;
+     - crease-aware Steiner points.
+   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measurement running) can change it.
+   - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
+     bounds) on top of the wrap.
+   - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
+5. **Tet meshing quality: sliver removal and a dihedral floor.**
+   - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
+   - Needed:
+     - a termination argument for 3D Delaunay refinement with protecting balls near small dihedral input angles;
+     - sliver exudation that keeps the bound.
+   - The theory is spread over Cheng-Dey-Shewchuk 2012 and needs a design that fits our exact-authoritative points.
+   - [design/TET_MESHING.md](../design/TET_MESHING.md).
+6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
+   - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
+     region.
+   - The current answer is the exemption up to 60° (#496).
+   - Open:
+     - a region-based oracle excuse that is provably tight (the floor arcsin(sin(φ/2)/√2) near clusters);
+     - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
+7. **Meshing2D oracle speed.**
+   - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
+   - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
+     chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
+8. **Open-operand classification in the exact booleans.**
+   - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
+     w_B = 0.86), fix in progress.
+   - The open cohort also has 736 ops > 5 s.
+   - Open: Lévy 2024-style propagation across intersection curves (phase 2 running) and a robust, scale-invariant
+     inside threshold for open operands.
+   - A stronger-model review of the classification design pays here.
+9. **Robust repair at extreme scale disparity (F1b / F1c).**
+   - Problem: cleanups relative to all triangles erode or drop far parts; a first-stage design change is in progress.
+   - Open: a scale-free formulation of the repair stage, so that no cleanup depends on the global box.
+   - Related: the 183 `robust` misses of the strict criterion, 137 of them Hausdorff >= 1 % after solidify
+     ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).
+10. **Envelope-guaranteed simplification at reasonable speed.**
+    - `MaxDeviation` is 92-97 % of the Reducer's time; the polyhedral envelope is too slow for the remeshers.
+    - The paper's envelope algorithm (Phase 5 #2) is still open.
+    - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
+      the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
+11. **Bit-for-bit determinism across runtimes and CPUs** (net48 / net10, x64 / ARM, parallel paths).
+    - Needed: a systematic method to prove which paths are reproducible (not only test them), as a basis for
+      certification use.
+12. **Mutation-testing cost of the rounding module.**
+    - A full rounding run takes up to 5 h per part; the 19-term filter would need about 11 parts.
+    - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
+      ([platform.md](platform.md)).
+
+Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
