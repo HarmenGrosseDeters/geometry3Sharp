@@ -324,7 +324,7 @@ namespace geometry3Sharp.Tests
         /// Clean solids that do not overlap (apart or nearly touching, sizes and distances far apart): the repair must
         /// not lose or change a solid. Apply() true implies clean (RobustProperties); every piece's volume is in the
         /// result (matched by its center, within 1e-3 relative; a solid moves only by the rounding bound), and
-        /// each part has its own component in the result. Where parts lie so far apart that a triangle of a part is below the degenerate area of all triangles and Apply() is true, the check is skipped (F1, RepairCampaignFindings).
+        /// each part has its own component in the result. Where parts lie so far apart that a triangle of a part is below the degenerate area of all triangles and Apply() is false, the check is skipped (F1b, RepairCampaignFindings).
         /// </summary>
         internal static string CleanSceneProperties(Scene scene, int shift)
         {
@@ -333,22 +333,22 @@ namespace geometry3Sharp.Tests
             if (general != "") return general;
             // (CheckLostComponents is off by default: a part too small for MinVolumeIoU may be lost by design)
             RobustRun a = Robust(input, r => r.CheckLostComponents = true);
-            // F1 (RepairCampaignFindings): where parts lie far apart compared to their size, so that a triangle of a part is
-            // below the degenerate area of all triangles, a part can be lost with Apply() true (the exact resolve's
-            // cleanups, accepted by the IoU, and not judged by CheckLostComponents)
+            // (F1, fixed: where parts lie far apart compared to their size, a part is no longer lost with Apply() true)
             double diag = MeshRepairMetrics.TriangleBounds(input).DiagonalLength;
             bool disparity = input.TriangleIndices().Any(t => input.GetTriArea(t) < 1e-12 * diag * diag);
             // clean solids that do not overlap are repaired (true) or, only where parts lie far apart compared to their
             // size (ScaleDisparity), reported as not clean with the resolved mesh
             if (a.Ok == false && (disparity == false || !a.Repair.ResultReason.StartsWith("scale disparity")))
                 return $"Apply() false for clean solids ({a.Path}: {a.Repair.ResultReason})";
-            // (with Apply() true F1 applies; with false the mesh is only the resolved one: F1b, its parts can be eroded)
-            if (disparity)
+            // (with false the mesh is only the resolved one: F1b, its parts can be eroded)
+            if (disparity && !a.Ok)
                 return "";
-            return ComponentVolumesKept(input, a);
+            // (F1c: with parts far apart the cleanups relative to the diagonal of all triangles still erode a part, by 14 to 30 % in
+            // the cases seen, with Apply() true; a part must be there, not lost: at least half of its volume)
+            return ComponentVolumesKept(input, a, disparity ? 0.5 : 1e-3);
         }
 
-        static string ComponentVolumesKept(DMesh3 input, RobustRun a)
+        static string ComponentVolumesKept(DMesh3 input, RobustRun a, double tolerance)
         {
             var inComps = new MeshConnectedComponents(input);
             inComps.FindConnectedT();
@@ -393,7 +393,7 @@ namespace geometry3Sharp.Tests
                 }
                 if (!matched.Add(bestIndex))
                     return $"two parts of the input share one component of the result (at {at}; {a.Path})";
-                if (Math.Abs(got - expected) > 1e-3 * Math.Abs(expected))
+                if (Math.Abs(got - expected) > tolerance * Math.Abs(expected))
                     return $"component at {at} of volume {expected:R} has {got:R} in the result (nearest {best:G3}; {a.Path})";
             }
             return "";
