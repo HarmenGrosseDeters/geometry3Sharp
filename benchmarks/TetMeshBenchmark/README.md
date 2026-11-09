@@ -11,8 +11,11 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- wrap [relativeAlp
 dotnet run -c Release --project benchmarks/TetMeshBenchmark -- file <mesh.obj|stl|off> [relativeAlpha] [relativeOffset]
 ```
 
-Thingi10K meshes were not measured: the hosts that serve them are blocked in the cloud environment (`file` mode is
-ready for a runner session with network access; meshes must not be committed).
+Thingi10K subset: every 250th id of `metadata/file_ids.txt` of the Hugging Face dataset `Thingi10K/Thingi10K`
+(`raw_meshes/<id>.stl`; zenodo, appspot and github.com are blocked in the cloud container, huggingface.co is reachable).
+Meshes must not be committed; per-mesh result rows are in `results/thingi10k-subset-2026-11-09.csv`, produced by
+`dotnet <TetMeshBenchmark.dll> file <id>.stl 20 600` per mesh (timeout 180 s; the 126 MB mesh 120628 separately with 900 s).
+Summary and the comparison with fTetWild's published numbers: section 10.1 of the design note.
 
 ## Delaunay3 insertion rate (`insert 20000 100000 400000`, uniform random points in the unit box, `minSeparation` 0)
 

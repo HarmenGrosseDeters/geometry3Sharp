@@ -297,5 +297,47 @@ Consequences for the stage-1 decisions:
    for the owner: keep T5 at 25 us per tet for refinement alone and measure it in stage 1, or relax it to 50 us.
 4. The point-location walk matters: stage 1 should insert in a spatially coherent order (the queue by position, or a
    Hilbert order for the size-driven phase), and pass hints.
-5. **Not measured**: Thingi10K (hosts blocked here; the `file` mode of the benchmark takes any mesh), the wrap time share
-   (the wrap takes 40-240 ms for these inputs and dominates tiny meshes, not large ones).
+5. The wrap time share: the wrap takes 40-240 ms for the procedural inputs and dominates the extraction (2 ms) by far.
+   Thingi10K: see 10.1 (measured later the same day; this item had said it was blocked).
+
+### 10.1 Thingi10K subset and fTetWild's published numbers
+
+**Ours** (stage 0, raw inside cells, wrap at relative alpha 20 / offset 600, one thread, cloud container): the subset is
+every 250th id of the dataset's `metadata/file_ids.txt` (40 meshes: ids 100026 .. 97168; downloaded from the Hugging Face
+mirror `Thingi10K/Thingi10K`, `raw_meshes/*.stl`, not committed). Per-mesh rows (numbers only):
+`benchmarks/TetMeshBenchmark/results/thingi10k-subset-2026-11-09.csv`.
+
+| Measure (40 meshes, 3 .. 2.5M input triangles) | Result |
+|---|---|
+| Wrap succeeded, tet mesh exactly valid (`NotValidReason` null) | **40 of 40** (no failures, no timeouts; the largest, 120628 with 2.53M triangles, took 13.4 s) |
+| Wrap time | median 0.33 s, maximum 1.09 s (13.4 s for the 2.5M-triangle mesh) |
+| Output size | median 3.4k tets, maximum 13.2k (raw inside cells are coarse) |
+| Minimum dihedral angle per mesh | 0 of 40 meshes reach 10 degrees (median of the per-mesh minimum 0.22 degrees; median of the 5 % percentile 6.7 degrees); 3.0 % of the tets are below 5 degrees, 9.3 % below 10 (medians over meshes) |
+| Radius-edge above 2 | 5 % .. 59 % of the tets per mesh (median 25 %); median radius-edge 1.5 |
+
+Surface of the wraps (the boundary a refinement has to respect): the interior dihedral angle is below 90 degrees at 1129 of 113889
+edges (1.0 %), below 45 degrees at 79, below 20 degrees at 5; the smallest is 12.0 degrees; the smallest surface triangle angle is 1.29 degrees
+(median of the per-mesh minimum 3.8 degrees). **This revises consequence 2 above**: on real meshes the wrap surfaces do have acute dihedral
+angles, so Shewchuk's 90-degree condition does not hold and the floor argument of 5.2 (plus a per-mesh report of
+`UnrefinedBadTets`) is not a safety net but the working mechanism; the sharp-feature gap is known (coordinator: handled
+with Alpha Wrap 3.0, not in stage 0).
+
+**fTetWild's published numbers** (Hu, Schneider, Wang, Zorin, Panozzo, ACM TOG 39(4) 2020, arXiv 1908.03581 read from the
+arXiv PDF, section 4, Table 2; paper only). Settings: envelope epsilon = 1e-3 d, target edge length d/20 (d = bounding
+box diagonal), stop at max AMIPS energy below 10 or 80 optimisation iterations; Xeon E5-2690v4 2.6 GHz, up to 8 threads, 3 h and 32 GB per model.
+
+| Quantity | fTetWild |
+|---|---|
+| Success on Thingi10K (10 000 meshes) | 99.97 % in Table 2 (3 models over 3 h, 2 out of memory); the text of section 4.1 says 100 %, and 100 % with 11 h; TetWild 99.89 %, CGAL 79 %, TetGen 49.5 % |
+| Average time over all models | 49.8 s (8 cores), 80.4 s serial; TetWild 360 s |
+| Reduced set (4540 models all methods handle) | 18.5 s; TetGen 22 s, CGAL 95 s, TetWild 107 s |
+| Tail | 98.7 % within 2 minutes; only 4 models above 16 minutes (TetGen 20, CGAL 122, TetWild 25); all within 32 minutes in the preprint abstract |
+| Quality | stopping criterion max AMIPS energy below 10; minimum dihedral, radius-to-edge, aspect and volume-to-edge ratios are shown only as histograms (Fig. 17) over the dataset, **no table**: whether the output reaches 10 degrees is not stated numerically in the paper |
+| Surface | within the envelope (epsilon = 1e-3 d), not conforming |
+
+Comparison with the owner's targets (100 % valid, min dihedral >= 10 degrees, same order of time): validity 40 of 40 is on
+target for the subset (fTetWild reports 99.97 %); the dihedral target is **not met at stage 0** (0 of 40; this is what stages 1 and 2 are
+for); the time of stage 0 (wrap median 0.33 s) is far below fTetWild's 18-50 s, but it produces a coarse tet mesh without
+quality, so the comparison becomes meaningful only after stages 1 and 2 (their cost is the open part, section 10 item 3).
+Note that the dihedral target cannot be checked against fTetWild's own output from its paper; a run of fTetWild itself on the same subset
+(black box, MPL, no code read) would settle it, an owner decision.
