@@ -167,7 +167,7 @@ class SelectShards(unittest.TestCase):
                 e("fail-fast: false", "fail-fast: true"),
                 e("timeout-minutes: 350", "timeout-minutes: 355"),
                 # the reporting steps
-                e("cat report.md || true", "cat report.md >> \"$S\" || true"),
+                e("cat report.md || true", "cat report.md >> \"$GITHUB_STEP_SUMMARY\" || true"),
                 e("          name: r\n", "          name: r\n          retention-days: 3\n"),
                 # the cache keys (a changed key can only lose baselines)
                 e("hashFiles('x') }}-${{ github.run_id }}", "hashFiles('x', 'y') }}-${{ github.run_id }}")):
@@ -236,6 +236,173 @@ class SelectShards(unittest.TestCase):
         self.assertTrue(self._forces(edit("include: ${{ fromJSON(needs.changes.outputs.mesh) }}", "include: []"), wf))
         self.assertTrue(self._forces(edit("python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline", "true", 2), wf))
 
+    def test_reporting_steps_are_harmless_only_when_they_only_report(self):
+        e = self._edit
+        # a new step with a harmless name BEFORE the Stryker step, or a second one, is not a reporting step
+        before = e("      - name: Stryker\n", "      - name: Summary\n        run: echo x\n      - name: Stryker\n")
+        self.assertTrue(self._forces(before))
+        twice = e("      - name: Summary\n", "      - name: Summary\n        run: cat a\n      - name: Summary\n")
+        self.assertTrue(self._forces(twice))
+        # after the Stryker step, with a command that writes or runs something, it is not read-only
+        for cmd in ("echo x >> $GITHUB_ENV", "sed -i s/a/b/ tests/mutation/StrykerOutput/x.json", "cat a > b",
+                    "cat a; rm b", "cat a && rm b", "cat a | tee b", "cat a || rm b", "bash run_stryker.sh", "cat $(rm b)",
+                    "cat a &"):
+            self.assertTrue(self._forces(e("          cat report.md || true\n", "          %s\n" % cmd)), cmd)
+        for cmd in ("cat a.md >> \"$GITHUB_STEP_SUMMARY\" || true", "jq -r '.a | .b' x.json || true",
+                    "jq -r \"$X\" x.json"):
+            self.assertFalse(self._forces(e("          cat report.md || true\n", "          %s\n" % cmd)), cmd)
+        # a plain key only: `shell`, `env` or `working-directory` of a reporting step change what it runs
+        self.assertTrue(self._forces(e("      - name: Summary\n", "      - name: Summary\n        shell: python\n")))
+        self.assertTrue(self._forces(e("      - name: Summary\n", "      - name: Summary\n        env:\n          X: 1\n")))
+        self.assertFalse(self._forces(e("      - name: Summary\n", "      - name: Summary\n        if: always()\n")))
+        # a reporting step moved before the Stryker step (a removal and an addition)
+        moved = self.WF.replace("      - name: Summary\n        run: >\n          cat report.md || true\n", "")
+        moved = moved.replace("      - name: Stryker\n", "      - name: Summary\n        run: >\n          cat report.md || true\n      - name: Stryker\n")
+        self.assertTrue(self._forces(moved))
+
+    def test_a_named_upload_step_is_reporting_only_after_the_stryker_step(self):
+        e = self._edit
+        step = ("      - name: Upload the logs\n        if: always()\n        uses: actions/upload-artifact@v4\n"
+                "        with:\n          name: logs\n          path: x/\n")
+        after = e("      - uses: actions/upload-artifact@v4\n", step + "      - uses: actions/upload-artifact@v4\n")
+        self.assertFalse(self._forces(after))
+        self.assertTrue(self._forces(e("      - name: Stryker\n", step + "      - name: Stryker\n")))      # before Stryker
+        # another action, or a plain key of a step that runs something, is not reporting
+        other = step.replace("actions/upload-artifact@v4", "actions/cache/save@v4")
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", other + "      - uses: actions/upload-artifact@v4\n")))
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step.replace("with:", "shell: bash\n        with:") + "      - uses: actions/upload-artifact@v4\n")))
+        # a line that only looks like an upload inside another step's `with:` text is not an upload step
+        sneaky = ("      - name: Tweak\n        uses: actions/github-script@v7\n        with:\n          script: |\n"
+                  "            rm -rf StrykerOutput\n            uses: actions/upload-artifact@v4\n")
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", sneaky + "      - uses: actions/upload-artifact@v4\n")))
+        # the same name twice
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step + step + "      - uses: actions/upload-artifact@v4\n")))
+        # the real workflow's logs steps are harmless in both jobs (they are in it already: removing one is harmless, too)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertEqual(2, wf.count("name: Upload the Stryker logs"))
+        removed = wf.replace(wf[wf.index("      - name: Upload the Stryker logs"):wf.index("          if-no-files-found: warn\n", wf.index("      - name: Upload the Stryker logs")) + len("          if-no-files-found: warn\n")], "", 1)
+        self.assertFalse(self._forces(removed, wf))
+
+    def test_the_early_stop_limit_matches_each_jobs_timeout(self):
+        # run_stryker.sh assumes 350 min unless G3_LIMIT_SECONDS says otherwise: a job with a shorter timeout must say so
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        jobs = re.split(r"\n  (?=[a-z-]+:\n)", wf)
+        checked = 0
+        for job in jobs:
+            m = re.search(r"timeout-minutes:\s*(\d+)", job)
+            if not m or "run_stryker.sh" not in job:
+                continue
+            checked += 1
+            limit = re.search(r"G3_LIMIT_SECONDS:\s*'?(\d+)", job)
+            minutes = int(m.group(1))
+            if minutes != 350:
+                self.assertIsNotNone(limit, "a job with timeout-minutes %d needs G3_LIMIT_SECONDS" % minutes)
+                self.assertEqual(minutes * 60, int(limit.group(1)))
+        self.assertEqual(2, checked)
+
+    def test_yaml_anchors_aliases_and_merge_keys_force_a_full_run(self):
+        e = self._edit
+        anchored = e("    runs-on: ubuntu-latest\n    timeout", "    runs-on: &runner ubuntu-latest\n    timeout")
+        self.assertTrue(self._forces(anchored))
+        # an edit anywhere (also a harmless region) of a workflow that uses an alias
+        self.assertTrue(self._forces(e("max-parallel: 4", "max-parallel: 5", anchored), anchored))
+        self.assertTrue(self._forces(e("          name: r\n", "          name: *runner\n")))
+        self.assertTrue(self._forces(e("  changes:\n", "  changes:\n    <<: *defaults\n")))
+        # a merge key without an alias, and removing the anchor (only the old text has it)
+        self.assertTrue(self._forces(e("  changes:\n", "  changes:\n    <<: {a: b}\n")))
+        harmless_anchor = e("max-parallel: 4", "max-parallel: &p 4")
+        self.assertTrue(self._forces(self.WF, harmless_anchor))     # (the anchor is only in the old text, in a harmless region)
+        self.assertTrue(self._forces(harmless_anchor, self.WF))
+        # shell text is not an anchor
+        self.assertFalse(self._forces(e("max-parallel: 4", "max-parallel: 5")))
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            self.assertFalse(any(__import__("select_shards")._ANCHOR.search(l) for l in f.read().splitlines()
+                                 if not l.lstrip().startswith("#")), "the real workflow must not use anchors")
+
+    def test_non_step_lines_unknown_jobs_and_odd_structure_force_a_full_run(self):
+        e = self._edit
+        # a value under a job key that is not a step (a job env), the body of an unknown job
+        withenv = e("    needs: changes\n", "    needs: changes\n    env:\n      X: 1\n")
+        self.assertTrue(self._forces(withenv))
+        self.assertTrue(self._forces(e("      X: 1\n", "      X: 2\n", withenv), withenv))
+        extra = e("  changes:\n", "  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo a\n  changes:\n")
+        self.assertTrue(self._forces(e("echo a", "echo b", extra), extra))
+        # a line under `steps:` that is not a step
+        odd = e("    steps:\n      - uses: actions/checkout@v4\n", "    steps:\n        run: x\n      - uses: actions/checkout@v4\n")
+        self.assertTrue(self._forces(odd))
+        # a removed line is judged by its place in the OLD text: the new text has a harmless line there
+        gone = e("        run: bash run_stryker.sh\n", "")
+        self.assertTrue(self._forces(gone))
+        # an arithmetic job: its own harmless and forcing lines
+        wf = self.WF + ("  exact-arithmetic:\n    needs: changes\n    runs-on: ubuntu-latest\n    timeout-minutes: 150\n    steps:\n"
+                        "      - name: Stryker\n        run: bash run_stryker.sh a.json\n"
+                        "      - name: Summary\n        run: cat report.md || true\n")
+        self.assertFalse(self._forces(e("timeout-minutes: 150", "timeout-minutes: 160", wf), wf))
+        self.assertFalse(self._forces(e("run: cat report.md || true\n", "run: cat report.md >> \"$GITHUB_STEP_SUMMARY\" || true\n", wf), wf))
+        self.assertTrue(self._forces(e("run_stryker.sh a.json", "run_stryker.sh b.json", wf), wf))
+        self.assertTrue(self._forces(e("    needs: changes\n    runs-on: ubuntu-latest\n    timeout-minutes: 150", "    needs: changes\n    runs-on: ubuntu-24.04\n    timeout-minutes: 150", wf), wf))
+
+    def test_a_diff_that_does_not_fit_the_texts_forces_a_full_run(self):
+        # line numbers beyond the texts: not classified, so full
+        diff = "--- a/w\n+++ b/w\n@@ -900,1 +900,1 @@\n-      - 'a.cs'\n+      - 'b.cs'\n"
+        self.assertTrue(workflow_edit_forces_full(diff, self.WF, self.WF))
+        diff = "--- a/w\n+++ b/w\n@@ -6,1 +900,1 @@\n-      - 'a.cs'\n+      - 'b.cs'\n"
+        self.assertTrue(workflow_edit_forces_full(diff, self.WF, self.WF))
+        # (the same diff at its real place is a harmless trigger edit)
+        diff = "--- a/w\n+++ b/w\n@@ -6,1 +6,1 @@\n-      - 'a.cs'\n+      - 'b.cs'\n"
+        self.assertFalse(workflow_edit_forces_full(diff, self.WF, self.WF))
+
+    def test_the_workflow_diff_needs_both_commits(self):
+        # BASE without HEAD (or the reverse): the workflow edit cannot be classified, so every shard runs in full
+        for env in ({"BASE": "a" * 40}, {"HEAD": "a" * 40}):
+            p = subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")], input=".github/workflows/mutation.yml\n",
+                               capture_output=True, text=True, env=dict({k: v for k, v in os.environ.items() if k not in ("BASE", "HEAD")}, **env))
+            self.assertEqual(0, p.returncode, p.stderr)
+            self.assertIn("arithmetic=full", p.stdout)
+            self.assertEqual(len(ALL_MESH), p.stdout.count('"mode": "full"'))
+
+    def test_the_scripts_of_the_runs_run_a_representative_shard_in_full(self):
+        # a change to run_stryker.sh, incremental.py or baseline.py can break every shard's real run (the fake-dotnet tests
+        # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
+        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
+            self.assertEqual(("none", {"fixed": "full"}), run(path), path)
+        self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
+                         run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))
+        # the test files and select_shards.py run in the `changes` job of every run (the workflow paths cover them)
+        self.assertEqual(("none", {}), run("tests/mutation/test_incremental.py", "tests/mutation/select_shards.py", "tests/mutation/BASELINE_FORMAT"))
+        # (not when everything runs in full anyway, and --only keeps its list)
+        arithmetic, mesh = select(["tests/mutation/run_stryker.sh"], CONFIGS, run_all=True, only={"planar"})
+        self.assertEqual([{"shard": "planar", "mode": "full"}], mesh)
+
+    def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
+        # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what
+        # they must keep doing is checked here
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        on = wf[wf.index("\non:"):wf.index("\nconcurrency:")]
+        self.assertIn("pull_request:", on)
+        self.assertRegex(on, r"types: \[[^\]]*\bsynchronize\b")
+        self.assertRegex(on, r"types: \[[^\]]*\bopened\b")
+        self.assertRegex(on, r"types: \[[^\]]*\bready_for_review\b")
+        self.assertNotIn("branches:", on)                       # no branch filter: every PR is checked
+        self.assertNotIn("paths-ignore", on)
+        self.assertIn("schedule:", on)
+        self.assertIn("workflow_dispatch:", on)
+        self.assertIn("cancel-in-progress: true", wf)
+        jobs = wf[wf.index("\njobs:"):]
+        changes = jobs[jobs.index("\n  changes:"):jobs.index("\n  exact-arithmetic:")]
+        self.assertIn("set -o pipefail", changes)
+        self.assertIn("tests/mutation/select_shards.py", changes)
+        for name, nxt in (("exact-arithmetic", "exact-mesh"), ("exact-mesh", None)):
+            block = jobs[jobs.index("\n  %s:" % name):(jobs.index("\n  %s:" % nxt) if nxt else len(jobs))]
+            cond = re.search(r"\n    if: (.*)\n", block).group(1)
+            self.assertIn("needs.changes.outputs.", cond, name)
+            self.assertIn("github.event.pull_request.draft != true", cond, name)
+            self.assertNotRegex(cond, r"^\s*(false|0)\s*$", name)
+            self.assertIn("needs: changes", block, name)
+
     def test_cache_keys_name_the_shard_and_the_format(self):
         # a key line is not a reason for a full run (see the table in select_shards.py), so its content is checked here:
         # every key and restore-key names its config and BASELINE_FORMAT, never the scripts, and a restore-key ends at
@@ -246,6 +413,7 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(6, len(keys), keys)
         for l in keys:
             arithmetic = "mutation-baseline-arithmetic-" in l
+            self.assertRegex(l, r"^(key|restore-keys): mutation-baseline-(arithmetic|mesh-\$\{\{ matrix\.shard \}\})-\$\{\{ hashFiles\(", l)
             config = "'tests/mutation/stryker-config.json'" if arithmetic else "format('tests/mutation/stryker-mesh-{0}.json', matrix.shard)"
             self.assertIn(config, l)
             if not arithmetic:
