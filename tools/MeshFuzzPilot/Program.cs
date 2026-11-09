@@ -17,28 +17,55 @@ namespace MeshFuzzPilot;
 /// subnormal to near 1e308), or raw doubles. A finding is an exception, a timeout (libFuzzer's), or a result that
 /// contradicts what the operation claims about it.
 /// </summary>
-public static class Program
+public static partial class Program
 {
     /// <summary> what an input decodes to </summary>
     public sealed class Case
     {
         public int Op;
         public DMesh3 A = null!, B = null!;
+        /// <summary> the queries of the tree, batch and alpha-wrap targets: an origin and a unit direction each </summary>
+        public List<(Vector3d origin, Vector3d dir)> Queries = new List<(Vector3d, Vector3d)>();
         public override string ToString() => $"op {Op} ({Ops[Op]}): A {A.VertexCount} v / {A.TriangleCount} t, B {B.VertexCount} v / {B.TriangleCount} t";
     }
 
-    public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair" };
+    public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
+        "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer" };
 
-    // base shapes, closed and consistently oriented: tetrahedron, octahedron, cube
+    /// <summary>
+    /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
+    /// first input byte selects among them, so a replay needs the same value
+    /// </summary>
+    static readonly int[] OpFilter = ParseOps(Environment.GetEnvironmentVariable("MESH_FUZZ_OPS"));
+
+    static int[] ParseOps(string? list)
+    {
+        if (string.IsNullOrWhiteSpace(list))
+            return Enumerable.Range(0, Ops.Length).ToArray();
+        return list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => int.TryParse(x, out int i) && i >= 0 && i < Ops.Length ? i : Array.IndexOf(Ops, x))
+            .Select(i => i >= 0 ? i : throw new ArgumentException("unknown operation in MESH_FUZZ_OPS")).ToArray();
+    }
+
+    // base shapes: tetrahedron, octahedron, cube (closed and consistently oriented); two disjoint tetrahedra (two components);
+    // a cube without its bottom face (open); two cubes, the second shifted by half an edge (closed, self-intersecting)
     static readonly double[][] ShapeVertices = {
         new double[] { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 },
         new double[] { 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1 },
         new double[] { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 },
+        new double[] { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0, 0, 4, 0, 0, 3, 1, 0, 3, 0, 1 },
+        new double[] { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 },
+        new double[] { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1,
+                       0.5, 0.5, 0.5, 1.5, 0.5, 0.5, 1.5, 1.5, 0.5, 0.5, 1.5, 0.5, 0.5, 0.5, 1.5, 1.5, 0.5, 1.5, 1.5, 1.5, 1.5, 0.5, 1.5, 1.5 },
     };
     static readonly int[][] ShapeTriangles = {
         new[] { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 },
         new[] { 0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5 },
         new[] { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 },
+        new[] { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3, 4, 6, 5, 4, 5, 7, 4, 7, 6, 5, 6, 7 },
+        new[] { 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 },
+        new[] { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
+                8, 10, 9, 8, 11, 10, 12, 13, 14, 12, 14, 15, 8, 9, 13, 8, 13, 12, 9, 10, 14, 9, 14, 13, 10, 11, 15, 10, 15, 14, 11, 8, 12, 11, 12, 15 },
     };
 
     sealed class Reader
@@ -100,9 +127,10 @@ public static class Program
     public static Case Decode(byte[] data)
     {
         var r = new Reader(data);
-        var c = new Case { Op = r.Byte() % Ops.Length };
+        var c = new Case { Op = OpFilter[r.Byte() % OpFilter.Length] };
         c.A = DecodeMesh(r);
         c.B = DecodeMesh(r);
+        DecodeQueries(r, c);
         return c;
     }
 
@@ -131,6 +159,18 @@ public static class Program
         return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
     }
 
+    /// <summary> the diagonal of a box without overflow in the extents or the squares (infinite only if it exceeds the doubles) </summary>
+    public static double Diagonal(AxisAlignedBox3d box)
+    {
+        // (halves: max - min of two values near 1.7e308 overflows)
+        double dx = 0.5 * box.Max.x - 0.5 * box.Min.x, dy = 0.5 * box.Max.y - 0.5 * box.Min.y, dz = 0.5 * box.Max.z - 0.5 * box.Min.z;
+        double m = Math.Max(dx, Math.Max(dy, dz));
+        if (!(m > 0))
+            return 0;
+        double ex = dx / m, ey = dy / m, ez = dz / m;
+        return 2 * m * Math.Sqrt(ex * ex + ey * ey + ez * ez);
+    }
+
     // the diagonals of the connected components' boxes, largest first
     static double LargestComponentDiagonal(DMesh3 m)
     {
@@ -141,7 +181,7 @@ public static class Program
             var box = AxisAlignedBox3d.Empty;
             foreach (int t in c.Indices)
                 box.Contain(m.GetTriBounds(t));
-            largest = Math.Max(largest, box.DiagonalLength);
+            largest = Math.Max(largest, Diagonal(box));
         }
         return largest;
     }
@@ -151,8 +191,12 @@ public static class Program
     /// thresholds (1e-12 times a squared diagonal) neither underflow nor overflow; exact unless coordinates become
     /// subnormal; the mesh itself if the scale is not finite or the scaled coordinates would overflow
     /// </summary>
-    public static DMesh3 Normalized(DMesh3 m)
+    public static DMesh3 Normalized(DMesh3 m) => Normalize(m, out _);
+
+    /// <summary> Normalized, and the scale (a power of two, 1 if the mesh itself is returned) </summary>
+    public static DMesh3 Normalize(DMesh3 m, out double scale)
     {
+        scale = 1;
         double d = LargestComponentDiagonal(m);
         if (!(d > 0 && d <= double.MaxValue))
             return m;
@@ -170,6 +214,7 @@ public static class Program
         var n = new DMesh3(m);
         foreach (int v in n.VertexIndices())
             n.SetVertex(v, s * n.GetVertex(v));
+        scale = s;
         return n;
     }
 
@@ -201,7 +246,7 @@ public static class Program
     /// count; degenerate triangles as the rounding judges them)
     /// </summary>
     public static void CheckBoolean(string what, bool ok, ExactMeshBoolean.BooleanStatus status, DMesh3? result, bool roundingClean,
-        int contacts, int nonManifoldTriangles, int conflictEdges)
+        int contacts, int nonManifoldTriangles, int conflictEdges, bool inputsClosed = true)
     {
         if (ok != (status == ExactMeshBoolean.BooleanStatus.Success))
             throw new Finding($"{what}: Compute() {ok} but Status {status}");
@@ -211,6 +256,8 @@ public static class Program
             throw new Finding($"{what}: Success without a Result");
         if (!AllFinite(result))
             throw new Finding($"{what}: a result vertex is not finite");
+        if (!inputsClosed)
+            return;     // (open inputs are allowed by default; nothing is promised about the result's shape)
         if (nonManifoldTriangles != 0 || conflictEdges != 0)
             throw new Finding($"{what}: closed inputs, but NonManifoldTriangles {nonManifoldTriangles}, ConflictEdges {conflictEdges}");
         if (result.TriangleCount == 0)
@@ -227,6 +274,38 @@ public static class Program
             if (deg > 0)
                 throw new Finding($"{what}: RoundingClean but {deg} degenerate triangles (at the rounding's scale)");
         }
+    }
+
+    // every directed edge, by the positions of its corners (coincident vertices are one), is matched by its reverse equally often
+    static bool WindingClosed(DMesh3 m)
+    {
+        var count = new Dictionary<(Vector3d, Vector3d), int>();
+        void Add(Vector3d a, Vector3d b, int d)
+        {
+            if (a == b) return;
+            count[(a, b)] = count.GetValueOrDefault((a, b)) + d;
+        }
+        foreach (int t in m.TriangleIndices()) {
+            Index3i f = m.GetTriangle(t);
+            Vector3d a = m.GetVertex(f.a), b = m.GetVertex(f.b), c = m.GetVertex(f.c);
+            Add(a, b, 1); Add(b, c, 1); Add(c, a, 1);
+        }
+        foreach (var kv in count)
+            if (kv.Value != count.GetValueOrDefault((kv.Key.Item2, kv.Key.Item1)))
+                return false;
+        return true;
+    }
+
+    /// <summary>
+    /// AllowOpenMeshes = false: an input with every edge matched is not OpenInput (a mesh with no boundary edge at all), and an
+    /// input with an unmatched edge, by the positions of its corners, is OpenInput
+    /// </summary>
+    public static void CheckStrictOpen(string what, bool noBoundaryEdge, bool unmatchedEdge, ExactMeshBoolean.BooleanStatus status)
+    {
+        if (noBoundaryEdge && status == ExactMeshBoolean.BooleanStatus.OpenInput)
+            throw new Finding($"{what}: closed inputs, but OpenInput with AllowOpenMeshes = false");
+        if (unmatchedEdge && status != ExactMeshBoolean.BooleanStatus.OpenInput)
+            throw new Finding($"{what}: an input with an unmatched edge, but {status} with AllowOpenMeshes = false (documented: OpenInput)");
     }
 
     /// <summary>
@@ -249,7 +328,7 @@ public static class Program
     /// (edits keep it manifold, removals take whole components); IsClean: no exact self-intersection, no degenerate
     /// triangle as the rounding judges it, and the drift within the bound
     /// </summary>
-    public static void CheckRounding(string what, bool clean, bool isClean, DMesh3 mesh, double maxDrift, double maxLength)
+    public static void CheckRounding(string what, bool clean, bool isClean, DMesh3 mesh, double maxDrift, double maxLength, bool inputClosed = true)
     {
         if (clean != isClean)
             throw new Finding($"{what}: Apply() {clean} but IsClean {isClean}");
@@ -257,7 +336,7 @@ public static class Program
             throw new Finding($"{what}: a vertex is not finite after the rounding repair");
         if (!mesh.CheckValidity(true, FailMode.ReturnOnly))
             throw new Finding($"{what}: the mesh is not valid after the rounding repair");
-        if (mesh.TriangleCount > 0 && !mesh.IsClosed())
+        if (inputClosed && mesh.TriangleCount > 0 && !mesh.IsClosed())
             throw new Finding($"{what}: a closed mesh is not closed after the rounding repair");
         if (!clean)
             return;
@@ -271,16 +350,30 @@ public static class Program
             throw new Finding($"{what}: IsClean but MaxDrift {maxDrift} above the bound {maxLength}");
     }
 
+    static bool CombinesMeshes(int op) => op <= 2 || op == 4 || op == 5 || op == 10;
+
     /// <summary> runs the case and checks the result's claims; throws on a finding (or lets an exception through) </summary>
     public static void Run(Case c)
     {
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         string what = c.ToString();
+        // two meshes of sizes more than 2^60 apart are a separate class (the tolerances of the rounding are relative to the
+        // largest component: the smaller one is degenerate by definition); reported, not a domain of these claims
+        if (CombinesMeshes(c.Op)) {
+            double da = Diagonal(c.A.GetBounds()), db = Diagonal(c.B.GetBounds());
+            if (da > 0 && db > 0 && !(da / db <= Pow2(60) && db / da <= Pow2(60)))
+                return;
+        }
         if (c.Op <= 2) {
             var op = c.Op == 0 ? ExactMeshBoolean.Operations.Union : c.Op == 1 ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
             var b = new ExactMeshBoolean(c.A, c.B, op);
             bool ok = b.Compute();
-            CheckBoolean(what, ok, b.Status, b.Result, b.RoundingClean, b.Contacts, b.NonManifoldTriangles, b.ConflictEdges);
+            bool closed = c.A.IsClosed() && c.B.IsClosed();
+            CheckBoolean(what, ok, b.Status, b.Result, b.RoundingClean, b.Contacts, b.NonManifoldTriangles, b.ConflictEdges, inputsClosed: closed);
+            // AllowOpenMeshes = false: an input with a boundary edge is OpenInput, a closed one is not
+            var strict = new ExactMeshBoolean(c.A, c.B, op) { AllowOpenMeshes = false };
+            strict.Compute();
+            CheckStrictOpen(what, closed, !(WindingClosed(c.A) && WindingClosed(c.B)), strict.Status);
         } else if (c.Op <= 4) {
             DMesh3 input = new DMesh3(c.A);
             if (c.Op == 4)
@@ -288,22 +381,40 @@ public static class Program
             var repair = new MeshRobustRepair(input);
             bool ok = repair.Apply();
             CheckRepair(what, ok, repair.ResultReason, repair.Mesh);
-        } else {
+        } else if (c.Op == 5) {
             DMesh3 m = new DMesh3(c.A);
             new MeshEditor(m).AppendMesh(c.B);
+            bool inputClosed = m.IsClosed();
             var repair = new MeshRoundingRepair(m);
             bool clean = repair.Apply();
-            CheckRounding(what, clean, repair.IsClean, m, repair.MaxDrift, repair.MaxLength);
+            CheckRounding(what, clean, repair.IsClean, m, repair.MaxDrift, repair.MaxLength, inputClosed);
+        } else if (c.Op == 6) {
+            RunTreeNearest(c, what);
+        } else if (c.Op == 7) {
+            RunTreeRay(c, what);
+        } else if (c.Op == 8) {
+            RunTreeInside(c, what);
+        } else if (c.Op == 9) {
+            RunBatch(c, what);
+        } else if (c.Op == 10) {
+            RunAlphaWrap(c, what);
+        } else if (c.Op == 11) {
+            RunTreeWinding(c, what);
+        } else {
+            RunPartitionedReducer(c, what);
         }
     }
 
     // seeds: each operation on the plain shapes, at unit size and with an offset (no perturbation)
     public static IEnumerable<(string name, byte[] data)> Seeds()
     {
-        for (int op = 0; op < Ops.Length; ++op)
-            for (int shape = 0; shape < 3; ++shape) {
-                var bytes = new List<byte> { (byte)op };
-                foreach (int s in new[] { shape, (shape + 1) % 3 }) {
+        for (int op = 0; op < Ops.Length; ++op) {
+            int selector = Array.IndexOf(OpFilter, op);
+            if (selector < 0)
+                continue;
+            for (int shape = 0; shape < ShapeVertices.Length; ++shape) {
+                var bytes = new List<byte> { (byte)selector };
+                foreach (int s in new[] { shape, (shape + 1) % ShapeVertices.Length }) {
                     bytes.Add((byte)s);
                     // e = 0 and f = 0: (1022 + e) as two bytes
                     bytes.AddRange(new byte[] { 0x03, 0xFE, 0x03, 0xFE });
@@ -311,8 +422,11 @@ public static class Program
                     for (int i = 0; i < ShapeVertices[s].Length / 3; ++i)
                         bytes.AddRange(new byte[] { 0, 0, 0, 0 });
                 }
+                for (int q = 0; q < 8; ++q)
+                    bytes.AddRange(new byte[] { (byte)q, (byte)(3 * q + 1), (byte)(q + 2), (byte)(5 * q), (byte)q, (byte)(7 * q) });
                 yield return ($"{Ops[op]}-{shape}.bin", bytes.ToArray());
             }
+        }
     }
 
     public static int Main(string[] args)
@@ -329,6 +443,20 @@ public static class Program
         }
         if (args.Length == 1 && args[0] == "self-test")
             return SelfTest();
+        if (args.Length == 2 && args[0] == "dump") {
+            // the decoded case with exact coordinates (round-trip format), for a procedural regression test
+            Case d = Decode(File.ReadAllBytes(args[1]));
+            Console.WriteLine(d);
+            foreach (var (name, m) in new[] { ("A", d.A), ("B", d.B) }) {
+                Console.WriteLine(name + " vertices:");
+                foreach (int v in m.VertexIndices())
+                    Console.WriteLine($"  {v}: {m.GetVertex(v).x:R} {m.GetVertex(v).y:R} {m.GetVertex(v).z:R}");
+                Console.WriteLine(name + " triangles: " + string.Join(" ", m.TriangleIndices().Select(t => $"({m.GetTriangle(t).a},{m.GetTriangle(t).b},{m.GetTriangle(t).c})")));
+            }
+            for (int i = 0; i < d.Queries.Count; ++i)
+                Console.WriteLine($"query {i}: origin {d.Queries[i].origin.x:R} {d.Queries[i].origin.y:R} {d.Queries[i].origin.z:R} direction {d.Queries[i].dir.x:R} {d.Queries[i].dir.y:R} {d.Queries[i].dir.z:R}");
+            return 0;
+        }
         if (args.Length == 2 && args[0] == "replay") {
             Case c = Decode(File.ReadAllBytes(args[1]));
             Console.WriteLine(c);
@@ -336,7 +464,7 @@ public static class Program
             return 0;
         }
         if (args.Length != 0) {
-            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | self-test]");
+            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | dump <input> | self-test]");
             return 2;
         }
         Fuzzer.LibFuzzer.Run(data => Run(Decode(data.ToArray())));
@@ -353,7 +481,7 @@ public static class Program
                 throw new InvalidOperationException("decoder not deterministic: " + name);
             Run(a);
         }
-        if (Seeds().Select(s => Decode(s.data).Op).Distinct().Count() != Ops.Length)
+        if (Seeds().Select(s => Decode(s.data).Op).Distinct().Count() != OpFilter.Length)
             throw new InvalidOperationException("the seeds do not cover every operation");
         // extreme bytes: all 0xFF (raw corners of NaN), the largest exponents, raw infinity / NaN / subnormal
         var extremes = new List<byte[]> { Enumerable.Repeat((byte)0xFF, 512).ToArray(), new byte[] { 3, 2, 0xFF, 0xFF, 0xFF, 0xFF, 1, 2, 3 },
@@ -377,6 +505,8 @@ public static class Program
         DMesh3 cube = new TrivialBox3Generator() { NoSharedVertices = false }.Generate().MakeDMesh();
         var S = ExactMeshBoolean.BooleanStatus.Success;
         ExpectFinding("Compute() true with another status", () => CheckBoolean("t", true, ExactMeshBoolean.BooleanStatus.OpenInput, cube, false, 0, 0, 0));
+        ExpectFinding("OpenInput for closed inputs", () => CheckStrictOpen("t", true, false, ExactMeshBoolean.BooleanStatus.OpenInput));
+        ExpectFinding("an open input accepted with AllowOpenMeshes = false", () => CheckStrictOpen("t", false, true, S));
         ExpectFinding("Success without a Result", () => CheckBoolean("t", true, S, null, false, 0, 0, 0));
         ExpectFinding("an open Boolean result", () => CheckBoolean("t", true, S, open, false, 0, 0, 0));
         ExpectFinding("NonManifoldTriangles", () => CheckBoolean("t", true, S, cube, false, 0, 1, 0));
@@ -387,11 +517,72 @@ public static class Program
         ExpectFinding("IsClean with a degenerate triangle at a tiny scale", () => CheckRounding("t", true, true, tinyFlat, 0, 1));
         ExpectFinding("IsClean with the drift over the bound", () => CheckRounding("t", true, true, cube, 2, 1));
         ExpectFinding("an open mesh after the rounding repair", () => CheckRounding("t", false, false, open, 0, 1));
+        // the tree, batch and alpha wrap claims
+        ExpectFinding("no nearest triangle for a mesh with triangles", () => CheckNearestTriangle("t", DMesh3.InvalidID, double.NaN, double.NaN, 1, true));
+        ExpectFinding("a nearest triangle of an empty mesh", () => CheckNearestTriangle("t", 0, 1, 1, 1, false));
+        ExpectFinding("a nearest triangle that is not the nearest", () => CheckNearestTriangle("t", 0, 2, 2, 1, true));
+        ExpectFinding("a reported distance that is not the minimum", () => CheckNearestTriangle("t", 0, 2, 1, 1, true));
+        ExpectFinding("no nearest vertex", () => CheckNearestVertex("t", DMesh3.InvalidID, double.NaN, 1));
+        ExpectFinding("a nearest vertex that is not the nearest", () => CheckNearestVertex("t", 0, 2, 1));
+        ExpectFinding("a nearest hit that is not the brute force one", () => CheckRay("t", 3, 4, new[] { 3, 4 }, new[] { 3, 4 }));
+        ExpectFinding("a missing hit", () => CheckRay("t", 3, 3, new[] { 3, 4 }, new[] { 3 }));
+        ExpectFinding("an extra hit", () => CheckRay("t", DMesh3.InvalidID, DMesh3.InvalidID, new int[0], new[] { 1 }));
+        ExpectFinding("a crossing count that is not the brute force one", () => CheckInside("t", 1, 2, false, null));
+        ExpectFinding("IsInside that is not the parity", () => CheckInside("t", 2, 2, true, null));
+        ExpectFinding("IsInside against the winding number", () => CheckInside("t", 1, 1, true, false));
+        ExpectFinding("a winding number that is NaN", () => CheckWinding("t", 1, 1, double.NaN));
+        ExpectFinding("a winding number that is not the brute force one", () => CheckWinding("t", 1, 0, 0));
+        ExpectFinding("a winding number that depends on the scale", () => CheckWinding("t", 1, 1, 0));
+        ExpectFinding("a batch result that differs", () => CheckBatchEqual("t", "x", 1, 2));
+        var okWrap = MeshAlphaWrap.WrapStatus.Success;
+        ExpectFinding("an alpha wrap whose Compute() and Status disagree", () => CheckAlphaWrap("t", true, MeshAlphaWrap.WrapStatus.Failed, "", cube, true, true));
+        ExpectFinding("EmptyInput for a mesh", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.EmptyInput, "", null, true, true));
+        ExpectFinding("InvalidInput for finite input", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.InvalidInput, "", null, true, true));
+        ExpectFinding("InvalidParameters for an input of positive size", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.InvalidParameters, "", null, true, true));
+        ExpectFinding("Failed", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.Failed, "", cube, true, true));
+        ExpectFinding("Success without a result", () => CheckAlphaWrap("t", true, okWrap, "", null, true, true));
+        ExpectFinding("an open alpha wrap", () => CheckAlphaWrap("t", true, okWrap, "", open, true, true));
+        ExpectFinding("an alpha wrap that is not finite", () => CheckAlphaWrap("t", true, okWrap, "", NotFinite(cube), true, true));
+        ExpectFinding("a nearest hit that is not a hit (near-parallel query)", () => CheckRay("t", 3, 5, new[] { 3 }, new[] { 3 }, false));
+        ExpectFinding("a missing nearest hit (near-parallel query)", () => CheckRay("t", 3, DMesh3.InvalidID, new[] { 3 }, new[] { 3 }, false));
+        ExpectFinding("an alpha wrap that was cancelled", () => CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.Cancelled, "", null, true, true));
+        ExpectFinding("an empty alpha wrap", () => CheckAlphaWrap("t", true, okWrap, "", new DMesh3(), true, true));
+        ExpectFinding("a Boolean on an open input claiming nothing is checked", () => CheckBoolean("t", true, S, NotFinite(cube), false, 0, 0, 0, inputsClosed: false));
+        ExpectFinding("a reduced mesh with more triangles than the input", () => CheckPartitionedReduction("t", true, open, cube, cube, cube, null, 1));
+        ExpectFinding("a thread count that changes the result", () => CheckPartitionedReduction("t", true, cube, cube, ShiftedBy(cube, 1), cube, null, 1));
+        ExpectFinding("a repeated run that differs", () => CheckPartitionedReduction("t", true, cube, cube, cube, ShiftedBy(cube, 1), null, 1));
+        ExpectFinding("a scaled result that is not the scaled result", () => CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 1), 1));
+        ExpectFinding("a result that is open for a closed input", () => CheckPartitionedReduction("t", true, cube, open, open, open, null, 1));
+        ExpectFinding("a result with a vertex that is not finite", () => CheckPartitionedReduction("t", false, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube), null, 1));
+        CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
         // and pass on a clean result
+        CheckNearestTriangle("t", 0, 1, 1, 1, true);
+        CheckNearestVertex("t", 0, 1, 1);
+        CheckRay("t", 3, 3, new[] { 3, 4 }, new[] { 4, 3 });
+        CheckInside("t", 1, 1, true, true);
+        CheckWinding("t", 1, 1, 1);
+        CheckBatchEqual("t", "x", 1, 1);
+        CheckAlphaWrap("t", true, okWrap, "", cube, true, true);
+        CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.InvalidInput, "", null, true, false);
+        CheckAlphaWrap("t", false, MeshAlphaWrap.WrapStatus.InvalidParameters, "", null, false, true);
         CheckBoolean("t", true, S, cube, true, 0, 0, 0);
         CheckRepair("t", true, "", cube);
         CheckRounding("t", true, true, cube, 0, 1);
         return 0;
+    }
+
+    static DMesh3 ShiftedBy(DMesh3 m, double dx)
+    {
+        var n = new DMesh3(m);
+        n.SetVertex(0, n.GetVertex(0) + new Vector3d(dx, 0, 0));
+        return n;
+    }
+
+    static DMesh3 NotFinite(DMesh3 m)
+    {
+        var n = new DMesh3(m);
+        n.SetVertex(0, new Vector3d(double.NaN, 0, 0));
+        return n;
     }
 
     // a closed tetrahedron with corner c on the edge ab (the face abc exactly degenerate), times scale
