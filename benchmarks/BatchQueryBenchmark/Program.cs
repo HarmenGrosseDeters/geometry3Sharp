@@ -193,6 +193,33 @@ static class Program
         Row(name, mesh.TriangleCount, "NearestPoint", wl, "b1-library-sorted-parallel", c, a, Chk(r2, d2, qp2));
     }
 
+    // the library API (MeshBatchQueries) against the loop of single calls, results compared bit for bit
+    static void Api(string name, DMesh3 mesh, DMeshAABBTree3 tree, int raySide, int pointSide)
+    {
+        foreach (var wl in new[] { "camera", "camera-shuffled", "random" }) {
+            var rays = RayWorkload(wl, raySide); int n = rays.Length;
+            var ref0 = new RayHit[n]; var hits = new RayHit[n];
+            double a = Time(() => { for (int i = 0; i < n; ++i) { int t = tree.FindNearestHitTriangle(rays[i]); ref0[i] = new RayHit() { Triangle = t, T = t == DMesh3.InvalidID ? double.MaxValue : MeshQueries.TriangleIntersection(mesh, t, rays[i]).RayParameter }; } }, n);
+            Row(name, mesh.TriangleCount, "IntersectBatch", wl, "a-loop-library", a, a, "ref");
+            string Chk() { int d = 0; for (int i = 0; i < n; ++i) if (hits[i].Triangle != ref0[i].Triangle || BitConverter.DoubleToInt64Bits(hits[i].T) != BitConverter.DoubleToInt64Bits(ref0[i].T)) d++; return d == 0 ? "equal" : "DIFF" + d; }
+            foreach (var (label, o) in new[] { ("api-serial-unsorted", new BatchOptions() { Parallel = false, SortForCoherence = false }), ("api-serial-sorted", new BatchOptions() { Parallel = false }), ("api-parallel-sorted", new BatchOptions()) }) {
+                double x = Time(() => MeshBatchQueries.IntersectBatch(tree, rays, hits, null, o), n);
+                Row(name, mesh.TriangleCount, "IntersectBatch", wl, label, x, a, Chk());
+            }
+        }
+        foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) {
+            var pts = PointWorkload(wl, pointSide); int n = pts.Length;
+            var ref0 = new NearestPointResult[n]; var res = new NearestPointResult[n];
+            double a = Time(() => { for (int i = 0; i < n; ++i) { int t = tree.FindNearestTriangle(pts[i], out double dsq); var dt = MeshQueries.TriangleDistance(mesh, t, pts[i]); ref0[i] = new NearestPointResult() { Triangle = t, Point = dt.TriangleClosest, Bary = dt.TriangleBaryCoords, Distance = Math.Sqrt(dsq) }; } }, n);
+            Row(name, mesh.TriangleCount, "NearestPointBatch", wl, "a-loop-library", a, a, "ref");
+            string Chk() { int d = 0; for (int i = 0; i < n; ++i) if (res[i].Triangle != ref0[i].Triangle || res[i].Point != ref0[i].Point || res[i].Bary != ref0[i].Bary || BitConverter.DoubleToInt64Bits(res[i].Distance) != BitConverter.DoubleToInt64Bits(ref0[i].Distance)) d++; return d == 0 ? "equal" : "DIFF" + d; }
+            foreach (var (label, o) in new[] { ("api-serial-unsorted", new BatchOptions() { Parallel = false, SortForCoherence = false }), ("api-serial-sorted", new BatchOptions() { Parallel = false }), ("api-parallel-sorted", new BatchOptions()) }) {
+                double x = Time(() => MeshBatchQueries.NearestPointBatch(tree, pts, res, null, o), n);
+                Row(name, mesh.TriangleCount, "NearestPointBatch", wl, label, x, a, Chk());
+            }
+        }
+    }
+
     static void Main(string[] args)
     {
         int raySide = args.Length > 0 ? int.Parse(args[0]) : 512;      // rays = side^2
@@ -201,8 +228,10 @@ static class Program
         Console.WriteLine($"# cores={Environment.ProcessorCount} rays={raySide * raySide} points={pointSide * pointSide * pointSide} rounds={rounds}");
         Console.WriteLine("mesh,triangles,query,workload,mode,ns/query,Mqueries/s,speedup vs a,check");
         bool nearestOnly = args.Length > 3 && args[3] == "nearest";
+        bool api = args.Length > 3 && args[3] == "api";
         foreach (int e in sizes) {
             var mesh = Sphere(e); var tree = new DMeshAABBTree3(mesh, true); var bvh = new Bvh(mesh);
+            if (api) { Api("sphere", mesh, tree, raySide, pointSide); continue; }
             if (nearestOnly) { foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) Nearest("sphere", mesh, tree, wl, pointSide); continue; }
             foreach (var wl in new[] { "camera", "camera-shuffled", "random" }) Rays("sphere", mesh, tree, bvh, wl, raySide);
             foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) Points("sphere", mesh, tree, bvh, wl, pointSide);

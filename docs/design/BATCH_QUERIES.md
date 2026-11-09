@@ -12,6 +12,18 @@ Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. N
 - The library PR starts after the exact-boolean merge queue and the Lévy phase-2 PR have merged (it must not touch
   `DMeshAABBTree*.cs` before). The CLI commands (`raycast`, `inside`, section 5) go into the later CLI / MCP update.
 
+## 0a. As built in stage 2 (2026-11-09)
+
+`spatial/MeshBatchQueries.cs`: `IntersectBatch`, `AnyHitBatch`, `NearestPointBatch` over `DMeshAABBTree3`, with `RayHit`,
+`NearestPointResult`, `BatchOptions`, `BatchStatus`, `RayStatus`, `PointStatus`. Differences from the proposal in section 4:
+- the per-point status is `PointStatus` (`Ok`, `NonFinite`) for `NearestPointBatch`; `IsInsideBatch` is not in this PR (it was not in the decided scope);
+- arrays only, no `Span` overloads and no offset / count overloads yet (a caller passes exactly the arrays it wants answered; buffers may be longer);
+- `BatchOptions.MaxDegreeOfParallelism` is not offered (the shared `gParallel.ForRange` has none); `Parallel = false` runs on the calling thread;
+- `AnyHitBatch` runs the nearest-hit query and tests for a hit: no early-out, since that needs the tree's internals;
+- `T` of a hit is recomputed with `IntrRay3Triangle3.Intersects` on the found triangle (the value the tree compared), the nearest-point `Point` / `Bary` with `DistPoint3Triangle3.DistanceSqr`, so the batch allocates nothing per query (only the key and order arrays when sorting, for 1024 queries or more);
+- measured with the real API in [the benchmark README](../../benchmarks/BatchQueryBenchmark/README.md): the same 3-5x for sorted + parallel on 4 cores, serial sorted 1.0-1.6x, every result bit-identical to the loop.
+Finding on the way: `FindNearestTriangle`'s choice among equidistant triangles (a point on a mesh vertex or edge) is not invariant under 2^k scaling (the absolute box padding changes the traversal order); distances are. The batch inherits this from the single call; the invariance test compares distances for those ties.
+
 ## 1. Result in short
 
 - Batching **over the existing `DMeshAABBTree3`** (b1: Morton-sorted queries, the same single-call query per ray, results
