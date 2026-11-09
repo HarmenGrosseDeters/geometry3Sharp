@@ -73,6 +73,14 @@ namespace gs
         /// <summary> the statistics of the triangles of mesh, which must have finite vertices (all fields NaN / 0 for a mesh without triangles) </summary>
         public static TriangleQualityStatistics Compute(DMesh3 mesh)
         {
+            // outside an extent of [2^-100, 2^100] the areas and the threshold overflow or underflow: the statistics
+            // are dimensionless, so measure a copy scaled by a power of two to an extent of about 1 (exact)
+            double s = MeshRepairMetrics.unit_scale_for_mesh(mesh);
+            if (s != 1) {
+                var scaled = new DMesh3(mesh);
+                MeshRepairMetrics.ScaleVertices(scaled, s);
+                return Compute(scaled);
+            }
             var r = new TriangleQualityStatistics();
             int n = mesh.TriangleCount;
             double[] minA = new double[n], maxA = new double[n], aspect = new double[n], sj = new double[n], cond = new double[n];

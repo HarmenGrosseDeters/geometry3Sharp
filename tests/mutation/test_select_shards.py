@@ -14,7 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 8)]
-ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4"}
+ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
+                                                "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
 
 def run(*changed):
@@ -71,6 +72,11 @@ class SelectShards(unittest.TestCase):
         self.assertEqual("tests", mesh["arrangement-1"])
         for r in RO:
             self.assertEqual("tests", mesh[r])
+
+    def test_filter_with_and_and_a_negated_term_maps_to_the_positive_class(self):
+        # terrain-overlay: "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains"
+        self.assertEqual(("none", {"terrain-overlay": "tests"}), run(TESTS + "TerrainSlopeCatchLineTests.cs"))
+        self.assertEqual(("none", {"terrain-overlay": "source"}), run("mesh_ops/TerrainSlopeOverlay.cs"))
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])

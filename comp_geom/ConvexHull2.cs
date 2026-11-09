@@ -75,9 +75,14 @@ namespace g3
         /// <summary>
         /// Compute convex hull of input points. 
         /// epsilon is only used for check if points lie on a line (1d hull), not for rest of compute.
+        /// Throws ArgumentException if a point has a NaN or infinite coordinate (the hull is undefined, and the
+        /// predicates would fail with an ArithmeticException deep inside).
         /// </summary>
         public ConvexHull2(IList<Vector2d> vertices, double epsilon, QueryNumberType queryType)
         {
+            for (int i = 0; i < vertices.Count; ++i)
+                if (vertices[i].IsFinite == false)
+                    throw new ArgumentException("ConvexHull2: vertex " + i + " is not finite");
             //mQueryType = queryType;
             mVertices = vertices;
             mNumVertices = vertices.Count;

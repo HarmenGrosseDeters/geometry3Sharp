@@ -33,16 +33,14 @@ Small input angles and triangle count:
   change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
   per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
   at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
-- **Rule C on the snap grid** (own grid item; Sonnet session started 2026-11-09): Finding: the mesher's pinch rule
-  identifies "another chain" by input source (Q17, owner 2026-11-03), the oracle's GridUnsplittable approximates it by
-  the widened envelope; they differ when another chain runs within a pixel along the piece (the Q17 zigzag z0 becomes
-  INVALID with rule C on). Probe (722 runs): wedge / pair snap inputs −74 % / −83 % triangles, fuzz −3 to −5 %,
-  Herne-style parcels and golden rows unchanged. **Owner decision 2026-11-09: option A**, the oracle computes chain
-  identity exactly from the output subsegment graph (as snap-rounding papers do by hot-pixel sequence; spec text
-  unchanged, oracle stays independent), with extended self-checks, mutants and a differential (no case the old oracle
-  judged VALID becomes INVALID without a stated reason); then rule C on the grid. a split that rule C forces late can be refused where the oracle's
-  `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
-  ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
+- **Rule C on the snap grid** (done, #462; owner decision 2026-11-09: option A, the oracle computes chain identity exactly from the output subsegment graph, as snap-rounding papers do by hot-pixel sequence; spec text unchanged, oracle stays independent): the pinch-rule difference was the oracle's envelope
+  approximation of "another chain" (mesher: by input source). The oracle now computes chain identity from the output's subsegment graph
+  (`Oracle.OwnStretch`, MESHING2D_HULL_GRID.md section 7; MESHING2D_SMALL_ANGLES_CONFORMING.md section 9), self-checks and mutants
+  kill every part of it, a differential over 1444 meshes shows no accepted mesh rejected; rule C is on the grid. Procedural grid inputs
+  (722 runs, base vs candidate in one build): star fuzz -5.2 % triangles, segment fuzz -2.7 %, wedges -83 %, pairs -74 %, Q17 zigzags
+  -59 % (z0 was INVALID before the oracle change, now ok), Herne-style parcels unchanged, no verdict regression, no Steiner-limit run, golden
+  rows unchanged. Herne tiles not in the repository: not run. Pinned-mechanism tests that search the old refinement run it with the
+  exemption off (reason in each test).
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.
@@ -62,6 +60,11 @@ Small input angles and triangle count:
   (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. **Closed
   (owner 2026-11-09):** about 4 % fewer triangles do not pay for over 50 % more mesher time; not built. Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
+- **Small-angle exemption up to 60° (owner 2026-11-09, from the QA 2.0 T5 campaign):** input angles between the
+  bound and 60° can make the refinement cascade (smallest case: two segments at 26.6°, refined to ~1e-12, one
+  triangle left below 20°). Decision: the documented exemption covers input angles below 60° (Ruppert / Shewchuk
+  terminate only from 60°); such triangles are reported and the oracle excuses them by the same rule (T5 session).
+  The grid findings of the campaign (AreaMismatch, missing chains, also in plain M2) are handled as a bug.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
 
