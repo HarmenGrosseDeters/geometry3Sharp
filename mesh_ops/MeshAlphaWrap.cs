@@ -63,7 +63,7 @@ namespace gs
             Success = 0,
             /// <summary> no triangles and no points </summary>
             EmptyInput = 1,
-            /// <summary> non-finite coordinates </summary>
+            /// <summary> non-finite coordinates, or finite ones whose box (with its margin) does not fit doubles </summary>
             InvalidInput = 2,
             /// <summary> Alpha / Offset not positive (eg relative values for an input of zero size) </summary>
             InvalidParameters = 3,
@@ -220,6 +220,11 @@ namespace gs
             return ok;
         }
 
+        static bool finite(Vector3d v)
+        {
+            return Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue;
+        }
+
         bool compute_once()
         {
             Result = null;
@@ -362,6 +367,13 @@ namespace gs
                 box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
             } else {
                 box.Expand(margin);
+            }
+            // a margin below the units in the last place of the coordinates is lost (a flat input far from the origin gives
+            // a box of no extent), and a box that overflows has corners that are not finite
+            // (each coordinate: Vector3d.IsFinite tests their sum, which can overflow)
+            if (!(finite(box.Min) && finite(box.Max) && box.Max.x > box.Min.x && box.Max.y > box.Min.y && box.Max.z > box.Min.z)) {
+                Error = "the extent of the input (with the margin of the box) does not fit double coordinates";
+                return WrapStatus.InvalidInput;
             }
             dt = new Delaunay3(box);
             // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match

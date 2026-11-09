@@ -275,8 +275,8 @@ namespace gs
         /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
         /// </summary>
         /// <returns>
-        /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
-        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
+        /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
+        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
         /// unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
@@ -314,6 +314,12 @@ namespace gs
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
             MeshEditor.RemoveUnusedVertices(Mesh);
+            // finite coordinates whose diagonal overflows (an extent above about 1e154): every threshold relative to it
+            // would be infinite (the repair collapsed whole components); not repaired, Mesh not replaced
+            if (Mesh.TriangleCount > 0 && !(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength < double.PositiveInfinity)) {
+                ResultReason = ScaleNotFinite;
+                return false;
+            }
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -500,6 +506,11 @@ namespace gs
         }
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+        /// <summary>
+        /// ResultReason when Apply() returns false because the input's diagonal is not finite (finite coordinates
+        /// near +-1e308, or an extent above about 1e154); Mesh is not replaced (only its unused vertices are removed, as always)
+        /// </summary>
+        public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds overflows double (an extent above about 1e154); not repaired";
         /// <summary>
         /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
         /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it

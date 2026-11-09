@@ -48,9 +48,10 @@ Status on 2026-11-08 (evening, Berlin).
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424 and #440's L3 test) merged as
   one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
-  runs on master after the merge (owner decision) and seeds the rounding baselines. #425 and #426 are still drafts. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
-  report RoundingClean false honestly), the final Thingi10K run, the
-  control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
+  runs on master after the merge (owner decision) and seeds the rounding baselines; #425 and #426 merged with it. L3
+  dropped (owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The
+  ±1e308 throw is fixed (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with
+  ScaleNotFinite above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
   (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405, #413, #422, #404, #408, #410,
   #417, #429 and #432 (parallel slab reduction, 2026-11-09); the final 800 run is next. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
