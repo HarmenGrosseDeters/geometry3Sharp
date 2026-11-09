@@ -1,0 +1,16 @@
+== f800/f800_passon.jsonl: 800 rows, 800 with a result, timeouts / crashes / exceptions 0
+guarantees met: 798 / 800 (rows without a result count as not met), self-intersections not checked (> 300k triangles): 2, failed: 0; unchecked: 175914.stl, 360069.stl
+band (hd fwd upper bound / (alpha + offset)): median 0.972 p90 1.095 max 1.370; > 1: 259; rows without a Hausdorff result: 0
+contract alpha + offset (+ 0.5 offset if simplified): proven above it (lower bound) 1, upper bound above it 150: 111959.stl 1.093
+fm_f_0001: median 0.9914 p10 0.9485 p90 0.9994
+fm_f_001: median 1.0000 p10 0.9979 p90 1.0000
+iou: median 0.9804 p10 0.9380 p90 0.9931
+hd_back_hi_rel: median 0.0051 p10 0.0029 p90 0.0208
+raw: tris < 0.5 deg 0 (0 meshes), > 170 deg 1 (1 meshes); min angle global 0.720 median 9.434; max global 170.58 median 153.62; p01 median 20.11 min 14.23; > 150: 4385; tris median 129180
+after: tris < 0.5 deg 0 (0 meshes), > 170 deg 0 (0 meshes); min angle global 0.770 median 9.479; max global 169.68 median 154.37; p01 median 12.84 min 11.17; > 150: 8728; tris median 33640
+pipeline time (s, warm): median 7.62 p90 15.59 p99 45.25 max 107.02; over the budget max(5 s, 50 µs x raw triangles): 539 of 800 (+ 0 without a result); pass 261
+  over: 40118.stl 107.0/60.2, 860049.stl 76.5/42.0, 69261.stl 56.6/36.3, 222695.stl 56.4/35.9, 222687.stl 53.0/34.1, 535629.stl 52.9/34.3, 520646.stl 51.7/33.5, 500097.stl 50.7/30.4, 500115.stl 45.3/29.0, 78968.stl 43.3/24.3, 500099.stl 40.4/30.2, 679615.stl 39.1/30.2, 111959.stl 37.9/20.6, 49998.stl 36.8/22.3, 49901.stl 36.5/28.5
+phases (all, 800 meshes, sum 7495 s): wrap 34.9%, quality 26.0%, simplify 22.2%
+  parts: quality.pass 25.0%, simplify.reduce 15.5%, wrap.insert 10.1%, wrap.intersection 8.7%, wrap.touch 7.6%, wrap.pinches 6.3%, wrap.pinches2 6.2%, simplify.certify 5.5%, wrap.quality 1.5%, simplify.check 1.2%, wrap.extract 1.2%, quality.check 1.0%, wrap.manifold 0.9%, wrap.setup 0.4%
+phases (over the budget, 539 meshes, sum 6289 s): wrap 36.0%, quality 25.8%, simplify 21.0%
+  parts: quality.pass 24.8%, simplify.reduce 14.5%, wrap.insert 10.1%, wrap.intersection 9.3%, wrap.touch 8.1%, wrap.pinches 6.6%, wrap.pinches2 6.1%, simplify.certify 5.2%, wrap.quality 1.5%, simplify.check 1.2%, wrap.extract 1.2%, wrap.manifold 1.0%, quality.check 1.0%, wrap.setup 0.5%
