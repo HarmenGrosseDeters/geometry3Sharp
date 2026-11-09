@@ -31,7 +31,7 @@ Read both before you change anything. If anything below conflicts with them, the
 
 - **Exact arithmetic and `mesh_ops/ExactMesh*`** (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points,
   error bounds) are tier L. They always need a bounds review, and the mutation workflow must stay above its
-  thresholds.
+  thresholds (incremental on the PR before the merge; full runs on master after it, see CLAUDE.md).
 - **Clean-room work.** The 2D spatial index ([docs/design/QUADTREE2D_SPEC.md](docs/design/QUADTREE2D_SPEC.md)) and
   2D meshing ([docs/design/MESHING2D_SPEC.md](docs/design/MESHING2D_SPEC.md)) may only be implemented from the
   spec and published papers.

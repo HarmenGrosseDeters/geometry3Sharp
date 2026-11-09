@@ -91,7 +91,11 @@ run the edge the same way are not joined, and the result is open along the edge;
 - **Solids that touch along an edge give a result that is non-manifold there**, as in Manifold. The union of two
   boxes that share only an edge is two solids meeting in a line: the four triangles at the edge are split into two
   manifold pairs, with copies of the edge's vertices (`NonManifoldEdges` counts these edges), so the `DMesh3` is
-  closed and manifold, but welded by position the edge has four triangles.
+  closed and manifold, but welded by position the edge has four triangles. `Contacts` counts the positions with two or
+  more vertices (points and edges where the solid touches itself), so that a caller that welds (eg writes STL) knows;
+  the in-memory result is the clean one (owner decision 2026-11-07, as Manifold). Two *different* exact points that
+  round to one double are not such a contact: `SafeRounding` separates them by a tiny, exactly checked move, and
+  `RoundingClean` requires none left (`Rounding.InitialFalseContacts`, `RemainingFalseContacts`).
   `MeshRobustRepair.SeparateTouchingVertices` moves such contacts apart if a strictly manifold mesh is needed.
 
 ## The examples
@@ -118,6 +122,11 @@ boolean.Compute();
 bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
 ```
 
+"The diagonal" of the tolerances is the diagonal of the result's largest connected component, not of the bounding box of
+all components: a small part far away (eg 1e8 off) does not make the others' triangles degenerate. Only the ulp term
+below is per component. A long thin component still sets the diagonal for all (eg a rod of length 1e8 makes a unit part
+"tiny", and it is removed), as the bound of `docs/design/SAFE_ROUNDING.md` section 1 decides.
+
 It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
 is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
@@ -128,7 +137,8 @@ contracted (also exact ones, eg a well-shaped triangle of size 2^-20 where an ex
 triangles trouble slicers, FEM and remeshers), and the edits also change well-shaped neighbours (flips, contractions,
 moves), all within a bound: the surface moves by at most `Rounding.MaxDrift` from the rounded result, at most
 `MaxDisplacement` = 1e-5 times the diagonal, in Hausdorff distance (without the components it removes as tiny
-or thin, counted in `Rounding.RemovedComponents`; up to an absolute rounding error of a few ulps of the largest
+or thin, counted in `Rounding.RemovedComponents`; a closed component thinner than the bound that holds real volume for its
+area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is not clean; up to an absolute rounding error of a few ulps of the largest
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
@@ -674,10 +684,15 @@ after the separation of touching vertices uses the relative bound only and does 
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the largest component's diagonal, or far from the origin the ulp or absolute
+term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
+`scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`:
+and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
+with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
+false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):
 
 ```
 g3cli repair scan.obj scan_fixed.stl --check-lost-components --no-alpha-wrap

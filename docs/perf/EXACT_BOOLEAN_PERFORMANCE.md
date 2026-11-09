@@ -90,6 +90,30 @@ all 400 results the same (`after_hash`); repair time 456 s on both (−0.4 %, no
 the rotated rounding (42327 takes 1 s there), so the gain is on `ExactMeshBoolean` with general double input.
 What is left on the rotated cases is mostly the evaluation budget (the last row of the first table).
 
+### Projection filter in SafeRounding's pair test (November 2026, Exact Boolean 2.0 WP3)
+
+On the Thingi10K corpus (#385, harness pairing: B rotated by 20° about (1, 1, 0) and shifted by a quarter of the
+extent) rounding is the largest phase of the operations over 5 s (37-44 %), and most of it is pair tests: the first
+full exact self-intersection search of the result, then the evaluations of the edits. `MeshRoundingRepair.intersects`
+now asks `TriangleTriangleFilter` (#261, exact Orient2d only, no error bound of its own) before
+`ExactTriangleIntersection.IntersectsBeyondShared`; the decisions are those of the exact test (checked per pair with
+`CheckOnThisThread` in the tests), so the results are bit-identical.
+
+`profile --safe-rounding --repeat 1` per model (all three operations), 4 cores, master ef946d0 against 2baf0f0,
+two rounds (master, filter, master, filter), the faster of the two rounds per operation: the 12 models of the closed,
+self-intersection free cohort with an operation over 5 s here (36 operations) and 30 random models of that cohort
+(seed 20261107, 90 operations). Raw output: [perf/rounding_filter_2026-11-07.jsonl](../../benchmarks/BooleanComparison/perf/rounding_filter_2026-11-07.jsonl).
+
+| set | operations | hashes different | rounding | whole boolean | median per operation |
+|---|---:|---:|---|---|---|
+| slow models | 36 | 0 | 100.1 → 84.5 s (−15.6 %) | 259.4 → 242.2 s (−6.6 %) | 0.947 |
+| 30 random models | 90 | 0 | 3.30 → 2.76 s (−16.3 %) | 21.3 → 21.0 s (−1.2 %) | 1.000 |
+
+Largest gains on CAD parts with axis-plane faces: 1517923 union rounding 2.69 → 1.15 s, difference 1.80 → 0.60 s.
+Operations over 5 s in the slow set: 14 → 12. The #385 spike measured −20..−64 % on the rounding of three selected
+cases, Apply only; on the cohort's slow operations the gain is smaller, as most of their pair tests are general
+position pairs that the filter leaves to the exact test.
+
 ## 1. Current profile
 
 State: master after #181 plus #183. Warm runs: the booleans run in one process after a warm-up, the best of 3
@@ -304,6 +328,10 @@ was measured as a whole; the effects of its single changes were not separated, e
 | `readonly` members on the core structs | nothing to measure: the hot code makes no defensive copies | no |
 | `ExactTriangulation2` on flat arrays (twice, also on the triangulation-heavy inputs) | no gain | no |
 | **sharded `rationalIndex`** (`AddPoint`; November 2026): the exact points by value, in 64 shards with the hash computed outside the lock, like the implicit points' `keyIndex`. Before, one lock was held while four `BigInteger`s were hashed and compared. The classification adds every piece's centroid through `AddPoint`, in parallel | grid 10: 6164 -> 1159 contentions, 26.5 -> 4.3 s waiting thread time. Wall clock, median of 5 alternating rounds: total 7721 -> 7290 ms (-6 %; -4..-16 % in each round), classification 2495 -> 2253 ms; grid 5: 770 -> 661 ms. Same results | yes (small and simple, though below the 10 % bar) |
+| **SafeRounding skips the pairs the exact arrangement decided** (Exact Boolean 2.0 L1, November 2026; docs/design/ROUNDING_EXACT_PAIRS.md): the full self-intersection search does not test pairs of two result triangles whose three vertices are unmoved input points, unchanged since the start | 42 slow and random Thingi10K cohort models × 3 operations, 4 cores, master and L1 alternating, best of 2 (`benchmarks/BooleanComparison/perf/rounding_exact_pairs_2026-11-08.jsonl`): rounding 106.9 -> 83.9 s (-21.5 %), total 293.8 -> 257.9 s (-12.2 %; part of it noise outside the rounding), operations over 5 s 16 -> 10; 1063860 union 7.6 -> 3.7 s, 1063866 union 6.1 -> 3.3 s. 126 of 126 results bit-identical | yes |
+| **SafeRounding: the tree of the changed triangles rebuilt after 256 changes, not after every edit** (November 2026): `mark_dirty` dropped it on every edit and the next query rebuilt it from all changed triangles (up to a sixteenth of the mesh), quadratic in the edits; now the triangles changed since the build are scanned linearly (the same result set, checked against a scan under `CheckOnThisThread`) | 42 slow and random Thingi10K cohort models × 3 operations, 4 cores, master and this change alternating, best of 2 (`benchmarks/BooleanComparison/perf/rounding_dirty_tree_2026-11-08.jsonl`): rounding 107.3 -> 65.6 s (-38.9 %), total 294.1 -> 254.8 s (-13.3 %); 119829/119830 union 22.2/22.6 -> 4.2/4.4 s (13000 contractions of input slivers), their differences 4.8 -> 1.8 s; elsewhere unchanged (median rounding ratio 1.01). 126 of 126 results bit-identical. Operations over 5 s 14 -> 15: noise at the 5 s line (a build ran during one round of this branch) | yes |
+| **Box tree in Morton order** (`TriangleBoxTree`, November 2026): above 4096 boxes, the boxes sorted once along a Morton curve of their centres (codes over the centres' extent; ranks only where fewer than n/4 codes differ) and every range split at the highest differing bit (Karras 2012; each side at least an eighth), instead of a median split on the longest axis per node (kept below 4096 boxes) | cohort A/B B2-FINAL-1 (126 Thingi10K operations, 4 cores, best of 2, all results identical to master; `runs/boolean2-combined` 89f2943, `runs/boolean2-final/results`), #409 alone -> #409 + this: total 296.8 -> 265.2 s (-10.6 %), SafeRounding 80.5 -> 56.4 s (-30 %), arrangement pairs 48.2 -> 41.0 s (-15 %), operations over 5 s 17 -> 13; 1063860 union 9.4 -> 4.8 s, 1063866 union 7.9 -> 4.0 s. Earlier probe (the first variant, index midpoints) on master + #409, 5 slow models × 3 operations (env-switched, on master + #409, without #406), 5 slow cohort models × 3 operations, 4 cores, best of 2, all hashes identical (`benchmarks/BooleanComparison/perf/box_tree_order_2026-11-08.jsonl`): arrangement pairs median/leaf 8 24.1 s, Morton/leaf 1 22.3, Morton/leaf 8 21.2, Hilbert/leaf 8 21.0 s; SafeRounding 37.6 / 27.8 / 25.7 / 26.1 s; 1063860 union 8.2 -> 4.2 s, difference 5.2 -> 2.4 s. Morton and Hilbert equal within noise (Morton kept: simpler); leaf 8 better than 1 | yes |
+| **`ExactPlanarSimplify`: edge-key sets with `EdgeKeyComparer`** (November 2026): its two flip-queue sets of edge keys used the default hash of `long`, the xor of the two point ids, which takes few values for nearby ids, so the sets degraded towards lists; every other edge-key set of the boolean already had the comparer | master 88685b0b, 6 slow cohort models × 3 operations, 4 cores, best of 2, all results identical (`benchmarks/BooleanComparison/perf/simplify_edge_hash_2026-11-08.jsonl`): simplify 14.7 -> 7.6 s (-48 %), total 167.3 -> 158.5 s (-5.3 %); 519511 union 34.7 -> 31.7 s, difference 25.5 -> 22.2 s (simplify 3.9 -> 1.5 s). With the Devillers-Guigue prefilter (#419), which leaves the point ids dense, simplify of 519511 union went 5 -> 10 s; with this 1.35 s | yes |
 | GC settings of an application | server GC: -23 % on fertility + spheres, +5..25 % on small inputs; `DOTNET_GCgen0size=0x40000000`: -9 % there, neutral elsewhere; `gcConcurrent=0`: nothing | an application's choice |
 
 ## 3. Open ideas, ranked
