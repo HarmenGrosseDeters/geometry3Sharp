@@ -56,6 +56,13 @@
     <!-- new in this fork: not testable against the old package -->
     <Compile Remove="Meshing2\**" />
   </ItemGroup>
+  <!-- the logic of benchmarks/ReducerRemesherBaseline (statistics, similarities, mesh hash, angle counts, inputs) -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <Compile Include="..\..\benchmarks\ReducerRemesherBaseline\Harness.cs" Link="BaselineHarness\Harness.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <Compile Remove="BaselineHarnessTests.cs" />
+  </ItemGroup>
   <!-- the analyzers of the exact code (ExactCodeAnalyzerTests; Roslyn, net10.0 only) -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' And '$(UseNuGetG3)' != 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
