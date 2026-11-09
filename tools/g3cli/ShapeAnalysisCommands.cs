@@ -15,7 +15,7 @@ namespace g3cli
     /// </summary>
     public static partial class Commands
     {
-        /// <summary> DeviationStatistics as JSON (null if there are no values) </summary>
+        /// <summary> DeviationStatistics as JSON (null if there are no values, or if all weights are zero) </summary>
         static JsonObject StatsReport(DeviationStatistics s)
         {
             if (s == null || s.Count == 0) return null;
@@ -29,7 +29,7 @@ namespace g3cli
             };
         }
 
-        static string[] EnumNames<T>(Func<string, string> map = null) =>
+        static string[] EnumNames<T>() =>
             Enum.GetNames(typeof(T)).Select(n => ToSnake(n)).ToArray();
 
         static T ParseEnum<T>(string snake) where T : struct
@@ -118,19 +118,27 @@ namespace g3cli
                 var t = new MeshWallThickness(null) { Method = ParseEnum<MeshWallThickness.Methods>(args.String("method")), MaxDistance = maxDistance };
                 if (args.Has("cone_angle")) {
                     double a = args.Number("cone_angle");
-                    if (!(a > 0 && a <= 360))
-                        throw new CommandException(ResultCodes.InvalidArguments, "'cone_angle' must be in (0, 360]");
+                    if (!(a > 0 && a <= 179))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'cone_angle' must be in (0, 179] degrees");
                     t.ConeAngle = a;
                 }
                 if (args.Has("ray_count")) {
                     int n = args.Integer("ray_count");
-                    if (n < 1 || n > 10000)
-                        throw new CommandException(ResultCodes.InvalidArguments, "'ray_count' must be in 1..10000");
+                    if (n < 1 || n > 1000)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'ray_count' must be in 1..1000");
                     t.RayCount = n;
                 }
                 var warnings = new List<string>();
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
                 t.Mesh = mesh;
+                // work: rays per point times the points (triangle centroids, and vertices if they are wanted)
+                long points = mesh.TriangleCount + (minThickness > 0 ? mesh.VertexCount : 0);
+                if ((long)t.RayCount * points > MaxRayCasts)
+                    throw new CommandException(ResultCodes.InvalidArguments,
+                        $"ray_count {t.RayCount} times {points} points is more than {MaxRayCasts} ray casts; lower ray_count");
+                t.ComputeVertices = minThickness > 0;
+                if (MeshRepairMetrics_OpenEdges(mesh) > 0)
+                    warnings.Add("the mesh is not closed: wall thickness is only defined for a closed, consistently oriented mesh; triangles without a hit have no value");
                 if (t.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "thickness failed (a mesh without triangles, or cancelled)");
                 var o = new JsonObject() { ["input"] = args.String("input"), ["method"] = args.String("method") };
@@ -152,6 +160,10 @@ namespace g3cli
             };
             return c;
         }
+
+        const long MaxRayCasts = 2000000000L, MaxFitWork = 1000000000L;
+
+        static int MeshRepairMetrics_OpenEdges(DMesh3 mesh) => MeshIterators.BoundaryEdges(mesh).Count();
 
         static int TriangleIndicesWithoutValue(this MeshWallThickness t, DMesh3 mesh)
         {
@@ -191,8 +203,8 @@ namespace g3cli
                     }
                     if (args.Has("max_iterations")) {
                         int n = args.Integer("max_iterations");
-                        if (n < 1 || n > 10000000)
-                            throw new CommandException(ResultCodes.InvalidArguments, "'max_iterations' must be in 1..10000000");
+                        if (n < 1 || n > 1000000)
+                            throw new CommandException(ResultCodes.InvalidArguments, "'max_iterations' must be in 1..1000000");
                         f.MaxIterations = n;
                     }
                     if (args.Has("seed")) f.Seed = args.Integer("seed");
@@ -204,6 +216,12 @@ namespace g3cli
                 var warnings = new List<string>();
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
                 var o = new JsonObject() { ["input"] = args.String("input"), ["vertices"] = mesh.VertexCount };
+                var probe = new PrimitiveFit3(new Vector3d[0]);
+                opts(probe);
+                // only a max_iterations given by the caller is bounded by the work; the default stops early (Confidence)
+                if (args.Has("max_iterations") && (double)probe.MaxIterations * mesh.VertexCount * which.Length > MaxFitWork)
+                    throw new CommandException(ResultCodes.InvalidArguments,
+                        $"max_iterations {probe.MaxIterations} times {mesh.VertexCount} vertices is too much work; lower max_iterations");
                 var fits = new JsonArray();
                 foreach (var p in which) {
                     var f = new PrimitiveFit3(mesh) { Primitive = p };
@@ -218,7 +236,10 @@ namespace g3cli
                     } else
                         fits.Add(r);
                 }
-                if (which.Length > 1) o["fits"] = fits;
+                if (which.Length > 1) {
+                    o["fits"] = fits;
+                    o["successful_fits"] = fits.Count(f => (string)f["fit_result"] == "success");
+                }
                 o["warnings"] = Warnings(warnings);
                 return o;
             };
@@ -245,7 +266,7 @@ namespace g3cli
                     break;
                 case PrimitiveFit3.Primitives.Cylinder:
                     o["cylinder"] = new JsonObject() {
-                        ["axis_origin"] = MeshReport.Vec(f.Cylinder.Axis.Origin), ["axis_direction"] = MeshReport.Vec(f.Cylinder.Axis.Direction),
+                        ["center"] = MeshReport.Vec(f.Cylinder.Axis.Origin), ["axis_direction"] = MeshReport.Vec(f.Cylinder.Axis.Direction),
                         ["radius"] = Val(f.Cylinder.Radius), ["height"] = Val(f.Cylinder.Height),
                     };
                     break;

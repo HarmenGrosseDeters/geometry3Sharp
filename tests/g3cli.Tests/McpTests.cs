@@ -174,6 +174,20 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void ShapeAnalysisTools_TakeIntegerAndNumberArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "fit", new JsonObject() {
+                ["input"] = m.Sphere, ["primitive"] = "sphere", ["seed"] = 2, ["max_iterations"] = 500, ["inlier_distance"] = 0.01 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("success", S(r["result"]["structuredContent"]["fit_result"]));
+            r = Handle(server, Call(2, "thickness", new JsonObject() {
+                ["input"] = m.Cube, ["method"] = "ray", ["ray_count"] = 10, ["min_thickness"] = 3.0 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(12, I(r["result"]["structuredContent"]["thin_triangles"]));
+        }
+
+        [Fact]
         public void ProtocolErrors()
         {
             var server = Server();

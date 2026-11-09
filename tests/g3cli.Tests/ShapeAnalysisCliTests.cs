@@ -60,6 +60,9 @@ namespace g3cli.Tests
             var (e4, winding) = Run("deviation", big, m.Sphere, "--sign", "winding_number", "--compact");
             Assert.Equal(0, e4);
             Assert.Equal(0.1, D(winding["vertex_statistics"]["mean"]), 2);
+            var (e5, windingIn) = Run("deviation", m.Sphere, big, "--sign", "winding_number", "--compact");
+            Assert.Equal(0, e5);
+            Assert.Equal(-0.1, D(windingIn["vertex_statistics"]["mean"]), 2);   // inside: negative, unlike unsigned
         }
 
         [Fact]
@@ -72,6 +75,28 @@ namespace g3cli.Tests
             Assert.True(lo <= hi);
             Assert.InRange(hi - lo, 0, 1.01e-4);
             Assert.InRange(lo, 0.09, 0.101);   // the farthest points of the faceted big sphere are its vertices at 0.1 from the reference
+        }
+
+        [Fact]
+        public void Deviation_WeightedAndUnweightedStatistics_AreDistinct()
+        {
+            // a sphere stretched in x: the vertex areas differ, the deviations vary
+            string stretched = Scaled("sphere_x.obj", m.Sphere, 1.5, 1, 1);
+            var (exit, r) = Run("deviation", stretched, m.Sphere, "--compact");
+            Assert.Equal(0, exit);
+            var w = r["statistics"]; var u = r["vertex_statistics"];
+            Assert.Equal(I(u["count"]), I(w["count"]));
+            Assert.Equal(386, I(u["count"]));                                  // 6 * 8^2 + 2 vertices of the cube sphere
+            Assert.NotEqual(D(w["mean"]), D(u["mean"]));
+            Assert.True(D(w["total_weight"]) > 0);
+            Assert.NotEqual(D(u["total_weight"]), D(w["total_weight"]));
+            foreach (var s in new[] { w, u }) {
+                Assert.True(D(s["absolute_p90"]) <= D(s["absolute_p95"]) && D(s["absolute_p95"]) <= D(s["absolute_p99"]));
+                Assert.True(D(s["absolute_p99"]) <= D(s["max_absolute"]) + 1e-12);
+                Assert.True(D(s["min"]) <= D(s["median"]) && D(s["median"]) <= D(s["max"]));
+                Assert.True(D(s["std_dev"]) > 0 && D(s["rms"]) >= Math.Abs(D(s["mean"])));
+                Assert.True(D(s["mean_absolute"]) >= Math.Abs(D(s["mean"])));
+            }
         }
 
         [Fact]
@@ -162,6 +187,25 @@ namespace g3cli.Tests
             Assert.Equal(10 * D(a["statistics"]["mean"]), D(b["statistics"]["mean"]), 6);
         }
 
+        [Fact]
+        public void Thickness_OpenMesh_Warns()
+        {
+            var (exit, r) = Run("thickness", m.Open, "--method", "ray", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Contains(r["warnings"].AsArray().Select(S), w => w.Contains("not closed"));
+            var (_, closed) = Run("thickness", m.Cube, "--method", "ray", "--compact");
+            Assert.Empty(closed["warnings"].AsArray());
+        }
+
+        [Fact]
+        public void Thickness_WorkLimit_IsInvalidArguments()
+        {
+            var (exit, r) = Run("thickness", m.Cube, "--ray-count", "1001");
+            AssertError(exit, r, "invalid_arguments");
+            var (e2, r2) = Run("thickness", m.Cube, "--cone-angle", "180");
+            AssertError(e2, r2, "invalid_arguments");
+        }
+
         [Theory]
         [InlineData("--method", "x")]
         [InlineData("--cone-angle", "0")]
@@ -238,6 +282,7 @@ namespace g3cli.Tests
             Assert.Equal(0, exit);
             var fits = r["fits"].AsArray();
             Assert.Equal(new[] { "plane", "sphere", "cylinder", "cone" }, fits.Select(f => S(f["primitive"])).ToArray());
+            Assert.Equal(fits.Count(f => S(f["fit_result"]) == "success"), I(r["successful_fits"]));
             var sphere = fits.First(f => S(f["primitive"]) == "sphere");
             Assert.Equal(1.0, D(sphere["inlier_share"]), 6);
             Assert.True(fits.Where(f => S(f["primitive"]) != "sphere" && S(f["fit_result"]) == "success")
@@ -247,13 +292,21 @@ namespace g3cli.Tests
         [Fact]
         public void Fit_IsDeterministic_AndSeedOptionIsWired()
         {
-            var a = Run("fit", m.Sphere, "--primitive", "sphere", "--seed", "3", "--compact").result;
-            var b = Run("fit", m.Sphere, "--primitive", "sphere", "--seed", "3", "--compact").result;
-            Assert.Equal(a["sphere"].ToJsonString(), b["sphere"].ToJsonString());
-            Assert.Equal(I(a["iterations"]), I(b["iterations"]));
+            string[] one = { "--primitive", "plane", "--max-iterations", "1", "--inlier-distance", "5", "--compact" };
+            string Fitted(string seed) => Run(new[] { "fit", m.Sphere, "--seed", seed }.Concat(one).ToArray()).result["plane"].ToJsonString();
+            Assert.Equal(Fitted("3"), Fitted("3"));
+            // one RANSAC sample per seed: another seed samples other points, another plane
+            Assert.True(new[] { "1", "2", "3", "4", "5" }.Select(Fitted).Distinct().Count() > 1);
             var (e, c) = Run("fit", m.Sphere, "--primitive", "sphere", "--max-iterations", "1", "--compact");
             Assert.Equal(0, e);
             Assert.Equal(1, I(c["iterations"]));
+        }
+
+        [Fact]
+        public void Fit_WorkLimit_ScalesWithTheVertices()
+        {
+            var (exit, r) = Run("fit", m.Sphere, "--primitive", "all", "--max-iterations", "1000000", "--compact");
+            AssertError(exit, r, "invalid_arguments");   // 4 primitives x 1e6 iterations x 386 vertices
         }
 
         [Fact]
@@ -276,6 +329,7 @@ namespace g3cli.Tests
         [InlineData("--max-radius", "-1")]
         [InlineData("--max-normal-angle", "0")]
         [InlineData("--max-iterations", "0")]
+        [InlineData("--max-iterations", "1000001")]
         public void Fit_BadOptions_AreInvalidArguments(string name, string value)
         {
             var (exit, r) = Run("fit", m.Path_("missing.obj"), name, value);
