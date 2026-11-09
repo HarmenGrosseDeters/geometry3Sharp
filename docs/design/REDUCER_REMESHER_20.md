@@ -378,7 +378,7 @@ allocation in the operations 0.2 GB (from 3.7). The per-pass snapshot of `Reject
 
 | lever | what was built for the measurement | result |
 |---|---|---|
-| warm-started projection | `FindNearestTriangle(p, out d, maxDist)` with the distance to the vertex's previous nearest triangle as the bound (no tree change; scratch probe on the remeshed vertices, displaced as after smoothing) | 0.97 x (sphere), 1.10 x (torus), 2.05 x (78295), 1.25 x (93370), 1.15 x (299291) of the query time; the same triangle in 48609 + 34478 + 12716 + 22371 + 9134 of the same numbers of points. Projection is 14 % of the run, so 1-5 % overall: not built |
+| warm-started projection | `FindNearestTriangle(p, out d, maxDist)` with the distance to the vertex's previous nearest triangle as the bound (no tree change; scratch probe on the remeshed vertices, displaced as after smoothing) | 0.97 x (sphere), 1.10 x (torus), 2.05 x (78295), 1.25 x (93370), 1.15 x (299291) of the query time; the same triangle as the plain query for all 127308 points. Projection is 14 % of the run, so 1-5 % overall: not built |
 | (c) cheaper first test in `pair_intersects` | the one-shared-vertex plane shortcut (`beyond_plane`, 2 `Orient3d`) moved in front of `TriangleTriangleFilter`; results identical by construction | `si` x1 0.93 x, x2 0.95 x on 6 meshes (hashes 24 / 24 equal): slower, the filter decides more pairs per cost than the plane test. Dropped |
 | flip pre-test without square roots | see above | 0.94-0.95 x. Dropped |
 | inversion guard work arrays reused | see above | no change. Dropped |
