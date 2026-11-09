@@ -92,5 +92,18 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, Components(r.Mesh));
         }
 
+
+        // the final check, reached with the early ones bypassed: the exact resolve of the repair result has collapsed the box and
+        // is accepted, Apply() is false with the reason (the mesh stays in Mesh)
+        [Fact]
+        public void FarSphere_LostBox_FinalCheck_IsNotReportedAsRepaired()
+        {
+            var r = new MeshRobustRepair(BoxAndFarSphere(2.2e6)) { BypassEarlyLostPartChecks = true };
+            bool ok = r.Apply();
+            Assert.True(r.UsedExactResolve);
+            Assert.False(ok);
+            Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
+            Assert.Equal(1, Components(r.Mesh));
+        }
     }
 }

@@ -308,6 +308,8 @@ namespace gs
         // a resolve was rejected for a lost part in the last Apply(): the repair stage collapsed it (its cleanups are relative to the
         // diagonal of all triangles), so the retry relative to the largest component starts from the input
         bool lostFarRejected;
+        /// <summary> (tests) skips the two early lost part checks, so that the final one is reached </summary>
+        internal bool BypassEarlyLostPartChecks;
 
         bool apply_core()
         {
@@ -375,7 +377,7 @@ namespace gs
                 string differs = volume_check(input, result, out RepairVolumeIoU);
                 // components far apart: the repair stage's cleanups (relative to all triangles) may have collapsed a part, which the
                 // volume check does not see; the input is resolved instead
-                if (differs == "" && lostPartInput != null && lost_part(input, result))
+                if (differs == "" && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(input, result))
                     differs = PartsLostFarReason;
                 if (differs != "") {
                     FallbackReason = differs;
@@ -970,7 +972,7 @@ namespace gs
                 // components far apart compared to their size: the cleanups relative to the diagonal of all triangles may have
                 // collapsed a part, which the IoU and the box of all triangles do not see: not accepted, the retry relative to the
                 // largest component follows
-                if (largestScale == false && lostPartInput != null && lost_part(input, res)) {
+                if (largestScale == false && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(input, res)) {
                     ExactResolveReason = PartsLostFarReason;
                     lostFarRejected = true;
                     return null;
