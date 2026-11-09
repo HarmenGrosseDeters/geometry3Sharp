@@ -155,6 +155,37 @@ namespace gs
         /// </returns>
         public bool Compute()
         {
+            // outside an extent of [2^-100, 2^100] (the grid takes a float cell size, which is infinite above 3e38 and 0
+            // below 1e-45, and the squares of lengths overflow): run on a copy scaled by a power of two to an extent of
+            // about 1 (exact) and scale the result back; a 2^k scale then gives the unit-scale result times 2^k
+            // (QA 2.0 T1 finding R32)
+            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true);
+            if (s == 1 || Mesh.TriangleCount == 0 || MathUtil.IsFinite(CellSize) == false)
+                return compute_unit();
+            DMesh3 copy = new DMesh3(Mesh);
+            MeshRepairMetrics.ScaleVertices(copy, s);
+            var inner = new MeshWindingNumberSolidify(copy) {
+                Method = Method, CellSize = CellSize * s, GridResolution = GridResolution, WindingIso = WindingIso,
+                Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
+                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
+                CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
+                CancelF = CancelF
+            };
+            bool ok = inner.compute_unit();
+            Result = inner.Result;
+            if (Result != null)
+                MeshRepairMetrics.ScaleVertices(Result, 1 / s);
+            NonManifoldTriangles = inner.NonManifoldTriangles; NonManifoldRefinements = inner.NonManifoldRefinements;
+            WindingEvaluations = inner.WindingEvaluations; HiddenGapEdges = inner.HiddenGapEdges; HiddenWallEdges = inner.HiddenWallEdges;
+            GapEdgesPerLevel = inner.GapEdgesPerLevel; UsedCellSize = inner.UsedCellSize / s;
+            RefinedCells = inner.RefinedCells; RefineFactor = inner.RefineFactor;
+            StoppedOnSelfIntersections = inner.StoppedOnSelfIntersections;
+            PhaseMilliseconds = inner.PhaseMilliseconds;
+            return ok;
+        }
+
+        bool compute_unit()
+        {
             StoppedOnSelfIntersections = false;
             Result = null;      // set only on success, below
             UsedCellSize = 0;
