@@ -49,7 +49,7 @@ namespace TerrainBenchmark
             return g.Height(x, y);
         }
 
-        public static Result Run(HeightGrid g, double eps, bool remove, List<Vector2d[]> breaklines, int[] hole, int maxRounds = 200)
+        public static Result Run(HeightGrid g, double eps, bool remove, List<Vector2d[]> breaklines, int[] hole, bool useGreedy = true, int maxRounds = 400)
         {
             var total = Stopwatch.StartNew();
             var res = new Result();
@@ -62,7 +62,7 @@ namespace TerrainBenchmark
                 for (int j = hole[1]; j <= hole[3]; ++j) for (int i = hole[0]; i <= hole[2]; ++i) zf[i + nx * j] = fill;
             }
             var gt = new TerrainGreedyTIN(zf, nx, ny, 0, 0, 1) { MaxError = eps, RemoveVertices = remove };
-            gt.Compute();
+            if (useGreedy) gt.Compute();
             res.GreedySeconds = sw.Elapsed.TotalSeconds;
             // hole polygon (valid nodes around the no-data nodes): cells with a no-data corner have no surface
             int hx0 = hole == null ? 0 : hole[0] - 1, hy0 = hole == null ? 0 : hole[1] - 1, hx1 = hole == null ? 0 : hole[2] + 1, hy1 = hole == null ? 0 : hole[3] + 1;
@@ -71,7 +71,7 @@ namespace TerrainBenchmark
             var pts = new List<Vector2d>();
             var nodeId = new Dictionary<int, int>();
             int AddNode(int i, int j) { int k = i + nx * j; if (nodeId.TryGetValue(k, out int id)) return id; id = pts.Count; nodeId[k] = id; pts.Add(new Vector2d(i, j)); return id; }
-            foreach (int vid in gt.Result.VertexIndices()) {
+            if (useGreedy) foreach (int vid in gt.Result.VertexIndices()) {
                 Vector3d v = gt.Result.GetVertex(vid);
                 int i = (int)Math.Round(v.x), j = (int)Math.Round(v.y);
                 if (!InHole(i, j)) AddNode(i, j);
@@ -101,9 +101,9 @@ namespace TerrainBenchmark
                 var input = new ConstrainedMesh2Input();
                 input.Points.AddRange(pts);
                 for (int s = 0; s < segs.Count; ++s) input.Segments.Add(new Mesh2Segment(segs[s].a, segs[s].b, s + 1, true));
-                foreach (int cell in lockedCells) {
-                    int ci = cell % (nx - 1), cj = cell / (nx - 1);
-                    input.Segments.Add(new Mesh2Segment(nodeId[ci + nx * cj], nodeId[ci + 1 + nx * (cj + 1)], 0, true));
+                foreach (int crease in lockedCells) {
+                    var (ea, eb) = CreaseEnds(crease, nx);
+                    input.Segments.Add(new Mesh2Segment(nodeId[ea.x + nx * ea.y], nodeId[eb.x + nx * eb.y], 0, true));
                 }
                 if (hole != null) input.HoleSeeds.Add(new Vector2d((hx0 + hx1) / 2.0, (hy0 + hy1) / 2.0));
                 var qm = new QualityMesh2 { MinAngle = 0, ResolveCrossings = false };
@@ -144,18 +144,21 @@ namespace TerrainBenchmark
                         int id = pts.Count; pts.Add(new Vector2d(q.X, q.Y));
                         segList[q.Seg] = (a, id); segList.Add((id, b)); ++added; ++res.SplitsDone;
                     } else if (q.Kind == 3 && !lockedCells.Contains(q.Cell) && !chainCells.Contains(q.Cell)) {
-                        int ci = q.Cell % (nx - 1), cj = q.Cell / (nx - 1);
-                        var xs = DiagonalCrossings(pts, segs, ci, cj);
-                        if (xs.Count == 0) { AddNode(ci, cj); AddNode(ci + 1, cj + 1); lockedCells.Add(q.Cell); ++added; continue; }
-                        // the diagonal crosses breaklines: split them at the crossings and add the diagonal as a chain of pieces
-                        if (xs.Any(x => splitSeg.Contains(x.seg))) { ++res.SkippedLocks; continue; }
-                        int prev = AddNode(ci, cj), last = AddNode(ci + 1, cj + 1);
+                        var (ea, eb) = CreaseEnds(q.Cell, nx);
+                        var xs = CreaseCrossings(pts, segs, new Vector2d(ea.x, ea.y), new Vector2d(eb.x, eb.y));
+                        if (xs.Count == 0) { AddNode(ea.x, ea.y); AddNode(eb.x, eb.y); lockedCells.Add(q.Cell); ++added; continue; }
+                        // the crease crosses breaklines: split them at the crossings (or pass through their vertices) and add the crease as a chain of pieces
+                        if (xs.Any(x => x.seg >= 0 && splitSeg.Contains(x.seg))) { ++res.SkippedLocks; continue; }
+                        int prev = AddNode(ea.x, ea.y), last = AddNode(eb.x, eb.y);
                         foreach (var x in xs.OrderBy(x => x.s)) {
-                            splitSeg.Add(x.seg);
-                            var (sa, sb) = segs[x.seg];
-                            int id = pts.Count; pts.Add(x.pt);
-                            segs[x.seg] = (sa, id); segs.Add((id, sb));
-                            segs.Add((prev, id)); prev = id; ++res.SplitsDone;
+                            int id;
+                            if (x.seg >= 0) {
+                                splitSeg.Add(x.seg);
+                                var (sa, sb) = segs[x.seg];
+                                id = pts.Count; pts.Add(x.pt);
+                                segs[x.seg] = (sa, id); segs.Add((id, sb)); ++res.SplitsDone;
+                            } else id = x.vertex;
+                            segs.Add((prev, id)); prev = id;
                         }
                         segs.Add((prev, last));
                         chainCells.Add(q.Cell); ++added;
@@ -181,29 +184,66 @@ namespace TerrainBenchmark
 
         static long Key(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
 
-        static List<(double s, int seg, Vector2d pt)> DiagonalCrossings(List<Vector2d> pts, List<(int a, int b)> segs, int ci, int cj)
+        /// <summary> crease id = 3 (i + nx j) + type; type 0: diagonal of cell (i, j), 1: horizontal edge (i, j)-(i+1, j), 2: vertical edge (i, j)-(i, j+1) </summary>
+        static ((int x, int y) a, (int x, int y) b) CreaseEnds(int id, int nx)
         {
-            var list = new List<(double, int, Vector2d)>();
-            Vector2d p = new Vector2d(ci, cj), q = new Vector2d(ci + 1, cj + 1);
+            int type = id % 3, k = id / 3, i = k % nx, j = k / nx;
+            return type == 0 ? ((i, j), (i + 1, j + 1)) : type == 1 ? ((i, j), (i + 1, j)) : ((i, j), (i, j + 1));
+        }
+
+        /// <summary> breakline segments crossing the crease properly (to split), and breakline vertices on it (to pass through) </summary>
+        static List<(double s, int seg, int vertex, Vector2d pt)> CreaseCrossings(List<Vector2d> pts, List<(int a, int b)> segs, Vector2d p, Vector2d q)
+        {
+            var list = new List<(double, int, int, Vector2d)>();
+            var seenVertex = new HashSet<int>();
+            double len2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y), len = Math.Sqrt(len2);
+            double minx = Math.Min(p.x, q.x), maxx = Math.Max(p.x, q.x), miny = Math.Min(p.y, q.y), maxy = Math.Max(p.y, q.y);
             for (int si = 0; si < segs.Count; ++si) {
                 Vector2d u = pts[segs[si].a], v = pts[segs[si].b];
-                if (Math.Max(u.x, v.x) < ci || Math.Min(u.x, v.x) > ci + 1 || Math.Max(u.y, v.y) < cj || Math.Min(u.y, v.y) > cj + 1) continue;
+                if (Math.Max(u.x, v.x) < minx - 1e-9 || Math.Min(u.x, v.x) > maxx + 1e-9 || Math.Max(u.y, v.y) < miny - 1e-9 || Math.Min(u.y, v.y) > maxy + 1e-9) continue;
+                foreach (int vi in new[] { segs[si].a, segs[si].b }) {
+                    Vector2d w = pts[vi];
+                    double t = ((w.x - p.x) * (q.x - p.x) + (w.y - p.y) * (q.y - p.y)) / len2;
+                    if (t > 1e-9 && t < 1 - 1e-9 && Math.Abs(Orient(p, q, w)) < 1e-9 * len && seenVertex.Add(vi))
+                        list.Add((t, -1, vi, w));
+                }
                 double d1 = Orient(p, q, u), d2 = Orient(p, q, v), d3 = Orient(u, v, p), d4 = Orient(u, v, q);
+                if (Math.Abs(d1) < 1e-9 * len || Math.Abs(d2) < 1e-9 * len) continue;   // an end point on the crease: handled as a vertex
                 if (d1 * d2 < 0 && d3 * d4 < 0) {
                     double s = d3 / (d3 - d4);
-                    list.Add((s, si, new Vector2d(p.x + s * (q.x - p.x), p.y + s * (q.y - p.y))));
+                    list.Add((s, si, -1, new Vector2d(p.x + s * (q.x - p.x), p.y + s * (q.y - p.y))));
                 }
             }
-            return list;
+            return list.Select(x => (x.Item1, x.Item2, x.Item3, x.Item4)).ToList();
         }
+
         static double Orient(Vector2d a, Vector2d b, Vector2d c) { return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x); }
 
         /// <summary> The errors of triangle t and the worst violation to act on. </summary>
         static Req Scan(HeightGrid g, ConstrainedMesh2 m, int t, bool[] sel, Dictionary<long, int> edgeSeg, HashSet<int> lockedSet, HashSet<int> chainSet, out double nodeErr, out double surfErr)
         {
             Index3i tr = m.Triangles[t];
-            int[] vid = { tr.a, tr.b, tr.c };
-            Vector2d a = m.Vertices[tr.a], b = m.Vertices[tr.b], c = m.Vertices[tr.c];
+            return ScanTriangle(g, m.Vertices[tr.a], m.Vertices[tr.b], m.Vertices[tr.c], new[] { tr.a, tr.b, tr.c }, sel, edgeSeg, lockedSet, chainSet, out nodeErr, out surfErr);
+        }
+
+        /// <summary> the exact node and surface error of a TIN (a DMesh3 in grid index space), eg of TerrainGreedyTIN's result </summary>
+        public static void ErrorsOfMesh(HeightGrid g, DMesh3 mesh, out double nodeErr, out double surfErr)
+        {
+            var tris = mesh.TriangleIndices().ToArray();
+            double nm = 0, sm = 0; object mx = new object();
+            var none = new Dictionary<long, int>(); var empty = new HashSet<int>(); var sel = new bool[g.NX * g.NY];
+            Parallel.For(0, tris.Length, () => new double[2], (k, st, loc) => {
+                Index3i tv = mesh.GetTriangle(tris[k]);
+                Vector3d p0 = mesh.GetVertex(tv.a), p1 = mesh.GetVertex(tv.b), p2 = mesh.GetVertex(tv.c);
+                ScanTriangle(g, new Vector2d(p0.x, p0.y), new Vector2d(p1.x, p1.y), new Vector2d(p2.x, p2.y), new[] { tv.a, tv.b, tv.c }, sel, none, empty, empty, out double wn, out double ws);
+                loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws);
+                return loc;
+            }, loc => { lock (mx) { nm = Math.Max(nm, loc[0]); sm = Math.Max(sm, loc[1]); } });
+            nodeErr = nm; surfErr = sm;
+        }
+
+        static Req ScanTriangle(HeightGrid g, Vector2d a, Vector2d b, Vector2d c, int[] vid, bool[] sel, Dictionary<long, int> edgeSeg, HashSet<int> lockedSet, HashSet<int> chainSet, out double nodeErr, out double surfErr)
+        {
             int nx = g.NX;
             double za = g.Height(a.x, a.y), zb = g.Height(b.x, b.y), zc = g.Height(c.x, c.y);
             if (double.IsNaN(za)) za = Node(g, a); if (double.IsNaN(zb)) zb = Node(g, b); if (double.IsNaN(zc)) zc = Node(g, c);
@@ -275,10 +315,11 @@ namespace TerrainBenchmark
                             if (cand >= 0) { req.Kind = 1; req.Node = cand; }
                             else {
                                 req.Kind = 0;
-                                foreach (var (cx, cy) in cells) {
-                                    int cell = cx + (g.NX - 1) * cy;
-                                    if (!lockedSet.Contains(cell) && !chainSet.Contains(cell)) { req.Kind = 3; req.Cell = cell; break; }
-                                }
+                                int crease = -1;
+                                if (kind == 2) crease = 3 * (ci + nx * cj);
+                                else if (kind == 0) { int jj = (int)Math.Floor(y); if (jj >= 0 && jj < g.NY - 1 && y != jj) crease = 3 * (ci + nx * jj) + 2; }
+                                else { int ii = (int)Math.Floor(x); if (ii >= 0 && ii < g.NX - 1 && x != ii) crease = 3 * (ii + nx * cj) + 1; }
+                                if (crease >= 0 && !lockedSet.Contains(crease) && !chainSet.Contains(crease)) { req.Kind = 3; req.Cell = crease; }
                             }
                         }
                     }

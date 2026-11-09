@@ -301,10 +301,14 @@ class Program
         var gt = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps };
         gt.Compute();
         R["greedy_vertices"] = gt.Result.VertexCount; R["greedy_s"] = Secs(sw);
+        TinSpikeC.ErrorsOfMesh(g, gt.Result, out double gne, out double gse);
+        R["greedy_node_error"] = gne; R["greedy_surface_error"] = gse;
         sw.Restart();
         var gr = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps, RemoveVertices = true };
         gr.Compute();
         R["greedy_remove_vertices"] = gr.Result.VertexCount; R["greedy_remove_s"] = Secs(sw);
+        TinSpikeC.ErrorsOfMesh(g, gr.Result, out double rne, out double rse);
+        R["greedy_remove_node_error"] = rne; R["greedy_remove_surface_error"] = rse;
         foreach (bool surface in new[] { false, true }) {
             TinSpike.Result r = TinSpike.Run(g, eps, surface, ArgD("frac", 0.5));
             string k = surface ? "surface" : "node";
@@ -329,7 +333,7 @@ class Program
         }
         var bl = Arg("breaklines", "0") == "1" ? TinSpikeC.Circles(n, ArgD("spacing", 2)) : null;
         R["nodes"] = g.Z.Length; R["valid_nodes"] = g.ValidNodeCount();
-        TinSpikeC.Result r = TinSpikeC.Run(g, eps, Arg("remove", "1") == "1", bl, hole);
+        TinSpikeC.Result r = TinSpikeC.Run(g, eps, Arg("remove", "1") == "1", bl, hole, Arg("select", "greedy") == "greedy");
         R["ok"] = r.Ok; R["note"] = r.Note; R["selected_by_greedy"] = r.Selected;
         R["vertices"] = r.Vertices; R["triangles"] = r.Triangles; R["rounds"] = r.Rounds;
         R["round0_surface_error"] = r.Round0Surface; R["round0_node_error"] = r.Round0Node;

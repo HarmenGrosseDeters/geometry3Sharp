@@ -651,3 +651,33 @@ so (c) ends at the vertex count of B2 (9 961 against 10 748), not near greedy's 
 eps (node error is within eps); the stuck triangles have breakline chords crossing grid lines inside cells whose diagonals are already locked; the
 cause is not found (the breakline splits at the chord's grid-line crossings are requested, but a few violations are on unlocked edges of fully resolved cells).
 Not measured: real DGM data, large windows.
+
+### Breakline convergence fixed; the surface error of TerrainGreedyTIN's own output (2026-11-09)
+
+**Breaklines.** The stuck triangles (surface error 0.52 m) were not caused by the two suspects (breakline vertex-to-corner edges, the one-split-per-round rule). Cause: a triangle edge
+between a breakline vertex inside a cell and a node can cross a **grid line between two selected nodes**, because with off-lattice breakline vertices the
+Delaunay triangulation need not contain that grid edge; S has a crease along it, T does not. Without breaklines the lattice forces the grid edges, which is why only
+diagonals needed locking. Fix: the correction locks any **crease** of S (diagonal, horizontal or vertical cell side) where a violation sits on it and all corners are selected, as a chain through the
+breakline crossings and vertices. Pit grid 513 x 513, eps 0.1 m, single runs:
+
+| Case | Selection | Vertices | Rounds | Time | Final surface / node error |
+|---|---|---|---|---|---|
+| plain | greedy + remove | 9961 | 13 | 2.1 s | 0.09999 / 0.09999 |
+| breaklines (4 cliff circles, 2 cells, ~1800 segments) | greedy + remove | 12 702 | 15 | 2.9 s | 0.09999 / 0.09999 |
+| breaklines | B2 (4 corners only) | 14 027 | 13 | 2.1 s | 0.09999 / 0.09999 |
+| gaps + breaklines | B2 (4 corners only) | 14 031 | 17 | 2.8 s | 0.09999 / 0.09993 |
+
+B2 has the same problem with breaklines (the crease locking is part of the shared correction, `tinspikec select=none`).
+
+**Fair baseline: the exact surface error of `TerrainGreedyTIN`'s own output** (same scan; its guarantee is the node error only). Pit grid 513 x 513:
+
+| Terrain (`amp`) | eps | Greedy: vertices, node / **surface** error | Greedy + RemoveVertices: vertices, surface error | B2 surface guarantee: vertices (x greedy) | B2 node guarantee: vertices |
+|---|---|---|---|---|---|
+| 3 m (gentle) | 0.1 | 3072, 0.1000 / **0.185** | 1006, 0.246 | 4997 (1.63x) | 4554 |
+| 8 m | 0.1 | 3915, 0.1000 / **0.437** | 1327, 0.536 | 6562 (1.68x) | 6051 |
+| 30 m (cliffs of 1.9 m between neighbouring nodes) | 0.1 | 5019, 0.1000 / **1.55** | 1958, 1.87 | 10 748 (2.14x) | 8096 |
+| 30 m | 0.05 | 19 053, 0.0500 / **1.50** | 6359, 1.88 | | |
+| 30 m | 0.2 | 4010, 0.2000 / **1.55** | 1507, 1.86 | | |
+
+So the node guarantee of greedy does not bound the surface: its surface error is 1.8-15x the node error, and on the cliffs it does not shrink with eps at all (1.5 m). The surface
+guarantee costs +10 % vertices over the node guarantee on the gentle terrains (4997 against 4554; 6562 against 6051) and +33 % on the cliff terrain (10 748 against 8096).
