@@ -562,7 +562,9 @@ namespace g3
                         double[] AtA = new double[16], Atb = new double[4];
                         for (int i = 0; i < n; ++i) {
                             if (!inl[i]) continue;
-                            Vector3d q = Points[i] - mean;
+                            // (in units of the cloud's size: the columns 2q and 1 differ by the scale, which made the
+                            // pivot test of solve reject the system for clouds smaller than about 1e-7)
+                            Vector3d q = (Points[i] - mean) / scale;
                             double[] row = { 2 * q.x, 2 * q.y, 2 * q.z, 1 };
                             double rhs = q.LengthSquared;
                             for (int r = 0; r < 4; ++r) {
@@ -575,7 +577,7 @@ namespace g3
                         Vector3d cc = new Vector3d(x[0], x[1], x[2]);
                         double r2 = x[3] + cc.LengthSquared;
                         if (!(r2 > 0)) return false;
-                        m = new Model(mean + cc, Vector3d.AxisZ, Math.Sqrt(r2));
+                        m = new Model(mean + scale * cc, Vector3d.AxisZ, scale * Math.Sqrt(r2));
                         return valid(m);
                     }
                 case Primitives.Cylinder: {
@@ -593,7 +595,7 @@ namespace g3
                         double[] AtA = new double[9], Atb = new double[3];
                         for (int i = 0; i < n; ++i) {
                             if (!inl[i]) continue;
-                            Vector3d q = Points[i] - mean;
+                            Vector3d q = (Points[i] - mean) / scale;
                             double x = q.Dot(b1), y = q.Dot(b2);
                             double[] row = { 2 * x, 2 * y, 1 };
                             double rhs = x * x + y * y;
@@ -606,7 +608,7 @@ namespace g3
                         if (solve(AtA, Atb, 3, out sol) == false) return false;
                         double r2 = sol[2] + sol[0] * sol[0] + sol[1] * sol[1];
                         if (!(r2 > 0)) return false;
-                        m = new Model(mean + sol[0] * b1 + sol[1] * b2, d, Math.Sqrt(r2));
+                        m = new Model(mean + scale * (sol[0] * b1 + sol[1] * b2), d, scale * Math.Sqrt(r2));
                         return valid(m);
                     }
                 default: {
