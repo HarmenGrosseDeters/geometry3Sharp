@@ -628,6 +628,12 @@ namespace g3cli.Tests
             Assert.Equal("rounding_not_clean", S(r["boolean_status"]));       // additive: the status and the library's text in the error result
             Assert.False(string.IsNullOrEmpty(S(r["boolean_error"])));
             Assert.False(B(r["boolean"]["rounding_clean"]));
+            // the counts of the operation were not made (the library stopped at the rounding): null, not 0; the rounding's are there
+            Assert.Null(r["boolean"]["contacts"]);
+            Assert.Null(r["boolean"]["reoriented_triangles"]);
+            Assert.Null(r["boolean"]["counts"]);
+            Assert.True(D(r["boolean"]["rounding"]["smallest_rejected_drift"]) > 0);   // the drift the smallest rejected edit needed
+            Assert.Equal(3, r["boolean"]["rounding"]["remaining_defect_at"].AsArray().Count);
             Assert.False(File.Exists(strictOut));
             // strict uses the relative bound only: combined with a tolerance it is refused
             (exit, r) = Run("resolve", input, strictOut, "--strict-rounding", "--rounding-absolute-tolerance", "1e-3");

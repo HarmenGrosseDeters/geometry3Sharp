@@ -292,13 +292,14 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
 
 - `boolean` / `resolve`: `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`), `boolean.contacts` (positions where the
   solid touches itself, or that the rounding made), `boolean.reoriented_triangles` (input triangles flipped to a consistent orientation) and
-  `boolean.counts` (the library's counters, eg `intersecting_pairs`, `points`, `pieces`). A failed call (`operation_failed`) carries
+  `boolean.counts` (the library's counters, eg `intersecting_pairs`, `points`, `pieces`); these three are `null` in the `boolean` object of a failed call
+  (the library stopped before counting them). A failed call (`operation_failed`) carries
   `boolean_status`, `boolean_error` (the library's text, eg the defects left and the drift the smallest rejected edit needed with `--strict-rounding`)
   and the `boolean` object.
 - The SafeRounding repair counts (`boolean.rounding`, `exact_resolve_rounding`, `separated_rounding` of `repair`): also `initial_false_contacts`,
   `remaining_false_contacts`, `vertex_removals`, `smallest_rejected_drift` (`null`: no edit was rejected by the bound) and `remaining_defect_at`
-  (`[x, y, z]` of a defect left, `null` if clean).
-- `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is the
+  (`[x, y, z]` of an intersection, degenerate triangle or false contact left, `null` if none is left).
+- `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is, or contains, the
   long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
 - `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
   triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).

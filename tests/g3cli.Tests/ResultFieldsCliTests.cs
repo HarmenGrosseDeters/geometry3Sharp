@@ -25,6 +25,9 @@ namespace g3cli.Tests
             Assert.Equal(0, I(b["reoriented_triangles"]));
             Assert.True(I(b["counts"]["intersecting_pairs"]) > 0);
             Assert.Equal(I(b["intersecting_pairs"]), I(b["counts"]["intersecting_pairs"]));
+            Assert.True(I(b["counts"]["points"]) > 0);
+            Assert.True(I(b["counts"]["pieces"]) > 0);
+            Assert.Equal(I(b["contacts"]), I(b["counts"]["contacts"]));
             Assert.Equal(0, I(b["rounding"]["initial_false_contacts"]));
             Assert.Equal(0, I(b["rounding"]["remaining_false_contacts"]));
             Assert.Equal(0, I(b["rounding"]["vertex_removals"]));
@@ -40,7 +43,8 @@ namespace g3cli.Tests
             Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(corner, cube, WriteOptions.Defaults).code);
             var (exit, r) = Run("boolean", m.Cube, corner, m.Path_("touch.3mf"), "--op", "union", "--compact");
             Assert.Equal(0, exit);
-            Assert.True(I(r["boolean"]["contacts"]) >= 1, r["boolean"].ToJsonString());
+            Assert.Equal(1, I(r["boolean"]["contacts"]));                      // the shared corner
+            Assert.Equal(1, I(r["boolean"]["counts"]["contacts"]));
         }
 
         [Fact]
@@ -49,7 +53,7 @@ namespace g3cli.Tests
             // the sphere with every 20th triangle reversed is closed but not consistently oriented: the exact operation reorients them
             var (exit, r) = Run("resolve", m.Flipped, m.Path_("resolved_flipped.ply"), "--compact");
             Assert.Equal(0, exit);
-            Assert.True(I(r["boolean"]["reoriented_triangles"]) > 0, r["boolean"].ToJsonString());
+            Assert.Equal(39, I(r["boolean"]["reoriented_triangles"]));          // 768 triangles, every 20th reversed
         }
 
         [Fact]
@@ -61,6 +65,25 @@ namespace g3cli.Tests
             Assert.False(string.IsNullOrEmpty(S(r["boolean_error"])));
             Assert.Equal("open_input", S(r["boolean"]["status"]));
             Assert.False(File.Exists(m.Path_("f.stl")));
+        }
+
+        [Fact]
+        public void Repair_ScaleDisparity_HasItsCodeInTheErrorResult()
+        {
+            // two overlapping cubes of size 2e-3 and a third one 1e5 away: degenerate triangles only by the diagonal of all of them
+            DMesh3 a = TestMeshes.CubeMesh(Vector3d.Zero);
+            var editor = new MeshEditor(a);
+            editor.AppendMesh(TestMeshes.CubeMesh(new Vector3d(1, 0, 0)));
+            editor.AppendMesh(TestMeshes.CubeMesh(new Vector3d(1e8, 0, 0)));
+            MeshTransforms.Scale(a, 1e-3, 1e-3, 1e-3);
+            string input = m.Path_("disparity.obj"), output = m.Path_("disparity_out.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(input, a, WriteOptions.Defaults).code);
+            var (exit, r) = Run("repair", input, output, "--compact");
+            Assert.Equal(ResultCodes.ExitCode("operation_failed"), exit);
+            Assert.Equal("scale_disparity", S(r["result_code"]));
+            Assert.Equal("scale_disparity", S(r["exact_resolve_code"]));
+            Assert.StartsWith("scale disparity", S(r["result_reason"]));
+            Assert.False(File.Exists(output));
         }
 
         [Fact]

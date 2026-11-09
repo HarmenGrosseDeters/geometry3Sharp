@@ -297,9 +297,10 @@ namespace g3cli
                 ["rounding"] = RoundingInfo(op.Rounding),
                 // (the status of the exact operation, positions where the solid touches itself, reoriented input triangles, the library's counters)
                 ["status"] = ToSnake(op.Status.ToString()),
-                ["contacts"] = op.Contacts,
-                ["reoriented_triangles"] = op.ReorientedTriangles,
-                ["counts"] = CountsInfo(op.Counts),
+                // (set by a successful Compute only: null after a failure, where the library stopped before it counted them)
+                ["contacts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.Contacts : (JsonNode)null,
+                ["reoriented_triangles"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.ReorientedTriangles : (JsonNode)null,
+                ["counts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? CountsInfo(op.Counts) : null,
             };
         }
 
@@ -323,8 +324,10 @@ namespace g3cli
         /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite / ScaleDisparity reasons, else null </summary>
         static JsonNode ReasonCode(string reason)
         {
-            if (reason == MeshRobustRepair.ScaleNotFinite) return "scale_not_finite";
-            if (reason == MeshRobustRepair.ScaleDisparity) return "scale_disparity";
+            // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
+            if (string.IsNullOrEmpty(reason)) return null;
+            if (reason.Contains(MeshRobustRepair.ScaleNotFinite)) return "scale_not_finite";
+            if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
             return null;
         }
 
@@ -360,7 +363,8 @@ namespace g3cli
                 ["vertex_removals"] = r.VertexRemovals,
                 // (infinity: no edit was rejected by the bound)
                 ["smallest_rejected_drift"] = double.IsPositiveInfinity(r.SmallestRejectedDrift) ? null : MeshReport.Num(r.SmallestRejectedDrift),
-                ["remaining_defect_at"] = r.IsClean ? null : MeshReport.Vec(r.RemainingDefectAt),
+                // (only where a defect is left: a scale problem alone has no position)
+                ["remaining_defect_at"] = r.RemainingIntersections + r.RemainingDegenerate + r.RemainingFalseContacts > 0 ? MeshReport.Vec(r.RemainingDefectAt) : null,
             };
         }
 
