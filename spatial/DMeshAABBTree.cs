@@ -1937,6 +1937,8 @@ namespace g3
                     // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
                     while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
+                    // (r >= 0 is a guard only: every center above the midpoint would need a midpoint of -infinity, and
+                    // finite centroids, a third of a finite sum, cannot overflow a + b)
                     while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)

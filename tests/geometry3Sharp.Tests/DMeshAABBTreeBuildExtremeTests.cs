@@ -57,10 +57,10 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void MidpointSplit_AdjacentCentroidsNextToOtherTriangles_EveryTriangleOnce()
+        public void MidpointSplit_AdjacentCentroidsAfterOtherTriangles_EveryTriangleOnce()
         {
-            // the same set inside a larger mesh (the scan of an inner set could run into its neighbour): unit triangles
-            // at the origin first, then the adjacent set
+            // the same set after other triangles (it becomes the right child, at the end of the array: the scan ran out
+            // of the array there too): unit triangles at the origin first, then the adjacent set
             var m = new DMesh3();
             for (int k = 0; k < 40; ++k)
                 m.AppendTriangle(m.AppendVertex(new Vector3d(k, 0, 0)), m.AppendVertex(new Vector3d(k + 1, 0, 0)), m.AppendVertex(new Vector3d(k, 1, 0)));
@@ -71,6 +71,26 @@ namespace geometry3Sharp.Tests
             // a query still finds the unit triangles
             var hit = tree.FindNearestTriangle(new Vector3d(10.2, 0.2, 0));
             Assert.Equal(10, hit);
+        }
+
+        [Theory]
+        [InlineData(DMeshAABBTree3.BuildStrategy.TopDownMidpoint)]
+        [InlineData(DMeshAABBTree3.BuildStrategy.TopDownMedian)]
+        public void MidpointSplit_AdjacentCentroidsBeforeOtherTriangles_EveryTriangleOnce(DMeshAABBTree3.BuildStrategy strategy)
+        {
+            // the fuzz case's shape: the adjacent set becomes the left child, and its neighbour (40 triangles at about
+            // 1e82, larger on every axis) follows in the array. Before, the scan of the left set ran into the neighbour
+            // and the set recursed without end: a stack overflow (the test host died)
+            DMesh3 m = AdjacentCentroids(4);
+            double far = 1e82;
+            for (int k = 0; k < 40; ++k) {
+                var p = new Vector3d(far + k * 1e66, far + k * 1e66, far + k * 1e66);
+                m.AppendTriangle(m.AppendVertex(p), m.AppendVertex(p + new Vector3d(1e67, 0, 0)), m.AppendVertex(p + new Vector3d(0, 1e67, 0)));
+            }
+            var tree = new DMeshAABBTree3(m, false);
+            tree.Build(strategy);
+            List<int> leaves = Leaves(tree);
+            Assert.Equal(m.TriangleIndices().OrderBy(t => t), leaves.OrderBy(t => t));
         }
 
         [Theory]
