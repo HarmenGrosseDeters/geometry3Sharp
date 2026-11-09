@@ -54,10 +54,10 @@ Status on 2026-11-08 (evening, Berlin).
   above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418).
   Lévy classification: phase 1 done (#428, no propagation now); phase 2
   (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405, #413, #422, #404, #408, #410,
-  #417, #429 and #432 (parallel slab reduction, 2026-11-09); the final 800 run is next. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
-  CGAL's on the T1 100. Open: the per-mesh speed budget (72 of 100 with (A) on a 4-core machine) goes to the owner with
-  the final numbers. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
+  p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
+  Next: **Alpha Wrap 3.0** (speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallelism)
+  and Reducer / Remesher 2.0 (#454 hand-over). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. [platform.md](roadmap/platform.md#qa-20-milestone)

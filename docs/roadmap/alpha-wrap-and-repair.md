@@ -20,6 +20,18 @@ Part of the [roadmap](../ROADMAP.md).
 
 #### Alpha Wrap 2.0 (milestone)
 
+**Result and close (owner 2026-11-09): Alpha Wrap 2.0 is done.** Final 800 run (master dfc93fdb, seed 2611, 300/3000,
+library defaults, quality pass off, one process at a time on a 4-core machine; raw rows on runs/alpha-wrap-2 f800/,
+000ae12e) against the pre-2.0 800 run: guarantees 800/800, no timeouts or crashes; contract 1 proven exceedance
+(111959, 1.093, #317 stop rule); 0 triangles < 0.5° and 0 > 170° on every mesh (before 7 and 14676); p01 median 11.34°,
+min 10.62° (before 7.62° / 3.49°); raw p01 median 20.11° (before 17.41°), raw >= CGAL on the T1 100; F-score 0.1 %
+median 0.9914 (before 0.9911), IoU median 0.9805 (0.9803); final triangles +17 % (paired median). Speed: 611 of 800
+within max(5 s, 50 µs × raw triangles), 92 of the 189 others within 10 %, 168 within 25 %; pipeline median 5.83 s, p90
+11.88 s, max 97.5 s. Owner decision: close 2.0 with this documented; the speed levers go to **Alpha Wrap 3.0**: in the
+189 over budget ~60 % of the time is the wrap itself (intersection oracle 14 %, Delaunay insertion 13 %, touch 12 %,
+the two pinch passes 18 %), reduction 17 %, certification 7 %; together with parallelism. The Reducer / Remesher 2.0
+hand-over is docs/design/PARTITIONED_REDUCTION_HANDOVER.md (#454).
+
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
 - guarantees (closed, manifold, free of self-intersections, offset band) and fidelity (F-score, Hausdorff, band) not
