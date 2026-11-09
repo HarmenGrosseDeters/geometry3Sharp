@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "9K2UtGFN1IE=",
+  "success": true,
+  "projectFilePath": "/home/user/geometry3Sharp/benchmarks/QuadtreeBenchmark/QuadtreeBenchmark.csproj",
+  "expectedPackageFiles": [
+    "/root/.nuget/packages/nettopologysuite/2.6.0/nettopologysuite.2.6.0.nupkg.sha512"
+  ],
+  "logs": []
+}

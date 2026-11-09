@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>geometry3Sharp</id>
+    <version>1.0.0-ci.1</version>
+    <title>geometry3Sharp</title>
+    <authors>Ryan Schmidt</authors>
+    <license type="expression">BSL-1.0</license>
+    <licenseUrl>https://licenses.nuget.org/BSL-1.0</licenseUrl>
+    <readme>README.md</readme>
+    <projectUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</projectUrl>
+    <description>C# library for 2D/3D geometric computing and triangle mesh processing</description>
+    <copyright>Copyright © Ryan Schmidt 2016</copyright>
+    <tags>geometry3 graphics math approximation solvers color convexhull meshes spatial curves solids 3d unity ply 3mf gltf</tags>
+    <repository type="git" url="https://github.com/HarmenGrosseDeters/geometry3Sharp" commit="c4e19d69cf8cbb7e5c6c2f90a4f80bd46016d977" />
+    <dependencies>
+      <group targetFramework="net10.0" />
+      <group targetFramework=".NETStandard2.0" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="/home/user/geometry3Sharp/bin/Release/net10.0/geometry3Sharp.dll" target="lib/net10.0/geometry3Sharp.dll" />
+    <file src="/home/user/geometry3Sharp/bin/Release/net10.0/geometry3Sharp.xml" target="lib/net10.0/geometry3Sharp.xml" />
+    <file src="/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.dll" target="lib/netstandard2.0/geometry3Sharp.dll" />
+    <file src="/home/user/geometry3Sharp/bin/Release/netstandard2.0/geometry3Sharp.xml" target="lib/netstandard2.0/geometry3Sharp.xml" />
+    <file src="/home/user/geometry3Sharp/README.md" target="/README.md" />
+    <file src="/home/user/geometry3Sharp/LICENSE" target="/LICENSE" />
+  </files>
+</package>

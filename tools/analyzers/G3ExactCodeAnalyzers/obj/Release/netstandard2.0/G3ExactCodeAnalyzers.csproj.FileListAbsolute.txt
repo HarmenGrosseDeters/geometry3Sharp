@@ -1,0 +1,11 @@
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.deps.json
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.dll
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.pdb
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.csproj.AssemblyReference.cache
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.GeneratedMSBuildEditorConfig.editorconfig
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.AssemblyInfoInputs.cache
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.AssemblyInfo.cs
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.csproj.CoreCompileInputs.cache
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.sourcelink.json
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.dll
+/home/user/geometry3Sharp/tools/analyzers/G3ExactCodeAnalyzers/obj/Release/netstandard2.0/G3ExactCodeAnalyzers.pdb
