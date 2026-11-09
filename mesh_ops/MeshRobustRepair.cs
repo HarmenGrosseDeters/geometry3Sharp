@@ -37,9 +37,10 @@ namespace gs
     /// but for the area of NotCleanReason, Apply() returns false with the resolved mesh in Mesh and ResultReason
     /// ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the parts). A resolve the
     /// first attempts accept is unchanged, except where a closed part of the input is missing from it (judged relative to
-    /// the largest part, MeshRepairMetrics.LostComponents): that resolve is rejected and the retry starts from the input.
+    /// the largest connected component, MeshRepairMetrics.LostComponents): that resolve is rejected and the retry starts from the input.
     /// An Apply() that ends with such a part lost, by any stage, is false with ResultReason LostFarPart (never a silent loss
-    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area.
+    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area, and with
+    /// MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -286,12 +287,17 @@ namespace gs
         {
             lostPartInput = null;
             lostFarRejected = false;
-            bool ok = apply_core();
-            // components far apart compared to their size: a closed part of the input that is not in the result is not repaired
-            // (never a silent loss with true: the owner's rule for far parts, #425). The result stays in Mesh
-            if (ok && lostPartInput != null && lost_part(lostPartInput, Mesh)) {
-                ResultReason = LostFarPart;
-                return false;
+            bool ok;
+            try {
+                ok = apply_core();
+                // components far apart compared to their size: a closed part of the input that is not in the result is not repaired
+                // (never a silent loss with true: the owner's rule for far parts, #425). The result stays in Mesh
+                if (ok && lostPartInput != null && lost_part(lostPartInput, Mesh)) {
+                    ResultReason = LostFarPart;
+                    ok = false;
+                }
+            } finally {
+                lostPartInput = null;
             }
             return ok;
         }
@@ -367,6 +373,10 @@ namespace gs
             if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
                 string differs = volume_check(input, result, out RepairVolumeIoU);
+                // components far apart: the repair stage's cleanups (relative to all triangles) may have collapsed a part, which the
+                // volume check does not see; the input is resolved instead
+                if (differs == "" && lostPartInput != null && lost_part(input, result))
+                    differs = PartsLostFarReason;
                 if (differs != "") {
                     FallbackReason = differs;
                     solidifyFrom = input;
@@ -397,13 +407,13 @@ namespace gs
                 DMesh3 exact = null;
                 if (result.TriangleCount > 0) {
                     // a clean result whose volume differs resolves to its own solid again: skip to the next try
-                    bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost;
+                    bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost || FallbackReason == PartsLostFarReason;
                     if (cleanButDiffers == false)
                         exact = resolve_exactly(result, input, false);
                     // its volume may differ (or a part be lost) only because components are oriented differently from
                     // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
                     // solid, if that orientation differs at all
-                    if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost) && CancelF() == false)
+                    if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost || ExactResolveReason == PartsLostFarReason) && CancelF() == false)
                         exact = resolve_exactly(result, input, true);
                 }
                 bool fromResult = exact != null;
@@ -577,8 +587,8 @@ namespace gs
         /// <summary> for tests and the benchmark: what each volume IoU check of the last Apply() did </summary>
         internal List<MeshRepairMetrics.VolumeCheckStats> VolumeCheckStats = new List<MeshRepairMetrics.VolumeCheckStats>();
 
-        // true if a closed part of the input (at least MinComponentDiagonal of the largest part) is not in res: judged relative to the
-        // largest part, not to all triangles (CheckLostComponents does that, and skips a small part next to a far one)
+        // true if a closed part of the input (at least MinComponentDiagonal of the largest connected component) is not in res: judged relative to the
+        // largest connected component, not to all triangles (CheckLostComponents does that, and skips a small part next to a far one)
         bool lost_part(DMesh3 input, DMesh3 res)
         {
             if (inputSolid == null || inputSolidOf != input) {

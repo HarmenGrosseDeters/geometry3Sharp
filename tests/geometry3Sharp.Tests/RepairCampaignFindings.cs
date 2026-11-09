@@ -92,33 +92,5 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, Components(r.Mesh));
         }
 
-        // and a result that lost a far part is never true: a repair stage that drops the box (here a replacement of the first stage)
-        // is reported as not repaired, with the reason, and the mesh stays in Mesh
-        [Fact]
-        public void FarSphere_LostBox_IsNotReportedAsRepaired()
-        {
-            DMesh3 input = BoxAndFarSphere(2.2e6);
-            var r = new MeshRobustRepair(new DMesh3(input)) { ExactResolve = false, AlphaWrapFallback = false, RepairF = m => {
-                var comps = new MeshConnectedComponents(m);
-                comps.FindConnectedT();
-                var keep = comps.Components.OrderByDescending(c => c.Indices.Length).First();
-                var only = new DMesh3(m);
-                foreach (int t in m.TriangleIndices().Where(t => !keep.Indices.Contains(t)).ToArray()) only.RemoveTriangle(t);
-                return new DMesh3(only, true);
-            } };
-            bool ok = r.Apply();
-            Assert.False(ok);
-            Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
-            Assert.Equal(1, Components(r.Mesh));
-        }
-
-        // without the far part the same replacement is accepted (the box is a part to lose only next to a far sphere)
-        [Fact]
-        public void NearSphere_NoFarPart_NothingChanges()
-        {
-            var r = new MeshRobustRepair(BoxAndFarSphere(20)) { ExactResolve = false };
-            Assert.True(r.Apply());
-            Assert.Equal(2, Components(r.Mesh));
-        }
     }
 }

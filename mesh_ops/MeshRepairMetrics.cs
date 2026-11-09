@@ -700,10 +700,10 @@ namespace gs
             if (input.TriangleCount == 0)
                 return 0;
             Func<Vector3d, bool> inInput = reference.Inside;
-            // (relativeToLargest: relative to the largest closed component, not to all triangles, whose diagonal grows with the
+            // (relativeToLargest: relative to the largest connected component (open ones too), not to all triangles, whose diagonal grows with the
             // distance between components: a part far from the rest would make every near part too small to be judged)
             List<AxisAlignedBox3d> all = reference.ComponentBoxes();
-            double minDiagonal = MinComponentDiagonal * (relativeToLargest ? (all.Count == 0 ? 0 : all.Max(b => b.DiagonalLength)) : TriangleBounds(input).DiagonalLength);
+            double minDiagonal = MinComponentDiagonal * (relativeToLargest ? LargestComponentDiagonal(input) : TriangleBounds(input).DiagonalLength);
             var boxes = all.Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
                 .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
             int[] lost = new int[boxes.Count];
