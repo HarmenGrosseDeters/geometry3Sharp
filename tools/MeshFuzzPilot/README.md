@@ -43,13 +43,16 @@ The same tools as ReaderFuzzPilot: .NET 10, [SharpFuzz.CommandLine 2.2.0](https:
 libFuzzer is Apache-2.0 with LLVM exceptions); see that README for the install and the checksum.
 
 ```sh
-bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet /path/to/sharpfuzz-tools/sharpfuzz /path/to/dotnet 1000000 1800
+bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet /path/to/sharpfuzz-tools/sharpfuzz /path/to/dotnet 1000000 1800 [jobs]
 ```
 
 `run.sh` refuses an existing work directory. It publishes a clean `replay/` build, runs its self-test, writes the
 18 seeds (every operation on the plain shapes), copies the build into `bin/` and instruments only the copy of
-`geometry3Sharp.dll`. The run uses a fixed seed, at most 512 bytes per input, a 10 s timeout per input, a
-libFuzzer-side 3 GiB RSS limit, and stops after the given number of runs or seconds, or at the first finding.
+`geometry3Sharp.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
+wrap of a flat input with the default alpha takes about 4 s uninstrumented and more than 10 s instrumented: slow,
+not hung), a libFuzzer-side 3 GiB RSS limit, and stops after the given number of runs or seconds, or at the first
+finding. With `jobs` > 0 it runs libFuzzer's fork mode with that many workers, which goes on after a crash or a
+timeout and keeps every artifact.
 A run is slow by fuzzing standards (a few inputs per second: every input runs exact arithmetic), so campaigns
 belong on a runner or the owner's machine, not in CI.
 
