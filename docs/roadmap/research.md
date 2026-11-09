@@ -70,19 +70,25 @@ Part of the [roadmap](../ROADMAP.md).
      wrap surfaces on real meshes down to 12° dihedral). Owner: stage 1 waits for the fTetWild black-box comparison on
      the same 40 meshes (runner job on runs/tet-meshing) and for sharp features in the alpha wrap; without sharp edges
      probably not worth building.
-  4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+  4. Intersection-free dual contouring (owner 2026-11-09: later, its own session, probably Opus), M: details in
+     [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
+     serves three items at once: sharp features for the alpha wrap and so tet meshing stage 1 (item 3; the later
+     study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
+     path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
+     `WindingContouring` on the lever 6 set (#498) as the upper bound.
+  5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
-  5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
+  6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks.
-  6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-  7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
-  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 5).
+  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 6).
   - Meshing2D ↔ terrain: a TIN with breaklines is constrained quality meshing in 2.5D; the terrain restart (DGM
     reader) designs with `QualityMesh2`, its oracle and golden tests.
   - Exact booleans ↔ tetrahedral meshing ↔ practical 3D snap rounding: exact and implicit points, then doubles
