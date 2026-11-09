@@ -1028,11 +1028,27 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            return collapse_slivers(mesh, maxCollapse, maxPasses, MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength);
+            return collapse_slivers(mesh, maxCollapse, maxPasses, double.NaN);
         }
 
-        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component)
+        // CollapseSlivers relative to the diagonal diag (MeshRobustRepair: that of the largest connected component; NaN: that of
+        // the bounds of the triangles, taken after the scaling below, as the diagonal itself overflows above about 1e154)
         static int collapse_slivers(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
+        {
+            // outside an extent of [2^-100, 2^100] the squares of the lengths and areas overflow or underflow: work on
+            // the mesh scaled by a power of two to an extent of about 1 (exact) and scale it back
+            double s = MeshRepairMetrics.unit_scale_for_mesh(mesh);
+            if (s == 1)
+                return collapse_slivers_unit(mesh, maxCollapse, maxPasses, double.IsNaN(diag) ? MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength : diag);
+            MeshRepairMetrics.ScaleVertices(mesh, s);
+            try {
+                return collapse_slivers_unit(mesh, maxCollapse, maxPasses, double.IsNaN(diag) ? MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength : s * diag);
+            } finally {
+                MeshRepairMetrics.ScaleVertices(mesh, 1 / s);
+            }
+        }
+
+        static int collapse_slivers_unit(DMesh3 mesh, double maxCollapse, int maxPasses, double diag)
         {
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;

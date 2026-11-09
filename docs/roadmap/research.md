@@ -59,6 +59,9 @@ Part of the [roadmap](../ROADMAP.md).
      process. Licences: TetGen AGPL, the CDT of Diazzi et al. GPL / LGPL, fTetWild MPL: paper only. Stage 1 on the large
      model (prior art, what `Delaunay3` lacks, an upper bound on reachable quality, a design note with the
      termination argument); Sonnet only for bounded parts.
+     Design note 2026-11-09: [design/TET_MESHING.md](../design/TET_MESHING.md): recommended = wrap, then Delaunay
+     refinement of its inside cells (they already are a conforming tet mesh); MVP stages 0+1 about 3 weeks, owner
+     decisions in section 9; the boundary is the wrap surface, not the input.
   4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point

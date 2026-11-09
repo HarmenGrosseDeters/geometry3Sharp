@@ -266,8 +266,10 @@ def load_configs(directory=HERE):
             config = json.load(f)["stryker-config"]
         # "**/mesh_ops/ExactMeshBoolean.cs{0..47051}" -> mesh_ops/ExactMeshBoolean.cs
         sources = {re.sub(r"\{.*\}$", "", m).replace("**/", "") for m in config["mutate"]}
-        # "FullyQualifiedName~MeshRoundingRepairTests.ExactVertices" -> the file of class MeshRoundingRepairTests
-        classes = {t.split("~")[1].split(".")[0] for t in config["test-case-filter"].split("|")}
+        # "FullyQualifiedName~MeshRoundingRepairTests.ExactVertices" -> the file of class MeshRoundingRepairTests;
+        # "A&FullyQualifiedName!~B" narrows A: only the positive terms name test classes
+        terms = [t for alt in config["test-case-filter"].split("|") for t in alt.split("&")]
+        classes = {t.split("~")[1].split(".")[0] for t in terms if "!~" not in t}
         configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
     return configs
 
