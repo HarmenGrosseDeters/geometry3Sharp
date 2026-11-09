@@ -663,7 +663,7 @@ Union, intersection, difference, xor and offset on the integer grid of the adapt
 zero polygons; `invalid_input` of the adapter (an unusable extent) is `operation_failed` with `clipper_status`:
 
 ```
-g3cli polygon2d parcel.geojson building.geojson free.geojson --op difference
+g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 ```
 

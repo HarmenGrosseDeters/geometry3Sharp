@@ -22,7 +22,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
-| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
 
 ## Build and run
 
@@ -166,7 +166,7 @@ g3cli fit unknown.stl --primitive all
 #   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
 
 # 2D polygons (GeoJSON Polygon / MultiPolygon, x and y): booleans and offsets with Clipper2; the result is a GeoJSON file or inline
-g3cli polygon2d parcel.geojson building.geojson free.geojson --op difference
+g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
 #   -> "result": { "polygons": 2, "holes": 0, "area": 812.5, "bounds": {...} }, "frame": { "resolution": 1.1e-11, ... }
 g3cli polygon2d footprints.geojson --op union                       # merges the overlapping polygons of one file
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --miter-limit 2

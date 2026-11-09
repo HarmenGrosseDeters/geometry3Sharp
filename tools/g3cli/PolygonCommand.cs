@@ -25,14 +25,18 @@ namespace g3cli
             public List<GeneralPolygon2d> Polygons = new List<GeneralPolygon2d>();
             public JsonNode Crs;
             public bool DroppedZ;
+            public long Vertices;
+            public int Rings;
         }
 
         public static Result Parse(string json, string code, string what)
         {
+            if (json.Length > MaxTextBytes)
+                throw new CommandException(code, what + " is longer than 256 million characters");
             JsonDocument doc;
             try {
-                doc = JsonDocument.Parse(json, new JsonDocumentOptions() { MaxDepth = 32 });
-            } catch (JsonException e) {
+                doc = JsonDocument.Parse(json, new JsonDocumentOptions() { MaxDepth = 64 });
+            } catch (Exception e) when (e is JsonException || e is ArgumentException) {
                 throw new CommandException(code, what + " is not valid JSON: " + e.Message);
             }
             using (doc) {
@@ -44,15 +48,28 @@ namespace g3cli
             }
         }
 
+        const long MaxTextBytes = 256L * 1024 * 1024;
+
         public static Result ReadFile(string path)
         {
-            if (File.Exists(path) == false)
+            string full;
+            try { full = Path.GetFullPath(path); } catch (Exception e) { throw new CommandException(ResultCodes.ReadError, $"cannot use '{path}': {e.Message}"); }
+            // a regular file only: devices and pipes (/dev/zero, /proc/..., FIFOs) have no length and would never end
+            if (File.Exists(full) == false || full.StartsWith("/dev/") || full.StartsWith("/proc/") || full.StartsWith("/sys/"))
                 throw new CommandException(ResultCodes.ReadError, $"file not found: {path}");
             string text;
             try {
-                if (new FileInfo(path).Length > 256L * 1024 * 1024)
-                    throw new CommandException(ResultCodes.ReadError, $"'{path}' is larger than 256 MB");
-                text = File.ReadAllText(path);
+                using (var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var ms = new MemoryStream()) {
+                    var buf = new byte[1 << 16];
+                    int n;
+                    while ((n = fs.Read(buf, 0, buf.Length)) > 0) {
+                        ms.Write(buf, 0, n);
+                        if (ms.Length > MaxTextBytes)
+                            throw new CommandException(ResultCodes.ReadError, $"'{path}' is larger than {MaxTextBytes / (1024 * 1024)} MB");
+                    }
+                    text = new System.Text.UTF8Encoding(false, false).GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                }
             } catch (CommandException) {
                 throw;
             } catch (Exception e) {
@@ -61,7 +78,7 @@ namespace g3cli
             return Parse(text, ResultCodes.ReadError, "'" + path + "'");
         }
 
-        const int MaxPolygons = 1000000, MaxVertices = 20000000;
+        const int MaxPolygons = 1000000, MaxVertices = 20000000, MaxRings = 2000000;
 
         static void Node(JsonElement e, Result r, string code, string what, int depth)
         {
@@ -105,9 +122,15 @@ namespace g3cli
             GeneralPolygon2d gp = null;
             int ringIndex = 0;
             foreach (JsonElement ring in rings.EnumerateArray()) {
+                if (++r.Rings > MaxRings)
+                    throw new CommandException(code, what + $": more than {MaxRings} rings");
                 Polygon2d poly = Ring(ring, r, code, what, ringIndex);
                 if (gp == null) gp = new GeneralPolygon2d(poly);
-                else gp.AddHole(poly, false, false);      // (the orientation and containment of holes are handled by the clipper)
+                else {
+                    // holes run the other way than the outer ring, as GeneralPolygon2d.Area and the clipper expect (containment is the clipper's business)
+                    if (poly.IsClockwise == gp.Outer.IsClockwise) poly.Reverse();
+                    gp.AddHole(poly, false, false);
+                }
                 ringIndex++;
             }
             r.Polygons.Add(gp);
@@ -118,8 +141,8 @@ namespace g3cli
             if (ring.ValueKind != JsonValueKind.Array)
                 throw new CommandException(code, what + ": a ring is an array of positions");
             int n = ring.GetArrayLength();
-            if (n > MaxVertices)
-                throw new CommandException(code, what + $": a ring of more than {MaxVertices} positions");
+            if ((r.Vertices += n) > MaxVertices)
+                throw new CommandException(code, what + $": more than {MaxVertices} positions in all");
             var pts = new List<Vector2d>(n);
             foreach (JsonElement pos in ring.EnumerateArray()) {
                 if (pos.ValueKind != JsonValueKind.Array || pos.GetArrayLength() < 2)
@@ -168,6 +191,8 @@ namespace g3cli
 
     public static partial class Commands
     {
+        static string PolyNum(double d) => d.ToString("R", CultureInfo.InvariantCulture);
+
         static FillRule ParseFillRule(string s)
         {
             switch (s) {
@@ -203,7 +228,7 @@ namespace g3cli
             };
             c.Params.Add(new Param("subject", ParamType.String, "subject polygons, a GeoJSON file; or give subject_geojson") { Positional = true });
             c.Params.Add(new Param("clip", ParamType.String, "clip polygons, a GeoJSON file (all operations but offset; optional for union); or give clip_geojson") { Positional = true });
-            c.Params.Add(new Param("output", ParamType.String, "output GeoJSON file for the result (optional)") { Positional = true });
+            c.Params.Add(new Param("output", ParamType.String, "output GeoJSON file for the result (optional; give it as --output: the second positional argument is the clip)"));
             c.Params.Add(new Param("subject_geojson", ParamType.String, "the subject as inline GeoJSON text, instead of a file"));
             c.Params.Add(new Param("clip_geojson", ParamType.String, "the clip as inline GeoJSON text, instead of a file"));
             c.Params.Add(new Param("op", ParamType.String, "union, intersection, difference, xor or offset") { Required = true, Enum = new[] { "union", "intersection", "difference", "xor", "offset" } });
@@ -233,6 +258,15 @@ namespace g3cli
                     if (op != "union" && hasClip == false)
                         throw new CommandException(ResultCodes.InvalidArguments, op + " needs a clip");
                 }
+                if (op == "offset") {
+                    if (args.Has("fill_rule"))
+                        throw new CommandException(ResultCodes.InvalidArguments, "fill_rule is an option of the booleans");
+                    if (args.Has("miter_limit") && args.String("join") != "miter")
+                        throw new CommandException(ResultCodes.InvalidArguments, "miter_limit applies to join miter");
+                    if (args.Has("arc_tolerance") && args.String("join") != "round")
+                        throw new CommandException(ResultCodes.InvalidArguments, "arc_tolerance applies to join round");
+                } else if (args.Has("miter_limit") || args.Has("arc_tolerance") || args.String("join") != "round")
+                    throw new CommandException(ResultCodes.InvalidArguments, "join, miter_limit and arc_tolerance are options of offset");
                 var options = new Clipper2Options() { PreserveCollinear = args.Bool("preserve_collinear"), JoinType = ParseJoin(args.String("join")) };
                 if (args.Has("fill_rule")) options.FillRule = ParseFillRule(args.String("fill_rule"));
                 if (args.Has("precision_bits")) {
@@ -264,14 +298,33 @@ namespace g3cli
                 if (clip != null && clip.Polygons.Count == 0)
                     throw new CommandException(ResultCodes.EmptyMesh, "the clip has no polygons");
 
-                Clipper2Result res;
-                switch (op) {
-                    case "union": res = Clipper2Polygons.Union(subject.Polygons, clip?.Polygons, options); break;
-                    case "intersection": res = Clipper2Polygons.Intersection(subject.Polygons, clip.Polygons, options); break;
-                    case "difference": res = Clipper2Polygons.Difference(subject.Polygons, clip.Polygons, options); break;
-                    case "xor": res = Clipper2Polygons.Xor(subject.Polygons, clip.Polygons, options); break;
-                    default: res = Clipper2Polygons.Offset(subject.Polygons, args.Number("delta"), options); break;
+                if (op == "offset") {
+                    // the grid is fitted to the input and the margin: a delta far beyond the input's size would round the input away
+                    AxisAlignedBox2d box = subject.Polygons[0].Bounds;
+                    foreach (var p in subject.Polygons.Skip(1)) box.Contain(p.Bounds);
+                    double extent = Math.Max(box.Width, box.Height);
+                    if (Math.Abs(args.Number("delta")) > 1000 * extent)
+                        throw new CommandException(ResultCodes.InvalidArguments, "|delta| must be at most 1000 times the extent of the subject (" + PolyNum(1000 * extent) + "); a negative delta that large gives an empty result anyway");
                 }
+                Clipper2Result res = null;
+                Exception failure = null;
+                // on a thread with a large stack: the adapter builds nested polygons recursively, one level per nesting of rings
+                var worker = new System.Threading.Thread(() => {
+                    try {
+                        switch (op) {
+                            case "union": res = Clipper2Polygons.Union(subject.Polygons, clip?.Polygons, options); break;
+                            case "intersection": res = Clipper2Polygons.Intersection(subject.Polygons, clip.Polygons, options); break;
+                            case "difference": res = Clipper2Polygons.Difference(subject.Polygons, clip.Polygons, options); break;
+                            case "xor": res = Clipper2Polygons.Xor(subject.Polygons, clip.Polygons, options); break;
+                            default: res = Clipper2Polygons.Offset(subject.Polygons, args.Number("delta"), options); break;
+                        }
+                    } catch (Exception e) { failure = e; }
+                }, 512 * 1024 * 1024);
+                worker.Start(); worker.Join();
+                if (failure is ArgumentException || failure is OverflowException)
+                    throw new CommandException(ResultCodes.InvalidArguments, "polygon2d: " + failure.Message);
+                if (failure != null)
+                    throw new CommandException(ResultCodes.InternalError, failure.GetType().Name + ": " + failure.Message);
                 string status = ToSnake(res.Status.ToString());
                 if (res.Status == Clipper2Status.InvalidParameter)
                     throw new CommandException(ResultCodes.InvalidArguments, "polygon2d: " + res.Error, new JsonObject() { ["clipper_status"] = status });
@@ -292,6 +345,9 @@ namespace g3cli
                 if (args.Bool("return_geojson")) o["result_geojson"] = geojson;
                 var warnings = new List<string>();
                 if (subject.DroppedZ || (clip?.DroppedZ ?? false)) warnings.Add("third coordinates (z) of the positions are ignored");
+                if (op == "offset" && args.Bool("preserve_collinear")) warnings.Add("preserve_collinear has no effect on offset");
+                if (clip?.Crs != null && subject.Crs != null && clip.Crs.ToJsonString() != subject.Crs.ToJsonString())
+                    warnings.Add("subject and clip name different crs; the subject's is used (coordinates are not reprojected)");
                 o["warnings"] = Warnings(warnings);
                 return o;
             };

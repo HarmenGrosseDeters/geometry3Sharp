@@ -182,7 +182,7 @@ namespace g3cli.Tests
             File.WriteAllText(subject, "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:25832\"}},\"features\":[" +
                 "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[0,0,5],[10,0,5],[10,10,5],[0,10,5],[0,0,5]]]}}]}");
             File.WriteAllText(clip, Clip());
-            var (exit, r) = Run("polygon2d", subject, clip, output, "--op", "intersection", "--compact");
+            var (exit, r) = Run("polygon2d", subject, clip, "--output", output, "--op", "intersection", "--compact");
             Assert.Equal(0, exit);
             Assert.Equal(50.0, Area(r), 9);
             Assert.Equal(output, S(r["output"]));
@@ -203,6 +203,180 @@ namespace g3cli.Tests
             var (e, coarse) = P("union", Subject(), Clip(), "--precision-bits", "12");
             Assert.Equal(0, e);
             Assert.True(D(coarse["frame"]["resolution"]) > 100 * D(fine["frame"]["resolution"]));
+        }
+
+        [Fact]
+        public void FileOperands_AreNotSwapped_AndTheSummariesSayWhichIsWhich()
+        {
+            string subject = m.Path_("s2.geojson"), clip = m.Path_("c2.geojson");
+            File.WriteAllText(subject, Subject());
+            File.WriteAllText(clip, Clip());
+            var (exit, r) = Run("polygon2d", subject, clip, "--op", "difference", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(96.0, D(r["subject"]["area"]), 9);
+            Assert.Equal(100.0, D(r["clip"]["area"]), 9);
+            Assert.Equal(48.0, Area(r), 6);                       // subject minus clip, not clip minus subject (52)
+            // a second positional is the clip, never the output: offset has no clip
+            var (e2, r2) = Run("polygon2d", subject, m.Path_("o2.geojson"), "--op", "offset", "--delta", "1");
+            AssertError(e2, r2, "invalid_arguments");
+        }
+
+        [Fact]
+        public void HolesOfAnyOrientation_GiveTheSameRegionAndArea()
+        {
+            string ccwHole = Poly(Ring(0, 0, 10, 10), Ring(4, 4, 6, 6, true));        // hole as the outer ring runs
+            string allCw = Poly(Ring(0, 0, 10, 10, false), Ring(4, 4, 6, 6, false));
+            foreach (string subject in new[] { Subject(), ccwHole, allCw }) {
+                var (exit, r) = P("union", subject);
+                Assert.Equal(0, exit);
+                Assert.Equal(96.0, D(r["subject"]["area"]), 9);
+                Assert.Equal(96.0, Area(r), 9);
+                Assert.Equal(1, I(r["result"]["holes"]));
+            }
+        }
+
+        [Fact]
+        public void MultiPolygonWithHoles_UnclosedRings_AndSeveralFeatures_AreRead()
+        {
+            string multi = "{\"type\":\"FeatureCollection\",\"features\":[" +
+                "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"MultiPolygon\",\"coordinates\":[[" + Ring(0, 0, 10, 10) + "," + Ring(4, 4, 6, 6, false) + "]," +
+                "[[[20,0],[30,0],[30,10],[20,10]]]]}}," +        // an unclosed ring
+                "{\"type\":\"Feature\",\"properties\":{},\"geometry\":" + Poly(Ring(40, 0, 50, 10)) + "}]}";
+            var (exit, r) = P("union", multi);
+            Assert.Equal(0, exit);
+            Assert.Equal(3, I(r["subject"]["polygons"]));
+            Assert.Equal(1, I(r["subject"]["holes"]));
+            Assert.Equal(96.0 + 100 + 100, D(r["subject"]["area"]), 9);
+        }
+
+        [Fact]
+        public void CrsOfTheClipOnly_IsKept_AndDifferentCrsWarn()
+        {
+            string withCrs(string name, string geometry) => "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"" + name + "\"}},\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":" + geometry + "}]}";
+            var (e1, onlyClip) = P("union", Subject(), withCrs("EPSG:25832", Clip()), "--return-geojson");
+            Assert.Equal(0, e1);
+            Assert.Equal("EPSG:25832", S(onlyClip["result_geojson"]["crs"]["properties"]["name"]));
+            var (e2, mixed) = P("union", withCrs("EPSG:25832", Subject()), withCrs("EPSG:4326", Clip()));
+            Assert.Equal(0, e2);
+            Assert.Contains(mixed["warnings"].AsArray().Select(S), w => w.Contains("crs"));
+        }
+
+        [Fact]
+        public void FillRules_AllMapToTheirRule()
+        {
+            // two overlapping squares of the same orientation, and a clockwise one
+            string ccw2 = "{\"type\":\"MultiPolygon\",\"coordinates\":[[" + Ring(0, 0, 10, 10) + "],[" + Ring(5, 0, 15, 10) + "]]}";
+            double Rule(string rule, string subject) => Area(P("union", subject, null, "--fill-rule", rule).r);
+            Assert.Equal(150.0, Rule("non_zero", ccw2), 9);
+            Assert.Equal(150.0, Rule("positive", ccw2), 9);
+            Assert.Equal(100.0, Rule("even_odd", ccw2), 9);
+            Assert.Equal(0.0, Rule("negative", ccw2), 9);                  // nothing winds negatively
+        }
+
+        [Fact]
+        public void PreserveCollinear_KeepsTheMiddleVertices()
+        {
+            string withMid = Poly("[[0,0],[5,0],[10,0],[10,10],[0,10],[0,0]]");
+            int v(params string[] more) => I(P("union", withMid, null, more).r["result"]["vertices"]);
+            Assert.Equal(4, v());
+            Assert.Equal(5, v("--preserve-collinear"));
+        }
+
+        [Fact]
+        public void ArcTolerance_ChangesTheRoundJoin()
+        {
+            string square = Poly(Ring(0, 0, 10, 10));
+            double fine = Area(P("offset", square, null, "--delta", "1", "--arc-tolerance", "0.0001").r);
+            double coarse = Area(P("offset", square, null, "--delta", "1", "--arc-tolerance", "0.25").r);
+            Assert.True(fine > coarse + 0.01, $"{fine} {coarse}");        // coarser arcs cut inside the circle
+        }
+
+        [Fact]
+        public void OffsetOnlyAndBooleanOnlyOptions_AreRefusedWhereTheyDoNothing()
+        {
+            string sq = Poly(Ring(0, 0, 1, 1));
+            foreach (string[] bad in new[] {
+                new[] { "--op", "offset", "--delta", "1", "--fill-rule", "even_odd" },
+                new[] { "--op", "offset", "--delta", "1", "--miter-limit", "3" },                  // join round
+                new[] { "--op", "offset", "--delta", "1", "--join", "miter", "--arc-tolerance", "0.1" },
+                new[] { "--op", "union", "--join", "miter" },
+            }) {
+                var (exit, r) = Run(new[] { "polygon2d", "--subject-geojson", sq, "--compact" }.Concat(bad).ToArray());
+                AssertError(exit, r, "invalid_arguments");
+            }
+            var (e, w) = P("offset", sq, null, "--delta", "1", "--preserve-collinear");
+            Assert.Equal(0, e);
+            Assert.Contains(w["warnings"].AsArray().Select(S), x => x.Contains("preserve_collinear"));
+        }
+
+        [Theory]
+        [InlineData("1e15")]
+        [InlineData("-1e15")]
+        [InlineData("1e300")]
+        [InlineData("-1e300")]
+        [InlineData("20000")]          // more than 1000 times the extent 10
+        public void ExtremeOffsets_AreInvalidArguments_NotAWrongResult(string delta)
+        {
+            var (exit, r) = P("offset", Poly(Ring(0, 0, 10, 10)), null, "--delta", delta);
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("delta", S(r["message"]));
+        }
+
+        [Fact]
+        public void LargeButAllowedOffsets_Work()
+        {
+            var (e1, grow) = P("offset", Poly(Ring(0, 0, 10, 10)), null, "--delta", "9000", "--join", "miter");
+            Assert.Equal(0, e1);
+            Assert.InRange(Area(grow), 18010.0 * 18010.0 * 0.999, 18010.0 * 18010.0 * 1.001);
+            var (e2, shrink) = P("offset", Poly(Ring(0, 0, 10, 10)), null, "--delta", "-9000");
+            Assert.Equal(0, e2);
+            Assert.True(B(shrink["empty_result"]));
+        }
+
+        [Fact]
+        public void SpecialFiles_AreRefused_WithoutReading()
+        {
+            foreach (string path in new[] { "/dev/zero", "/dev/stdin", "/proc/self/environ" }) {
+                var (exit, r) = Run("polygon2d", path, "--op", "union");
+                AssertError(exit, r, "read_error");
+            }
+        }
+
+        [Fact]
+        public void DeeplyNestedRings_DoNotOverflowTheStack()
+        {
+            // 3000 concentric squares: nested polygons, built recursively by the adapter
+            var rings = Enumerable.Range(0, 3000).Select(i => Ring(-6000 + 2 * i, -6000 + 2 * i, 6000 - 2 * i, 6000 - 2 * i, i % 2 == 0));
+            var (exit, r) = P("union", Poly(rings.ToArray()), null, "--fill-rule", "even_odd");
+            Assert.Equal(0, exit);
+            Assert.True(I(r["result"]["polygons"]) >= 1);
+        }
+
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(10, false)]
+        [InlineData(-10, false)]
+        public void Similarity_PowerOfTwoScales_GiveTheSameResult(int exponent, bool unused)
+        {
+            double s = Math.Pow(2, exponent);
+            var (_, baseline) = P("difference", Subject(), Clip());
+            var (e, scaled) = P("difference", Subject(s), Clip(s));
+            Assert.Equal(0, e);
+            Assert.Equal(baseline["result"]["polygons"].ToJsonString(), scaled["result"]["polygons"].ToJsonString());
+            Assert.Equal(s * s * Area(baseline), Area(scaled));           // bit for bit
+        }
+
+        [Fact]
+        public void Rotation_By90Degrees_GivesTheSameAreas()
+        {
+            string Rot(string json) => System.Text.RegularExpressions.Regex.Replace(json, @"\[(-?[0-9.eE+-]+),(-?[0-9.eE+-]+)\]", mt => $"[{N(-double.Parse(mt.Groups[2].Value, CultureInfo.InvariantCulture))},{mt.Groups[1].Value}]");
+            foreach (string op in new[] { "union", "intersection", "difference", "xor" }) {
+                var (_, a) = P(op, Subject(), Clip());
+                var (e, b) = P(op, Rot(Subject()), Rot(Clip()));
+                Assert.Equal(0, e);
+                Assert.Equal(Area(a), Area(b), 9);
+                Assert.Equal(I(a["result"]["vertices"]), I(b["result"]["vertices"]));
+            }
         }
 
         [Theory]
