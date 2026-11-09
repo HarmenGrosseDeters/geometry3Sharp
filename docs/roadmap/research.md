@@ -318,6 +318,11 @@ Ordered by expected value for the library.
      (vertices move, edges do not follow the crease). Owner 2026-11-09: a study of *why B fails* and of a hybrid
      (wrap guarantees with DC creases, e.g. an offset level set, crease-locked angle repair, DC only in crease
      regions) is wanted later, on the strongest model; the C flip prototype waits for it.
+     Flip prototype (owner 2026-11-09): not built now. First the fTetWild black-box comparison (JOB-2 on
+     runs/tet-meshing) decides whether tet meshing goes on; only then a 2-3 day upper-bound probe on the 6 CAD solids
+     (ideal crease-aligned flips and splits, without the exact checks). Below 70 % of B's Chamfer gain the flip path is
+     dropped in favour of the B hybrid / intersection-free DC; above it the 1-2 week build is justified. #498 (probe
+     harness and results) merges as measurement and docs.
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
