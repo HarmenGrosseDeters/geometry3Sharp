@@ -33,8 +33,13 @@ the CI reference machine).
 ## Deviations and events
 
 - **Label A** (`A-part4`) started 20:05:50 (Berlin). The 2 h background limit of the tracked task was reached at 22:05; the
-  Stryker process kept running detached (PID recorded in the controller log, not in this file). Its exit code could not
-  be recorded, so `A-part4.exit` says `orphan-ended-after-2h-chunk`. Stryker cannot resume, and the run was not restarted.
+  Stryker process kept running detached and the original script finished it: exit code 0 is recorded in `A-part4.exit`.
+  Stryker cannot resume, and the run was not restarted.
+- **Label A is not a valid kill measurement.** Coverage capture took 6 h 34 min (20:11:45 to 02:44:53), and all 282
+  mutants to test ended as `Timeout` (0 killed, 8 no coverage). Their lines spread over the whole part (1071 to 1301), and
+  by the log times the mutant phase took about 5 s, which does not fit 282 real test runs. The score of 97.24 % counts
+  timeouts as detected and is not a kill rate. The full log of this run was overwritten when label B1 started (the
+  job's `rm -rf StrykerOutput`), so the cause is open. See `REPORT-A-part4.md`.
 - The coverage phase (one test host, not parallel) took about two hours on this machine. Concurrency only affects the
   mutant phase.
 - **Labels B1, B2:** the run is stopped as soon as Stryker logs `total mutants will be tested` (the job's stop rule); the
