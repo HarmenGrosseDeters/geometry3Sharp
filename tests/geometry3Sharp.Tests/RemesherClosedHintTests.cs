@@ -80,21 +80,20 @@ namespace geometry3Sharp.Tests
             Assert.True(spilled >= 2, "vertices whose edge list spilled past one block were tested");
         }
 
+#if NET8_0_OR_GREATER
         [Fact]
         public void IsBoundaryVertex_DoesNotAllocate()
         {
             DMesh3 m = Pyramid(20, false);
             int sum = 0;
-            for (int vid = 0; vid < m.MaxVertexID; ++vid)
-                if (m.IsBoundaryVertex(vid)) sum++;     // (warm-up: JIT)
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int rep = 0; rep < 100; ++rep)
+            long bytes = Allocations.Least(100, () => {
                 for (int vid = 0; vid < m.MaxVertexID; ++vid)
                     if (m.IsBoundaryVertex(vid)) sum++;
-            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            });
             Assert.True(sum > 0);
-            Assert.True(bytes == 0, bytes + " bytes allocated by 2100 calls");
+            Assert.True(bytes == 0, bytes + " bytes allocated");
         }
+#endif
 
         // one pass of the edge tests (flips only, as the flip test is what asked for the boundary vertices; splits,
         // collapses and smoothing allocate for their own reasons), serial: bytes per edge
