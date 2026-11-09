@@ -597,3 +597,87 @@ remain. [Controlled mutation output](validation/closest_mutations_2026-11-07.jso
 vertical-instead-of-3D fails 3 tests, zero-horizontal 3, mixed-correspondence 2,
 capped-search 8; restored implementation passes all 9. The full unrelated .NET
 test suite and net48 execution were not run locally; CI runs those suites.
+
+## TIN spike: error-driven rounds around QualityMesh2 (2026-11-09)
+
+`tinspike n=<nodes per side> eps=<m> frac=<threshold fraction>` runs method B2 of
+[TERRAIN_DGM_TO_TIN.md](../../docs/design/TERRAIN_DGM_TO_TIN.md) on a procedural grid (hills, an open pit with 8 benches, 2-3 cm of
+roughness; cell 1 m, no breaklines, no gaps yet) and compares it with `TerrainGreedyTIN` (same grid, `MaxError = eps`). B2: a constrained
+Delaunay triangulation (`QualityMesh2`, `MinAngle 0`) of the selected nodes in grid index space, an exact error scan of the real mesher output, and
+the nodes next to the worst violations of every bad triangle are added, until the error is within `eps`. "node": the guarantee is the error at the
+grid nodes (as `TerrainGreedyTIN`); "surface": the guarantee is the exact surface error against the grid TIN (overlay vertices: grid nodes inside a
+triangle, and crossings of its edges with the lines x = i, y = j and the diagonals; a cell whose four corners are all vertices but whose diagonal
+differs from the grid's gets that diagonal as a locked segment). Cloud runner, 1 run each (timings single shot), 513 x 513 nodes (263 169), eps 0.1 m:
+
+| Method | Vertices | vs greedy | Time | Rounds | Node error | Surface error |
+|---|---|---|---|---|---|---|
+| TerrainGreedyTIN | 5019 | 1.00 | 0.15 s | | <= 0.1 | not measured |
+| TerrainGreedyTIN + RemoveVertices | 1958 | 0.39 | 0.56 s | | <= 0.1 | not measured |
+| B2 node guarantee, frac 0 (every violation each round) | 8096 | 1.61 | 0.86 s | 20 | 0.0999 | not measured |
+| B2 node guarantee, frac 0.5 | 7042 | 1.40 | 2.4 s | 75 | 0.0999 | not measured |
+| B2 node guarantee, frac 0.7 | 6604 | 1.32 | 4.3 s | 158 | 0.0999 | not measured |
+| **B2 surface guarantee**, frac 0 | 10 748 | **2.14** | 1.6 s (**10.8x**) | 26 | 0.0997 | 0.09993 |
+| B2 surface guarantee, frac 0.5 | 10 651 | 2.12 | 5.8 s | 110 | 0.0998 | 0.09998 |
+| B2 surface guarantee, frac 0.7 | 10 355 | 2.06 | 10.9 s | 238 | 0.0998 | 0.09999 |
+
+Findings: (1) the time is the mesher: 90 % or more of the time is the `QualityMesh2` call of the rounds, each round a full constrained Delaunay of the
+current vertices (the error scan is 0.2-0.4 s in total); fewer rounds cost more vertices (frac 0 -> 0.7: 20 -> 158 rounds, 8096 -> 6604 vertices).
+(2) the surface guarantee costs +33 % vertices (10 748 against 8096) and +88 % time at frac 0 against the node guarantee; 1462 diagonals had to
+be locked, each adds its two corners. (3) Against the stop rule of D8 (more than 2x the vertices or 5x the time of `TerrainGreedyTIN`): the surface
+guarantee is at 2.06-2.14x the vertices and 10.8x the time of the plain greedy, and 5.3x the vertices of greedy with `RemoveVertices` (the
+fair comparison for a minimum); the node guarantee is at 1.3-1.6x and 5.7x. Not measured: real DGM data (the Hambach data need the download of `fetch_data.py`),
+breaklines, gaps, 12 km^2 windows, the surface error of the greedy results.
+
+### Variant (c): greedy selection, one constrained Delaunay pass, surface correction (owner choice 2026-11-09)
+
+`tinspikec n=513 eps=0.1 [remove=0|1] [breaklines=0|1] [gaps=0|1]`: `TerrainGreedyTIN` (with or without `RemoveVertices`) selects the nodes, `QualityMesh2`
+triangulates them once (constrained Delaunay, locked breaklines, a hole for gaps), then the correction pass judges the **final mesh** with the exact overlay scan
+and adds a node of the cell, splits a breakline / hole-boundary segment at the violating crossing, or locks the cell's diagonal (as a chain through the
+breakline crossings if the diagonal crosses a breakline), until the surface error is within `eps`. Same pit grid (513 x 513), eps 0.1 m, single runs, cloud runner. Breaklines: 4 circles
+(radii 135, 96, 58, 19 cells; the cliff lines of the pit's benches) at 2 cells spacing, 1 800 segments. Gaps: a 39 x 29 node no-data block, greedy runs on a filled copy.
+
+| Case | Selected by greedy | Round 0 (the CDT of the selection): surface / node error | Final vertices | Rounds | Time (greedy + mesher + scan) | Final surface / node error |
+|---|---|---|---|---|---|---|
+| plain, greedy + remove | 1958 | 2.207 / 2.203 | 9961 (5.1x the selection, 2.0x plain greedy, 0.93x B2 surface) | 13 | 2.1 s (0.58 + 1.07 + 0.40) | 0.09999 / 0.09999 |
+| plain, greedy | 5019 | 1.929 / 1.929 | 10 320 (0.96x B2 surface) | 14 | 1.8 s (0.13 + 1.44 + 0.22) | 0.09999 / 0.09999 |
+| gaps, greedy + remove | 1956 | 2.207 / 2.203 | 9987 | 13 | 2.3 s | 0.09999 / 0.09999 |
+| breaklines, greedy + remove | 1958 | 2.207 / 2.203 | 12 726 (not converged) | 12 | 2.5 s | **0.52** / 0.09999 (stuck) |
+| gaps + breaklines, greedy + remove | 1956 | 2.207 / 2.203 | 12 722 (not converged) | 13 | 2.6 s | **0.52** / 0.09999 (stuck) |
+
+Findings: (1) The CDT of greedy's selection is far from the guarantee: 22x eps (2.2 m), because the mesher's diagonals at the cocircular grid points differ from greedy's own
+triangulation (and greedy with `RemoveVertices` is not Delaunay at all). The correction pass then adds 8 000 vertices (1 460 locked diagonals, each with its two corners),
+so (c) ends at the vertex count of B2 (9 961 against 10 748), not near greedy's 1 958 / 5 019, and the time (2.1 s) is not below B2's best (1.6 s). (2) Gaps work
+(hole boundary refined by splitting its segments). (3) With breaklines the correction does not converge in this implementation: it stops at 0.52 m with 56 triangles above
+eps (node error is within eps); the stuck triangles have breakline chords crossing grid lines inside cells whose diagonals are already locked; the
+cause is not found (the breakline splits at the chord's grid-line crossings are requested, but a few violations are on unlocked edges of fully resolved cells).
+Not measured: real DGM data, large windows.
+
+### Breakline convergence fixed; the surface error of TerrainGreedyTIN's own output (2026-11-09)
+
+**Breaklines.** The stuck triangles (surface error 0.52 m) were not caused by the two suspects (breakline vertex-to-corner edges, the one-split-per-round rule). Cause: a triangle edge
+between a breakline vertex inside a cell and a node can cross a **grid line between two selected nodes**, because with off-lattice breakline vertices the
+Delaunay triangulation need not contain that grid edge; S has a crease along it, T does not. Without breaklines the lattice forces the grid edges, which is why only
+diagonals needed locking. Fix: the correction locks any **crease** of S (diagonal, horizontal or vertical cell side) where a violation sits on it and all corners are selected, as a chain through the
+breakline crossings and vertices. Pit grid 513 x 513, eps 0.1 m, single runs:
+
+| Case | Selection | Vertices | Rounds | Time | Final surface / node error |
+|---|---|---|---|---|---|
+| plain | greedy + remove | 9961 | 13 | 2.1 s | 0.09999 / 0.09999 |
+| breaklines (4 cliff circles, 2 cells, ~1800 segments) | greedy + remove | 12 702 | 15 | 2.9 s | 0.09999 / 0.09999 |
+| breaklines | B2 (4 corners only) | 14 027 | 13 | 2.1 s | 0.09999 / 0.09999 |
+| gaps + breaklines | B2 (4 corners only) | 14 031 | 17 | 2.8 s | 0.09999 / 0.09993 |
+
+B2 has the same problem with breaklines (the crease locking is part of the shared correction, `tinspikec select=none`).
+
+**Fair baseline: the exact surface error of `TerrainGreedyTIN`'s own output** (same scan; its guarantee is the node error only). Pit grid 513 x 513:
+
+| Terrain (`amp`) | eps | Greedy: vertices, node / **surface** error | Greedy + RemoveVertices: vertices, surface error | B2 surface guarantee: vertices (x greedy) | B2 node guarantee: vertices |
+|---|---|---|---|---|---|
+| 3 m (gentle) | 0.1 | 3072, 0.1000 / **0.185** | 1006, 0.246 | 4997 (1.63x) | 4554 |
+| 8 m | 0.1 | 3915, 0.1000 / **0.437** | 1327, 0.536 | 6562 (1.68x) | 6051 |
+| 30 m (cliffs of 1.9 m between neighbouring nodes) | 0.1 | 5019, 0.1000 / **1.55** | 1958, 1.87 | 10 748 (2.14x) | 8096 |
+| 30 m | 0.05 | 19 053, 0.0500 / **1.50** | 6359, 1.88 | | |
+| 30 m | 0.2 | 4010, 0.2000 / **1.55** | 1507, 1.86 | | |
+
+So the node guarantee of greedy does not bound the surface: its surface error is 1.8-15x the node error, and on the cliffs it does not shrink with eps at all (1.5 m). The surface
+guarantee costs +10 % vertices over the node guarantee on the gentle terrains (4997 against 4554; 6562 against 6051) and +33 % on the cliff terrain (10 748 against 8096).

@@ -631,3 +631,10 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 | ESRI ASCII Grid (.asc) | ESRI, *ASCII to Raster* tool documentation (header ncols / nrows / xllcorner | xllcenter / yllcorner | yllcenter / cellsize / NODATA_value; north row first); the GDAL AAIGrid driver page describes the same format, including dx / dy |
 | XYZ ASCII DGM (Geobasis NRW `dgm1_xyz`) | the open-data product description of the Land NRW DGM1 (one "x y z" point per line on a regular 1 m grid); the reader accepts any regular square lattice |
 | Grid TIN with a fixed diagonal | Garland, Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 (regular grid triangulation as the full-resolution reference); the interpolation on the TIN is the library's own definition (`HeightGrid.Height`) |
+
+## DGM to TIN with breaklines (`TerrainGridTin`)
+
+`mesh_ops/TerrainGridTin.cs`, design in [TERRAIN_DGM_TO_TIN.md](design/TERRAIN_DGM_TO_TIN.md). No code read or ported. The method is the library's own: error-driven rounds around the exact constrained
+Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the piecewise linearity of both surfaces (the difference is linear on the cells of the overlay of two triangulations, so its maximum is at overlay
+vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
+the usual GIS distinction between constrained and conforming TINs with breaklines.

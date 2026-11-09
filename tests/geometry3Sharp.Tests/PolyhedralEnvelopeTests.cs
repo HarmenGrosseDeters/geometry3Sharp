@@ -648,6 +648,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Contains_MatchesOracle()
         {
@@ -698,12 +699,32 @@ namespace geometry3Sharp.Tests
             yield return (m.GetTriCentroid(tids[0]), m.GetTriCentroid(tids[0]));
         }
 
+        // The oracle tests below run one query mesh per test class (they are the longest of the suite, the meshes are independent, and
+        // xUnit runs the classes in parallel but the tests of one class one after another). The
+        // queries of all meshes come from one Random: a test generates the queries of the meshes before its own without judging them, so
+        // that each mesh sees exactly the queries it saw in the loop over all of them (QueryMeshes_AreCoveredByTheOracleTests).
         [Fact]
-        public void ContainsSegment_MatchesIntervalOracle()
+        public void QueryMeshes_AreCoveredByTheOracleTests()
+        {
+            Assert.Equal(3, QueryMeshes().Count());      // the per-mesh classes below
+        }
+
+        [Trait("Category", "Slow")]
+        public class ContainsSegmentMesh0 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(0); }
+
+        [Trait("Category", "Slow")]
+        public class ContainsSegmentMesh1 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(1); }
+
+        [Trait("Category", "Slow")]
+        public class ContainsSegmentMesh2 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(2); }
+
+        static void SegmentOracle(int meshIndex)
         {
             var rand = new Random(5);
+            int k = 0;
             foreach ((DMesh3 mesh, double eps) in QueryMeshes()) {
                 var env = new PolyhedralEnvelope(mesh, eps);
+                if (k++ != meshIndex) { foreach (var skipped in QuerySegments(env, rand)) { } continue; }
                 int yes = 0, n = 0;
                 foreach ((Vector3d a, Vector3d b) in QuerySegments(env, rand)) {
                     bool r = env.ContainsSegment(a, b);
@@ -723,6 +744,7 @@ namespace geometry3Sharp.Tests
         /// The guarantee on the queries: every sample point of every accepted segment is within epsilon of the mesh (up
         /// to the double rounding of the distance), at scales 1, 2^-10, 1e-150, 1e150 and at UTM coordinates.
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Guarantee_AcceptedSegmentsWithinEpsilon()
         {
@@ -847,12 +869,22 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        [Fact]
-        public void ContainsTriangle_MatchesOracle()
+        [Trait("Category", "Slow")]
+        public class ContainsTriangleMesh0 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(0); }
+
+        [Trait("Category", "Slow")]
+        public class ContainsTriangleMesh1 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(1); }
+
+        [Trait("Category", "Slow")]
+        public class ContainsTriangleMesh2 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(2); }
+
+        static void TriangleOracle(int meshIndex)
         {
             var rand = new Random(13);
+            int k = 0;
             foreach ((DMesh3 mesh, double eps) in QueryMeshes()) {
                 var env = new PolyhedralEnvelope(mesh, eps);
+                if (k++ != meshIndex) { foreach (var skipped in QueryTriangles(env, rand)) { } continue; }
                 int yes = 0, n = 0, edgesOnly = 0;
                 foreach ((Vector3d a, Vector3d b, Vector3d c) in QueryTriangles(env, rand)) {
                     bool r = env.ContainsTriangle(a, b, c);
@@ -957,6 +989,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the triangle oracle at scales 1e-150, 1e150 and at UTM coordinates (no exceptions, same answers) </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void ContainsTriangle_MatchesOracle_ExtremeScales()
         {
@@ -1017,6 +1050,7 @@ namespace geometry3Sharp.Tests
         /// dependent pairs. ContainsTriangle equals the oracle; the triangle around the meeting point is contained iff
         /// an overlap closes the cross
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void ContainsTriangle_FourCubesMeetingAtAPoint()
         {

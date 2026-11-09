@@ -53,6 +53,7 @@ namespace geometry3Sharp.Tests
         // near the origin: the failing build skipped the copy, λ was raised by measurement (one attempt), and the result
         // is the one of the check after the whole composite, bit for bit; at UTM the same (there the region passes, so
         // nothing is skipped: the finer facets of the snap's reserved share, TERRAIN.md 5.4, have no sliver there)
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -80,6 +81,7 @@ namespace geometry3Sharp.Tests
 
         // every frame succeeds with the same result as the late check; the 2^k frames as the identity, scaled, bit for
         // bit, with the same skips
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void Similarities(string name)
@@ -104,6 +106,7 @@ namespace geometry3Sharp.Tests
         // the replacement only (no copy either way), and an unwelded terrain (the vertices of one grid column doubled,
         // the triangles left of it on the one copy, right of it on the other, through the region): the triangles copied
         // at cut edges keep the same decisions. Early and late give the same result in each
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -191,6 +194,7 @@ namespace geometry3Sharp.Tests
 
         // the 32-gon (r 100 m) these tests had first: early and late the same result in every frame, a success with a valid
         // composite but in "rotated, scale 1e-3, utm", where it is not certified (SlopeViolation) since the finer facets
+        [Trait("Category", "Slow")]
         [Theory]
         // (near the origin and at UTM only, to keep the suite's time: the other frames are the retuned tests')
         [InlineData("identity")]
@@ -213,6 +217,7 @@ namespace geometry3Sharp.Tests
             TerrainSlopeCatchLineTests.AssertComposite(early);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reuse()
         {

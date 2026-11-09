@@ -42,6 +42,7 @@ namespace geometry3Sharp.Tests
             return TextFormat.ReadInput(sb.ToString());
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(5, 0.0, 2.0)]
         [InlineData(6, 0.0, 2.0)]

@@ -163,6 +163,7 @@ namespace geometry3Sharp.Tests
         // Grid edges with both ends inside the solid can still cross a gap. The cells there merge both sides
         // and their vertices end up between the surfaces, which then cut through each other. Such hidden
         // gaps are detected and reported, and with MaxRefineLevels the cell size is halved until they are gone.
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(0.45)]
         [InlineData(0.9)]

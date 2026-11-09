@@ -43,6 +43,7 @@ namespace geometry3Sharp.Tests
             } finally { Oracle.CheckFastPathForTests = false; }
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(RowIds))]
         public void CatalogueRow(string id)
@@ -103,6 +104,7 @@ namespace geometry3Sharp.Tests
         /// the query widened by the tube finds the edge. The check compares the nearest edge found with the minimum over all hull edges;
         /// 0.11 outside (beyond the tube) is the control
         /// </summary>
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(0.09, true)]
         [InlineData(0.11, false)]

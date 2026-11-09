@@ -345,7 +345,7 @@ namespace gs
         /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
         /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
         /// </summary>
-        internal static double unit_scale_for_mesh(DMesh3 mesh)
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false)
         {
             AxisAlignedBox3d box = TriangleBounds(mesh);
             double s = unit_scale(box, -100, 100);
@@ -359,7 +359,8 @@ namespace gs
                 Vector3d p = mesh.GetVertex(v);
                 for (int k = 0; k < 3; ++k) {
                     double x = Math.Abs(p[k]);
-                    if (x != 0 && (x < 2.2250738585072014e-308 || x * s < 2.2250738585072014e-308))
+                    // (readOnly: the caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
+                    if (x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
                         return 1;
                 }
             }

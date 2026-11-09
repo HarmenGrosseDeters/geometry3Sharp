@@ -72,6 +72,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, new Remesher(new DMesh3()).MinTriangleQuality);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Primitives_NoFlatTriangles_FewerSelfIntersections()
         {
@@ -306,6 +307,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void BufferedPasses_FlipNoTriangle()
         {
