@@ -1,0 +1,6 @@
+{
+  "fptaylor_bound_hex": "0x1p-53",
+  "fptaylor_bound_exact": "1/9007199254740992",
+  "generator_bound_exact": "1/4503599627370496",
+  "ok": true
+}
