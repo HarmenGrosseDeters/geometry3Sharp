@@ -11,7 +11,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
-| `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
+| `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length; `--partitioned` (target `--max-error`): 8 slabs reduced in parallel and stitched, the same result for every `--threads` (`used_partition`) | `Reducer`, `PartitionedReducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
@@ -19,6 +19,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
+| `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 
 ## Build and run
 
@@ -147,6 +148,16 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 # quality and topology of one mesh
 g3cli quality part.stl
 #   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
+
+# alpha wrap: a closed, manifold surface around a scan or an assembly of overlapping parts; library defaults without options
+g3cli wrap scan.obj wrapped.stl
+#   -> "wrap_status": "success", "used_alpha": 3.1, "used_offset": 0.1, "mesh": { "closed": true, "clean": true, ... }
+g3cli wrap scan.obj wrapped.stl --alpha 0.5 --offset 0.02 --max-steiner-points 500000
+# "point_limit_reached" is ok with a warning (a valid wrap with less detail); other statuses fail with operation_failed
+
+# simplify a large closed mesh with slabs in parallel (max_error is a squared distance; the result does not depend on --threads)
+g3cli simplify big.ply big_small.ply --max-error 1e-6 --partitioned --threads 4
+#   -> "used_partition": true (false below 20000 triangles: one serial run, with a warning)
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation

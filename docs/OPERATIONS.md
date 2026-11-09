@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity` and `quality`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity` and `quality`, the alpha wrap `wrap`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -557,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `WrapPartitionedCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -642,6 +642,17 @@ g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.0
 #      "outer": {...}, "curvature": {...}, "reference_quality" / "mesh_quality": {...}, "topology_changes": ["components_lost"]
 g3cli quality simplified.stl
 #   -> "quality": { "min_angle": { "worst": ..., "worst_1_percent": ..., "median": ... }, ... }, "topology": { "genus": 0, ... }
+```
+
+**Alpha wrap and partitioned simplification** (`wrap`, `MeshAlphaWrap`; `simplify --partitioned`, `PartitionedReducer`): `wrap`
+makes a closed, 2-manifold surface that encloses any input at about `offset`, following detail down to about `alpha`; without
+options the library defaults apply (bounding box diagonal / 20 and / 600). `point_limit_reached` is still a valid wrap (warning);
+other statuses fail with `operation_failed` and `wrap_status`. `simplify --partitioned` needs the target `--max-error` (a squared
+distance) and gives the same result for every `--threads`, not that of one serial run; it does not preserve boundary shapes:
+
+```
+g3cli wrap assembly.off wrapped.stl --relative-alpha 40 --relative-offset 1000
+g3cli simplify big.ply small.ply --max-error 1e-6 --partitioned --threads 4
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
