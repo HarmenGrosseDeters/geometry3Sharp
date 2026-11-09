@@ -15,19 +15,26 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QualityMesh2OracleCoincidenceTests
     {
-        /// <summary> the refinement without the pinch rule (a split may route a chain through another chain's vertex of refinement) </summary>
+        /// <summary>
+        /// the refinement without the pinch rule (a split may route a chain through another chain's vertex of refinement). Also without the
+        /// small-angle exemption of rule C: the seeds of these tests were found where the conforming mode on the grid had none, and rule C
+        /// (on the grid since the oracle judges chain identity) changes which splits happen, so these meshes would no longer show the
+        /// mechanism. The mechanisms are pinned as before; rule C on the grid is covered by the ratchets below, which run with it
+        /// </summary>
         static Mesh2Output WithoutThePinchRule(Mesh2Input input)
         {
             QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;
             try { return new QualityMesh2Candidate().Run(input); }
-            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
+            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         static Mesh2Output WithoutTheChainRule(Mesh2Input input)
         {
             QualityMesh2.Refiner.KeepChainsApartForTests = false;
+            QualityMesh2.Refiner.SmallAngleExemptionForTests = false;
             try { return new QualityMesh2Candidate().Run(input); }
-            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; QualityMesh2.Refiner.SmallAngleExemptionForTests = null; }
         }
 
         /// <summary>
@@ -133,18 +140,33 @@ namespace geometry3Sharp.Tests
         /// 11 since an input whose outer rings all collapse has an empty domain; 0 since the mesher's pinch rule, when they became a
         /// failing violation)
         /// </summary>
-        [Trait("Category", "Slow")]
-        [Fact]
-        public void RefinementPinches_Ratchet()
+        /// <summary> the seed ranges of the ratchet, split so that each case stays within the test time limit (RangesPartitionTheSeeds) </summary>
+        internal static readonly (int From, int To)[] RatchetRanges = { (0, 750), (750, 1500), (1500, 2250), (2250, 3000) };
+
+        public static IEnumerable<object[]> RatchetCases() => RatchetRanges.Select(r => new object[] { r.From, r.To });
+
+        [Theory]
+        [MemberData(nameof(RatchetCases))]
+        public void RefinementPinches_Ratchet(int from, int to)
         {
             int inputs = 0, pinches = 0;
-            for (int seed = 0; seed < 3000; ++seed) {
+            for (int seed = from; seed < to; ++seed) {
                 var input = StarPolygonFuzz.Make(seed);
                 var report = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
                 int k = report.Violations.Count(v => v.Kind == Violation.RefinementPinch) + report.KnownViolations.Count(v => v.Kind == Violation.RefinementPinch);
                 if (k > 0) { ++inputs; pinches += k; }
             }
             Assert.Equal((0, 0), (pinches, inputs));
+        }
+
+        /// <summary> the ratchet's ranges cover seeds 0 to 2999 once each, no gap and no overlap </summary>
+        [Fact]
+        public void RefinementPinches_Ratchet_RangesPartitionTheSeeds()
+        {
+            Assert.Equal(0, RatchetRanges[0].From);
+            Assert.Equal(3000, RatchetRanges[RatchetRanges.Length - 1].To);
+            for (int i = 1; i < RatchetRanges.Length; ++i) Assert.Equal(RatchetRanges[i - 1].To, RatchetRanges[i].From);
+            Assert.All(RatchetRanges, r => Assert.True(r.From < r.To));
         }
 
         /// <summary>

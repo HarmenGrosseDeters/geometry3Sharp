@@ -2121,9 +2121,21 @@ namespace g3
                 return;
             // height for the degenerate area, and more
             double h = 2 * areaEps_of(apex) / -len[0], bound = maxLength_of(apex);
+            // the first step: twice that height; where it underflows to 0 (a component of about 2^-537 to 2^-517: its
+            // degenerate area is 0 while its edges are not, and an exactly degenerate triangle is left; before, s stayed
+            // 0 and the loop never ended), a few units in the last place of the apex, or at the origin the unit of the
+            // bound, as the contact separation does
+            double s0 = 2 * h;
+            if (!(s0 > 0)) {
+                Vector3d ca = pos(apex);
+                double largest = Math.Max(Math.Abs(ca.x), Math.Max(Math.Abs(ca.y), Math.Abs(ca.z)));
+                s0 = largest > 0 ? 4 * ulp(largest) : ulp(bound);
+                if (!(s0 > 0))
+                    return;
+            }
             if (Mesh.IsBoundaryVertex(apex)) {
                 // along the boundary
-                for (double s = 2 * h; s <= bound; s *= 4)
+                for (double s = s0; s <= bound; s *= 4)
                     if (try_slide(apex, s))
                         return;
                 return;
@@ -2144,7 +2156,7 @@ namespace g3
             off = unit(off);
             if (off == Vector3d.Zero)
                 return;
-            for (double s = 2 * h; s <= bound; s *= 4)
+            for (double s = s0; s <= bound; s *= 4)
                 if (try_move(apex, c + s * off))
                     return;
         }

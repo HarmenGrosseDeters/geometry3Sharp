@@ -134,3 +134,32 @@ version:
   or the other, which is a grid item of its own; Herne's default-mode gain from rule C waits for it.
 - Mutants: the ghost side counted as not Delaunay and the grid guard removed are killed; the in-circle tie (`<= 0` against `< 0`) survives: a
   cocircular pair of apexes would need a symmetric input where the rule also fires, and the rule is only more conservative with `< 0`.
+
+## 9. Rule C on the snap grid (2026-11-09)
+
+Owner decision (option A of the coordinator's question): the pinch-rule difference of section 8 is closed on the oracle's side. The mesher's
+pinch rule judges chain identity by input source (`SharesSource`), which is the owner's semantics of Q17 (chains the input's rounding keeps
+apart stay apart); aligning the mesher to the oracle's envelope would reopen the Q17 collapse (23.5 and 169 px2 pinched). The oracle's
+envelope test was an approximation of that specification, and two chains within a pixel of each other along a piece defeat it (the zigzag:
+polyline and hull chains share pixels all along). `Oracle.OwnStretch` computes the piece's own chain from the output's subsegment graph and
+the input alone (no mesher internals), see MESHING2D_HULL_GRID.md section 7. The oracle can excuse a split the mesher would make only if it
+counts a subsegment as another chain's that the mesher counts as the piece's own: the stretch stops at hot pixels, branching vertices and
+(after a pinch) four-way vertices, so it errs towards "another chain" only beyond those, where the mesher's source sets differ too (an input
+point or crossing starts a different input segment); a pinch is a failing violation of its own. The guard `grid != null` of `ApexExempt` is
+removed. Mutants of the stretch code (every subsegment own, none own, no hot-pixel stop, degree test weakened, one end only, no cycle guard,
+the piece left out, the walk not recorded, the legacy flag as default) are all killed by the oracle's self-checks (5d, 5d').
+
+Measured (probe in one build, rule C off on the grid = base, on = candidate; 722 inputs judged by the oracle; the corpus has no snap mode and
+the Herne tiles are not in the repository, so the grid inputs are procedural):
+
+| inputs | runs | triangles base -> candidate | verdicts |
+|---|---|---|---|
+| star polygon fuzz, seeds 0-149, 20 and 30 degrees | 300 | 2419 -> 2294 (-5.2 %), 58 meshes change | 292 ok -> 292 ok (8 pre-existing) |
+| segment fuzz, seeds 0-149, 20 and 30 degrees | 300 | 71162 -> 69228 (-2.7 %), 149 change | 300 ok -> 300 ok |
+| wedges on the grid (1-10 degrees, pixel 1/256, 1/64, 1/16) | 24 | 3264 -> 562 (-83 %) | all ok |
+| pairs on the grid | 16 | 1612 -> 426 (-74 %) | all ok |
+| zigzag Q17 (z0, z1) | 2 | 1193 -> 492 (-59 %) | ok -> ok (z0 was INVALID with the envelope oracle) |
+| Herne-style parcels (jittered lattice, 1 cm pixel) | 80 | 1500 -> 1500 | all ok (no small angles generated: no effect) |
+
+No run reached the Steiner limit; the catalogue rows and the golden rows M1, M2 and M3 (default and constrained) have 0 differences.
+

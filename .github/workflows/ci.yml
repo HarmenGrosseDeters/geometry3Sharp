@@ -101,6 +101,10 @@ jobs:
         run: |
           dotnet build tools/ReaderFuzzPilot -c Release
           READER_FUZZ_DLL="$PWD/tools/ReaderFuzzPilot/bin/Release/net10.0/ReaderFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/ReaderFuzzPilot -p 'test_*.py' -v
+      - name: Test the mesh-operation fuzz harness (without a fuzz campaign)
+        run: |
+          dotnet build tools/MeshFuzzPilot -c Release
+          MESH_FUZZ_DLL="$PWD/tools/MeshFuzzPilot/bin/Release/net10.0/MeshFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/MeshFuzzPilot -p 'test_*.py' -v
       - name: Build the benchmarks and the predicate compiler
         run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
@@ -123,6 +127,7 @@ jobs:
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+          python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
           TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
       - uses: actions/upload-artifact@v4

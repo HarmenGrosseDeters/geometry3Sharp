@@ -21,8 +21,6 @@ Part of the [roadmap](../ROADMAP.md).
 
 Small input angles and triangle count:
 
-- **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
-  edge at near-180° triangles.
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
 - **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C; pilot 3 merged in #443):** in tools/Z3Pilot,
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
@@ -35,9 +33,14 @@ Small input angles and triangle count:
   change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
   per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
   at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
-- **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
-  `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
-  ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
+- **Rule C on the snap grid** (done, #462; owner decision 2026-11-09: option A, the oracle computes chain identity exactly from the output subsegment graph, as snap-rounding papers do by hot-pixel sequence; spec text unchanged, oracle stays independent): the pinch-rule difference was the oracle's envelope
+  approximation of "another chain" (mesher: by input source). The oracle now computes chain identity from the output's subsegment graph
+  (`Oracle.OwnStretch`, MESHING2D_HULL_GRID.md section 7; MESHING2D_SMALL_ANGLES_CONFORMING.md section 9), self-checks and mutants
+  kill every part of it, a differential over 1444 meshes shows no accepted mesh rejected; rule C is on the grid. Procedural grid inputs
+  (722 runs, base vs candidate in one build): star fuzz -5.2 % triangles, segment fuzz -2.7 %, wedges -83 %, pairs -74 %, Q17 zigzags
+  -59 % (z0 was INVALID before the oracle change, now ok), Herne-style parcels unchanged, no verdict regression, no Steiner-limit run, golden
+  rows unchanged. Herne tiles not in the repository: not run. Pinned-mechanism tests that search the old refinement run it with the
+  exemption off (reason in each test).
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.

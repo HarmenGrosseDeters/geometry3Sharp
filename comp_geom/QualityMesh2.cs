@@ -726,10 +726,11 @@ namespace g3
             /// </summary>
             bool ApexExempt(int e, int v)
             {
-                // the conforming mode (rule C) has no lenses and no Chew deletion; with lenses forced on by a benchmark the rule stays off there, and
-                // on the snap grid (a split that rule C forces late can be refused there where the oracle still demands it: Oracle.GridUnsplittable
-                // says so itself, and the zigzag of QualityMesh2CollapsedPartsTests ends INVALID; MESHING2D_SMALL_ANGLES_CONFORMING.md section 8)
-                if (options.Conforming && (lenses || grid != null) || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
+                // the conforming mode (rule C) has no lenses and no Chew deletion; with lenses forced on by a benchmark the rule stays off there.
+                // On the snap grid rule C is on too (MESHING2D_SMALL_ANGLES_CONFORMING.md section 8): a split it forces late can be refused by
+                // the pinch rule of ValidGridSplit, and the oracle excuses those subsegments and may demand more (its pinch rule judges chain identity
+                // from the output's subsegment graph, Oracle.OwnStretch, as the mesher goes by source)
+                if (options.Conforming && lenses || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
                 // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
                 // (Shewchuk 2002 section 6.2 splits for a parent that is an input vertex or lies on a nonincident segment)
                 if (v < firstSteiner) return false;

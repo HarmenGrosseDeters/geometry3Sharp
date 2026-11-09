@@ -275,8 +275,8 @@ namespace gs
         /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
         /// </summary>
         /// <returns>
-        /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
-        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
+        /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
+        /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
         /// unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
@@ -314,6 +314,13 @@ namespace gs
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
             MeshEditor.RemoveUnusedVertices(Mesh);
+            // a diagonal that is not finite (an extent above about 1e154, or coordinates that are not finite): every
+            // threshold relative to it would be infinite (the repair collapsed whole components); not repaired, Mesh not
+            // replaced
+            if (Mesh.TriangleCount > 0 && !(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength < double.PositiveInfinity)) {
+                ResultReason = ScaleNotFinite;
+                return false;
+            }
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -500,6 +507,12 @@ namespace gs
         }
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+        /// <summary>
+        /// ResultReason when Apply() returns false because the input's diagonal is not finite: an extent above about
+        /// 1e154 (eg finite coordinates near +-1e308), or infinite coordinates (and NaN ones where they show in the
+        /// bounds); Mesh is not replaced (only its unused vertices are removed, as always)
+        /// </summary>
+        public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds is not a finite double (coordinates that are not finite, or an extent above about 1e154); not repaired";
         /// <summary>
         /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
         /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
@@ -1272,12 +1285,41 @@ namespace gs
             return "";
         }
 
-        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
+        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
+        // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
+        // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
+        // inside) underflowed below edges of about 2^-255, so well-shaped triangles were degenerate; below a diagonal
+        // of about 2^-517 the threshold underflowed to 0 and no triangle was, not even an exactly flat one. Differences,
+        // not coordinates: a tiny extent far from the origin would overflow when its coordinates are scaled up. 2^k
+        // scales give the same answer
         static bool has_degenerate_triangles(DMesh3 mesh)
         {
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
-            double areaEps = 1e-12 * diag * diag;
-            return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);
+            double s = MeshRepairMetrics.unit_scale(box, -100, 100);
+            if (s == 1) {
+                double diag = box.DiagonalLength;
+                double areaEps = 1e-12 * diag * diag;
+                return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+            }
+            double d = scaled_difference(box.Max, box.Min, s).Length, eps = 1e-12 * d * d;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                if (0.5 * scaled_difference(b, a, s).Cross(scaled_difference(c, a, s)).Length < eps)
+                    return true;
+            }
+            return false;
+        }
+
+        // s * (p - q), exact for a power of two s unless subnormal: the difference first (it cannot overflow where the
+        // scaled coordinates would, a tiny extent far from the origin), or, where the difference overflows (an extent
+        // above 2^1024), the difference of the scaled coordinates
+        static Vector3d scaled_difference(Vector3d p, Vector3d q, double s)
+        {
+            Vector3d d = p - q;
+            if (Math.Abs(d.x) <= double.MaxValue && Math.Abs(d.y) <= double.MaxValue && Math.Abs(d.z) <= double.MaxValue)
+                return s * d;
+            return s * p - s * q;
         }
     }
 }

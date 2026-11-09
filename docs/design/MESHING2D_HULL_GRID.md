@@ -408,13 +408,19 @@ Näher and Schweitzer 2011) is not needed under the strict decision.
   that a constraint of another chain (no shared source) already runs through; through a hot pixel of the input's rounding (input
   point, crossing, restore pixel) the chains still meet, as snap rounding routes them. The oracle mirrors it in `GridUnsplittable`:
   a pixel that is no hot pixel of the input's rounding and holds an end of another chain's subsegment is no split point, so the
-  subsegments the rule leaves unsplittable are excused as the grid's others are. The mirror is no broader than the rule, and may
-  demand more: the oracle counts a subsegment as the piece's own chain when its ends lie in the (slightly widened) envelope of an
-  input constraint of the piece, the mesher when it shares an input source with the piece, so the oracle never excludes a candidate
-  the mesher would take, but may demand one the mesher refuses (a segment within a pixel of another along it; 0 cases in 3000
-  segment fuzz runs, review). Self-checks 5c and 5d hand the oracle meshes whose only candidate is on another chain's vertex
-  (excused), on a free vertex, on a hot pixel of the input's rounding with another chain there, next to another chain's end, and
-  on the own chain's (all judged), and kill the mutants that widen the exclusion at its call site (without the mirror, 6 of the 12 Herne runs and 7 of
+  subsegments the rule leaves unsplittable are excused as the grid's others are. The mirror is no broader than the rule. Until rule C went on the
+  grid (2026-11-09) the oracle counted a subsegment as the piece's own chain when its ends lie in the (slightly widened) envelope of an
+  input constraint of the piece, the mesher when it shares an input source with the piece: the oracle never excluded a candidate the
+  mesher would take, but could demand one the mesher refuses (a segment within a pixel of another along it; 0 cases in 3000 segment fuzz
+  runs, but the zigzag of Q17 once rule C forces splits late). Now the oracle recomputes chain identity from the output's subsegment
+  graph and the input alone (`Oracle.OwnStretch`, owner 2026-11-09): the piece's own chain is the piece with the subsegments reached from
+  either end through vertices that are no hot pixel of the input's rounding and have exactly two neighbouring subsegment vertices, the
+  link of the snapped image between two hot pixels (or branching vertices) the piece lies on. This is the same specification
+  ("another chain's subsegment"); the envelope was an approximation of it, which two chains within a pixel of each other defeat.
+  Differential over the same meshes (1444: star and segment fuzz, wedges, pairs, parcels, zigzags; rule C on and off): every mesh the
+  envelope oracle accepted is accepted; the one verdict that changes is the zigzag z0 with rule C (INVALID, now VALID). Self-checks 5c and 5d hand the oracle meshes whose only candidate is on another chain's vertex
+  (excused), on a free vertex, on a hot pixel of the input's rounding with another chain there, next to another chain's end, on the
+  own chain's stretch (judged), and on a chain beyond a hot pixel or a branching vertex (excused); the stretch walk itself is checked on graphs from either end, and kill the mutants that widen the exclusion at its call site (without the mirror, 6 of the 12 Herne runs and 7 of
   6000 segment fuzz runs are rejected: NotDelaunay at conforming, AngleBelowBound in the constrained quality mode). Ratchet, exact in
   both directions, 0 since the rule: the fuzz (`RefinementPinches_Ratchet`; 13 in 12 inputs at the rule's introduction, 12 in 11
   after #372) and every Herne run (`herne_ratchet.py`). Before the rule (lenses cut them in the constrained quality mode: fuzz 11 in
