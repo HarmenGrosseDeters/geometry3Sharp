@@ -597,6 +597,8 @@ namespace g3cli.Tests
             var (exit, r) = Run("repair", input, output);
             AssertError(exit, r, ResultCodes.OperationFailed);
             Assert.Contains("scale not finite", S(r["message"]));
+            Assert.Equal("scale_not_finite", S(r["result_code"]));            // the short code, with the long text beside it
+            Assert.StartsWith("scale not finite", S(r["result_reason"]));
             Assert.False(File.Exists(output));
         }
 
@@ -611,6 +613,9 @@ namespace g3cli.Tests
             Assert.Equal(256, D(r["boolean"]["rounding_ulp_factor"]));
             Assert.Equal(5000000, D(r["boolean"]["rounding_max_pair_tests"]));
             Assert.False(B(r["boolean"]["rounding"]["evaluation_limit_reached"]));
+            Assert.Equal(0, I(r["boolean"]["rounding"]["remaining_false_contacts"]));
+            Assert.Null(r["boolean"]["rounding"]["remaining_defect_at"]);     // clean: no defect left
+            Assert.Equal("success", S(r["boolean"]["status"]));
             Assert.False(B(r["boolean"]["strict_rounding"]));
             Assert.True(B(r["mesh"]["clean"]), r["mesh"].ToJsonString());
             double bound = D(r["boolean"]["rounding"]["max_length"]);
@@ -620,6 +625,9 @@ namespace g3cli.Tests
             (exit, r) = Run("resolve", input, strictOut, "--strict-rounding");
             Assert.Equal(ResultCodes.OperationFailed, S(r["code"]));
             Assert.Contains("RoundingNotClean", S(r["message"]));
+            Assert.Equal("rounding_not_clean", S(r["boolean_status"]));       // additive: the status and the library's text in the error result
+            Assert.False(string.IsNullOrEmpty(S(r["boolean_error"])));
+            Assert.False(B(r["boolean"]["rounding_clean"]));
             Assert.False(File.Exists(strictOut));
             // strict uses the relative bound only: combined with a tolerance it is refused
             (exit, r) = Run("resolve", input, strictOut, "--strict-rounding", "--rounding-absolute-tolerance", "1e-3");
@@ -637,6 +645,7 @@ namespace g3cli.Tests
             (exit, r) = Run("resolve", input, m.Path_("utm_noulp.g3mesh"), "--rounding-ulp-factor", "0");
             AssertOk(exit, r);
             Assert.False(B(r["boolean"]["rounding_clean"]));
+            Assert.Equal(3, r["boolean"]["rounding"]["remaining_defect_at"].AsArray().Count);   // where the defect left is
             Assert.True(D(r["boolean"]["rounding"]["max_length"]) < bound);
 
             // an absolute tolerance sets the bound

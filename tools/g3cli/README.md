@@ -272,6 +272,21 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   input's frame; that rounds each coordinate by up to half an ulp and is not covered by the exact checks.
   `local_frame_fallback` true: a coordinate could not be translated exactly, and the design ran in the input's frame.
 
+## Result fields of repair, boolean, resolve and mesh2d (additive)
+
+- `boolean` / `resolve`: `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`), `boolean.contacts` (positions where the
+  solid touches itself, or that the rounding made), `boolean.reoriented_triangles` (input triangles flipped to a consistent orientation) and
+  `boolean.counts` (the library's counters, eg `intersecting_pairs`, `points`, `pieces`). A failed call (`operation_failed`) carries
+  `boolean_status`, `boolean_error` (the library's text, eg the defects left and the drift the smallest rejected edit needed with `--strict-rounding`)
+  and the `boolean` object.
+- The SafeRounding repair counts (`boolean.rounding`, `exact_resolve_rounding`, `separated_rounding` of `repair`): also `initial_false_contacts`,
+  `remaining_false_contacts`, `vertex_removals`, `smallest_rejected_drift` (`null`: no edit was rejected by the bound) and `remaining_defect_at`
+  (`[x, y, z]` of a defect left, `null` if clean).
+- `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is the
+  long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
+- `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
+  triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).
+
 ## MCP server
 
 `g3cli mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC 2.0, protocol versions
