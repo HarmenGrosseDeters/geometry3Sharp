@@ -22,10 +22,12 @@ Part of the [roadmap](../ROADMAP.md).
   measurement: all 282 mutants Timeout in about 5 s of mutant phase (the Windows test runner most likely failed; the log
   was overwritten). Its capture took 6 h 34 min, about 2x CI. F1 has 171 tests, so a reduced filter barely shortens
   capture; B2 dropped. Decision: no kill measurements on the owner's machine; kills only in CI.
-- **Combined-gate filters (analyst, 2026-11-09):** the rounding parts keep the old 8-term filter (147 tests); the
-  19-term filter (+18 % tests, +23 % suite time) is estimated to push rounding-1 to ~360 min. The 19-term filter only on
-  touched parts with margin (rounding-2, -5, -7), else as its own dispatch. Cheap check first: the uninstrumented suite
-  time of the 19-term filter on the integrated head (<= 31 s means the 8-term numbers hold).
+- **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
+  8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
+  #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
+  7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
+  touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
+  decision, not needed for the gate).
 - **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
