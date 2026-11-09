@@ -333,6 +333,7 @@ namespace geometry3Sharp.Tests
             if (general != "") return general;
             // (CheckLostComponents is off by default: a part too small for MinVolumeIoU may be lost by design)
             RobustRun a = Robust(input, r => r.CheckLostComponents = true);
+            if (PartsTooCloseForTheCoordinates(input)) return "";
             // (F1, fixed: where parts lie far apart compared to their size, a part is no longer lost with Apply() true)
             double diag = MeshRepairMetrics.TriangleBounds(input).DiagonalLength;
             bool disparity = input.TriangleIndices().Any(t => input.GetTriArea(t) < 1e-12 * diag * diag);
@@ -340,12 +341,21 @@ namespace geometry3Sharp.Tests
             // size (ScaleDisparity), reported as not clean with the resolved mesh
             if (a.Ok == false && (disparity == false || !a.Repair.ResultReason.StartsWith("scale disparity")))
                 return $"Apply() false for clean solids ({a.Path}: {a.Repair.ResultReason})";
-            // (with false the mesh is only the resolved one: F1b, its parts can be eroded)
-            if (disparity && !a.Ok)
-                return "";
-            // (F1c: with parts far apart the cleanups relative to the diagonal of all triangles still erode a part, by 14 to 30 % in
-            // the cases seen, with Apply() true; a part must be there, not lost: at least half of its volume)
-            return ComponentVolumesKept(input, a, disparity ? 0.5 : 1e-3);
+            return ComponentVolumesKept(input, a, 1e-3);
+        }
+
+        // parts closer to each other than a few units in the last place of their coordinates: rounded onto each other (a gap of 2^-29 of
+        // a size 2^-7 part at 1e8), the scene is no longer one of disjoint solids and the repair may weld them
+        static bool PartsTooCloseForTheCoordinates(DMesh3 m)
+        {
+            List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(m, out int[] _);
+            for (int i = 0; i < boxes.Count; ++i)
+                for (int j = i + 1; j < boxes.Count; ++j) {
+                    double ulp = Math.Max(Math.Max(boxes[i].Min.MaxAbs, boxes[i].Max.MaxAbs), Math.Max(boxes[j].Min.MaxAbs, boxes[j].Max.MaxAbs)) * MathUtil.Epsilon;
+                    AxisAlignedBox3d e = boxes[i]; e.Expand(64 * ulp);
+                    if (e.Intersects(boxes[j])) return true;
+                }
+            return false;
         }
 
         static string ComponentVolumesKept(DMesh3 input, RobustRun a, double tolerance)

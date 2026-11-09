@@ -105,5 +105,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
             Assert.Equal(1, Components(r.Mesh));
         }
+
+        // the three scales of the far part scene over Similarity.All(): the parts stay (two components), the 2^k scales give the same
+        // result bit for bit
+        [Fact]
+        public void FarSphere_Similarities_PartsKept_Pow2BitIdentical()
+        {
+            DMesh3 scene = BoxAndFarSphere(2.2e6);
+            var r0 = new MeshRobustRepair(new DMesh3(scene));
+            bool ok0 = r0.Apply();
+            Assert.Equal(2, Components(r0.Mesh));
+            foreach (Similarity sim in Similarity.All()) {
+                var r = new MeshRobustRepair(Invariance.Transformed(scene, sim));
+                bool ok = r.Apply();
+                Assert.True(Components(r.Mesh) == 2, sim.ToString());
+                Assert.True(ok || r.ResultReason.StartsWith("scale disparity"), sim.ToString());
+                if (sim.IsExact) {
+                    Assert.Equal(ok0, ok);
+                    Assert.Equal(r0.ResultReason, r.ResultReason);
+                    Assert.Equal("", Invariance.Difference(r0.Mesh, Invariance.MappedBack(r.Mesh, sim)));
+                }
+            }
+        }
     }
 }
