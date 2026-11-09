@@ -92,6 +92,10 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 
 **D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
+**D1 after the apex rule (2026-11-09, research session):** [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md)
+states the reference rule and its lemma, checked with Z3; a prototype patch clears all 13 unclean operations of the
+14 D1 models and 119829 / 119830 (48 operations, none newly unclean, 119829 union drift 0.30 of the bound). Not
+built: waits for the owner's decision and the cohort run.
 
 **Lévy-style classification (owner 2026-11-08, queued):** for the self-intersecting, unknown and open cohorts;
 phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue

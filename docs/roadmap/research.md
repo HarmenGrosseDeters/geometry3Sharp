@@ -123,7 +123,7 @@ Part of the [roadmap](../ROADMAP.md).
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
-- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma, waits for the Boolean session's design note.
+- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
@@ -305,9 +305,14 @@ Ordered by expected value for the library.
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
    - Needed: a tighter drift accounting, stated as a lemma and checked with Z3 before it is built.
-   - Status: started 2026-11-09 (owner) as a Fable research session (session_01AaGT5BXr9voD6SYy7KhQDs): design note
-     docs/design/SAFE_ROUNDING_D1_DRIFT.md, the lemma checked with Z3, an upper bound on the D1 cases; no library code
-     ([exact-boolean.md](exact-boolean.md), D1 order).
+   - Status (2026-11-09, research session session_01AaGT5BXr9voD6SYy7KhQDs): cause 1 (the apex rule) is merged. For what is left, the design note
+     [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md) proposes the reference rule (per triangle the
+     corners at its last certification and a carried bound; moves and contractions are measured from there instead
+     of summed). Lemma checked with Z3 (`tools/Z3Pilot/drift_reference.py`: 7038 scripts on tiny configurations
+     UNSAT, 15 mutants SAT, 6 pinned counterexamples). Prototype (a patch, not merged) on the 14 D1 models and
+     119829 / 119830: 13 of 48 operations not clean on master, 0 with the rule, none newly unclean, times unchanged.
+     Never rejects what today's rule accepts. Open: the owner's decision to build it (tier L, about 2-3 days), with
+     the cohort run of the 16 239 operations as the gate.
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
