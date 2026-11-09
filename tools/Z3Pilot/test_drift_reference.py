@@ -12,7 +12,7 @@ TIMEOUT_MS = int(os.environ.get('Z3_PILOT_TIMEOUT_MS', '120000'))
 
 # The counterexamples Z3 found for the mutants of the rule (2026-11-09, z3-solver 4.15.4), as regression cases:
 # (mutant, vertices, script, the claim it breaks, the witness: start positions p, edit parameters q, the point x or y).
-# They are replayed with fractions, without Z3: the mutant breaks the claim, the rule keeps all three.
+# They are replayed with fractions, without Z3: the mutant breaks the claim, the rule keeps all four.
 PINNED = [
     ('no_ghosts', 3, (('contract', 0, 1),), 'H2',
      {'p0': '0', 'p1': '1/4', 'p2': '1/2', 'q0': '0', 'x': '0', 'y': '0'}),
@@ -26,6 +26,8 @@ PINNED = [
      {'p0': '-1/4', 'p1': '-1/2', 'p2': '0', 'q0': '-1/4', 'x': '0', 'y': '-1/2'}),
     ('kept_vertex_anchor', 3, (('move', 0), ('contract', 1, 0)), 'H1',
      {'p0': '1/2', 'p1': '3/4', 'p2': '1/4', 'q0': '0', 'q1': '0', 'x': '0', 'y': '0'}),
+    ('move_skips_ghosts', 3, (('contract', 0, 1), ('move', 1)), 'reported',
+     {'p0': '0', 'p1': '1/2', 'p2': '0', 'q0': '0', 'q1': '3/4', 'x': '0', 'y': '0'}),
 ]
 
 

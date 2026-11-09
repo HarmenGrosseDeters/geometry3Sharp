@@ -309,7 +309,7 @@ Ordered by expected value for the library.
      [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md) proposes the reference rule (per triangle the
      corners at its last certification and a carried bound; moves and contractions are measured from there instead
      of summed). Lemma checked with Z3 (`tools/Z3Pilot/drift_reference.py`: 7038 scripts on tiny configurations
-     UNSAT, 15 mutants SAT, 6 pinned counterexamples). Prototype (a patch, not merged) on the 14 D1 models and
+     UNSAT, 16 mutants SAT, 7 pinned counterexamples). Prototype (a patch, not merged) on the 14 D1 models and
      119829 / 119830: 13 of 48 operations not clean on master, 0 with the rule, none newly unclean, times unchanged.
      Never rejects what today's rule accepts. Open: the owner's decision to build it (tier L, about 2-3 days), with
      the cohort run of the 16 239 operations as the gate.

@@ -34,7 +34,7 @@ jobs:
       # The full gate of each pilot runs once: test_all_obligations_and_exact_witness_replay (pilot 1),
       # test_all_rule_lemmas_mutants_and_replays (pilot 2),
       # test_drift_lemma_obligations_mutants_and_replays (pilot 2 step 1) and
-      # test_reference_rule_obligations_mutants_and_replays (pilot 2 step 1b, about 2.5 minutes) and
+      # test_reference_rule_obligations_mutants_and_replays (pilot 2 step 1b, about 3 minutes) and
       # test_adapter_and_fp_envelopes (conservative marching cubes) write the reports that are uploaded below.
       # Z3_PILOT_TIMEOUT_MS is the per-query timeout of every pilot.
       - run: python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v

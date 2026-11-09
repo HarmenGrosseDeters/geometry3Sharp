@@ -26,7 +26,8 @@ replayed with fractions outside Z3; UNKNOWN never counts):
   C. a bounded search on tiny configurations: chains of 3 to 5 vertices on the real line (a 1-complex: segments for
      triangles, a collapsed segment is a ghost at a vertex), every script of up to three edits (move, contraction
      with the kept vertex in place or moved, vertex removal, re-anchoring) with every real position: the true
-     Hausdorff distance to the start is at most the largest bound, each segment's points lie within its bound, and
+     Hausdorff distance to the start is at most the largest bound, each segment's points lie within its bound, no
+     bound at the end exceeds the largest value an edit compared with L (the reported drift), and
      every bound is at most the apex rule's drift at the same place (so the reference rule accepts whatever the apex
      rule accepts). On the line the search is linear real arithmetic and complete for the configurations listed;
      it exercises the accounting, not the geometry (the per-edit bounds delta stay review-only, as before);
@@ -59,6 +60,7 @@ MUTANTS = {
     'generic_ignores_lost_ghosts': 'a generic edit forgets the ghosts of the vertex it removes',
     'generic_without_delta': 'a generic edit does not add its bound',
     'kept_vertex_anchor': 'a contraction gives the renamed corner the kept vertex\'s position as its anchor',
+    'move_skips_ghosts': 'a move does not evaluate the ghosts at the moved vertex (the reported drift misses them)',
 }
 
 
@@ -98,7 +100,7 @@ def _abs(B, x):
 # ---------------------------------------------------------------------------------------------------------------
 # A. convexity (R^3, Euclidean): x = sum l_k p_k, xr = sum l_k a_k, |p_k - a_k| <= r  =>  |x - xr| <= r
 
-# Z3's nonlinear solver returns unknown on the coordinates directly (18 s per query, 2026-11-09), so the claim is
+# Z3's nonlinear solver returns unknown on the coordinates directly (at a timeout of 20 s, 2026-11-09), so the claim is
 # split: (1) for two vectors e, f of R^3: 2 e.f <= |e|^2 + |f|^2 (|e - f|^2 >= 0, in coordinates); (2) with the Gram
 # entries G_kk = |e_k|^2 <= r^2 and 2 G_jk <= G_jj + G_kk as real variables, |sum l_k e_k|^2 = sum l_j l_k G_jk <= r^2.
 
@@ -230,7 +232,9 @@ class Chain:
         at = self.segs_at(v)
         self._apex_charge([x for s in at for x in s['ends']], [tuple(s['ends']) for s in at], delta)
         self.pos[v] = q
-        changed = [self.bound(s) for s in at] + [self.ghost_bound(g) for g in self.ghosts if g['rep'] == v]
+        changed = [self.bound(s) for s in at]
+        if self.mutant != 'move_skips_ghosts':
+            changed += [self.ghost_bound(g) for g in self.ghosts if g['rep'] == v]
         self.accepted_ref.append(_max(B, changed))
 
     def contract(self, a, b, q=None):
@@ -336,7 +340,9 @@ class Chain:
         'H2': some point y of S0 is farther than the largest bound from S;
         'dominated': some bound exceeds the apex rule's drift there (a segment: the larger drift of its ends; a
               ghost: the largest such drift of a segment at its vertex, the apex rule's witness for its points), or
-              the last edit's bound exceeds the apex rule's M + delta."""
+              the last edit's bound exceeds the apex rule's M + delta;
+        'reported': some bound at the end exceeds the largest value an edit of the script compared with L (MaxDrift:
+              every bound an edit changes is evaluated by it)."""
         B = self.B
         lo0, hi0 = self.hull0()
         if claim == 'H1':
@@ -351,6 +357,8 @@ class Chain:
             most = _max(B, self.all_bounds())
             dist = _max(B, [B.const(Fraction(0)), lo - y, y - hi])
             return B.And(y >= lo0, y <= hi0, dist > most)
+        if claim == 'reported':
+            return _max(B, self.all_bounds()) > _max(B, self.accepted_ref) if self.accepted_ref else B.Or(B.const(Fraction(0)) > B.const(Fraction(0)))
         if claim == 'dominated':
             out = [self.bound(s) > _max(B, [self.d[x] for x in s['ends']]) for s in self.segs]
             out += [self.ghost_bound(g) > _max(B, [self.d[x] for s in self.segs_at(g['rep']) for x in s['ends']])
@@ -424,7 +432,7 @@ def hausdorff_on_the_line(n, script, values, mutant=None):
 
 # the configurations of the search: (vertices, script length)
 SEARCH = [(3, 1), (3, 2), (3, 3), (4, 1), (4, 2), (4, 3), (5, 1), (5, 2)]
-CLAIMS = ('H1', 'H2', 'dominated')
+CLAIMS = ('H1', 'H2', 'dominated', 'reported')
 
 # per mutant a script on which it has a counterexample (found with search() on the smallest configurations first,
 # 2026-11-09; the lost ghost by hand: a ghost is lost only at an inner vertex that both segments of a start vertex
@@ -437,6 +445,7 @@ MUTANT_SCRIPTS = {
     'generic_ignores_lost_ghosts': (5, (('contract', 2, 1), ('contract', 1, 3), ('remove', 3))),
     'generic_without_delta': (3, (('remove', 1),)),
     'kept_vertex_anchor': (3, (('move', 0), ('contract', 1, 0))),
+    'move_skips_ghosts': (3, (('contract', 0, 1), ('move', 1))),
 }
 
 
@@ -545,7 +554,7 @@ def search(mutant, timeout_ms, configurations=None, scripts_of=None):
         (n, script) for n, length in (configurations or SEARCH) for script in scripts(n, length))
     for n, script in todo:
         if True:
-            for claim in ('H1', 'H2'):
+            for claim in ('H1', 'H2', 'reported'):
                 v = script_vars(n, script)
                 row = _refute(script_formula(n, script, claim, mutant), v, timeout_ms)
                 if row['result'] == 'sat' and row['replayed']:

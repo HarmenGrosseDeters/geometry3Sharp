@@ -105,7 +105,7 @@ Accepted if `N <= L`. Every triangle of A gets the anchors "its corners now" and
 deleted.
 
 `MaxDrift` is the largest bound an accepted edit evaluated (every bound that an edit changes is evaluated by it, so
-this is the largest bound at the end or above it).
+this is the largest bound at the end or above it; the claim `reported` of section 4, part C).
 
 ### 3.2 Invariant and lemma
 
@@ -151,7 +151,9 @@ ghost on the edge across); the special case of today's proof goes away.
 **Claim.** Run both accountings on the same sequence of edits. Then for every triangle `B(t) <= D(t)`, the largest
 drift of its corners under the apex rule; every ghost's bound is at most `D(T)` of a triangle T that contains the
 vertex or edge it collapsed onto; and the value the reference rule compares with L is at most today's `M + δ`. So
-an edit that today's rule accepts is accepted.
+an edit that today's rule accepts is accepted. This is a statement in real arithmetic: in doubles the two rules
+compute different expressions (a distance from an anchor against a stored sum of steps), which can differ by a few
+units in the last place either way, so an edit within that of the bound can fall on either side.
 
 *Proof sketch.* A displacement edit moves every corner by at most its δ, so every bound it evaluates grows by at
 most δ and was at most M before (the triangles and ghosts concerned have all their vertices among those M is taken
@@ -174,7 +176,11 @@ Results still depend on the order of the edits, and more edits pass, so single o
   (`DMesh3.CollapseEdge` refuses the cases where they are not; the implementation asserts it in check mode).
 - A3: a vertex or edge that is gone after a generic edit was a face of a removed triangle.
 - A4: surviving triangles keep their id and corner order through `CollapseEdge` (the prototype checks it at every
-  contraction; no violation in any run of section 5).
+  contraction; no violation in any run of section 5). The other edits do not: `FlipEdge` reuses the two ids with
+  new corners, and zips, strip zips and vertex removals append triangles, so the record of an added triangle is
+  written after the edit, by looking the triangle up. The undo paths of `try_zip`, `try_strip` and
+  `try_remove_vertex` (an append failed: the old triangles are appended again, under new ids) must restore the old
+  records with them; today's per-vertex drift needs no such care.
 - A5: edits stay within one component and vertex ids are not reused (as for the apex rule).
 - (E1), (E2) per edit type: unchanged, reviewed with the bound (SAFE_ROUNDING.md section 1), not part of this lemma.
 - Removed components (tiny, thin) are outside the theorem, as today.
@@ -219,13 +225,13 @@ mutant SAT with a witness replayed with fractions outside Z3; UNKNOWN never coun
 |---|---|---|
 | A | convexity (C) in R^3: `2 e.f <= e.e + f.f` in coordinates, then `Σ λ_j λ_k G_jk <= r^2` over the Gram entries | 2 UNSAT; 3 mutants SAT (weights not summing to 1, one corner unbounded, no dot bound) |
 | B | the one-edit lemma, shape-free, distances as real variables: (I1), (I2) of a displacement edit, (J1), (J2) and `N <= L` of a generic edit | 5 UNSAT; 5 mutants SAT (N from `c` instead of B, N without δ, no acceptance) |
-| C | bounded search: chains of 3, 4, 5 vertices on the real line, **every** script of up to 3 edits (2 for 5 vertices) of move, contraction in place, contraction with the kept vertex moved, vertex removal, re-anchoring, with every real position | 7038 scripts, all UNSAT for: each segment within its bound of S0; S0 within the largest bound of S; every bound at most the apex rule's (section 3.3) |
-| C | six mutants of the rule on the same model | 6 SAT, each pinned as a regression case (below) |
+| C | bounded search: chains of 3, 4, 5 vertices on the real line, **every** script of up to 3 edits (2 for 5 vertices) of move, contraction in place, contraction with the kept vertex moved, vertex removal, re-anchoring, with every real position | 7038 scripts, all UNSAT for: each segment within its bound of S0; S0 within the largest bound of S; every bound at most the apex rule's (section 3.3); no bound at the end above the reported drift |
+| C | seven mutants of the rule on the same model | 7 SAT, each pinned as a regression case (below) |
 | D | the computed distance (three steps) and the induction step of the chain bound | 4 UNSAT; the (2.4) model SAT |
 
-About 2.5 minutes in all (114 s of solver time, 84 s of it the 4852 scripts of 4 vertices and 3 edits).
+About 3 minutes in all (137 s of solver time, 104 s of it the 4852 scripts of 4 vertices and 3 edits).
 
-A first attempt at (C) on the coordinates directly (18 variables, degree 4) returned unknown after 20 s, and a
+A first attempt at (C) on the coordinates directly (18 variables, degree 4) returned unknown at a timeout of 20 s, and a
 first version of the search with a segment's point as `p + λ (q - p)` was nonlinear and returned unknown; both are
 now stated so that the queries are decided (the Gram form; a point *between* the ends as its own variable). The
 search is linear real arithmetic, so it is complete for the configurations listed.
@@ -238,7 +244,7 @@ apex rule, and a ghost on an *edge* does not exist in a 1-complex (its loss is c
 mode of the implementation, section 7).
 
 **Counterexamples found, pinned as regression cases** (`PINNED` in `test_drift_reference.py`, replayed without Z3:
-the mutant breaks its claim, the rule keeps all three claims and stays below the apex rule):
+the mutant breaks its claim, the rule keeps all four claims and stays below the apex rule):
 
 | mutant | script (start vertices 0, 1, …) | what goes wrong |
 |---|---|---|
@@ -248,6 +254,7 @@ the mutant breaks its claim, the rule keeps all three claims and stays below the
 | generic edit ignores lost ghosts | contract 2 into 1, 1 into 3, remove 3 | start vertex 2 is a spike; both its segments collapsed onto vertex 3, which is then removed: bound 1/2, true distance 3/4 |
 | generic edit without δ | remove 1 | |
 | renamed corner takes the kept vertex's position as anchor | move 0, contract 1 into 0 | the per-vertex anchor: the contracted vertex's own displacement is lost |
+| a move does not evaluate the ghosts at its vertex | contract 0 into 1, move 1 | the reported drift (3/4) is below a ghost's bound at the end |
 
 The spike case is the reason for the ghosts and shows that they cannot be dropped as "covered by the neighbours":
 after two contractions no triangle is left that has the spike's tip as an anchor. It is also why a per-vertex
@@ -278,9 +285,12 @@ the 16 239-operation run): the 14 models with D1 operations and 119829 / 119830,
 
 The 13: 100344 union and difference, 118037 intersection, 119829 and 119830 union and difference, 1514904
 intersection, 472043 and 472046 difference, 548875 intersection, 686056 union and difference. Where the edits are
-contractions only (100344, 686056, 119829 / 119830) the drift drops to 0.30-0.54; where flips and strip zips are
-mixed in (118037, 1514904, 472043, 472046, 548875), it stays near the bound (0.93-0.99) and the gain is the last few edits. In every operation the reported
-drift is above the measured distance (at most 0.24 of the bound).
+contractions (100344, 686056, 119829 / 119830, the unions of the last two with one flip among 13446 edits) the drift drops to 0.30-0.54; where flips and strip zips are
+mixed in (118037, 1514904, 472043, 472046, 548875), it stays near the bound (0.93-0.99) and the gain is the last few edits. In every operation with edits the
+reported drift is above the measured distance (at most 0.24 of the bound). The measured distance has a floor of
+about 0.002 of the bound that is not repair displacement: 669979 union has no edit, a drift of 0 and a measured
+0.0018 under both rules (the comparison is against a second run without the repair, and the point-triangle distance
+has its own rounding), so the measured column is good to about that.
 
 How this relates to "20 D1 operations": the triage counted 20 on the run before the apex rule; the 14 models are
 those operations' models (ROUNDING_DRIFT_APEX.md section 5: 21 of their 42 operations unclean then, 9 after the apex
@@ -316,11 +326,14 @@ with `RoundingClean` true: not a rounding defect).
 2e-4 and edge 3.3e-6 or 1.5e-6 of the diagonal (128 to 413k degenerate triangles at the start): master leaves
 degenerate triangles in all 8 (1 to 364k); the prototype is clean in 6 with a drift of 0.34-0.52, and the two
 largest (105k and 413k degenerate triangles) stop at the existing effort limit `EvaluationLimitReached` under both
-rules, with more repaired. The direct repairs of the patch (18 configurations, the bound and four times the bound):
-master is not clean in 5 of 9 at the bound and in 2 of 9 at four times the bound; the prototype is clean in all 18
-with a drift of 0.14-0.33 of the bound.
+rules, with more repaired. One of them, 105k triangles, reaches a drift of 0.96 under the prototype without a
+generic edit: it has 5 moves of `fix_degenerate`, whose steps go up to the bound itself, and its
+`SmallestRejectedDrift` comes from the moves past the limit, which the prototype still computes from the old array;
+not analysed further. The direct repairs of the patch (6 distinct meshes, each at the bound and at four times the bound; the
+rows for the edges 2e-6 and 2.5e-6 are the same meshes): master is not clean in 4 of 6 at the bound and in 2 of 6 at
+four times the bound; the prototype is clean in all 12 with a drift of 0.14-0.33 of the bound.
 
-**Existing tests under the prototype** (404 tests of the rounding and the exact booleans, `G3_D1=ref`): 397 pass.
+**Existing tests under the prototype** (404 tests of the rounding and the exact booleans, `G3_D1=ref`): 397 pass (`tests_under_prototype_2026-11-09.txt`).
 Of the 7 failures, 6 are pins of "not clean today" that it repairs (`RoundingDenseTessellationTests` ×2,
 `RoundingDriftClusterTests` ×2, `SafeRoundingBoundTests.StrictRounding_FailsWithTheReason_InsteadOfDefects`, and
 `Utm_CleanWithTheUlpTolerance_WithinIt`: 102 of 114 clean with the relative bound only, pinned at most 95), and 1 is
@@ -328,8 +341,8 @@ the prototype's shortcut (`PastTheLimit_SameAsProposingInFull`: the moves past t
 old `drift` array). The audit `ReportedDrift_BoundsTheMeasuredDistance_AllSimilarities` passes under the prototype.
 
 **What it does not fix.** Clusters dominated by generic edits still add (`N = max B + δ` per flip or zip), and the
-strip zip's bound 2w is loose by itself (measured 0.91 · 2w at most, SAFE_ROUNDING.md); 1053875 and 129937 sit at
-0.97-0.99 of the bound under both rules. A tighter bound for those would need the correspondence between S0 and S
+strip zip's bound 2w is loose by itself (measured 0.91 · 2w at most, SAFE_ROUNDING.md); 1053875 (0.98-1.00 under both rules) and the intersection and difference of 129937 (0.97-0.99) are clean but sit at
+the bound either way. A tighter bound for those would need the correspondence between S0 and S
 through generic edits (Cohen et al.'s successive mappings, section 8), a different size of work. The degeneracy
 criterion (well-shaped tiny triangles, the open question for 2.x) is independent: with it 119829 / 119830 would have
 nothing to contract.
@@ -344,6 +357,8 @@ nothing to contract.
   result within the original bound exists (four times the bound); the reported drift bounds the measured distance
   for `Similarity.All()`, with bit-identical results for the 2^k scales; the same result twice. The assertions
   marked "D1 pin" are today's accounting and change when the rule is built; the audit ones hold for any sound rule.
+  The audit is weak on this patch (the measured distance is below 0.001 of the bound, so it only catches a rule that
+  reports almost nothing); the tests with power against a wrong rule are the spike meshes of the plan (section 7).
 
 ## 7. Recommendation and plan
 
@@ -383,7 +398,8 @@ Plan, one PR:
      copy, and a second `Apply` on the result), serial equals parallel (the search is parallel, the accounting is
      not; `RoundingDriftApexTests.Needles_SerialEqualsParallel_ApplyTwice` as the model).
    - Every edit type in check mode (`CheckMode_EveryEditType_SameResultAsWithout` extended).
-   - Time: all of them within 5 s; the dense patch here runs in 0.2 s.
+   - Time: all of them within 5 s; the dense patch here runs in about 0.2 s (the xunit duration of
+     `DensePatch_BudgetUsedUpByTheAccounting_NotByTheDistance`).
 3. **Z3.** `drift_reference.py` gets its source contract of the rule (the text of the new `improves` part and
    commit, as `drift_apex.py` has today); the workflow already runs on changes of `MeshRoundingRepair.cs`.
 4. **Mutation.** Shards `mesh-rounding-1` to `-7` (the byte ranges of `MeshRoundingRepair.cs` shift, so the
@@ -391,8 +407,8 @@ Plan, one PR:
    2026-11-09); new test classes named to match the shards' filter (`MeshRoundingRepairTests…`,
    `SafeRoundingBoundTests…`) or the filter extended by the coordinator.
 5. **Gate before ready.** The cohort run as a runner job (the 16 239 operations: clean-status changes both ways,
-   `MaxDrift` distribution, times, bit-identity of the operations without a rejected edit: with no rejection the
-   two rules accept the same edits, so those results must be identical), then the thingi-pairs control run with
+   `MaxDrift` distribution, times, the operations without a rejected edit must come out the same, apart from an edit within
+   a few units in the last place of the bound, section 3.3), then the thingi-pairs control run with
    the Boolean 2.0 final. Stop rule: any operation that is clean today and not clean with the rule is analysed
    before the merge (order dependence, as 548875 was).
 6. **Docs.** SAFE_ROUNDING.md section 1 (the drift paragraph and the proof), the class comment, OPERATIONS.md if
