@@ -12,7 +12,20 @@ Part of the [roadmap](../ROADMAP.md).
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
   so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
   when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker).
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Analyst's findings
+  (follow-up PR #445, draft): (1) debug/trace log no per-test line during capture, so the ticker shows elapsed time only;
+  (2) and (3) are in; (4) `dots` prints nothing without a terminal.
+- **#403 merged (2026-11-09, 1fad195d):** its last run was green on all 14 shards within 350 min (rounding parts
+  145-294 min, margin >= 56 min). Master baselines dispatched for the 14 non-rounding shards; the rounding baselines are
+  seeded after the integration PR (it changes the rounding code, so earlier baselines would be stale at once).
+- **JOB-1 on the owner's machine (2026-11-09, runs/mutation-local e4137017):** label A (part 4, 174 tests) is not a kill
+  measurement: all 282 mutants Timeout in about 5 s of mutant phase (the Windows test runner most likely failed; the log
+  was overwritten). Its capture took 6 h 34 min, about 2x CI. F1 has 171 tests, so a reduced filter barely shortens
+  capture; B2 dropped. Decision: no kill measurements on the owner's machine; kills only in CI.
+- **Combined-gate filters (analyst, 2026-11-09):** the rounding parts keep the old 8-term filter (147 tests); the
+  19-term filter (+18 % tests, +23 % suite time) is estimated to push rounding-1 to ~360 min. The 19-term filter only on
+  touched parts with margin (rounding-2, -5, -7), else as its own dispatch. Cheap check first: the uninstrumented suite
+  time of the 19-term filter on the integrated head (<= 31 s means the 8-term numbers hold).
 - **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
