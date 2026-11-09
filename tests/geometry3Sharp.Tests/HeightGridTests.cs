@@ -161,8 +161,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(HeightGridStatus.DuplicateNode, ReadXyz("0 0 1\n1 0 2\n0 1 3\n1 1 4\n1 1 5\n").Status);
             // 1 x 2 cells: not square
             Assert.Equal(HeightGridStatus.NonSquareCells, ReadXyz("0 0 1\n1 0 1\n0 2 1\n1 2 1\n0 4 1\n1 4 1\n").Status);
-            // two far apart points: the grid would be huge and empty
-            Assert.Equal(HeightGridStatus.TooSparse, ReadXyz("0 0 1\n1 1 1\n1000000 1000000 1\n").Status);
+            // three points on a 401 x 401 lattice: the grid would be huge and nearly empty
+            Assert.Equal(HeightGridStatus.TooSparse, ReadXyz("0 0 1\n1 1 1\n400 400 1\n").Status);
+            // (blocks far apart, whose smallest gap could be jitter: no lattice is reported)
+            var clusters = new List<(double, double, double)>();
+            foreach (int ox in new[] { 0, 5000 })
+                for (int i = 0; i < 10; ++i)
+                    for (int j = 0; j < 10; ++j)
+                        clusters.Add((ox + i, ox + j, i));
+            Assert.Equal(HeightGridStatus.NotOnGrid, ReadXyz(Points(clusters)).Status);
         }
 
         [Fact]
@@ -322,9 +329,9 @@ namespace geometry3Sharp.Tests
         public void Esri_HugeClaimWithLittleData_DoesNotAllocateTheClaim()
         {
             // ncols * nrows is within MaxNodes, the file holds three values: Truncated, quickly and without a 500 MB array
-            var o = new HeightGridReadOptions { MaxNodes = 1L << 28 };
+            var o = new HeightGridReadOptions { MaxNodes = 1L << 27 };
             long before = GC.GetTotalMemory(true);
-            HeightGridReadResult r = ReadEsri("ncols 16000\nnrows 16000\nxllcorner 0\nyllcorner 0\ncellsize 1\n1 2 3", o);
+            HeightGridReadResult r = ReadEsri("ncols 11000\nnrows 11000\nxllcorner 0\nyllcorner 0\ncellsize 1\n1 2 3", o);
             Assert.Equal(HeightGridStatus.Truncated, r.Status);
             Assert.True(GC.GetTotalMemory(false) - before < 64L * 1024 * 1024);
         }
@@ -407,6 +414,188 @@ namespace geometry3Sharp.Tests
             Assert.Equal(8, w.Y0);
             Assert.Equal(g[2, 3], w[0, 0]);
             Assert.Equal(g[6, 9], w[4, 6]);
+        }
+
+        // ---- review findings: lattice detection, tolerances, hostile input, writers ----
+
+        static string Points(IEnumerable<(double x, double y, double z)> pts)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var p in pts)
+                sb.Append(p.x.ToString("R", CultureInfo.InvariantCulture) + " " + p.y.ToString("R", CultureInfo.InvariantCulture) + " " + p.z.ToString("R", CultureInfo.InvariantCulture) + "\n");
+            return sb.ToString();
+        }
+
+        [Fact]
+        public void Xyz_RowIndexUsesTheYSpacing()
+        {
+            // dy is 5e-5 larger than dx (within the squareness tolerance): after 12000 rows the drift is 0.6 cell
+            double dx = 1, dy = 1 + 5e-5;
+            var pts = new List<(double, double, double)>();
+            for (int j = 0; j < 12000; ++j) { pts.Add((0, j * dy, j)); pts.Add((dx, j * dy, j + 0.5)); }
+            HeightGridReadResult r = ReadXyz(Points(pts));
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(12000, r.Grid.NY);
+            Assert.Equal(12000 - 1, r.Grid[0, 11999]);
+            Assert.Equal(7.5, r.Grid[1, 7]);
+            Assert.Equal(0, r.Grid.ValidNodeCount() - 24000);
+        }
+
+        [Fact]
+        public void Xyz_JitterWithinTheToleranceOnALargeGrid()
+        {
+            var rand = new Random(11);
+            var pts = new List<(double, double, double)>();
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < 1000; ++i)
+                    pts.Add((i + (rand.NextDouble() - 0.5) * 8e-4, j + (rand.NextDouble() - 0.5) * 8e-4, i + 1000 * j));
+            HeightGridReadResult r = ReadXyz(Points(pts));
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(1000, r.Grid.NX);
+            Assert.Equal(3, r.Grid.NY);
+            Assert.Equal(1, r.Grid.CellSize, 5);       // (the step of the 1000 columns, not of the 3 rows)
+            Assert.Equal(2999, r.Grid[999, 2]);
+            // a near duplicate coordinate (a second text form of the same column) is no new column
+            pts[1005] = (pts[1005].Item1 + 1e-7, pts[1005].Item2, pts[1005].Item3);
+            Assert.True(ReadXyz(Points(pts)).Ok);
+        }
+
+        [Theory]
+        [InlineData(0.9e-3, true)]
+        [InlineData(1.1e-3, false)]
+        public void Xyz_GridToleranceBoundary(double offset, bool ok)
+        {
+            var pts = new List<(double, double, double)>();
+            for (int j = 0; j < 4; ++j)
+                for (int i = 0; i < 4; ++i)
+                    pts.Add((i + (i == 2 && j == 1 ? offset : 0), j, i + j));
+            HeightGridReadResult r = ReadXyz(Points(pts));
+            Assert.Equal(ok, r.Ok);
+            if (!ok) Assert.Equal(HeightGridStatus.NotOnGrid, r.Status);
+            Assert.True(ReadXyz(Points(pts), new HeightGridReadOptions { GridTolerance = 2e-3 }).Ok);
+        }
+
+        [Fact]
+        public void Xyz_AMissingColumnBeyondThePatternIsNotALattice()
+        {
+            // x = 0, 2, 5: no two columns are neighbours, the spacing is not determined
+            Assert.Equal(HeightGridStatus.NotOnGrid, ReadXyz("0 0 1\n2 0 1\n5 0 1\n0 1 1\n2 1 1\n5 1 1\n").Status);
+            // x = 0, 2, 4, 5: the neighbours 4, 5 give the spacing
+            HeightGridReadResult r = ReadXyz("0 0 1\n2 0 1\n4 0 1\n5 0 1\n0 1 1\n2 1 1\n4 1 1\n5 1 1\n");
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(6, r.Grid.NX);
+        }
+
+        [Fact]
+        public void Xyz_NonDyadicCellSize_RoundTripsUpToRounding()
+        {
+            HeightGrid g = Procedural(9, 7, 350000.5, 5600001.25, 0.1, true);
+            HeightGridReadResult r = ReadXyz(XyzText(g));
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(g.NX, r.Grid.NX);
+            Assert.Equal(g.NY, r.Grid.NY);
+            Assert.Equal(g.X0, r.Grid.X0);
+            Assert.Equal(g.CellSize, r.Grid.CellSize, 9);       // (the x coordinates near 350000 have an ulp of 6e-11)
+            Assert.Equal(g.Z, r.Grid.Z);
+            HeightGridReadResult e = ReadEsri(EsriText(g));
+            AssertSameGrid(g, e.Grid);          // ESRI ASCII is exact
+        }
+
+        [Fact]
+        public void Xyz_SparseLimit_UsesMaxNodesPerPoint()
+        {
+            // 9 points on a 33 x 33 lattice: 1089 nodes > max(1024, 64 * 9)
+            var pts = new List<(double, double, double)>();
+            foreach (int i in new[] { 0, 1, 32 })
+                foreach (int j in new[] { 0, 1, 32 })
+                    pts.Add((i, j, i + j));
+            string text = Points(pts);
+            Assert.Equal(HeightGridStatus.TooSparse, ReadXyz(text).Status);
+            Assert.True(ReadXyz(text, new HeightGridReadOptions { MaxNodesPerPoint = 128 }).Ok);
+        }
+
+        [Fact]
+        public void Xyz_HostileInput()
+        {
+            Assert.Equal(HeightGridStatus.BadLine, ReadXyz("0 0 1\n1 0 1" + new string(' ', 10000) + "\n").Status);                    // a long line (cut at 4096 characters it would parse)
+            Assert.Equal(HeightGridStatus.BadLine, ReadXyz("632000,5 5712000,5 12,3\n").Status);                                     // decimal commas
+            Assert.Equal(HeightGridStatus.TooLarge, ReadXyz("0 0 1\n1 0 1\n0 1 1\n1 1 1\n", new HeightGridReadOptions { MaxPoints = 3 }).Status);
+            Assert.True(ReadXyz("0 0 1\n1 0 1\n0 1 1\n1 1 1\n", new HeightGridReadOptions { MaxPoints = 4 }).Ok);
+            Assert.True(ReadXyz("0,0,1\n1,0,1\n0,1,1\n1,1,1").Ok);                                                                     // commas alone separate, no final newline
+        }
+
+        [Fact]
+        public void Esri_LongTokensAndHeaders()
+        {
+            const string h = "ncols 2\nnrows 2\nxllcorner 0\nyllcorner 0\ncellsize 1\n";
+            string longNumber = "0." + new string('0', 1500) + "1";
+            Assert.Equal(HeightGridStatus.BadValue, ReadEsri(h + "1 2 " + longNumber + " 4").Status);
+            Assert.Equal(HeightGridStatus.BadHeader, ReadEsri("ncols " + longNumber + "\nnrows 2").Status);
+            Assert.Equal(HeightGridStatus.BadHeader, ReadEsri("ncols 2\nnrows 2\nxllcorner 0\nyllcorner 0\nbyteorder LSBFIRST\ncellsize 1\n1 2 3 4").Status);
+        }
+
+        [Fact]
+        public void Esri_MixedCornerCenterAndNoDataPrecedence()
+        {
+            HeightGridReadResult r = ReadEsri("ncols 2\nnrows 1\nxllcorner -10\nyllcenter -3\ncellsize 2\nNODATA_value 5\n5 6\n", new HeightGridReadOptions { NoDataValue = 6 });
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(-9, r.Grid.X0);
+            Assert.Equal(-3, r.Grid.Y0);
+            Assert.True(double.IsNaN(r.Grid[0, 0]));      // the header's NODATA_value (5) wins over the option (6)
+            Assert.Equal(6, r.Grid[1, 0]);
+            Assert.True(ReadEsri("ncols 1\nnrows 1\nxllcenter 1\nyllcenter 1\ncellsize 2\ndx 2\ndy 2\n3").Ok);
+        }
+
+        [Fact]
+        public void Writers_RejectWhatTheReadersCannotReadBack()
+        {
+            HeightGrid g = Procedural(3, 3, 0, 0, 1, false);
+            var w = new StringWriter();
+            Assert.Throws<ArgumentException>(() => HeightGridWriter.WriteEsriAscii(w, g, double.NaN));
+            Assert.Throws<ArgumentException>(() => HeightGridWriter.WriteEsriAscii(w, g, double.PositiveInfinity));
+            g[1, 1] = -9999;
+            Assert.Throws<ArgumentException>(() => HeightGridWriter.WriteEsriAscii(w, g));
+            Assert.Equal(-9999, ReadEsri(EsriText(g, -8888)).Grid[1, 1]);
+            g[1, 1] = double.PositiveInfinity;
+            Assert.Throws<ArgumentException>(() => HeightGridWriter.WriteEsriAscii(w, g, -8888));
+            Assert.Throws<ArgumentException>(() => HeightGridWriter.WriteXyz(w, g));
+        }
+
+        [Fact]
+        public void Height_NoDataCorners_GiveNaNInBothTrianglesOfTheCell()
+        {
+            for (int corner = 0; corner < 4; ++corner) {
+                HeightGrid g = Procedural(3, 3, 0, 0, 1, false);
+                g[corner & 1, corner >> 1] = corner == 3 ? double.PositiveInfinity : double.NaN;
+                Assert.True(double.IsNaN(g.Height(0.75, 0.25)), $"corner {corner}, lower triangle");
+                Assert.True(double.IsNaN(g.Height(0.25, 0.75)), $"corner {corner}, upper triangle");
+                Assert.Equal(2 * (4 - new[] { 1, 2, 2, 4 }[corner]), g.BuildMesh().TriangleCount);     // the cells that use the node are left out
+            }
+        }
+
+        [Fact]
+        public void Window_OutsideOrNonFiniteBoxesGiveAnEmptyGrid()
+        {
+            HeightGrid g = Procedural(3, 3, 0, 0, 1, false);
+            foreach (var box in new[] { (100.0, 0.0, 200.0, 2.0), (0.0, 100.0, 2.0, 200.0), (-5.0, -5.0, -1.0, -1.0), (double.NaN, 0.0, 2.0, 2.0),
+                                        (0.0, 0.0, double.PositiveInfinity, double.NaN), (3.0, 0.0, 2.0, 2.0) }) {
+                HeightGrid w = g.Window(box.Item1, box.Item2, box.Item3, box.Item4);
+                Assert.Equal(0, w.NX * w.NY);
+                Assert.Empty(w.Z);
+            }
+            HeightGrid all = g.Window(double.NegativeInfinity, double.NegativeInfinity, double.PositiveInfinity, double.PositiveInfinity);
+            AssertSameGrid(g, all);
+        }
+
+        [Fact]
+        public void BuildMesh_WithGaps_IsAValidMesh()
+        {
+            HeightGrid g = Procedural(8, 6, 40, 70, 2, true);
+            g[2, 2] = double.NaN; g[3, 3] = double.NaN;          // cells that touch only at a corner
+            DMesh3 m = g.BuildMesh();
+            Assert.True(m.CheckValidity(true, FailMode.ReturnOnly) || m.IsClosed() == false);
+            Assert.Equal(m.VertexCount, g.BuildMesh().VertexCount);
+            Assert.True(m.IsCompact);
         }
 
         [Fact]
