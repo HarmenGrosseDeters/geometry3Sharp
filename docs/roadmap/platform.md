@@ -161,7 +161,7 @@ Tier: S, M. Parallel: up to 2 sessions
 SharpFuzz + libFuzzer (STL reader pilot #442; mesh-ops pilot after #449), FPTaylor (#436), Z3 (#400, #407, #443),
 CsCheck property campaigns (the list above), changed-line coverage with coverlet (#434), mutation shards (#403, #445)
 and the test tiers and time limit (#447, the backlog program).
-- **Step 1, inventory:** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
+- **Step 1, inventory (Sonnet session started 2026-11-09):** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
   oracle, Clipper2 addon, MarchingCubes / contouring, terrain, remesher / reducer, spatial queries), each cell with
   what exists, what the tool would check there, the expected finds and the cost. Then a rollout order by ROI for the
   owner.
