@@ -223,4 +223,7 @@ from secret tests, which a public repository cannot keep.
       follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
     - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
       valid result for the owner).
+    - Targets are a floor, not a stop (owner 2026-11-09): when a target is met, the remaining levers are still
+      measured (upper bound) and every one with a noticeable gain at reasonable effort is built, in order of gain per
+      effort, until the bounds show nothing worth building. The stop rule only drops levers without a measurable gain.
 
