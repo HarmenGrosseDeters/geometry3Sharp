@@ -29,6 +29,6 @@ export PATH="$DOTNET_ROOT:$PATH"
 "$dotnet" "$work/replay/MeshFuzzPilot.dll" write-seeds "$work/corpus"
 cp -a "$work/replay" "$work/bin"
 "$instrumenter" "$work/bin/geometry3Sharp.dll"
-"$fuzzer" -seed=20261109 "-runs=$runs" "-max_total_time=$seconds" -max_len=512 -timeout=30 -rss_limit_mb=3072 "${fork[@]}" \
+"$fuzzer" -seed=20261109 "-runs=$runs" "-max_total_time=$seconds" -max_len=512 -timeout=30 -rss_limit_mb=3072 ${fork[@]+"${fork[@]}"} \
     "-artifact_prefix=$work/artifacts/" "--target_path=$dotnet" \
     "--target_arg=$work/bin/MeshFuzzPilot.dll" "$work/corpus" 2>&1 | tee "$work/fuzz.log"

@@ -10,7 +10,8 @@ DOTNET = os.environ.get('DOTNET_HOST_PATH', 'dotnet')
 
 
 def run(*args):
-    return subprocess.run([DOTNET, DLL, *args], capture_output=True, text=True)
+    # (a time limit: a hanging seed or input fails the test instead of stalling the CI job)
+    return subprocess.run([DOTNET, DLL, *args], capture_output=True, text=True, timeout=300)
 
 
 class PilotTests(unittest.TestCase):
@@ -35,9 +36,10 @@ class PilotTests(unittest.TestCase):
 
     def test_short_and_empty_inputs_decode(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for n in (0, 1, 7):
-                p = Path(tmp) / f'short{n}.bin'
-                p.write_bytes(bytes(range(n)))
+            # empty, and short inputs whose first byte selects each operation (the rest decodes as zeros)
+            for n, data in [(0, b'')] + [(op, bytes([op, 1, 2])) for op in range(6)]:
+                p = Path(tmp) / f'short{n}-{len(data)}.bin'
+                p.write_bytes(data)
                 r = run('replay', str(p))
                 self.assertEqual(r.returncode, 0, r.stderr)
 
