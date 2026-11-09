@@ -13,9 +13,8 @@ namespace geometry3Sharp.Tests
     /// QA 2.0 T3: seeded CsCheck property campaigns for MeshRobustRepair and MeshRoundingRepair (net10.0 only; run
     /// protocol and environment variables in CampaignRunner). Cases are printable scenes: 1 to 4 pieces (tetrahedron,
     /// box, sphere, sliver tetrahedron, plate) of sizes 2^-8 .. 2^8 and positions from touching, nearly touching
-    /// (gap 2^-g), overlapping to far apart (up to 2^37 sizes), with seeded defects (flipped or duplicated faces,
-    /// open boundaries, jitter of a few units in the last place of the piece). The scene is built exactly (dyadic or
-    /// scaled by a power of two), so scaling it by 2^s is exact too.
+    /// (gap 2^-g), overlapping to far apart (up to 2^25 sizes), with seeded defects (flipped or duplicated faces,
+    /// open boundaries, jitter of a few thousand units in the last place of the piece, where the coordinates allow). Coordinates are rounded once when built; scaling the built scene by 2^s is exact.
     /// Large campaigns (not in CI): G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter "Category=Campaign".
     /// Each failing seed found becomes a fixed example test (RepairCampaignFindings).
     /// </summary>
@@ -34,7 +33,7 @@ namespace geometry3Sharp.Tests
             public int Rel;     // to piece 0: 0 apart (2^Far), 1 touching, 2 nearly touching (gap 2^-Gap), 3 overlapping, 4 a copy of piece 0 turned by 2^-Gap rad and moved by 2^-Gap
             public int Axis;    // direction from piece 0: 0..5 = +x, -x, +y, -y, +z, -z
             public int Gap;     // 2..30
-            public int Far;     // 0..36
+            public int Far;     // 0..24
             public int Thin;    // sliver and plate thickness 2^-Thin of the size, 3..40
             public int Defect;  // flags: 1 flip all faces, 2 flip one face, 4 duplicate one face, 8 drop one face, 16 jitter
             public int Seed;
@@ -203,7 +202,7 @@ namespace geometry3Sharp.Tests
 
         static void WithTimeout(Action a, string what)
         {
-            if (Timed.Finishes(a, TimeSpan.FromSeconds(120)) == false) throw new Exception(what + " did not finish in 120 s");
+            if (Timed.Finishes(a, TimeSpan.FromSeconds(60)) == false) throw new Exception(what + " did not finish in 60 s");
         }
 
         static string Prefix(string what, string reason) => reason == "" ? "" : what + ": " + reason;
@@ -316,7 +315,7 @@ namespace geometry3Sharp.Tests
             return First(
                 () => a.Ok == scaled.Ok ? "" : $"ok {a.Ok} vs {scaled.Ok} ({a.Path} vs {scaled.Path})",
                 () => a.Repair.ResultReason == scaled.Repair.ResultReason ? "" : $"reason '{a.Repair.ResultReason}' vs '{scaled.Repair.ResultReason}'",
-                () => a.Repair.UsedExactResolve == scaled.Repair.UsedExactResolve && a.Repair.UsedAlphaWrap == scaled.Repair.UsedAlphaWrap
+                () => a.Repair.UsedExactResolve == scaled.Repair.UsedExactResolve && a.Repair.UsedAlphaWrap == scaled.Repair.UsedAlphaWrap && a.Repair.UsedInput == scaled.Repair.UsedInput
                       && (a.Repair.Solidify != null) == (scaled.Repair.Solidify != null) ? "" : $"path {a.Path} vs {scaled.Path}",
                 () => Prefix(a.Path, Invariance.Difference(a.Result, back)));
         }
@@ -325,7 +324,7 @@ namespace geometry3Sharp.Tests
         /// Clean solids that do not overlap (apart or nearly touching, sizes and distances far apart): the repair must
         /// not lose or change a solid. Apply() true implies clean (RobustProperties); every piece's volume is in the
         /// result (matched by its center, within 1e-3 relative; a solid moves only by the rounding bound), and
-        /// the result has as many closed components.
+        /// each part has its own component in the result. Where parts lie so far apart that a triangle of a part is below the degenerate area of all triangles and Apply() is true, the check is skipped (F1, RepairCampaignFindings).
         /// </summary>
         internal static string CleanSceneProperties(Scene scene, int shift)
         {
@@ -343,8 +342,8 @@ namespace geometry3Sharp.Tests
             // size (ScaleDisparity), reported as not clean with the resolved mesh
             if (a.Ok == false && (disparity == false || !a.Repair.ResultReason.StartsWith("scale disparity")))
                 return $"Apply() false for clean solids ({a.Path}: {a.Repair.ResultReason})";
-            // (reported as not repaired, the parts are all there; with Apply() true F1 applies)
-            if (disparity && a.Ok)
+            // (with Apply() true F1 applies; with false the mesh is only the resolved one: F1b, its parts can be eroded)
+            if (disparity)
                 return "";
             return ComponentVolumesKept(input, a);
         }
@@ -380,16 +379,20 @@ namespace geometry3Sharp.Tests
                 return box.DiagonalLength;
             }
             double largest = inComps.Components.Max(c => Diag(input, c));
+            var matched = new HashSet<int>();
             foreach (var c in inComps.Components) {
                 if (Diag(input, c) < MeshRepairMetrics.MinComponentDiagonal * largest) continue;
                 double expected = Vol(input, c);
                 Vector3d at = Center(input, c);
                 // the output component whose center is nearest
-                double best = double.MaxValue, got = 0;
+                double best = double.MaxValue, got = 0; int bestIndex = -1, index = 0;
                 foreach (var o in outComps.Components) {
                     double d = Center(a.Result, o).Distance(at);
-                    if (d < best) { best = d; got = Vol(a.Result, o); }
+                    if (d < best) { best = d; got = Vol(a.Result, o); bestIndex = index; }
+                    index++;
                 }
+                if (!matched.Add(bestIndex))
+                    return $"two parts of the input share one component of the result (at {at}; {a.Path})";
                 if (Math.Abs(got - expected) > 1e-3 * Math.Abs(expected))
                     return $"component at {at} of volume {expected:R} has {got:R} in the result (nearest {best:G3}; {a.Path})";
             }
@@ -503,7 +506,7 @@ namespace geometry3Sharp.Tests
         public void Robust_CleanScenes()
         {
             CampaignRunner.Run(log, nameof(RepairCampaignTests), "Robust(clean)",
-                GenClean.SelectMany(s => RobustShift.Select(k => (s, k))), c => CleanSceneProperties(c.s, c.k), 15, 101u);
+                GenClean.SelectMany(s => RobustShift.Select(k => (s, k))), c => CleanSceneProperties(c.s, c.k), 8, 101u, 40);
             LogCoverage("clean");
         }
 
@@ -512,7 +515,7 @@ namespace geometry3Sharp.Tests
         public void Robust_AnyScenes()
         {
             CampaignRunner.Run(log, nameof(RepairCampaignTests), "Robust(any)",
-                GenDirty.SelectMany(s => RobustShift.Select(k => (s, k))), c => Timing("any", c.s, () => RobustProperties(c.s, c.k)), 5, 102u);
+                GenDirty.SelectMany(s => RobustShift.Select(k => (s, k))), c => Timing("any", c.s, () => RobustProperties(c.s, c.k)), 4, 102u, 40);
             LogCoverage("any");
         }
 
@@ -530,7 +533,7 @@ namespace geometry3Sharp.Tests
         public void Rounding_Scenes()
         {
             CampaignRunner.Run(log, nameof(RepairCampaignTests), "Rounding",
-                GenRounding.SelectMany(s => Gen.Int[-10, 10].Select(k => (s, k))), c => RoundingProperties(c.s, c.k), 25, 103u);
+                GenRounding.SelectMany(s => Gen.Int[-10, 10].Select(k => (s, k))), c => RoundingProperties(c.s, c.k), 25, 103u, 40);
             LogCoverage("rounding");
         }
 

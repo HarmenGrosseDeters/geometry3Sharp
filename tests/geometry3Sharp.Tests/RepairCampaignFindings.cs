@@ -21,7 +21,11 @@ namespace geometry3Sharp.Tests
     /// Apply() is false with ScaleDisparity, as documented. The retry (ScaleRetry) is tried only when the exact
     /// resolve fails; here it succeeds.
     ///
-    /// F2 (fixed, DMeshAABBTree3): the top-down build decided between "split at the midpoint" and "split half and half"
+    /// F1b (open, noted): with Apply() false and ScaleDisparity the returned mesh can hold a part at a fraction of its
+    /// volume (a sphere of radius 2 next to a tetrahedron of size 2^8 at 2^22: volume 29.7 in the input, 1.1 in the mesh).
+    /// Apply() false says the repair failed, so the campaign does not judge the parts there.
+    ///
+    /// F2 (own bugfix PR, DMeshAABBTree3; still open on a base without it): the top-down build decided between "split at the midpoint" and "split half and half"
     /// by an absolute spread of 1e-8 (MathUtil.ZeroTolerance), so a mesh whose centroids lie within 1e-8 along an axis
     /// (a small mesh, or a thin plate) got another tree than the same mesh scaled by 2^k, and the winding number
     /// contour of the solidify fallback (adaptive, ray queries) differed in the last bits. The test is in
