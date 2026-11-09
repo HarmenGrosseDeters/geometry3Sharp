@@ -426,6 +426,7 @@ namespace g3
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
+                CheckTagsNow();
                 k.Dirty = null;
                 // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
                 // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
@@ -575,9 +576,20 @@ namespace g3
             string lastOperation;
             long operations;
 
+            // tests only: the check recomputes the domain from scratch, so it is quadratic in the number of operations when it runs after
+            // each one. On meshes of this many triangles or more it runs after operations 1, 2, 4, 8, ... and at the end of refinement
+            const int DenseCheckBelowTriangles = 2000;
+
             void CheckTags()
             {
                 ++operations;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                if (k.TriangleSlots >= DenseCheckBelowTriangles && (operations & (operations - 1)) != 0) return;
+                CheckTagsNow();
+            }
+
+            void CheckTagsNow()
+            {
                 if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
                 var inside = b.InsideFromScratch();
                 for (int t = 0; t < inside.Length; ++t)

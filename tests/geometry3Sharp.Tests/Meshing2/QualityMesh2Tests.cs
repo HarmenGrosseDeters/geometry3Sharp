@@ -205,8 +205,9 @@ namespace geometry3Sharp.Tests
             return input;
         }
 
-        // The rows by what the tag check costs on net10.0 (serially: F-37 303 s, F-41/a 106 s, F-38/d 21 s, F-42 8 s, F-4/b 6 s, the
-        // rest together about 20 s): F-37 and F-41/a get a class each, so that the three long stretches run in parallel
+        // The rows by what the tag check cost when it ran after every operation on every mesh (serially on net10.0: F-37 303 s, F-41/a
+        // 106 s, F-38/d 21 s, F-42 8 s, F-4/b 6 s, the rest together about 20 s; on meshes of 2000 triangles or more it now runs after
+        // operations 1, 2, 4, 8, ... and at the end, and all rows take 12 s together): F-37 and F-41/a keep a class each
         // (TagCheckRows_PartitionTheCoveredM3Rows: the classes together check exactly the old set of rows).
         static readonly string[][] TagCheckGroups = {
             new[] { "F-37" },
@@ -246,16 +247,12 @@ namespace geometry3Sharp.Tests
         /// Only the M3 rows reach the refiner and its check, so only they run, in four classes (one test took 951 s serially on net10.0,
         /// the longest stretch of the suite, F-37 alone 303 s of it); within a class in parallel, the per-thread switch set on each worker.
         /// </summary>
-        [Trait("Category", "Slow")]
         public class TagCheckF37 { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(0); }
 
-        [Trait("Category", "Slow")]
         public class TagCheckF41a { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(1); }
 
-        [Trait("Category", "Slow")]
         public class TagCheckLongRows { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(2); }
 
-        [Trait("Category", "Slow")]
         public class TagCheckOtherRows { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(3); }
 
         [Fact]
