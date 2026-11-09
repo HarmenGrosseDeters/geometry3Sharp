@@ -276,3 +276,93 @@ Measured limits (what the numbers do not give):
 
 Open (not scheduled): **T4** (Remesher speed, 1.3 to 1.5 x at best on the serial edge operations; re-measure when wanted); **feature-curve operators** (Wang et al. 2019) for the crease slivers and the x2 quality (research note in section 7); a flip of any default needs a proposal and the 800-mesh corpus run (owner 2026-11-09), none is on the table.
 
+
+## 12. T4: Remesher speed, 2.x levers (owner 2026-11-09)
+
+Task: profile the plain `Remesher` first, then build only the levers whose upper bound pays; one PR per lever, results bit-identical where claimed.
+Commands and raw rows: scratch (not committed); the A/B numbers are from `ReducerRemesherBaseline ops=remesh fidelity=0 invariance=0 runs=3` (24 inputs, 4 cores,
+net10.0, master a5b4e60 against the PR, base and candidate alternating twice in one job, the minimum of the runs is compared).
+
+### 12.1 Profile of the plain Remesher (before any change)
+
+`g3cli remesh` settings (the baseline harness), x1 and x2 mean edge length, 24 inputs, a profiling build of `Remesher.ProcessEdge` with a timestamp per step (not committed; the
+timestamps cost about 20 % of the run, so shares, not seconds). Share of the wall time:
+
+| | x1 | x2 |
+|---|---|---|
+| serial edge operations (`ProcessEdge`) | 82 % | 78 % |
+| of them: look-up of the edge, constraints, lengths | 10 % | 9 % |
+| of them: collapse test and `CollapseEdge` | 9 % (the mesh operation 4.1 %) | 15 % (7.8 %) |
+| of them: **flip test** and `FlipEdge` | **40 %** (the mesh operation 1.0 %) | **33 %** (1.1 %) |
+| of them: split test and `SplitEdge` | 7 % (1.4 %) | 7 % (1.2 %) |
+| smoothing (parallel) | 3 % | 4 % |
+| projection onto the input (parallel, 4.4M / 1.0M nearest-point queries, 15 s / 3 s CPU) | 11 % | 9 % |
+| allocation inside the edge operations | 3.7 GB, all of it in the flip test | 1.1 GB |
+
+The flip *test* costs 40 times what the flip itself does: with `MeshIsClosed` false (it is only set by an explicit, undocumented-as-needed `Precompute()` call that nobody makes)
+the test asked `DMesh3.IsBoundaryVertex` four times per edge, each time with an iterator allocation (256 bytes per edge, measured). The rest of the operation share is cache-bound
+(look-ups of edges, vertices and valences).
+
+With `PreventSelfIntersections` (15 meshes up to 20k triangles, `profile` build): the checks of the three edge operations are 41 % (x1) / 46 % (x2) of the run (collapse 24 / 34 %), the
+vertex-move check of the smoothing and projection passes (`apply_moves_without_intersections`: an AABB tree built per pass, one parallel traversal over all triangles of moved vertices, the
+grid rebuilt) is 23 + 17 % with their own work, and on 299291 (18k triangles, x1) 53 % of the run (tree build 5 %, first-round traversal 26 %, grid rebuild 8 %). The grid for the edge checks is
+*already* updated incrementally per operation (rebuilt only once per pass, 5 %). 92 % of the 7.9M pair tests on 299291 are decided by `TriangleTriangleFilter` (27 % of the run), the exact
+stage is called for 1 % of them (1 % of the run): the orientation prefilter of #419 is in `pair_intersects` already.
+
+### 12.2 Upper bounds of the levers (stop rule: report, not build, below half the bound)
+
+| lever | upper bound on the plain Remesher | decision |
+|---|---|---|
+| (d) the flip test: closed-mesh hint by the pass itself, no iterator in `IsBoundaryVertex` | flip test 40 % of the run, 256 bytes per edge; probe (`Precompute()` called) took the flip share on the sphere from 2.6 s to 1.2 s: 1.3 x | **built (PR 1)** |
+| (a) projection through `NearestPointBatch` | the projection is already parallel (4 threads over `gParallel`), so the batch API's 3.7-7.2 x over a *serial* loop does not apply; what remains is the coherence from the sorted order (1.1-1.6 x serial, section "stage 2" of BatchQueryBenchmark): 11 % x (1 - 1/1.3) = 2.5 % (x1), at best 1.06 x | see 12.4 |
+| (b) incremental tree for the checks | the edge-check grid is incremental already; the per-pass rebuilds (tree 5 %, grid 5-8 %) are at most 13 % of an `si` run, and they happen because all vertices move in a smoothing pass (no vertex stays still, so nothing is left to update incrementally) | not built, 12.4 |
+| (c) orientation prefilter (#419) | already in front of the exact test (92 % of pairs decided by the 2D filter, exact stage 1 %); a cheaper float pre-test could save at most half of the filter's 27 %: about 1.15 x of an `si` run, with a new floating-point bound to review | not built, 12.4 |
+
+### 12.3 PR 1: the closed-mesh hint and the allocation-free `IsBoundaryVertex` (lever d)
+
+`Remesher` detects a closed mesh at the start of every pass (`RemesherPro`: at the first pass after construction / `ResetQueue()`), as `Precompute()` did on request; `Precompute()` stays
+(and now documents that it changes nothing). `DMesh3.IsBoundaryVertex` walks the vertex's edge list without an iterator (`SmallListSet.AnyAtSlot`, the same pattern as `FindByKey`), which
+also speeds up the open meshes and every other caller. No result changes: no vertex of a closed mesh is a boundary vertex, and the other path computes the same value.
+
+A/B (24 inputs, 4 cores, the minimum of 2 alternating runs of 3 each; hashes = `MeshHash` of the result):
+
+| variant, target | cases | base s | PR s | speed-up (total) | per case median | result hashes |
+|---|---|---|---|---|---|---|
+| default x1 | 24 | 17.7 | 11.8 | **1.49 x** | 1.36 x | 24 / 24 equal |
+| default x2 | 24 | 6.3 | 4.9 | **1.29 x** | 1.21 x | 24 / 24 equal |
+| `PreventSelfIntersections` x1 | 16 | 67.0 | 65.1 | 1.03 x | 1.04 x | 16 / 16 equal |
+| `PreventSelfIntersections` x2 | 16 | 19.4 | 18.4 | 1.05 x | 1.02 x | 16 / 16 equal |
+
+Procedural meshes at x1: sphere 3.10 -> 1.75 s, torus 2.21 -> 1.34 s, terrain (open) 3.02 -> 2.19 s, box 1.78 -> 1.12 s. The 2.0 doc's target for T4 (1.3 to 1.5 x on the plain Remesher) is met
+by this lever alone, without a partition. The per-pass snapshot of `RejectInvertingPasses` (a mesh copy and two volume sums, about 5 % of the run on the sphere) is the next item of the plain profile.
+
+### 12.4 Levers not built (probes and bounds)
+
+**(a) `NearestPointBatch` for the projection.** Probe (scratch program, the library at this PR): the vertices of a remeshed result, displaced by 0.3 % of the mean edge as after smoothing, projected onto
+the input's `DMeshAABBTree3`; the Remesher's own pattern (`gParallel.ForEach` over `target.Project`) against `MeshBatchQueries.NearestPointBatch` (sorted, parallel; one run of 5, the minimum):
+
+| mesh (points, tree triangles) | current, parallel | batch, sorted, parallel | batch, unsorted, parallel | batch over current | positions bit-identical |
+|---|---|---|---|---|---|
+| bumpy sphere (48.6k, 95k) | 18.0 ms | 28.8 ms | 22.0 ms | 0.63 x | yes |
+| torus (34.5k, 68k) | 12.4 ms | 23.8 ms | 15.7 ms | 0.52 x | yes |
+| 78295 (12.7k, 42k) | 18.1 ms | 16.1 ms | 19.2 ms | 1.12 x | yes |
+| 93370 (22.4k, 46k) | 41.5 ms | 33.3 ms | 42.6 ms | 1.24 x | yes |
+| 299291 (9.1k, 18k) | 4.0 ms | 4.7 ms | 4.3 ms | 0.85 x | yes |
+
+The batch API's 3.7-7.2 x is against a *serial* loop in shuffled order. The Remesher's projection is parallel already and its vertex ids are spatially coherent, so the Morton sort only adds cost
+(slower on the smooth meshes, +12-24 % on two Thingi10K meshes). Projection is 11-14 % of the plain run after PR 1; 1.0-1.2 x of that is under 3 % overall. Not built (stop rule). The caller switch is
+still possible later for callers that project unordered point sets.
+
+**(b) Incremental tree for the self-intersection checks.** The edge checks use a `TriangleHashGrid` updated per operation since #405; it is rebuilt once per pass (5 % of an `si` run). The
+move check of the smoothing and projection passes rebuilds an `DMeshAABBTree3` and the grid because the pass moves nearly every vertex; there is nothing incremental to exploit, and a refit
+would save the second tree of a pass (the projection's) at best: 2.5 % of an `si` run. Not built. The cost of that check is the first-round traversal (26 % of the run on 299291), whose
+only lever is cheaper pair tests (below) or a smaller candidate set (the clearance filter is closed, section 1.1).
+
+**(c) Orientation prefilter (#419, Devillers-Guigue).** `Remesher.pair_intersects` runs `TriangleTriangleFilter` (2D projection, exact `Orient2d`), then the exact shared-vertex shortcut and
+`ExactTriangleIntersection.IntersectsBeyondShared`, whose no-shared-vertex branch is Devillers-Guigue (the plane-side early exits). Counted on 299291 (17988 triangles, x1, `si`):
+7.9M pair tests, 92 % decided by the filter, 0.4 % by the plane shortcut, 1.1 % reach the exact stage (0.06 s of 6.6 s); the filter itself is 2.2 s of 6.6 s (instrumented). So the prefilter is in
+place; what is left is the cost of the filter's own `Orient2d` calls on ring triangles that all share the collapse vertex. A certified floating-point pre-test of the ring would need its own error bound
+and review for at most 1.15 x of an `si` run. Not built.
+
+**Left in the plain profile after PR 1** (profile build, same set): operations 77 % / 73 % (x1 / x2; look-up 13 / 11, collapse 11 / 17, flip test 25 / 20, split 9 / 8), smoothing 3-4 %, projection 14 / 11 %,
+allocation in the operations 0.2 GB (from 3.7). The per-pass snapshot of `RejectInvertingPasses` is about 6 %; the rest is spread over cache-bound look-ups, none above 5 %.

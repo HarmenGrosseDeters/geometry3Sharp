@@ -61,6 +61,9 @@ incrementally updated tree instead of rebuilds (both, core-count independent); (
 3.7-7.2x, bit-identical; the caller switch after Lévy phase 2); (4) slabs for the Remesher's edge operations (<= 2.1x on
 4 cores, large meshes only, a big build). First step: a per-operation profile of the plain Remesher (T4). Synergy with
 Alpha Wrap 3.0 (an incremental tree helps all three).
+**Status 2026-11-09 (T4, [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 12):** profiled; the flip test of the plain Remesher was the hotspot (40 % of the run, 256 bytes
+allocated per edge, because the closed-mesh hint was never set): fixed in PR 1, plain Remesher 1.49x (x1) / 1.29x (x2), bit-identical, `si` +3-5 %. Levers (1)-(3) measured and not built: the grid for the edge checks was incremental
+already, the move check rebuilds because every vertex moves, #419's filter is in place, and `NearestPointBatch` is slower than the parallel loop on coherent vertex order. (4), slabs, not started: the plain profile has no serial share above 25 % left.
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
