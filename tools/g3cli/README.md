@@ -19,6 +19,9 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
+| `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
+| `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
+| `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 
 ## Build and run
 
@@ -147,6 +150,19 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 # quality and topology of one mesh
 g3cli quality part.stl
 #   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
+
+# deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
+g3cli deviation simplified.stl original.stl --certified
+#   -> "vertex_statistics": { "mean": ..., "rms": ..., "max_absolute": ..., "absolute_p95": ... }, "hausdorff_lower_bound": ..., "hausdorff_upper_bound": ...
+
+# wall thickness: triangles thinner than 0.8 (mesh units), by the shape diameter function
+g3cli thickness part.stl --min-thickness 0.8
+#   -> "statistics": { "min": ..., "median": ... }, "thin_triangles": 120, "thin_area_share": 0.03, "thin_triangle_ids": [...]
+
+# primitive fit: a cylinder (a failed fit is operation_failed with "fit_result"), or every primitive for comparison
+g3cli fit pipe.stl --primitive cylinder --inlier-distance 0.05
+g3cli fit unknown.stl --primitive all
+#   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
