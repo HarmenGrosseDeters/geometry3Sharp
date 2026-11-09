@@ -60,6 +60,20 @@ namespace geometry3Sharp.Tests
             // (the sphere's extent is 2 times the radius: 2^401 is scaled into [2^299, 2^300), 2^-399 into [2^-300, 2^-299))
             Assert.Equal(Math.Pow(2, -102), MeshRepairMetrics.normalizing_scale(UnitSphere(Math.Pow(2, 400)), null));
             Assert.Equal(Math.Pow(2, 99), MeshRepairMetrics.normalizing_scale(UnitSphere(Math.Pow(2, -400)), null));
+            // an extent that overflows (a sliver from -1e308 to 1e308): from the largest coordinate, 1e308 in [2^1023, 2^1024)
+            Assert.Equal(Math.Pow(2, -724), MeshRepairMetrics.normalizing_scale(SphereWithFarSliver(new Vector3d(1e308, 1e307, -1.3e308)), null));
+            // far from the origin: scaled all the same (a huge extent is scaled down whatever the offset)
+            DMesh3 offset = UnitSphere(Math.Pow(2, 400));
+            foreach (int v in offset.VertexIndices())
+                offset.SetVertex(v, offset.GetVertex(v) + new Vector3d(Math.Pow(2, 402), 0, 0));
+            Assert.Equal(Math.Pow(2, -102), MeshRepairMetrics.normalizing_scale(offset, null));
+            // a tiny extent far from the origin is not scaled up (x = 2^1000, an extent of 2^-400 in y and z: the
+            // coordinates would overflow)
+            var far = new DMesh3();
+            double x = Math.Pow(2, 1000), t = Math.Pow(2, -400);
+            int p0 = far.AppendVertex(new Vector3d(x, 0, 0)), p1 = far.AppendVertex(new Vector3d(x, t, 0)), p2 = far.AppendVertex(new Vector3d(x, 0, t));
+            far.AppendTriangle(p0, p1, p2);
+            Assert.Equal(1.0, MeshRepairMetrics.normalizing_scale(far, null));
         }
     }
 }

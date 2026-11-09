@@ -21,7 +21,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RobustRepair_LargeFiniteDiagonal_Repaired()
         {
-            // an extent of about 2e120: the diagonal is finite, the volume check's volumes are not (it scales by a power
+            // (a control: it passes before the fix too) an extent of about 2e120: the diagonal is finite, the volume check's volumes are not (it scales by a power
             // of two); a sphere with a duplicated triangle is repaired, and the result has the sphere's volume
             DMesh3 m = UnitSphere(Math.Pow(2, 400));
             int t0 = m.TriangleIndices().First();
@@ -106,6 +106,44 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(unit.missing, got.missing);
                 Assert.Equal(unit.extra, got.extra);
             }
+        }
+
+        static DMesh3 Translated(DMesh3 m, Vector3d t)
+        {
+            foreach (int v in m.VertexIndices())
+                m.SetVertex(v, m.GetVertex(v) + t);
+            return m;
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void VolumeCheck_HugeMeshFarFromTheOrigin_Decided(bool cells)
+        {
+            // a sphere of radius 2^400 centred at (2^402, 0, 0): the scale must not depend on where the mesh lies (a review
+            // found the first version of the fix returning 1 here, so the IoU stayed NaN and passed)
+            var c = new Vector3d(Math.Pow(2, 402), 0, 0);
+            DMesh3 a = Translated(UnitSphere(Math.Pow(2, 400)), c), half = Translated(UnitSphere(Math.Pow(2, 399)), c);
+            Assert.True(MeshRepairMetrics.VolumeIoUAtLeast(new MeshRepairMetrics.SolidReference(a),
+                MeshRepairMetrics.SolidReference.Unoriented(new DMesh3(a)), 0.99, out double same, samples: Samples, useCells: cells));
+            Assert.Equal(1, same);
+            Assert.False(MeshRepairMetrics.VolumeIoUAtLeast(new MeshRepairMetrics.SolidReference(a),
+                MeshRepairMetrics.SolidReference.Unoriented(half), 0.99, out double iou, samples: Samples, useCells: cells));
+            Assert.InRange(iou, 0.09, 0.16);
+        }
+
+        [Fact]
+        public void AlphaWrap_BoxOverflows_InvalidInputNotAThrow()
+        {
+            // a small triangle near x = 1.7e308 with alpha and offset 1e307: the box with its margin has an infinite corner
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(1.7e308, 0, 0)), b = m.AppendVertex(new Vector3d(1.7e308, 1e300, 0));
+            int c = m.AppendVertex(new Vector3d(1.7e308, 0, 1e300));
+            m.AppendTriangle(a, b, c);
+            var w = new MeshAlphaWrap(m) { Alpha = 1e307, Offset = 1e307 };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
+            Assert.Null(w.Result);
         }
 
         [Fact]

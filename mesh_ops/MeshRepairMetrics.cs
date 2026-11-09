@@ -278,8 +278,9 @@ namespace gs
         /// NaN, which passed as "no solid" (a result that lost most of a solid of size 1e160 was accepted), and near
         /// 1e308 the far points were infinite and the exact predicates threw. Scaling by a power of two is exact (the
         /// same inside decisions, the same IoU as at the scaled size; the checks give the same IoU for 2^k scales),
-        /// except for coordinates that become subnormal (below about 2^-1322 times the extent). 1 if a coordinate is not
-        /// finite, or if the scaled coordinates would not be finite (a tiny part far from the origin).
+        /// except for coordinates that become subnormal (below about 2^-1322 times the extent). 1 if a bound is not
+        /// finite (a NaN coordinate may not show in the bounds; it stays NaN), or if scaling up would make the
+        /// coordinates not finite (a tiny extent far from the origin).
         /// </summary>
         internal static double normalizing_scale(DMesh3 a, DMesh3 b)
         {
@@ -303,7 +304,10 @@ namespace gs
             int k = exponent(r);
             int e = k > 0 ? 299 - k : -300 - k;
             double s = BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
-            if (!(largest * s <= high))
+            // (scaling up a tiny extent far from the origin, eg x = 2^1000 with an extent of 2^-400 in y, would overflow the
+            // coordinates; scaling down never does, also for a mesh far from the origin; the margin of 2^6 keeps the far
+            // points of the exact winding finite)
+            if (s > 1 && !(largest * s <= double.MaxValue / 64))
                 return 1;
             return s;
         }

@@ -314,8 +314,9 @@ namespace gs
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
             MeshEditor.RemoveUnusedVertices(Mesh);
-            // finite coordinates whose diagonal overflows (an extent above about 1e154): every threshold relative to it
-            // would be infinite (the repair collapsed whole components); not repaired, Mesh not replaced
+            // a diagonal that is not finite (an extent above about 1e154, or coordinates that are not finite): every
+            // threshold relative to it would be infinite (the repair collapsed whole components); not repaired, Mesh not
+            // replaced
             if (Mesh.TriangleCount > 0 && !(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength < double.PositiveInfinity)) {
                 ResultReason = ScaleNotFinite;
                 return false;
@@ -507,10 +508,11 @@ namespace gs
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
         /// <summary>
-        /// ResultReason when Apply() returns false because the input's diagonal is not finite (finite coordinates
-        /// near +-1e308, or an extent above about 1e154); Mesh is not replaced (only its unused vertices are removed, as always)
+        /// ResultReason when Apply() returns false because the input's diagonal is not finite: an extent above about
+        /// 1e154 (eg finite coordinates near +-1e308), or infinite coordinates (and NaN ones where they show in the
+        /// bounds); Mesh is not replaced (only its unused vertices are removed, as always)
         /// </summary>
-        public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds overflows double (an extent above about 1e154); not repaired";
+        public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds is not a finite double (coordinates that are not finite, or an extent above about 1e154); not repaired";
         /// <summary>
         /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
         /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
