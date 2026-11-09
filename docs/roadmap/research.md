@@ -84,6 +84,20 @@ Part of the [roadmap](../ROADMAP.md).
      and the batch queries (priority 1) are the building blocks.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
+     surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
+     application. Stage 1: two closed polygons in parallel planes -> a triangulated band by the optimal graph search
+     of Fuchs, Kedem & Uselton 1977 (also Keppel 1975, Christiansen & Sederberg 1978), with a pluggable cost (minimum
+     area, maximum volume, custom) and a pluggable per-triangle admissibility test; a status when no admissible band
+     exists; optional caps through `QualityMesh2` for a closed solid; invariance, reuse and an independent procedural
+     oracle. Stage 2 (L): several contours per plane and branching (Ekoule, Peyrin & Odet 1991; Meyers, Skinner &
+     Sloan 1992; Barequet & Sharir 1996; Bajaj, Coyle & Lin 1996; topology-constrained: Zou et al. 2015), with
+     Clipper2 for overlapping contours. Applications: terrain bench strings to a TIN under the exact slope oracle
+     ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
+     (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
+     the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Priority medium
+     until a concrete case (a medical or CAD one would raise it).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).

@@ -29,7 +29,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Later steps** (owner 2026-11-02, replaces TERRAIN.md §11 step 8's order): (1) docs and CLI / MCP for terrain:
   done with #357; (2) volume per cell, 2D columns first (§9.3); (3) ramps as design geometry (path, width, grade);
   (4) lofting between contours under the exact slope oracle, with a status when no compliant triangulation exists
-  (§9.2); (5) performance follow-ups when a real case is slow (the octagon's second realization, C zeros, band-only
+  (§9.2; moved 2026-11-09 to the general `ContourLoft` item, [research.md](research.md#open) priority 9, terrain as one application); (5) performance follow-ups when a real case is slow (the octagon's second realization, C zeros, band-only
   overlay); (6) proven tan interval and catch-line bound; (7) sector polygons, exterior distance on demand; (8) berms
   and inter-ramp checks, parked until a use case.
 - **§11 follow-ups:** the octagon 1 m replacement 6.1 → 8.8 s slower after D (a second realization); a
