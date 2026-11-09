@@ -24,14 +24,20 @@ Small input angles and triangle count:
 - **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
   edge at near-180° triangles.
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
-- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C):** in tools/Z3Pilot,
+- **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C; pilot 3 merged in #443):** in tools/Z3Pilot,
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
   decides correctly; a mutant gives SAT), (b) the real-arithmetic inequalities of the termination arguments (the
   25.65° lens bound, the geometric steps of #394 and rule C); a SAT counterexample becomes a procedural test.
-- **Default (conforming) mode near small angles:** owner decision 2026-11-08: the same small-angle rule as #394;
-  O2 unchanged (conforming Delaunay everywhere), only the angle bound is waived in the documented region around
-  small input angles, judged that way by the oracle; design note with the termination argument first, independent
-  review; item 4 of the Meshing2D Sonnet bundle.
+- **Default (conforming) mode near small angles:** rule C (owner decision 2026-11-08,
+  [design/MESHING2D_SMALL_ANGLES_CONFORMING.md](../design/MESHING2D_SMALL_ANGLES_CONFORMING.md)): #394's rule with an exact
+  local Delaunay check, so O2 holds; off the snap grid only (#441, merged). Corpus measurement (runner, base caa1d518 against
+  #441's merge eccdaf1a, 252 runs at 20° and 30°; runs/meshing2d-rule-c a3074096): verdicts 249 ok / 3 unjudged → 250 / 2 (one
+  change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
+  per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
+  at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
+- **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
+  `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
+  ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
   off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
   measured. After #394: stmlf/1461 q30 325 662 triangles.
@@ -43,8 +49,13 @@ Small input angles and triangle count:
   are grading step 2; neither is a new lever.)
 - **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
   170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
-  gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). (status unclear,
-  check: whether coarsening is still the project for that week.) Inputs: the 170 run-A outputs above 1.5x the
+  gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). **Re-measurement
+  2026-11-08** (the #391 probe ported onto master with #394 and rule C, branch claude/coarsening-remeasure, not for merge;
+  public corpus, 252 runs per side, 20° and 30°): default mode −4.5 % (mode 1) / −4.8 % (mode 2) triangles over 235 both-ok
+  runs, none grew, 5 % ratio 0.91, mesher time +54 % / +64 %; constrained mode −3.9 % / −4.1 %, time +52 %; no verdict
+  changed, Steiner-limit runs unchanged. #394 and rule C took the large cases; the gain is the same small slice as before
+  (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. Owner decision
+  open. Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
