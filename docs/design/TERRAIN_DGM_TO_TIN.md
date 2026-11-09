@@ -159,7 +159,7 @@ Procedural terrains only (no geodata): a paraboloid pit with benches (breaklines
 API (additive): `TerrainGridTin { Grid, Epsilon, Breaklines, MaxRounds, CancelF; Compute(); Status, Message, Result (DMesh3), SurfaceError, NodeError, Rounds, BreaklineEdges, LockedCreases, DroppedBreaklineSegments }`,
 `TerrainBreakline(points)`, `TerrainGridTinStatus`, and `TerrainGridTin.ErrorOfTin(grid, tin, out nodeError, out surfaceError)` (the exact scan of any TIN, eg `TerrainGreedyTIN`'s result).
 Differences from the proposal: breaklines take their heights from the grid only (D4 `FromGrid`; `FromInput` is not implemented); the domain is every cell with all four
-corners valid, with boundary runs and the hull edges as locked segments and one seed per component of cells without data; creases of the grid surface (cell diagonals and cell sides) are locked
+corners valid: the boundary runs are locked segments and the triangles over cells without data are dropped (a breakline segment must lie in the data over its whole length, else it is dropped); creases of the grid surface (cell diagonals and cell sides) are locked
 where a violation sits on them and all corners are selected (cell sides are needed as soon as breakline vertices lie off the lattice); the error scan runs in parallel, the
 violations are acted on in triangle order.
 
@@ -168,12 +168,16 @@ and its own surface error is 0.19 / 0.44 / 1.55 for the 3 m / 8 m / 30 m terrain
 
 | Terrain | TerrainGridTin vertices (surface error) | time | Rounds | TerrainGreedyTIN vertices (time) | Ratio |
 |---|---|---|---|---|---|
-| 3 m hills | 4854 (0.0999) | 0.78 s | 22 | 3042 (0.08 s) | 1.60x |
-| 8 m | 6506 (0.0994) | 0.93 s | 21 | 3908 (0.09 s) | 1.66x |
-| 30 m, cliffs | 10 607 (0.0999) | 1.97 s | 25 | 4896 (0.11 s) | 2.17x |
-| 30 m, eps 0.2 | 6622 (0.1999) | 1.13 s | 23 | 3958 (0.10 s) | 1.67x |
-| 30 m + 4 breaklines (1800 segments) | 13 917 (0.0999) | 2.35 s | 14 | | |
-| 30 m + breaklines + 39 x 29 gap | 13 889 (0.0999) | 2.36 s | 14 | | |
+| 3 m hills | 4991 (0.0999) | 0.84 s | 17 | 3042 (0.08 s) | 1.64x |
+| 8 m | 6679 (0.1000) | 1.06 s | 19 | 3908 (0.09 s) | 1.71x |
+| 30 m, cliffs | 10 988 (0.1000) | 1.64 s | 19 | 4896 (0.11 s) | 2.24x |
+| 30 m, eps 0.2 | 6863 (0.1993) | 0.94 s | 17 | 3958 (0.09 s) | 1.73x |
+| 30 m + 4 breaklines (1800 segments) | 14 040 (0.1000) | 2.35 s | 14 | | |
+| 30 m + breaklines + 39 x 29 gap | 14 006 (0.1000) | 2.10 s | 13 | | |
+
+Rounds: the first 6 rounds act on the worst violation of each triangle, later rounds on up to 16 separated ones (at least 16 cells apart); without the later multiple requests a long straight step needs
+rounds in proportion to its length (300 cells: more than 200), with them 7-20 rounds (steps of 300-1000 cells), and the vertex count on the pit terrains grows by 3 % (acting on several violations from the first round
+would double it).
 
 Cost of the surface guarantee: against a node-only guarantee in the same method +10 % vertices on gentle terrain and +33 % on the cliff terrain (spike, benchmarks/TerrainBenchmark README); against `TerrainGreedyTIN`
-1.6-2.2x the vertices and about 10-18x the time (the time is the constrained Delaunay of every round, 90 %). Decimation (D5) is not part of it.
+1.6-2.2x the vertices and about 10-20x the time (the time is the constrained Delaunay of every round, 90 %). Decimation (D5) is not part of it.

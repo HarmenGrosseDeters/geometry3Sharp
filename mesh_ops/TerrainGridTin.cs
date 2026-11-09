@@ -71,7 +71,7 @@ namespace gs
         /// <summary> breakline segments dropped because an end point or the middle is outside the cells with data </summary>
         public int DroppedBreaklineSegments { get; private set; }
 
-        sealed class Req { public int Kind; public int Node = -1; public int Crease = -1; public int Seg = -1; public double X, Y, Err; }
+        sealed class Req { public int Kind; public int Node = -1; public int Crease = -1; public int Seg = -1; public double X, Y, Err, Px, Py; }
         // Kind: 0 nothing to do, 1 select a node, 2 split a segment at (X, Y), 3 lock a crease
 
         const int KindBreakline = 0, KindBoundary = 1, KindCrease = 2;
@@ -91,8 +91,8 @@ namespace gs
             if (!(Math.Abs(g.X0) < double.PositiveInfinity) || !(Math.Abs(g.Y0) < double.PositiveInfinity))
                 return Fail(TerrainGridTinStatus.InvalidInput, "the grid origin is not finite");
             int nx = g.NX, ny = g.NY;
-            if ((long)nx * 3 * ny > int.MaxValue / 2)
-                return Fail(TerrainGridTinStatus.InvalidInput, "the grid is too large");
+            if ((long)nx * ny > (1L << 26))
+                return Fail(TerrainGridTinStatus.InvalidInput, "the grid is too large (more than 2^26 nodes)");
             foreach (TerrainBreakline bl in Breaklines ?? new List<TerrainBreakline>())
                 if (bl == null || bl.Points.Any(p => double.IsNaN(p.x) || double.IsNaN(p.y) || double.IsInfinity(p.x) || double.IsInfinity(p.y)))
                     return Fail(TerrainGridTinStatus.InvalidInput, "a breakline is null or has a non-finite point");
@@ -132,39 +132,6 @@ namespace gs
                     if (!edge && run >= 0) { AddSeg(AddNode(i, run), AddNode(i, j), KindBoundary); run = -1; }
                 }
             }
-            // one seed in every 4-connected component of the cells without data (the face of the constraints around it is removed): a point of the
-            // component that lies inside the convex hull of the boundary points (a seed outside the domain is ignored, and a component that touches the rim can have its
-            // cell centres outside the hull)
-            var hull = ConvexHull(pts);
-            // the hull edges that are not boundary runs close the faces of the components of cells without data that touch the hull
-            var runPairs = new HashSet<long>(segs.Select(sg => Key(sg.a, sg.b)));
-            for (int k = 0; k < hull.Count; ++k) {
-                int ha = hull[k], hb = hull[(k + 1) % hull.Count];
-                if (!runPairs.Contains(Key(ha, hb))) AddSeg(ha, hb, KindBoundary);
-            }
-            var seeds = new List<Vector2d>();
-            var seen = new bool[cellOk.Length];
-            var stack = new Stack<int>();
-            var samples = new[] { new Vector2d(0.5, 0.5), new Vector2d(0.1, 0.9), new Vector2d(0.9, 0.9), new Vector2d(0.1, 0.1), new Vector2d(0.9, 0.1), new Vector2d(0.5, 0.95), new Vector2d(0.95, 0.5), new Vector2d(0.5, 0.05), new Vector2d(0.05, 0.5) };
-            for (int s0 = 0; s0 < cellOk.Length; ++s0) {
-                if (cellOk[s0] || seen[s0]) continue;
-                bool haveSeed = false;
-                seen[s0] = true; stack.Push(s0);
-                while (stack.Count > 0) {
-                    int c = stack.Pop(); int ci = c % (nx - 1), cj = c / (nx - 1);
-                    if (!haveSeed)
-                        foreach (Vector2d sm in samples) {
-                            var sp = new Vector2d(ci + sm.x, cj + sm.y);
-                            if (StrictlyInside(pts, hull, sp)) { seeds.Add(sp); haveSeed = true; break; }
-                        }
-                    for (int d = 0; d < 4; ++d) {
-                        int ni = ci + (d == 0 ? 1 : d == 1 ? -1 : 0), nj = cj + (d == 2 ? 1 : d == 3 ? -1 : 0);
-                        if (ni < 0 || nj < 0 || ni >= nx - 1 || nj >= ny - 1) continue;
-                        int nc = ni + (nx - 1) * nj;
-                        if (!cellOk[nc] && !seen[nc]) { seen[nc] = true; stack.Push(nc); }
-                    }
-                }
-            }
             // breaklines in index coordinates; segments with an end point or the middle outside the cells with data are dropped
             foreach (TerrainBreakline bl in Breaklines ?? new List<TerrainBreakline>()) {
                 int prev = -1; Vector2d prevP = default(Vector2d); bool hasPrev = false;
@@ -174,7 +141,7 @@ namespace gs
                     bool joined = false;
                     if (inside && !(prev >= 0 && p == prevP)) {
                         int id = pts.Count;
-                        if (prev >= 0 && InCell(new Vector2d((p.x + prevP.x) / 2, (p.y + prevP.y) / 2), nx, ny, Ok)) { pts.Add(p); AddSeg(prev, id, KindBreakline); joined = true; }
+                        if (prev >= 0 && SegmentInData(prevP, p, nx, ny, Ok)) { pts.Add(p); AddSeg(prev, id, KindBreakline); joined = true; }
                         else if (prev < 0 || true) { pts.Add(p); }
                         if (prev >= 0 && !joined) ++DroppedBreaklineSegments;
                         else if (prev < 0 && hasPrev) ++DroppedBreaklineSegments;
@@ -193,8 +160,17 @@ namespace gs
             double zmax = 0;
             foreach (double z in g.Z) if (HeightGrid.IsData(z)) zmax = Math.Max(zmax, Math.Abs(z));
             double margin = 64 * 2.220446049250313e-16 * (1 + zmax) * Math.Max(nx, ny);      // rounding of the scan in index space
-            ConstrainedMesh2 lastMesh = null; double lastSurf = double.NaN, lastNode = double.NaN;
-            List<int> lastMarkers = null;
+            if (Epsilon <= 2 * margin)
+                return Fail(TerrainGridTinStatus.InvalidInput, "Epsilon " + Epsilon + " is below the rounding margin of the computation (" + 2 * margin + ")");
+            double act = Epsilon - margin;               // a violation is an error above this
+            List<int> keptTris = null; ConstrainedMesh2 lastMesh = null; double lastSurf = double.NaN, lastNode = double.NaN;
+            List<int> lastKinds = null;
+
+            int AddPoint(double x, double y)
+            {
+                if (x == Math.Floor(x) && y == Math.Floor(y) && x >= 0 && y >= 0 && x <= nx - 1 && y <= ny - 1) return AddNode((int)x, (int)y);
+                pts.Add(new Vector2d(x, y)); return pts.Count - 1;
+            }
 
             for (int round = 0; round < MaxRounds; ++round) {
                 if (CancelF()) return Fail(TerrainGridTinStatus.Cancelled, "cancelled");
@@ -205,7 +181,6 @@ namespace gs
                     var e = CreaseEnds(crease, nx);
                     input.Segments.Add(new Mesh2Segment(nodeId[e.a.x + nx * e.a.y], nodeId[e.b.x + nx * e.b.y], 0, true));
                 }
-                input.HoleSeeds.AddRange(seeds);
                 ConstrainedTriangulation2Result r = new QualityMesh2 { MinAngle = 0, ResolveCrossings = true }.Compute(input);
                 if (r.Mesh == null) return Fail(TerrainGridTinStatus.MesherFailed, r.Status + " " + r.FailureDetail);
                 ConstrainedMesh2 m = r.Mesh;
@@ -216,66 +191,108 @@ namespace gs
                 Array.Clear(sel, 0, sel.Length);
                 foreach (var kv in nodeId) sel[kv.Key] = true;
 
-                int nt = m.Triangles.Count;
-                var reqs = new Req[nt];
-                double nodeMax = 0, surfMax = 0; object mx = new object();
-                Parallel.For(0, nt, () => new double[2], (t, st, loc) => {
+                // the triangles over cells with data (the boundary of the data is made of constraint edges: a triangle is on one side)
+                var kept = new List<int>();
+                double area = 0;
+                for (int t = 0; t < m.Triangles.Count; ++t) {
                     Index3i tr = m.Triangles[t];
-                    reqs[t] = ScanTriangle(g, m.Vertices[tr.a], m.Vertices[tr.b], m.Vertices[tr.c], new[] { tr.a, tr.b, tr.c }, sel, edgeSeg, lockedCreases, chainCreases, out double wn, out double ws);
+                    Vector2d a = m.Vertices[tr.a], b = m.Vertices[tr.b], c = m.Vertices[tr.c];
+                    double cx = (a.x + b.x + c.x) / 3, cy = (a.y + b.y + c.y) / 3;
+                    int ci = Math.Min((int)Math.Floor(cx), nx - 2), cj = Math.Min((int)Math.Floor(cy), ny - 2);
+                    if (!Ok(ci, cj)) continue;
+                    kept.Add(t);
+                    area += 0.5 * ((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+                }
+                if (Math.Abs(area - okCount) > 1e-9 * okCount + 1e-6)
+                    return Fail(TerrainGridTinStatus.MesherFailed, "the triangles cover " + area + " cells, the data has " + okCount + " (a breakline or constraint was not handled)");
+
+                int nt = kept.Count;
+                var reqs = new List<Req>[nt];
+                double nodeMax = 0, surfMax = 0; object mx = new object();
+                Parallel.For(0, nt, () => new double[2], (k, st, loc) => {
+                    Index3i tr = m.Triangles[kept[k]];
+                    reqs[k] = ScanTriangle(g, m.Vertices[tr.a], m.Vertices[tr.b], m.Vertices[tr.c], new[] { tr.a, tr.b, tr.c }, sel, edgeSeg, lockedCreases, chainCreases, act, out double wn, out double ws, null, round < SingleRequestRounds ? 1 : MaxRequestsPerTriangle);
                     loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws);
                     return loc;
                 }, loc => { lock (mx) { nodeMax = Math.Max(nodeMax, loc[0]); surfMax = Math.Max(surfMax, loc[1]); } });
                 Rounds = round + 1;
-                lastMesh = m; lastSurf = surfMax + margin; lastNode = nodeMax + margin;
-                lastMarkers = segKind.ToList();
-                if (surfMax + margin <= Epsilon) break;
+                lastMesh = m; keptTris = kept; lastSurf = surfMax + margin; lastNode = nodeMax + margin;
+                lastKinds = segKind.ToList();
+                if (surfMax <= act) break;
 
                 // act on the violations, in triangle order (deterministic)
-                int added = 0; var splitSeg = new HashSet<int>();
-                for (int t = 0; t < nt; ++t) {
-                    Req q = reqs[t];
-                    if (q == null || !(q.Err + margin > Epsilon)) continue;
-                    if (q.Kind == 1 && q.Node >= 0 && !sel[q.Node]) { AddNode(q.Node % nx, q.Node / nx); sel[q.Node] = true; ++added; }
-                    else if (q.Kind == 2 && q.Seg >= 0 && q.Seg < segs.Count && splitSeg.Add(q.Seg)) {
-                        var (a, b) = segs[q.Seg];
-                        int id = pts.Count; pts.Add(new Vector2d(q.X, q.Y));
-                        int kind = segKind[q.Seg];
-                        segs[q.Seg] = (a, id); AddSeg(id, b, kind); ++added;
-                    } else if (q.Kind == 3 && !lockedCreases.Contains(q.Crease) && !chainCreases.Contains(q.Crease)) {
-                        var e = CreaseEnds(q.Crease, nx);
-                        var xs = CreaseCrossings(pts, segs, segKind, new Vector2d(e.a.x, e.a.y), new Vector2d(e.b.x, e.b.y));
-                        if (xs.Count == 0) { AddNode(e.a.x, e.a.y); AddNode(e.b.x, e.b.y); lockedCreases.Add(q.Crease); ++added; continue; }
-                        if (xs.Any(x => x.seg >= 0 && splitSeg.Contains(x.seg))) continue;      // retried in the next round
-                        int prev = AddNode(e.a.x, e.a.y), last = AddNode(e.b.x, e.b.y);
-                        foreach (var x in xs.OrderBy(x => x.s)) {
-                            int id;
-                            if (x.seg >= 0) {
-                                splitSeg.Add(x.seg);
-                                var (sa, sb) = segs[x.seg];
-                                id = pts.Count; pts.Add(x.pt);
-                                int kind = segKind[x.seg];
-                                segs[x.seg] = (sa, id); AddSeg(id, sb, kind);
-                            } else id = x.vertex;
-                            AddSeg(prev, id, KindCrease); prev = id;
+                int added = 0;
+                var splitDone = new HashSet<int>();                       // segments split by a crease chain in this round
+                var splitReqs = new SortedDictionary<int, List<Vector2d>>();
+                var blocked = new HashSet<int>();                         // segments split or to be split in this round
+                var buckets = SegmentBuckets(pts, segs, segKind, nx, ny);
+                for (int k = 0; k < nt; ++k) {
+                    foreach (Req q in reqs[k]) {
+                        if (q.Kind == 1 && q.Node >= 0) { if (!sel[q.Node]) { AddNode(q.Node % nx, q.Node / nx); sel[q.Node] = true; ++added; } }
+                        else if (q.Kind == 2 && q.Seg >= 0 && q.Seg < segs.Count) {
+                            if (splitDone.Contains(q.Seg)) continue;
+                            if (!splitReqs.TryGetValue(q.Seg, out List<Vector2d> list)) { splitReqs[q.Seg] = list = new List<Vector2d>(); blocked.Add(q.Seg); }
+                            list.Add(new Vector2d(q.X, q.Y));
+                        } else if (q.Kind == 3 && !lockedCreases.Contains(q.Crease) && !chainCreases.Contains(q.Crease)) {
+                            var e = CreaseEnds(q.Crease, nx);
+                            var xs = CreaseCrossings(pts, segs, buckets, nx, blocked, new Vector2d(e.a.x, e.a.y), new Vector2d(e.b.x, e.b.y), out bool conflict);
+                            if (conflict) continue;      // a segment near it is split in this round: retried in the next round
+                            if (xs.Count == 0) { AddNode(e.a.x, e.a.y); AddNode(e.b.x, e.b.y); lockedCreases.Add(q.Crease); ++added; continue; }
+                            int prev = AddNode(e.a.x, e.a.y), last = AddNode(e.b.x, e.b.y);
+                            foreach (var x in xs.OrderBy(x => x.s)) {
+                                int id;
+                                if (x.seg >= 0) {
+                                    splitDone.Add(x.seg); blocked.Add(x.seg);
+                                    var (sa, sb) = segs[x.seg];
+                                    id = AddPoint(x.pt.x, x.pt.y);
+                                    int kind = segKind[x.seg];
+                                    segs[x.seg] = (sa, id); AddSeg(id, sb, kind);
+                                } else id = x.vertex;
+                                AddSeg(prev, id, KindCrease); prev = id;
+                            }
+                            AddSeg(prev, last, KindCrease);
+                            chainCreases.Add(q.Crease); ++added;
                         }
-                        AddSeg(prev, last, KindCrease);
-                        chainCreases.Add(q.Crease); ++added;
                     }
+                }
+                // the splits of segments, several per segment (all the violations on it), except those a crease chain has split
+                foreach (var kv in splitReqs) {
+                    if (splitDone.Contains(kv.Key)) continue;
+                    var (sa, sb) = segs[kv.Key];
+                    Vector2d A = pts[sa], B = pts[sb], d = B - A;
+                    double len2 = d.LengthSquared;
+                    var cuts = kv.Value.Select(pt => (t: (pt - A).Dot(d) / len2, pt)).Where(c => c.t > 1e-12 && c.t < 1 - 1e-12).OrderBy(c => c.t).ToList();
+                    int kind = segKind[kv.Key], prevId = sa; double prevT = 0;
+                    bool first = true;
+                    foreach (var c in cuts) {
+                        if (c.t - prevT < 1e-12 && !first) continue;
+                        int id = AddPoint(c.pt.x, c.pt.y);
+                        if (id == prevId || id == sb) continue;
+                        if (first) { segs[kv.Key] = (prevId, id); first = false; } else AddSeg(prevId, id, kind);
+                        prevId = id; prevT = c.t; ++added;
+                    }
+                    if (!first) AddSeg(prevId, sb, kind);
                 }
                 if (added == 0) break;       // no progress: reported below as NotConverged
             }
 
-            // the result
+            // the result: the triangles over cells with data, the vertices they use
             var mesh = new DMesh3(MeshComponents.None);
-            for (int v = 0; v < lastMesh.Vertices.Count; ++v) {
-                Vector2d p = lastMesh.Vertices[v];
-                mesh.AppendVertex(new Vector3d(g.X0 + p.x * g.CellSize, g.Y0 + p.y * g.CellSize, VertexZ(g, p.x, p.y)));
+            var vmap = new int[lastMesh.Vertices.Count];
+            for (int v = 0; v < vmap.Length; ++v) vmap[v] = -1;
+            int Map(int v)
+            {
+                if (vmap[v] < 0) {
+                    Vector2d p = lastMesh.Vertices[v];
+                    vmap[v] = mesh.AppendVertex(new Vector3d(g.X0 + p.x * g.CellSize, g.Y0 + p.y * g.CellSize, VertexZ(g, p.x, p.y)));
+                }
+                return vmap[v];
             }
-            foreach (Index3i tr in lastMesh.Triangles) mesh.AppendTriangle(tr.a, tr.b, tr.c);
+            foreach (int t in keptTris) { Index3i tr = lastMesh.Triangles[t]; mesh.AppendTriangle(Map(tr.a), Map(tr.b), Map(tr.c)); }
             var edges = new List<Index2i>();
             foreach (Mesh2Subsegment ss in lastMesh.Subsegments) {
                 int[] ms = ss.Markers != null && ss.Markers.Length > 0 ? ss.Markers : (ss.Marker > 0 ? new[] { ss.Marker } : new int[0]);
-                if (ms.Any(mk => mk - 1 < lastMarkers.Count && lastMarkers[mk - 1] == KindBreakline)) edges.Add(new Index2i(ss.A, ss.B));
+                if (vmap[ss.A] >= 0 && vmap[ss.B] >= 0 && ms.Any(mk => mk - 1 < lastKinds.Count && lastKinds[mk - 1] == KindBreakline)) edges.Add(new Index2i(vmap[ss.A], vmap[ss.B]));
             }
             Result = mesh; BreaklineEdges = edges;
             SurfaceError = lastSurf; NodeError = lastNode;
@@ -305,27 +322,19 @@ namespace gs
             return false;
         }
 
-        /// <summary> indices of the corners of the convex hull of the points, counter-clockwise, collinear points left out </summary>
-        static List<int> ConvexHull(List<Vector2d> points)
+        /// <summary> true if the closed segment p-q lies in the cells with data (every piece between two grid line crossings is tested at its middle) </summary>
+        static bool SegmentInData(Vector2d p, Vector2d q, int nx, int ny, Func<int, int, bool> ok)
         {
-            var p = Enumerable.Range(0, points.Count).OrderBy(i => points[i].x).ThenBy(i => points[i].y).ToList();
-            var h = new List<int>();
-            for (int pass = 0; pass < 2; ++pass) {
-                int start = h.Count;
-                foreach (int v in pass == 0 ? p : Enumerable.Reverse(p)) {
-                    while (h.Count >= start + 2 && Orient(points[h[h.Count - 2]], points[h[h.Count - 1]], points[v]) <= 0) h.RemoveAt(h.Count - 1);
-                    h.Add(v);
-                }
-                h.RemoveAt(h.Count - 1);
+            double dx = q.x - p.x, dy = q.y - p.y;
+            var ts = new List<double> { 0, 1 };
+            if (dx != 0) for (double k = Math.Floor(Math.Min(p.x, q.x)) + 1; k < Math.Max(p.x, q.x); ++k) ts.Add((k - p.x) / dx);
+            if (dy != 0) for (double k = Math.Floor(Math.Min(p.y, q.y)) + 1; k < Math.Max(p.y, q.y); ++k) ts.Add((k - p.y) / dy);
+            ts.Sort();
+            for (int k = 0; k + 1 < ts.Count; ++k) {
+                if (!(ts[k + 1] > ts[k])) continue;
+                double t = 0.5 * (ts[k] + ts[k + 1]);
+                if (!InCell(new Vector2d(p.x + t * dx, p.y + t * dy), nx, ny, ok)) return false;
             }
-            return h;
-        }
-
-        static bool StrictlyInside(List<Vector2d> pts, List<int> hull, Vector2d p)
-        {
-            if (hull.Count < 3) return false;
-            for (int k = 0; k < hull.Count; ++k)
-                if (Orient(pts[hull[k]], pts[hull[(k + 1) % hull.Count]], p) <= 0) return false;
             return true;
         }
 
@@ -369,16 +378,46 @@ namespace gs
 
         static double Orient(Vector2d a, Vector2d b, Vector2d c) { return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x); }
 
-        /// <summary> breakline segments crossing the crease properly (to split at the crossing), and breakline vertices on it (to pass through) </summary>
-        static List<(double s, int seg, int vertex, Vector2d pt)> CreaseCrossings(List<Vector2d> pts, List<(int a, int b)> segs, List<int> segKind, Vector2d p, Vector2d q)
+        /// <summary> the segments (not crease pieces) by the grid cells their bounding boxes touch, for the crease queries of a round </summary>
+        static Dictionary<int, List<int>> SegmentBuckets(List<Vector2d> pts, List<(int a, int b)> segs, List<int> segKind, int nx, int ny)
         {
-            var list = new List<(double s, int seg, int vertex, Vector2d pt)>();
-            var seenVertex = new HashSet<int>();
-            double len2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y), len = Math.Sqrt(len2);
-            double minx = Math.Min(p.x, q.x), maxx = Math.Max(p.x, q.x), miny = Math.Min(p.y, q.y), maxy = Math.Max(p.y, q.y);
+            var d = new Dictionary<int, List<int>>();
             for (int si = 0; si < segs.Count; ++si) {
                 if (segKind[si] == KindCrease) continue;
                 Vector2d u = pts[segs[si].a], v = pts[segs[si].b];
+                int x0 = Math.Max(0, (int)Math.Floor(Math.Min(u.x, v.x) - 1e-9)), x1 = Math.Min(nx - 1, (int)Math.Floor(Math.Max(u.x, v.x) + 1e-9));
+                int y0 = Math.Max(0, (int)Math.Floor(Math.Min(u.y, v.y) - 1e-9)), y1 = Math.Min(ny - 1, (int)Math.Floor(Math.Max(u.y, v.y) + 1e-9));
+                for (int y = y0; y <= y1; ++y)
+                    for (int x = x0; x <= x1; ++x) {
+                        int key = x + nx * y;
+                        if (!d.TryGetValue(key, out List<int> list)) d[key] = list = new List<int>();
+                        list.Add(si);
+                    }
+            }
+            return d;
+        }
+
+        /// <summary>
+        /// Breakline / boundary segments crossing the crease properly (to split at the crossing), and their vertices on it (to pass through).
+        /// <paramref name="conflict"/>: a candidate segment is in <paramref name="blocked"/> (split in this round already; its pieces are not in the buckets).
+        /// </summary>
+        static List<(double s, int seg, int vertex, Vector2d pt)> CreaseCrossings(List<Vector2d> pts, List<(int a, int b)> segs, Dictionary<int, List<int>> buckets, int nx, HashSet<int> blocked,
+            Vector2d p, Vector2d q, out bool conflict)
+        {
+            conflict = false;
+            var list = new List<(double s, int seg, int vertex, Vector2d pt)>();
+            var seenVertex = new HashSet<int>(); var seenSeg = new HashSet<int>();
+            double len2 = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y), len = Math.Sqrt(len2);
+            double minx = Math.Min(p.x, q.x), maxx = Math.Max(p.x, q.x), miny = Math.Min(p.y, q.y), maxy = Math.Max(p.y, q.y);
+            var cand = new List<int>();
+            for (int cy = (int)Math.Floor(miny); cy <= (int)Math.Floor(maxy); ++cy)
+                for (int cx = (int)Math.Floor(minx); cx <= (int)Math.Floor(maxx); ++cx)
+                    if (buckets.TryGetValue(cx + nx * cy, out List<int> l))
+                        foreach (int si in l) if (seenSeg.Add(si)) cand.Add(si);
+            cand.Sort();
+            foreach (int si in cand) {
+                Vector2d u = pts[segs[si].a], v = pts[segs[si].b];
+                if (blocked.Contains(si)) { conflict = true; continue; }
                 if (Math.Max(u.x, v.x) < minx - 1e-9 || Math.Min(u.x, v.x) > maxx + 1e-9 || Math.Max(u.y, v.y) < miny - 1e-9 || Math.Min(u.y, v.y) > maxy + 1e-9) continue;
                 foreach (int vi in new[] { segs[si].a, segs[si].b }) {
                     Vector2d w = pts[vi];
@@ -399,38 +438,104 @@ namespace gs
         /// <summary>
         /// The exact vertical error of a TIN against the grid surface S (<see cref="HeightGrid.Height"/>): <paramref name="surfaceError"/> is the
         /// maximum of |TIN - S| over the whole TIN, <paramref name="nodeError"/> the maximum at the grid nodes inside it. The mesh is in the
-        /// coordinates of the grid; triangles outside the cells with data are not supported (their error is not counted).
+        /// coordinates of the grid. Parts over cells without data have no surface and count as no error.
         /// </summary>
+        /// <exception cref="ArgumentException">A vertex of a triangle is not finite, or lies outside the grid.</exception>
         public static void ErrorOfTin(HeightGrid grid, DMesh3 tin, out double nodeError, out double surfaceError)
         {
             if (grid == null) throw new ArgumentNullException(nameof(grid));
             if (tin == null) throw new ArgumentNullException(nameof(tin));
             var tris = tin.TriangleIndices().ToArray();
+            int[] ids = new int[tris.Length * 3];
+            for (int k = 0; k < tris.Length; ++k) {
+                Index3i tv = tin.GetTriangle(tris[k]);
+                for (int c = 0; c < 3; ++c) {
+                    Vector3d v = tin.GetVertex(tv[c]);
+                    double rx = (v.x - grid.X0) / grid.CellSize, ry = (v.y - grid.Y0) / grid.CellSize;
+                    if (!(rx >= -1e-6 && ry >= -1e-6 && rx <= grid.NX - 1 + 1e-6 && ry <= grid.NY - 1 + 1e-6) || double.IsNaN(v.z) || double.IsInfinity(v.z))
+                        throw new ArgumentException("vertex " + tv[c] + " is not finite or lies outside the grid", nameof(tin));
+                }
+            }
             double nm = 0, sm = 0; object mx = new object();
-            var none = new Dictionary<long, int>(); var empty = new HashSet<int>(); var sel = new bool[grid.NX * grid.NY];
+            var none = new Dictionary<long, int>(); var empty = new HashSet<int>(); var sel = new bool[(long)grid.NX * grid.NY];
             Parallel.For(0, tris.Length, () => new double[2], (k, st, loc) => {
                 Index3i tv = tin.GetTriangle(tris[k]);
                 Vector3d p0 = tin.GetVertex(tv.a), p1 = tin.GetVertex(tv.b), p2 = tin.GetVertex(tv.c);
-                Vector2d a = new Vector2d((p0.x - grid.X0) / grid.CellSize, (p0.y - grid.Y0) / grid.CellSize);
-                Vector2d b = new Vector2d((p1.x - grid.X0) / grid.CellSize, (p1.y - grid.Y0) / grid.CellSize);
-                Vector2d c = new Vector2d((p2.x - grid.X0) / grid.CellSize, (p2.y - grid.Y0) / grid.CellSize);
-                ScanTriangle(grid, a, b, c, new[] { tv.a, tv.b, tv.c }, sel, none, empty, empty, out double wn, out double ws, new[] { p0.z, p1.z, p2.z });
+                Vector2d a = ToIndex(grid, p0), b = ToIndex(grid, p1), c = ToIndex(grid, p2);
+                ScanTriangle(grid, a, b, c, new[] { tv.a, tv.b, tv.c }, sel, none, empty, empty, double.PositiveInfinity, out double wn, out double ws, new[] { p0.z, p1.z, p2.z });
                 loc[0] = Math.Max(loc[0], wn); loc[1] = Math.Max(loc[1], ws);
                 return loc;
             }, loc => { lock (mx) { nm = Math.Max(nm, loc[0]); sm = Math.Max(sm, loc[1]); } });
             nodeError = nm; surfaceError = sm;
         }
 
-        /// <summary> The errors of one triangle (index coordinates) and the worst violation to act on; zs: the heights of the corners (null: the grid surface there). </summary>
-        static Req ScanTriangle(HeightGrid g, Vector2d a, Vector2d b, Vector2d c, int[] vid, bool[] sel, Dictionary<long, int> edgeSeg, HashSet<int> lockedSet, HashSet<int> chainSet,
-            out double nodeErr, out double surfErr, double[] zs = null)
+        /// <summary> a point in index coordinates, clamped into the grid (the conversion of a vertex on the border can be a few ulp outside) </summary>
+        static Vector2d ToIndex(HeightGrid grid, Vector3d v)
+        {
+            double x = (v.x - grid.X0) / grid.CellSize, y = (v.y - grid.Y0) / grid.CellSize;
+            return new Vector2d(Math.Min(Math.Max(x, 0), grid.NX - 1), Math.Min(Math.Max(y, 0), grid.NY - 1));
+        }
+
+        const int MaxRequestsPerTriangle = 16;
+
+        /// <summary>
+        /// The worst violations of a triangle, at most 16, at least <see cref="MinRequestDistance"/> grid cells apart (one insertion near a violation usually fixes its neighbours, so
+        /// only separated places are acted on in the same round: a long step then needs rounds in proportion to its length divided by 16 x that distance, not to its length).
+        /// </summary>
+        sealed class Top
+        {
+            public readonly List<Req> List = new List<Req>();
+            readonly int nx;
+            readonly int max;
+            public Top(int nx, int max) { this.nx = nx; this.max = max; }
+            public void Offer(Req r)
+            {
+                if (r.Kind == 1) { r.Px = r.Node % nx; r.Py = r.Node / nx; }
+                else if (r.Kind == 3) { int k = r.Crease / 3; r.Px = k % nx; r.Py = k / nx; }
+                else { r.Px = r.X; r.Py = r.Y; }
+                for (int k = 0; k < List.Count; ++k) {
+                    Req o = List[k];
+                    double dx = o.Px - r.Px, dy = o.Py - r.Py;
+                    if (dx * dx + dy * dy < MinRequestDistance * MinRequestDistance) {
+                        if (r.Err > o.Err) { List.RemoveAt(k); break; }
+                        return;
+                    }
+                }
+                int at = List.Count;
+                while (at > 0 && List[at - 1].Err < r.Err) --at;
+                if (at >= max) return;
+                List.Insert(at, r);
+            }
+        }
+
+        const double MinRequestDistance = 16;
+        /// <summary> the first rounds act on the worst violation of a triangle only (most features are fixed by one insertion each); later rounds on several separated ones (long features) </summary>
+        const int SingleRequestRounds = 6;
+
+        /// <summary>
+        /// The errors of one triangle (index coordinates) and its violations above <paramref name="act"/> to act on (worst first, at most 16);
+        /// zs: the heights of the corners (null: the grid surface there).
+        /// </summary>
+        static List<Req> ScanTriangle(HeightGrid g, Vector2d a, Vector2d b, Vector2d c, int[] vid, bool[] sel, Dictionary<long, int> edgeSeg, HashSet<int> lockedSet, HashSet<int> chainSet,
+            double act, out double nodeErr, out double surfErr, double[] zs = null, int maxRequests = MaxRequestsPerTriangle)
         {
             int nx = g.NX;
             double za = zs != null ? zs[0] : VertexZ(g, a.x, a.y), zb = zs != null ? zs[1] : VertexZ(g, b.x, b.y), zc = zs != null ? zs[2] : VertexZ(g, c.x, c.y);
             nodeErr = 0; surfErr = 0;
-            var req = new Req();
+            var top = new Top(nx, maxRequests);
             double det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
-            if (det == 0 || double.IsNaN(za) || double.IsNaN(zb) || double.IsNaN(zc)) return req;
+            if (det == 0 || double.IsNaN(za) || double.IsNaN(zb) || double.IsNaN(zc)) return top.List;
+            if (zs != null) {
+                // heights given for the corners (a TIN that is not ours): the corners are overlay vertices, too
+                for (int k = 0; k < 3; ++k) {
+                    Vector2d v = k == 0 ? a : k == 1 ? b : c;
+                    double sz = VertexZ(g, v.x, v.y);
+                    if (double.IsNaN(sz)) continue;
+                    double e = Math.Abs(zs[k] - sz);
+                    surfErr = Math.Max(surfErr, e);
+                    if (v.x == Math.Floor(v.x) && v.y == Math.Floor(v.y)) nodeErr = Math.Max(nodeErr, e);
+                }
+            }
             double gx = ((zb - za) * (c.y - a.y) - (zc - za) * (b.y - a.y)) / det;
             double gy = ((zc - za) * (b.x - a.x) - (zb - za) * (c.x - a.x)) / det;
             int x0 = (int)Math.Ceiling(Math.Min(a.x, Math.Min(b.x, c.x))), x1 = (int)Math.Floor(Math.Max(a.x, Math.Max(b.x, c.x)));
@@ -445,16 +550,15 @@ namespace gs
                     if (!HeightGrid.IsData(zg)) continue;
                     double e = Math.Abs(za + gx * (i - a.x) + gy * (j - a.y) - zg);
                     if (e > nodeErr) nodeErr = e;
-                    if (e > req.Err) {
-                        req.Err = e;
+                    if (e > act) {
                         int onEdge = o1 == 0 ? 0 : o2 == 0 ? 1 : o3 == 0 ? 2 : -1;
                         int seg = -1;
                         if (onEdge >= 0 && edgeSeg.TryGetValue(Key(vid[onEdge], vid[(onEdge + 1) % 3]), out int sg)) seg = sg;
-                        if (seg >= 0) { req.Kind = 2; req.Seg = seg; req.X = i; req.Y = j; }
-                        else { req.Kind = 1; req.Node = i + nx * j; }
+                        if (seg >= 0) top.Offer(new Req { Kind = 2, Seg = seg, X = i, Y = j, Err = e });
+                        else top.Offer(new Req { Kind = 1, Node = i + nx * j, Err = e });
                     }
                 }
-            surfErr = nodeErr;
+            surfErr = Math.Max(surfErr, nodeErr);
             for (int ed = 0; ed < 3; ++ed) {
                 Vector2d p = ed == 0 ? a : ed == 1 ? b : c, q = ed == 0 ? b : ed == 1 ? c : a;
                 double zp = ed == 0 ? za : ed == 1 ? zb : zc, zq = ed == 0 ? zb : ed == 1 ? zc : za;
@@ -475,39 +579,34 @@ namespace gs
                         if (double.IsNaN(sz)) continue;
                         double e = Math.Abs(tz - sz);
                         if (e > surfErr) surfErr = e;
-                        if (e > req.Err) {
-                            req.Err = e;
-                            if (isLocked) { req.Kind = 2; req.Seg = segOfEdge; req.X = x; req.Y = y; continue; }
-                            int ci = Math.Min((int)Math.Floor(x), g.NX - 2), cj = Math.Min((int)Math.Floor(y), g.NY - 2);
-                            // a point on a grid line belongs to the cells on both sides
-                            int cellsN = 1; int c2x = 0, c2y = 0;
-                            if (kind == 0 && ci >= 1) { cellsN = 2; c2x = ci - 1; c2y = cj; }
-                            if (kind == 1 && cj >= 1) { cellsN = 2; c2x = ci; c2y = cj - 1; }
-                            int cand = -1; double bd = double.MaxValue;
-                            for (int cc = 0; cc < cellsN; ++cc) {
-                                int cx = cc == 0 ? ci : c2x, cy = cc == 0 ? cj : c2y;
-                                for (int dj = 0; dj <= 1; ++dj)
-                                    for (int di = 0; di <= 1; ++di) {
-                                        int kk = (cx + di) + nx * (cy + dj);
-                                        if (sel[kk] || !HeightGrid.IsData(g[cx + di, cy + dj])) continue;
-                                        double d2 = (cx + di - x) * (cx + di - x) + (cy + dj - y) * (cy + dj - y);
-                                        if (d2 < bd) { bd = d2; cand = kk; }
-                                    }
-                            }
-                            if (cand >= 0) { req.Kind = 1; req.Node = cand; }
-                            else {
-                                req.Kind = 0;
-                                int crease = -1;
-                                if (kind == 2) crease = 3 * (ci + nx * cj);
-                                else if (kind == 0) { int jj = (int)Math.Floor(y); if (jj >= 0 && jj < g.NY - 1 && y != jj) crease = 3 * (ci + nx * jj) + 2; }
-                                else { int ii = (int)Math.Floor(x); if (ii >= 0 && ii < g.NX - 1 && x != ii) crease = 3 * (ii + nx * cj) + 1; }
-                                if (crease >= 0 && !lockedSet.Contains(crease) && !chainSet.Contains(crease)) { req.Kind = 3; req.Crease = crease; }
-                            }
+                        if (!(e > act)) continue;
+                        if (isLocked) { top.Offer(new Req { Kind = 2, Seg = segOfEdge, X = x, Y = y, Err = e }); continue; }
+                        int ci = Math.Min((int)Math.Floor(x), g.NX - 2), cj = Math.Min((int)Math.Floor(y), g.NY - 2);
+                        // a point on a grid line belongs to the cells on both sides
+                        int cellsN = 1; int c2x = 0, c2y = 0;
+                        if (kind == 0 && ci >= 1) { cellsN = 2; c2x = ci - 1; c2y = cj; }
+                        if (kind == 1 && cj >= 1) { cellsN = 2; c2x = ci; c2y = cj - 1; }
+                        int cand = -1; double bd = double.MaxValue;
+                        for (int cc = 0; cc < cellsN; ++cc) {
+                            int cx = cc == 0 ? ci : c2x, cy = cc == 0 ? cj : c2y;
+                            for (int dj = 0; dj <= 1; ++dj)
+                                for (int di = 0; di <= 1; ++di) {
+                                    int kk = (cx + di) + nx * (cy + dj);
+                                    if (sel[kk] || !HeightGrid.IsData(g[cx + di, cy + dj])) continue;
+                                    double d2 = (cx + di - x) * (cx + di - x) + (cy + dj - y) * (cy + dj - y);
+                                    if (d2 < bd) { bd = d2; cand = kk; }
+                                }
                         }
+                        if (cand >= 0) { top.Offer(new Req { Kind = 1, Node = cand, Err = e }); continue; }
+                        int crease = -1;
+                        if (kind == 2) crease = 3 * (ci + nx * cj);
+                        else if (kind == 0) { int jj = (int)Math.Floor(y); if (jj >= 0 && jj < g.NY - 1 && y != jj) crease = 3 * (ci + nx * jj) + 2; }
+                        else { int ii = (int)Math.Floor(x); if (ii >= 0 && ii < g.NX - 1 && x != ii) crease = 3 * (ii + nx * cj) + 1; }
+                        if (crease >= 0 && !lockedSet.Contains(crease) && !chainSet.Contains(crease)) top.Offer(new Req { Kind = 3, Crease = crease, Err = e });
                     }
                 }
             }
-            return req;
+            return top.List;
         }
     }
 }

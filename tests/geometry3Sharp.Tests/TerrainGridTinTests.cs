@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
             // dense sampling never exceeds it
             Assert.True(SampledError(g, t.Result, 3000, 1) <= t.SurfaceError + 1e-9);
             if (!breaklines && eps <= 0.2) Assert.True(t.LockedCreases > 0);
-            Assert.True(t.Result.TriangleCount < 2 * 64 * 64);       // fewer triangles than the grid TIN
+            Assert.True(t.Result.VertexCount < g.Z.Length);       // fewer vertices than the grid has nodes
         }
 
         [Fact]
@@ -238,7 +238,7 @@ namespace geometry3Sharp.Tests
         public void Invariance_ScaleAndTranslation(string name)
         {
             Similarity s = Similarity.ByName(name);
-            if (s.IsRotated) { Assert.True(s.IsRotated); return; }     // a grid cannot be rotated
+            if (s.IsRotated) return;     // a grid cannot be rotated: not applicable
             var (g, line) = Mapped(s);
             TerrainGridTin t = Run(g, 0.2 * s.Scale, line);
             Assert.True(t.SurfaceError <= 0.2 * s.Scale);
@@ -298,6 +298,201 @@ namespace geometry3Sharp.Tests
             Assert.Equal(a.TriangleCount, b.TriangleCount);
             for (int v = 0; v < a.MaxVertexID; ++v) Assert.Equal(a.GetVertex(v), b.GetVertex(v));
             for (int t = 0; t < a.MaxTriangleID; ++t) Assert.Equal(a.GetTriangle(t), b.GetTriangle(t));
+        }
+
+        // ---- found by the independent review ----
+
+        static double CoveredArea(DMesh3 tin) => tin.TriangleIndices().Sum(tr => { Index3i tv = tin.GetTriangle(tr); Vector3d a = tin.GetVertex(tv.a), b = tin.GetVertex(tv.b), c = tin.GetVertex(tv.c); return 0.5 * ((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)); });
+
+        static int CellsWithData(HeightGrid g)
+        {
+            int cells = 0;
+            for (int j = 0; j < g.NY - 1; ++j) for (int i = 0; i < g.NX - 1; ++i)
+                if (HeightGrid.IsData(g[i, j]) && HeightGrid.IsData(g[i + 1, j]) && HeightGrid.IsData(g[i, j + 1]) && HeightGrid.IsData(g[i + 1, j + 1])) ++cells;
+            return cells;
+        }
+
+        static void AssertCoversExactlyTheData(HeightGrid g, DMesh3 tin)
+        {
+            foreach (int tr in tin.TriangleIndices()) {
+                Vector3d c = tin.GetTriCentroid(tr);
+                Assert.False(double.IsNaN(g.Height(c.x, c.y)), "a triangle over a cell without data at " + c.x + "," + c.y);
+            }
+            Assert.Equal(CellsWithData(g) * g.CellSize * g.CellSize, CoveredArea(tin), 6);
+        }
+
+        [Fact]
+        public void Gaps_ThatTouchTheRimAndAreCutByTheHull_AreNotMeshed()
+        {
+            // two no-data nodes at the rim: the component of cells without data is cut into several faces by the hull
+            var g = new HeightGrid(Enumerable.Range(0, 16).Select(k => (double)(k % 4 + k / 4)).ToArray(), 4, 4, 0, 0, 1);
+            g[1, 3] = double.NaN; g[0, 2] = double.NaN;
+            TerrainGridTin t = Run(g, 0.3);
+            AssertCoversExactlyTheData(g, t.Result);
+        }
+
+        [Fact]
+        public void Gaps_Random_CoverExactlyTheCellsWithData()
+        {
+            var rand = new Random(5);
+            for (int round = 0; round < 40; ++round) {
+                int n = 8 + rand.Next(8);
+                HeightGrid g = Terrain(n, false, 0, 0, 1);
+                int style = round % 4;
+                for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i)
+                    if ((style == 0 && rand.NextDouble() < 0.12) || (style == 1 && (i + j) % 5 == 0 && rand.NextDouble() < 0.5) || (style == 2 && (i + j) % 2 == 0 && rand.NextDouble() < 0.2) || (style == 3 && (i >= n - 2 || j == 0) && rand.NextDouble() < 0.5))
+                        g[i, j] = double.NaN;
+                if (CellsWithData(g) == 0) continue;
+                var t = new TerrainGridTin { Grid = g, Epsilon = 0.4 };
+                if (round % 3 == 0)
+                    t.Breaklines.Add(new TerrainBreakline(new[] { new Vector2d(1.3, 1.1), new Vector2d(n - 2.2, n - 2.7), new Vector2d(n - 1.5, 1.4) }));
+                Assert.True(t.Compute(), $"round {round}: {t.Status} {t.Message}");
+                AssertCoversExactlyTheData(g, t.Result);
+                Assert.True(t.SurfaceError <= 0.4);
+                Assert.True(SampledError(g, t.Result, 500, round) <= t.SurfaceError + 1e-9);
+            }
+        }
+
+        [Fact]
+        public void Breaklines_ThroughAHole_AreClippedToTheData()
+        {
+            var g = new HeightGrid(Enumerable.Range(0, 100).Select(k => (double)(k % 10 * 0.3 + k / 10 * 0.2)).ToArray(), 10, 10, 0, 0, 1);
+            g[4, 4] = double.NaN;
+            // the end points and the middle are in cells with data, the segment crosses the cells around the no-data node (3..5)
+            var line = new TerrainBreakline(new[] { new Vector2d(1, 4.5), new Vector2d(9, 4.5) });
+            TerrainGridTin t = Run(g, 0.05, line);
+            Assert.True(t.DroppedBreaklineSegments >= 1);
+            AssertCoversExactlyTheData(g, t.Result);
+        }
+
+        [Theory]
+        [InlineData(300, false)]
+        [InlineData(400, true)]
+        public void LongSteps_ConvergeInFewRounds(int n, bool diagonal)
+        {
+            var z = new double[n * n];
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) z[i + n * j] = (diagonal ? i - j > 3 : i > n / 3) ? 5 : 0;
+            var g = new HeightGrid(z, n, n, 0, 0, 1);
+            TerrainGridTin t = Run(g, 0.1);
+            Assert.True(t.Rounds <= 40, "rounds " + t.Rounds);
+            Assert.True(t.SurfaceError <= 0.1);
+            Assert.True(t.Result.VertexCount < 4000);
+        }
+
+        [Fact]
+        public void Epsilon_BelowTheRoundingMargin_IsRejected()
+        {
+            var g = new HeightGrid(new double[50 * 50], 50, 50, 0, 0, 1);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 1e-15 };
+            Assert.False(t.Compute());
+            Assert.Equal(TerrainGridTinStatus.InvalidInput, t.Status);
+            Assert.Contains("rounding margin", t.Message);
+            Assert.True(new TerrainGridTin { Grid = g, Epsilon = 1e-9 }.Compute());
+        }
+
+        [Fact]
+        public void ErrorOfTin_RejectsMeshesThatItCannotJudge()
+        {
+            HeightGrid g = Terrain(9, false, 0, 0, 1);
+            DMesh3 Tri(Vector3d a, Vector3d b, Vector3d c) { var m = new DMesh3(); m.AppendVertex(a); m.AppendVertex(b); m.AppendVertex(c); m.AppendTriangle(0, 1, 2); return m; }
+            Assert.Throws<ArgumentException>(() => TerrainGridTin.ErrorOfTin(g, Tri(new Vector3d(-3, -3, 0), new Vector3d(9, -3, 0), new Vector3d(2, 9, 0)), out _, out _));
+            Assert.Throws<ArgumentException>(() => TerrainGridTin.ErrorOfTin(g, Tri(new Vector3d(0, 0, double.NaN), new Vector3d(4, 0, 0), new Vector3d(0, 4, 0)), out _, out _));
+            Assert.Throws<ArgumentException>(() => TerrainGridTin.ErrorOfTin(g, Tri(new Vector3d(0, 0, 0), new Vector3d(1e17, 0, 0), new Vector3d(0, 4, 0)), out _, out _));
+            Assert.Throws<ArgumentException>(() => TerrainGridTin.ErrorOfTin(g, Tri(new Vector3d(0, 0, 0), new Vector3d(double.PositiveInfinity, 0, 0), new Vector3d(0, 4, 0)), out _, out _));
+            Assert.Throws<ArgumentNullException>(() => TerrainGridTin.ErrorOfTin(null, new DMesh3(), out _, out _));
+            // a triangle on the border of the grid is fine (conversion rounding of border vertices is tolerated)
+            TerrainGridTin.ErrorOfTin(g, Tri(new Vector3d(0, 0, g[0, 0]), new Vector3d(8, 0, g[8, 0]), new Vector3d(0, 8, g[0, 8])), out double node, out double surf);
+            Assert.True(surf >= node);
+        }
+
+        // ---- an independent exact oracle: clip every TIN triangle against every half-cell of the grid, compare at the polygon vertices ----
+
+        static double OracleSurfaceError(HeightGrid g, DMesh3 tin)
+        {
+            double worst = 0;
+            foreach (int tr in tin.TriangleIndices()) {
+                Index3i tv = tin.GetTriangle(tr);
+                Vector3d[] p = { tin.GetVertex(tv.a), tin.GetVertex(tv.b), tin.GetVertex(tv.c) };
+                double det = (p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y);
+                double Tz(double x, double y)
+                {
+                    double l1 = ((x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (y - p[0].y)) / det;
+                    double l2 = ((p[1].x - p[0].x) * (y - p[0].y) - (x - p[0].x) * (p[1].y - p[0].y)) / det;
+                    return p[0].z + l1 * (p[1].z - p[0].z) + l2 * (p[2].z - p[0].z);
+                }
+                int i0 = Math.Max(0, (int)Math.Floor(Math.Min(p[0].x, Math.Min(p[1].x, p[2].x))) - 1), i1 = Math.Min(g.NX - 2, (int)Math.Ceiling(Math.Max(p[0].x, Math.Max(p[1].x, p[2].x))));
+                int j0 = Math.Max(0, (int)Math.Floor(Math.Min(p[0].y, Math.Min(p[1].y, p[2].y))) - 1), j1 = Math.Min(g.NY - 2, (int)Math.Ceiling(Math.Max(p[0].y, Math.Max(p[1].y, p[2].y))));
+                for (int j = j0; j <= j1; ++j)
+                    for (int i = i0; i <= i1; ++i)
+                        for (int half = 0; half < 2; ++half) {
+                            // the half-cell triangle (counter-clockwise) and the plane of the grid surface on it
+                            Vector3d[] h = half == 0
+                                ? new[] { new Vector3d(i, j, g[i, j]), new Vector3d(i + 1, j, g[i + 1, j]), new Vector3d(i + 1, j + 1, g[i + 1, j + 1]) }
+                                : new[] { new Vector3d(i, j, g[i, j]), new Vector3d(i + 1, j + 1, g[i + 1, j + 1]), new Vector3d(i, j + 1, g[i, j + 1]) };
+                            if (h.Any(v => double.IsNaN(v.z))) continue;
+                            double hdet = (h[1].x - h[0].x) * (h[2].y - h[0].y) - (h[2].x - h[0].x) * (h[1].y - h[0].y);
+                            double Sz(double x, double y)
+                            {
+                                double l1 = ((x - h[0].x) * (h[2].y - h[0].y) - (h[2].x - h[0].x) * (y - h[0].y)) / hdet;
+                                double l2 = ((h[1].x - h[0].x) * (y - h[0].y) - (x - h[0].x) * (h[1].y - h[0].y)) / hdet;
+                                return h[0].z + l1 * (h[1].z - h[0].z) + l2 * (h[2].z - h[0].z);
+                            }
+                            // clip the TIN triangle by the three half planes of the half-cell
+                            var poly = new List<Vector2d> { new Vector2d(p[0].x, p[0].y), new Vector2d(p[1].x, p[1].y), new Vector2d(p[2].x, p[2].y) };
+                            if (det < 0) poly.Reverse();
+                            for (int e = 0; e < 3 && poly.Count > 0; ++e) {
+                                Vector2d a = new Vector2d(h[e].x, h[e].y), b = new Vector2d(h[(e + 1) % 3].x, h[(e + 1) % 3].y);
+                                var next = new List<Vector2d>();
+                                for (int k = 0; k < poly.Count; ++k) {
+                                    Vector2d u = poly[k], v = poly[(k + 1) % poly.Count];
+                                    double du = (b.x - a.x) * (u.y - a.y) - (b.y - a.y) * (u.x - a.x), dv = (b.x - a.x) * (v.y - a.y) - (b.y - a.y) * (v.x - a.x);
+                                    if (du >= 0) next.Add(u);
+                                    if ((du > 0 && dv < 0) || (du < 0 && dv > 0)) next.Add(u + (du / (du - dv)) * (v - u));
+                                }
+                                poly = next;
+                            }
+                            foreach (Vector2d v in poly) worst = Math.Max(worst, Math.Abs(Tz(v.x, v.y) - Sz(v.x, v.y)));
+                        }
+            }
+            return worst;
+        }
+
+        [Fact]
+        public void ErrorOfTin_EqualsTheClippingOracle()
+        {
+            HeightGrid g = Terrain(33, false, 0, 0, 1);
+            var greedy = new TerrainGreedyTIN((double[])g.Z.Clone(), 33, 33, 0, 0, 1) { MaxError = 0.3 };
+            Assert.True(greedy.Compute());
+            TerrainGridTin.ErrorOfTin(g, greedy.Result, out _, out double surf);
+            Assert.Equal(OracleSurfaceError(g, greedy.Result), surf, 9);
+            Assert.True(surf > 0.45);                     // the oracle case is one where the node error (0.3) is not the surface error
+            TerrainGridTin t = Run(g, 0.2, Circle(g, 12, 3));
+            TerrainGridTin.ErrorOfTin(g, t.Result, out _, out double surf2);
+            double oracle = OracleSurfaceError(g, t.Result);
+            Assert.Equal(oracle, surf2, 9);
+            Assert.True(oracle <= 0.2 && t.SurfaceError >= oracle - 1e-12);
+            // random triangles with arbitrary (non-grid) vertices
+            var rand = new Random(9);
+            for (int k = 0; k < 20; ++k) {
+                var m = new DMesh3();
+                for (int c = 0; c < 3; ++c) m.AppendVertex(new Vector3d(1 + rand.NextDouble() * 30, 1 + rand.NextDouble() * 30, rand.NextDouble() * 4 - 2));
+                m.AppendTriangle(0, 1, 2);
+                TerrainGridTin.ErrorOfTin(g, m, out _, out double s3);
+                Assert.Equal(OracleSurfaceError(g, m), s3, 9);
+            }
+        }
+
+        [Fact]
+        public void Compute_InParallelThreads_GivesTheSameResult()
+        {
+            HeightGrid g = Terrain(65, true);
+            var results = new DMesh3[4];
+            System.Threading.Tasks.Parallel.For(0, 4, k => {
+                var t = new TerrainGridTin { Grid = g, Epsilon = 0.15, Breaklines = { Circle(g, 12) } };
+                Assert.True(t.Compute());
+                results[k] = t.Result;
+            });
+            for (int k = 1; k < 4; ++k) AssertSameMesh(results[0], results[k]);
         }
 
         // ---- statuses ----
