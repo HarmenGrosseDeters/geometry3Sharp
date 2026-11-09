@@ -53,7 +53,7 @@ namespace g3
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken).Run());
+            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false }.Run());
         }
 
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
@@ -99,6 +99,13 @@ namespace g3
         /// <summary> The constrained triangulation in the making; the refinement of <see cref="QualityMesh2"/> works on it. </summary>
         internal sealed class Builder
         {
+            /// <summary>
+            /// the input segments in [HullSegmentsFrom, HullSegmentsTo) are the snapped chains of the hull edges (QualityMesh2 on a
+            /// grid, owner decision of 2026-11-02, MESHING2D_HULL_GRID.md section 7): they become hull sources, and ConstrainHull
+            /// adds no hull edges of its own then
+            /// </summary>
+            internal int HullSegmentsFrom = int.MaxValue, HullSegmentsTo = int.MaxValue;
+            internal bool HullFromSegments => HullSegmentsFrom != int.MaxValue;
             internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
             internal readonly CancellationToken cancel;
@@ -110,6 +117,10 @@ namespace g3
             internal double tolerance;
             internal double[] heights;     // per kernel vertex (ranks, then new vertices), if any
             internal int outerRings, holeRings, regionRings;
+            /// <summary> the input's outer rings all collapsed in snapping (SnapRounding2.OuterRingsCollapsed): no part of the plane is
+            /// in the domain, though no outer ring is left (without this the domain would be the hull, D13, and cover input outside
+            /// the rings; found with the star polygon fuzz, seeds 37 and 41) </summary>
+            internal bool OuterRingsCollapsed;
             bool[] ringIsHole;
             /// <summary> runs after the domain and the tags are known, before the output; a failure result stops it </summary>
             internal Func<Builder, ConstrainedTriangulation2Result> refine;
@@ -420,7 +431,13 @@ namespace g3
                     }
                 }
                 if (input.Segments != null)
-                    foreach (var s in input.Segments) Add(s.A, s.B, Make(s.A, s.B, -1, s.Marker, s.Locked));
+                    for (int si = 0; si < input.Segments.Count; ++si) {
+                        var s = input.Segments[si];
+                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked);
+                        // the snapped chains of the hull edges of a hull domain (QualityMesh2 on a grid): hull sources
+                        source.Hull = si >= HullSegmentsFrom && si < HullSegmentsTo;
+                        Add(s.A, s.B, source);
+                    }
                 // in input order: reverse the stack once
                 var pending = new Stack<Piece>(work);
                 // Each crossing of two input segments makes at most one vertex, so more new vertices than pairs of sources mean the
@@ -449,6 +466,28 @@ namespace g3
                     if (!WithinTolerance(px, py, q.AX, q.AY, q.BX, q.BY)) return false;
                 }
                 return true;
+            }
+
+            /// <summary>
+            /// splitting piece u-w at v (a vertex within the tolerance of it, not on it) leaves two pieces each strictly shorter than u-w:
+            /// the condition for a tolerance split to make progress. Without it, two vertices within the tolerance of each other's piece,
+            /// where refinement has made pieces about as short as the tolerance, split the piece at each other in turn for ever (the order
+            /// along a piece is not reliable in doubles at that scale; found with ext/cdt/island at 32 and 34 degrees, constrained mode:
+            /// NodingLimit "a segment split did not settle"). Squared lengths in scaled units: deterministic, so the length of the piece
+            /// being inserted strictly decreases along every chain of such splits. All three tolerance splits (the existing edge, the
+            /// start triangle, the walk) use it; the exact splits (a vertex on u-w) shorten anyway.
+            /// </summary>
+            bool Shortens(int v, int u, int w)
+            {
+                double uw = ScaledLen2(u, w);
+                // strictly: the termination argument needs the length to decrease (with <= a part could be as long as u-w)
+                return ScaledLen2(u, v) < uw && ScaledLen2(v, w) < uw;
+            }
+
+            double ScaledLen2(int a, int b)
+            {
+                double dx = Scaled(k.X[a] - k.X[b]), dy = Scaled(k.Y[a] - k.Y[b]);
+                return dx * dx + dy * dy;
             }
 
             /// <summary> vertices v and u are within the tolerance of each other </summary>
@@ -503,7 +542,7 @@ namespace g3
                             int apex = k.V[Next(Next(side))];
                             // (not one within the tolerance of an end: in a cluster of such points the order along the piece is not
                             // reliable in doubles, and splits could go back and forth)
-                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w)) { Split(apex, piece, pending); return null; }
+                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w) && Shortens(apex, u, w)) { Split(apex, piece, pending); return null; }
                         }
                         k.SetConstraint(existing, k.NewConstraint(piece.Sources));
                     }
@@ -528,8 +567,10 @@ namespace g3
                 if (h < 0) throw new InvalidOperationException("ConstrainedDelaunayMesh2: no triangle at a segment's end point");
                 {
                     int a = k.V[h], b = k.V[Next(h)];
-                    if (Near(a, u, w, piece.Sources)) { Split(a, piece, pending); return null; }
-                    if (Near(b, u, w, piece.Sources)) { Split(b, piece, pending); return null; }
+                    // (the tolerance splits here and in the walk shorten too, as in the existing-edge case: otherwise u-v and v-w could
+                    // bring back u-w by the same mutual nearness; the exact splits, collinear or ov == 0, need no such guard)
+                    if (Near(a, u, w, piece.Sources) && Shortens(a, u, w)) { Split(a, piece, pending); return null; }
+                    if (Near(b, u, w, piece.Sources) && Shortens(b, u, w)) { Split(b, piece, pending); return null; }
                 }
                 var crossed = new List<long>();
                 while (true) {
@@ -540,7 +581,7 @@ namespace g3
                     int v = k.V[Next(Next(g))];
                     if (v == w) break;
                     int ov = k.OrientV(u, w, v);
-                    if (ov == 0 || Near(v, u, w, piece.Sources)) { Split(v, piece, pending); return null; }
+                    if (ov == 0 || (Near(v, u, w, piece.Sources) && Shortens(v, u, w))) { Split(v, piece, pending); return null; }
                     h = ov > 0 ? Next(g) : Next(Next(g));
                 }
                 int edge = k.RecoverEdge(u, w, crossed);
@@ -730,7 +771,7 @@ namespace g3
                 overlaps = new List<int[]>();
                 for (int si = 0; si < setList.Count; ++si) {
                     var rings = domainRings[si];
-                    if (rings.Length == 0) { inside[si] = outerRings == 0; continue; }
+                    if (rings.Length == 0) { inside[si] = outerRings == 0 && !OuterRingsCollapsed; continue; }
                     int pick = -1;
                     foreach (int r in rings)
                         if (containers[r] != null && rings.All(q => containers[r].Contains(q))) pick = Math.Max(pick, r);
@@ -755,6 +796,7 @@ namespace g3
                 // point rounded inwards, as the tags have it (found by the tag check on F-35 and F-3/c). All input lies inside the hull,
                 // so no other constraint is met from outside. (The check then follows ConstrainHull's own rule: a hull edge that
                 // ConstrainHull left unconstrained would leak in both; the oracle's area and coverage checks catch that.)
+                // (with OuterRingsCollapsed nothing is inside already, and the flood changes nothing)
                 if (outerRings == 0) {
                     var seen = new bool[state.Length];
                     var queue = new Queue<int>();

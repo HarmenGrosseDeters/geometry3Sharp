@@ -42,6 +42,58 @@ namespace g3
         /// </summary>
         public double MinCollapseTriangleQuality = 0;
 
+        /// <summary>
+        /// (internal; Reducer only) MinCollapseTriangleQuality with an exception for collapses that remove the worst
+        /// triangle around the collapsed edge (both one-rings): if one of the two triangles the collapse removes is that
+        /// worst triangle, a new triangle below the threshold and worse than its own predecessor (refused without this)
+        /// is allowed as long as it is better than the removed one. So a collapse can remove a sliver of the input
+        /// although its new triangles stay below the threshold; elsewhere the rule is the one without the option. The
+        /// worst quality around the edge never drops below min(threshold, worst before).
+        /// </summary>
+        internal bool CollapseQualityAgainstWorst = false;
+
+        // per collapse (Reducer.CollapseEdge, begin_quality_check): the edge, its two triangles, and the bound of the
+        // exception: the worst old quality if one of the two removed triangles has it, else infinity (no exception); NaN
+        // until needed
+        int collapseA = -1, collapseB = -1, collapseT0 = -1, collapseT1 = -1;
+        double collapseExceptionBound = double.NaN;
+
+        protected void begin_quality_check(int a, int b, int t0, int t1)
+        {
+            collapseA = a; collapseB = b; collapseT0 = t0; collapseT1 = t1;
+            collapseExceptionBound = double.NaN;
+        }
+
+        // MinCollapseTriangleQuality: does the new triangle (quality qNew) of the old triangle (va, vb, vc) refuse the collapse?
+        protected bool collapse_quality_rejects(double qNew, ref Vector3d va, ref Vector3d vb, ref Vector3d vc)
+        {
+            if (!(qNew < MinCollapseTriangleQuality))
+                return false;
+            if (!(qNew < TriangleQuality(ref va, ref vb, ref vc)))
+                return false;
+            if (CollapseQualityAgainstWorst == false || collapseA < 0)
+                return true;
+            if (double.IsNaN(collapseExceptionBound))
+                collapseExceptionBound = exception_bound();
+            return !(qNew > collapseExceptionBound);
+        }
+
+        // the worst quality in the one-rings of the collapsed edge if one of its two triangles has it, else infinity (a NaN
+        // quality, of a triangle beyond about 1e154, is skipped)
+        double exception_bound()
+        {
+            double worst = double.PositiveInfinity, removed = double.PositiveInfinity;
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            for (int k = 0; k < 2; ++k)
+                foreach (int tid in mesh.VtxTrianglesItr(k == 0 ? collapseA : collapseB)) {
+                    mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                    double q = TriangleQuality(ref va, ref vb, ref vc);
+                    if (q < worst) worst = q;
+                    if ((tid == collapseT0 || tid == collapseT1) && q < removed) removed = q;
+                }
+            return removed <= worst ? removed : double.PositiveInfinity;
+        }
+
         /// <summary> 4*sqrt(3)*area / sum of squared edge lengths: 1 for equilateral, 0 for degenerate </summary>
         public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
         {
@@ -147,7 +199,7 @@ namespace g3
                 if (MinCollapseTriangleQuality > 0) {
                     Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
                     double qNew = TriangleQuality(ref na, ref nb, ref nc);
-                    if (qNew < MinCollapseTriangleQuality && qNew < TriangleQuality(ref va, ref vb, ref vc))
+                    if (collapse_quality_rejects(qNew, ref va, ref vb, ref vc))
                         return true;
                 }
             }

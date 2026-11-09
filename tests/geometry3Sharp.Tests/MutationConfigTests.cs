@@ -13,10 +13,12 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class MutationConfigTests
     {
-        // the method each split is at
-        static readonly Dictionary<string, string> SplitMethod = new Dictionary<string, string>() {
-            ["mesh_ops/ExactMeshArrangement.cs"] = "void build_triangles(",
-            ["mesh_ops/ExactMeshBoolean.cs"] = "int front_winding(",
+        // the methods the splits of a file are at, in order
+        static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
+            ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
+            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
+            ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
 
         static string RepoRoot()
@@ -44,6 +46,7 @@ namespace geometry3Sharp.Tests
                 string text = File.ReadAllText(Path.Combine(root, kv.Key)).Replace("\r\n", "\n");
                 var s = kv.Value.OrderBy(x => x.a).ToList();
                 Assert.Equal(0, s[0].a);
+                Assert.Equal(SplitMethod[kv.Key].Length, s.Count - 1);
                 Assert.True(s[s.Count - 1].b >= text.Length, kv.Key + ": the last shard does not reach the end");
                 for (int i = 1; i < s.Count; ++i) {
                     Assert.True(s[i - 1].b == s[i].a, kv.Key + ": shards do not meet");
@@ -54,8 +57,81 @@ namespace geometry3Sharp.Tests
                     int k = 0;
                     while (lines[k].StartsWith("[") || lines[k].StartsWith("//"))
                         ++k;
-                    Assert.True(lines[k].StartsWith(SplitMethod[kv.Key]), kv.Key + ": split " + off + " is at \"" + lines[0] + "\", not at " + SplitMethod[kv.Key]);
+                    string method = SplitMethod[kv.Key][i - 1];
+                    Assert.True(lines[k].StartsWith(method), kv.Key + ": split " + off + " is at \"" + lines[k] + "\", not at " + method);
                 }
+            }
+        }
+
+        static Dictionary<string, string> TestFilters(string root)
+        {
+            var filters = new Dictionary<string, string>();
+            foreach (string cfg in Directory.GetFiles(Path.Combine(root, "tests", "mutation"), "*.json")) {
+                // every config has a filter (without one Stryker runs every test of the project), a plain JSON string
+                // without escapes (the match would end at an escaped quote)
+                Match m = Regex.Match(File.ReadAllText(cfg), @"""test-case-filter""\s*:\s*""((?:[^""\\]|\\.)*)""");
+                Assert.True(m.Success, cfg + ": no test-case-filter");
+                Assert.DoesNotContain("\\", m.Groups[1].Value);
+                filters[Path.GetFileNameWithoutExtension(cfg)] = m.Groups[1].Value;
+            }
+            return filters;
+        }
+
+        // the terms of a filter: its |-alternatives, parentheses removed
+        static string[] Alternatives(string filter) => filter.Split('|').Select(t => t.Trim('(', ')')).ToArray();
+
+        [Fact]
+        public void TestFilters_EveryTermNamesTests()
+        {
+            // a FullyQualifiedName term that names no test (a typo, a renamed class) silently drops those tests; a
+            // negated term or a DisplayName exclusion that matches nothing silently excludes nothing (the display name
+            // of a theory case comes from its data: the excluded word must occur in the test sources)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var names = typeof(MutationConfigTests).Assembly.GetTypes()
+                .SelectMany(t => t.GetMethods().Where(mi => mi.GetCustomAttributes(typeof(FactAttribute), true).Length > 0)
+                    .Select(mi => t.FullName + "." + mi.Name)).ToList();
+            string sources = string.Join("\n", Directory.GetFiles(Path.Combine(root, "tests", "geometry3Sharp.Tests"), "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)).Select(File.ReadAllText));
+            var filters = TestFilters(root);
+            Assert.True(filters.Count >= 24);
+            foreach (var kv in filters)
+                foreach (string alt in Alternatives(kv.Value))
+                    foreach (string cond in alt.Split('&')) {
+                        Match m = Regex.Match(cond, @"^FullyQualifiedName!?~(.+)$");
+                        Match d = Regex.Match(cond, @"^DisplayName!~(\w+)$");
+                        Assert.True(m.Success || d.Success, kv.Key + ": unknown condition " + cond);
+                        if (m.Success)
+                            Assert.True(names.Any(n => n.Contains(m.Groups[1].Value)), kv.Key + ": " + cond + " names no test");
+                        else
+                            Assert.True(sources.Contains("\"" + d.Groups[1].Value), kv.Key + ": " + cond + " names no test case");
+                    }
+        }
+
+        [Fact]
+        public void RoundingParts_SharedTests_FewExtras()
+        {
+            // every part of the rounding shard runs the same tests; the coverage pass costs about 100-200 minutes per
+            // part with them (README). rounding-7 on the 19-term union of every rounding test (229 tests, 73 s instead
+            // of 32 s) was still in its coverage pass after 262 minutes (master run 42567558219). Its span (set_vertex
+            // to the end) adds the tests of the Exact Boolean 2.0 changes there: the tolerances of the largest
+            // component and the ScaleDisparity guard (6913d092) and the exact flag cleared on a position write (4b94d093)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-1"]));
+            Assert.Equal(8, shared.Count);
+            var extras = new Dictionary<string, string[]>() {
+                ["stryker-mesh-rounding-7"] = new[] {
+                    "FullyQualifiedName~ExactBooleanFarComponentTests",
+                    "FullyQualifiedName~ExactBooleanScaleDisparityTests",
+                    "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
+                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip" },
+            };
+            for (int i = 1; i <= 7; ++i) {
+                string part = "stryker-mesh-rounding-" + i;
+                var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
+                Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
             }
         }
     }

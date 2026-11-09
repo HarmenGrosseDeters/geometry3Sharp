@@ -436,10 +436,9 @@ namespace geometry3Sharp.Tests
             // From step 2 on, the old repair left one degenerate triangle per step: the flips that would remove it fold
             // two nearly coincident triangles across a sharp edge of the tool and move the surface by 0.1 to 1, beyond the
             // displacement bound (docs/ROBUSTNESS_SWEEP.md R22). The strip zip removes them within the bound in steps 3
-            // to 5. In step 2 one is left: a cap on the tool's vertical seam whose neighbour across the long edge is a
-            // sliver with an edge of 2e-9; zipping the two leaves a needle with that edge, which a contraction would
-            // remove next, but each edit must improve on its own. The test asserts these results, and the shape within
-            // the bound in every step.
+            // to 5. Step 2 kept one (a cap on the tool's vertical seam next to a sliver with an edge of 2e-9) until the
+            // moves stopped depending on the scale: the cap's apex offset was below MathUtil.Epsilon, so Normalized gave
+            // no direction to move it along. Every step is clean now, within the bound.
             DMesh3 work = Box(-3, -3, -10, 3, 3, 0);
             DMesh3 tool = new CappedCylinderGenerator() { BaseRadius = 1.3f, TopRadius = 1.3f, Height = 2.5f, Slices = 24 }.Generate().MakeDMesh();
             // (the generator's axis is y, from 0 to the height): along z, from -1.5 to 1
@@ -449,15 +448,8 @@ namespace geometry3Sharp.Tests
             for (int step = 0; step < 6; ++step) {
                 var d = Run(work, tool, Ops.Difference);
                 MeshRoundingRepair r = d.Rounding;
-                if (step != 2) {
-                    ResultChecks.AssertClean(d.Result, "step " + step);
-                    Assert.True(d.RoundingClean, "step " + step);
-                } else {
-                    ResultChecks.AssertClosed(d.Result, "step " + step);
-                    Assert.Equal(0, r.RemainingIntersections);
-                    Assert.Equal(1, r.RemainingDegenerate);
-                    Assert.Equal("degenerate triangles", gs.MeshRobustRepair.NotCleanReasons(d.Result));
-                }
+                ResultChecks.AssertClean(d.Result, "step " + step);
+                Assert.True(d.RoundingClean, "step " + step);
                 // the shape within the bound: the drift, and volume and area against the result as the arrangement
                 // gives it (SameSolid with the drift as the displacement)
                 double diag = gs.MeshRepairMetrics.TriangleBounds(d.Result).DiagonalLength;

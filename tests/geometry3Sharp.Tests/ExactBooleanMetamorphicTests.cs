@@ -296,6 +296,23 @@ namespace geometry3Sharp.Tests
             AssertOk(BooleanOracle.CheckBoxResult(BooleanOracle.BoxMesh(Bx(0, 0, 0, 2, 1, 1), scaled), scaled, Ops.Union), "scaled union");
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void EmptyResult_StillRequiresFiniteCoordinates(double invalid)
+        {
+            var pair = Families["disjoint"];
+            var c = new BoxCase(pair.a, pair.b);
+            Assert.Equal("", BooleanOracle.CleanReason(new DMesh3()));
+            Assert.Equal("", BooleanOracle.CheckBoxResult(new DMesh3(), c, Ops.Intersection));
+            var malformed = new DMesh3();
+            malformed.AppendVertex(new Vector3d(invalid, 0, 0));
+            Assert.Equal(0, malformed.TriangleCount);
+            Assert.Equal("non-finite coordinates", BooleanOracle.CleanReason(malformed));
+            Assert.Equal("non-finite coordinates", BooleanOracle.CheckBoxResult(malformed, c, Ops.Intersection));
+        }
+
         [Fact]
         public void Dyadic_IsExact()
         {

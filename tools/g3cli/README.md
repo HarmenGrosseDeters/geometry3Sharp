@@ -1,13 +1,13 @@
 # g3cli: mesh operations as CLI and MCP server
 
-`g3cli` is the headless layer of this fork (phase 4 of [docs/ROADMAP.md](../../docs/ROADMAP.md)): the
+`g3cli` is the headless layer of this fork (phase 4 of the roadmap, [docs/roadmap/platform.md](../../docs/roadmap/platform.md)): the
 geometry3Sharp mesh operations on mesh files, as subcommands with JSON output and, with `g3cli mcp`, as the
 tools of an MCP server (stdio), for coding agents and scripts.
 
 | Command | Operation | Library classes |
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
-| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`, and the SafeRounding settings as for `boolean`: `--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--strict-rounding`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, `exact_resolve_rounding` and `separated_rounding`: the two rounding repairs of the exact stage, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
+| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`, and the SafeRounding settings as for `boolean`: `--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--rounding-max-pair-tests`, `--strict-rounding`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, `exact_resolve_rounding` and `separated_rounding`: the two rounding repairs of the exact stage, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
@@ -15,7 +15,13 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
+| `slope` | slope design from toe lines (GeoJSON) to a terrain (a TIN mesh file): cut, fill or mixed (`--direction auto`), never steeper than the given slopes (every triangle checked exactly); the composite terrain or only its replacement, the slope surface and region, catch lines and target-height level lines (GeoJSON), cut / fill volumes and areas; `--local-frame` for finer guaranteed features at UTM (local outputs plus `used_origin`) | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
+| `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
+| `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
+| `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
+| `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
+| `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 
 ## Build and run
 
@@ -125,6 +131,39 @@ g3cli mesh2d lake.poly lake.ele --min-angle 30 --max-area 2
 g3cli mesh2d parcels.poly parcels.obj --snap-tolerance 0.01        # snap rounding to a 1 cm grid first (m2.snap)
 g3cli query2d tin.obj --points "1,1;3,2.5" --rect "0,0,1,1" --nearest 2
 
+# slope design: a pit toe (GeoJSON) cut into a TIN (the slopes in the GeoJSON), the composite terrain and the catch line
+g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --catch-lines pit_catch.geojson
+#   -> "design_status": "success", "complete": true, "cut_volume": ..., "catch_lines": [{"points": 812, "closed": true, ...}], "min_feature_size": 0.0149, ...
+# only the replaced triangles, a dump in fill, bench levels at 120 and 110 m
+g3cli slope dgm_tin.ply dump_toe.geojson dump_part.g3mesh --tolerance 0.05 --direction fill --composite replacement --target-heights 120,110 --target-lines benches.geojson
+# at UTM: compute in a local frame (outputs local; add used_origin to x and y)
+g3cli slope dgm_tin.ply pit_toe.geojson pit_local.g3mesh --tolerance 0.05 --local-frame
+
+# fidelity of a simplified mesh against the original (sampled with a fixed seed, so reproducible; distances are relative to "size")
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [0.93, 0.99, 1.0], "chamfer": 0.0007, "normal_consistency": 0.98, "edge_recall": [...], "volume_iou": 0.996,
+#      "outer": {...}, "curvature": {...}, "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvature --seed 7
+# in the result: distances and lengths are relative to "size" (mesh units), curvatures are H*size and K*size^2, angles in degrees;
+# null = not available (NaN), the string "infinity" = infinite (eg edge_chamfer if only one mesh has sharp edges, the aspect ratio of a zero-area triangle)
+
+# quality and topology of one mesh
+g3cli quality part.stl
+#   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
+
+# deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
+g3cli deviation simplified.stl original.stl --certified
+#   -> "vertex_statistics": { "mean": ..., "rms": ..., "max_absolute": ..., "absolute_p95": ... }, "hausdorff_lower_bound": ..., "hausdorff_upper_bound": ...
+
+# wall thickness: triangles thinner than 0.8 (mesh units), by the shape diameter function
+g3cli thickness part.stl --min-thickness 0.8
+#   -> "statistics": { "min": ..., "median": ... }, "thin_triangles": 120, "thin_area_share": 0.03, "thin_triangle_ids": [...]
+
+# primitive fit: a cylinder (a failed fit is operation_failed with "fit_result"), or every primitive for comparison
+g3cli fit pipe.stl --primitive cylinder --inlier-distance 0.05
+g3cli fit unknown.stl --primitive all
+#   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
+
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
 # the guard against poor and flat triangles is on by default (--min-quality 0.2, Remesher.MinTriangleQuality;
@@ -204,6 +243,50 @@ index comparisons (20 000 segments at one vertex: about 6 s to read). Second-ord
 Written: `<name>.node` (boundary marker: the subsegment marker at the vertex, 1 for unmarked boundaries), `<name>.ele` (labels as
 the triangle attribute when there are regions), `<name>.poly` (no vertices, the subsegments with markers, the input's hole points
 and seed regions; regions given by ring have no `.poly` form, a warning says so), all numbered from 1.
+
+## Slope design input (`slope`)
+
+The terrain is a TIN in any mesh format (a height field: only the part under the slope surface must be one). The toes are
+GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each toe a `LineString` (an open toe) or a
+`Polygon` (a closed toe: its outer ring, no holes), with `[x, y, z]` positions (the toe's height is needed):
+
+```json
+{"type": "FeatureCollection", "crs": {"type": "name", "properties": {"name": "EPSG:25832"}},
+ "features": [
+  {"type": "Feature", "properties": {"side": "outside", "slope": {"degrees": 45}},
+   "geometry": {"type": "Polygon", "coordinates": [[[328300, 5642800, -320], [328400, 5642800, -320],
+     [328400, 5642900, -320], [328300, 5642900, -320], [328300, 5642800, -320]]]}},
+  {"type": "Feature", "properties": {"side": "left", "cut_slope": 1.5, "fill_slope": 2},
+   "geometry": {"type": "LineString", "coordinates": [[328500, 5642800, -300], [328600, 5642850, -300]]}}]}
+```
+
+- **Coordinates are taken as given**: projected, in the units of the terrain (metres), no reprojection. RFC 7946 speaks of
+  WGS84; that does not apply here. A `crs` member is not interpreted: it is passed through to the report and to the GeoJSON
+  outputs.
+- **`side`**: the slope's side of the toe line in its direction (`left`, `right`), or `inside` / `outside` for a closed
+  toe. Required (or `--side` for all toes without one).
+- **Slopes**: `slope` for cut and fill, or `cut_slope` and `fill_slope`, or `segment_slopes` (one per segment, for cut and
+  fill). A slope is a number n (1:n, n horizontal per 1 vertical), or `{"ratio": n}`, `{"percent": p}`, `{"degrees": a}`,
+  `{"rise": s}`. `--slope` (eg `degrees:40`) for toes without one.
+- **Outputs**: `output` is the composite (the whole terrain with the slope region) or, with `--composite replacement`, only
+  the part that replaces terrain triangles (`replaced_terrain_triangles` in the report); `--surface` and `--region` write
+  the slope surface and the slope region; `--catch-lines` and `--target-lines` write GeoJSON `LineString`s (closed lines
+  repeat their first position), with `start_reason` / `end_reason`, `max_uncertainty` and `tangential_segments`, or
+  `height`.
+- **The report**: `design_status` and `status_kind` (TerrainSlopeDesign's), `complete`, the volumes and areas
+  (`cut_volume`, `fill_volume`, `cut_area`, `fill_area`, `volume`, `plan_area`, `slope_area`), the catch lines,
+  `min_feature_size` (the smallest feature the result guarantees, about 1.5 cm at UTM), `slope_margin`, `toe_lowering`,
+  `attempts`, `realizations`, `phase_seconds`, the output mesh's metrics.
+- **Result codes**: `success` and `no_daylight` (a partial result, `complete` false, with a warning) are `ok`. A design the
+  library cannot certify (`slope_violation`, `toe_undercut`, `composite_failed`, ...) fails with `operation_failed`, and an
+  invalid toe or terrain (`invalid_input`, `not_height_field`) with `read_error` (`invalid_arguments` for inline
+  `--toes-geojson`); the error result carries `design_status`, `status_kind`, `design_message`, `toe_problems`
+  ([toe, segment] pairs) and `problem_triangles`. No violating result is ever written.
+- **`--local-frame`**: the design is computed on the inputs translated to a local origin near the toes, so the derived sizes
+  follow from local coordinates (`min_feature_size` about 2e-6 m instead of 1.5 cm at UTM). **Every output is then local**:
+  the meshes, the catch and target lines (whose GeoJSON also carries `used_origin`). Add `used_origin` to x and y for the
+  input's frame; that rounds each coordinate by up to half an ulp and is not covered by the exact checks.
+  `local_frame_fallback` true: a coordinate could not be translated exactly, and the design ran in the input's frame.
 
 ## MCP server
 

@@ -465,6 +465,9 @@ namespace gs
         /// vertex: the points where it crosses input edges, found by walking straight from the tail in
         /// the direction of its signpost for its length (exact up to rounding; with mollification the
         /// path is computed in the mollified geometry and mapped to the input triangles barycentrically).
+        /// Where the edge runs exactly through an input vertex, or ends at its head through the edges around
+        /// it, the crossings there are all returned: consecutive points can coincide up to rounding (about
+        /// 1e-10 of the edge length), and the last point is the end of the walk, not the exact head position.
         /// </summary>
         public List<Vector3d> TraceEdge(int h)
         {
@@ -653,8 +656,17 @@ namespace gs
         /// <summary>
         /// Tangent basis of a mesh vertex in which the signpost angles are measured: e1 is the direction of
         /// the vertex' first input edge projected into the tangent plane (normal: angle-weighted), e2 = n x e1.
+        /// If that edge has no direction there (length 0: a coincident neighbour), e1 is the direction ToWorld
+        /// gives it: interpolated between the neighbouring edges that have one (see wedge_angles).
         /// </summary>
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
+        {
+            tangent_frame(vid, false, out e1, out e2, out n, out _, out _);
+        }
+
+        // the basis of GetTangentBasis, and with wedges the corners of tangent_wedges
+        void tangent_frame(int vid, bool wedges, out Vector3d e1, out Vector3d e2, out Vector3d n,
+            out List<double> sign, out List<double> world)
         {
             int i = VertexIndex(vid);
             if (i < 0)
@@ -672,12 +684,44 @@ namespace gs
             } while (hh >= 0 && hh != h0 && ++guard < 3 * F0);
             if (n.Length < 1e-300) n = Vector3d.AxisZ;
             n /= n.Length;
+            sign = world = null;
             Vector3d q = Mesh.GetVertex(toVertex[hV_input_head(h0)]);
             e1 = (q - p) - (q - p).Dot(n) * n;
-            if (e1.Length < 1e-300) e1 = Math.Abs(n.x) < 0.9 ? Vector3d.AxisX.Cross(n) : Vector3d.AxisY.Cross(n);
+            if (!(e1.Length < 1e-300)) {
+                e1 /= e1.Length;
+                e2 = n.Cross(e1);
+                if (wedges) wedge_angles(i, p, n, e1, e2, out sign, out world);
+                return;
+            }
+            // the first edge has no direction in the tangent plane: the angles in a provisional basis from the first
+            // edge that has one, then turned so that the first edge's interpolated direction is e1 (its angle 0)
+            List<Vector3d> dirs;
+            fan_edges(i, p, out sign, out dirs);
+            int j = 0;
+            while (j < dirs.Count && projected(dirs[j], n).Length < 1e-300) j++;
+            if (j == dirs.Count) j = -1;
+            if (j < 0) {
+                // no edge with a direction (all neighbours coincide): an arbitrary axis, signpost angles as they are
+                e1 = Math.Abs(n.x) < 0.9 ? Vector3d.AxisX.Cross(n) : Vector3d.AxisY.Cross(n);
+                e1 /= e1.Length;
+                e2 = n.Cross(e1);
+                sign.Add(next_turn(sign[sign.Count - 1]));
+                world = new List<double>(sign);
+                return;
+            }
+            Vector3d b1 = projected(dirs[j], n);
+            b1 /= b1.Length;
+            Vector3d b2 = n.Cross(b1);
+            wedge_angles(i, p, n, b1, b2, out sign, out world);
+            double theta = world[0];
+            for (int k = 0; k < world.Count; ++k) world[k] -= theta;
+            world[0] = 0;
+            e1 = Math.Cos(theta) * b1 + Math.Sin(theta) * b2;
             e1 /= e1.Length;
             e2 = n.Cross(e1);
         }
+
+        static Vector3d projected(Vector3d d, Vector3d n) => d - d.Dot(n) * n;
 
         double CornerAngle_input(int h)
         {
@@ -692,43 +736,94 @@ namespace gs
             return toIndex[tri[(h % 3 + 1) % 3]];
         }
 
-        // Corners around a vertex as pairs of (signpost angle, angle in the projected tangent plane), from
-        // the first input edge counter-clockwise, closed by the first edge again at 2 pi (the gap outside
-        // a boundary vertex is a corner too). Both angle sequences increase.
-        void tangent_wedges(int vid, out List<double> sign, out List<double> world, out Vector3d e1, out Vector3d e2)
+        // The input edges around vertex index i (at p) counter-clockwise from the first one: their signpost angles
+        // and 3D vectors; at a boundary vertex the last one is the other boundary edge (signpost LastSignpost).
+        void fan_edges(int i, Vector3d p, out List<double> sign, out List<Vector3d> dirs)
         {
-            Vector3d n;
-            GetTangentBasis(vid, out e1, out e2, out n);
-            int i = VertexIndex(vid);
-            Vector3d p = Mesh.GetVertex(vid);
             sign = new List<double>();
-            world = new List<double>();
+            dirs = new List<Vector3d>();
             int h0 = inVHe[i], hh = h0, guard = 0;
-            double prevW = 0;
             while (true) {
-                Vector3d d = Mesh.GetVertex(toVertex[hV_input_head(hh)]) - p;
-                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
-                if (sign.Count == 0) w = 0;
-                else { while (w < prevW) w += 2 * Math.PI; }
-                sign.Add(inAngle[hh]); world.Add(w);
-                prevW = w;
+                sign.Add(inAngle[hh]);
+                dirs.Add(Mesh.GetVertex(toVertex[hV_input_head(hh)]) - p);
                 // the head of the last input corner, at a boundary vertex
                 int nh = inTwin[Prev(hh)];
                 if (nh < 0) {
-                    Vector3d dl = Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p;
-                    double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
-                    while (wl < prevW) wl += 2 * Math.PI;
-                    sign.Add(LastSignpost(i)); world.Add(wl);
+                    sign.Add(LastSignpost(i));
+                    dirs.Add(Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p);
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
                 hh = nh;
             }
+        }
+
+        // Corners around a vertex as pairs of (signpost angle, angle in the projected tangent plane), from
+        // the first input edge counter-clockwise, closed by the first edge again at 2 pi (the gap outside
+        // a boundary vertex is a corner too). Both angle sequences increase.
+        void tangent_wedges(int vid, out List<double> sign, out List<double> world, out Vector3d e1, out Vector3d e2)
+        {
+            tangent_frame(vid, true, out e1, out e2, out _, out sign, out world);
+        }
+
+        // The angles of tangent_wedges in the basis e1, e2 (normal n), the first edge that has a direction at 0.
+        // An edge without a direction in the tangent plane (length 0: a coincident neighbour, finding G2) has a
+        // signpost angle (it has a length in the mollified intrinsic geometry) but no world angle: it gets the
+        // world angle interpolated linearly in the signpost angle between the neighbouring edges that have one,
+        // cyclically over the closing corner, so its two corners map as one, as if the edge were not there (the
+        // map is linear within each corner). Edges with a direction keep their angles, so a vertex without such
+        // an edge gives the same angles as before, bit for bit.
+        void wedge_angles(int i, Vector3d p, Vector3d n, Vector3d e1, Vector3d e2, out List<double> sign, out List<double> world)
+        {
+            List<Vector3d> dirs;
+            fan_edges(i, p, out sign, out dirs);
+            int K = sign.Count;
+            world = new List<double>(K + 1);
+            double prevW = 0, raw0 = 0;
+            int first = -1, last = -1;
+            for (int k = 0; k < K; ++k) {
+                Vector3d d = dirs[k];
+                if (projected(d, n).Length < 1e-300) { world.Add(double.NaN); continue; }
+                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
+                if (first < 0) { raw0 = w; w = 0; first = k; }
+                else {
+                    // the first edge is at 0 by definition, its own Atan2 (raw0) only about 0: an edge in the same
+                    // direction (a neighbour that coincides with the first one) may come out just below 0 and must
+                    // not be taken a full turn later; it gets 0, a corner of no width (as for the identity)
+                    double lo = (last == first) ? Math.Min(raw0, 0) : prevW;
+                    while (w < lo) w += 2 * Math.PI;
+                    w = Math.Max(w, prevW);
+                }
+                world.Add(w);
+                prevW = w;
+                last = k;
+            }
             // close the circle back at the first edge, keeping both sequences increasing: a boundary vertex with
             // an angle sum above 2 pi has signposts beyond 2 pi, and the projection of a folded fan (saddles)
             // winds more than once. Directions are only defined modulo 2 pi, so map_angle uses the first corner
             // that contains an angle.
-            sign.Add(next_turn(sign[sign.Count - 1])); world.Add(next_turn(world[world.Count - 1]));
+            double turnS = next_turn(sign[K - 1]), turnW = next_turn(world[last]);
+            sign.Add(turnS);
+            world.Add(first == 0 ? turnW : double.NaN);
+            // the edges without a direction: between two that have one, or in the run from the last one over the
+            // closing corner to the first one (a turn later; first > 0 only for a provisional basis, see
+            // tangent_frame)
+            bool[] has = new bool[K + 1];
+            for (int k = 0; k <= K; ++k) has[k] = !double.IsNaN(world[k]);
+            for (int k = 0; k <= K; ++k) {
+                if (has[k]) continue;
+                double s = sign[k], sa, wa, sb, wb, shift = 0;
+                if (k < first) { s += turnS; shift = turnW; }
+                if (k < first || k > last) { sa = sign[last]; wa = world[last]; sb = sign[first] + turnS; wb = world[first] + turnW; }
+                else {
+                    int a = k - 1, b = k + 1;
+                    while (!has[a]) a--;
+                    while (!has[b]) b++;
+                    sa = sign[a]; wa = world[a]; sb = sign[b]; wb = world[b];
+                }
+                double span = sb - sa;
+                world[k] = wa + (span > 0 ? (s - sa) / span : 0) * (wb - wa) - shift;
+            }
         }
 
         // smallest multiple of 2 pi, at least 2 pi, that is above a (or equal to it)

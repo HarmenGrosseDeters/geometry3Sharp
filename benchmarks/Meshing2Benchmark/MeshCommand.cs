@@ -18,9 +18,56 @@ namespace Meshing2Acceptance
     /// </summary>
     public static class MeshCommand
     {
+        /// <summary>
+        /// The expectations of the `oracle` command: the milestone, the tube (null or "auto": the oracle's own), and the area the case
+        /// states with its tolerance (a seed-only hole removes a cell of the input constraints, which the oracle does not compute: such a
+        /// case must state its area, eg F-17/b, or the verdict is CannotJudge)
+        /// </summary>
+        public static OracleExpect OracleExpectation(Milestone m, string tube, string statedArea, string statedAreaTolerance)
+        {
+            var e = new OracleExpect { Milestone = m };
+            if (tube != null && tube != "auto") e.Tube = Q.FromDouble(TextFormat.ParseCoordinate(tube));
+            if (statedArea != null) e.StatedArea = Q.FromDouble(TextFormat.ParseCoordinate(statedArea));
+            if (statedAreaTolerance != null) e.StatedAreaTolerance = Q.FromDouble(TextFormat.ParseCoordinate(statedAreaTolerance));
+            return e;
+        }
+
+        /// <summary>
+        /// for before/after measurements on the calling thread: G3_M2_OFFCENTRES (0 or 1) switches off-centres, G3_M2_CONFORMING (0 or 1)
+        /// conforming Delaunay in the M3 candidate (what O2 costs), G3_M2_LENSES (0 or 1) diametral lenses regardless of the rule,
+        /// G3_M2_KEEPAPART (0 or 1) the refinement rule of #360 that keeps chains apart (0: the refinement before it);
+        /// G3_M2_LENS_DELETION (0 or 1) Chew's deletion before a bisection with lenses; G3_M2_KEEPAPART=0 drops the pinch rule (a split point
+        /// is never another chain's vertex of refinement) as well; G3_M2_WORSTFIRST (0 or 1) bad triangles split worst first or in the order
+        /// queued; G3_M2_BEST (0 or 1) the split point chosen among candidates or the off-centre / circumcentre; G3_M2_PETAL (0 or 1) the candidates
+        /// in the petal of the shortest edge or step 1's on its bisector; unset keeps
+        /// the defaults. G3_M2_APEX_EXEMPT=0 turns the small-angle rule of the constrained mode off (MESHING2D_SMALL_ANGLES.md). G3_M2_COUNTS (mesh command) prints what
+        /// refinement inserted and refused, by cause
+        /// </summary>
+        public static void ApplyRefinementVariant()
+        {
+            bool? Flag(string name) { var v = Environment.GetEnvironmentVariable(name); return v == null ? (bool?)null : v != "0"; }
+            g3.QualityMesh2.Refiner.OffCentresForBenchmarks = Flag("G3_M2_OFFCENTRES");
+            QualityMesh2Candidate.ConformingForBenchmarks = Flag("G3_M2_CONFORMING");
+            g3.QualityMesh2.Refiner.LensesForBenchmarks = Flag("G3_M2_LENSES");
+            g3.QualityMesh2.Refiner.DeleteInCircleForBenchmarks = Flag("G3_M2_LENS_DELETION");
+            g3.QualityMesh2.Refiner.KeepChainsApartForTests = Flag("G3_M2_KEEPAPART");
+            // (by name: tools/new_tests_on_base.py builds this file against the library of before the switches)
+            SetRefinerSwitch("WorstFirstForBenchmarks", Flag("G3_M2_WORSTFIRST"));
+            SetRefinerSwitch("BestCandidateForBenchmarks", Flag("G3_M2_BEST"));
+            SetRefinerSwitch("PetalForBenchmarks", Flag("G3_M2_PETAL"));
+            SetRefinerSwitch("SmallAngleExemptionForTests", Flag("G3_M2_APEX_EXEMPT"));
+        }
+
+        static void SetRefinerSwitch(string name, bool? value)
+        {
+            var field = typeof(g3.QualityMesh2.Refiner).GetField(name, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (field != null) field.SetValue(null, value);
+        }
+
         public const string Usage =
             "mesh --case <id> --output <file>\n" +
             "mesh --input <in.txt|in.poly|in.node> --output <file> [--milestone M1|M2|M3] [--min-angle <deg>] [--max-area <a>] [--steiner-limit <n>] [--snap-tolerance <t>]\n" +
+            "  --no-oracle (either form): mesh and write only, no oracle and no self-check (timing the mesher; exit 0 when written); the times are printed\n" +
             "  output: the plain text output format, or Triangle files when <file> ends in .node, .ele or .poly\n" +
             "  exit code: 0 written, valid and equal to the golden row (or none recorded); 1 written but invalid or different, or the mesher\n" +
             "  threw or failed where Triangle files were asked for; 2 wrong usage, unreadable input, unwritable output, an option or input the\n" +
@@ -36,6 +83,10 @@ namespace Meshing2Acceptance
             public GoldenRow Row;
             /// <summary> the output in the text format of section 4 </summary>
             public string Text;
+            /// <summary> false with --no-oracle: the report is empty, nothing was judged </summary>
+            public bool Judged = true;
+            /// <summary> wall-clock time of the mesher (on its thread) and of the oracle, milliseconds </summary>
+            public double MeshMs, OracleMs;
         }
 
         /// <summary>
@@ -81,17 +132,35 @@ namespace Meshing2Acceptance
         }
 
         /// <summary> Runs the candidate of the case's milestone (on a thread with a large stack, as `rows` does), judges the result and makes its row and text. </summary>
-        public static Result Run(Mesh2Case c)
+        public static Result Run(Mesh2Case c, bool judge = true)
         {
             var candidate = CandidateRegistry.For(c.Milestone) ?? throw new InvalidOperationException("no candidate for " + c.Milestone);
             Mesh2Output output = null; Exception error = null;
-            var thread = new System.Threading.Thread(() => { try { output = candidate.Run(c.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+            long[] counts = Environment.GetEnvironmentVariable("G3_M2_COUNTS") != null ? new long[17] : null;
+            long deleted = 0;
+            var thread = new System.Threading.Thread(() => {
+                try { MeshCommand.ApplyRefinementVariant(); g3.QualityMesh2.Refiner.CountsForBenchmarks = counts; output = candidate.Run(c.Input); deleted = g3.QualityMesh2.Refiner.DeletedForTests; }
+                catch (Exception e) { error = e; }
+                finally { g3.QualityMesh2.Refiner.CountsForBenchmarks = null; }
+            }, 256 << 20);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             thread.Start();
             thread.Join();
+            double meshMs = clock.Elapsed.TotalMilliseconds;
             if (error != null) throw new MesherException(candidate.Name, error);
-            var report = Oracle.Check(c.Input, output, c.Expect);
+            if (counts != null)
+                Console.Error.WriteLine("refinement counts: " + counts[0] + " subsegments split as encroached, " + counts[1] + " for a point behind them, " + counts[2]
+                    + " encroached by a point, " + counts[3] + " circumcentres, " + counts[4] + " off-centres, " + counts[5] + " grid-blocked triangles, " + counts[6]
+                    + " subsegments unsplittable on the grid, " + deleted + " free vertices deleted before bisections (lenses), " + counts[7]
+                    + " points chosen on the bisector (grading); small-angle exemptions (constrained mode): " + counts[8] + " at a shared endpoint, " + counts[9]
+                    + " at a T-junction or crossing; triangles given up: " + counts[10] + " without a circumcentre, " + counts[11] + " behind a locked or unsplittable subsegment, "
+                    + counts[12] + " without a new vertex; subsegments left unsplit: " + counts[13] + " below the rounding floor, " + counts[14] + " without progress, "
+                    + counts[15] + " near another source; small-angle exemptions revoked in the conforming mode (subsegment not locally Delaunay): " + counts[16]);
+            clock.Restart();
+            var report = judge ? Oracle.Check(c.Input, output, c.Expect) : new OracleReport();
+            double oracleMs = clock.Elapsed.TotalMilliseconds;
             return new Result {
-                Case = c, Producer = candidate.Name, Output = output, Report = report,
+                Case = c, Producer = candidate.Name, Output = output, Report = report, Judged = judge, MeshMs = meshMs, OracleMs = oracleMs,
                 Row = GoldenRow.From(c, candidate.Name, output, report, ""),
                 Text = TextFormat.WriteOutput(output, candidate.Name),
             };
@@ -124,7 +193,11 @@ namespace Meshing2Acceptance
             if (r.Row.IdentityFp != null) yield return "identity_fp " + r.Row.IdentityFp;
             yield return "area2 " + r.Row.Area2;
             yield return "min_angle_sin2 " + (r.Row.MinAngleSin2 ?? "-");
+            yield return "time: mesh " + r.MeshMs.ToString("F0", CultureInfo.InvariantCulture) + " ms, oracle " + (r.Judged ? r.OracleMs.ToString("F0", CultureInfo.InvariantCulture) + " ms" : "not run");
+            if (!r.Judged) { yield return "oracle: not run (--no-oracle), no golden comparison"; yield break; }
             yield return "oracle " + (r.Report.Ok ? "VALID" : "INVALID: " + r.Report);
+            string excused = r.Report.ExcusedSummary();
+            if (excused.Length > 0) yield return "oracle excused: " + excused;
             if (golden == null) {
                 yield return "golden: no recorded row for " + r.Case.Id;
             } else {
@@ -269,7 +342,7 @@ namespace Meshing2Acceptance
 
             Result result;
             try {
-                result = Run(c);
+                result = Run(c, !args.Contains("--no-oracle"));
             } catch (MesherException e) when (e.InnerException is ArgumentException) {
                 // the mesher refused an option or the input (eg a snap tolerance too small for the coordinates)
                 error.WriteLine("invalid input: " + e.InnerException.Message);
@@ -301,8 +374,9 @@ namespace Meshing2Acceptance
                 error.WriteLine("cannot write the output: " + e.Message);
                 return 2;
             }
-            var golden = known ? FindGolden(goldenDir, c) : null;
+            var golden = known && result.Judged ? FindGolden(goldenDir, c) : null;
             foreach (var line in Summary(result, golden)) output.WriteLine(line);
+            if (!result.Judged) return 0;
             bool differs = golden != null && golden.Differences(result.Row).Any();
             return result.Report.Ok && !differs ? 0 : 1;
         }

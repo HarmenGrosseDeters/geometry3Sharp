@@ -1,0 +1,11 @@
+{
+  "variant_environment": {},
+  "benchmark_sha256": "9fa6588e2ee5acb2b3c3e61790ecf9125924d317fad15c9b5193f2c17c498231",
+  "oracle_sha256": "5d4a795fe65c7038a7e525e2eae07082f10ed45556a02489d8ba0e3e6f805c4a",
+  "library_sha256": "89fff5ba71aadc49333eee47115c479ef70294ddcd7c930dee3e734fc748f78a",
+  "mesh_timeout": 60,
+  "oracle_timeout": 120,
+  "manifest_sha256": "8afe336624cbf5f505436ea1160bdeb7f958b81cef5122b63089d08f56470403",
+  "reference_commit": "6fb929f9c86decb2b33f28a939d1031e1cd13a55",
+  "historical_g3_commit": "d9006aad9c83353b4a88dec7acc58d463b912548"
+}

@@ -209,15 +209,22 @@ namespace geometry3Sharp.Tests
         /// The tag check (tags against domain membership from scratch, after every operation) on the catalogue rows. On a hull domain a
         /// hull edge whose split point rounds inwards leaves a sliver between its pieces and the old, now unconstrained hull edge: the
         /// tags put it outside the constrained hull, and so must the check (F-35 and F-3/c failed it; the check reached them only when another test had switched it on in parallel).
+        /// Only the M3 rows reach the refiner and its check, so only they run; they run in parallel, the per-thread switch set on each
+        /// worker (serially over all covered rows this one test took 951 s on net10.0, the longest stretch of the suite).
         /// </summary>
         [Fact]
         public void TagCheck_HoldsOnTheCoveredCatalogueRows()
         {
-            QualityMesh2.Refiner.CheckTagsForTests = true;
-            try {
-                foreach (var row in Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow))
-                    CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);   // throws InvalidOperationException on a wrong tag
-            } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+            var rows = Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow && r.Case.Milestone == Milestone.M3).ToList();
+            Assert.True(rows.Count > 20, rows.Count + " M3 rows");
+            var wrong = new System.Collections.Concurrent.ConcurrentBag<string>();
+            Parallel.ForEach(rows, row => {
+                QualityMesh2.Refiner.CheckTagsForTests = true;
+                try { CandidateRegistry.For(Milestone.M3).Run(row.Case.Input); }
+                catch (InvalidOperationException e) { wrong.Add(row.Id + ": " + e.Message); }   // a wrong tag
+                finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+            });
+            Assert.True(wrong.IsEmpty, string.Join("\n", wrong.OrderBy(w => w, StringComparer.Ordinal)));
         }
 
         /// <summary>
@@ -236,6 +243,58 @@ namespace geometry3Sharp.Tests
                 Assert.False(seen);
                 Assert.True(QualityMesh2.Refiner.CheckTagsForTests);
             } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+        }
+
+        /// <summary>
+        /// D13: on a hull domain the hull is the boundary, so a segment from a hull vertex at a small angle to a hull edge is a small input
+        /// angle like two segments. Refinement must stop at it (Shewchuk 2002) instead of cascading into the apex until the merge tolerance
+        /// stops it, leaving triangles below the bound that nothing excuses (found with CDT's issue-211 in the reference comparison: a
+        /// segment at 0.096 degrees to a hull edge; 7 triangles below 20 degrees, and the Steiner limit at 30 degrees).
+        /// </summary>
+        [Theory]
+        [InlineData(20.0, 0.0134)]   // 0.096 degrees, as in issue-211
+        [InlineData(30.0, 0.0134)]
+        [InlineData(20.0, 0.25)]     // 1.8 degrees
+        [InlineData(20.0, -2.0)]     // 0.096 degrees, with an input point at (2, 0) on the hull edge (its hull sources are split there)
+        public void SmallAngle_BetweenASegmentAndTheHull_IsAnInputAngle(double angle, double rise)
+        {
+            // a point set (hull domain): the segment from the hull vertex (0, 0) to (8, rise), just above the hull edge to (10, 0)
+            bool collinear = rise < 0;
+            if (collinear) rise = 0.0134;
+            var input = new Mesh2Input { X = new[] { 0.0, 10, 10, 0, 8, 3, collinear ? 2 : 3 }, Y = new[] { 0, 0, 10, 10, rise, 6, collinear ? 0 : 6 }, MinAngleDeg = angle, SteinerLimit = 20000 };
+            input.Segments.Add(new SegmentInput(0, 4));
+            var report = Judge(input, out var output);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.False(output.SteinerLimitReached, "refinement cascaded into the apex");
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        public static IEnumerable<object[]> HullAngleSimilarities() => Similarity.All().Select(s => new object[] { s.Name });
+
+        /// <summary> the same under every similarity: 2^k scales bit for bit, the others pass the oracle </summary>
+        [Theory]
+        [MemberData(nameof(HullAngleSimilarities))]
+        public void SmallAngle_BetweenASegmentAndTheHull_Invariance(string name)
+        {
+            var s = Similarity.ByName(name);
+            double[] x = { 0.0, 10, 10, 0, 8, 3 }, y = { 0, 0, 10, 10, 0.0134, 6 };
+            Mesh2Input Make(Func<double, double, Vector3d> f)
+            {
+                var input = new Mesh2Input { X = new double[6], Y = new double[6], MinAngleDeg = 20, SteinerLimit = 20000 };
+                for (int i = 0; i < 6; ++i) { var q = f(x[i], y[i]); input.X[i] = q.x; input.Y[i] = q.y; }
+                input.Segments.Add(new SegmentInput(0, 4));
+                return input;
+            }
+            var moved = Make((a, b) => s.Apply(new Vector3d(a, b, 0)));
+            var report = Judge(moved, out var output);
+            Assert.False(output.SteinerLimitReached);
+            Assert.True(report.Ok, report.ToString());
+            if (s.IsExact) {
+                Judge(Make((a, b) => new Vector3d(a, b, 0)), out var plain);
+                Assert.Equal(plain.VX.Select(v => v * s.Scale), output.VX);
+                Assert.Equal(plain.VY.Select(v => v * s.Scale), output.VY);
+                Assert.Equal(plain.Triangles.SelectMany(t => t), output.Triangles.SelectMany(t => t));
+            }
         }
 
         [Fact]
@@ -266,6 +325,67 @@ namespace geometry3Sharp.Tests
             var report = Judge(input, out var o);
             Assert.True(report.Ok, report.ToString());
             Assert.Contains(o.Triangles, t => t.Contains(o.InputToVertex[0]));
+        }
+
+        static Mesh2Input SpikeOf084Degrees(double angle)
+        {
+            // corpus run at 25 degrees (earcut's water-huge, reduced to its ring around one corner): a spike of 0.84 degrees at (4097, 3013).
+            // The first piece of the slanted leg (2^-22) has its split points 1.75e-9 from the vertical leg, within the mesher's tolerance
+            // (2^-41 of the magnitude 4183: 1.90e-9; the oracle's tube is twice that): O11 forbids them, and conforming Delaunay and the angle
+            // bound cannot be reached across the piece (oracle: O11-unsplittable pieces)
+            var input = new Mesh2Input { X = new double[] { 4097, 4097, 4098, 4183, 4050 }, Y = new double[] { 2989, 3013, 2945, 4096, 3675 } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+            input.MinAngleDeg = angle;
+            return input;
+        }
+
+        [Theory]
+        [InlineData(20.0)]
+        [InlineData(25.0)]
+        [InlineData(30.0)]
+        public void SpikeOf084Degrees_PassesTheOracle(double angle)
+        {
+            var report = Judge(SpikeOf084Degrees(angle), out _);
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        [Fact]
+        public void SpikeOf084Degrees_ReachesAnO11UnsplittablePiece()
+        {
+            // the case still reaches what it is for: at some angle bound the mesher stops at a piece it may not split, and the oracle
+            // excuses it there (a hidden vertex and a triangle whose circumcentre lies behind the piece; the local test of the piece
+            // itself is not reached here). Which bounds reach the piece depends on the split points (25 degrees before the grading of
+            // MESHING2D_GRADING.md, 24 and 30 with step 1, others with step 2 and with the point location's start): so every bound from 20
+            // to 34 degrees in half degrees must pass, and some must reach the piece
+            int reached = 0;
+            var log = new List<string>();
+            for (double angle = 20; angle <= 34; angle += 0.5) {
+                var report = Judge(SpikeOf084Degrees(angle), out _);
+                Assert.True(report.Ok, angle + ": " + report);
+                if (report.O11GlobalExcused > 0 && report.O11AngleExcused > 0) { ++reached; log.Add(angle.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+            }
+            Assert.True(reached >= 2, "the piece is reached at " + reached + " bounds: " + string.Join(", ", log));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarities))]
+        public void SpikeOf084Degrees_Similarity_PassesTheOracle(string name)
+        {
+            var s = Similarity.All().First(x => x.Name == name);
+            var input = SpikeOf084Degrees(25);
+            var e = s.Rotation * Vector3d.AxisX;
+            double norm = Math.Sqrt(e.x * e.x + e.y * e.y), cos = e.x / norm, sin = e.y / norm;
+            for (int i = 0; i < input.Count; ++i) {
+                double x = input.X[i], y = input.Y[i];
+                input.X[i] = s.Scale * (cos * x - sin * y) + s.Translation.x;
+                input.Y[i] = s.Scale * (sin * x + cos * y) + s.Translation.y;
+            }
+            var report = Judge(input, out var moved);
+            Assert.True(report.Ok, name + ": " + report);
+            if (s.IsExact) {
+                Judge(SpikeOf084Degrees(25), out var plain);
+                Assert.Equal(Canonical(plain), Canonical(moved));
+            }
         }
 
         [Theory]

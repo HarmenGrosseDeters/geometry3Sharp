@@ -218,7 +218,9 @@ whether a hard limit can end in a success status.
   flaky.
 - A failing seed becomes an example test.
 - Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
-  `ExactPoint3ConversionTests`). The boolean identities are open.
+  `ExactPoint3ConversionTests`). Boolean identities are covered by `ExactBooleanMetamorphicTests` and the seeded
+  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs`; the directed-family follow-up gives each
+  box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
 
@@ -236,8 +238,9 @@ Mesh inputs to the operations are fuzzed the same way:
 - random edits of clean meshes (flips, removed or duplicated triangles, welded vertices).
 
 Each operation must return a documented status, never throw, and never report success on an output that
-fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT) can follow for the binary readers if the seeded fuzzing
-finds bugs.
+fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): the STL reader in
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), the mesh operations in
+[MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (campaigns on a runner, not in CI).
 
 ### 2.6 Coverage in CI
 
@@ -406,6 +409,114 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
+**Mesh repair (November 2026):** `MeshRepairIssueCasesTests` rebuilds 15 failure modes from the trackers of CGAL,
+PMP, libigl, Manifold, Open3D and MeshLib: holes of one triangle and planar square holes (closed exactly), a quad
+hole whose diagonal is already an edge of the mesh, several holes at once, the open base of a cone (filled flat), a
+hole next to a near-zero-area rim triangle, a hole boundary that touches itself, the smoothed fill on models 1e-3 and
+1e3 in size (the same triangles, bit for bit under 2^k), a sphere cut open along a meridian, two halves with a narrow
+gap, two open boxes touching at a hole corner, a ring of boxes whose last one nearly coincides with the first, a
+single flipped triangle, a thin fold of two boxes crossing at 3 and 10 degrees, and a chain of overlapping boxes.
+Situations the defect cases of 2.1 already cover (soups, inside-out shells, cavities, overlapping solids) are left
+out. Every case checks the result (`NotCleanReasons`, the volume, the bounds, the triangle or component count). The
+large holes (a cap, the quad hole) use `MeshAutoRepair`: `MeshRobustRepair` compares a repair with the winding number
+solid of the open input, and a large fill differs from that by more than `MinVolumeIoU`, so it remeshes the input
+instead (by design). One fix, with a test that fails on the old code: `MinimalHoleFill` ended a quad hole on the
+existing diagonal, which `RegionOperator.BackPropropagate` then split at its midpoint, so the fill touched the
+existing edge (pmp-library#181); such edges between two loop vertices are now flipped to the other diagonal where
+that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Finding R1, fixed:
+- **The bug.** `MeshPostRepairCleanup.FindInvertedComponents` took a closed component whose interior lies mostly
+  inside another for a nested one, also when their surfaces cross. So of two outward boxes crossing at 3 or 10
+  degrees, one was flipped as a cavity, and the repair returned their difference as a clean result. The volume check
+  accepted it, because the input's reference solid uses the same nesting rule.
+- **The fix.** A component whose surface meets (exactly) that of a component its samples lie in has no nesting
+  at all: crossing components keep their orientation (they are never flagged).
+
+The
+analysis and fix ideas of the findings are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md) (also R2, a large
+hole fill rejected by `MeshRobustRepair`'s volume check, by design).
+
+**Alpha wrap (November 2026):** `AlphaWrapIssueCasesTests` rebuilds 9 failure modes from the trackers of CGAL,
+Open3D, MeshLib and Manifold: separate components (one shell each, at two offsets, CGAL#7625), components closer
+than alpha (one shell), overlapping closed inputs and nested shells (one shell), a cube at a coarse alpha (corners
+within offset + 2 alpha, the triangle count bounded), lattice point clouds with cospherical points, nearly cospherical points at
+2.8e6, a too small alpha (stopped at the point limit with a closed, enclosing result) and a two-sided sheet of zero
+thickness. Every case runs `AlphaWrapTests.CheckWrap` (all guarantees, distances against a brute-force oracle);
+`MeshAlphaWrap` passes all of them.
+
+The `KnownFailures` lists of the `*IssueCasesTests` classes, and the wrong outcomes they pin, are taken on net10; on
+.NET Framework they are not strict (`Harness/IssueCases.cs`), as in 2.10. The findings, with their causes and fix
+ideas, are in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md).
+
+**Geodesics and intrinsic triangulations (November 2026):** `GeodesicsIssueCasesTests` rebuilds 11 failure modes from
+the trackers of libigl, geometry-central and potpourri3d that the existing tests did not cover (cases that duplicated
+them, such as loops around a cone apex, paths that double back and flat grids with a corner source, were left out or
+reduced to their new part): two disjoint triangles in the vector heat method, a source inside a face (poked, also
+1e-9 from an edge), an open box with rim sources, a disc with a boundary source, a Gaussian bump traced from face
+points, a hilly terrain 1500 edges long (transport, log map, extension), the coarse square and kite against their
+refinements, a reversed edge path, a 1.69 degree wedge and needle in the Delaunay refinement, slivers down to zero
+width in the vector transport, and a reversed triangle. Distances are checked against |p - s| or exact (FlipOut) paths,
+the heat method within its documented accuracy. Fixed: `MeshGeodesicPath.Path` repeated the end point of an edge
+traced exactly through a vertex (G1); `MeshGeodesicPath` reported `TraceFailed` for edges of 1.25e-4 at UTM
+coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3); tangent frames at
+coincident vertices were arbitrary, so `ToWorld` of transported vectors was off by up to 135 degrees there, and a
+zero-length edge now gets the world angle interpolated between its neighbours (G2,
+[ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)).
+
+**Parameterization (November 2026):** `ParameterizationIssueCasesTests` rebuilds 12 failure modes from the trackers of
+libigl, boundary-first-flattening and xatlas, each over LSCM, ARAP, SLIM, Tutte, BFF (default and Disk) and the atlas
+methods: closed icospheres, several components and holes, unused vertices (also at 1e7), degenerate patches, the
+orientation (facing -z, in the plane x = 0, with pins), a three-peak terrain, a low-poly cylinder without a seam, two
+identical holes (symmetry), saddles, a long thin triangle in the plane x = 0 (and a needle quad with both diagonals),
+packing with rotated charts, and a thin tall box. Success is checked by finite UVs, the surface's orientation, flips where a method
+promises none, overlaps, disc charts with uniform texel density. Fixed: BFF Disk threw an `ArithmeticException` on a
+needle quad whose boundary scale factors overflow, now `SolverFailed` (P4); LSCM (and ARAP from it) collapsed the
+unpinned ring of a low-poly cylinder and reported success, now LSCM and ARAP report `FlippedTriangles` (with the map)
+for a map with flipped or degenerate UV triangles (P1; the collapse itself stays). Known failures
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): BFF Disk with the conformal extension does not keep the boundary on the circle on
+meshes without interior vertices, and on two needles gives a flipped sliver (P2). By design: LSCM with automatic pins is
+asymmetric by 1e-4 on a symmetric patch (P3: the minimizer depends on the pins, and the farthest pairs are two mirrored
+diagonals at the same distance, so no rule on the geometry alone picks a mirrored pair; bounded at 1e-3 in the test).
+
+**Simplification (November 2026):** `ReducerIssueCasesTests` rebuilds 13 failure modes from the trackers of
+meshoptimizer, libigl, Manifold and CGAL: a noisy terrain reduced to 20%, a 24-triangle patch reduced to 10, almost
+flat grids (singular quadrics), a flat and a curved grid at z = 900 and at UTM offsets (translation), a pinched 4 x 1 x 1
+body reduced to 1 triangle, a 100 x 20 torus reduced coarsely (genus), a pyramid with a sliver base, a box-cylinder
+union rotated by -89.999999999999 degrees, a sphere with 50 tiny cylinders (unreachable target), an unwelded quad,
+two cones tip to tip, self-intersecting input, and a target already met. The results are checked for validity,
+closedness, folds, bounds, volume, Euler characteristic and components. Fixed: the Reducer joined the fans of a bowtie
+vertex (and created duplicate triangles); a bowtie vertex is now kept in place. Fixed too, S1
+([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): chains of collapses folded a noisy terrain and stood triangles up
+at an open border, because the flip test compared with the current, not the input normals. `Reducer.PreventFoldOver`
+(default on) now also checks against the absorbed input normals (`ReducerFoldOverTests`).
+
+**Remeshing (November 2026):** `RemesherIssueCasesTests` rebuilds 10 failure modes from the trackers of PMP,
+geogram, CGAL and MeshLib (Remesher, RemesherPro, RegionRemesher): a flat non-convex fan with fixed boundary, open
+surfaces with the recommended boundary constraints, nearly touching sheets with PreventSelfIntersections, a partial
+remesh with locked vertices (bit-exact), zero-area triangles and kinks, slivers and needles (termination), a degenerate
+face on the border, two cones tip to tip, long thin sharp parts, and a creased L prism (bounds). The box corners of
+pmp-library #132 are already covered by `FeaturePreservationTests`. Fixed: `PreserveBoundaryAndFeatures` now pins
+bowtie vertices (the remesher joined the two cones). Known failures: S2, without the opt-in `MinTriangleQuality`
+smoothing folds the fan and leaves a flat triangle on a crease of a long thin box (with 0.2 they pass); S3, without feature
+constraints a coarse L prism loses a leg (volume 3 -> 0.73, bounds shifted by 1).
+
+**Point, ray and inside queries (November 2026):** `SpatialQueryIssueCasesTests` rebuilds 12 failure modes from the
+trackers of libigl, trimesh and Open3D: a triangle fan around a ray under all 48 axis permutations and sign flips,
+rays grazing box faces and edges (unit, 2^20, UTM), vertical rays on a mesh scaled by 2^k and 1e-2 ... 1e-6, rays onto
+the shared diagonal and vertices of a split square, parity rays exactly through a vertex or an edge, signed distance
+grids whose sign rays run along the edges of a cube and over a sphere on a 64^3 grid, a query exactly on a face, doubled,
+overlapping and cancelling shells (generalized winding number), a cube with a zero-length edge and needles, a mesh
+with vertices but no triangles, and point in polygon at 4e5, 2^26 and UTM against the same rule decided exactly. Ray
+casts are compared with a brute-force loop over the same leaf predicate, so a difference can only come from the tree:
+the tree equals brute force everywhere (the 0 * inf slab case of libigl does not occur), and the grids, the winding
+numbers and `Polygon2d.Contains` are right. Fixed: `FindNearestHitTriangle` picked among equal-t triangles by traversal
+order, which the absolute box padding changes below about 1e-6 model size (Q1; ties now go to the lowest id);
+`IntrRay3Triangle3` was not watertight, so a rounded ray onto a shared edge could miss both triangles (Q2, at 1e-3 and
+1e-7; now decided by exact `Orient3d` signs against the closed triangle), and `IsInside` counted vertex hits 0 times
+and edge hits twice (Q3; now the crossings of a ray perturbed by Simulation of Simplicity, each counted once, the same
+test as the exact winding number of `VolumeSampleCells`). Findings in [ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md);
+`ExactRayTriangleTests` checks the perturbation against big integers, parity and hits through the vertices and edges
+of a closed grid cube along 29 directions, and invariance over `Similarity.All()`.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
@@ -426,6 +537,13 @@ still needs before/after numbers from one machine (CLAUDE.md).
 Each operation with a nested loop over the input gets a scaling test, which counts work at n and 4n
 (candidate pairs, visited cells, or time with a wide margin). It is cheaper and less noisy than timing.
 Past cases: #63, #72, #105.
+
+Wall-clock budget tests must not compete with other test collections in the same runner. The collapsed-corridor
+oracle check remains in `QualityMesh2CollapsedPartsReportTests` with its unchanged input, result assertions and
+budget, but that class uses the `Meshing2OracleTiming` collection with `DisableParallelization = true`.
+The scheduling regression in `RobustnessSweepRemainingTests` checks both the assignment and opt-out metadata.
+This uses xUnit's [collection-level parallelism opt-out](https://xunit.net/docs/running-tests-in-parallel), not a
+suite-wide concurrency change; it does not eliminate noise from unrelated processes or other test assemblies.
 
 ## 4a. Making agent work verifiable
 
@@ -525,6 +643,18 @@ dotnet tool restore            # Stryker.NET, for the mutation tests (tests/muta
 As an environment setup script, these two lines make every session start with a working SDK. The net48 build
 needs no Mono or Windows: it takes its reference assemblies from the `Microsoft.NETFramework.ReferenceAssemblies`
 package, which is restored like any other. Running the net48 tests needs Windows (the `netstandard` job in CI).
+
+Culture-sensitive regressions are exercised explicitly with `de-DE` and `en-US`, independently of the host's
+locale. The Triangle CLI fixture formats hole seeds invariantly, and `TriangleWriters_AreCultureIndependent`
+checks the production `.node` / `.poly` / `.ele` writers and read-back. The production writers already used
+invariant formatting; the German-locale failure was in the test fixture. Remesher pinned findings also use
+invariant decimal formatting. The generated-file comparison normalizes CRLF to LF on both sides, including
+verbatim strings embedded in the generator's Windows checkout; it still checks all non-line-ending content.
+
+```powershell
+dotnet test tests\g3cli.Tests -c Release --filter FullyQualifiedName~TrianglePolyCliTests
+dotnet test tests\geometry3Sharp.Tests -c Release --filter "FullyQualifiedName~PinnedFailures_AreCultureIndependent|FullyQualifiedName~GeneratedFile_IsUpToDate"
+```
 
 Two sessions running the CI steps in the same checkout overwrite each other's build output and package
 directory. Run them one after another, or in separate `git worktree`s.

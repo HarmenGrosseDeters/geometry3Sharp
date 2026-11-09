@@ -150,6 +150,9 @@ namespace gs
             missing = extra = 0;
             if (input.TriangleCount == 0)
                 return 0;
+            double scale = normalizing_scale(input, result);
+            if (scale != 1)
+                return VolumeIoU(scaled(input, scale), scaled(result, scale), out missing, out extra, samples, seed);
             // the solid the solidify fallback sees: inside-out inputs (winding number -1 inside) count as
             // their solid, not as none
             input = WindingContouring.OrientedCopy(input);
@@ -163,20 +166,25 @@ namespace gs
         }
 
         /// <summary>
-        /// Is VolumeIoU(input, result) at least minIoU? The same samples as VolumeIoU, but only as many as the
-        /// answer needs: they are classified in rounds (samples / 32, then doubling), and after each round
-        /// the share of the union that is in only one of the solids gets a confidence interval (Wilson score,
-        /// z standard deviations); the answer is given as soon as the interval lies on one side of
-        /// 1 - minIoU and some sample is inside the input. With all samples (results close to minIoU) the
-        /// answer and iou are those of VolumeIoU. An early answer differs from the one with all samples only
-        /// by chance, about the probability of a z-sigma deviation (z = 4: about 3e-5, times the number of
-        /// rounds). iou is the estimate from the samples used; NaN (and true) if the input encloses no volume,
+        /// Is VolumeIoU(input, result) at least minIoU? Samples are classified in rounds (samples / 32, then
+        /// doubling), and after each round the share of the union that is in only one of the solids gets a
+        /// confidence interval (Wilson score, z standard deviations); the answer is given as soon as the interval
+        /// lies on one side of 1 - minIoU and the input's solid has been found. An early answer differs from the one
+        /// with all samples only by chance, about the probability of a z-sigma deviation (z = 4: about 3e-5, times the
+        /// number of rounds; with cells, two intervals share it).
+        /// If the oriented input and the result are both winding-closed (ExactMeshBoolean.IsWindingClosed), the
+        /// samples are drawn only from the cells of an octree that the surfaces touch (VolumeSampleCells); the cells
+        /// no triangle touches lie inside or outside each solid entirely and count with their exact volume. This
+        /// estimates the same IoU with less variance and fewer samples (docs/design/VOLUME_CHECK_SAMPLING.md).
+        /// Otherwise (open meshes) the samples are those of VolumeIoU: with all of them (results close to minIoU) the
+        /// answer and iou are those of VolumeIoU.
+        /// iou is the estimate from the samples used; NaN (and true) if the input encloses no volume,
         /// as VolumeIoU (no solid to compare with); 0 (and false) if its solid is too small to be hit by the samples.
         /// Typically 10-30x cheaper than VolumeIoU for results that clearly agree with the input.
         /// </summary>
         public static bool VolumeIoUAtLeast(DMesh3 input, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
         {
-            return VolumeIoUAtLeast(new SolidReference(input), result, SolidInside(result), minIoU, out iou, samples, seed, z);
+            return VolumeIoUAtLeast(new SolidReference(input), SolidReference.Unoriented(result), minIoU, out iou, samples, seed, z);
         }
 
         /// <summary>
@@ -187,6 +195,18 @@ namespace gs
         {
             internal readonly DMesh3 Mesh;
             internal readonly Func<Vector3d, bool> Inside;
+            /// <summary> the winding number tree behind Inside (null: none, eg for no triangles or a given inside test) </summary>
+            internal readonly DMeshAABBTree3 Tree;
+            int windingClosed = -1;
+            /// <summary> ExactMeshBoolean.IsWindingClosed(Mesh), computed once; false without a tree </summary>
+            internal bool WindingClosed
+            {
+                get {
+                    if (windingClosed < 0)
+                        windingClosed = Tree != null && Mesh.TriangleCount > 0 && ExactMeshBoolean.IsWindingClosed(Mesh) ? 1 : 0;
+                    return windingClosed == 1;
+                }
+            }
             List<AxisAlignedBox3d> componentBoxes;
             /// <summary> boxes of the closed connected components of Mesh (computed once) </summary>
             internal List<AxisAlignedBox3d> ComponentBoxes()
@@ -206,10 +226,21 @@ namespace gs
                 return componentBoxes;
             }
 
-            internal SolidReference(DMesh3 input)
+            internal SolidReference(DMesh3 input) : this(input, true) { }
+
+            SolidReference(DMesh3 input, bool orient)
             {
-                Mesh = input.TriangleCount > 0 ? WindingContouring.OrientedCopy(input) : input;
-                Inside = SolidInside(Mesh);
+                Mesh = input.TriangleCount > 0 && orient ? WindingContouring.OrientedCopy(input) : input;
+                if (Mesh.TriangleCount > 0)
+                    Inside = winding_inside(Mesh, out Tree);
+                else
+                    Inside = (p) => false;
+            }
+
+            /// <summary> the solid of mesh as it is (not its oriented copy), as SolidInside sees it: for results </summary>
+            internal static SolidReference Unoriented(DMesh3 mesh)
+            {
+                return new SolidReference(mesh, false);
             }
             /// <summary> mesh (its components) with a given inside test (for tests) </summary>
             internal SolidReference(DMesh3 mesh, Func<Vector3d, bool> inside)
@@ -225,12 +256,168 @@ namespace gs
             return mesh.TriangleCount > 0 ? winding_inside(mesh) : (p) => false;
         }
 
-        internal static bool VolumeIoUAtLeast(SolidReference input, DMesh3 result, Func<Vector3d, bool> resultInside, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        /// <summary> what one VolumeIoUAtLeast did (for tests and the benchmark) </summary>
+        internal sealed class VolumeCheckStats
+        {
+            /// <summary> the cells were used (both meshes winding-closed); otherwise the region of sample_region </summary>
+            internal bool Cells;
+            /// <summary> the cells were built but sampled more volume than the region, which was used instead </summary>
+            internal bool CellsRejected;
+            internal int Samples, UnionSamples, SampledCells, ChildTests, Depth, Unclassified, WindingEvaluations;
+            /// <summary> volume of the sampled region, and of the cells known to be in the union (exactly) </summary>
+            internal double SampledVolume, KnownUnion, KnownBoth;
+            /// <summary> confidence interval of the IoU when the samples stopped (z standard deviations) </summary>
+            internal double IoULow, IoUHigh;
+            internal long BuildTicks, SampleTicks;
+        }
+
+        /// <summary>
+        /// The power of two that brings the extent of the triangles of a and b into [2^-300, 2^300] when it lies outside,
+        /// otherwise 1. The volume checks compute volumes (the cube of the extent overflows above about 5e102 and
+        /// underflows below about 1e-103) and far points at a few times the extent. Outside that range their IoU was
+        /// NaN, which passed as "no solid" (a result that lost most of a solid of size 1e160 was accepted), and near
+        /// 1e308 the far points were infinite and the exact predicates threw. Scaling by a power of two is exact (the
+        /// same inside decisions, the same IoU as at the scaled size; the checks give the same IoU for 2^k scales),
+        /// except for coordinates that become subnormal (below about 2^-1322 times the extent). 1 if a bound is not
+        /// finite (a NaN coordinate may not show in the bounds; it stays NaN), or if scaling up would make the
+        /// coordinates not finite (a tiny extent far from the origin).
+        /// </summary>
+        internal static double normalizing_scale(DMesh3 a, DMesh3 b)
+        {
+            AxisAlignedBox3d box = TriangleBounds(a);
+            if (b != null && b.TriangleCount > 0)
+                box.Contain(TriangleBounds(b));
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            double low = BitConverter.Int64BitsToDouble((long)(1023 - 300) << 52), high = BitConverter.Int64BitsToDouble((long)(1023 + 300) << 52);
+            if (ext >= low && ext <= high)
+                return 1;
+            // (an extent that overflows: the largest coordinate's exponent)
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // as little as needed: the extent into [2^299, 2^300) or [2^-300, 2^-299), so small parts far from the large
+            // ones keep their coordinates normal (scaled to [1, 2), a unit sphere next to a part of size 1e308 became
+            // subnormal and lost its shape)
+            int k = exponent(r);
+            int e = k > 0 ? 299 - k : -300 - k;
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+            // (scaling up a tiny extent far from the origin, eg x = 2^1000 with an extent of 2^-400 in y, would overflow the
+            // coordinates; scaling down never does, also for a mesh far from the origin; the margin of 2^6 keeps the far
+            // points of the exact winding finite)
+            if (s > 1 && !(largest * s <= double.MaxValue / 64))
+                return 1;
+            return s;
+        }
+
+        /// <summary>
+        /// The power of two (a normal double) that brings the largest extent of box (or, if that is not finite, its
+        /// largest coordinate) to about 1 (into [1, 4), or below 1 for an extent below 2^-1022) when the extent lies
+        /// outside [2^lowExp, 2^highExp], otherwise 1 (also for an empty box or one with a coordinate that is not
+        /// finite). Exact scaling (see normalizing_scale). The scaled coordinates themselves can overflow (a tiny
+        /// extent far from the origin): scale differences of coordinates, not coordinates
+        /// </summary>
+        internal static double unit_scale(AxisAlignedBox3d box, int lowExp, int highExp)
+        {
+            if (!(box.Max.x >= box.Min.x && box.Max.y >= box.Min.y && box.Max.z >= box.Min.z))
+                return 1;
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            if (ext >= BitConverter.Int64BitsToDouble((long)(1023 + lowExp) << 52) && ext <= BitConverter.Int64BitsToDouble((long)(1023 + highExp) << 52))
+                return 1;
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // (2^e normal: e in [-1022, 1023]; an extent of 2^1023 or more is scaled into [2, 4))
+            int e = Math.Max(-1022, Math.Min(1023, -exponent(r)));
+            return BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+        }
+
+        // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
+        static int exponent(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0)
+                return e - 1023;
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);    // 2^64 (subnormal: exact)
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        // a copy with every coordinate times s (a power of two)
+        static DMesh3 scaled(DMesh3 mesh, double s)
+        {
+            if (mesh == null)
+                return null;
+            var m = new DMesh3(mesh);
+            foreach (int v in m.VertexIndices())
+                m.SetVertex(v, s * m.GetVertex(v));
+            return m;
+        }
+
+        /// <summary>
+        /// VolumeIoUAtLeast of the solids of input and result (result: SolidReference.Unoriented, as SolidInside). If
+        /// both meshes are winding-closed, the samples are drawn only from the cells near the surfaces
+        /// (VolumeSampleCells), and the cells known to be inside a solid count with their exact volume; otherwise
+        /// from sample_region. useCells = false: always sample_region (for benchmarks, an A/B in one build, and tests).
+        /// </summary>
+        internal static bool VolumeIoUAtLeast(SolidReference input, SolidReference result, double minIoU, out double iou, int samples = 100000,
+            int seed = 1, double z = 4, VolumeCheckStats stats = null, bool useCells = true, int childBudget = VolumeSampleCells.DefaultChildBudget)
         {
             iou = 0;
             if (input.Mesh.TriangleCount == 0)
                 return iou >= minIoU;
-            bool atLeast = volume_iou_at_least(input.Inside, sample_region(input.Mesh, result), resultInside, minIoU, out iou, samples, seed, z);
+            double scale = normalizing_scale(input.Mesh, result.Mesh);
+            if (scale != 1)
+                return VolumeIoUAtLeast(SolidReference.Unoriented(scaled(input.Mesh, scale)), SolidReference.Unoriented(scaled(result.Mesh, scale)),
+                    minIoU, out iou, samples, seed, z, stats, useCells, childBudget);
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            bool atLeast;
+            if (useCells && result.Mesh.TriangleCount > 0 && input.WindingClosed && result.WindingClosed) {
+                AxisAlignedBox3d root = TriangleBounds(input.Mesh);
+                root.Contain(TriangleBounds(result.Mesh));
+                root.Expand(0.01 * root.DiagonalLength);
+                var cells = new VolumeSampleCells(input.Mesh, input.Tree, result.Mesh, result.Tree, root, childBudget);
+                // the cells are kept only if they sample less volume than the region of the components' boxes: with small
+                // components far apart, the cells at the depth the budget allows can be far larger
+                SampleRegion region = sample_region(input.Mesh, result.Mesh);
+                if (cells.SampledVolume > region.Volume()) {
+                    if (stats != null) {
+                        stats.CellsRejected = true;
+                        stats.BuildTicks = timer.ElapsedTicks;
+                    }
+                    timer.Restart();
+                    atLeast = volume_iou_at_least(input.Inside, region, null, result.Inside, minIoU, out iou, samples, seed, z, stats);
+                    goto done;
+                }
+                if (stats != null) {
+                    stats.Cells = true;
+                    stats.SampledCells = cells.Sampled.Count;
+                    stats.ChildTests = cells.ChildTests;
+                    stats.Depth = cells.Depth;
+                    stats.Unclassified = cells.Unclassified;
+                    stats.WindingEvaluations = cells.WindingEvaluations;
+                    stats.SampledVolume = cells.SampledVolume;
+                    stats.KnownUnion = cells.KnownUnion;
+                    stats.KnownBoth = cells.KnownBoth;
+                    stats.BuildTicks = timer.ElapsedTicks;
+                }
+                timer.Restart();
+                atLeast = volume_iou_at_least(input.Inside, null, cells, result.Inside, minIoU, out iou, samples, seed, z, stats);
+            } else {
+                SampleRegion region = sample_region(input.Mesh, result.Mesh);
+                if (stats != null)
+                    stats.BuildTicks = timer.ElapsedTicks;
+                timer.Restart();
+                atLeast = volume_iou_at_least(input.Inside, region, null, result.Inside, minIoU, out iou, samples, seed, z, stats);
+            }
+        done:
+            if (stats != null)
+                stats.SampleTicks = timer.ElapsedTicks;
             if (double.IsNaN(iou) && has_solid(input.Inside, input.Mesh, seed)) {
                 iou = 0;
                 return iou >= minIoU;
@@ -242,21 +429,101 @@ namespace gs
         public static bool VolumeIoUAtLeast(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
         {
             box.Expand(0.01 * box.DiagonalLength);
-            return volume_iou_at_least(referenceInside, new SampleRegion(box), SolidInside(result), minIoU, out iou, samples, seed, z);
+            return volume_iou_at_least(referenceInside, new SampleRegion(box), null, SolidInside(result), minIoU, out iou, samples, seed, z, null);
         }
 
-        static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, Func<Vector3d, bool> resultInside, double minIoU, out double iou, int samples, int seed, double z)
+        // erfc(x) for x >= 0, fractional error below 1.2e-7 (Chebyshev fit; W. H. Press et al., Numerical Recipes, 6.2)
+        static double erfc(double x)
         {
+            double t = 1 / (1 + 0.5 * x);
+            return t * Math.Exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806
+                + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+        }
+
+        // the z of each of two intervals that together miss at most as often as one interval at z (Bonferroni: each gets
+        // half of the two-sided tail probability erfc(z / sqrt 2)); z = 4 gives about 4.17
+        internal static double BonferroniZ(double z)
+        {
+            double target = 0.5 * erfc(z / Math.Sqrt(2));
+            double lo = z, hi = z + 4;
+            for (int i = 0; i < 100; ++i) {
+                double mid = 0.5 * (lo + hi);
+                if (erfc(mid / Math.Sqrt(2)) > target) lo = mid; else hi = mid;
+            }
+            return hi;
+        }
+
+        // Wilson score interval of a share k / n, z standard deviations
+        internal static void wilson(int k, int count, double z, out double lo, out double hi)
+        {
+            double n = count, ph = k / n, z2 = z * z;
+            double center = (ph + z2 / (2 * n)) / (1 + z2 / n);
+            double half = z * Math.Sqrt(ph * (1 - ph) / n + z2 / (4 * n * n)) / (1 + z2 / n);
+            lo = center - half;
+            hi = center + half;
+        }
+
+        // The samples come from region, or from the sampled cells of cells (then the known cells count with their
+        // volume). With cells, the share of the union in only one solid is
+        //   p = (Ko + S u q) / (K + S u),
+        // K the known volume of the union, Ko its part in only one solid, S the sampled volume, u the share of the
+        // samples in the union and q the share of those in only one solid. u and q get Wilson intervals; p is
+        // monotone in q (for u > 0) and in u (for fixed q), so its bounds are at the corners of the two intervals. The
+        // answer is given when they lie on one side of 1 - minIoU. Both intervals use BonferroniZ(z): together they miss
+        // at most as often as one interval at z, the rule of the region path. Without known volume (K = 0), p = q:
+        // only q's interval is used, at z, exactly as on the region path.
+        // the interval of p = 1 - IoU after done samples, union of them in the union, onlyOne in only one solid; K, Ko the
+        // known volume of the union and of its part in only one solid, S the sampled volume (see below); z for one
+        // interval, BonferroniZ(z) for each of the two when K > 0
+        internal static void share_interval(int done, int union, int onlyOne, double K, double Ko, double S, double z, out double pLow, out double pHigh)
+        {
+            double zEach = K > 0 ? BonferroniZ(z) : z;
+            double qLow = 0, qHigh = 1;
+            if (union > 0)
+                wilson(onlyOne, union, zEach, out qLow, out qHigh);
+            if (K == 0) {
+                // Wilson score interval of the share p of the union in only one solid (1 - IoU)
+                pLow = qLow;
+                pHigh = qHigh;
+                return;
+            }
+            double uLow, uHigh;
+            wilson(union, done, zEach, out uLow, out uHigh);
+            uLow = Math.Max(uLow, 0); uHigh = Math.Min(uHigh, 1);
+            qLow = Math.Max(qLow, 0); qHigh = Math.Min(qHigh, 1);
+            pLow = double.MaxValue; pHigh = double.MinValue;
+            foreach (double uu in new[] { uLow, uHigh })
+                foreach (double qq in new[] { qLow, qHigh }) {
+                    double pc = (Ko + S * uu * qq) / (K + S * uu);
+                    pLow = Math.Min(pLow, pc);
+                    pHigh = Math.Max(pHigh, pc);
+                }
+        }
+
+        static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, VolumeSampleCells cells, Func<Vector3d, bool> resultInside,
+            double minIoU, out double iou, int samples, int seed, double z, VolumeCheckStats stats)
+        {
+            double K = 0, Ko = 0, Kb = 0, S = 0, knownInput = 0;
+            if (cells != null) {
+                K = cells.KnownUnion;
+                Kb = cells.KnownBoth;
+                Ko = cells.KnownOnlyA + cells.KnownOnlyB;
+                knownInput = cells.KnownBoth + cells.KnownOnlyA;
+                S = cells.SampledVolume;
+                if (cells.Sampled.Count == 0)
+                    samples = 0;
+            }
             var rnd = new Random(seed);
             Vector3d[] pts = new Vector3d[samples];
             int[] cls = new int[samples];
             int done = 0, both = 0, onlyOne = 0, inputSolid = 0;
             double maxShare = 1 - minIoU;
             int round = Math.Max(1, samples / 32);
-            while (true) {
+            double pLow = 0, pHigh = 1;
+            while (samples > 0) {
                 int end = Math.Min(samples, done + round);
-                for (int k = done; k < end; ++k)        // same sequence as VolumeIoU
-                    pts[k] = region.Next(rnd);
+                for (int k = done; k < end; ++k)        // same sequence as VolumeIoU (on the region path)
+                    pts[k] = cells != null ? cells.Next(rnd) : region.Next(rnd);
                 gParallel.ForEach(Interval1i.FromToInclusive(done, end - 1), (k) => {
                     bool a = referenceInside(pts[k]), b = resultInside(pts[k]);
                     cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
@@ -268,24 +535,30 @@ namespace gs
                 done = end;
                 round = done;
                 int union = both + onlyOne;
+                // no sample (or known cell) in the input's solid yet: it may be small rather than absent, which only
+                // all samples (and has_solid) can tell
+                bool decidable = (union > 0 || K > 0) && (inputSolid > 0 || knownInput > 0);
+                if (decidable)
+                    share_interval(done, union, onlyOne, K, Ko, S, z, out pLow, out pHigh);
                 if (done == samples)
                     break;
-                // no sample in the input's solid yet: it may be small rather than absent, which only all samples
-                // (and has_solid) can tell
-                if (union == 0 || inputSolid == 0)
-                    continue;
-                // Wilson score interval of the share p of the union in only one solid (1 - IoU)
-                double n = union, ph = onlyOne / n, z2 = z * z;
-                double center = (ph + z2 / (2 * n)) / (1 + z2 / n);
-                double half = z * Math.Sqrt(ph * (1 - ph) / n + z2 / (4 * n * n)) / (1 + z2 / n);
-                if (center + half < maxShare || center - half > maxShare)
+                if (decidable && (pHigh < maxShare || pLow > maxShare))
                     break;
             }
-            if (inputSolid == 0) {
+            if (stats != null) {
+                stats.Samples = done;
+                stats.UnionSamples = both + onlyOne;
+                stats.IoULow = 1 - pHigh;
+                stats.IoUHigh = 1 - pLow;
+            }
+            if (inputSolid == 0 && knownInput == 0) {
                 iou = double.NaN;       // no reference solid (eg a single open sheet): not defined
                 return true;
             }
-            iou = (double)both / (both + onlyOne);
+            if (cells == null)
+                iou = (double)both / (both + onlyOne);
+            else
+                iou = (Kb + (done > 0 ? S * both / done : 0)) / (K + (done > 0 ? S * (both + onlyOne) / done : 0));
             return iou >= minIoU;
         }
 
@@ -339,9 +612,16 @@ namespace gs
 
         static Func<Vector3d, bool> winding_inside(DMesh3 mesh)
         {
-            var tree = new DMeshAABBTree3(mesh, true);
-            tree.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
-            return (p) => tree.FastWindingNumber(p) > 0.5;
+            DMeshAABBTree3 tree;
+            return winding_inside(mesh, out tree);
+        }
+
+        static Func<Vector3d, bool> winding_inside(DMesh3 mesh, out DMeshAABBTree3 tree)
+        {
+            var t = new DMeshAABBTree3(mesh, true);
+            t.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
+            tree = t;
+            return (p) => t.FastWindingNumber(p) > 0.5;
         }
 
         // Does the input (with no sample of the IoU in its solid) enclose a volume after all, too small to be hit?
@@ -476,6 +756,63 @@ namespace gs
             return box;
         }
 
+        // the connected components (vertices joined by triangles, union-find; the smaller root wins, so the same mesh
+        // gives the same components) and the bounds of each one's triangles, in the order of their first triangle;
+        // componentOf (if not null) per vertex id its component, 0 for a vertex in no triangle
+        internal static List<AxisAlignedBox3d> ComponentBoxes(DMesh3 mesh, out int[] componentOf)
+        {
+            int nv = mesh.MaxVertexID;
+            var parent = new int[nv];
+            for (int v = 0; v < nv; ++v) parent[v] = v;
+            Func<int, int> find = (v) => { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int ra = find(tv.a), rb = find(tv.b), rc = find(tv.c);
+                int r = Math.Min(ra, Math.Min(rb, rc));
+                parent[ra] = r; parent[rb] = r; parent[rc] = r;
+            }
+            componentOf = new int[nv];
+            var index = new Dictionary<int, int>();
+            var boxes = new List<AxisAlignedBox3d>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int r = find(tv.a), c;
+                if (index.TryGetValue(r, out c) == false) {
+                    index[r] = c = boxes.Count;
+                    boxes.Add(AxisAlignedBox3d.Empty);
+                }
+                AxisAlignedBox3d b = boxes[c];
+                b.Contain(mesh.GetVertex(tv.a)); b.Contain(mesh.GetVertex(tv.b)); b.Contain(mesh.GetVertex(tv.c));
+                boxes[c] = b;
+            }
+            for (int v = 0; v < nv; ++v) {
+                int c;
+                componentOf[v] = index.TryGetValue(find(v), out c) ? c : 0;
+            }
+            return boxes;
+        }
+
+        // the largest diagonal of the boxes (0 for none); NaN if one is not finite (coordinates that are not, or an
+        // extent that overflows), whatever the order: tolerances relative to it are then NaN
+        internal static double LargestDiagonal(List<AxisAlignedBox3d> boxes)
+        {
+            double size = 0;
+            foreach (AxisAlignedBox3d bx in boxes) {
+                double d = bx.DiagonalLength;
+                if (!(d < double.PositiveInfinity)) size = double.NaN;
+                else if (d > size) size = d;
+            }
+            return size;
+        }
+
+        // the diagonal of the largest connected component (see ComponentBoxes, LargestDiagonal): the scale of tolerances
+        // that a small part far from the rest must not widen (SafeRounding, the cleanups of MeshRobustRepair)
+        internal static double LargestComponentDiagonal(DMesh3 mesh)
+        {
+            int[] componentOf;
+            return LargestDiagonal(ComponentBoxes(mesh, out componentOf));
+        }
+
         // uniform random points in a union of boxes: a box picked by volume, a point in it, kept if no earlier box
         // contains it (so every point of the union has the same density); one box: a point in it, as before
         internal sealed class SampleRegion
@@ -492,6 +829,40 @@ namespace gs
                 double sum = 0;
                 for (int i = 0; i < boxes.Count; ++i)
                     cumulative[i] = sum += boxes[i].Volume;
+            }
+
+            /// <summary>
+            /// the volume of the union of the boxes, exactly up to rounding (coordinate compression in x and y, the z
+            /// intervals merged per cell)
+            /// </summary>
+            public double Volume()
+            {
+                if (boxes.Count == 1)
+                    return boxes[0].Volume;
+                var xs = boxes.SelectMany(b => new[] { b.Min.x, b.Max.x }).Distinct().OrderBy(v => v).ToArray();
+                var ys = boxes.SelectMany(b => new[] { b.Min.y, b.Max.y }).Distinct().OrderBy(v => v).ToArray();
+                double volume = 0;
+                var zs = new List<Interval1d>();
+                for (int i = 0; i + 1 < xs.Length; ++i) {
+                    double xm = 0.5 * (xs[i] + xs[i + 1]);
+                    for (int j = 0; j + 1 < ys.Length; ++j) {
+                        double ym = 0.5 * (ys[j] + ys[j + 1]);
+                        zs.Clear();
+                        foreach (var b in boxes)
+                            if (b.Min.x <= xm && xm <= b.Max.x && b.Min.y <= ym && ym <= b.Max.y)
+                                zs.Add(new Interval1d(b.Min.z, b.Max.z));
+                        if (zs.Count == 0) continue;
+                        zs.Sort((u, v) => u.a.CompareTo(v.a));
+                        double len = 0, lo = zs[0].a, hi = zs[0].b;
+                        for (int k = 1; k < zs.Count; ++k) {
+                            if (zs[k].a > hi) { len += hi - lo; lo = zs[k].a; hi = zs[k].b; }
+                            else hi = Math.Max(hi, zs[k].b);
+                        }
+                        len += hi - lo;
+                        volume += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]) * len;
+                    }
+                }
+                return volume;
             }
 
             public bool Contains(Vector3d p)

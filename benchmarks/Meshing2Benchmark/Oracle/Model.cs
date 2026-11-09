@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Meshing2Acceptance
 {
@@ -39,6 +40,12 @@ namespace Meshing2Acceptance
         public double SnapTolerance;     // 0 = automatic
         public bool ResolveCrossings = true;
         public bool Conforming;          // O2: empty circumcircles against all vertices, also across segments
+        /// <summary>
+        /// The "constrained quality" mode (owner decision 2026-11-02): quality without O2, the result judged as constrained Delaunay
+        /// (no empty circumcircle demanded across segments). The mesher then uses diametral lenses up to 25.65 degrees. Written to
+        /// the text only when set, as the line "mode constrained", so the input_sha256 of every other input is unchanged.
+        /// </summary>
+        public bool ConstrainedQuality;
         /// <summary>Longest edge bound at the centroid; the meaning of the size function is decision D9 of MESHING2D_DECISIONS.md.</summary>
         public Func<Q, Q, Q> SizeFunction;
         /// <summary>The size function in the text format, which has only constants so far; a function without it cannot be written.</summary>
@@ -97,7 +104,8 @@ namespace Meshing2Acceptance
         HullBoundary, AreaMismatch, NotDelaunayLocal, NotDelaunayGlobal, SegmentMissing, SubsegmentNotEdge, SubsegmentUnsourced,
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
-        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid
+        LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid,
+        ChainPassesHotPixel, ChainSkipsHotPixel, RefinementCoincidence, RefinementPinch
     }
 
     public sealed class ViolationRecord
@@ -135,11 +143,34 @@ namespace Meshing2Acceptance
         /// </summary>
         public bool Reference;
 
+        /// <summary>
+        /// With snap rounding, report the mesh area against the snapped domain with all hot pixels
+        /// (<see cref="OracleReport.MeshMinusSnappedArea"/>). Off by default: it builds both snapped images and their exact area on every
+        /// run, which the oracle otherwise does only where O-H5 has something to excuse (Herne: 2.3 to 3.6 times the oracle's time)
+        /// </summary>
+        public bool ReportSnappedArea;
+
+        /// <summary> the same expectations with the snapped area reported </summary>
+        public OracleExpect WithSnappedArea()
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.ReportSnappedArea = true;
+            return copy;
+        }
+
         /// <summary> the same expectations on the reference path </summary>
         public OracleExpect WithReference()
         {
             var copy = (OracleExpect)MemberwiseClone();
             copy.Reference = true;
+            return copy;
+        }
+
+        /// <summary> a copy whose global empty-circumcircle pass runs only up to this many triangle-vertex pairs (0: never) </summary>
+        public OracleExpect WithGlobalDelaunayLimit(long limit)
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.GlobalDelaunayLimit = limit;
             return copy;
         }
     }
@@ -151,6 +182,11 @@ namespace Meshing2Acceptance
     {
         public readonly List<ViolationRecord> Violations = new List<ViolationRecord>();
         public bool Ok => Violations.Count == 0;
+        /// <summary>
+        /// Known violations, counted and listed but not failing (the verdict is <see cref="Ok"/> without them). None at present:
+        /// RefinementPinch was one until the mesher's pinch rule and is a failing violation since
+        /// </summary>
+        public readonly List<ViolationRecord> KnownViolations = new List<ViolationRecord>();
         /// <summary>No free interior edge has four cocircular points: the (constrained) Delaunay triangulation is unique.</summary>
         public bool Unique = true;
         public int TieEdges;
@@ -164,6 +200,49 @@ namespace Meshing2Acceptance
         /// check. Not violations, but findings to look at: they stay visible in every report.
         /// </summary>
         public int MergeZoneExcused;
+        /// <summary>
+        /// Excused at an O11-unsplittable piece (a subsegment within the tube of another input constraint, without an explicit tolerance):
+        /// the local Delaunay test on the piece, vertices hidden behind it in the global test, triangles below the angle whose
+        /// circumcentre lies behind it. Findings to look at, as the merge zone's.
+        /// </summary>
+        public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
+        /// <summary> the squared tolerance the O11 rule gives the mesher (a quarter of the squared tube without the subnormal floor of
+        /// Oracle.AutoTolerance: the mesher's own tolerance has none); 0 at M1 </summary>
+        public Q O11Tolerance2;
+        /// <summary>
+        /// Q17 (O-H5): pieces of input segments and boundary edges whose chain is missing, and unused input points, on a part of the
+        /// domain that snap rounding collapsed (no area left between the images of its boundary). Findings to look at, as the merge zone's.
+        /// </summary>
+        public int CollapsedSegments, CollapsedPoints;
+        /// <summary>
+        /// Q17 (O-H5): of those, the excuses on a stretch where output vertices beyond the input's points and crossings rerouted the
+        /// image (rule (ii'): only inside parts the input's own rounding collapses). For a segment piece, a stretch between pixels both
+        /// images share that differs; for a point, a different set of links at its pixel
+        /// </summary>
+        public int CollapsedViaRefinement;
+        /// <summary>
+        /// Q17 (O-H5): the hot pixels SRR's restore step adds to the input's rounding, as the oracle computes it (pixel indices: the
+        /// centre is the index times the snap tolerance); null without snap rounding. For comparison with the mesher's (tests)
+        /// </summary>
+        public List<(System.Numerics.BigInteger x, System.Numerics.BigInteger y)> RestorePixels;
+        /// <summary>
+        /// With snap rounding: the mesh area minus the area of the snapped domain with all hot pixels (the full image), in pixels squared,
+        /// exact; a report, no rule. It need not be 0: the full image routes a boundary edge through every hot pixel its input edge
+        /// contacts, refinement's too, while the mesher does not reroute a chain through a vertex of refinement it only passes (#360)
+        /// </summary>
+        public Q? MeshMinusSnappedArea;
+        public string ExcusedSummary()
+        {
+            var parts = new List<string>();
+            if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points"
+                + (CollapsedViaRefinement > 0 ? " (" + CollapsedViaRefinement + " of them rerouted by output vertices)" : ""));
+            if (KnownViolations.Count > 0) parts.Add(KnownViolations.Count + " known violations (" + string.Join(", ", KnownViolations.GroupBy(k => k.Kind).Select(g => g.Count() + " " + g.Key)) + ")");
+            if (MeshMinusSnappedArea != null) parts.Add("mesh area - snapped area " + MeshMinusSnappedArea.Value.ToDecimal(3) + " px2");
+            if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
+            if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
+                parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
+            return string.Join(", ", parts);
+        }
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }
         public void Add(Violation v, string detail) { if (Violations.Count < 200) Violations.Add(new ViolationRecord { Kind = v, Detail = detail }); }
         public override string ToString() => Ok ? "ok" : string.Join("; ", Violations);

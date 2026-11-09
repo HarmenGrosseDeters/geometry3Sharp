@@ -80,6 +80,7 @@ A description is a list of steps, read from the left. A point is numbered at its
 | `region_ring(label max_area x y ...)` | a region by ring; `-` for no area limit |
 | `min_angle(d)`, `max_area(a)`, `steiner_limit(n)`, `snap(t)` | options: minimum angle in degrees, largest triangle area, cap on inserted points, snap tolerance in coordinate units (default 0, automatic); an explicit tolerance is the pixel width of the snap grid, anchored at the origin with half-open pixels (decision D14) |
 | `no_noding`, `conforming` | options: crossing segments must fail with a status; empty circumcircles also across segments |
+| `mode(constrained)` | M3 constrained-quality mode (`Conforming = false`); canonical input text adds `mode constrained`. These inputs have separate hashes and golden rows. |
 
 Without an outer ring the domain is the convex hull of the points. A hole does not fill back what another hole removed, and overlapping
 outer rings unite. Decisions on these semantics are open ([MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md)); the
@@ -118,8 +119,13 @@ snap_tolerance <value>
 size_constant <value|->                           # the largest edge; a size that varies has no text form yet
 resolve_crossings <0|1>
 conforming <0|1>
+mode constrained                                  # optional: only when set
 end
 ```
+
+The line `mode constrained` marks the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as
+constrained Delaunay. It is written only when set, so every other input keeps its text and its `input_sha256`; it contradicts
+`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`.
 
 Worked example: the input `literal(0 0, 1 0, 0 1)` has this canonical text, with a final line end,
 
@@ -278,7 +284,8 @@ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- oracl
 - `--input` and `--output` are the plain text formats above.
 - `--milestone`: M1 forbids constructed vertices and checks the plain Delaunay property, M2 the constrained one, M3 also the bounds of the options.
 - `--tube`: how far a chain of edges may run from its input segment. `0` means exactly on it; the default is 0 for M1 and otherwise
-  automatic (2^-40 of the largest coordinate, or the snap tolerance if larger).
+  automatic (2^-40 of the larger of the largest coordinate and the extent, at least one subnormal step 2^-1074 (D3), or the snap
+  tolerance if larger).
 - It prints one `VIOLATION <kind>: <detail>` per finding and then `VALID` or `INVALID`. Exit code 0 means valid, 1 invalid, 2 unreadable input, 3 the
   oracle's own self-check failed. `--row` writes the row of section 5, which is the easiest way to get a correct one.
 

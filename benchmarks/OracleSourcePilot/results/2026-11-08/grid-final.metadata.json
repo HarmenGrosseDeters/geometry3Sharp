@@ -1,0 +1,34 @@
+{
+  "controller_sha256": "5cd3daec89fde7da779d33b09407623be5b36f0cf6817556bcd992463542bfd7",
+  "pilot_runtime": {
+    "Meshing2Oracle.dll": "82cd3b4dbfaa96759082ee695ddfb5413736f6eb4f9f985ec5b58d8ac199742e",
+    "OracleSourcePilot.dll": "3f7256e674ac4fc6eeb98b20a7a76acfd8f61e543cc4e1e1d461abfdfbe3795e",
+    "OracleSourcePilot.deps.json": "7eeaf375678af03974518e5c0289f275a9556f653df3e015baee204945069291",
+    "OracleSourcePilot.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+  },
+  "mesher_runtime": {
+    "Meshing2Benchmark.dll": "7c7ce0395df267b0be6d9ffd7b1ee457526a63152f8390a2316a3b94b4396a6a",
+    "Meshing2Oracle.dll": "796ac9ac24f08c154da6d0b06d0f17a7a30bdee49b06d4ff5c4c2029b19957d5",
+    "NetTopologySuite.dll": "98fa6bae8b75b5f9445236679883fa27750d990aec11e985b85b57a30c37a858",
+    "geometry3Sharp.dll": "38d11a4459bff2ae58339c7a815415fcc7e26f6ad718ecf1a2aa903be0af05a5",
+    "Meshing2Benchmark.deps.json": "6a40ce97d603e16587b4406f93581ec3e29cba405422a5ae6646792828812e0c",
+    "Meshing2Benchmark.runtimeconfig.json": "9950d4583cfc9a106857c0d5b8a75b53e8774852b57b80bc3823a74d44a4d87f"
+  },
+  "sizes": [
+    129,
+    257,
+    513,
+    1025,
+    30001
+  ],
+  "mode": "grid",
+  "full_max_points": 1024,
+  "seconds": 90,
+  "repeats": 3,
+  "commands": [
+    "<dotnet> <pilot> lens-input <m> <input>",
+    "<dotnet> <mesher> mesh --no-oracle --milestone M1 --input <input> --output <mesh>",
+    "<dotnet> <pilot> phase <input> <mesh>",
+    "<dotnet> <pilot> full <input> <mesh> <report>"
+  ]
+}

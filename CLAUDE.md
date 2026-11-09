@@ -1,13 +1,14 @@
 # Working on geometry3Sharp
 
 How we work with agents (tiers, task brief, review): [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
-Direction, phases and open items: [docs/ROADMAP.md](docs/ROADMAP.md). Sources of ported or implemented
+Direction, phases and open items: [docs/ROADMAP.md](docs/ROADMAP.md) (an index; details in `docs/roadmap/`). Sources of ported or implemented
 methods: [docs/SOURCES.md](docs/SOURCES.md). Test strategy: [docs/QA.md](docs/QA.md), local
 setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Rules
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
+- Times for the user are given in the Europe/Berlin time zone (CET / CEST), not in UTC, eg "08:40 (Berlin)".
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
   (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
   reports which fail there (`New tests on base`, `tools/new_tests_on_base.py`); with the label `bugfix` at least one
@@ -17,6 +18,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
   serial, repeated runs) if it has a parallel path. Tests of a success path check the result (closed,
   manifold, finite, eg `MeshRobustRepair.NotCleanReason`), not only the status.
+- Test time (owner 2026-11-09): a test takes at most 5 s (its duration in the full CI run's trx, linux net10.0).
+  Exceptions up to 10 s carry the `Slow` trait and a one-line reason in the test; nothing above 10 s. A check that
+  needs more (a corpus, a soak or long determinism run) is made cheaper with the same power (smaller procedural
+  inputs, shared work, split cases; a mutant the old test kills must still be killed) or moves to a benchmark or a
+  scheduled job.
 - A new reader or input format is added to `ReaderFuzzTests`.
 - Licenses: implement from papers; port only from MIT / Apache / BSD sources, never from GPL code (CGAL,
   parts of TetWild). List the sources in `docs/SOURCES.md`.
@@ -29,6 +35,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   G3E0001-3). A new parallel loop there needs a review (no floating-point reduction across threads) and an entry in
   `core/ExactCodeAllowList.cs`.
 
+## Cost controls
+
+Binding for every session: [AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) section 8 (budget rules, messaging, runner
+sessions, combined mutation gates).
+
 ## Before every push
 
 Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
@@ -39,7 +50,8 @@ all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack`
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
 threshold, then the CI run is the gate; an upper-bound check before any performance spike; and before designing an
 optimization or algorithm, a search of the library for existing building blocks and a literature check
-([AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) sections 2, 3 and 8).
+([AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) sections 2, 3 and 8); and a short prior-art check before options go to the owner
+or when a finding hits a fundamental limit (section 2).
 
 Run the steps of `.github/workflows/ci.yml` locally:
 
@@ -72,7 +84,11 @@ the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIS
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
 `mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the mutation workflow (`tests/mutation`) must stay above its threshold.
+the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
+stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
+(workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
+a revert only for a real defect (owner 2026-11-09).
 
 Performance or quality claims are backed by a benchmark (`benchmarks/`), with before/after numbers in the
 benchmark README or the PR.

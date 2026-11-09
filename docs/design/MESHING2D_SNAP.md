@@ -273,7 +273,11 @@ in "As built" at the end of this section. The SR + SRR routine of #277 snaps the
 3. **Subsegment splits (O12).** The target is the midpoint of the subsegment, taken on the original input segment, or the concentric
    shell point. Its pixel is used if:
    - the pixel is in the envelope of the input segment;
-   - it is not hot;
+   - it is not hot, or (as built) holds a vertex the piece is rerouted through; not a vertex of refinement where a new piece would run
+     along a constraint of another chain: the two chains would coincide there, and the part between them, which the rounding of the
+     input keeps, would collapse (owner decision 2026-11-03 on Q17, `MESHING2D_HULL_GRID.md` section 7). Through a vertex of the
+     snapped input (an input point, a crossing, a restore pixel) they coincide in the rounding of the input itself, so that reroute
+     stays;
    - the bent chain a → p → b crosses no hot pixel's interior, the restore condition, checked with SnapRounding2's machinery.
    Otherwise the neighbours of that pixel along the segment are tried. If no pixel on the subsegment's span qualifies, the subsegment is
    **unsplittable** (clean-room answer 7d): it stays, and the triangles that encroach it stay as well, judged and reported, never dropped.
@@ -338,6 +342,29 @@ exactly; 12000 meshes at 20° and 30° pass the oracle):
   subsegment instead, and there is no split point). Ties of shortest edges are tried both ways for a small input angle. On a grid that
   doubles do not hold exactly (k w rounds), vertices are taken at the centre of their pixel and matched by it, and pixel corners touched
   by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller, and more at large coordinates).
+- **Oracle, without an explicit tolerance: O11-unsplittable pieces** (owner decision 2026-11-02, option B of the water-huge finding).
+  The same three exemptions apply at a subsegment that the mesher may not split, because O11 merges a point within its tolerance of
+  an input constraint into that constraint (`NearOtherSource`). Conforming Delaunay (O2) and the angle bound cannot be reached across
+  such a piece, as across a piece with no split point on the grid. One predicate (`O11Unsplittable`) serves all three exemptions:
+  - the local test of the piece itself (never an unconstrained edge next to it);
+  - a vertex behind it in the global test, seen from the triangle's centroid;
+  - a triangle below the angle whose exact circumcentre lies behind it.
+
+  The predicate, decided exactly:
+  - The piece has an own input constraint, one that holds both its ends within the mesher's tolerance (half the tube). The mesher makes
+    such vertices vertices of that constraint and merges the sources of the shared piece.
+  - Every split point the mesher may choose lies a hair (2^-7) inside that tolerance of another input constraint, as the mesher decides
+    in doubles. Those points are the midpoint and the concentric-shell point from either end, as in `QualityMesh2.SplitSegment`.
+  - That other constraint meets each own one in at most one point. Nearly coincident lines are merged by the mesher into pieces of both,
+    and such a piece is split.
+
+  The exemptions are counted in every report (`O11LocalExcused`, `O11GlobalExcused`, `O11AngleExcused`), as the merge zone's are; a
+  triangle's hidden vertices count only when the triangle has no violation. Self-checks 7b to 7d cover them.
+  They were found with the corpus at 25 degrees: earcut's water-huge has a ring corner of 0.84 degrees, and the first piece of one leg
+  (2^-22 long) has its midpoint 1.75e-9 from the other leg, against a mesher tolerance of 1.98e-9. Two independent reviews narrowed the
+  first version (both ends within the tube, ownership by ulps) to this one. With a tube given to the oracle (`--tube`) the tolerance
+  follows that tube. Its reduction to five points is
+  `QualityMesh2Tests.SpikeOf084Degrees_*`.
 - **The corpus** (item 6; `Meshing2Benchmark gridcounts`, the 84 corpus inputs at a tolerance of 2^-10 and 10^-3 of their extent;
   counts summed, inputs with any in brackets):
 

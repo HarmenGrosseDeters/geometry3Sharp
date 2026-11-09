@@ -9,7 +9,8 @@
 //     --repeat <r>                           timed runs per case and operation (default 3); reports all times,
 //                                            the phases of the fastest run
 //     --exact                                also hash the exact result vertices (ComputeExactVertices; slower)
-//     --safe-rounding                        SafeRounding = true
+//     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
+//                                            Rounding.EvaluationLimitReached)
 // Filter failures are counted only by a library built with -p:G3PredicateStats=true (PredicateStats); in a normal
 // build they are absent. The process uses all cores; run it under `taskset -c 0` (and DOTNET_PROCESSOR_COUNT=1)
 // for one core.
@@ -136,6 +137,10 @@ static class Profile
                         ["counts"] = boolean.Counts,
                         ["triangles"] = ok ? boolean.Result.TriangleCount : -1,
                     };
+                    if (boolean.Rounding != null) {
+                        best["rounding_clean"] = boolean.RoundingClean;
+                        best["rounding_limit"] = boolean.Rounding.EvaluationLimitReached;
+                    }
                     if (stats.Count > 0)
                         best["predicates"] = stats;
                     if (error != null)

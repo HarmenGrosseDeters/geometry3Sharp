@@ -19,7 +19,8 @@ namespace g3cli
     public static partial class Commands
     {
         public static readonly List<Command> All = new List<Command>() {
-            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d()
+            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope(),
+            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit()
         };
 
         public static Command Find(string name)
@@ -49,6 +50,11 @@ namespace g3cli
                 result = Ok(cmd.Name, result);
             } catch (CommandException e) {
                 result = Error(cmd.Name, e.Code, e.Message);
+                if (e.Data != null)
+                    foreach (var kv in e.Data.ToList()) {
+                        e.Data.Remove(kv.Key);
+                        if (result.ContainsKey(kv.Key) == false) result[kv.Key] = kv.Value;
+                    }
             } catch (Exception e) {
                 result = Error(cmd.Name, ResultCodes.InternalError, e.GetType().Name + ": " + e.Message);
             }
@@ -215,11 +221,13 @@ namespace g3cli
                         RejectTopologyChange = args.Bool("reject_topology_change"),
                         RoundingMaxDisplacement = rounding.MaxDisplacement, RoundingUlpFactor = rounding.UlpFactor,
                         RoundingAbsoluteTolerance = rounding.AbsoluteTolerance, StrictRounding = rounding.Strict,
+                        RoundingMaxPairTests = rounding.MaxPairTests,
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
                         throw new CommandException(ResultCodes.OperationFailed,
-                            "MeshRobustRepair failed" + (repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
+                            "MeshRobustRepair failed" + (repair.ResultReason == MeshRobustRepair.ScaleDisparity || repair.ResultReason == MeshRobustRepair.ScaleNotFinite ? ": " + repair.ResultReason
+                                : repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
                     result = repair.Mesh;
                     o["used_exact_resolve"] = repair.UsedExactResolve;
                     // genus of the mesh the exact stage resolved and of its result (null without the exact stage or where
@@ -275,6 +283,7 @@ namespace g3cli
                 // (the effective values: strict rounding uses neither term)
                 ["rounding_ulp_factor"] = op.StrictRounding ? 0 : op.RoundingUlpFactor,
                 ["rounding_absolute_tolerance"] = op.StrictRounding ? 0 : op.RoundingAbsoluteTolerance,
+                ["rounding_max_pair_tests"] = op.RoundingMaxPairTests,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
             };
@@ -297,12 +306,15 @@ namespace g3cli
                 ["zips"] = r.Zips,
                 ["strip_zips"] = r.StripZips,
                 ["removed_components"] = r.RemovedComponents,
+                ["scale_disparity"] = r.ScaleDisparity,
+                ["scale_not_finite"] = r.ScaleNotFinite,
                 ["removed_triangles"] = r.RemovedTriangles,
                 ["max_drift"] = MeshReport.Num(r.MaxDrift),
                 ["max_length"] = MeshReport.Num(r.MaxLength),
                 ["max_displacement"] = r.MaxDisplacement,
                 ["ulp_factor"] = r.UlpFactor,
                 ["absolute_tolerance"] = r.AbsoluteTolerance,
+                ["max_pair_tests"] = r.MaxPairTests,
                 ["evaluation_limit_reached"] = r.EvaluationLimitReached,
             };
         }
@@ -322,6 +334,9 @@ namespace g3cli
                 "(RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
             c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, prefix + "safe_rounding: edits may also move the surface up to this absolute " +
                 "distance (RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
+            c.Params.Add(new Param("rounding_max_pair_tests", ParamType.Integer, prefix + "safe_rounding's effort budget: once the exact triangle pair " +
+                "tests of its evaluations exceed this, the repair stops editing (rounding.evaluation_limit_reached) and the defects left are counted; " +
+                "0 stops once one pair test was made (there is no 'no limit' value), at most 2147483647 (RoundingMaxPairTests; MeshRoundingRepair.MaxPairTests)") { Default = 5000000 });
             c.Params.Add(new Param("strict_rounding", ParamType.Boolean, repair
                 ? "robust, exact stage: safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them): an " +
                   "exact resolve whose rounding is not clean is rejected (exact_resolve_reason 'rounding not clean (StrictRounding)') and the other stages " +
@@ -330,13 +345,14 @@ namespace g3cli
                   "fails with operation_failed (status RoundingNotClean) instead of being written with defects (ExactMeshBoolean.StrictRounding)") { Default = false });
         }
 
-        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; }
+        struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; public long MaxPairTests; }
 
         static RoundingSettings RoundingTolerances(Args args)
         {
             var r = new RoundingSettings {
                 MaxDisplacement = args.Number("rounding_max_displacement"), UlpFactor = args.Number("rounding_ulp_factor"),
                 AbsoluteTolerance = args.Number("rounding_absolute_tolerance"), Strict = args.Bool("strict_rounding"),
+                MaxPairTests = args.Integer("rounding_max_pair_tests"),
             };
             // above 1e-2 of the diagonal the repair may contract whole components away; below 1e-16 it is a no-op (the ulp term dominates)
             if (!(r.MaxDisplacement >= 1e-16 && r.MaxDisplacement <= 1e-2))
@@ -345,6 +361,8 @@ namespace g3cli
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_ulp_factor' must be >= 0");
             if (!(r.AbsoluteTolerance >= 0))
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_absolute_tolerance' must be >= 0");
+            if (r.MaxPairTests < 0)
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_pair_tests' must be >= 0");
             if (r.Strict && args.Bool("safe_rounding") == false)
                 throw new CommandException(ResultCodes.InvalidArguments, "'strict_rounding' needs safe_rounding");
             // (the defaults are filled in, so an explicit value equal to the default cannot be told apart; it changes nothing)
@@ -360,6 +378,7 @@ namespace g3cli
             op.RoundingUlpFactor = r.UlpFactor;
             op.RoundingAbsoluteTolerance = r.AbsoluteTolerance;
             op.StrictRounding = r.Strict;
+            op.RoundingMaxPairTests = r.MaxPairTests;
         }
 
         static Param SimplifyFlatRegions() =>

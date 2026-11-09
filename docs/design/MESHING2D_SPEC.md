@@ -70,7 +70,7 @@ Input validation (all [USED]):
 | # | Option | Priority | Expected behaviour |
 |---|--------|----------|--------------------|
 | O1 | Constrained Delaunay triangulation (no refinement) | [USED] | Used for the "reference mesh" from which the caller interpolates heights of Steiner points. Must be produced for the same input with the same snapping as the refined mesh. |
-| O2 | Conforming Delaunay | [USED] (always on when quality is on) | Every output triangle satisfies the empty-circumcircle property with respect to all vertices; segments are split as needed. A vertex placed on a segment may lie a few ulps off it; tiny in-circle violations caused only by that (collinear within about 8 ulps) are acceptable. |
+| O2 | Conforming Delaunay | [USED] (always on when quality is on, except in the constrained quality mode: owner decision 2026-11-02, judged as constrained Delaunay; the mesher then uses diametral lenses up to 25.65°) | Every output triangle satisfies the empty-circumcircle property with respect to all vertices of the output's triangles (owner 2026-11-03: content removed with a hole, Q7, does not count); segments are split as needed. A vertex placed on a segment may lie a few ulps off it; tiny in-circle violations caused only by that (collinear within about 8 ulps) are acceptable. |
 | O3 | Minimum angle (degrees) | [USED] | Default 20°; production uses 20–33°. Guarantee: every triangle has all angles ≥ the bound, **except** triangles whose small angle is forced by the input (two segments meeting at an angle below the bound, or a strip narrower than the snap/grid resolution), and except when the Steiner limit stopped refinement. Values up to about 38° must terminate on ordinary input; any value (eg 40°) must terminate when a Steiner limit is set. Invalid values (< 0 or ≥ 60) must not silently disable *other* constraints. |
 | O4 | Maximum angle | [TESTED] | Enforced also when it is the only constraint. Combined with min angle and with holes and internal segments. Invalid values must not disable the other constraints. |
 | O5 | Global maximum triangle area | [TESTED] | Every triangle area ≤ bound, except triangles that cannot shrink because their boundary segments must not be split (the interior triangles must still meet the bound). |
@@ -95,7 +95,7 @@ Input validation (all [USED]):
 | O24 | Terrain simplification: choose a subset of dense terrain points (with optional breaklines) such that any Delaunay triangulation of the subset reproduces all points within a vertical error bound | [TESTED] | See F-63. Production usage unknown, so also [?]. |
 | O25 | Voronoi diagram output (standard and bounded) | [?] | Not used by the production code path. Covered by tests: consistency, unique edge ids, the bounded diagram is only valid on conforming meshes, duplicate vertices are skipped, the caller's bounding box is not modified. |
 | O26 | Renumbering for bandwidth reduction (reverse Cuthill–McKee) | [?] | Not used by production. |
-| O27 | File I/O (.node/.poly/.ele, MFEM) | [?] | Not used by production; out of scope unless requested. |
+| O27 | File I/O (.node/.poly/.ele, MFEM) | [?] | Not used by production. **Requested by the owner (2026-11-02) and implemented outside the library** (#291): `tools/g3cli/TrianglePolyFormat.cs` reads .poly/.node and writes .node/.ele/.poly, used by `g3cli mesh2d` and `Meshing2Benchmark mesh`; its limits are in the g3cli README. MFEM stays out of scope. |
 
 ### 1.3 Outputs and guarantees
 
@@ -753,6 +753,33 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
 * **Q16** The issue tracker of the public fork could not be read in this session (access
   restricted); upstream issues are covered via the fork's own documentation. Are there further bug
   reports that should be added?
+* **Q17** Hull parts narrower than the snap tolerance (a hull tip below a pixel, collinear points that
+  snap to a zigzag): must snapping keep such a tip's vertex in the mesh (a sliver triangle, judged
+  with the area tolerance), or may the part collapse, the unused input vertex reported? Today the tip
+  vertex is lost at M3 even without refinement (`MESHING2D_HULL_GRID.md` section 6, with a reduction).
+  **Owner decision 2026-11-02:** it may collapse (consistent with D14 and snap rounding); the oracle
+  accepts the unused input vertex only on a collapsed part, and the mesher reports it in the
+  diagnostics, as for collapsed rings and segments (`MESHING2D_HULL_GRID.md` section 7).
+  **Collapsed part (2026-11-03, rule O-H5):** where snap rounding leaves the domain without area (it
+  can collapse parts wider than a pixel, and keeps some narrower ones): hot pixels are those of
+  the input points, of the input's crossings and of the output vertices; each edge's image is the input
+  segment rerouted through every hot pixel it passes, its links again until none is left (iterated snap
+  rounding); a link of an image is collapsed where the domain of the ring images has no interior on either
+  side (`MESHING2D_HULL_GRID.md` section 7). A chain may be missing only on collapsed links of its own
+  image; an unused input point is accepted where every link at its pixel is collapsed, or, with no link
+  there, where its pixel's centre is not inside that domain. No subsegment of an identity output may pass a
+  hot pixel other than its ends' (snap rounding's invariant). **Owner decision 2026-11-03 (strict):** the
+  refinement must not collapse what the rounding of the input keeps; the oracle accepts a collapse only
+  where the image with the input's hot pixels alone (points, crossings and SRR's restore pixels, which the
+  oracle computes itself since #362) collapses too, matched stretch by stretch. Refinement keeps the chains of
+  the input's rounding apart: a vertex of refinement lies on one chain (two subsegments), so two chains
+  sharing a link from one (RefinementCoincidence) are rejected. Every hot pixel of the input's rounding that an
+  input edge contacts lies on its chain unless its links collapse there (ChainSkipsHotPixel; snap rounding's
+  defining property, which SRR's Listing 2 can break). **Known violation, not enforced yet:** two chains that
+  meet in a vertex of refinement where the input's rounding keeps them apart (RefinementPinch, eg a spike
+  whose two edges cross the pixel of a refinement vertex, or a boundary segment less than a pixel beside the
+  hull) break the strict decision too; the oracle lists them without failing, a ratchet pins their number,
+  and the mesher's fix (refinement does not pinch two chains) comes next (coordinator 2026-11-03).
 
 ---
 
@@ -774,7 +801,7 @@ decision wins.
 | Q9 | The mesher **optionally carries z**: Steiner points get z by linear interpolation on the constrained triangulation of the **input** (the reference mesh of O1), never on the evolving mesh, so the result does not depend on insertion order. |
 | Q10 | Errors are reported as a **status enum plus a result object** carrying the failure kind and the problem coordinate, like the library's other operations (`BooleanStatus`, `WrapStatus`, …). Exceptions only for invalid arguments and cancellation. Where earlier sections say "exception" or "fail loudly", read "a failure status, never an invalid mesh". |
 | Q11 | **Yes**: the result explicitly lists the triangles below the minimum angle and flags "Steiner limit reached". |
-| Q12 | File formats (O27) and bandwidth renumbering (O26) are out of scope. |
+| Q12 | File formats (O27) and bandwidth renumbering (O26) are out of scope of the library. (O27 was requested later and lives in `tools/g3cli`, #291.) |
 | Q13 | Default Steiner limit = 10 × (points + segments) + 100 000, overridable. |
 | Q14 | Default snap tolerance = **automatic, relative** (µm range at UTM scale), only to absorb numerical noise. Snapping to the data precision (eg 1 cm) is opt-in via O11. |
 | Q15 | .NET Framework 4.8 is a **hard requirement** (it may be slower there). |

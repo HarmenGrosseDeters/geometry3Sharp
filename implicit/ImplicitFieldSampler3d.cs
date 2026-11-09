@@ -28,14 +28,14 @@ namespace g3
 
         public ImplicitFieldSampler3d(AxisAlignedBox3d fieldBounds, double cellSize)
         {
+            Vector3i dims = SamplingGridSize.Dimensions(fieldBounds.Min, fieldBounds.Max + cellSize, cellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("ImplicitFieldSampler3d: the cell size and bounds must be finite and give a grid that fits in an array");
             CellSize = cellSize;
             GridOrigin = fieldBounds.Min;
             Indexer = new ShiftGridIndexer3(GridOrigin, CellSize);
 
-            Vector3d max = fieldBounds.Max; max += cellSize;
-            int ni = (int)((max.x - GridOrigin.x) / CellSize) + 1;
-            int nj = (int)((max.y - GridOrigin.y) / CellSize) + 1;
-            int nk = (int)((max.z - GridOrigin.z) / CellSize) + 1;
+            int ni = dims.x, nj = dims.y, nk = dims.z;
 
             GridBounds = new AxisAlignedBox3i(0, 0, 0, ni, nj, nk);
 

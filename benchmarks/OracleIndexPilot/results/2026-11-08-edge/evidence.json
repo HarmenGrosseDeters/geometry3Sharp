@@ -1,0 +1,36 @@
+{
+  "point_pilot_commit": "4fd98250",
+  "results_jsonl_sha256": "182f4327daa49fa2d33a75316cc940a9ba859432611e7317abf9f4531ee4be8f",
+  "chunks": [
+    {
+      "path": "recheck-results-01.jsonl",
+      "sha256": "22b357e96ad248d2208530c18071d066c6871777066132b2fcc63b13e5a4b68b",
+      "records": 6
+    },
+    {
+      "path": "recheck-results-02.jsonl",
+      "sha256": "9799e0364b8e641da8e98518eb5100ca2f92e47f0e1f7536f28578bcb53b2ca9",
+      "records": 6
+    },
+    {
+      "path": "recheck-results-03.jsonl",
+      "sha256": "3ab0d9758d58d0dd68578242183503169a7094a99d8771e3feb14aa1fff242a3",
+      "records": 6
+    }
+  ],
+  "source_sha256": {
+    "benchmarks/Meshing2Benchmark/Oracle/Oracle.cs": "7592686c37c844892d46a5ded9a593595d3d347e1ce22dfbb3bcfd4fdf2edbbf",
+    "benchmarks/Meshing2Benchmark/Oracle/StrtreePointSearch.cs": "4658ca23af18a7e0b6cc69f7a729b3a3ddb55aec17a6642c5133855bd4d92eb7",
+    "benchmarks/Meshing2Benchmark/Oracle/StrtreeEdgeSearch.cs": "a17a0178407a390f6128bb35296007d40e2bb10b77feae22e6b30d67d0e992a3",
+    "benchmarks/OracleIndexPilot/Program.cs": "9d248b52153233cc694d3b60783bac0d76b6f440af4af8b4f267e4b40665df33",
+    "benchmarks/OracleIndexPilot/EdgeSelfTest.cs": "1ad37baa9b637afe33d1c8f2a924e8f02e8c3241c16dacd32308dbba122984e2",
+    "benchmarks/OracleIndexPilot/recheck_edges.py": "073879b409c1f9f20c31ddb05b1bc65c5fddef5ba2f5e3283b28d24a414ca952"
+  },
+  "lineage": {
+    "selection": "Current oracle timeouts remaining after the point pilot",
+    "selected": 18,
+    "baseline_results_sha256": "c05a8b85ea453ca36130618ef0b1018f39b9ef6e06a589b56f09db52d1fb1c6d",
+    "point_pilot_results_sha256": "9a991c83a7578f0b83d894921be162d20abd143f770020a866ce5c0c319ad650",
+    "selected_baseline_records_sha256": "6be15779d46066b62c35923c1825a30e00371c81f8c608d6ed215ef166f40453"
+  }
+}

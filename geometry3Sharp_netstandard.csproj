@@ -60,11 +60,16 @@
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+    <InternalsVisibleTo Include="MeshRepairBenchmark" />
     <InternalsVisibleTo Include="ReducerBenchmark" />
     <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
     <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
     <!-- the floor switch of refinement on the grid (benchmarks/Meshing2Benchmark gridcounts) -->
     <InternalsVisibleTo Include="Meshing2Benchmark" />
+    <!-- the statistics and the A/B switch of the volume check (benchmarks/MeshRepairBenchmark, BENCH_IOU_CELLS) -->
+    <InternalsVisibleTo Include="MeshRepairBenchmark" />
+    <!-- the prototypes of the snap-rounding experiment (benchmarks/SnapRoundingExperiment, docs/design/SAFE_ROUNDING.md) -->
+    <InternalsVisibleTo Include="SnapRoundingExperiment" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

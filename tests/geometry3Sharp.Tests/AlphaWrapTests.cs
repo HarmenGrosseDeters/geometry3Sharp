@@ -317,7 +317,7 @@ namespace geometry3Sharp.Tests
         /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
         /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
-        static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
+        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
         {
             if (expectSuccess)
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
@@ -390,7 +390,7 @@ namespace geometry3Sharp.Tests
             };
         }
 
-        static List<Vector3d> Vertices(DMesh3 m) { return m.VertexIndices().Select(v => m.GetVertex(v)).ToList(); }
+        internal static List<Vector3d> Vertices(DMesh3 m) { return m.VertexIndices().Select(v => m.GetVertex(v)).ToList(); }
 
         [Fact]
         public void Wrap_ClosedSphere()
@@ -673,7 +673,8 @@ namespace geometry3Sharp.Tests
             // Status was Success all the same; the result is checked now
             DMesh3 m = Box(Vector3d.Zero, Vector3d.One);
             MeshEditor.Append(m, Box(new Vector3d(1.02, 1.02, 0), new Vector3d(2, 2, 1)));
-            var w = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005, MakeManifold = false };
+            // (gates by circumradius, no quality refinement: with them the pinch is gone on this input before the manifold step)
+            var w = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005, MakeManifold = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.False(w.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
             Assert.StartsWith("result ", w.Error);
@@ -692,18 +693,28 @@ namespace geometry3Sharp.Tests
             // a sphere centred in a box with the same margin on all sides: two rule 1 points were rejected (at existing
             // vertices) and their cells stayed inside up to the box: two box corners on a Success result. Checked now,
             // and wrapped once more in a box with a different margin on each side
+            // (with the gates by circumradius and without the quality refinement, as when this was found: the gates by the
+            // empty ball of the paper and the refinement avoid these rejections on this input, see below)
             DMesh3 s = Sphere(1, 12);
-            var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
+            var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(w.Compute());
             Assert.Equal(0, w.Counts["result_box_corners"]);
             Assert.Equal(0, w.Counts["rejected_rule1"]);
             Assert.Equal(1, w.Counts["box_retries"]);       // the first box (same margin on all sides) failed
             CheckWrap(w, Vertices(s));
-            // without the retry: box corners on the result, which the result check reports as Failed, not Success
-            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false };
+            // the defaults: the first box succeeds
+            var dflt = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
+            Assert.True(dflt.Compute());
+            Assert.False(dflt.Counts.ContainsKey("box_retries"));
+            Assert.Equal(0, dflt.Counts["rejected_rule1"]);
+            CheckWrap(dflt, Vertices(s));
+            // without the retry: box corners on the result, or (with the refinement at non-manifold spots, which can carve
+            // them away) the rejected rule 1 points, which the result check reports as Failed, not Success
+            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.False(symmetric.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
-            Assert.Equal("result box corners on the result", symmetric.Error);
+            Assert.True(symmetric.Error == "result box corners on the result"
+                || symmetric.Error == "result rule 1 Steiner points rejected (offset not guaranteed)", symmetric.Error);
             Assert.True(symmetric.Counts["rejected_rule1"] > 0);
         }
 
@@ -799,7 +810,7 @@ namespace geometry3Sharp.Tests
         }
 
         // random soups of 3 to 42 triangles in the unit cube, the k-th of the sequence from seed 1
-        static DMesh3 RandomSoup(int k)
+        internal static DMesh3 RandomSoup(int k)
         {
             var rnd = new Random(1);
             DMesh3 m = null;
@@ -815,6 +826,159 @@ namespace geometry3Sharp.Tests
                 }
             }
             return m;
+        }
+
+        // an ellipsoid: a sphere of radius 0.5 scaled by sx, sy, sz
+        internal static DMesh3 Ellipsoid(double sx, double sy, double sz)
+        {
+            DMesh3 m = Sphere(0.5, 6);
+            MeshTransforms.Scale(m, sx, sy, sz);
+            return m;
+        }
+
+        /// <summary> the smallest distance between two vertices of the triangulation (a nearest neighbour is joined by a
+        /// Delaunay edge), without the eight box corners </summary>
+        internal static double MinSteinerSeparation(Delaunay3 dt)
+        {
+            double min = double.MaxValue;
+            foreach (int c in dt.CellIndices())
+                for (int i = 0; i < 4; ++i)
+                    for (int j = i + 1; j < 4; ++j) {
+                        int a = dt.CellVertex(c, i), b = dt.CellVertex(c, j);
+                        if (a >= 8 && b >= 8) min = Math.Min(min, dt.GetVertex(a).Distance(dt.GetVertex(b)));
+                    }
+            return min;
+        }
+
+        /// <summary> the smallest angle (degrees) of the result triangles with a circumradius of at most alpha </summary>
+        internal static double MinAngleOfSmallTriangles(DMesh3 r, double alpha)
+        {
+            double min = 180;
+            foreach (int tid in r.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                r.GetTriVertices(tid, ref a, ref b, ref c);
+                double ab = a.Distance(b), bc = b.Distance(c), ca = c.Distance(a);
+                double area2 = (b - a).Cross(c - a).Length;
+                if (!(area2 > 0)) return 0;
+                if (ab * bc * ca / (2 * area2) > alpha) continue;       // circumradius abc / (4 area)
+                // smallest angle: opposite the shortest edge, sin = area2 / (product of the other two edges)
+                double e = Math.Min(ab, Math.Min(bc, ca));
+                double sin = e == ab ? area2 / (bc * ca) : e == bc ? area2 / (ab * ca) : area2 / (ab * bc);
+                min = Math.Min(min, Math.Asin(Math.Min(1, sin)) * 180 / Math.PI);
+            }
+            return min;
+        }
+
+        [Theory]
+        [InlineData(5.0, 0.3, 0.45)]
+        [InlineData(5.0, 1.0, 0.45)]
+        public void Wrap_FlatBoxCornerCells_SteinerPointsSeparated(double sx, double sy, double sz)
+        {
+            // At small alpha the first Steiner points lie about 2 alpha inside the box faces, so cells of three box corners
+            // and such a point are flat, with circumradii above the 4 box diagonals at which dual_edge clamps the
+            // circumcenter. Rule 2 projected the clamped center: points outside the cell's circumsphere, which left the
+            // cell, and the points of neighbouring flat cells landed next to each other (3.7e-5 and 0.011 offsets apart
+            // here; Thingi10K 59196 and 163738 likewise), with needles of 1e-4 and 0.03 degrees on the result.
+            // The projection of the cell's own circumcenter lies deep inside the empty circumsphere: every Steiner point is
+            // farther than min(offset, alpha - offset) from the others (MeshAlphaWrap class doc), which bounds the angles
+            // of all result triangles with a circumradius of at most alpha.
+            DMesh3 m = Ellipsoid(sx, sy, sz);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 150, RelativeOffset = 1500 };
+            Assert.True(w.Compute(), w.Error);
+            CheckWrap(w, Vertices(m));
+            AssertSeparationBound(w, "");
+
+            // reused instance: the same result and counts
+            var vertices = Vertices(w.Result);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(vertices, Vertices(w.Result));
+            Assert.Equal(0, ProjectionFallbacks(w));
+        }
+
+        internal static long ProjectionFallbacks(MeshAlphaWrap w)
+        {
+            return w.Counts.TryGetValue("projection_fallbacks", out long n) ? n : 0;
+        }
+
+        /// <summary>
+        /// The derived bounds of the MeshAlphaWrap class doc: Steiner points at least min(offset, alpha - offset) apart
+        /// (less the contact margin and rounding: 1e-5 of the bound), and the min angle asin(that / (2 alpha)) on every result
+        /// triangle with a circumradius of at most alpha; no rule 2 point from the fallback
+        /// </summary>
+        internal static void AssertSeparationBound(MeshAlphaWrap w, string what)
+        {
+            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = (1 - 1e-5) * Math.Min(off, alpha - off);
+            double sep = MinSteinerSeparation(w.Triangulation);
+            Assert.True(sep >= bound, $"{what}: Steiner points {sep / off} offsets apart");
+            double angleBound = Math.Asin(bound / (2 * alpha)) * 180 / Math.PI;
+            double minAngle = MinAngleOfSmallTriangles(w.Result, alpha);
+            Assert.True(minAngle >= angleBound, $"{what}: min angle {minAngle} below {angleBound} degrees");
+            Assert.Equal(0, ProjectionFallbacks(w));
+        }
+
+
+        /// <summary> the angle bound of the class doc for every result triangle: min angle at least asin(b / (2 alpha)), max
+        /// angle at most 180 degrees minus twice that, b = min(offset, alpha - offset) (less 1e-5 of it) </summary>
+        internal static void AssertAngleBoundOnAllTriangles(MeshAlphaWrap w, string what)
+        {
+            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = (1 - 1e-5) * Math.Min(off, alpha - off);
+            double lo = Math.Asin(bound / (2 * alpha)) * 180 / Math.PI;
+            DMesh3 r = w.Result;
+            foreach (int tid in r.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                r.GetTriVertices(tid, ref a, ref b, ref c);
+                Func<Vector3d, Vector3d, double> ang = (u, v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
+                double a0 = ang(b - a, c - a), a1 = ang(a - b, c - b), a2 = ang(a - c, b - c);
+                double min = Math.Min(a0, Math.Min(a1, a2)), max = Math.Max(a0, Math.Max(a1, a2));
+                Assert.True(min >= lo && max <= 180 - 2 * lo, $"{what}: triangle {tid} with angles {min} / {max}, bound {lo}");
+            }
+        }
+
+        // the 1 %-worst minimum angle of the raw wrap (Alpha Wrap 2.0; the gates by the paper's empty ball and the quality
+        // refinement, AlphaWrapQualityRefinementTests): a capped cylinder had 16.0 degrees, a random soup with pinches 7.5;
+        // with both 22.2 and 15.2, the guarantees kept
+        [Fact]
+        public void Wrap_WorstAnglesOfTheRawWrap()
+        {
+            foreach (var (m, p01) in new[] { (AlphaWrapQualityRefinementTests.Cylinder(), 21.0), (RandomSoup(42), 13.0) }) {
+                var w = new MeshAlphaWrap(m) { RelativeAlpha = 60, RelativeOffset = 600 };
+                Assert.True(w.Compute(), w.Error);
+                CheckWrap(w, Vertices(m));
+                Assert.True(AlphaWrapQualityRefinementTests.P01(w.Result) > p01, $"{AlphaWrapQualityRefinementTests.P01(w.Result)}");
+            }
+        }
+
+        [Theory]
+        [InlineData(42)]
+        [InlineData(173)]
+        public void Wrap_NonManifoldSpots_AngleBoundOnAllTriangles(int k)
+        {
+            // Random soups with many pinches of the carved surface (63 and 95 cells moved by the manifold step at
+            // alpha = 10 offset). The manifold step moved outside cells inside, and their facets, never gates, made 9 and
+            // 5 triangles outside the angle bound (min 0.83 and 1.43 degrees against 2.87; caps). The refinement at the
+            // non-manifold spots inserts Steiner points there first, so that carving makes the surface manifold: every
+            // triangle within the bound, and the result within offset + alpha of the input (before: beyond offset + 2 alpha on soup 42)
+            DMesh3 m = RandomSoup(k);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
+            Assert.True(w.Compute(), w.Error);
+            CheckWrap(w, Vertices(m));
+            AssertAngleBoundOnAllTriangles(w, "soup " + k);
+            AssertSeparationBound(w, "soup " + k);
+            var oracle = Oracle(w);
+            double band = 0;
+            foreach (int tid in w.Result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                w.Result.GetTriVertices(tid, ref a, ref b, ref c);
+                foreach (Vector3d q in new[] { (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2 })
+                    band = Math.Max(band, oracle(q));
+            }
+            // (sampled at centroids and edge midpoints: a lower bound of the true band, against offset + alpha)
+            Assert.True(band <= w.UsedOffset + w.UsedAlpha, $"sampled result {band} from the input, offset + alpha {w.UsedOffset + w.UsedAlpha}");
+
+            // reused instance: the same result
+            var vertices = Vertices(w.Result);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(vertices, Vertices(w.Result));
         }
 
         [Fact]

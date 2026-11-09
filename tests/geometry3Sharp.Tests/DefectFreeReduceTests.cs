@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using gs;
@@ -13,7 +14,7 @@ namespace geometry3Sharp.Tests
     public class DefectFreeReduceTests
     {
         // a thin wavy slab, finely tessellated: aggressive reduction pushes the two sides through each other
-        static DMesh3 ThinSlab()
+        internal static DMesh3 ThinSlab()
         {
             DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.02)), EdgeVertices = 40 }.Generate().MakeDMesh();
             foreach (int vid in slab.VertexIndices().ToArray()) {
@@ -199,6 +200,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CollapseCheck_NewTrianglesOverlapEachOther()
+        {
+            // collapsing 0 onto 1 at (-1, -2) folds the fan: the new triangles (p, 2, 3) and (p, 3, 4) share the edge
+            // from p to 3 (x = -1) and both lie to its right, over each other in the plane; the separate triangle is far away
+            Vector3d far = new Vector3d(50, 50, 0);
+            DMesh3 mesh = FanAndTriangle(0, far, far + new Vector3d(1, 0, 0), far + new Vector3d(0, 1, 0));
+            Assert.True(new CollapseProbe(mesh).Creates(0, 1, 1, new Vector3d(-1, -2, 0)));
+            // control: at (-3, 0) they lie on the two sides of the shared edge
+            Assert.False(new CollapseProbe(mesh).Creates(0, 1, 1, new Vector3d(-3, 0, 0)));
+        }
+
+        [Fact]
         public void CollapseCheck_BoxesThatOnlyTouch()
         {
             // the moved vertex lands on a corner of the separate triangle: boxes with z in [0, 1] and [-1, 0]
@@ -265,6 +278,74 @@ namespace geometry3Sharp.Tests
             new Reducer(a) { PreventSelfIntersections = true }.ReduceToTriangleCount(194);
             Assert.Equal(540, a.TriangleCount);
             Assert.True(a.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        // the self-intersection check with one grid query per collapse (the union of the new triangles' boxes)
+        // against one query per new triangle: the same reduction, bit for bit, on meshes where the check refuses
+        // collapses (thin slab, flat parts below a ring's hole, overlapping spheres, touching boxes, coincident sheets)
+        public static IEnumerable<object[]> UnionQueryCases()
+        {
+            yield return new object[] { "thin slab", 120 };
+            yield return new object[] { "flat ring with islands", 40 };
+            yield return new object[] { "overlapping spheres", 800 };
+            yield return new object[] { "touching boxes", 194 };
+            yield return new object[] { "coincident sheets", 640 };
+        }
+
+        internal static DMesh3 UnionQueryMesh(string name)
+        {
+            switch (name) {
+                case "thin slab": return ThinSlab();
+                case "flat ring with islands": return FlatRingWithIslands();
+                case "overlapping spheres": {
+                    DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 16 }.Generate().MakeDMesh();
+                    DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 16 }.Generate().MakeDMesh();
+                    MeshTransforms.Translate(b, new Vector3d(1.2, 0, 0));
+                    MeshEditor.Append(a, b);
+                    return a;
+                }
+                case "touching boxes": {
+                    DMesh3 a = new GridBox3Generator() { EdgeVertices = 10, Box = new Box3d(Vector3d.Zero, new Vector3d(10, 10, 10)) }.Generate().MakeDMesh();
+                    DMesh3 b = new DMesh3(a);
+                    MeshTransforms.Translate(b, new Vector3d(20, 0, 0));
+                    new MeshEditor(a).AppendMesh(b);
+                    return a;
+                }
+                default: {
+                    DMesh3 m = FlatPlate(40);
+                    new MeshEditor(m).AppendMesh(FlatPlate(40));
+                    return m;
+                }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(UnionQueryCases))]
+        public void UnionQuery_SameReductionAsAQueryPerTriangle(string name, int target)
+        {
+            DMesh3 input = UnionQueryMesh(name);
+            DMesh3 perTriangle = new DMesh3(input), union = new DMesh3(input), unchecked_ = new DMesh3(input);
+            new Reducer(perTriangle) { PreventSelfIntersections = true, SelfIntersectionUnionQuery = false }.ReduceToTriangleCount(target);
+            var r = new Reducer(union) { PreventSelfIntersections = true };
+            Assert.True(r.SelfIntersectionUnionQuery);       // the default
+            r.ReduceToTriangleCount(target);
+            Assert.Equal("", Invariance.Difference(perTriangle, union));
+            // the check refuses collapses here: without it the reduction differs
+            new Reducer(unchecked_).ReduceToTriangleCount(target);
+            Assert.NotEqual("", Invariance.Difference(unchecked_, union));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void UnionQuery_SameReductionAsAQueryPerTriangle_UnderSimilarity(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 input = Invariance.Transformed(ThinSlab(), sim);
+            DMesh3 perTriangle = new DMesh3(input), union = new DMesh3(input);
+            new Reducer(perTriangle) { PreventSelfIntersections = true, SelfIntersectionUnionQuery = false }.ReduceToTriangleCount(120);
+            new Reducer(union) { PreventSelfIntersections = true }.ReduceToTriangleCount(120);
+            Assert.Equal("", Invariance.Difference(perTriangle, union));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(union));
         }
     }
 }

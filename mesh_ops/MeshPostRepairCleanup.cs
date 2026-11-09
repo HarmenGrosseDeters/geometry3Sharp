@@ -26,6 +26,12 @@ namespace gs
 
         /// <summary> triangles with area below DegenerateAreaFactor * diag^2 (diagonal of the bounds of the triangles) are degenerate </summary>
         public double DegenerateAreaFactor = 1e-12;
+        /// <summary>
+        /// the diagonal diag of DegenerateAreaFactor instead of that of the bounds of the triangles, if finite and
+        /// positive (NaN, the default: the bounds of the triangles). MeshRobustRepair passes the diagonal of the largest
+        /// connected component, so that a small part far from the rest does not make every triangle degenerate
+        /// </summary>
+        public double ReferenceDiagonal = double.NaN;
         /// <summary> triangles with longest-edge/height ratio above this are treated like degenerate ones </summary>
         public double MaxAspectRatio = 1000;
         /// <summary> edges whose two triangle normals differ by more than this (degrees) are folds </summary>
@@ -52,7 +58,8 @@ namespace gs
         /// </summary>
         public void Apply()
         {
-            double diag = Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
+            double diag = (ReferenceDiagonal > 0 && ReferenceDiagonal < double.PositiveInfinity) ? ReferenceDiagonal
+                : Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
             areaEps = DegenerateAreaFactor * diag * diag;
             foldCos = Math.Cos(FoldAngleDeg * MathUtil.Deg2Rad);
 
@@ -276,8 +283,13 @@ namespace gs
         /// (|winding number| above 0.75 inside it) enclose it: the cavity of an open shell. Open components can
         /// only take back a result, never add one. Returns their triangle sets (empty if
         /// there are none or no closed components). Does not modify the mesh.
+        /// A component whose surface meets (intersects or touches, exactly) that of a component the majority of its
+        /// interior samples lie in is not nested in it: crossing components have no nesting, and keep their
+        /// orientation (they are never returned).
         /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
-        /// so many components side by side are cheap), with a winding number tree per enclosing component.
+        /// so many components side by side are cheap), with a winding number tree per enclosing component; the
+        /// surfaces only for a component that would be returned, against the components its samples lie in (so a
+        /// correctly oriented mesh pays nothing for them).
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {
@@ -310,6 +322,7 @@ namespace gs
                 return box;
             }).ToList();
             var trees = new DMeshAABBTree3[closed.Count];
+            var subs = new DSubmesh3[closed.Count];
             var containers = enclosing_boxes(boxes);
             for (int i = 0; i < closed.Count; ++i) {
                 // count enclosing components (|winding number| > 0.5, whatever their orientation). Sample
@@ -318,25 +331,70 @@ namespace gs
                 // surface point lies on the other component too, and there its winding number jumps between
                 // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
                 List<Vector3d> samples = null;
-                int nInside = 0;
+                List<int> nestedIn = null;
                 // only a component whose box contains this one's can enclose it
                 foreach (int j in containers[i]) {
-                    if (trees[j] == null)
-                        trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
+                    if (trees[j] == null) {
+                        subs[j] = new DSubmesh3(mesh, closed[j]);
+                        trees[j] = new DMeshAABBTree3(subs[j].SubMesh, true);
+                    }
                     if (samples == null)
                         samples = interior_samples(mesh, closed[i], vols[i] < 0,
                             Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
                     // a few samples vote, so one sample near a thin feature or another component does not decide
                     int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
-                    if (2 * votes > samples.Count) nInside++;
+                    if (2 * votes > samples.Count)
+                        (nestedIn ?? (nestedIn = new List<int>())).Add(j);
                 }
-                bool cavity = (nInside % 2) == 1;
+                bool cavity = nestedIn != null && (nestedIn.Count % 2) == 1;
                 // an inside-out shell that the closed components leave flagged may be the cavity of a nearly
                 // closed open body: only that can take the flag back (never set one)
-                if ((vols[i] < 0) != cavity && (vols[i] >= 0 || openBodies.Encloses(closed[i], vols[i], volAreas[i].y) == false))
-                    result.Add(closed[i]);
+                if ((vols[i] < 0) == cavity || (vols[i] < 0 && openBodies.Encloses(closed[i], vols[i], volAreas[i].y)))
+                    continue;
+                // nested only if the surfaces do not meet: crossing components (their interiors overlap, neither
+                // encloses the other) have no nesting and keep their orientation. (Tested only for a component that
+                // would be flagged, so a correctly oriented mesh pays nothing for it.)
+                if (nestedIn != null && nestedIn.Any(j => surfaces_meet(mesh, closed[i], subs[j], trees[j])))
+                    continue;
+                result.Add(closed[i]);
             }
             return result;
+        }
+
+        // do the triangles tris of mesh meet (exactly: intersect or touch, beyond the vertices they share) a triangle
+        // of the submesh sub (with its tree)?
+        static bool surfaces_meet(DMesh3 mesh, int[] tris, DSubmesh3 sub, DMeshAABBTree3 tree)
+        {
+            DMesh3 other = sub.SubMesh;
+            bool found = false;
+            Index3i ia = Index3i.Zero;
+            Triangle3d A = new Triangle3d();
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            var traversal = new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (b, depth) => !found && b.Min.x <= box.Max.x && box.Min.x <= b.Max.x && b.Min.y <= box.Max.y
+                    && box.Min.y <= b.Max.y && b.Min.z <= box.Max.z && box.Min.z <= b.Max.z,
+                NextTriangleF = (tb) => {
+                    if (found) return;
+                    Index3i ib = other.GetTriangle(tb);
+                    Triangle3d B = new Triangle3d(other.GetVertex(ib.a), other.GetVertex(ib.b), other.GetVertex(ib.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
+                    // (the base mesh's vertex ids: a vertex shared by the two components, a bowtie, is shared here)
+                    Index3i jb = new Index3i(sub.MapVertexToBaseMesh(ib.a), sub.MapVertexToBaseMesh(ib.b), sub.MapVertexToBaseMesh(ib.c));
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, jb, ref B))
+                        found = true;
+                }
+            };
+            foreach (int t in tris) {
+                ia = mesh.GetTriangle(t);
+                A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+                if (ExactTriangleIntersection.IsDegenerate(ref A))
+                    continue;
+                box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                tree.DoTraversal(traversal);
+                if (found)
+                    return true;
+            }
+            return false;
         }
 
         // The open components of a mesh as possible enclosing bodies of inside-out closed components (boxes and

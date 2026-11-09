@@ -165,7 +165,7 @@ without demanding it; both lie in the gap band of D14 (pixel width tol), where m
 ## Corpus: public test fixtures (2026-11-01)
 
 The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
-licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20 and 30 degrees:
+licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20, 25 and 30 degrees (25 since the O11-unsplittable finding below):
 
 ```
 python3 benchmarks/Meshing2Benchmark/corpus/fetch.py
@@ -186,6 +186,7 @@ Found and fixed by the run (each with a regression test or self-check):
 | delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
 | earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
 | earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
+| earcut water-huge (M3 at 25 degrees; 0, 20 and 30 never ran 25) | oracle: a vertex in a circumcircle across a leg of the 0.84 degree corner | the leg's first piece (2^-22) has its midpoint 1.75e-9 from the other leg, within the mesher's tolerance (1.98e-9): O11 forbids the split point, so conforming Delaunay cannot be reached across it. The oracle mirrors the grid's three unsplittable exemptions for such O11-unsplittable pieces, counted per report (self-checks 7b to 7d, `SpikeOf084Degrees_*`). With it: 84 inputs, 330 M3 runs pass, 6 unjudged; excused once (water-huge at 25, 1 global), none in the catalogue rows |
 | earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
 
 ## The oracle's fast path (2026-11-01)
@@ -218,6 +219,128 @@ exact distances to every ring edge), quality 32 % (an exact sine per triangle), 
 indexed global pass found violations the skipped pass had hidden: conforming Delaunay in the merge zone of a small apex, which the oracle now
 excuses like the angle bound there (self-check 7).
 
+### Oracle speed (2026-11-02)
+
+The reference session's timings (`mesh` including its oracle) were dominated by the oracle, not the mesher (`mesh --no-oracle`, #319).
+Profiled hot spots, all on the fast path only (the reference path keeps every full scan):
+
+- **AngleBound's merge zone** (`InMergeZone`):
+  - source directions in doubles once per source, not per pair and triangle;
+  - pairs whose sine is surely above the bound are skipped before the exact test;
+  - each pair's sine, zone and apex are memoized;
+  - a double filter runs before the exact distance to the apex's source.
+- **Segments:**
+  - grids over the vertices and the ring edges replace the per-source scans;
+  - orientation and distance filters in doubles run before the exact crossing and tube tests (`InTube`, `SurelyOneSide`).
+- **Coverage:** `LocateExact` uses a grid over the triangles. The probes beyond the boundary edges scanned every triangle.
+
+The grid is the oracle's own small uniform grid (`BoxGrid`), not the library's quadtrees. The oracle references nothing of
+geometry3Sharp, so the compiler proves it shares no code with what it judges (owner decision 2026-11-02).
+
+The changes keep the outcome exactly:
+- **The grids:** they return a superset of the full scan's candidates, in ascending order, so the lists, the first match, the BFS path
+  and the reported end moves are the same.
+- **The double filters:** they only skip tests that are surely false, with error bounds of 1e-12 of the coordinates' magnitude.
+  They run only for magnitudes in [1e-140, 1e140], with directions normalised first. The review found an overflow at 1.3e154 and
+  an underflow of a product of squared lengths at 2^-270. `ExtremeScales_SameVerdictAndDetailsOnBothPaths` compares fast and
+  reference, the detail strings included, at 2^-300 to 2^512.
+- **Checked:** the corpus (84 inputs, 420 runs at M1/M2 and M3 at 0/20/25/30) gives the same verdicts and details, merge-zone and
+  O11 counts included. The 55 catalogue M3 rows give the same output. `Meshing2OracleModesTests` (fast against reference) passes, and
+  the self-check passes on both paths.
+
+Oracle time only (`oracle --input --output`, one process each, this 4-core container):
+
+| Output | before | after |
+|---|---|---|
+| Herne 373600 q20, snap 0.01 (94 238 triangles) | 69.2 s | 14.7 s |
+| Herne 373600 q30, snap 0.01 (241 626 triangles) | 100.7 s | 27.2 s |
+| poly2tri debug2, M2 (9 998 triangles) | 66.0 s | 12.3 s |
+| earcut water-huge3, M2 (15 500 triangles) | 9.7 s | 6.4 s |
+| earcut eberly-6, M2 | 3.4 s | 2.1 s |
+| Herne 381000 q20, snap 0.01 (5 656 triangles) | 2.2 s | 2.6 s (noise) |
+
+### Oracle speed: the tube of the sources (2026-11-03)
+
+GEOS's TestOverlay-shapely-829/1 (M2, 935 points, 1 112 segments with many crossings: 37 342 vertices, 74 273 triangles) took the
+mesher 2.2 s and the oracle more than 600 s in the reference run. The time went into two checks, each testing a vertex exactly against
+the tube of every source: `InventedVertices` (every vertex that is no input point, against all sources) and `Marks` (both ends of every
+subsegment). Every rational operation reduces by a GCD. On the fast path only:
+
+- **A grid over the source boxes** (widened by the tube) in `InventedVertices`, the same `BoxGrid` as above. It returns a superset in
+  ascending order, so the list of near sources is the same.
+- **A double filter before the exact test** (`TubeFilter`), for both checks. It decides "certainly farther" when the distance to the
+  source's line, bounded from below, exceeds the tube. It decides "certainly within" when the foot certainly lies on the source and the
+  distance to the line, bounded from above, is below the tube. The error bounds are those of the orientation filter (ccwerrboundA, used
+  as 1e-15 of the sum of the products). Products that underflow, and subnormal squares, leave it undecided.
+
+The self-checks hold the filter's boundaries:
+- the tube's two sides on a diagonal source;
+- a vertex on a source's extension just beyond its end, inside its box (the foot condition);
+- the error band, where the filter must not decide;
+- exact zeros on axis-parallel sources.
+
+They run on both paths. Each unsound mutation of the filter's conditions makes one of them fail. The review's mutants are covered
+too: the foot's lower end, the exact-zero shortcut and the cross product's error in the upper bound. A fuzz test,
+`Meshing2OracleTubeFilterTests`, compares the filter with the exact distance at the tube's boundary in the frames 2^-300 to 2^512.
+
+Oracle time only (`oracle --input --output`, one process each, this 4-core container):
+
+| Output | before | after |
+|---|---|---|
+| GEOS shapely-829/1, M2 (74 273 triangles), total | 714 s | 20 s |
+| of it InventedVertices | 540 s | 0.7 s |
+| of it Marks | 158 s | 0.6 s |
+
+`Segments` (13.6 s here) keeps its own filters (`InTube`, with a far side only).
+
+### Conformity searches: certified STRtree pruning (2026-11-08, #411)
+
+On the fast path (binary64 output) `Conformity` finds the used vertices that touch a triangle and the properly crossing edge pairs with
+NetTopologySuite STRtrees (an oracle-only dependency) and certified pruning: a point node is skipped when the affine maximum of a triangle
+edge's orientation over its closed box is negative; an edge node when its containing polygon (the exact endpoint hull up to 16 vertices,
+else its box corners) lies on one closed side of the query line, or the query segment on the closed outer side of a polygon edge. The leaf
+tests are the oracle's unchanged `OrientV` filter with the exact fallback. The reference path keeps the sweep (`BoxPairs`). Proofs,
+controls and measurements: [OracleIndexPilot](../OracleIndexPilot/README.md).
+
+What it costs and gains (edge component, one 2-CPU container): where edge boxes overlap massively the sweep is quadratic and the hull
+search wins (a 301 453-triangle former timeout: 5.9 s against 1.7 s for 4096 sampled queries; a comb of 8000 diagonal chains: 6.4 s
+against 1.4 s); on convex boundaries, where few nodes can be pruned, it stays about 3-4 times slower than the sweep (a 60 000-point
+lens: 0.25 s against 0.93 s), growing like n log n.
+
+| Variable | Values | Default |
+|---|---|---|
+| `G3_ORACLE_POINT_INDEX` | `strtree`, `sweep` | `strtree` |
+| `G3_ORACLE_EDGE_INDEX` | `strtree-hulls`, `sweep` | `strtree-hulls` |
+
+Unset, empty or blank means the default; case and surrounding blanks do not matter. Any other value stops the command at its start
+(exit code 2) and `Oracle.Check` before any work, with the variable, the value and the accepted values. With
+`Oracle.CheckFastPathForTests` (the oracle tests) both searches are compared with the sweep pair for pair
+(`Meshing2OracleStrtreeTests`, `Meshing2OracleFastPathCheckTests`).
+
+`G3_ORACLE_TIMING` laps: the former `conformity` lap is now `conformity: point-triangle`, `conformity: edge-crossings` and
+`conformity: remaining` (duplicate and unused vertices, the domain). `recheck.py` reads lap names generically (`ORACLE <name> <ms> ms`).
+
+## Herne ratchet and the snapped-area report (2026-11-03)
+
+`herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them
+at M3, and exits non-zero unless every run is VALID and its RefinementPinch count (a known violation of the strict decision on Q17,
+listed by the oracle without failing; `docs/design/MESHING2D_HULL_GRID.md` section 8) equals its limit exactly. A run with fewer
+lowers its limit in the script with the change that removed them. `--snapped-area` adds the mesh area minus the snapped domain's
+(exact, px²); CI does not run it, and `oracle`, `rows` and `corpus` take the same switch.
+
+| Run (q20 / q30) | RefinementPinch | mesh - snapped area, px² | oracle, #362 → this change, s | with --snapped-area, s |
+|---|---|---|---|---|
+| base 371800 | 215 / 217 | 0 / 0 | 4.3 → 4.2 / 6.0 → 6.4 | 6.9 / 12.4 |
+| base 373600 | 64 / 66 | 0.5 / 0.5 | 21.1 → 22.4 / 49.6 → 51.6 | 48.6 / 76.5 |
+| base 381000 | 21 / 21 | 21.5 / 24.5 | 3.2 → 2.9 / 3.5 → 4.0 | 3.6 / 4.5 |
+| cq 371800 | 85 / 217 | 0 / 0 | 3.2 → 3.5 / 5.7 → 5.5 | 4.6 / 12.2 |
+| cq 373600 | 44 / 66 | 0 / 0.5 | 11.2 → 10.1 / 32.9 → 29.0 | 33.0 / 58.0 |
+| cq 381000 | 11 / 21 | 7.5 / 24.5 | 2.8 → 2.3 / 3.3 → 3.3 | 2.5 / 4.2 |
+| total | | | 146.9 → 145.2 | 267.0 |
+
+One run each, one process at a time, this 4-core container; the oracle's new rules cost 0 to 10 % per run (noise included), the
+report 2.3 to 3.6 times on the large runs.
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in
@@ -249,3 +372,32 @@ excuses like the angle bound there (self-check 7).
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --case f-23/angle-20 --output ours.ele    # ours.node, .ele, .poly
   dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input lake.poly --output lake_ours.ele --min-angle 30
   ```
+
+## Constrained-quality golden gate
+
+The default M3 golden file and `golden/m3-constrained.json` are separate suites.
+The constrained suite contains all 52 covered, non-slow M3 catalogue cases that
+do not explicitly require Conforming. It creates fresh canonical inputs with
+`mode constrained`, so their hashes differ from the default inputs. F-38/a–e run
+with the angle check enabled, as in #394. The independent oracle must accept each
+result before it is recorded, and it is rerun on every check; matching a stored
+fingerprint alone cannot excuse an invalid output.
+
+```sh
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden check --milestone M3 --mode constrained
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -- golden update --milestone M3 --mode constrained --reasons /tmp/reasons.tsv
+```
+
+Updates require a per-row reason, just like the default suite. `--mode constrained`
+requires M3; a missing or unknown mode value is a usage error. `ci` checks this
+suite as well as default M1/M2/M3. `Meshing2GoldenTests` runs it on net10.0 and
+net48, including negative mode selection and fresh-instance isolation controls.
+No default golden row or production mesher is changed by this addition.
+
+Two rows intentionally record a reached Steiner limit (f-12/b and f-37); their
+limit/bad-triangle fields are protected too. An oracle-valid limited output is
+not a claim that every requested quality bound was achieved.
+
+The [reference recheck tools](rechecks/README.md) separately regenerate historical
+exceptions against pinned public inputs. They retain failures/timeouts and do not
+promote reference rows into golden truth.

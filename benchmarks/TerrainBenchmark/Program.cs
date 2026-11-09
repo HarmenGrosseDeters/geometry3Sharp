@@ -11,7 +11,7 @@
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
 //   csf      points=<cloud> grid=<dgm grid> [res=1] [threshold=0.5] [rigidness=2]
 //   slope    [toe=ngon|lshape|wavy] [n=24] [r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]
-//            [terrain=none|wave] [amp=0.2h] [tgrid=5] [composite=1]   (TerrainSlopeDesign,
+//            [terrain=none|wave] [amp=0.2h] [tgrid=5] [composite=1|2 (only the replacement)]   (TerrainSlopeDesign,
 //            procedural toes, no data needed; timings per phase, kernel counters, the oracle time per triangle)
 // Grids and clouds are names in data/ (see fetch_data.py).
 using System;
@@ -283,6 +283,7 @@ class Program
         R["missed"] = miss;
         Checks.Stats(err, "dz", R);
         R["check_s"] = Secs(sw);
+        AddClosest(g, res);
     }
 
 
@@ -320,6 +321,8 @@ class Program
         R["missed"] = miss;
         Checks.Stats(err, "dz", R);
         R["check_s"] = Secs(sw);
+        AddClosest(g, res);
+        sw.Restart();
         if (Arg("fidelity", "0") == "1") {
             // against the TIN of all grid nodes (open: no volume IoU); relative to the window's size (1 km: 1.4e3)
             FidelityFields.Add(g.BuildMesh(origin), res, R, false, 50000, 0);
@@ -327,6 +330,17 @@ class Program
         }
     }
 
+
+    static void AddClosest(Grid grid, DMesh3 result)
+    {
+        var sw = Stopwatch.StartNew();
+        DMesh3 reference = grid.BuildMesh(origin);
+        R["closest_reference_s"] = sw.Elapsed.TotalSeconds;
+        R["closest_missing_grid_triangles"] = 2L * (grid.NX - 1) * (grid.NY - 1) - reference.TriangleCount;
+        ClosestFields.Add(reference, result, R, int.Parse(Arg("closest_samples", "10000"), CultureInfo.InvariantCulture));
+        if ((long)R["closest_missing_grid_triangles"] > 0 && (string)R["closest_status"] == "ok")
+            R["closest_status"] = "partial";
+    }
 
     // ---------------------------------------------------------------- offset
     static void Offset(double[] w)
@@ -372,8 +386,13 @@ class Program
         int n = (int)ArgD("n", 24);
         double r = ArgD("r", 200), h = ArgD("h", 60), tol = ArgD("tol", 0.01), ratio = ArgD("ratio", 1);
         Vector3d c = Arg("coords", "utm") == "utm" ? new Vector3d(327000.25, 5642000.5, 80) : new Vector3d(0, 0, 80);
+        // (cx, cy, cz: the toe's centre and height, eg on the Hambach DGM with terrain=dgm)
+        c = new Vector3d(ArgD("cx", c.x), ArgD("cy", c.y), ArgD("cz", c.z));
         var pts = new List<Vector3d>();
-        if (kind == "lshape") {
+        if (kind == "edge") {
+            // one open toe edge of length 2 r along x, the slope on its left (+y)
+            pts.Add(c + new Vector3d(-r, 0, 0)); pts.Add(c + new Vector3d(r, 0, 0));
+        } else if (kind == "lshape") {
             foreach (var p in new[] { (0.0, 0.0), (2.0, 0.0), (2.0, 0.6), (0.6, 0.6), (0.6, 2.0), (0.0, 2.0) }) pts.Add(c + new Vector3d(r * p.Item1, r * p.Item2, 0));
         } else {
             for (int i = 0; i < n; ++i) {
@@ -382,10 +401,40 @@ class Program
                 pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), z));
             }
         }
-        var toe = SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
-        var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
+        var toe = kind == "edge" ? SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(ratio))
+                                 : SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+        var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol, SlopeMargin = double.Parse(Arg("margin", "1e-6"), CultureInfo.InvariantCulture) };
         // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
         // the catch lines and (composite=1) the composite terrain
+        if (Arg("terrain", "none") == "dgm") {
+            // terrain=dgm (Hambach, fetch_data.py): the grid 'grid' (default dgm2022) around the toe, out to 'reach'
+            // metres, every 'tstride'-th node
+            var sw0 = Stopwatch.StartNew();
+            Grid g = Grid.Load(System.IO.Path.Combine(dataDir, Arg("grid", "dgm2022")));
+            double reach = ArgD("reach", 400);
+            int st = (int)ArgD("tstride", 2);
+            var box = new AxisAlignedBox2d(pts[0].xy, pts[0].xy);
+            foreach (var p in pts) box.Contain(p.xy);
+            box.Expand(reach);
+            int i0 = Math.Max(0, (int)Math.Ceiling((box.Min.x - g.X0) / g.Dx)), i1 = Math.Min(g.NX - 1, (int)Math.Floor((box.Max.x - g.X0) / g.Dx));
+            int j0 = Math.Max(0, (int)Math.Ceiling((box.Min.y - g.Y0) / g.Dx)), j1 = Math.Min(g.NY - 1, (int)Math.Floor((box.Max.y - g.Y0) / g.Dx));
+            int nx = (i1 - i0) / st, ny = (j1 - j0) / st;
+            var terrain = new DMesh3();
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i)
+                    terrain.AppendVertex(new Vector3d(g.X(i0 + i * st), g.Y(j0 + j * st), g[i0 + i * st, j0 + j * st]));
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    int v = j * (nx + 1) + i;
+                    terrain.AppendTriangle(v, v + 1, v + nx + 2); terrain.AppendTriangle(v, v + nx + 2, v + nx + 1);
+                }
+            d.Terrain = terrain; d.HeightLimit = double.NaN;
+            d.BuildComposite = ArgD("composite", 1) != 0;
+            if (ArgD("composite", 1) == 2) d.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
+            R["terrain_tris"] = terrain.TriangleCount; R["terrain_load_s"] = Secs(sw0);
+            if (ArgD("time_terrain_check", 0) != 0) { TerrainVolumeDifference.XYOverlaps(terrain); R["terrain_xyoverlaps_s"] = Secs(sw0); }
+            R["terrain_zmin"] = terrain.Vertices().Min(v => v.z); R["terrain_zmax"] = terrain.Vertices().Max(v => v.z);
+        }
         if (Arg("terrain", "none") == "wave") {
             double amp = ArgD("amp", 0.2 * h), spacing = ArgD("tgrid", 5), reach = (h + amp) * ratio * 1.2 + 2 * spacing;
             var box = new AxisAlignedBox2d(pts[0].xy, pts[0].xy);
@@ -406,23 +455,78 @@ class Program
                 }
             d.Terrain = terrain; d.HeightLimit = double.NaN;
             d.BuildComposite = ArgD("composite", 1) != 0;
+            if (ArgD("composite", 1) == 2) d.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
             R["terrain_tris"] = terrain.TriangleCount;
         }
+        // repeat=N: N runs on the same instance (the first includes the JIT); slope_s is the last, slope_first_s the first
+        int repeat = Math.Max(1, (int)ArgD("repeat", 1));
+        // localframe=1: TerrainSlopeDesign.LocalFrame (docs/design/TERRAIN.md 5.8.1)
+        d.LocalFrame = ArgD("localframe", 0) != 0;
+        // (allocations and collections of the design: the cost probe of LocalFrame, TERRAIN.md 5.8.1)
+        int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
+        long alloc = GC.GetTotalAllocatedBytes(false);
         var sw = Stopwatch.StartNew();
         bool ok = d.Compute();
         R["slope_s"] = Secs(sw);
+        R["alloc_mb"] = (GC.GetTotalAllocatedBytes(false) - alloc) / 1048576.0;
+        R["gc0"] = GC.CollectionCount(0) - gc0; R["gc1"] = GC.CollectionCount(1) - gc1; R["gc2"] = GC.CollectionCount(2) - gc2;
+        if (repeat > 1) {
+            R["slope_first_s"] = R["slope_s"];
+            var times = new List<double>();
+            for (int i = 1; i < repeat; ++i) { sw.Restart(); ok = d.Compute(); times.Add(Secs(sw)); }
+            times.Sort();
+            R["slope_s"] = times[times.Count / 2]; R["slope_warm_min_s"] = times[0];
+        }
         R["ok"] = ok; R["slope_status"] = d.Status.ToString(); R["message"] = d.Message;
-        R["toe_points"] = pts.Count; R["attempts"] = d.Attempts;
+        R["toe_points"] = pts.Count; R["attempts"] = d.Attempts; R["realizations"] = d.Realizations;
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
         R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
+        // (diagnostics of the band repair, TERRAIN.md 5.4: internal fields, read by reflection)
+        foreach (string f in new[] { "BandMerges", "MaxMergeDistance", "MergedPositions", "NeedleFlips" }) {
+            var fi = typeof(TerrainSlopeDesign).GetField(f, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (fi != null) R[f] = fi.GetValue(d);
+        }
+        // (FNV-1a over the vertices' bits and the triangles: equal hashes, equal outputs bit for bit)
+        Func<DMesh3, string> hash = (m) => {
+            if (m == null) return "null";
+            ulong h = 14695981039346656037UL;
+            Action<long> mix = (x) => { for (int i = 0; i < 8; ++i) { h ^= (ulong)((x >> (8 * i)) & 0xff); h *= 1099511628211UL; } };
+            foreach (int v in m.VertexIndices()) { var p = m.GetVertex(v); mix(v); mix(BitConverter.DoubleToInt64Bits(p.x)); mix(BitConverter.DoubleToInt64Bits(p.y)); mix(BitConverter.DoubleToInt64Bits(p.z)); }
+            foreach (int t in m.TriangleIndices()) { var tv = m.GetTriangle(t); mix(t); mix(tv.a); mix(tv.b); mix(tv.c); mix(m.GetTriangleGroup(t)); }
+            return h.ToString("x16");
+        };
+        R["hash_surface"] = hash(d.SlopeSurface); R["hash_region"] = hash(d.SlopeRegion); R["hash_composite"] = hash(d.Composite ?? d.Replacement);
+        R["min_feature"] = d.UsedMinFeatureSize;
+        if (d.LocalFrame) {
+            R["local_origin_x"] = d.UsedOrigin.x; R["local_origin_y"] = d.UsedOrigin.y; R["local_fallback"] = d.LocalFrameFallback;
+        }
         R["toe_lowering"] = d.UsedToeLowering; R["slope_margin"] = d.UsedSlopeMargin; R["facet_angle"] = d.FacetAngle; R["max_slope_ratio"] = d.MaxSlopeRatio;
         if (d.Terrain != null) {
             R["catch_lines"] = d.CatchLines.Count; R["catch_points"] = d.CatchLines.Sum(l => l.Points.Count);
             R["catch_closed"] = d.CatchLines.Count(l => l.Closed);
-            if (d.Composite != null) {
-                R["composite_tris"] = d.Composite.TriangleCount; R["region_tris"] = d.SlopeRegion.TriangleCount;
+            // (Replacement: checked as the full composite, joined with the terrain triangles not replaced, outside the timing)
+            DMesh3 joined = d.Composite;
+            if (d.Replacement != null) {
+                R["replacement_tris"] = d.Replacement.TriangleCount; R["replaced_terrain_tris"] = d.ReplacedTerrainTriangles.Count;
+                joined = new DMesh3(d.Replacement);
+                var replaced = new HashSet<int>(d.ReplacedTerrainTriangles);
+                var at = new Dictionary<int, int>();
+                Func<int, int> jv = (tv) => {
+                    int o = d.TerrainCompositeVertices[tv];
+                    if (o >= 0) return o;
+                    if (at.TryGetValue(tv, out o) == false) { o = joined.AppendVertex(d.Terrain.GetVertex(tv)); at[tv] = o; }
+                    return o;
+                };
+                foreach (int t in d.Terrain.TriangleIndices()) {
+                    if (replaced.Contains(t)) continue;
+                    Index3i tv = d.Terrain.GetTriangle(t);
+                    if (joined.AppendTriangle(jv(tv.a), jv(tv.b), jv(tv.c)) < 0) R["join_failures"] = 1;
+                }
+            }
+            if (joined != null) {
+                R["composite_tris"] = joined.TriangleCount; R["region_tris"] = d.SlopeRegion.TriangleCount;
                 var swc = Stopwatch.StartNew();
-                R["composite_overlaps"] = TerrainVolumeDifference.XYOverlaps(d.Composite);
+                R["composite_overlaps"] = TerrainVolumeDifference.XYOverlaps(joined);
                 int rp = 0;
                 foreach (int t in d.SlopeRegion.TriangleIndices()) {
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
@@ -431,6 +535,32 @@ class Program
                     if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) rp++;
                 }
                 R["region_oracle_pass"] = rp; R["composite_check_s"] = Secs(swc);
+                // RoundToGrid's upper bound (ROADMAP): the slope region's and the slope surface's coordinates rounded to
+                // grids (round=w1,w2,...), the exact checks again: how many triangles flip, degenerate, get steeper or
+                // lose their support
+                foreach (string ws in (Arg("round") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)) {
+                    double gw = double.Parse(ws, CultureInfo.InvariantCulture);
+                    // (z to nearest, or down: a cut surface's plane only lowers, which keeps the support)
+                    bool zdown = Arg("zround", "nearest") == "down";
+                    Func<Vector3d, Vector3d> rnd = (v) => new Vector3d(Math.Round(v.x / gw) * gw, Math.Round(v.y / gw) * gw, (zdown ? Math.Floor(v.z / gw) : Math.Round(v.z / gw)) * gw);
+                    foreach (var kv in new[] { new KeyValuePair<string, DMesh3>("region", d.SlopeRegion), new KeyValuePair<string, DMesh3>("surface", d.SlopeSurface) }) {
+                        int flipped = 0, steeper = 0, unsupported = 0, nt = 0;
+                        foreach (int t in kv.Value.TriangleIndices()) {
+                            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
+                            kv.Value.GetTriVertices(t, ref a, ref b, ref q);
+                            SlopePiece p = d.Pieces[kv.Value.GetTriangleGroup(t)];
+                            if (p.Direction == TerrainSlopeDesign.Directions.Fill) continue;
+                            nt++;
+                            int o0 = ExactPredicates.Orient2d(a.xy, b.xy, q.xy);
+                            Vector3d ra = rnd(a), rb = rnd(b), rq = rnd(q);
+                            int o1 = ExactPredicates.Orient2d(ra.xy, rb.xy, rq.xy);
+                            if (o1 == 0 || o1 != o0) { flipped++; continue; }
+                            if (Slope.IsNotSteeper(ra, rb, rq, p.Spec) == false) steeper++;
+                            else if (Slope.IsPlaneOnOrBelow(ra, rb, rq, p.P0) == false || Slope.IsPlaneOnOrBelow(ra, rb, rq, p.P1) == false) unsupported++;
+                        }
+                        R[$"round_{ws}_{kv.Key}"] = $"{nt} tris: {flipped} flipped or degenerate, {steeper} steeper, {unsupported} unsupported";
+                    }
+                }
             }
         }
         if (!ok) return;

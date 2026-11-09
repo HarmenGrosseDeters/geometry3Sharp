@@ -60,6 +60,15 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < r.CatchLines.Count; ++i)
                     Assert.Equal(r.CatchLines[i].Points, d.CatchLines[i].Points.Select(p => Back(s, p)).ToList());
                 Assert.Equal(r.UsedToeLowering * s.Scale, d.UsedToeLowering);
+                // the catch line's gradients, unchanged, and its uncertainties, scaled (TERRAIN.md 5.5)
+                for (int i = 0; i < r.CatchLines.Count; ++i) {
+                    Assert.Equal(r.CatchLines[i].Gradient, d.CatchLines[i].Gradient);
+                    Assert.Equal(r.CatchLines[i].Uncertainty.Select(u => u * s.Scale).ToList(), d.CatchLines[i].Uncertainty);
+                }
+                // the volumes, scaled (TERRAIN.md 5.7)
+                Assert.Equal(r.Volume * s.Scale * s.Scale * s.Scale, d.Volume);
+                Assert.Equal(r.PlanArea * s.Scale * s.Scale, d.PlanArea);
+                Assert.Equal(r.SlopeArea * s.Scale * s.Scale, d.SlopeArea);
             } else {
                 // the same lines within the rounding of the frame (positions; the slope is the same within Tolerance)
                 var refPts = r.CatchLines.SelectMany(l => l.Points).ToList();
@@ -72,6 +81,10 @@ namespace geometry3Sharp.Tests
                     }
                 double lr = r.CatchLines.Sum(l => length(l)), ld = d.CatchLines.Sum(l => length(l)) / s.Scale;
                 Assert.True(Math.Abs(lr - ld) <= 1e-3 * lr, $"catch line length {ld} vs {lr}");
+                // the volumes within the slope's Tolerance over the plan area (another frame, other facets)
+                double vd = d.Volume / (s.Scale * s.Scale * s.Scale);
+                Assert.True(Math.Abs(vd - r.Volume) <= 2 * 0.02 * r.PlanArea, $"volume {vd} vs {r.Volume}");
+                TerrainSlopeVolumeTests.AssertVolumesMatchComposite(d, false);
             }
         }
 
@@ -81,6 +94,46 @@ namespace geometry3Sharp.Tests
             int n = l.Closed ? l.Points.Count : l.Points.Count - 1;
             for (int i = 0; i < n; ++i) sum += l.Points[i].xy.Distance(l.Points[(i + 1) % l.Points.Count].xy);
             return sum;
+        }
+
+        // a square pit whose toe runs along terrain edges, its corners on terrain vertices: rounded in a frame, the toe
+        // and those edges are a few ulps apart, and the terrain left between them is a sliver narrower than an ulp. The
+        // crossing of a toe edge with a terrain edge at such a vertex, moved off the slope side, left both terrain
+        // triangles at its edge (rotated, scale 1e-3, utm): the part of its triangle overlapped the kept triangle beyond
+        static TerrainSlopeDesign ToeOnTerrainEdges(Similarity s)
+        {
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => 5);
+            foreach (int v in terrain.VertexIndices().ToList()) terrain.SetVertex(v, s.Apply(terrain.GetVertex(v)));
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(10, 0).Select(p => s.Apply(p)).ToList(), true,
+                SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            return new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = s.ApplyLength(0.05), BuildComposite = true };
+        }
+
+        static readonly Lazy<TerrainSlopeDesign> toeOnEdgesReference = new Lazy<TerrainSlopeDesign>(() => {
+            var d = ToeOnTerrainEdges(Similarity.Identity);
+            Assert.True(d.Compute(), d.Message);
+            return d;
+        });
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ToeOnTerrainEdges_Similarities(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            var d = ToeOnTerrainEdges(s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeCatchLineTests.AssertCatchLines(d);
+            TerrainSlopeCatchLineTests.AssertComposite(d);
+            var r = toeOnEdgesReference.Value;
+            if (s.IsExact) {
+                Assert.Equal("", Invariance.Difference(r.Composite, Invariance.MappedBack(d.Composite, s)));
+                Assert.Equal("", Invariance.Difference(r.SlopeRegion, Invariance.MappedBack(d.SlopeRegion, s)));
+                Assert.Equal(r.Volume * s.Scale * s.Scale * s.Scale, d.Volume);
+            } else {
+                double vd = d.Volume / (s.Scale * s.Scale * s.Scale);
+                Assert.True(Math.Abs(vd - r.Volume) <= 2 * 0.05 * r.PlanArea, $"volume {vd} vs {r.Volume}");
+                TerrainSlopeVolumeTests.AssertVolumesMatchComposite(d, false);
+            }
         }
 
         [Fact]

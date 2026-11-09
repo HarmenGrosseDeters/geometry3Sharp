@@ -440,6 +440,11 @@ a steeper neighbouring piece where the exact S has a gentler apex. Under the aud
 fine, because the triangle is below all cones of the piece it is attributed to. Under a pointwise reading against
 the exact S it would not be. The guarantee is stated for the attribution rule (2.3).
 
+**The composite.** With a terrain the composite is within `Tolerance` of the clamp max(S_fill, min(T, S_cut))
+except within m of the toe, lateral-limit and cap steps, whose position shifts by m. Here m is the catch points' move:
+below `MinFeatureSize` in a single run, and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing
+of a mixed run. It is certified per composite (5.5).
+
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
 - First, round the XY of each vertex directly to the final double (UTM) coordinates. Then evaluate z at exactly
@@ -482,6 +487,254 @@ accepted only if it keeps the geometry within the cell and passes the check.
 
 Every collapse removes a vertex. Flips are only accepted if they raise the smallest altitude. So the loop
 terminates.
+
+**Repair of the band [64·e_xy, `MinFeatureSize`) (item 4 of 1c, design 2026-11-03, revised after the bound
+review and a spike; the band merge is implemented, `SlopeMap.BandMerge`, the band flips are not).** Before it,
+the realization repaired by thresholds that scale with e_xy:
+- the merge of positions and the needle flips (`SlopeMap.FlipNeedles`) act below r = 64·e_xy;
+- `CollapseShortEdges` acts on edges shorter than `MinFeatureSize`;
+- δ covers only triangles with h_min ≥ `MinFeatureSize` ≈ 16·e_xy/δ.
+
+A cap needle (long edges, small altitude) with r ≤ h < `MinFeatureSize` is covered by none of them.
+
+- **What fails** (the repro below, near the origin: e_xy 5.7e-14, r 3.6e-12, `MinFeatureSize` 2.3e-6). The first
+  attempt has two cap needles along the crease x ≈ 0 where pieces 33, 37 and 38 meet, with altitudes 4.0e-12 and
+  4.5e-12, just above r, and edges of 37 m.
+  - One fails the slope check (i).
+  - The other fails support (ii) with an excess of 2.84 m: its plane, extrapolated to the toe ends, is that far
+    above them.
+  - λ cannot take this (λ bound 9.2e-5), so δ is raised. The next attempts fail again, with new needles and with
+    thick triangles whose support fails by 1e-3 to 0.57 m, until the margins no longer fit `Tolerance`
+    (`SlopeViolation` after 3 attempts).
+- **Where the needles come from.** Four planes (labels 67, 69, 75 and 77) nearly meet in one point. The exact map
+  has two triple points there, 8.5e-12 apart, joined by a short edge, with plane sets {67, 69, 77} and
+  {69, 75, 77}.
+  - `CollapseShortEdges` may not collapse it: neither plane set contains the other. Its plane-set rule keeps the
+    triangles in their cells.
+  - The merge does not take it either: 8.5e-12 is above r.
+  - The needles fan out from that edge as a strip. The neighbour of each needle across its longest edge is a needle
+    too, so no flip raises the smaller altitude: a spike of the band flips (step 3 below) made none.
+  - The later attempts have more such pairs: 3.2e-10 and 3.6e-12 apart.
+- **Why not at UTM.** The same design at UTM (e_xy 9.3e-10) has no needles at all: 0 merges, 0 flips, and λ is
+  raised once by measurement, to 5.3e-7. The crease points that are 4e-12 apart near the origin round to one
+  position on the 9.3e-10 grid. The geometry is the same; the result depends on the frame because the grid does.
+  A UTM design with crease features between 6e-8 m and 1.5 cm wide could fail the same way.
+- **Repro** (`TerrainSlopeBandRepairTests`, procedural, about 8 s):
+  - toe: a wavy 48-gon of r 150 m, z −340 ± 4 m, ratio 1.5;
+  - terrain: a wave terrain 60 m above the toe, amplitude 20 m, 8 m grid, 13k triangles;
+  - `Tolerance` 0.05.
+
+  Before the band merge, at (0, 0) it failed after 3 attempts, with needles among the failing triangles; with it,
+  it succeeds in 1 attempt (one band merge of 8.5e-12 m). At UTM it succeeds in 1 attempt, with no band merge.
+
+**Why a small deviation is not enough.** The flip's deviation bound d = |z_ab(X) − z_cd(X)| at the crossing X of
+the diagonals bounds how far the surface moves, not its slope or support:
+- the gradient of a new triangle of altitude h' can be off by about d/h';
+- its plane at the toe ends, a distance D away, by about d·D/h'.
+
+For h 1e-10 → h' 2e-10 and D 100 m, that is O(sMax) and 1e2 m. A chain of flips leaves the plane-set cells (the
+triangles span the crease), so their gradients are no longer bounded by sMax either; no bound over chains is used.
+For one flip the change is exactly |ΔG⊥|·h_c·h_d/(h_c + h_d) ≤ |ΔG|·min(h_c, h_d), with the realized gradients of the
+two old triangles.
+
+**The repair:**
+
+1. **Normal merge and collapse first, as today.** The realization merges positions within r
+   (`merge_close_positions`, once per realization, before the collapses). Then `CollapseShortEdges` collapses
+   edges shorter than `MinFeatureSize` by the plane-set rule. It measures in 3D, and z depends on λ, so its
+   decisions are made on a build's first realization and replayed on the later ones (the same edges by their
+   ends in XY). Measuring in XY instead would have changed today's results on steep short edges (the L shape of
+   the A/B).
+2. **Then the band merge, targeted.**
+   - **What it takes:** only the short edges of needles. An edge qualifies if all of these hold:
+     - its XY length ℓ is at most r_band (≤ `MinFeatureSize`). Both its triangles are then needles, since a
+       triangle's altitude is at most its shortest edge, so no separate needle test is needed (ℓ = `MinFeatureSize`
+       exactly is harmless);
+     - the plane sets of its two ends differ. Sets of which neither contains the other are a near-quadruple point,
+       which step 1 may not collapse. Nested sets step 1 may collapse, but it leaves some: it refuses a collapse
+       that shrinks a thin altitude, and it measures in 3D, so an edge short in XY and long in z stays. Such a
+       nested pair is the band merge's too (added with the chains, below: the wavy toe on the Hambach DGM in its
+       local frame, 5.8.1, failed on both). Its removed labels are a subset of the kept ones, so the kept z does not
+       change;
+     - neither end lies on a barrier (toe, lateral limit). Toe and lateral vertices are never moved, and they stay
+       shared with the TIN and the composite;
+     - neither end lies on the mesh's boundary (the cap's level line, which a collapse would move);
+     - at least one of its two triangles fails the exact checks (i) or (ii). A needle that passes is left as it is,
+       so the band merge never makes a passing design worse; its z changes would move the gradients of the kept
+       vertex's other triangles.
+   - **What it does:** in passes until one merges nothing, in each pass shortest edges first, then by edge id,
+     each edge is collapsed onto one end. Chains are merged: three triple points pairwise within r_band (a
+     near-quintuple point) need two merges at one vertex, and with one pass and no chains the second edge, the one
+     of the failing needles, was never taken.
+     - **Cumulative cap.** Every vertex carries the original XY positions merged into it (its own, and those of
+       the vertices it absorbed). A merge is refused if one of the removed vertex's positions would move by more
+       than r_band in XY to the kept vertex. The kept vertex never moves in XY, so the move of every original
+       position is its distance to the vertex it ends in, at most r_band. The distance is an upper bound, every
+       step rounded up (difference, squares, sum, root), so the cap and ℓ_max hold for the exact distances.
+     - **Order.** "Shortest first" uses the lengths at the start of the pass. A collapse moves the removed
+       vertex's edges to the kept one, which changes their lengths within the pass; the cap decides on the move,
+       which for the removed end is that edge's current length.
+     - **Termination.** Each merge removes a vertex, so there are fewer merges than vertices, and a pass without a
+       merge ends the loop.
+     - **Determinism.** The order in a pass is canonical (XY length, then edge id) on a realization that is itself
+       deterministic, and the checks are exact, so the merges are the same on every run.
+     - **Kept end.** The end is chosen by a total order that is 2^k-invariant: more labels first, then x, then y,
+       as `merge_close_positions` orders. The kept vertex takes the union of both plane sets, and its z is the
+       lowest of those planes at its XY, lowered by λ, as the realization evaluates it.
+   - **When it is refused:** the collapse is made only if it keeps every other triangle of the removed vertex
+     counter-clockwise (exact Orient2d, as `CollapseShortEdges`) and the mesh's link condition holds
+     (`DMesh3.CollapseEdge`). A refused edge stays, and the check decides. There is no global radius, so no merge
+     of non-adjacent vertices across a narrow face, and no crack or fold to fall back from.
+   - Everything else keeps today's r. The band merge runs only if the merge within r ran (not in its non-manifold
+     fallback to none) and r_band > r. Without failing needles, nothing changes; the lowering is then today's
+     `RepairLambda`, bit for bit.
+   - **Radius.** r_band = max(r, min(`MinFeatureSize`, slack/(4·sMax) − r − e_xy, (λ bound − `RepairLambda`(1))/(2·sMax)
+     − e_xy − r)), rounded down, with the facets' slack below; the lowering of band merges is rounded up. Both caps count r + r_band, as the moves add up. With today's
+     flips, the merge's lowering then stays under λ's bound, and today's `RepairLambda` gate keeps today's merges
+     and flips. Where the slack leaves no room, r_band = r and no band merge is made: that design fails as today.
+   - **Bound.** The derivation of the merge (in `TerrainSlopeDesign.cs`, at the merge share) holds with ℓ, the
+     largest move of an original position (the distance a label is carried), in place of r. The surface moves:
+     - below S̃ by at most 4·sMax·(ℓ_max + e_xy);
+     - above it by at most 2·sMax·(ℓ_max + e_xy), plus the rounding of a vertex, which λ covers.
+
+     - **Moves add up.** Chains of band merges do not add up beyond r_band: ℓ_max is the largest move of an
+       original position over all band merges (the cumulative cap above), not the longest edge merged, and it is at
+       most r_band. A position the merge within r has already moved, and then band merges move, has moved by at
+       most r + ℓ_max. So the lowering counts r + ℓ_max whenever the merge within r moved positions, and r_band's
+       cap counts r + r_band (λ room − r). The labels a vertex carries come from positions at most that far away,
+       which is what the bound's premise uses.
+   - **Per realization.** The band merge is decided anew on each realization: the lengths and moves are in XY,
+     but which edges qualify depends on the exact checks of that realization, so on λ (z) and on δ (through
+     `MinFeatureSize` and so r_band). Only the collapses of step 1 are recorded and replayed. The bound holds per
+     realization: each realization's lowering need is computed from its own merges (r if the merge within r moved
+     positions, plus that realization's ℓ_max), and the attempt's checks run on that realization. A need above λ's
+     bound, which the radius's caps exclude, is still checked: λ is not raised past its bound, and the attempt goes
+     back for a larger δ.
+   - **Spike** (the repro, local, with a global radius r_band; the targeted version replaces it): at the origin
+     3 merges per realization, ℓ_max = 8.5e-12 (2.3·r), and `Success` in 1 attempt (2 realizations) instead of
+     `SlopeViolation` after 3. At UTM there were 0 merges.
+3. **Then flip, in one pass with today's flips,** for needles without a short edge. *Documented, not implemented:*
+   the band flips made no flip in the repro or in the terrain tests, so they are implemented only when a
+   procedural case needs them (a cap needle without a short edge that fails without them and passes with them).
+   Until then the implementation keeps today's flips below r. As designed: one
+   `FlipNeedles` pass with one deviation map and one bound handles every needle below `MinFeatureSize`.
+   - Below r it keeps today's rule: proper, the smaller altitude grows, and the bound ≤ maxDeviation. Today's
+     successes stay.
+   - A needle with r ≤ h < `MinFeatureSize` has its longest edge flipped only if all of these hold:
+     - the old diagonal's ends lie strictly on both sides of the new one (exact Orient2d);
+     - the smaller altitude of the pair strictly grows;
+     - **both new triangles have altitude ≥ `MinFeatureSize`.** The rounding part of their gradient error is then
+       what δ covers (the premise of the δ derivation above);
+     - **both new triangles pass the exact checks (i) and (ii)** against their piece, at the current λ. The exact
+       predicates decide; no estimate of the crease part is relied on;
+     - the exact deviation bound (rounded up, and for the second flip of a triangle the larger bound of the old
+       pair plus the change) is ≤ maxDeviation.
+   - maxDeviation = min(R − 4·sMax·(r_band − r), λ bound − λ_merge). λ_merge = 4·e_z + 2·sMax·(r_band + e_xy) is
+     the merge's part, set before the merges are known. Merge and flips together then need at most the λ bound
+     (λ is capped at its bound).
+   - The spike made no flip; this step covers needles that the repro does not have.
+4. **The lowering λ is measured.** The realization needs
+   λ ≥ 4·e_z + [merged: 2·sMax·(m + e_xy)] + [flipped: d_max]. Here m = r if only the merge within r moved
+   positions, ℓ_max for band merges alone, r + ℓ_max for both. d_max is the largest deviation bound of the flips
+   made (today's flips: 2·sMax·(r + e_xy)). A needle 4e-12 m wide then costs about 1e-11, not R. The spike still took the a-priori
+   2·sMax·r_band (λ 1.0e-6); the measured value would have been about 4e-11.
+   - **The λ round is bounded.** A larger λ means another realization, which lowers z only:
+     - `Realize` rounds XY independently of λ (`K.Rounded`);
+     - the merge within r does not depend on λ, and `CollapseShortEdges` is replayed; the band merge is decided
+       anew (step 2, "Per realization"), through the exact checks, and its need is that realization's;
+     - so the second realization has the same vertices in XY and the same merges within r.
+   - The second realization reuses the first one's flips: the same edges, keyed by their ends in XY. It does not
+     decide again or measure again; its λ is the measured one.
+   - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
+     `SlopeViolation`).
+   - So one attempt has at most two realizations for its repairs, and no loop between λ and the repairs.
+   - **The first λ and the composite's clipped region.** The first realization takes λ = 4·e_z, with
+     e_z = 2·sMax·e_xy + e_eval. The composite's clipped slope triangles have their vertices on S̃, rounded in z
+     (½ ulp of |z|), and the support check of such a triangle extends its plane to the toe line, tens of metres
+     away: the rounding is amplified by distance over altitude (up to about 1e4 on the DGM cases). Their support
+     error (4e-13 to 1.8e-7 measured) depends on z and the geometry, not on e_xy. At UTM the first λ is dominated by
+     the XY part of e_z (e_xy 9.3e-10, λ about 5e-9), which hides the error in most cases. In a local frame
+     (5.8.1) or near the origin the XY part shrinks while z stays, so the first λ is about 6e-13, below the error:
+     the region's check fails, λ is raised by measurement, and the composite is built again. That is the
+     mechanism doing its job, not an effect of the local frame. An a-priori bound would need the clipped
+     triangles' smallest altitude, which is known only after the composite and unbounded for slivers.
+
+     Upper bound (TerrainBenchmark, 2026-11-03, 4 cores; the extra realization because of the region alone, and
+     its share of the design's time):
+
+     | case | at UTM | `LocalFrame` |
+     |---|---|---|
+     | one toe edge, Hambach 1 m | none | 1 extra, 1.9 of 4.2 s (45 %) |
+     | octagon r 100 m, 1 m | 1 extra, 6.1 of 15.1 s (40 %) | 1 extra, 5.5 of 14.1 s (39 %) |
+     | L shape 120 m, 2 m | none (one cheap realization failure, before the composite) | 1 extra, 1.6 of 4.9 s (32 %) |
+     | wavy 48-gon r 150 m, 2 m | none | a clipped sliver: δ raised, a second attempt (face 2, §11) |
+     | wavy 64-gon, wave terrain | none | none (cheap realization failures only) |
+
+     - **No cheap first λ.** Starting at the need would save the whole failed realization (5.5 of 15.1 s on the
+       octagon at UTM, 37 %). But the error is a property of the clipped triangles at the catch line, which exist
+       only after the overlay, and the overlay alone is 2.3 s of it (42 % of what it would save); S̃'s own
+       triangles pass and do not predict it. So no estimate cheaper than the overlay sees the cause.
+     - **The region is checked as soon as it is made** (the filter, verify, fall back pattern of adaptive
+       predicates, Shewchuk 1997, with the exact check itself as the only certificate). `SlopeComposite` runs the
+       check of each build's region right after the slope part. If it fails, that build does not copy the rest of
+       the terrain, which is most of the composite on a large terrain. It still makes the cut terrain triangles, and
+       copies those terrain triangles with two or more cut vertices: only they can meet a made triangle at an edge
+       or make the composite non-manifold, since the other copied vertices are its own and the terrain is
+       manifold. So the overlap check, the rebuilds with held catch points and every exception decide as they
+       would, and the final build's check decides as before: every status, output, λ and count is bit for bit
+       the one of the check after the whole composite (`TerrainSlopeEarlyRegionCheckTests`). Measured
+       (TerrainBenchmark, median of 2, every output hash equal): the octagon at UTM 11.5 → 10.3 s (−10 %); in a
+       local frame the toe edge 3.1 → 2.7 s (−14 %), the octagon, the L shape and the wavy toe −4 to −5 %.
+     - **What is left** of a failed realization: the realization, the overlay, the slope part and the overlap
+       check, about 4 s of the octagon's 5.5 s (§11).
+5. **The check of all triangles decides.** A needle that no repair may fix stays, fails the check, and the result
+   is `SlopeViolation` with its id. Nothing fails silently.
+
+**The budget: the band merge lives in the facets' slack.** Tolerance = λ bound + δ·sMax·1.1·D0 + merge
+(with today's flips) + facets, unchanged.
+- **The slack.** The facet share sets the facet angle θ, rounded down to 2π/nTheta with an integer nTheta. So the
+  facets need only sMax·1.1·D0·(1 − cos(¾·θ)) ≤ their share. The rest, the slack, is unused today. The code takes a
+  guaranteed lower bound:
+  - 1 − cos(¾·θ) is exact, by Sterbenz, since cos ≥ cos(3π/32) > 1/2;
+  - `Math.Cos` is counted as off by up to 2^-49 (8 ulps of 1);
+  - each product (sMax·1.1, ·D0, ·(1 − cos + 2^-49)) is rounded up and the difference down (`ExactInterval`).
+
+  The slack scales with 2^k bit for bit: a scale-free factor times quantities that scale by a power of two, which
+  the roundings commute with. So the band radius, and every band decision, is the same in the 2^k frames (asserted
+  in `TerrainSlopeBandRepairTests`).
+- **The band merge's part below S̃,** 4·sMax·(r + ℓ + e_xy), lives in that slack (r_band's first cap). Its part
+  above S̃ is measured into λ, under λ's bound (the second cap).
+- **Nothing else changes.** A design without band merges is bitwise today's: no facet angle changes, no extra λ
+  round. Typical slacks are about facetShare/nTheta (1e-4 m at 5 cm); the repro needs about 3e-11.
+- **Rejected: a reserve of its own.** An earlier revision of this note reserved R = max(FlipShare,
+  min(2·sMax·`MinFeatureSize`, F0/32)) from the facet share (F0 the share left for flips and facets). The A/B
+  showed the cost: every design's facet angle shrank by 1–2 %, and the octagon on the 1 m DGM took 10.2 → 14.3 s
+  (one λ round more), although no design used the band. The band flips (step 3), if they come, need such a share
+  of their own, with that cost measured.
+- It all scales bitwise under 2^k. Like e_xy, it is not translation invariant.
+
+**Goal of the fix, and what it does not claim.**
+- The repro succeeds in both frames.
+- The status agrees between the origin and UTM on the test set: the repro and the frame tests (a translation
+  check in the tests).
+- It does not claim the same status in every frame: the grid differs, so the needles do.
+
+**Termination.**
+- The normal merge runs once per realization, before the collapses: each position goes at most once onto a
+  representative. The band merge is one pass after them, and each band merge removes a vertex.
+- A collapse removes a vertex. A flip keeps the vertices and strictly raises the smaller altitude of its pair.
+- So the pair (vertex count, descending; the sorted vector of altitudes, ascending) grows lexicographically with
+  every change, over finitely many triangulations.
+- The altitudes are doubles (`tri_altitude`, order-dependent rounding), so this holds only up to rounding. The cap
+  of 64 passes (as in `FlipNeedles`) is the guarantee.
+
+**Tests of the implementation (its own PR):**
+- the pin turned into the fix's test: the repro succeeds at (0, 0) and at UTM, with band merges at (0, 0);
+- the attempt diagnostic: the first attempt's failing triangles of today (the band needles) are gone;
+- the translation check on the test set;
+- invariance over `Similarity.All()`, with the 2^k frames bitwise;
+- a needle whose flip fails the altitude rule or the exact checks stays and gives `SlopeViolation` with its id;
+- the A/B of the TerrainBenchmark cases (time, triangles, λ, facet angle), before and after.
 
 **Never silent.** If any triangle still fails, `Compute()` returns false with `SlopeViolation` and the triangle
 ids. It never returns a violating result. `MaxSlopeRatio` is an upper bound (rounded up) of ‖∇‖ / s_k over the
@@ -565,6 +818,80 @@ documentation says so.
   - coincident points after realization are merged, which handles SoS-realized degeneracies and clamped t;
   - the clipped part of an S̃ triangle is triangulated as a fan from its S̃ vertex farthest from the catch line, so
     altitudes stay large even where the catch-line vertices are nearly collinear (planar terrain at UTM).
+- **The move of the catch points and its certificate** (item (b) of section 11). The snap above, the merge of catch
+  points nearer than `MinFeatureSize` and, in a mixed run, the snap of the fill run's points on the toe to the cut
+  run's at a toe crossing each move a catch point in XY; each keeps its z on its own S̃ planes. The terrain triangles
+  at a moved point follow it, so the surface there differs from the clamp of S̃ and T by up to the gradients of T
+  and S̃ times the move. The budget of 5.4 did not hold that. Where the design is near `MinFeatureSize` the excess was
+  up to 72 × `Tolerance` on a Success (Mixed's 7-gon of r 11 m, scaled by 1e-3 at UTM). At UTM with the toe at its
+  own size the move was not covered by the budget, but the actual excess was 0.06 to 0.49 × `Tolerance`.
+  - **Budget.** On a terrain, `Tolerance` / 4 is reserved for it: the facet share is smaller by that, so the
+    facets are finer. It is reserved also without a composite, so the slope surface does not depend on
+    `BuildComposite`.
+  - **Certificate.** After the composite is built, `SlopeComposite.SnapDeviation` bounds the deviation exactly:
+    - The base B is the budget of the realized surface, the bound of |S̃ − S|, rounded up: the λ bound, the margin's
+      share, the realization merge, the facets at the quantized angle and the band merge's move.
+    - The composite is certified if B + D ≤ `Tolerance`, where D is the bound below.
+    - Otherwise the build fails like a failed exact check: δ is raised by 8 (a smaller `MinFeatureSize`, so smaller
+      moves), and if that does not fit, the status is `SlopeViolation` (`StatusKind` NotCertified). Its message
+      names the catch point that moved farthest, its move and the deviation.
+    - A mixed composite takes the larger of the two runs' B.
+  - **Why B + D bounds the error.** Let c = max(S_fill, min(T, S_cut)) be the clamp, and c̃ the same with S̃. The clamp is
+    1-Lipschitz in the sup norm in each argument, so |c̃ − c| ≤ B. Triangles not at a moved catch point are pieces of
+    T's and S̃'s planes, as before; D bounds |z − c̃| on the composite triangles at the moved points.
+  - **The bound D.** Let t be such a triangle, with plane z. Then f = z − c̃ on t satisfies
+    max(z − T, z − S̃_cut) ≥ f ≥ min(z − T, z − S̃_fill), each side where the run's surface lies. The upper side holds
+    because c̃ ≥ min(T, S̃_cut); the lower because c̃ ≤ max(S̃_fill, T), as min(T, S̃_cut) ≤ T. On t's refinement by the
+    triangles of T, S̃_cut and S̃_fill, every cell sees one plane of each, so the upper side is convex and the lower
+    concave there, and both take their extremes at the cells' vertices. The candidate classes are:
+    1. t's corners;
+    2. T's vertices inside t;
+    3. S̃'s vertices inside t (of each run);
+    4. crossings of t's edges with T and S̃ edges.
+
+    The other cell vertices, the crossings inside t of a T edge with an S̃ edge (or of the two runs' S̃ edges), are
+    not needed. At such a point v, along each of the two edges its own mesh's part of f is linear through v, and f
+    is at least that part. Say the upper bound's maximum is at v and equals the T part (z − T, linear along the T
+    edge e). Along e
+    in the direction where z − T does not fall, f stays ≥ f(v) up to the next vertex on e. If that is again such a
+    crossing, the same holds from there, until a vertex of class 2 or 4. So the maximum is also taken there; the
+    lower bound is the same with the signs swapped. Edges of one triangulation do not cross. Each crossing is an
+    exact rational point (`ExactDyadic`), each containment an exact orientation test. Each difference such as z − T
+    is computed exactly as one quotient and rounded outward once. D is the largest |f| bound over the candidates of
+    all such t.
+  - **Rules for which surface counts:**
+    - **Overlap.** A run's S̃ counts at a candidate x only through its triangles that contain x and whose interiors
+      overlap t's (an exact separating-axis test). A triangle that only touches t has no cell in t. One that overlaps
+      t has t ∩ it as the closure of its interior, so x is a vertex of one of its cells.
+    - **Own run.** On a slope triangle of the run itself, S̃ is t's own plane: the region is the slope surface as
+      realized, and B bounds that. Then f ≤ max(z − T, 0) on a cut triangle and f ≤ 0 on a fill triangle.
+    - **The steps.** At a boundary edge of S̃ (the toe, a lateral limit, the cap) the clamp jumps. Example: the
+      terrain inside the toe against the region λ below it. A terrain triangle whose edge lies on the toe line up to
+      a moved point's rounding overlaps S̃ in a sliver, and the jump would count there. So a run is not compared on t
+      where the candidates at which it counts all lie within m of one boundary edge (the capsule around the segment,
+      exact). Here m is the largest move, rounded up, plus 8 ulps of t's coordinates. The overlap lies in their convex
+      hull, so it lies in that capsule.
+    - **Which triangles.** A point moved from p0 to p1 changes the composite only within the interiors of the
+      triangles (u, p0, p1) that its edges to its neighbours u sweep. Every composite triangle whose interior overlaps
+      one of them is bounded (exact). The conforming mesh covers each such convex area, so those triangles form one
+      vertex-connected set with the triangles at p1, and a search from those finds them. (A first version took the
+      triangles at p1 only, then any triangle whose box met a swept one: the first missed some, the second took the
+      fans around the far end u, up to 8 × the triangles and 16 % of the octagon's run.)
+    - **What is certified.** |z − c| ≤ `Tolerance` except within m of the toe, lateral-limit and cap steps, whose
+      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move: below `MinFeatureSize` in
+      a single run (snap and merge, no chains). In a mixed run the partner snap at a toe crossing adds up to
+      max(`MinFeatureSize`, 1e-4 × the toes' size).
+    - **A mixed run** does not raise δ when its certificate fails, since each run raised its own: it fails with
+      `SlopeViolation`.
+    - **Tests.** `TerrainSlopeSnapBoundTests` has one synthetic case per candidate class where that class alone holds
+      the extreme, and the steps within and beyond m. `TerrainSlopeSnapCertificateTests` checks the bound of every
+      certified triangle of Mixed's designs against |z − c| at the candidates, the dropped crossings included,
+      recomputed in floating point, and on a grid.
+  - **Prior art** (the prior-art line). Certified output with a measured error bound against an a-posteriori check,
+    instead of an a-priori bound that does not hold: Shewchuk 1997 (adaptive predicates: filter, then an exact
+    stage). Reporting what is below the resolution as not certified instead of rounding it into a Success: snap
+    rounding (Hobby 1999; Halperin and Packer 2002), which moves features by up to the pixel size and documents that
+    bound.
 - **Region and final surface.** For cut, the excavation is the set of faces with D < 0 that is **connected to the
   toe** through face adjacency. Components of {D < 0} not connected to the toe, eg a hill behind a valley that
   the cone passes under, are not excavated. Final surface = design inside the toe, S̃ on the region, terrain
@@ -643,6 +970,86 @@ volumes, areas, and per-toe-piece volumes (each slope triangle knows its piece) 
   - the XY-flip checks during repair.
 
   Constructed coordinates themselves stay doubles.
+
+### 5.8.1 Opt-in local frame (item 1(a), owner decisions 2026-11-02 and 2026-11-03)
+
+The shift of 5.8 is inside the constructions; the stored points (S̃ vertices, catch points, the composite) are rounded
+to the input's coordinates. Their resolution is what `MinFeatureSize` is derived from (5.4):
+2·(8·ulp(max |xy|) + 4·ulp(2·max |z|)/s_min)/δ, about 1.5 cm at UTM with δ = 1e-6. That is not a threshold that a
+better formula removes: as long as the results are stored at UTM, a feature below ulp/δ cannot be guaranteed. Two
+parts:
+
+- **(A) Relative to the input, documented.** `MinFeatureSize` follows from the coordinates' magnitude, so it scales
+  bitwise under 2^k: a toe of a few cm at scale 2^-k gives the metre result, scaled (`TerrainSlopeFeatureSizeTests`).
+  The default is unchanged. OPERATIONS.md says how it follows from the coordinates.
+- **(B) `LocalFrame` (default false): translate, compute, return local outputs.**
+  - **Origin.** o = the centre of the toes' XY box; it scales bitwise with 2^k. z is not translated: its term is
+    small and z ranges cross 0 (pit floors).
+  - **Pre-step.** Every input XY coordinate is x − o, checked exact with TwoSum. If any one is inexact, the run
+    falls back to the input frame: `UsedOrigin` = (0, 0) and `LocalFrameFallback` = true, said in the doc and the
+    result, never silent. A coordinate within a factor 2 of the origin has an exact difference (Sterbenz), as all
+    do at UTM. A much smaller one with fine bits does not: near the origin that is common (the rotated and the 1e-3
+    frames of the tests), and the fallback is the input frame, which is local there already; at UTM it takes a stray
+    vertex of small magnitude (tested). Every terrain vertex is checked, also those far from the toes. With an exact
+    pre-step the local run is bitwise a default run on the translated input,
+    and every derived size (δ bound, `MinFeatureSize`, λ) follows from the local coordinates.
+  - **Inputs are restored.** The toes are copied. The terrain's positions are translated in place, in its vertex
+    buffer, and translated back when `Compute` returns, also if it throws. That is exact, as every x − o was
+    checked exact, so (x − o) + o = x, for every finite x but −0.0 (−0 − o + o is +0), which is a fallback. So the
+    terrain is the caller's bit for bit afterwards, and its timestamps did not change: a spatial index the caller
+    holds on it stays valid. The ids stay, so `ReplacedTerrainTriangles` and the vertex maps refer to the caller's
+    terrain. While `Compute` runs the caller's terrain is in the local frame: it must not be read by a `CancelF`
+    callback expecting the input's frame, or shared with other work running concurrently, which would read wrong
+    positions and whose changes would be translated back too (said in the API doc).
+    - A translated copy instead (the first version, a `DMesh3` copy without normals, colours and UVs) cost on one
+      toe edge on the Hambach DGM, 1 m (2 million triangles), 0.2–0.6 s more (3.2–3.5 s against 2.8–3.0 s), 167 MB
+      more allocations (915 against 748 MB), two more gen 0/1 collections, and 300 MB more peak memory (1227
+      against 880–930 MB). Nearly all of it is the topology: the positions are 24 MB.
+    - **Follow-up (§11): positions only.** A copy of the positions alone would keep the caller's terrain untouched at
+      about the cost of the translation in place. The terrain is read at about 40 places in the overlay and the
+      composite, through `DMesh3` and its spatial index, so either an offset at every read or a `DMesh3` that
+      shares the caller's topology is needed; both are larger than this item, and the second aliases mutable
+      topology.
+  - **Outputs are local** (owner decision 2026-11-03, option 1). `SlopeSurface`, `Pieces`, `CatchLines`,
+    `SlopeRegion`, `Composite`, `Replacement` and `TargetHeightLines` are in the local frame; XY + `UsedOrigin` is the
+    input's. There is no translation back, and no `KeepLocal` input.
+    - The spike of the translation back (fl(local + o), at most ½ ulp of the input's magnitude per coordinate, then
+      the exact checks re-run on the triangles it rounds) failed the support check in every benchmark case: the
+      local λ is below ½ ulp at UTM.
+    - So the exact guarantees hold for the local outputs. Translating them back is the caller's choice, without that
+      guarantee; the API doc says so. With `CompositeKind.Replacement` the kept triangles are the caller's terrain,
+      in the input's frame.
+  - **API, additive.** Input `LocalFrame`; outputs `UsedOrigin` and `LocalFrameFallback`.
+  - **Invariance.** The origin scales with 2^k, so the 2^k frames are bitwise (origin and local outputs). A
+    translated or rotated frame picks another origin, so another local input, and is compared by status and the
+    checks of the outputs (`TerrainSlopeLocalFrameTests`).
+  - **Cost** (TerrainBenchmark, 2026-11-03, 4 cores, median of 2; default → `LocalFrame`):
+
+    | case | time | realizations | λ |
+    |---|---|---|---|
+    | one toe edge, Hambach 1 m | 1.9 → 2.8 s | 1 → 2 | 5.0e-9 → 8.2e-9 |
+    | octagon r 100 m, 1 m | 11.5 → 10.9 s | 2 → 2 | 3.4e-8 → 7.2e-7 |
+    | L shape 120 m, 2 m | 2.9 → 4.3 s | 2 → 3 | 7.1e-6 → 1.2e-8 |
+    | wavy 48-gon r 150 m, 2 m | 8.7 → 16.2 s | 1 attempt → 2 | |
+    | wavy 64-gon, wave terrain (UTM) | 4.1 → 4.3 s | | |
+
+    - The pre- and post-step (translation in place, the TwoSum checks) is 0.004–0.16 s.
+    - Nearly all of the rest is one more realization. The first λ follows from the local resolution (6e-13 to
+      8e-13 here, 5e-9 at UTM), but the support error of the composite's clipped slope region does not scale with
+      XY: 2e-9 (the edge), 3e-9 (the L shape), 1.8e-7 (the octagon). So the region's support check fails at the
+      first λ, λ is raised by measurement, and the composite is built again (on the 2-million-triangle terrain about
+      0.7–1 s). Where the error exceeds what λ may cover, δ is raised instead (the wavy toe). Both belong to the
+      clipped-region item of §11: a bound of the clipping's error in the first λ would save the realization.
+    - The exact-stage fallback rate does not change.
+  - **How others solve it.** Formats and engines for large coordinates keep the data local and store the origin
+    beside it, without rounding the data back:
+    - LAS point clouds store integers with a header scale and offset;
+    - Cesium's 3D Tiles (`CESIUM_RTC`) and xeokit store vertices relative to a centre, xeokit rounding that centre to
+      a cell size;
+    - IFC keeps local engineering coordinates with an `IfcMapConversion` to the map's coordinate system, since large
+      coordinates get "distorted / rounded" by downstream tools.
+
+    Option 1 is that pattern.
 
 ### 5.9 Rejected alternatives
 
@@ -1018,12 +1425,179 @@ Approved with this document. Phase 1 comes in three PRs, each usable and tested 
    interpolations; toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`, `CrossDesignInfluence`).
 4. Topological overlay with exact signs, catch lines with end reasons and horizontal uncertainty, connected region;
    optional composite terrain and volumes; special cases.
-5. Mixed cut and fill (clamp).
-6. Target heights and their lines (the hook for berms).
+5. Mixed cut and fill (clamp). Done in #320 (`Direction.Auto`, TERRAIN_1C_PLAN.md section 10).
+6. Target heights and their lines (the hook for berms). Done in #320 (`TargetHeights`).
 7. Benchmark at km scale; docs (OPERATIONS.md, SOURCES.md).
-8. Later, each a development step of its own: inter-ramp / overall slope check along profiles, sector polygons,
-   exterior distance, a proven bound for the catch-line uncertainty, berms with constant then variable
-   widths, ramps, a proven interval tan for angle input, volume per cell, lofting utility.
+
+### Order after phase 1 (owner decision 2026-11-02)
+
+1. Correctness items found in 1c:
+   - Done (#329): the overlapping composite where toe edges run along terrain edges within ulps (a rotated UTM
+     frame); a crossing node nudged out of its terrain triangles takes the terrain vertex at that end.
+   - Done (#338): `CompositeFailed` where `NoDaylight` is right (a toe leaving the terrain, a rotated
+     frame). A slope-side crossing on a boundary edge of the slope surface (toe, lateral limit or cap) rounded 1 ulp
+     off the slope side of the edge's line, so the slope part's edge to it dipped below the nudged terrain nodes. It
+     is moved onto the slope side (`onto_slope_side`, the mirror of the nudge) and its z taken there
+     (`TerrainSlopeTerrainBoundaryTests`).
+   - Done (item 4, found by the 1(a) spike): near the origin a design failed with `SlopeViolation` where the same
+     design at UTM succeeds. The cause was needles in the band [64·e_xy, `MinFeatureSize`) that no repair covered,
+     from near-quadruple points. The targeted band merge of 5.4, "Repair of the band", fixes it
+     (`TerrainSlopeBandRepairTests`). Designs without band merges are bitwise unchanged (the benchmark's output
+     hashes). The band flips stay documented until a case needs them.
+   - Done: a bugfix of the composite's 2^k invariance (found in item 4). `SlopeComposite` moves a node by ulps off
+     the slope side (`nudge`, `onto_slope_side`). From a coordinate of exactly 0 the first step was the subnormal
+     4.9e-324 in every frame, which 2^k does not scale. The step from 0 is now the ulp of the edge's coordinate
+     scale (`TerrainSlopeCompositeZeroTests`; the band repair's test compares its composite bit for bit again).
+   - Done: the band merge's gaps (found by the local-frame spike, 5.8.1, on the wavy toe on the Hambach DGM: in its
+     local frame `SlopeViolation` after 3 attempts where UTM succeeds). Clusters of three triple points pairwise
+     within r_band were left (one pass, no chains), and nested pairs in the band were taken by neither repair. The
+     band merge now takes chains with a cumulative cap on every position's move, and nested pairs (5.4;
+     `TerrainSlopeBandRepairTests`, `TerrainSlopeBandMergeTests`). The DGM case then succeeds locally in 2 attempts.
+   - Done: item 1(a), the opt-in local frame (5.8.1, owner decision 2026-11-03: local outputs with `UsedOrigin`).
+     `MinFeatureSize` stays relative to the input's coordinates and is documented. The terrain is translated in
+     place and restored; a positions-only copy, which would leave it untouched, is a follow-up (5.8.1).
+   - The composite's clipped slope region (found there; diagnosed, docs and a pin only). Two faces:
+     - **Face 1, the first λ** (step 4 of 5.4, "The first λ and the composite's clipped region"): the clipped
+       triangles' support error comes from the z rounding, amplified by distance over altitude, and does not follow
+       e_xy. At UTM the first λ hides it in 4 of 5 benchmark cases, in a local frame in 2 of 5; the extra
+       realization costs 32–45 % of the design's time where it happens. A first λ from a cheap estimate is not
+       buildable: the cause appears only after the overlay, which costs 42 % of what it would save; an a-priori
+       bound would need the clipped triangles' smallest altitude. Done instead: the region is checked as soon as it
+       is made, and a failed build skips the copy of the rest of the terrain, with every result bit for bit as
+       before (−10 % on the octagon at UTM, −4 to −14 % in a local frame). **Left:** the overlay and the overlap
+       check of a failed realization, about 4 s of the octagon's 5.5 s, or 25–30 % of its run; only a cheaper
+       certificate of the clipped triangles' error than the overlay itself would save it.
+     - **Face 2, clipped slivers:** a clipped triangle far below `MinFeatureSize` at the catch line (an altitude of
+       2.3e-9 m on the DGM wavy toe in its local frame, 2.8e-9 m in the procedural pin), under its support by more
+       than λ's bound covers, so δ is raised and a second attempt succeeds. The band merge acts on the
+       realization, not on the clipping. Pinned as today's behaviour (`TerrainSlopeClippedRegionTests`: a wavy
+       48-gon on waves near the origin since #363, before a 32-gon; two attempts in the 2^k frames, one at UTM).
+       It was to be repaired with RoundToGrid by the same vertex-edge separation step. RoundToGrid is parked (below),
+       so face 2 stays pinned: an honest second attempt, not a wrong result.
+2. Done, finishing phase 1: the docs (OPERATIONS.md "Terrain slope design" with the statuses, the frames and
+   `LocalFrame`, a runnable example; SOURCES.md for the band merge, the local frame and the early region check) and
+   `g3cli slope` (CLI and MCP tool: GeoJSON toes, a TIN mesh file, the composite or replacement, surface and region,
+   catch and target lines as GeoJSON, a report with the design's status; `SlopeCliTests`).
+   - Done, found by its tests: `Direction.Auto` with a toe exactly at the terrain's height where it crosses it ended
+     with `CompositeFailed` ("inconsistent parity"). In a terrain triangle that both runs replace, the cut run's region
+     is then a sliver of zero width along an edge, held by both runs' flags; the joint triangulation took an edge piece
+     in either region as no constraint, and sorted both runs' nodes by their rounded parameter. Now a piece is a
+     constraint where it is in both regions or in neither (the terrain part's boundary is the triangle's plus both
+     regions', mod 2), and the two runs' nodes are merged keeping each run's order: the parity is consistent by
+     construction, no epsilon (`TerrainSlopeAutoToeOnTerrainTests`; prior art: coincident edges in polygon overlay,
+     Martínez, Rueda and Feito 2009).
+   - **Bugfixes before RoundToGrid, in this order** (each a Success that is not right, worse than a failure):
+     - (a) Done: **T-junctions next to a replaced terrain triangle.** A replaced triangle's part with a point exactly
+       inside an edge whose neighbour has no region face (an open toe along a terrain edge that ends inside it, a
+       lateral limit along a terrain edge, a catch point rounded onto a terrain edge) left the neighbour copied whole,
+       a crack. The neighbour is now split at those points by the exact CDT and replaced too; `AssertComposite` checks
+       every composite for T-junctions (`TerrainSlopeOpenToeAlongEdgeTests`; prior art: hanging nodes in conforming
+       refinement, Bank, Sherman and Weiser 1983).
+     - (b) Done: **a design below `MinFeatureSize`.** The catch points' move (snap, merge, partner snap) was outside the
+       tolerance budget: Mixed's 7-gon at r 1.1 cm ("rotated, scale 1e-3, utm") gave Success up to 72 × `Tolerance`
+       off the clamp. Now `Tolerance` / 4 is reserved for it and an exact certificate checks it; what does not fit
+       raises δ, then fails with `SlopeViolation` (NotCertified) (5.5, `TerrainSlopeSnapTests`).
+       - **Speed follow-up.** The finer facets cost an extra realization on the L shape and the wavy 48-gon of the
+         benchmark (+46 %, +53 %; TerrainBenchmark README).
+         - In both, the clipped region fails its support check twice (face 1 above). After λ is raised to 4 × the
+           measured excess, the next realization clips differently and measures 10–14 × the first excess
+           (7.1e-7 → 1.0e-5 m, 7.3e-8 → 7.3e-7 m).
+         - A step that covers that growth, or a bound from the clipped triangles' smallest altitude, would save the
+           realization.
+   - **RoundToGrid, parked** (owner decision 2026-11-03, R1; the measurements are in `TERRAIN_ROUND_TO_GRID.md`).
+     - **The upper bound.** Rounding the outputs of the Hambach cases after the fact breaks about half the slope
+       region's triangles at 1 mm and at 0.1 mm (steeper or unsupported). The margins follow the doubles'
+       resolution, not a grid.
+     - **The grid as the build's resolution (approach (A)) does not work at 1 mm with `Tolerance` 5 cm.** With today's
+       merge radius the budget is infeasible. With a merge radius of one pixel, `MinFeatureSize` is 20–52 m, and the
+       realization would collapse every shorter edge. At 0.1 mm it is 4–7 m.
+     - **A post-step** (build at doubles, round with z one-sided, check) with the largest δ the budget allows (1e-4)
+       still fails 21 % (steeper) and 28 % (unsupported) of the region at 1 mm.
+       - A λ floor of about s·0.71·w + w would remove the unsupported ones.
+       - The steeper ones, the small clipped triangles at the catch line, need a local re-triangulation of the
+         region on the grid under the slope constraint: rounding with constraints (Milenkovic; Fortune 1999), a
+         research item.
+     - The `round=`, `zround=` and `margin=` arguments of TerrainBenchmark's `slope` case measure it.
+   - **Open findings at the pause** (from #363 and its review; none is a wrong result):
+     - **Below `MinFeatureSize`.** In "rotated, scale 1e-3, utm" some designs end with `CompositeFailed`:
+       - "non-manifold composite": the wavy 32-gon on waves, and 4 of Mixed's Auto designs;
+       - "not simple after rounding": Mixed's Auto 0.23 / 0.123 / 3.9, at a toe crossing where the two runs' catch
+         points are about 1e-7 apart.
+       These are honest failures; `LocalFrame` succeeds where tried.
+     - **The mixed certificate.** No known design fails it while both runs pass theirs, so its mutant survives.
+       `BoundHoldsSampled` asserts B + D ≤ `Tolerance` for every mixed Success.
+     - **Direction Auto.** A run whose own (discarded) composite fails its certificate fails Auto, while a run whose
+       composite is `CompositeFailed` is tolerated. This is conservative; the two could be treated alike.
+     - **A certificate failure** can cost one wasted realization, through the band merge's λ branch of the
+       realization loop.
+     - **The own fill triangle's lower bound** min(0, z − T) is valid but weaker than it could be.
+     - **Speed:** the extra realization on the clipped region (face 1, above); the certificate's JIT on the one toe
+       edge (4.5 %, half of it fixed cost).
+     - **#302's terrain mutation shards** wait for the restart.
+   - Later, first after the restart (owner 2026-11-03): a DGM reader for the CLI (real users have DGM1 as a grid:
+     ASCII XYZ, or the f32 grid of the benchmark, without GeoTIFF), triangulated to a TIN; phase 1 takes TIN mesh
+     files only.
+3. Volume per cell, 2D columns first (section 9.3).
+4. Ramps as design geometry (path, width, grade; access ramps into pits are modelled in practice), with a design
+   note first.
+5. Lofting between contours, the triangles chosen under the exact slope oracle, a status when no compliant
+   triangulation exists (section 9.2; two contours first, then branching).
+6. Performance follow-ups only when a real case is slow (the octagon on the 1 m grid, 6.1 → 8.8 s since #318; the
+   combinatorial zeros of idea C; the band-only overlay).
+7. A proven interval tan for angle input and a proven bound for the catch-line uncertainty.
+8. Sector polygons, exterior distance on demand.
+9. Parked (not modelled in practice): berms with constant then variable widths, inter-ramp / overall slope checks
+   along profiles.
+
+### Handover at the pause (owner decision 2026-11-03)
+
+Terrain work pauses here. This section is the starting point of the restart.
+
+**What is merged** (phase 1 and the bugfixes after it; ROADMAP has the PR list):
+- the slope surface, the overlay with the catch lines, the composite (Full or Replacement), volumes, `StatusKind`,
+  mixed cut and fill, target heights, `LocalFrame`, the band repair, and `g3cli slope`;
+- the bugfixes after phase 1:
+  - #359, the Auto toe on the terrain;
+  - #361, T-junctions;
+  - #363, the catch points' move in the budget with its certificate, 5.5.
+
+Every known wrong Success is fixed. What is left fails honestly.
+
+**What is open:**
+- the list "Open findings at the pause" above;
+- the clipped-region item, face 1 (speed) and face 2 (pinned);
+- RoundToGrid, parked: `TERRAIN_ROUND_TO_GRID.md` has the measurements, the corrected bound and the options;
+- the later items 3–9 of this section.
+
+**The order after the restart:**
+1. The DGM reader for the CLI.
+2. Then the ROADMAP order: volume per cell, ramps, lofting, performance follow-ups.
+3. RoundToGrid's research item (a local re-triangulation under the slope constraint) when the owner picks it up.
+
+**Measurement tools:**
+- **TerrainBenchmark** (`benchmarks/TerrainBenchmark`, `run.sh slope ...`, the Hambach DGM fetched by
+  `fetch_data.py`). Its README has the command of every case and the A/B tables of each PR. Output hashes
+  (`hash_surface`, `hash_region`, `hash_composite`) compare results bit for bit. `round=`, `zround=` and `margin=`
+  measure the rounding.
+- **The baselines at the pause** (4 cores, #363's table in the README):
+
+  | case | time |
+  |---|---|
+  | one toe edge, 1 m | 1.9–2.3 s |
+  | octagon r 100 m, 1 m | 10.8–11.2 s |
+  | L shape 120 m, 2 m | 4.4–5.1 s |
+  | wavy 48-gon r 150 m, 2 m | 13.5–13.8 s |
+  | 1a speed case | 4.1–4.3 s |
+
+- **Procedural design sets in the tests:**
+  - `TerrainSlopeMixedTests.Make`: 60 configs × Cut, Fill, Auto × `Similarity.All()`;
+  - `TerrainSlopeBandRepairTests.WavyOnWaves`;
+  - `TerrainSlopeToeCrossingTests.Make`.
+  The PRs swept them all, comparing hashes against master; the sweep test is a scratch file, not in the
+  repository.
+- **Oracles:** `TerrainSlopeCatchLineTests.AssertComposite` (with T-junctions and vertical cracks),
+  `TerrainSlopeMixedTests.AssertMixed`, `TerrainSlopeSnapTests.WorstDeviation` (the ideal clamp on a grid), and
+  `TerrainSlopeSnapCertificateTests.CandidatesOverBound`.
 
 ## 12. Open questions for the user
 

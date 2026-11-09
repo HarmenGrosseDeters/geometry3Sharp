@@ -53,9 +53,23 @@ namespace g3
         public static int Orient3d(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient3d);
-            double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
-            double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
-            double wx = d.x - a.x, wy = d.y - a.y, wz = d.z - a.z;
+            int s = Orient3dFilter(b.x - a.x, b.y - a.y, b.z - a.z, c.x - a.x, c.y - a.y, c.z - a.z, d.x - a.x, d.y - a.y, d.z - a.z);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
+            return orient3d_exact(a, b, c, d);
+        }
+
+        /// <summary>
+        /// The floating-point filter of Orient3d(a, b, c, d), given the differences u = b - a, v = c - a, w = d - a
+        /// (each rounded once, as Orient3d computes them): the sign of ((b - a) x (c - a)) . (d - a) where the error
+        /// bound proves it, 0 where it does not decide (then Orient3d(a, b, c, d) decides). The only implementation of
+        /// the filter, so a caller that shares the differences between several predicates (ExactRayTriangle) gets
+        /// Orient3d's decisions bit for bit.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int Orient3dFilter(double ux, double uy, double uz, double vx, double vy, double vz,
+            double wx, double wy, double wz)
+        {
             double uyvz = uy * vz, uzvy = uz * vy, uzvx = uz * vx, uxvz = ux * vz, uxvy = ux * vy, uyvx = uy * vx;
             double det = wx * (uyvz - uzvy) + wy * (uzvx - uxvz) + wz * (uxvy - uyvx);
             double permanent = Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy))
@@ -65,8 +79,7 @@ namespace g3
             double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
-            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
-            return orient3d_exact(a, b, c, d);
+            return 0;
         }
 
 

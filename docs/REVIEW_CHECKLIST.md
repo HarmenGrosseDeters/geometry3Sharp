@@ -16,6 +16,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Is a set of skipped items (exempt, unsplittable) visible in the output, as a list or a diagnostic, so that a bound
   silently left unmet can be detected (meshing M3 review)?
 
+- For proof tools: does a counterexample (SAT), including an optional diagnostic query, fail the overall
+  check? UNKNOWN/timeouts must not be counted as proofs. Are assumptions satisfiable, source/model drift
+  detected, and model mutations covered so contradictory assumptions cannot pass vacuously? (Z3 pilot)
+
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
 - Are tolerances relative to the input (bounding box of the *used* vertices, edge lengths), not absolute
@@ -75,6 +79,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   upper bound built from interpolated values needs a slack for this and a slope limit (patch bound of
   `TriangleDeviationBounds`, wrap-resolution review).
 
+- An exact comparison with a threshold built from an irrational constant in double (eg d = √3 ulp, `Math.Sqrt(3) * ulp`)
+  is not exact: the double constant is rounded, so a value exactly at the threshold passes. Square it in exact
+  arithmetic (d² = 3 ulp²) and keep the double only where a margin covers its rounding (snap-rounding certificate,
+  independent review).
+
 - Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
   where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
   wedge at 2^-560).
@@ -100,6 +109,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Is per-element state (a tag, a label) kept right while an invariant is lifted for a moment, eg a constraint removed
   and re-inserted around a split? Test with an enclosed hole or region of a single triangle next to the operation
   (meshing M3 review: the flips around a lifted constraint filled a hole).
+- Does state that is updated only for "touched" elements (a dirty list, a changed-since set) see every change? A change of
+  meaning without a change of topology escapes it, eg a chain rerouted through a vertex already there: no triangle is
+  rewritten, yet the triangles between the old and the new chain change sides (meshing: a grid split onto an existing
+  vertex left stale domain tags). Test the path where the operation adds nothing new, with the full check from scratch
+  after every step (`CheckTagsForTests`).
 
 ## 8. Untrusted input (#86, #88, #90, #91)
 
@@ -142,6 +156,13 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
   freezing an A/B candidate; do not label measurements by source changes alone.
+- An indexed existence query can defeat a scan's early exit by materializing every candidate first. Test dense/unknown
+  boxes and clusters beside outliers; bound extra enumeration and keep an exact scan fallback.
+- Reproduction commands must fail on unequal required reports/fingerprints. Saving hashes or relying on a one-off
+  manual comparison is not an acceptance gate; verify completed records again after resuming a campaign.
+- Pair enumeration callbacks may emit either index order. Normalize unordered pairs before deduplicating;
+  a `j <= i` guard is safe only when the caller guarantees the selected query is the lower index. Compare the
+  complete pair set with exhaustive enumeration, including nonempty hits (oracle edge-index review).
 
 ## 10a. The oracle itself
 
@@ -156,6 +177,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   clause: the empty-overlap guard, the orientation clause, the positivity filter, the margin. Each clause is a separate
   way to accept wrongly (wrap-resolution review).
 
+- A statistical rule (a confidence interval, a stop rule, a Bonferroni split) is barely visible to tests that sample:
+  its mutants change only rare failure probabilities. Extract the interval as a function and test it deterministically
+  against a brute-force scan (volume check cells review: the corners of the ratio interval, the split z).
+- A sample region built over the bounds of all parts (a grid, an octree with a depth or cell budget) is compared with the
+  per-part region it replaces: one small part far away makes its cells huge (volume check cells review).
+
 ## 11. Compatibility and documentation (#92, #94)
 
 - Public API unchanged against 1.0.324 (pack runs the package validation; an accepted break goes into
@@ -164,6 +191,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
 
 ## 12. Test oracles and generators (#229)
+
+- Tool-result validation: parse decimal bounds without binary floating-point underflow masking a negative value;
+  reject malformed, non-finite or missing results.
+
+- Fuzz harnesses: does seed validation propagate parse errors, and does a reader wrap internal exceptions in
+  error results that the harness must surface? Verify a stored artificial crash can be replayed without instrumentation.
 
 - Does each generator produce only inputs of the class it claims (eg "clean slivers"), and is that asserted,
   not let through by a relaxed check (`allowDegenerate`, a skipped probe)?

@@ -17,12 +17,13 @@ namespace Meshing2Acceptance
   ci                                selfcheck, differential of the CI subset, golden check: what CI runs
   (any command) --oracle reference  every oracle check exact, without the floating-point filters and indexes (audits; slow)
   differential [--larger]           M1 against NetTopologySuite; --larger adds the bigger cases
-  golden check [--milestone M1]     recompute the golden rows and compare
-  golden update --milestone M1 --reasons <file>
+  golden check [--milestone M1] [--mode constrained]     recompute the golden rows and compare
+  golden update --milestone M1 [--mode constrained] --reasons <file>
                                     rewrite the rows; <file> has one line per changed case: <case><TAB><reason>
-  golden verify-changes --base <old.json> [--current <new.json>]
-                                    every changed row states a new reason (the gate on a pull request)
-  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--case <id>] [--row <file>]
+  golden verify-changes --base <old.json> [--current <new.json>] [--milestone M1] [--mode constrained]
+                                    every changed row states a new reason (the gate on a pull request); without --current,
+                                    the golden file of --milestone/--mode is compared
+  oracle --milestone M1|M2|M3 --input <in.txt> --output <out.txt> [--tube 0|auto|<value>] [--stated-area <a> [--stated-area-tolerance <t>]] [--case <id>] [--row <file>] [--snapped-area]
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
   mesh --case <id> --output <file>  our mesher on one case (the candidate of the golden rows), written in the plain text output
@@ -39,8 +40,8 @@ namespace Meshing2Acceptance
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
   snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
-  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
-  corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending] [--mode constrained] [--snapped-area]   (--fast skips the slow rows; --pending also runs pending rows; --snapped-area reports mesh - snapped area, slow)
+  corpus [--dir <d>] [--angles 0,20,25,30] [--filter water] [--seconds 120] [--judge-limit 60000] [--mode constrained] [--snapped-area]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
@@ -50,10 +51,17 @@ namespace Meshing2Acceptance
         static int Main(string[] args)
         {
             if (args.Length == 0) { Console.Error.WriteLine(Usage); return 2; }
+            try { Oracle.ValidateSourceIndexSettings(); }
+            catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
             // --oracle reference: every check (the self-check too) on the exact reference path, for audits
             string oracleMode = Arg(args, "--oracle");
             if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
             Oracle.ForceReference = oracleMode == "reference";
+            // the oracle's index variables (G3_ORACLE_POINT_INDEX, G3_ORACLE_EDGE_INDEX): a wrong value stops here, before any work
+            try { Oracle.IndexSettings(); }
+            catch (InvalidOperationException ex) { Console.Error.WriteLine(ex.Message); return 2; }
+            // mesh --no-oracle times the mesher alone: nothing is judged, so the self-check is not needed either
+            if (args[0] == "mesh" && Has(args, "--no-oracle")) return Mesh(args);
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);
@@ -64,8 +72,8 @@ namespace Meshing2Acceptance
                     case "selfcheck": return 0;
                     case "ci": {
                         // every milestone with a candidate: M2 and M3 rows are checked as soon as they exist (second review, finding 11)
-                        int a = RunDifferential(false), b = GoldenCheck(Milestone.M1), c = GoldenCheck(Milestone.M2), d = GoldenCheck(Milestone.M3);
-                        return a != 0 || b != 0 || c != 0 || d != 0 ? 1 : 0;
+                        int a = RunDifferential(false), b = GoldenCheck(Milestone.M1), c = GoldenCheck(Milestone.M2), d = GoldenCheck(Milestone.M3), e = GoldenCheck(Milestone.M3, true);
+                        return a != 0 || b != 0 || c != 0 || d != 0 || e != 0 ? 1 : 0;
                     }
                     case "differential": return RunDifferential(Has(args, "--larger"));
                     case "golden": return Golden(args);
@@ -94,6 +102,9 @@ namespace Meshing2Acceptance
             var m = MilestoneArg(args, Milestone.M3);
             string filter = Arg(args, "--filter");
             int seconds = int.Parse(Arg(args, "--seconds") ?? "60", System.Globalization.CultureInfo.InvariantCulture);
+            // --mode constrained: the M3 rows in the constrained quality mode (lenses, judged as constrained Delaunay), for measurements
+            string modeArg = Arg(args, "--mode");
+            if (modeArg != null && modeArg != "constrained") { Console.Error.WriteLine("--mode: only \"constrained\" is known"); return 2; }
             var candidate = CandidateRegistry.For(m);
             if (candidate == null) { Console.WriteLine("no candidate for " + m); return 1; }
             int bad = 0;
@@ -101,19 +112,24 @@ namespace Meshing2Acceptance
                 if (row.Case == null || row.Case.Milestone != m || (row.State != CaseState.Covered && !Has(args, "--pending"))) continue;
                 if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
                 if (Has(args, "--fast") && row.Slow) continue;
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                Mesh2Output output = null; Exception error = null;
-                var thread = new System.Threading.Thread(() => { try { output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
-                thread.IsBackground = true;
-                thread.Start();
-                if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
-                double meshMs = sw.Elapsed.TotalMilliseconds;
-                if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
-                var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
-                string text = report.ToString();
-                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
-                    + (report.MergeZoneExcused > 0 ? report.MergeZoneExcused + " excused in merge zones, " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
-                if (!report.Ok) ++bad;
+                // the catalogue's input objects are shared: the mode is set for this row's run and judgement only
+                bool wasConstrained = row.Case.Input.ConstrainedQuality;
+                row.Case.Input.ConstrainedQuality = wasConstrained || (modeArg != null && !row.Case.Input.Conforming);
+                try {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    Mesh2Output output = null; Exception error = null;
+                    var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+                    thread.IsBackground = true;
+                    thread.Start();
+                    if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
+                    double meshMs = sw.Elapsed.TotalMilliseconds;
+                    if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
+                    var report = Oracle.Check(row.Case.Input, output, Has(args, "--snapped-area") ? row.Case.Expect.WithSnappedArea() : row.Case.Expect);
+                    string text = report.ToString();
+                    Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
+                        + (report.ExcusedSummary() != "" ? report.ExcusedSummary() + ", " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                    if (!report.Ok) ++bad;
+                } finally { row.Case.Input.ConstrainedQuality = wasConstrained; }
             }
             return bad == 0 ? 0 : 1;
         }
@@ -138,15 +154,15 @@ namespace Meshing2Acceptance
             throw new InvalidOperationException("run this inside the repository");
         }
 
-        static string GoldenPath(Milestone m) => RepositoryFile(Path.Combine("benchmarks", "Meshing2Benchmark", "golden", m.ToString().ToLowerInvariant() + ".json"));
+        static string GoldenPath(Milestone m, bool constrained = false) => RepositoryFile(Path.Combine("benchmarks", "Meshing2Benchmark", "golden", m.ToString().ToLowerInvariant() + (constrained ? "-constrained" : "") + ".json"));
 
-        static GoldenFile LoadGolden(Milestone m)
+        static GoldenFile LoadGolden(Milestone m, bool constrained = false)
         {
-            string path = GoldenPath(m);
+            string path = GoldenPath(m, constrained);
             return File.Exists(path) ? GoldenFile.Parse(File.ReadAllText(path)) : new GoldenFile();
         }
 
-        static IEnumerable<Mesh2Case> GoldenCases(Milestone m) => m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case);
+        static IEnumerable<Mesh2Case> GoldenCases(Milestone m, bool constrained = false) => constrained ? ConstrainedGoldenCases.Ci() : m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case);
 
         static int RunDifferential(bool larger)
         {
@@ -166,24 +182,31 @@ namespace Meshing2Acceptance
             return problems == 0 ? 0 : 1;
         }
 
-        static int GoldenCheck(Milestone m)
+        static int GoldenCheck(Milestone m, bool constrained = false)
         {
             var candidate = CandidateRegistry.For(m);
             if (candidate == null) { Console.WriteLine("golden " + m + ": no candidate yet, nothing to compare"); return 0; }
-            var file = LoadGolden(m);
-            var problems = GoldenProcess.Check(file, GoldenCases(m), candidate);
+            var file = LoadGolden(m, constrained);
+            var problems = GoldenProcess.Check(file, GoldenCases(m, constrained), candidate);
             foreach (var p in problems) Console.WriteLine("GOLDEN " + p);
-            Console.WriteLine("golden " + m + ": " + file.Rows.Count + " rows, " + problems.Count + " differences");
+            Console.WriteLine("golden " + m + (constrained ? " constrained" : "") + ": " + file.Rows.Count + " rows, " + problems.Count + " differences");
             return problems.Count == 0 ? 0 : 1;
         }
 
         static int Golden(string[] args)
         {
             string verb = args.Length > 1 ? args[1] : "check";
-            if (verb == "check") return GoldenCheck(MilestoneArg(args, Milestone.M1));
+            string mode = Arg(args, "--mode");
+            if (Has(args, "--mode") && mode == null) { Console.Error.WriteLine("--mode requires a value"); return 2; }
+            if (mode != null && mode != "constrained") { Console.Error.WriteLine("--mode: only constrained is known"); return 2; }
+            bool constrained = mode == "constrained";
+            if (constrained && MilestoneArg(args, Milestone.M1) != Milestone.M3) {
+                Console.Error.WriteLine("--mode constrained requires --milestone M3"); return 2;
+            }
+            if (verb == "check") return GoldenCheck(MilestoneArg(args, Milestone.M1), constrained);
             if (verb == "verify-changes") {
                 var before = GoldenFile.Parse(File.ReadAllText(Arg(args, "--base")));
-                string current = Arg(args, "--current") ?? GoldenPath(MilestoneArg(args, Milestone.M1));
+                string current = Arg(args, "--current") ?? GoldenPath(MilestoneArg(args, Milestone.M1), constrained);
                 var problems = GoldenProcess.VerifyChanges(before, GoldenFile.Parse(File.ReadAllText(current)));
                 foreach (var p in problems) Console.WriteLine("GOLDEN " + p);
                 Console.WriteLine("golden changes: " + problems.Count + " without a reason");
@@ -207,13 +230,13 @@ namespace Meshing2Acceptance
                         var result = Differential.Compare(c, candidate, reference);
                         return result.IsFailure ? result.ToString() : null;
                     };
-                var file = LoadGolden(m);
-                var problems = GoldenProcess.Update(file, GoldenCases(m), candidate, differential, reasons);
+                var file = LoadGolden(m, constrained);
+                var problems = GoldenProcess.Update(file, GoldenCases(m, constrained), candidate, differential, reasons);
                 foreach (var p in problems) Console.WriteLine("REFUSED " + p);
                 if (problems.Count > 0) { Console.WriteLine("nothing written: " + problems.Count + " problems"); return 1; }
-                Directory.CreateDirectory(Path.GetDirectoryName(GoldenPath(m)));
-                File.WriteAllText(GoldenPath(m), file.Write());
-                Console.WriteLine("wrote " + GoldenPath(m) + ": " + file.Rows.Count + " rows");
+                Directory.CreateDirectory(Path.GetDirectoryName(GoldenPath(m, constrained)));
+                File.WriteAllText(GoldenPath(m, constrained), file.Write());
+                Console.WriteLine("wrote " + GoldenPath(m, constrained) + ": " + file.Rows.Count + " rows");
                 return 0;
             }
             Console.Error.WriteLine(Usage);
@@ -226,13 +249,14 @@ namespace Meshing2Acceptance
             if (inputPath == null || outputPath == null) { Console.Error.WriteLine(Usage); return 2; }
             var input = TextFormat.ReadInput(File.ReadAllText(inputPath));
             var output = TextFormat.ReadOutput(File.ReadAllText(outputPath), out string producer);
-            var e = new OracleExpect { Milestone = MilestoneArg(args, Milestone.M1) };
-            string tube = Arg(args, "--tube");
-            if (tube != null && tube != "auto") e.Tube = Q.FromDouble(TextFormat.ParseCoordinate(tube));
+            var e = MeshCommand.OracleExpectation(MilestoneArg(args, Milestone.M1), Arg(args, "--tube"), Arg(args, "--stated-area"), Arg(args, "--stated-area-tolerance"));
+            e.ReportSnappedArea = Has(args, "--snapped-area");
+            if (Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null) Console.Error.WriteLine("ORACLE-JUDGE-BEGIN");
             var report = Oracle.Check(input, output, e);
             foreach (var v in report.Violations) Console.WriteLine("VIOLATION " + v);
             Console.WriteLine((report.Ok ? "VALID" : "INVALID") + " " + producer + ": " + output.Triangles.Length + " triangles, unique " + report.Unique.ToString().ToLowerInvariant()
                 + ", twice the area " + report.Area2 + ", min_angle_sin2 " + (report.MinSin2?.ToDecimal(GoldenRow.MinAngleDigits) ?? "-"));
+            if (report.ExcusedSummary() != "") Console.WriteLine("SUMMARY " + report.ExcusedSummary());
             string rowPath = Arg(args, "--row");
             if (rowPath != null) {
                 var c = new Mesh2Case { Id = Arg(args, "--case") ?? Path.GetFileNameWithoutExtension(inputPath), Milestone = e.Milestone, Input = input, Generator = Arg(args, "--generator") ?? "text:" + Path.GetFileName(inputPath), Expect = e };

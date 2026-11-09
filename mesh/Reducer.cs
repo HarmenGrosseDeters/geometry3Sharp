@@ -90,6 +90,34 @@ namespace g3
         /// Folds are prevented by the usual flip check. Costs about 2-3x the reduction time.
         /// </summary>
         public bool PreventSelfIntersections = false;
+        /// <summary>
+        /// If true (default), a collapse is also rejected if one of its new triangles turns away from the input surface
+        /// it stands for: its unit normal must have a positive dot with the reference normal of its corners, the sum of
+        /// the area-weighted input normals each corner has absorbed (summed on every collapse). The usual flip check
+        /// compares with the current triangle only, so a chain of collapses, each turning a normal by less than 90
+        /// degrees, can fold the surface over (meshoptimizer issue 346). Where the absorbed normals nearly cancel (a
+        /// sharp crease, the rim of a thin plate: the reference shorter than ReferenceNormalMinLength of their summed
+        /// lengths) the reference says nothing, and only the usual flip check applies.
+        /// The references are taken from the mesh at the start of each reduction, like the quadrics. False gives the
+        /// reductions of upstream geometry3Sharp.
+        /// </summary>
+        public bool PreventFoldOver = true;
+        /// <summary>
+        /// (PreventFoldOver) a new triangle with two boundary edges, eg one on three consecutive vertices of a straight
+        /// border after an interior vertex was collapsed onto the border, must have a dot of more than this with its
+        /// reference normal (default 0.7, about 45 degrees), not just a positive one: such a triangle can stand at right
+        /// angles to the surface (a wall along the border) and still pass the sign test, as the reference of border
+        /// vertices tilts towards the border. (Triangles with one boundary edge, eg all of a band one cell wide, need only
+        /// the positive dot.)
+        /// </summary>
+        public double BoundaryTriangleMinNormalDot = 0.7;
+        /// <summary>
+        /// (PreventFoldOver) the reference normal of a triangle is used only if its length is at least this fraction of
+        /// the summed lengths of the normals it was summed from (default 0.25: they spread by less than about 150
+        /// degrees); otherwise they nearly cancel and the sign of a dot with it is noise
+        /// </summary>
+        public double ReferenceNormalMinLength = 0.25;
+
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
 
@@ -172,6 +200,7 @@ namespace g3
             ensure_deviation_reference();
             ensure_triangle_grid();
             Precompute();
+            ensure_reference_normals();
             if (Cancelled())
                 return;
             InitializeVertexQuadrics();
@@ -185,6 +214,9 @@ namespace g3
             begin_ops();
 
             begin_collapse();
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
+            try {
             while (EdgeQueue.Count > 0) {
 
                 // termination criteria
@@ -219,6 +251,9 @@ namespace g3
                     vertQuadrics[vKept] = EdgeQuadrics[eid].q;
                     UpdateNeighbours(vKept);
                 }
+            }
+            } finally {
+                bowtieState = null;
             }
             end_collapse();
             end_ops();
@@ -320,6 +355,7 @@ namespace g3
 
             begin_setup();
             Precompute(MeshIsClosedHint);
+            ensure_reference_normals();
             if (Cancelled())
                 return;
             end_setup();
@@ -330,6 +366,9 @@ namespace g3
 
             int N = mesh.MaxEdgeID;
             int num_last_pass = 0;
+            bowtieState = new sbyte[mesh.MaxVertexID];
+            bowtieStamp = mesh.ShapeTimestamp;
+            try {
             for (int ri = 0; ri < nRounds; ++ri) {
                 num_last_pass = 0;
 
@@ -348,7 +387,7 @@ namespace g3
 
                     COUNT_ITERATIONS++;
 
-                    Vector3d midpoint = (va + vb) * 0.5;
+                    Vector3d midpoint = va * 0.5 + vb * 0.5;
                     int vKept;
                     ProcessResult result = CollapseEdge(eid, midpoint, out vKept);
                     if (result == ProcessResult.Ok_Collapsed) {
@@ -358,6 +397,9 @@ namespace g3
 
                 if (num_last_pass == 0)     // converged
                     break;
+            }
+            } finally {
+                bowtieState = null;
             }
             end_collapse();
             end_ops();
@@ -395,7 +437,17 @@ namespace g3
 
         // current triangles by grid cell, for PreventSelfIntersections
         protected TriangleHashGrid triangleGrid;
+        /// <summary>
+        /// (tests, benchmarks) the cell size of the self-intersection grid in mean edge lengths of the mesh at the
+        /// start. The check's answers do not depend on it (only which candidates a query visits), so the reduction
+        /// is the same bit for bit; larger cells mean fewer cells per query and per update (1.5 before 2026-11-08,
+        /// see the reducer profile in docs/roadmap/alpha-wrap-and-repair.md)
+        /// </summary>
+        internal double GridCellEdgeLengths = 3.0;
+        /// <summary> (tests) false: IsBowtieVertex on every collapse instead of the per-vertex states; the same answers </summary>
+        internal bool CacheBowtieStates = true;
         protected HashSet<int> gridRingTris = new HashSet<int>();
+        AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
 
         protected void ensure_triangle_grid()
         {
@@ -408,7 +460,7 @@ namespace g3
                 Index2i ev = mesh.GetEdgeV(eid);
                 sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
             }
-            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(GridCellEdgeLengths * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
             foreach (int tid in mesh.TriangleIndices())
                 triangleGrid.Insert(tid, tri_box(tid));
         }
@@ -423,7 +475,94 @@ namespace g3
 
         // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
         // triangle outside the two one-rings (or another new triangle beyond their shared vertex)?
+        /// <summary>
+        /// (tests) false: PreventSelfIntersections queries the grid once per new triangle (the reference) instead of
+        /// once per collapse with the union of their boxes; the same answers
+        /// </summary>
+        internal bool SelfIntersectionUnionQuery = true;
+
         protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
+        {
+            if (SelfIntersectionUnionQuery == false)
+                return collapse_creates_intersection_per_triangle(a, b, vKeep, newPos);
+            gridRingTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            // (the lists and the query's callback are kept between collapses: this runs for every collapse)
+            List<Index3i> newIds = siNewIds;
+            List<Triangle3d> newTris = siNewTris;
+            newIds.Clear(); newTris.Clear();
+            foreach (int tid in gridRingTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB) continue;     // removed by the collapse
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                Triangle3d tri = new Triangle3d(
+                    nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                newIds.Add(nt); newTris.Add(tri);
+            }
+            // the new triangles among themselves
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                Index3i ia = newIds[i];
+                for (int j = i + 1; j < newTris.Count; ++j) {
+                    Triangle3d B = newTris[j];
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                        return true;
+                }
+            }
+            if (newTris.Count == 0)
+                return false;
+            // against the rest: one grid query with the union of the new triangles' boxes, then for each candidate
+            // the new triangles whose query would have returned it (TriangleHashGrid.QueryMatches, the grid's own
+            // test against the stored box). These are exactly the pairs
+            // that a query per new triangle would test (each box lies in the union), so the answer is the same; the
+            // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
+            // of about ten times
+            if (gridNewBoxes.Length < newTris.Count) gridNewBoxes = new AxisAlignedBox3d[2 * newTris.Count];
+            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                gridNewBoxes[i] = box;
+                if (i == 0) union = box; else union.Contain(box);
+            }
+            siHit = false;
+            if (siCandidate == null) siCandidate = si_candidate;
+            triangleGrid.Query(union, siCandidate);
+            return siHit;
+        }
+
+        List<Index3i> siNewIds = new List<Index3i>();
+        List<Triangle3d> siNewTris = new List<Triangle3d>();
+        bool siHit;
+        Action<int> siCandidate;
+
+        // a candidate of the grid query of collapse_creates_intersection: the new triangles (siNewIds, siNewTris,
+        // their boxes in gridNewBoxes) against triangle tc
+        void si_candidate(int tc)
+        {
+            // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+            // be used here: flat boxes of triangles in one axis plane never overlap by it)
+            if (siHit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+            Index3i ic = mesh.GetTriangle(tc);
+            Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+            // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+            if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+            for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
+                if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
+                    continue;
+                Triangle3d A = siNewTris[i];
+                if (TriangleTriangleFilter.IntersectsBeyondShared(siNewIds[i], ref A, ic, ref C))
+                    siHit = true;
+            }
+        }
+
+        // (tests) the check with one grid query per new triangle, as before the union query: the same answer
+        bool collapse_creates_intersection_per_triangle(int a, int b, int vKeep, Vector3d newPos)
         {
             gridRingTris.Clear();
             foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
@@ -481,6 +620,193 @@ namespace g3
                 triangleGrid.Remove(tid);
             foreach (int tid in mesh.VtxTrianglesItr(vKeep))
                 triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        // PreventFoldOver: per vertex, the sum of the area-weighted input normals (cross products) it has absorbed, and
+        // the sum of their lengths; taken at the start of each reduction, summed on every collapse (serial, so
+        // deterministic)
+        Vector3d[] refNormals;
+        double[] refLengths;
+
+        void ensure_reference_normals()
+        {
+            if (PreventFoldOver == false) {
+                refNormals = null; refLengths = null;
+                return;
+            }
+            if (SeedReferenceNormals != null) {
+                refNormals = new Vector3d[mesh.MaxVertexID];
+                refLengths = new double[mesh.MaxVertexID];
+                Array.Copy(SeedReferenceNormals, refNormals, Math.Min(refNormals.Length, SeedReferenceNormals.Length));
+                Array.Copy(SeedReferenceLengths, refLengths, Math.Min(refLengths.Length, SeedReferenceLengths.Length));
+                return;
+            }
+            ComputeReferenceNormals(mesh, out refNormals, out refLengths);
+        }
+
+        /// <summary>
+        /// (PartitionedReduction) PreventFoldOver: these reference normals and lengths per vertex instead of the mesh's own
+        /// (a reduction that continues one done in pieces keeps what the vertices absorbed); null: from the mesh
+        /// </summary>
+        internal Vector3d[] SeedReferenceNormals;
+        internal double[] SeedReferenceLengths;
+        internal Vector3d[] ReferenceNormals { get { return refNormals; } }
+        internal double[] ReferenceLengths { get { return refLengths; } }
+
+        // the reference of PreventFoldOver: per vertex, the sum of the cross products of its triangles and of their lengths
+        internal static void ComputeReferenceNormals(DMesh3 mesh, out Vector3d[] normals, out double[] lengths)
+        {
+            normals = new Vector3d[mesh.MaxVertexID];
+            lengths = new double[mesh.MaxVertexID];
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d n = (b - a).Cross(c - a);
+                double l = length(n);
+                Index3i tv = mesh.GetTriangle(t);
+                normals[tv.a] += n; normals[tv.b] += n; normals[tv.c] += n;
+                lengths[tv.a] += l; lengths[tv.b] += l; lengths[tv.c] += l;
+            }
+        }
+
+        // |v| without overflow or underflow (scaled by its largest coordinate first: exact for power-of-2 scalings)
+        static double length(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return m > 0 ? double.PositiveInfinity : 0;
+            v /= m;
+            return m * v.Length;
+        }
+
+        // v / (its largest |coordinate|) (exact for power-of-2 scalings of v); v if that is 0 or not finite
+        static Vector3d scaled(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            return (m > 0 && !double.IsInfinity(m)) ? v / m : v;
+        }
+
+        // v / |v| without overflow or underflow; 0 for v = 0 or not finite
+        static Vector3d unit(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return Vector3d.Zero;
+            v /= m;
+            return v / v.Length;
+        }
+
+        // the boundary edges of triangle t (around vid) after vid is merged with vother: an edge vid-w becomes the
+        // merge of vid-w and vother-w (if that exists, w is a corner of a removed triangle), a boundary edge if either is
+        int boundary_edges_after(Index3i t, int vid, int vother)
+        {
+            int n = 0;
+            for (int k = 0; k < 3; ++k) {
+                int p = t[k], q = t[(k + 1) % 3];
+                if (p != vid && q != vid) {
+                    if (is_boundary_edge(p, q)) ++n;
+                } else {
+                    int w = (p == vid) ? q : p;
+                    if (is_boundary_edge(vid, w) || is_boundary_edge(vother, w)) ++n;
+                }
+            }
+            return n;
+        }
+
+        bool is_boundary_edge(int p, int q)
+        {
+            int eid = mesh.FindEdge(p, q);
+            return eid != DMesh3.InvalidID && mesh.IsBoundaryEdge(eid);
+        }
+
+        // PreventFoldOver: would a triangle around vid (other than tc, td), with vid moved to newv and merged with
+        // vother, turn away from its reference normal?
+        bool collapse_turns_from_reference(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i t = mesh.GetTriangle(tid);
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                if (t.a == vid) va = newv; else if (t.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(t, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
+        }
+
+        // PreventFoldOver for one new triangle t (vid at its new position, so va, vb, vc are the new corners)
+        bool turns_from_reference(Index3i t, ref Vector3d va, ref Vector3d vb, ref Vector3d vc, int vid, int vother,
+            ref Vector3d merged, double mergedLength)
+        {
+            Vector3d r = Vector3d.Zero;
+            double rl = 0;
+            for (int k = 0; k < 3; ++k) {
+                int v = t[k];
+                if (v == vid) {
+                    r += merged; rl += mergedLength;
+                } else {
+                    r += refNormals[v]; rl += refLengths[v];
+                }
+            }
+            // no reference here (the usual flip check still applies): the absorbed normals nearly cancel, or they
+            // have no length (zero-area input) or overflowed
+            double lr = length(r);
+            if (!(rl > 0) || double.IsInfinity(rl) || double.IsInfinity(lr) || !(lr >= ReferenceNormalMinLength * rl))
+                return false;
+            // (a new normal that overflowed, at coordinates beyond about 1e154, is left to the usual check too)
+            Vector3d n = (vb - va).Cross(vc - va);
+            if (!n.IsFinite)
+                return false;
+            // the sign needs no unit vectors (r scaled by its largest coordinate: no overflow, exact under 2^k
+            // scalings); the boundary rule, rarely reached, does
+            double sign = n.Dot(scaled(r));
+            if (double.IsNaN(sign))
+                return false;
+            if (!(sign > 0))
+                return true;
+            return HaveBoundary && BoundaryTriangleMinNormalDot > 0 && !(unit(n).Dot(unit(r)) > BoundaryTriangleMinNormalDot)
+                && boundary_edges_after(t, vid, vother) >= 2;
+        }
+
+        /// <summary> (tests) one pass over each one-ring for the flip and the PreventFoldOver checks; false: two </summary>
+        internal bool FusedFoldCheck = true;
+
+        // collapse_creates_flip_or_invalid and collapse_turns_from_reference in one pass over the one-ring of vid (the
+        // same decision: the collapse is refused if either refuses it, and both visit the same triangles)
+        bool collapse_creates_flip_invalid_or_fold(int vid, int vother, ref Vector3d newv, int tc, int td)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            Vector3d merged = refNormals[vid] + refNormals[vother];
+            double mergedLength = refLengths[vid] + refLengths[vother];
+            foreach (int tid in mesh.VtxTrianglesItr(vid)) {
+                if (tid == tc || tid == td)
+                    continue;
+                Index3i curt = mesh.GetTriangle(tid);
+                if (curt.a == vother || curt.b == vother || curt.c == vother)
+                    return true;        // invalid nbrhood for collapse
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                // (as collapse_creates_flip_or_invalid)
+                Vector3d ncur = (vb - va).Cross(vc - va);
+                Vector3d nnew;
+                if (curt.a == vid) nnew = (vb - newv).Cross(vc - newv);
+                else if (curt.b == vid) nnew = (newv - va).Cross(vc - va);
+                else if (curt.c == vid) nnew = (vb - va).Cross(newv - va);
+                else throw new Exception("should never be here!");
+                if (edge_flip_metric(ref ncur, ref nnew) <= edge_flip_tol)
+                    return true;
+                if (MinCollapseTriangleQuality > 0) {
+                    Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
+                    double qNew = TriangleQuality(ref na, ref nb, ref nc);
+                    if (collapse_quality_rejects(qNew, ref va, ref vb, ref vc))
+                        return true;
+                }
+                if (curt.a == vid) va = newv; else if (curt.b == vid) vb = newv; else vc = newv;
+                if (turns_from_reference(curt, ref va, ref vb, ref vc, vid, vother, ref merged, mergedLength))
+                    return true;
+            }
+            return false;
         }
 
         protected void ensure_deviation_reference()
@@ -734,10 +1060,10 @@ namespace g3
             // [TODO] if we have constraints, we should apply them here, for same reason as bdry above...
 
 			if (MinimizeQuadricPositionError == false) {
-				return project( (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5 );
+				return project(mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5);
 			} else {
                 Vector3d result = Vector3d.Zero;
-                Vector3d mid = 0.5 * (mesh.GetVertex(ea) + mesh.GetVertex(eb)) - quadricOrigin;
+                Vector3d mid = mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5 - quadricOrigin;
                 if (q.OptimalPoint(ref result, mid, QuadricRegularization))
                     return project(result + quadricOrigin);
 
@@ -745,7 +1071,7 @@ namespace g3
 				// (could do line search here...)
 				Vector3d va = mesh.GetVertex(ea);
 				Vector3d vb = mesh.GetVertex(eb);
-				Vector3d c = project((va + vb) * 0.5);
+				Vector3d c = project(va * 0.5 + vb * 0.5);
 				double fa = evaluate(ref q, va);
 				double fb = evaluate(ref q, vb);
 				double fc = evaluate(ref q, c);
@@ -859,6 +1185,52 @@ namespace g3
 
 
 
+        // during a reduction: per vertex, whether it is a bowtie vertex (0 not known yet, 1 no, 2 yes). That depends
+        // only on the triangles at the vertex, and a collapse changes only those at the kept vertex and its
+        // neighbours (the triangles that had a or b, whose other corners are now all neighbours of the kept
+        // vertex), so forget_bowtie_states resets exactly those; the answers are those of IsBowtieVertex. (In
+        // practice DMesh3.CollapseEdge's neighbourhood test refuses the collapses that would change a state; the
+        // resets do not rely on it.) null outside DoReduce and FastCollapsePass: the mesh can change in between.
+        // bowtieStamp is the mesh's ShapeTimestamp after the last reset: any other edit while the states are live (eg a
+        // subclass that changes the mesh in OnEdgeCollapse) differs from it, and then all states are forgotten
+        sbyte[] bowtieState;
+        int bowtieStamp;
+
+        bool is_bowtie(int vid)
+        {
+            if (bowtieState == null || CacheBowtieStates == false || vid < 0 || vid >= bowtieState.Length)
+                return mesh.IsBowtieVertex(vid);
+            // (CollapseEdge asks this before every collapse, with no edit in between, so an edit by someone else is seen
+            // before forget_bowtie_states records the stamp after the collapse)
+            if (mesh.ShapeTimestamp != bowtieStamp) {
+                Array.Clear(bowtieState, 0, bowtieState.Length);
+                bowtieStamp = mesh.ShapeTimestamp;
+            }
+            sbyte state = bowtieState[vid];
+            if (state == 0) {
+                state = mesh.IsBowtieVertex(vid) ? (sbyte)2 : (sbyte)1;
+                bowtieState[vid] = state;
+            }
+            return state == 2;
+        }
+
+        void forget_bowtie_states(int vKeep, int vRemoved)
+        {
+            if (bowtieState == null)
+                return;
+            forget_bowtie_state(vKeep);
+            forget_bowtie_state(vRemoved);
+            foreach (int v in mesh.VtxVerticesItr(vKeep))
+                forget_bowtie_state(v);
+            bowtieStamp = mesh.ShapeTimestamp;
+        }
+
+        void forget_bowtie_state(int vid)
+        {
+            if (vid >= 0 && vid < bowtieState.Length)
+                bowtieState[vid] = 0;
+        }
+
 		protected enum ProcessResult {
 			Ok_Collapsed = 0,
 			Ignored_CannotCollapse = 1,
@@ -930,6 +1302,21 @@ namespace g3
                     collapse_to = a;
             }
 
+            // a bowtie vertex (fans of triangles that meet only there) is kept in place and never removed: moving it
+            // drags the other fans along, and removing it attaches them to a vertex of this fan (the fans merge, and
+            // the tetrahedron test of DMesh3.CollapseEdge, which counts the edges of all fans, lets duplicate
+            // triangles through). The queue priority of such an edge is still that of the free optimum: the forced
+            // position is only checked here (flip test), not costed
+            bool bowA = is_bowtie(a), bowB = is_bowtie(b);
+            if (bowA || bowB) {
+                if (bowA && bowB)
+                    return ProcessResult.Ignored_Constrained;
+                int bowtie = bowA ? a : b;
+                if (collapse_to != -1 && collapse_to != bowtie)
+                    return ProcessResult.Ignored_Constrained;
+                collapse_to = bowtie;
+            }
+
             // optimization: if edge cd exists, we cannot collapse or flip. look that up here?
             //  funcs will do it internally...
             //  (or maybe we can collapse if cd exists? edge-collapse doesn't check for it explicitly...)
@@ -955,10 +1342,23 @@ namespace g3
             // check if this collapse will create a normal flip. Also checks
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
             // [TODO] could we skip this one-ring check in CollapseEdge? pass in hints?
-			if ( collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) ||  collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0,t1) ) {
-				retVal = ProcessResult.Ignored_CreatesFlip;
-				goto skip_to_end;
-			}
+            // (with PreventFoldOver in one pass with its check; without it, as before)
+            begin_quality_check(a, b, t0, t1);
+            if (refNormals != null && FusedFoldCheck) {
+                if (collapse_creates_flip_invalid_or_fold(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_invalid_or_fold(b, a, ref vNewPos, t0, t1)) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+            } else {
+                if (collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0, t1)) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+                if (refNormals != null && (collapse_turns_from_reference(a, b, ref vNewPos, t0, t1) || collapse_turns_from_reference(b, a, ref vNewPos, t0, t1))) {
+                    retVal = ProcessResult.Ignored_CreatesFlip;
+                    goto skip_to_end;
+                }
+            }
             if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
                 retVal = ProcessResult.Ignored_ExceedsDeviation;
                 goto skip_to_end;
@@ -976,6 +1376,11 @@ namespace g3
 			if ( result == MeshResult.Ok ) {
 				collapseToV = iKeep;
 				mesh.SetVertex(iKeep, vNewPos);
+                forget_bowtie_states(iKeep, iCollapse);
+                if (refNormals != null) {
+                    refNormals[iKeep] += refNormals[iCollapse];
+                    refLengths[iKeep] += refLengths[iCollapse];
+                }
                 if (triangleGrid != null)
                     update_triangle_grid(iKeep);
                 if (constraints != null) {

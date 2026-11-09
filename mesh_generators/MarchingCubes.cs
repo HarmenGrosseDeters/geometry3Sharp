@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading;
 using g3;
 
 namespace g3
@@ -53,15 +52,28 @@ namespace g3
         public double CubeSize = 0.1;
 
         /// <summary>
-        /// Use multi-threading? Generally a good idea unless problem is very small or
-        /// you are multi-threading at a higher level (which may be more efficient as
-        /// we currently use very fine-grained spinlocks to synchronize)
+        /// Evaluate slabs in parallel, then assemble in z/y/x order. For a deterministic, thread-safe field,
+        /// completed runs have the same vertex and triangle ids as sequential computation.
+        /// Temporary storage is bounded to one batch of at most Environment.ProcessorCount slabs.
         /// </summary>
         public bool ParallelCompute = true;
 
 
-        /// <summary> How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, or bisection </summary>
-        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
+        /// <summary>
+        /// How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, bisection,
+        /// or LinearEdges: one linear interpolation of the original corner samples, without the endpoint nudges and
+        /// with no skipped triangle. LinearEdges requires finite samples and edge coordinates, no sample exactly at
+        /// IsoValue and crossings strictly inside their edges (a sample that differs from IsoValue by a tiny amount can
+        /// still round a crossing onto a corner); it never repairs a violation: Generate() then throws
+        /// InvalidOperationException (a crossing on a grid corner, a collapsed triangle, or as a guard a rejected
+        /// one) or ArgumentException (non-finite values), also from the parallel path (InvalidOperationException
+        /// preferred if several cells fail), and the partial mesh must not be used. MarchingCubesPro additionally
+        /// needs a finite positive CubeSize and at most 65535 cells per axis for Generate(), 65534 for
+        /// GenerateContinuation() (its 16-bit grid hash), whose seeds must lie in the grid (cell indices 0 to n), and
+        /// otherwise throws ArgumentException before any work. The mode alone certifies nothing about an arbitrary field: the conditional enclosure recipe and
+        /// its further preconditions are in docs/design/CONSERVATIVE_MC_AUDIT.md.
+        /// </summary>
+        public enum RootfindingModes { SingleLerp, LerpSteps, Bisection, LinearEdges }
 
         /// <summary>
         /// Which rootfinding method will be used to converge on surface along edges
@@ -111,6 +123,8 @@ namespace g3
 
         /// <summary>
         /// Run MC algorithm and generate Output mesh (stored in Mesh). Returns early with a partial mesh if CancelF returns true.
+        /// CubeSize must be finite and positive; bounds must be finite and each cell count must fit in int.
+        /// Empty/inverted axes retain one cell, as upstream; streaming grids have no total-cell array limit.
         /// </summary>
         public void Generate()
         {
@@ -118,10 +132,20 @@ namespace g3
 
             VertexHash = new Dictionary<Vector3d, int>();
 
-            int nx = (int)(Bounds.Width / CubeSize) + 1;
-            int ny = (int)(Bounds.Height / CubeSize) + 1;
-            int nz = (int)(Bounds.Depth / CubeSize) + 1;
-            CellDimensions = new Vector3i(nx, ny, nz);
+            if (!(CubeSize > 0) || double.IsInfinity(CubeSize))
+                throw new ArgumentException("MarchingCubes.Generate: the cube size must be finite and positive");
+            Vector3i dimensions = Vector3i.Zero;
+            for (int d = 0; d < 3; ++d) {
+                double min = Bounds.Min[d], max = Bounds.Max[d];
+                if (double.IsNaN(min) || double.IsInfinity(min) || double.IsNaN(max) || double.IsInfinity(max))
+                    throw new ArgumentException("MarchingCubes.Generate: the bounds must be finite");
+                // Match Bounds.Width/Height/Depth for empty or inverted axes. Cells are streamed, not a dense array.
+                double cells = Math.Max(max - min, 0) / CubeSize;
+                if (cells >= int.MaxValue)
+                    throw new ArgumentException("MarchingCubes.Generate: each cell axis must fit in int");
+                dimensions[d] = (int)cells + 1;
+            }
+            CellDimensions = dimensions;
 
             if (ParallelCompute) {
                 generate_parallel();
@@ -211,39 +235,45 @@ namespace g3
         }
 
 
-        bool bParallel = false;
-        SpinLock hash_lock;
-        SpinLock mesh_lock;
-
         /// <summary>
-        /// processing z-slabs of cells in parallel
+        /// Evaluate bounded batches of z-slabs in parallel, then assign ids in serial traversal order.
         /// </summary>
         void generate_parallel()
         {
-            hash_lock = new SpinLock();
-            mesh_lock = new SpinLock();
-            bParallel = true;
-
-            // [TODO] maybe shouldn't alway use Z axis here?
-            gParallel.ForEach(Interval1i.Range(CellDimensions.z), (zi) => {
-                GridCell cell = new GridCell();
-                Vector3d[] vertlist = new Vector3d[12];
-                for (int yi = 0; yi < CellDimensions.y; ++yi) {
-                    if (CancelF())
-                        return;
-                    // compute full cell at x=0, then slide along x row, which saves half of value computes
-                    Vector3i idx = new Vector3i(0, yi, zi);
-                    initialize_cell(cell, ref idx);
-                    polygonize_cell(cell, vertlist);
-                    for (int xi = 1; xi < CellDimensions.x; ++xi) {
-                        shift_cell_x(cell, xi);
-                        polygonize_cell(cell, vertlist);
-                    }
+            int batchSize = Math.Min(CellDimensions.z, Math.Max(1, Environment.ProcessorCount));
+            for (int start = 0; start < CellDimensions.z;) {
+                if (CancelF())
+                    return;
+                int count = Math.Min(batchSize, CellDimensions.z - start);
+                var slabs = new List<Vector3d>[count];
+                Exception failure = null;
+                try {
+                    gParallel.ForRange(count, i => {
+                        var vertices = new List<Vector3d>();
+                        slabs[i] = vertices;
+                        GridCell cell = new GridCell();
+                        Vector3d[] vertlist = new Vector3d[12];
+                        for (int yi = 0; yi < CellDimensions.y; ++yi) {
+                            if (CancelF())
+                                return;
+                            Vector3i idx = new Vector3i(0, yi, start + i);
+                            initialize_cell(cell, ref idx);
+                            polygonize_cell(cell, vertlist, vertices);
+                            for (int xi = 1; xi < CellDimensions.x; ++xi) {
+                                shift_cell_x(cell, xi);
+                                polygonize_cell(cell, vertlist, vertices);
+                            }
+                        }
+                    });
+                } catch (AggregateException e) when (RootMode == RootfindingModes.LinearEdges && (failure = gParallel.FirstOperationFailure(e)) != null) {
+                    // (several slabs failed at once; ForRange unwraps only a single failure: throw the documented type)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
                 }
-            });
-
-
-            bParallel = false;
+                foreach (List<Vector3d> slab in slabs)
+                    for (int t = 0; t < slab.Count; t += 3)
+                        emit_triangle(slab[t], slab[t + 1], slab[t + 2]);
+                start += count;
+            }
         }
 
 
@@ -279,7 +309,7 @@ namespace g3
         /// <summary>
         /// find edge crossings and generate triangles for this cell
         /// </summary>
-        bool polygonize_cell(GridCell cell, Vector3d[] vertList)
+        bool polygonize_cell(GridCell cell, Vector3d[] vertList, List<Vector3d> output = null)
         {
             // construct bits of index into edge table, where bit for each
             // corner is 1 if that value is < isovalue.
@@ -312,21 +342,16 @@ namespace g3
             // and emit triangles using the vertices we found.
             int tri_count = 0;
             for (int i = 0; triTable[cubeindex,i] != -1; i += 3) {
-                int ta = triTable[cubeindex, i];
-                int a = find_or_append_vertex(ref vertList[ta]);
-
-                int tb = triTable[cubeindex, i+1];
-                int b = find_or_append_vertex(ref vertList[tb]);
-
-                int tc = triTable[cubeindex, i + 2];
-                int c = find_or_append_vertex(ref vertList[tc]);
-
-                // if a corner is within tolerance of isovalue, then some triangles
-                // will be degenerate, and we can skip them w/o resulting in cracks (right?)
-                if (a == b || a == c || b == c)
-                    continue;  
-
-                /*int tid = */append_triangle(a, b, c);
+                Vector3d a = vertList[triTable[cubeindex, i]];
+                Vector3d b = vertList[triTable[cubeindex, i + 1]];
+                Vector3d c = vertList[triTable[cubeindex, i + 2]];
+                if (output != null) {
+                    output.Add(a);
+                    output.Add(b);
+                    output.Add(c);
+                } else {
+                    emit_triangle(a, b, c);
+                }
                 tri_count++;
             }
 
@@ -335,66 +360,28 @@ namespace g3
 
 
 
-        /// <summary>
-        /// check if vertex is in hash table, and if not add new one, with locking if computing in-parallel
-        /// </summary>
-        int find_or_append_vertex(ref Vector3d pos)
+        int find_or_append_vertex(Vector3d pos)
         {
-            bool lock_taken = false;
-            if ( bParallel ) {
-                hash_lock.Enter(ref lock_taken);
-            }
-
             int vid;
             if (VertexHash.TryGetValue(pos, out vid) == false) {
-                vid = append_vertex(pos);
+                vid = Mesh.AppendVertex(pos);
                 VertexHash[pos] = vid;
             }
-
-            if (lock_taken)
-                hash_lock.Exit();
-
             return vid;
         }
 
-
-
-        /// <summary>
-        /// add vertex to mesh, with locking if we are computing in parallel
-        /// </summary>
-        int append_vertex(Vector3d v)
+        void emit_triangle(Vector3d pa, Vector3d pb, Vector3d pc)
         {
-            bool lock_taken = false;
-            if (bParallel) {
-                mesh_lock.Enter(ref lock_taken);
+            int a = find_or_append_vertex(pa);
+            int b = find_or_append_vertex(pb);
+            int c = find_or_append_vertex(pc);
+            if (a != b && a != c && b != c) {
+                int tid = Mesh.AppendTriangle(a, b, c);
+                if (RootMode == RootfindingModes.LinearEdges && tid < 0)
+                    throw new InvalidOperationException("LinearEdges: mesh rejected a required triangle");
+            } else if (RootMode == RootfindingModes.LinearEdges) {
+                throw new InvalidOperationException("LinearEdges: a triangle collapsed (coincident crossings)");
             }
-
-            int vid = Mesh.AppendVertex(v);
-
-            if (lock_taken)
-                mesh_lock.Exit();
-
-            return vid;
-        }
-
-
-
-        /// <summary>
-        /// add triangle to mesh, with locking if we are computing in parallel
-        /// </summary>
-        int append_triangle(int a, int b, int c)
-        {
-            bool lock_taken = false;
-            if (bParallel) {
-                mesh_lock.Enter(ref lock_taken);
-            }
-
-            int tid = Mesh.AppendTriangle(a, b, c);
-
-            if (lock_taken)
-                mesh_lock.Exit();
-
-            return tid;
         }
 
 
@@ -413,20 +400,23 @@ namespace g3
             // repeated nearly-coincident vertices, but the mesh will be manifold.
             // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
             // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
-            const double dt = 0.999999;
-            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
-            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
-            if (Math.Abs(valp1 - valp2) <= tol) {
-                pIso = (p1 + p2) * 0.5;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp1) < tol) {
-                pIso = dt*p1 + (1.0-dt)*p2;
-                return;
-            }
-            if (Math.Abs(IsoValue - valp2) < tol) {
-                pIso = (dt)*p2 + (1.0-dt)*p1;
-                return;
+            // LinearEdges bypasses the endpoint nudges used by the legacy modes.
+            if (RootMode != RootfindingModes.LinearEdges) {
+                const double dt = 0.999999;
+                double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+                if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+                if (Math.Abs(valp1 - valp2) <= tol) {
+                    pIso = (p1 + p2) * 0.5;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp1) < tol) {
+                    pIso = dt*p1 + (1.0-dt)*p2;
+                    return;
+                }
+                if (Math.Abs(IsoValue - valp2) < tol) {
+                    pIso = (dt)*p2 + (1.0-dt)*p1;
+                    return;
+                }
             }
 
             // [RMS] if we don't maintain min/max order here, then numerical error means
@@ -436,6 +426,23 @@ namespace g3
             if (valp2 < valp1) {
                 a = p2; b = p1;
                 fb = valp1; fa = valp2;
+            }
+
+            if (RootMode == RootfindingModes.LinearEdges) {
+                double gap = fb - fa;
+                double t = (IsoValue - fa) / gap;
+                if (!(gap > 0) || double.IsInfinity(gap) || double.IsNaN(t) || double.IsInfinity(t))
+                    throw new ArgumentException("LinearEdges requires finite, distinct crossing values");
+                t = Math.Max(0, Math.Min(1, t));
+                for (int d = 0; d < 3; ++d) {
+                    double q = a[d] + t * (b[d] - a[d]);
+                    if (double.IsNaN(q) || double.IsInfinity(q))
+                        throw new ArgumentException("LinearEdges requires finite edge coordinates");
+                    pIso[d] = Math.Max(Math.Min(a[d], b[d]), Math.Min(Math.Max(a[d], b[d]), q));
+                }
+                if (pIso == a || pIso == b)
+                    throw new InvalidOperationException("LinearEdges requires strictly interior edge crossings");
+                return;
             }
 
             // converge on root

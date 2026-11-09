@@ -295,7 +295,10 @@ namespace geometry3Sharp.Tests
         {
             // the safe rounding leaves slivers, which the cleanup removes, adding self-intersections. The rounding's
             // count (none) no longer holds then: the exact stage must not accept the result
-            var r = new MeshRobustRepair(NearlyCoincidentBoxes(9, 6)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
+            // (scene 9, 6 gave it while the orientation took boxes crossing others for cavities and flipped them, finding
+            // R1; with the crossing boxes kept outward, scene 4, 7 did; with the drift charged to the apex of an edit,
+            // which repairs more slivers there, scene 22, 9 does)
+            var r = new MeshRobustRepair(NearlyCoincidentBoxes(22, 9)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
             Assert.True(r.Apply());
             // the scenario: resolved exactly, after a round whose cleaned result had intersections (if a later change
             // to the resolve or the rounding no longer gives it, this test must be given a new scene)
@@ -926,7 +929,7 @@ namespace geometry3Sharp.Tests
 
         // thin rotated plates (about a cell thick at resolution 64), overlapping: the solidify leaves
         // self-intersections where the sheets meet in few cells
-        static DMesh3 ThinPlates(int seed)
+        internal static DMesh3 ThinPlates(int seed)
         {
             var rnd = new Random(seed);
             DMesh3 m = new DMesh3();

@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading;
 
 
 namespace g3
@@ -23,7 +22,7 @@ namespace g3
 
         // outputs
 
-        /// <summary> List of computed submeshes </summary>
+        /// <summary> List of computed submeshes, in TriangleSetKeys enumeration order </summary>
         public List<DSubmesh3> Submeshes;
 
         /// <summary> Mapping from keys to submeshes </summary>
@@ -76,17 +75,15 @@ namespace g3
             Submeshes = new List<DSubmesh3>();
             KeyToMesh = new Dictionary<object, DSubmesh3>();
 
-            SpinLock data_lock = new SpinLock();
-
-            gParallel.ForEach(TriangleSetKeys, (obj) => {
-                DSubmesh3 submesh = new DSubmesh3(Mesh, TriangleSetF(obj), 0);
-
-                bool taken = false;
-                data_lock.Enter(ref taken);
-                Submeshes.Add(submesh);
-                KeyToMesh[obj] = submesh;
-                data_lock.Exit();
+            object[] keys = TriangleSetKeys.ToArray();
+            var results = new DSubmesh3[keys.Length];
+            gParallel.ForRange(keys.Length, i => {
+                results[i] = new DSubmesh3(Mesh, TriangleSetF(keys[i]), 0);
             });
+            for (int i = 0; i < keys.Length; ++i) {
+                Submeshes.Add(results[i]);
+                KeyToMesh[keys[i]] = results[i];
+            }
         }
 
     }

@@ -17,8 +17,8 @@ namespace g3
     /// Storage: triangle t has vertices V[3t..3t+2], counter-clockwise for a real triangle. Half-edge 3t+k runs from
     /// V[3t+k] to V[3t+(k+1)%3]; H[e] is its twin. Ghost triangles carry the vertex <see cref="Infinite"/>; a ghost
     /// (a, b, inf) lies on the outer side of the hull edge from a to b (the interior is to its right). The number of
-    /// triangles, ghosts included, is 2 (vertices) - 2 at all times, so a cavity of k triangles is replaced by k + 2 and
-    /// no slot is ever freed.
+    /// triangles, ghosts included, is 2 (vertices) - 2 at all times, so a cavity of k triangles is replaced by k + 2; only
+    /// a vertex deletion (DelaunayKernel2.Deletion.cs) frees slots, two, by moving the last slots into them.
     /// </remarks>
     internal sealed partial class DelaunayKernel2
     {
@@ -38,10 +38,27 @@ namespace g3
 
         int[] mark, reject, startAt, stack, cavity, boundary;
         int stamp, hint = -1;
+
+        /// <summary> the triangle the next point location starts from (a live triangle near the point, eg the one that holds it): the
+        /// walk is then short. A ghost is replaced by the real triangle across its hull edge (LocatePoint would start a ghost hint far
+        /// away, at the first real slot). For a point strictly inside a triangle the walk ends there whatever the start; on an edge or a
+        /// vertex, or outside the hull, the triangle (or ghost) reached depends on the start, and the insertion's slot layout with it </summary>
+        internal void LocateHint(int t)
+        {
+            if (t < 0 || t >= TriangleSlots) return;
+            if (IsGhost(t)) {
+                for (int j = 0; j < 3; ++j) {
+                    int e = 3 * t + j;
+                    if (V[e] != Infinite && V[Next(e)] != Infinite) { t = H[e] / 3; break; }
+                }
+                if (IsGhost(t)) return;
+            }
+            hint = t;
+        }
         /// <summary> on a failure: a vertex where it was found (the point being inserted, or a vertex of the defect) </summary>
         internal int FailureVertex = -1;
         uint walkState = 2463534242;
-        /// <summary> triangles visited by the location walks of the insertion (a measure of the insertion order's locality) </summary>
+        /// <summary> triangles visited by the location walks (of the input points and of InsertPoint): a measure of locality </summary>
         internal long WalkSteps;
 
         /// <param name="x">coordinates in insertion order</param>

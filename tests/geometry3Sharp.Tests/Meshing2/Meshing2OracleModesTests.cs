@@ -21,22 +21,113 @@ namespace geometry3Sharp.Tests
         static string Verdict(OracleReport r) =>
             string.Join(",", r.Violations.GroupBy(v => v.Kind).OrderBy(g => g.Key).Select(g => g.Key + "x" + g.Count()))
             + " | area2 " + r.Area2 + " | minsin2 " + r.MinSin2 + " | below " + r.BelowAngle + " | ties " + r.TieEdges + " | unique " + r.Unique
-            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused;
+            + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused
+            + " | o11 " + r.O11LocalExcused + "/" + r.O11GlobalExcused + "/" + r.O11AngleExcused;
 
         static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
-            var fast = Oracle.Check(input, output, e);
             var reference = Oracle.Check(input, output, e.WithReference());
+            // The reference path runs the global empty-circumcircle pass only up to GlobalDelaunayLimit triangle-vertex pairs, by design
+            // (all pairs, exactly); above it the fast path is compared without that pass too, and the pass itself is compared on the rows
+            // below the limit. (Found when F-4/a, F-4/b and F-5 left the slow rows: the fast path found the global violations of a
+            // corrupted F-5 and counted the merge-zone excusals of its global pass, the limited reference path neither; with no limit the
+            // reference path agrees with the fast one, in 200 s instead of 0.9 s.)
+            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
+            Assert.Equal(reference.GlobalDelaunayChecked, fast.GlobalDelaunayChecked);
             Assert.True(Verdict(fast) == Verdict(reference), what + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
         }
 
-        [Theory]
-        [MemberData(nameof(RowIds))]
-        public void CatalogueRow_SameVerdictOnBothPaths(string id)
+        // The expensive theories sit in nested classes (ExtremeScales split in two): xUnit runs classes in parallel but the rows of one class
+        // one after another, and in one class they took 14 minutes (841 s on net10.0, 4 cores), the second longest stretch of the suite.
+        public class CatalogueRows
+        {
+            [Theory]
+            [MemberData(nameof(RowIds), MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        static void CatalogueRow(string id)
         {
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
             Same(row.Case.Input, output, row.Case.Expect, id);
+        }
+
+        /// <summary>
+        /// The fast path's filters in doubles hold at extreme magnitudes: the catalogue rows with small angles, holes and seeds, scaled by
+        /// 2^k (exact; inputs, seeds and the mesher's output alike), give the same verdict and the same reported details on both paths
+        /// (review of the oracle speed-up: a distance overflowed at 2^512, a product of squared lengths underflowed at 2^-270)
+        /// </summary>
+        public class ExtremeScalesSmall
+        {
+            [Theory]
+            [InlineData("F-38/a", -270)]
+            [InlineData("F-38/d", -270)]
+            [InlineData("F-44", -270)]
+            [InlineData("spike-0.84", -300)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        public class ExtremeScalesLarge
+        {
+            [Theory]
+            [InlineData("F-38/a", 450)]
+            [InlineData("F-38/a", 512)]
+            [InlineData("F-38/d", 512)]
+            [InlineData("F-44", 512)]
+            [InlineData("spike-0.84", 512)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        static void ExtremeScales(string id, int exponent)
+        {
+            // spike-0.84: earcut's water-huge reduced to five points (QualityMesh2Tests.SpikeOf084Degrees) at 25 degrees, whose merge zone and
+            // O11-unsplittable piece the oracle excuses; at 2^-300 the leg pieces' directions are below 1e-81
+            Mesh2Case c;
+            if (id == "spike-0.84") {
+                var spike = new Mesh2Input { X = new double[] { 4097, 4097, 4098, 4183, 4050 }, Y = new double[] { 2989, 3013, 2945, 4096, 3675 }, MinAngleDeg = 25 };
+                spike.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+                c = new Mesh2Case { Id = id, Milestone = Milestone.M3, Input = spike, Expect = new OracleExpect { Milestone = Milestone.M3 } };
+            } else c = Catalogue.Rows().First(r => r.Id == id).Case;
+            var row = new { Case = c };
+            var input = TextFormat.ReadInput(TextFormat.WriteInput(row.Case.Input));
+            double f = Math.Pow(2, exponent);
+            for (int i = 0; i < input.Count; ++i) { input.X[i] *= f; input.Y[i] *= f; }
+            foreach (var seed in input.HoleSeeds) { seed[0] *= f; seed[1] *= f; }
+            Assert.Null(input.MaxArea);
+            var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
+            for (int i = 0; i < output.VX.Length; ++i) { output.VX[i] *= f; output.VY[i] *= f; }
+            output.ExactVertices = null; output.Locate = null;   // (the candidate's location belongs to the unscaled mesh)
+            var e = new OracleExpect { Milestone = row.Case.Milestone };
+            Same(input, output, e, id + " at 2^" + exponent);
+            string Details(OracleReport r) => string.Join("; ", r.Violations.Select(v => v.ToString()).OrderBy(x => x, StringComparer.Ordinal));
+            var reference = Oracle.Check(input, output, e.WithReference());
+            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
+            Assert.Equal(Details(reference), Details(fast));
+        }
+
+        /// <summary>
+        /// The evidence for the comparison above the limit: on F-4/b and F-5 (tens of millions of triangle-vertex pairs) the reference path
+        /// without its limit gives the fast path's verdict on the mesh and on every corrupted copy, the merge-zone excusals and the
+        /// global violations included. Takes about half an hour, so it runs with G3_MESH2_SLOW set, like the slow catalogue rows.
+        /// </summary>
+        [Theory]
+        [InlineData("F-4/b")]
+        [InlineData("F-5")]
+        public void AboveTheLimit_ReferenceWithoutLimit_SameVerdictAsFast(string id)
+        {
+            if (Environment.GetEnvironmentVariable("G3_MESH2_SLOW") == null) return;
+            var row = Catalogue.Rows().First(r => r.Id == id);
+            var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);
+            Assert.True((long)output.Triangles.Length * output.VX.Length > row.Case.Expect.GlobalDelaunayLimit, id + " is no longer above the limit");
+            foreach (var (name, mesh) in new[] { ("valid", output) }.Concat(Corrupted(output))) {
+                var fast = Oracle.Check(row.Case.Input, mesh, row.Case.Expect);
+                var reference = Oracle.Check(row.Case.Input, mesh, row.Case.Expect.WithReference().WithGlobalDelaunayLimit(long.MaxValue));
+                // a corrupted copy may stop both paths before the global pass; the valid mesh must reach it
+                Assert.True(fast.GlobalDelaunayChecked == reference.GlobalDelaunayChecked && (fast.GlobalDelaunayChecked || name != "valid"),
+                    id + " " + name + ": global pass fast " + fast.GlobalDelaunayChecked + " / reference " + reference.GlobalDelaunayChecked);
+                Assert.True(Verdict(fast) == Verdict(reference), id + " " + name + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
+            }
         }
 
         /// <summary> corruptions a mesher could produce: a vertex moved, a triangle missing, a triangle turned over, two vertices swapped </summary>
@@ -62,9 +153,14 @@ namespace geometry3Sharp.Tests
             yield return ("two vertices swapped", swapped);
         }
 
-        [Theory]
-        [MemberData(nameof(RowIds))]
-        public void CorruptedRow_RejectedOnBothPaths(string id)
+        public class CorruptedRows
+        {
+            [Theory]
+            [MemberData(nameof(RowIds), MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
+        }
+
+        static void CorruptedRow(string id)
         {
             var row = Rows.First(r => r.Id == id);
             var output = CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);

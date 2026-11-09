@@ -125,7 +125,8 @@ namespace geometry3Sharp.Tests
             // the toe lies just below its specified height, the level line at the limit
             var b = d.SlopeSurface.Vertices().ToList();
             Assert.Contains(b, v => v.y == 0 && v.z <= 5 - d.UsedToeLowering && v.z >= 5 - 2 * d.UsedToeLowering);
-            Assert.Contains(b, v => v.z == 15);
+            // (the level line of the cap: the map is lowered by λ, the cap with it, so it ends at H - λ)
+            Assert.Contains(b, v => v.z <= 15 && v.z >= 15 - 2 * d.UsedToeLowering);
         }
 
         [Fact]
@@ -141,6 +142,20 @@ namespace geometry3Sharp.Tests
 
         static List<Vector3d> Ngon(int n, double r, double z, double phase = 0.1) =>
             Enumerable.Range(0, n).Select(i => new Vector3d(r * Math.Cos(phase + 2 * Math.PI * i / n), r * Math.Sin(phase + 2 * Math.PI * i / n), z)).ToList();
+
+        // the height of the surface at p (in the triangle that contains it, linear)
+        internal static double HeightAt(DMesh3 m, Vector2d p)
+        {
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = m.GetVertex(m.GetTriangle(t).a), b = m.GetVertex(m.GetTriangle(t).b), c = m.GetVertex(m.GetTriangle(t).c);
+                double det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+                if (det == 0) continue;
+                double u = ((p.x - a.x) * (c.y - a.y) - (c.x - a.x) * (p.y - a.y)) / det;
+                double v = ((b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y)) / det;
+                if (u >= -1e-12 && v >= -1e-12 && u + v <= 1 + 1e-12) return a.z + u * (b.z - a.z) + v * (c.z - a.z);
+            }
+            return double.NaN;
+        }
 
         static TerrainSlopeDesign Run(double height, double tol, params SlopeToe[] toes)
         {
@@ -241,11 +256,40 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, d.Status);
             Assert.Equal(new[] { new Index2i(0, 1) }, d.ToeProblems);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, d.StatusKind);
             Assert.Null(d.SlopeSurface);
             // slightly gentler than the slope: fine
             pts[2] = new Vector3d(20, 0, 9.9);
             Assert.True(d.Compute(), d.Message);
             AssertAll(d);
+        }
+
+        [Fact]
+        public void StatusKinds_OfEveryStatus()
+        {
+            // TERRAIN.md 5.6: every status has its kind (a new status must be added here)
+            var K = TerrainSlopeDesign.StatusKinds.None;
+            var expected = new Dictionary<TerrainSlopeDesign.Statuses, TerrainSlopeDesign.StatusKinds> {
+                { TerrainSlopeDesign.Statuses.Success, K },
+                { TerrainSlopeDesign.Statuses.NoDaylight, K },
+                { TerrainSlopeDesign.Statuses.InvalidInput, TerrainSlopeDesign.StatusKinds.InvalidInput },
+                { TerrainSlopeDesign.Statuses.NotHeightField, TerrainSlopeDesign.StatusKinds.InvalidInput },
+                { TerrainSlopeDesign.Statuses.NotImplemented, TerrainSlopeDesign.StatusKinds.UnsupportedByMethod },
+                { TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.ToeUndercut, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.ToeOvertopped, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.SlopeViolation, TerrainSlopeDesign.StatusKinds.NotCertified },
+                { TerrainSlopeDesign.Statuses.CatchLineAccuracyNotReached, TerrainSlopeDesign.StatusKinds.NotCertified },
+                { TerrainSlopeDesign.Statuses.CompositeFailed, TerrainSlopeDesign.StatusKinds.Internal },
+                { TerrainSlopeDesign.Statuses.Failed, TerrainSlopeDesign.StatusKinds.Internal },
+                { TerrainSlopeDesign.Statuses.Cancelled, TerrainSlopeDesign.StatusKinds.Cancelled },
+            };
+            foreach (TerrainSlopeDesign.Statuses st in Enum.GetValues(typeof(TerrainSlopeDesign.Statuses))) {
+                Assert.True(expected.ContainsKey(st), $"{st} has no expected kind");
+                Assert.Equal(expected[st], TerrainSlopeDesign.kind_of(st, false));
+            }
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, TerrainSlopeDesign.kind_of(TerrainSlopeDesign.Statuses.ToeUndercut, true));
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, TerrainSlopeDesign.kind_of(TerrainSlopeDesign.Statuses.ToeOvertopped, true));
         }
 
         // a two-level pit floor: the low part's cone passes below the high part of the toe
@@ -260,9 +304,36 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TerrainSlopeDesign.Statuses.ToeUndercut, d.Status);
             Assert.Contains(new Index2i(0, 0), d.ToeProblems);
             Assert.Null(d.SlopeSurface);
+            // the slope is outside the U (Left of this direction), the low leg's cone reaches the high leg through the U's
+            // inside, the design area: the method's limit (a surface on the slope side need not undercut), not infeasible
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, d.StatusKind);
+            // a convex closed toe with the slope inside: the bottom edge (y 0) at z 0, the top edge (y 20) at z 8, joined by
+            // half ellipses (20 m out, long enough to rise 8 m at 0.17, gentler than 1:4). Every straight path between two
+            // toe points runs inside, on the slope side, where no surface within 1:4 rises 8 m in 20 m: infeasible
+            var ring = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(40, 0, 0) };
+            for (int i = 1; i < 12; ++i) {
+                double a = -Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(40 + 20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8.0 * i / 12));
+            }
+            ring.Add(new Vector3d(40, 20, 8)); ring.Add(new Vector3d(0, 20, 8));
+            for (int i = 1; i < 12; ++i) {
+                double a = Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8 - 8.0 * i / 12));
+            }
+            var r = Design(20, 0.01, SlopeToe.Constant(ring, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
+            Assert.False(r.Compute());
+            Assert.True(r.Status == TerrainSlopeDesign.Statuses.ToeUndercut, r.Status + " " + r.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, r.StatusKind);
+            // the same ring clockwise (the slope side from the orientation, exact)
+            var cw = Enumerable.Reverse(ring).ToList();
+            var r2 = Design(20, 0.01, SlopeToe.Constant(cw, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
+            Assert.False(r2.Compute());
+            Assert.True(r2.Status == TerrainSlopeDesign.Statuses.ToeUndercut, r2.Status + " " + r2.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible, r2.StatusKind);
             // 1:2 (s = 0.5): the low leg's cone reaches the high leg at 10 m, above it: no undercut
             d.Toes[0] = SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(2));
             Assert.True(d.Compute(), d.Message);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.None, d.StatusKind);
             AssertAll(d);
         }
 
@@ -297,10 +368,12 @@ namespace geometry3Sharp.Tests
             var d2 = Design(5, 0.01, ok, SlopeToe.Constant(Square(10, 0, new Vector2d(5, 5)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
             Assert.False(d2.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d2.Status);
-            // not in phase 1a: Auto, a slope changing along a segment
+            // Auto needs a terrain (TerrainSlopeMixedTests); not implemented: a slope changing along a segment
             var auto = Design(5, 0.01, ok); auto.Direction = TerrainSlopeDesign.Directions.Auto;
             Assert.False(auto.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, auto.Status);
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, auto.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, auto.StatusKind);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, d2.StatusKind);
             var vary = SlopeToe.Constant(Square(10, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)); vary.CutEnd[1] = SlopeSpec.Ratio(2);
             Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, run(vary, 5, 0.01));
         }
@@ -331,9 +404,13 @@ namespace geometry3Sharp.Tests
             var b = SlopeToe.Constant(Square(8, 0, new Vector2d(12, 0)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
             var d = Run(10, 0.01, a, b);
             AssertAll(d);
-            // the ridge at x = 0 lies at height 4 (4 m from both toes)
-            double top = d.SlopeSurface.Vertices().Where(v => Math.Abs(v.x) < 1e-9 && Math.Abs(v.y) < 4).Select(v => v.z).DefaultIfEmpty(double.NaN).Max();
+            // the ridge at x = 0 lies at height 4 (4 m from both toes): the surface there, at y = 0 and on the ridge's
+            // vertices between the walls (|y| <= 8)
+            double top = HeightAt(d.SlopeSurface, new Vector2d(0, 0));
             Assert.True(Math.Abs(top - 4) < 0.01, top.ToString());
+            var ridge = d.SlopeSurface.Vertices().Where(v => Math.Abs(v.x) < 1e-9 && Math.Abs(v.y) <= 8 + 1e-9).ToList();
+            Assert.NotEmpty(ridge);
+            Assert.All(ridge, v => Assert.True(Math.Abs(v.z - 4) < 0.01, v.ToString()));
         }
 
         [Fact]
@@ -353,8 +430,9 @@ namespace geometry3Sharp.Tests
             foreach (int eid in m.BoundaryEdgeIndices()) {
                 Index2i ev = m.GetEdgeV(eid);
                 Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
-                double eps = 1e-9 * (1 + Math.Abs(d.HeightLimit));
-                bool level = Math.Abs(a.z - d.HeightLimit) <= eps && Math.Abs(b.z - d.HeightLimit) <= eps;
+                // (the level line ends at HeightLimit - λ: the map is lowered by λ, the cap with it)
+                double eps = 1e-9 * (1 + Math.Abs(d.HeightLimit)), level0 = d.HeightLimit + (d.Direction == TerrainSlopeDesign.Directions.Fill ? 1 : -1) * d.UsedToeLowering;
+                bool level = Math.Abs(a.z - level0) <= eps && Math.Abs(b.z - level0) <= eps;
                 bool toe = d.Pieces.Any(p => on_segment(p.P0.xy, p.P1.xy, a.xy) && on_segment(p.P0.xy, p.P1.xy, b.xy));
                 Assert.True(level || toe, $"boundary edge {a} - {b}");
             }
@@ -382,18 +460,22 @@ namespace geometry3Sharp.Tests
             var d = Run(13.65915220256275, 0.05, toe);
             AssertAll(d);
             // the merged vertices' triangles may rise above S̃ by 2 sMax (r + e_xy), r = 64 ulps: the toe lowering of a
-            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy)
+            // run that merges covers it (a lower bound from the output's largest coordinate, whose ulp is at most e_xy).
+            // (Since the canonical partition (TERRAIN_1C_PLAN.md, section 9) the crease no longer leaves a cluster here:
+            // no merge, and no lowering for one)
             double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
             double ulp = Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(m) + 1) - m);
-            Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
+            Assert.Equal(0, d.MergedPositions);
+            if (d.MergedPositions > 0)
+                Assert.True(d.UsedToeLowering >= 2 * d.Pieces.Max(p => p.Spec.S) * 65 * ulp, $"λ {d.UsedToeLowering}");
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
         // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
         // polygons) and whose measured lowering alone stays below what the merge needs
         [Theory]
-        [InlineData(16, 21.30606409921593, 0.07628677649250569, 1.4751108086086395)]
-        [InlineData(4, 23.804800668174774, 0.6008761141453293, 2.775734977692242)]
+        [InlineData(16, 27.33760196358785, 0.4471245046924448, 2.280296943513815)]
+        [InlineData(22, 12.984759201288576, 0.5293125866583142, 3.0107992275202644)]
         public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
         {
             var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
@@ -412,8 +494,58 @@ namespace geometry3Sharp.Tests
             // r = 64 e_xy (TERRAIN_1B_PLAN.md, reviews)
             double exy = Math.Pow(2, -30), ez = 3 * Math.Pow(2, -31), s = 1.5;
             Assert.Equal(64 * exy, TerrainSlopeDesign.MergeRadius(exy));
-            Assert.Equal(4 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
+            // (merge 4 sMax (r + e_xy) and a needle flip 2 sMax (r + e_xy) below; each 2 sMax (r + e_xy) above)
+            Assert.Equal(2 * s * 65 * exy, TerrainSlopeDesign.FlipShare(exy, s));
+            Assert.Equal(4 * s * 65 * exy + 2 * s * 65 * exy, TerrainSlopeDesign.MergeShare(exy, s));
             Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
+            Assert.Equal(4 * ez + 4 * s * 65 * exy, TerrainSlopeDesign.RepairLambda(ez, exy, s, 2));
+        }
+
+        // the uneven wavy toe of the Hambach test (TerrainBenchmark README), without the terrain, at UTM: needles of the
+        // realization failed the check at every margin (SlopeViolation at δ 5e-4): an edge collapse next to vertices on
+        // one crease line joined them into a triangle with an altitude of 1e-13 m. Collapses now keep the shapes (fails
+        // without it: 3 builds and a margin raise)
+        internal static TerrainSlopeDesign WavyHambach(double h)
+        {
+            var c = new Vector3d(328375.25, 5642875.5, -340);
+            var pts = new List<Vector3d>();
+            for (int i = 0; i < 48; ++i) {
+                double a = 2 * Math.PI * i / 48, rr = 150 * (1 + 0.15 * Math.Sin(5 * a));
+                pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), 4 * Math.Sin(3 * a)));
+            }
+            return Design(c.z + h, 0.05, SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)));
+        }
+
+        [Fact]
+        public void WavyToe_130mHigh_AtUtm()
+        {
+            // 130 m: the greedy simplification left fans of needles 90 m long and 1e-10 m wide from a face of the map
+            // between two creases that meet at an angle of 1e-12 (nearly coplanar tangent planes of neighbouring
+            // apexes), which flips across its sides removed (3 builds and two margin raises without them). The
+            // canonical partition (TERRAIN_1C_PLAN.md, section 9) makes no such fan here; flips, where a realization
+            // needs them, need the lowering of a repair (2 sMax (r + e_xy) above S̃)
+            var d = WavyHambach(130);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+            output.WriteLine($"flips {d.NeedleFlips}, merged {d.MergedPositions}, rays {d.RayCount}, {d.SlopeSurface.TriangleCount} triangles");
+        }
+
+        [Fact]
+        public void WavyToe_100mHigh_AtUtm()
+        {
+            var d = WavyHambach(100);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            // (without the needles no margin raise is needed: one build)
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired);
+            output.WriteLine($"builds {d.Attempts}, realizations {d.Realizations}, δ {d.UsedSlopeMargin:G3}, λ {d.UsedToeLowering:G3}, {d.SlopeSurface.TriangleCount} triangles");
         }
 
         [Fact]

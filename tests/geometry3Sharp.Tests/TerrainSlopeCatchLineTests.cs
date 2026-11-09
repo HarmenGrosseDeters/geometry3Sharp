@@ -97,7 +97,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        static double XYArea(DMesh3 m)
+        internal static double XYArea(DMesh3 m)
         {
             double area = 0;
             // (relative to a corner of the bounds: at UTM the products of raw coordinates would round away the area)
@@ -123,6 +123,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(ExactPredicates.Orient2d(a.xy, b.xy, e.xy) > 0, $"composite triangle {tid} not counter-clockwise");
             }
             Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(c));
+            // one vertex per position (a copied terrain triangle shares the vertices of the cut ones, no crack between
+            // them; where the slope steps off the terrain, at the toe, the cap or a lateral limit, the z differ)
+            Assert.Equal(c.VertexCount, c.Vertices().Distinct().Count());
             // (no gaps: the area of the terrain, up to the rounding of the area sums and the ulps by which terrain
             // vertices on the toe and the lateral limits are moved off the slope side, a strip of a few ulps there)
             double at = XYArea(d.Terrain), ac = XYArea(c);
@@ -132,12 +135,25 @@ namespace geometry3Sharp.Tests
             double toeLength = d.Toes.Sum(t => Enumerable.Range(0, t.SegmentCount).Sum(i => t.Points[i].xy.Distance(t.Points[(i + 1) % t.Points.Count].xy)));
             double slack = 1e-12 * at + 8 * ulp * (toeLength + 2 * (bb.Width + bb.Height));
             Assert.True(Math.Abs(at - ac) <= slack, $"composite area {ac} vs terrain {at} (slack {slack})");
+            // (exactly on a toe segment, in the outputs' frame)
+            Func<Vector2d, bool> onToe = (q) => d.Toes.Any(toe => Enumerable.Range(0, toe.SegmentCount).Any(i => {
+                Vector2d p0 = toe.Points[i].xy - d.UsedOrigin, p1 = toe.Points[(i + 1) % toe.Points.Count].xy - d.UsedOrigin;
+                return ExactPredicates.Orient2d(p0, p1, q) == 0 && (q - p0).Dot(p1 - p0) >= 0 && (q - p1).Dot(p0 - p1) >= 0;
+            }));
+            string tj = TJunction(c, onToe, d.Pieces.Count); Assert.True(tj == "", tj);
+            // (and no vertical crack: two vertices at one XY are a step, at heights at least λ apart)
+            foreach (var atXY in c.Vertices().GroupBy(p => p.xy).Where(x => x.Count() > 1)) {
+                var zs = atXY.Select(p => p.z).OrderBy(z => z).ToList();
+                for (int i = 0; i + 1 < zs.Count; ++i)
+                    Assert.True(zs[i + 1] - zs[i] >= d.UsedToeLowering, $"two vertices at {atXY.Key} {zs[i]:R} {zs[i + 1]:R}, less than λ {d.UsedToeLowering:R} apart");
+            }
             foreach (int tid in r.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, e = Vector3d.Zero;
                 r.GetTriVertices(tid, ref a, ref b, ref e);
                 SlopePiece p = d.Pieces[r.GetTriangleGroup(tid)];
                 Vector3d p0 = p.P0, p1 = p.P1;
-                if (fill) { a.z = -a.z; b.z = -b.z; e.z = -e.z; p0.z = -p0.z; p1.z = -p1.z; }
+                // (in a mixed run each piece by its own direction)
+                if (fill || p.Direction == TerrainSlopeDesign.Directions.Fill) { a.z = -a.z; b.z = -b.z; e.z = -e.z; p0.z = -p0.z; p1.z = -p1.z; }
                 Assert.True(Slope.IsSupportedBy(a, b, e, p0, p1, p.Spec), $"region triangle {tid}");
             }
             var cv = new HashSet<Vector3d>(c.Vertices());
@@ -150,6 +166,42 @@ namespace geometry3Sharp.Tests
                     Assert.True(dc < d.UsedMinFeatureSize, $"catch point {q:R} not in the composite ({dc}, MinFeatureSize {d.UsedMinFeatureSize})");
                     Assert.True(dr < d.UsedMinFeatureSize, $"catch point {q:R} not in the slope region ({dr}, MinFeatureSize {d.UsedMinFeatureSize})");
                 }
+        }
+
+        // a crack in a height field (a T-junction): a vertex exactly (Orient2d) strictly inside a boundary edge in XY, so
+        // the triangles on its two sides do not share that edge; the area and the overlaps do not see it. Where the slope
+        // steps off the terrain (the toe, the cap, a lateral limit, a toe crossing in a mixed run) the boundary is open by
+        // design, between a slope and a terrain triangle at heights that differ by λ at least. So it is a crack where the
+        // vertex has a triangle of the edge's group (terrain next to terrain, or one slope piece), or where its height is
+        // within 2 ulps of the edge's there (eg slope next to terrain along a catch line, where both share their vertices),
+        // unless it lies on a step between slope and terrain (onStep: exactly on the toe, where the step's height goes to
+        // 0 where the toe meets the terrain; terrainGroup the composite's terrain group)
+        internal static string TJunction(DMesh3 c, Func<Vector2d, bool> onStep = null, int terrainGroup = int.MinValue)
+        {
+            var bb = c.GetBounds();
+            Func<double, double> ulpOf = (x) => Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x);
+            double ulpZ = ulpOf(Math.Max(Math.Abs(bb.Min.z), Math.Abs(bb.Max.z)));
+            var verts = c.VertexIndices().ToList();
+            foreach (int e in c.BoundaryEdgeIndices()) {
+                Index2i ev = c.GetEdgeV(e);
+                Vector3d a = c.GetVertex(ev.a), b = c.GetVertex(ev.b);
+                double x0 = Math.Min(a.x, b.x), x1 = Math.Max(a.x, b.x), y0 = Math.Min(a.y, b.y), y1 = Math.Max(a.y, b.y);
+                int g = c.GetTriangleGroup(c.GetEdgeT(e).a);
+                foreach (int v in verts) {
+                    if (v == ev.a || v == ev.b) continue;
+                    Vector3d q = c.GetVertex(v);
+                    if (q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1 || q.xy == a.xy || q.xy == b.xy) continue;
+                    if ((q.xy - a.xy).Dot(b.xy - a.xy) <= 0 || (q.xy - b.xy).Dot(a.xy - b.xy) <= 0) continue;
+                    if (ExactPredicates.Orient2d(a.xy, b.xy, q.xy) != 0) continue;
+                    double t = (q.xy - a.xy).Length / (b.xy - a.xy).Length;
+                    bool sameGroup = c.VtxTrianglesItr(v).Any(x => c.GetTriangleGroup(x) == g);
+                    // (a step: one side terrain, the other slope)
+                    bool step = onStep != null && onStep(q.xy) && (g == terrainGroup) != c.VtxTrianglesItr(v).Any(x => c.GetTriangleGroup(x) == terrainGroup);
+                    if (sameGroup || (Math.Abs(q.z - (a.z + (b.z - a.z) * t)) <= 2 * ulpZ && step == false))
+                        return $"vertex {v} ({q.x:R}, {q.y:R}, {q.z:R}) in boundary edge {e} ({a.x:R}, {a.y:R}, {a.z:R}) ({b.x:R}, {b.y:R}, {b.z:R}), groups {string.Join(",", c.VtxTrianglesItr(v).Select(x => c.GetTriangleGroup(x)))} / {g}";
+                }
+            }
+            return "";
         }
 
         static bool cross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
@@ -272,6 +324,7 @@ namespace geometry3Sharp.Tests
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d.Status);
             Assert.False(d.IsComplete);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.None, d.StatusKind);    // partial, not a failure
             Assert.NotNull(d.SlopeSurface);
             Assert.Empty(d.CatchLines);       // the region covers the footprint, no line
 
@@ -279,7 +332,7 @@ namespace geometry3Sharp.Tests
             var terrain2 = Grid(new AxisAlignedBox2d(-40, -40, 40, 40), 16, 16, (x, y) => x > 0 ? 3 + 2 * x : 3);
             var d2 = Pit(terrain2, TerrainSlopeDesignTests.Square(10, 0), 1);
             Assert.False(d2.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.NoDaylight, d2.Status);
+            Assert.True(d2.Status == TerrainSlopeDesign.Statuses.NoDaylight, d2.Status + " " + d2.Message);
             AssertCatchLines(d2);
             Assert.Contains(d2.CatchLines, l => l.StartReason == CatchLine.EndReasons.FootprintBoundary);
         }
@@ -345,6 +398,80 @@ namespace geometry3Sharp.Tests
             // the ends lie on the level line of the limit
             Assert.Equal(8, d.CatchLines[0].Points[0].z, 6);
             Assert.Equal(8, d.CatchLines[0].Points.Last().z, 6);
+        }
+
+        [Fact]
+        public void LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit()
+        {
+            // a terrain rising with x: near the toe (its box) it is at most 8 m high, but the slope meets it on the high
+            // side at about 16 m, so the local cap (8.05) is reached and raised. The result is that of the global limit
+            // (the highest terrain + Tolerance) up to Tolerance: other facets and λ (they depend on the cap), the same
+            // region; each catch point within 2 Tolerance / |grad D| (|grad D| >= 0.5 here) of the other line in XY
+            var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
+            var local = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            local.CapEstimateRounds = 0;     // (the raise; the start estimate avoids it, below)
+            Assert.True(local.Compute(), local.Message);
+            Assert.True(local.CapRounds >= 2, $"cap rounds {local.CapRounds}: the local cap was not raised");
+            // (the start estimate: one build; a vertex-only maximum missed the terrain triangles that reach into the toe
+            // box from outside, 5 m grid, and needed the raise)
+            var estimated = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            Assert.True(estimated.Compute(), estimated.Message);
+            Assert.Equal(1, estimated.CapRounds);
+            Assert.Equal(1, estimated.Attempts);
+            AssertCatchLines(estimated);
+            AssertComposite(estimated);
+            var global = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            global.HeightLimit = 29 + global.Tolerance;
+            Assert.True(global.Compute(), global.Message);
+            Assert.Single(local.CatchLines);
+            Assert.Single(global.CatchLines);
+            Assert.True(local.CatchLines[0].Closed && global.CatchLines[0].Closed);
+            AssertCatchLines(local);
+            AssertComposite(local);
+            double bound = 2 * local.Tolerance / 0.5;
+            foreach (var pair in new[] { new[] { local, global }, new[] { global, local }, new[] { estimated, global }, new[] { global, estimated } }) {
+                var line = pair[1].CatchLines[0].Points;
+                foreach (Vector3d p in pair[0].CatchLines[0].Points) {
+                    double best = double.MaxValue;
+                    for (int k = 0; k < line.Count; ++k) {
+                        var seg = new Segment2d(line[k].xy, line[(k + 1) % line.Count].xy);
+                        best = Math.Min(best, seg.DistanceSquared(p.xy));
+                    }
+                    Assert.True(Math.Sqrt(best) <= bound, $"catch point {p} is {Math.Sqrt(best):R} from the other line");
+                }
+            }
+        }
+
+        [Fact]
+        public void Reuse_AfterACancelledLocalLimitRun()
+        {
+            // a run with the local height limit, cancelled at any point, then the same instance with a given limit: the
+            // result is that of a new instance (a cancel inside the local limit loop left 'the cap may grow' set, and the
+            // second run then built no composite)
+            var terrain = Grid(new AxisAlignedBox2d(-50, -50, 50, 50), 20, 20, (x, y) => 4 + 0.5 * x);
+            var fresh = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+            fresh.HeightLimit = 8;
+            fresh.Compute();
+            Assert.NotNull(fresh.Composite);
+            int cancelled = 0;
+            for (int k = 1; k <= 60; ++k) {
+                var d = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
+                int calls = 0;
+                d.CancelF = () => ++calls >= k;
+                d.Compute();
+                if (d.Status != TerrainSlopeDesign.Statuses.Cancelled) break;
+                cancelled++;
+                d.CancelF = () => false;
+                d.HeightLimit = 8;
+                d.Compute();
+                Assert.Equal(fresh.Status, d.Status);
+                Assert.NotNull(d.Composite);
+                Assert.Equal(fresh.Composite.TriangleCount, d.Composite.TriangleCount);
+                Assert.Equal(fresh.CatchLines.Count, d.CatchLines.Count);
+                for (int i = 0; i < fresh.CatchLines.Count; ++i)
+                    Assert.Equal(fresh.CatchLines[i].Points, d.CatchLines[i].Points);
+            }
+            Assert.True(cancelled > 0);
         }
 
         [Theory]
@@ -415,6 +542,48 @@ namespace geometry3Sharp.Tests
             var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1);
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.NotHeightField, d.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.InvalidInput, d.StatusKind);
+        }
+
+        [Fact]
+        public void TerrainOverlap_FarFromTheSlope_IsTheTerrainAsGiven()
+        {
+            // the same defect far outside the slope's box (the slope reaches z 5 within 5 m of the toe): the terrain there
+            // is not this operation's concern. The design succeeds, and the composite copies the terrain as given there:
+            // its only overlaps are those of the input (before: CompositeFailed, from an overlap check over all of it)
+            var terrain = Grid(new AxisAlignedBox2d(-200, -200, 200, 200), 20, 20, (x, y) => 5);
+            int a = terrain.AppendVertex(new Vector3d(150, 150, 5)), b = terrain.AppendVertex(new Vector3d(170, 150, 5)), c = terrain.AppendVertex(new Vector3d(170, 170, 5));
+            terrain.AppendTriangle(a, b, c);
+            var d = Pit(terrain, TerrainSlopeDesignTests.Square(10, 0), 1);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.NotNull(d.Composite);
+            var pairs = TerrainVolumeDifference.XYOverlapPairs(d.Composite);
+            Assert.NotEmpty(pairs);
+            foreach (Index2i pr in pairs)
+                foreach (int t in new[] { pr.a, pr.b }) {
+                    Index3i tv = d.Composite.GetTriangle(t);
+                    foreach (int v in new[] { tv.a, tv.b, tv.c }) Assert.True(d.Composite.GetVertex(v).x >= 140 && d.Composite.GetVertex(v).y >= 140);
+                }
+            Assert.Equal(TerrainVolumeDifference.XYOverlapPairs(terrain).Count, pairs.Count);
+        }
+
+        [Fact]
+        public void CompositeOverlapCheck_ConstructedAgainstCopied()
+        {
+            // the composite's check: a made triangle over a copied terrain triangle is found; two copied ones that
+            // overlap far away are the terrain as given and not looked for
+            Func<double, double, Vector3d> v = (x, y) => new Vector3d(x, y, 0);
+            var made = new List<Vector3d[]> { new[] { v(2, 2), v(8, 2), v(2, 8) } };
+            var others = new List<Vector3d[]> {
+                new[] { v(0, 0), v(10, 0), v(0, 10) },
+                new[] { v(100, 100), v(110, 100), v(100, 110) }, new[] { v(101, 101), v(109, 101), v(101, 109) } };
+            DMesh3 near;
+            var pairs = SlopeComposite.OverlapsOfMade(made, box => SlopeComposite.Within(others, box), out near);
+            Assert.Equal(2, near.TriangleCount);
+            Assert.Single(pairs);
+            var m = new DMesh3(false, false, false, false);
+            foreach (var t in made.Concat(others)) m.AppendTriangle(m.AppendVertex(t[0]), m.AppendVertex(t[1]), m.AppendVertex(t[2]));
+            Assert.Equal(2, TerrainVolumeDifference.XYOverlapPairs(m).Count);
         }
 
         [Fact]
@@ -459,32 +628,43 @@ namespace geometry3Sharp.Tests
         [InlineData(3, true)]
         public void RandomTerrains_CatchLinesAndComposite(int seed, bool utm)
         {
-            var rnd = new Random(seed);
-            int ok = 0, noDaylight = 0;
+            int ok = 0;
             for (int it = 0; it < 6; ++it) {
-                bool fill = rnd.Next(3) == 0;
-                Vector2d c = utm ? new Vector2d(5.6e6 + rnd.Next(1000), 3.5e5 + rnd.Next(1000)) : Vector2d.Zero;
-                double zc = utm ? 120 : 0;
-                double amp = 1 + 4 * rnd.NextDouble(), k = 0.05 + 0.1 * rnd.NextDouble(), h = 6 + 6 * rnd.NextDouble();
-                double jitter = rnd.NextDouble() < 0.5 ? 0 : 0.3;
-                var jr = new Random(seed * 100 + it);
-                Func<double, double, double> f = (x, y) => zc + (fill ? -1 : 1) * (h + amp * Math.Sin(k * (x - c.x)) * Math.Cos(0.7 * k * (y - c.y))) + jitter * (jr.NextDouble() - 0.5);
-                var terrain = Grid(new AxisAlignedBox2d(c.x - 80, c.y - 80, c.x + 80, c.y + 80), 20 + rnd.Next(20), 20 + rnd.Next(20), f, rnd.Next(2) == 0);
-                var toe = SlopeToe.Constant(Ngon(5 + rnd.Next(6), 8 + 6 * rnd.NextDouble(), zc, c, rnd.NextDouble()), true, SlopeToe.Sides.Outside,
-                    SlopeSpec.Ratio(1 + 2 * rnd.NextDouble()));
-                if (fill) { toe.FillStart = toe.CutStart; toe.CutStart = null; }
-                var d = new TerrainSlopeDesign() {
-                    Toes = { toe }, Terrain = terrain, Tolerance = 0.05, BuildComposite = true,
-                    Direction = fill ? TerrainSlopeDesign.Directions.Fill : TerrainSlopeDesign.Directions.Cut
-                };
+                var d = RandomTerrainCase(seed, utm, it);
+                bool fill = d.Direction == TerrainSlopeDesign.Directions.Fill;
                 bool res = d.Compute();
                 output.WriteLine($"{it}: fill {fill} {d.Status} {d.Message} lines {d.CatchLines.Count} attempts {d.Attempts} δ {d.UsedSlopeMargin:G2} λ {d.UsedToeLowering:G2}");
                 Assert.True(res || d.Status == TerrainSlopeDesign.Statuses.NoDaylight, d.Status + " " + d.Message);
-                if (res) ok++; else noDaylight++;
+                if (res) ok++;
                 AssertCatchLines(d, fill);
                 AssertComposite(d, fill);
             }
             Assert.True(ok > 0);
+        }
+
+        // case 'it' of the random wavy terrains of seed 'seed' (the draws of the cases before it are made first)
+        internal static TerrainSlopeDesign RandomTerrainCase(int seed, bool utm, int it)
+        {
+            var rnd = new Random(seed);
+            TerrainSlopeDesign d = null;
+            for (int k = 0; k <= it; ++k) {
+                bool fill = rnd.Next(3) == 0;
+                Vector2d c = utm ? new Vector2d(5.6e6 + rnd.Next(1000), 3.5e5 + rnd.Next(1000)) : Vector2d.Zero;
+                double zc = utm ? 120 : 0;
+                double amp = 1 + 4 * rnd.NextDouble(), kk = 0.05 + 0.1 * rnd.NextDouble(), h = 6 + 6 * rnd.NextDouble();
+                double jitter = rnd.NextDouble() < 0.5 ? 0 : 0.3;
+                var jr = new Random(seed * 100 + k);
+                Func<double, double, double> f = (x, y) => zc + (fill ? -1 : 1) * (h + amp * Math.Sin(kk * (x - c.x)) * Math.Cos(0.7 * kk * (y - c.y))) + jitter * (jr.NextDouble() - 0.5);
+                var terrain = Grid(new AxisAlignedBox2d(c.x - 80, c.y - 80, c.x + 80, c.y + 80), 20 + rnd.Next(20), 20 + rnd.Next(20), f, rnd.Next(2) == 0);
+                var toe = SlopeToe.Constant(Ngon(5 + rnd.Next(6), 8 + 6 * rnd.NextDouble(), zc, c, rnd.NextDouble()), true, SlopeToe.Sides.Outside,
+                    SlopeSpec.Ratio(1 + 2 * rnd.NextDouble()));
+                if (fill) { toe.FillStart = toe.CutStart; toe.CutStart = null; }
+                d = new TerrainSlopeDesign() {
+                    Toes = { toe }, Terrain = terrain, Tolerance = 0.05, BuildComposite = true,
+                    Direction = fill ? TerrainSlopeDesign.Directions.Fill : TerrainSlopeDesign.Directions.Cut
+                };
+            }
+            return d;
         }
 
         // ---- the exact signs against rationals ----

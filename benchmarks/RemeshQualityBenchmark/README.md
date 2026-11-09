@@ -82,7 +82,7 @@ and 2 Thingi10K cases with a worse edge recall. 0.2, the value recommended so fa
 
 The degenerate test of `NotCleanReason` (area below 1e-12 diagonal^2) finds zero-area triangles in 17 of the 20
 Thingi10K results without the option and in none with it; 17 results with it stay not clean, by their
-self-intersections (`docs/ROADMAP.md`, "Remeshers produce self-intersections").
+self-intersections (`docs/roadmap/alpha-wrap-and-repair.md`, "Remeshers produce self-intersections").
 
 ### Target far above the wall thickness: rolled-back passes
 135363 is a 0.8 plate with thin-walled tubes (walls 0.75); the target (its mean edge) is 11.6. The remeshers fold the
@@ -97,7 +97,7 @@ rolls such passes back: no result is inside out now, 135363 has 11 / 13 rolled-b
 rolled back and the result is the input (0 pairs, Hausdorff 0.01): these account for most of the tubes counted as
 worse with the option (more pairs, larger Hausdorff distance), where the passes happen to keep the orientation.
 The results of such inputs remain self-intersecting and far off the volume; `g3cli remesh` warns when the edge
-length is more than 4 times the estimated wall thickness (`docs/ROADMAP.md`).
+length is more than 4 times the estimated wall thickness (`docs/roadmap/alpha-wrap-and-repair.md`).
 
 The guard also catches cone12_x0.6 and cone16_x0.6: without it, the coarse remesh flattens the cone into a double
 layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the last passes are rolled back.
@@ -115,7 +115,7 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   target edge lengths (cone16_x0.1 2.35 -> 3.15). The apex of a cone with 12 or more slices is no feature (its side
   edges are no creases), so both variants round it off (1.4..2.8 without, 1.4..3.2 with the option); the option's
   guards (rejected smoothing moves, shortened projections) keep a few vertices near the apex up to an edge off the
-  surface (3 of 9 cases checked: up to 3 vertices). `docs/ROADMAP.md`, "Feature detection misses vertex features".
+  surface (3 of 9 cases checked: up to 3 vertices). `docs/roadmap/alpha-wrap-and-repair.md`, "Feature detection misses vertex features".
 - **Hausdorff distance, other primitives (3):** cylinder16_x0.15 0.121 -> 0.162, taper16_x0.6 0.178 -> 0.235,
   taper32_x0.6 0.131 -> 0.221 target.
 - **Hausdorff distance, Thingi10K (5 of 20):** 237642 +0.02, 242225 +0.04, 299291 +0.14, 63709 +0.17, 1053376 +0.30
@@ -162,7 +162,7 @@ review fix (flips re-checked after reverted moves), which changed a few results 
   normal consistency on Thingi10K 0.943 -> 0.948; the Thingi10K mean Hausdorff distance improves, 17 primitives get a larger one, mostly cone apices). On Thingi10K
   with q 0.2 the blocked operations leave more flat triangles (204 -> 284; 4 meshes worse). On the tubes (walls far
   below the edge length) the folds are blocked rather than avoided: no pairs, but F 0.1 % 0.046 -> 0.019 and the
-  Hausdorff distance 0.31 -> 1.0 target. Those inputs need thickness-aware sizing (`docs/ROADMAP.md`).
+  Hausdorff distance 0.31 -> 1.0 target. Those inputs need thickness-aware sizing (`docs/roadmap/alpha-wrap-and-repair.md`).
 - **Cost:** in total 17x on Thingi10K (per mesh median 13x, up to 29x), 17x on the primitives, 31x on the gears. Profiled
   on 1043471 (20k triangles, CAD-like): about 18 exact pair tests per changed triangle, nearly all against neighbours
   that share a vertex; on flat faces these neighbours are coplanar and `Orient3d` has to reach its exact stage to
@@ -173,7 +173,7 @@ review fix (flips re-checked after reverted moves), which changed a few results 
     194 s on all 20;
   - neighbours in one axis plane decided in 2D without `Orient3d`: another 35 -> 25 s on 1043471, but left out: it
     disagrees with `ExactTriangleIntersection.IntersectsBeyondShared` on coplanar slivers, where the library is wrong
-    (its projection axis comes from a rounded cross product; ROADMAP stage R). Possible once that is fixed;
+    (its projection axis comes from a rounded cross product; `docs/roadmap/exact-boolean.md` stage R). Possible once that is fixed;
   - checking only the last 5 passes (`si_from=15`): 1.8x the time, but 2411 of 3105 pairs remain (most come from the
     earlier passes and survive them), so not a substitute.
   Open: a clearance filter (a triangle whose nearest non-neighbour is farther than its corners move cannot meet a
@@ -247,7 +247,7 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
   0.04 target, but 1113702 triangles (514 before), 494 s, 22613 pairs (243 before), degenerate triangles, 146193
   triangles with q < 1e-3 (131 before) and a 1 % worst min angle of 0.0002 degrees (0.026 before). A diagnostic run
   (the earlier, not interpolated field: 210k triangles, 30718 pairs) found about 98 % of the pairs in planes x, y or
-  z = const, nearly flat slivers; whether some are `ExactTriangleIntersection` false positives (ROADMAP stage R) is
+  z = const, nearly flat slivers; whether some are `ExactTriangleIntersection` false positives (`docs/roadmap/exact-boolean.md` stage R) is
   not checked. With the check as well (the earlier field) it ran for more than 90 minutes and was stopped. Repro for the faster self-intersection check:
   `dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 sizing=1 si=1 only='^135363$' thingi=benchmarks/RemeshBenchmark/data/meshes`
 - `g3cli remesh --thickness-sizing 1` uses it (off by default: it multiplies the triangle count at thin walls); the
@@ -270,6 +270,6 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
 - The library default `Remesher.MinTriangleQuality` stays 0: callers of the upstream API get the upstream behaviour
   and time, and the thin walls far below the edge length (`tubes`) get worse with it (F 0.1 % 0.21 -> 0.05, 15 of 24
   cases with a lower edge recall), where `g3cli remesh` already warns about the edge length.
-- Open: the cone apices (below) and the self-intersections that remain (`docs/ROADMAP.md`).
+- Open: the cone apices (below) and the self-intersections that remain (`docs/roadmap/alpha-wrap-and-repair.md`).
 
 Earlier decision (#158): the default stayed 0 until the fidelity metrics were measured; this section replaces it.

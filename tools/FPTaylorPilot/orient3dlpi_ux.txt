@@ -1,0 +1,7 @@
+Variables
+ float64 sx in [1, 2],
+ float64 rx in [0, 0.5]
+;
+Expressions
+ rnd64(sx - rx)
+;

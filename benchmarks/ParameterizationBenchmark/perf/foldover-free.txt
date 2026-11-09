@@ -1,0 +1,43 @@
+fixture,method,boundary,status,iterations,converged,flips,degenerate,symmetric_dirichlet,overlap_pairs,milliseconds
+folded-disc,SLIM-default,free,Success,1,True,0,0,4,0,20.2447
+folded-disc,start,unchanged,FlippedTriangles,0,False,4,0,Infinity,54,0.2747
+folded-disc,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.9518
+diagnostic=initial UVs have flipped or degenerate triangles
+folded-disc,FoldoverFree,fixed,Success,115,True,0,0,5.223873291604668,0,40.3184
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=1.305968322901167; target=UNSATISFIED
+annulus-8x3,LSCM,two-pins,FlippedTriangles,0,True,2,0,Infinity,10,1.5955
+diagnostic=LSCM: of 48 UV triangles 2 flipped or of zero area, 0 degenerate
+annulus-8x3,SLIM-default,free,InvalidTopology,0,False,NA,NA,NA,NA,0.1758
+diagnostic=mesh is not a topological disc (2 boundary loops, Euler characteristic 0); cut it with MeshDiscCut
+annulus_boundary_vertices=0:2.328460334294555:8.012831502703891E-17;1:1.4042546556416513:1.3118076532651823;2:-2.585110275060198E-16:1.7490768710202398;3:-1.4042546556416484:1.3118076532651788;4:-2.3284603342945447:8.012831502703891E-17;5:-1.404254655641649:-1.311807653265179;6:-1.8095771925421384E-15:-1.7490768710202396;7:1.4042546556416486:-1.3118076532651821
+boundary_y_range=-1.7490768710202396:1.7490768710202398; feasibility=undetermined-not-certified
+annulus_boundary_vertices=25:0.498782443385331:3.434881276661839E-15;24:0.7175023676635526:3.0367269353832216E-15;31:0.4987824433853248:1.701947536791698E-16;30:-3.619154385084277E-15:-2.3659055808749992E-15;29:-0.49878244338533073:-3.1397468667866413E-15;28:-0.7175023676635541:-2.207084140258548E-15;27:-0.4987824433853279:-6.704014771968566E-16;26:2.585110275060198E-15:1.4985772175330096E-15
+boundary_y_range=-3.1397468667866413E-15:3.434881276661839E-15; feasibility=undetermined-not-certified
+annulus-8x3,start,unchanged,FlippedTriangles,0,False,2,0,Infinity,10,0.1119
+annulus-8x3,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.097
+diagnostic=initial UVs have flipped or degenerate triangles
+annulus-8x3,FoldoverFree,fixed,Success,132,True,0,0,7.462999479962732,0,35.0692
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=NaN; target=UNSATISFIED
+three-peaks-30,LSCM,two-pins,FlippedTriangles,0,True,19,0,Infinity,2486,49.6211
+diagnostic=LSCM: of 1800 UV triangles 19 flipped or of zero area, 0 degenerate
+three-peaks-30,SLIM-default,free,Success,69,True,0,0,6.8949156797521605,0,240.0547
+three-peaks-30,start,unchanged,FlippedTriangles,0,False,19,0,Infinity,2486,1.3352
+three-peaks-30,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,2.4321
+diagnostic=initial UVs have flipped or degenerate triangles
+three-peaks-30,FoldoverFree,fixed,Success,169,True,0,0,16.262756504554,1413,562.293
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=2.35865922948293; target=UNSATISFIED
+torus-stock status=Success; components=1; cone_components=0; charts=17; fallback_components=1
+torus-cone-cut,SLIM-default,free,Success,31,True,0,0,4.005953318212518,8,48.5381
+torus-cone-cut,start,unchanged,Success,0,False,0,0,4.0657836814808554,8,0.5469
+torus-cone-cut,SLIM-same-start,free,Success,31,True,0,0,4.006661915881016,8,25.2249
+torus-cone-cut,FoldoverFree,fixed,Success,132,True,0,0,4.054945456080008,8,322.2723
+fixed_boundary_bitwise=True
+fixed_boundary_feasibility=locally-feasible-witness
+quality_ratio_vs_free_boundary_SLIM=1.0122298324458134; target=met
+torus-repair globally_injective=False; accepted_by_auto_limits=False; counterfactual_cones_fallback_components=1; production_defaults_unchanged=true

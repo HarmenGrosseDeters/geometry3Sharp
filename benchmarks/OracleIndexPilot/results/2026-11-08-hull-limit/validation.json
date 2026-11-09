@@ -1,0 +1,27 @@
+{
+  "build_all_core_targets": "passed",
+  "build_both_net48_test_projects": "passed",
+  "pack_both_packages_with_api_validation": "passed",
+  "before_selftest": {
+    "point": 312,
+    "edge": 442
+  },
+  "after_selftest": {
+    "point": 312,
+    "edge": 446
+  },
+  "controller_tests": 10,
+  "controller_syntax_and_help": "passed",
+  "corrupt_mesh_lineage_rejected_before_measurement": true,
+  "resume_completed_campaign_runs_zero_measurements": true,
+  "log_sha256": {
+    "core": "757deee6da06690297649564a67ace21f5a2525357d3b0811fb97074ae35afed",
+    "net48": "41e162c8fcbbd74ea60cc8a959781abe4c511c66e27c378fe1f02adac2473319",
+    "clipper-net48": "e6f376009a449b161774dcb4829dde3fa452f6ee8f187fcba254dfbbbca04f87",
+    "pack": "ee7ef41da65d31b8279abf313b7d1382486f6c7f8b452a2c34ebba0b48bda375",
+    "clipper-pack": "d5318ec1f4e0c870aca18ac987b22aa0cdcbfc8ad99acfa8f1a12601c64c4382",
+    "before-selftest": "f091a81366133ed9196b48190b2097c359e7b873a4a4186dd5cf8280cdc34cb8",
+    "after-selftest": "f8fcc74cf6ec855f5a0ecfa7524bff9928604edf37049ddc7cd86748572ff3a9",
+    "python": "af210ddd2650fedf0a70a8aca5b440cb62580709ab0c5c05f5656fa9826d20ff"
+  }
+}

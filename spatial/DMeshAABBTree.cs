@@ -131,6 +131,8 @@ namespace g3
             else if (eStrategy == BuildStrategy.Default)
                 build_top_down(false);
             mesh_timestamp = mesh.ShapeTimestamp;
+            box_eps = ComputeBoxPadding(mesh.TriangleCount == 0 ? Vector3d.Zero : box_centers[root_index],
+                                        mesh.TriangleCount == 0 ? Vector3d.Zero : box_extents[root_index]);
         }
 
 
@@ -302,8 +304,8 @@ namespace g3
         public bool SupportsTriangleRayIntersection { get { return true; } }
 
         /// <summary>
-        /// Find id of first triangle that ray hits (smallest ray parameter), strictly closer than fMaxDist
-        /// along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
+        /// Find id of first triangle that ray hits (smallest ray parameter, the lowest id among equal ones), strictly
+        /// closer than fMaxDist along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
         /// front and back faces are hit. The ray direction must be normalized, otherwise this throws.
         /// Use MeshQueries.TriangleIntersection() to get the hit point / ray parameter.
         /// </summary>
@@ -319,11 +321,19 @@ namespace g3
             //   nearestT to double.MaxValue, then we will test all boxes (!)
             double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
             int tNearID = DMesh3.InvalidID;
-            find_hit_triangle(root_index, ref ray, ref fNearestT, ref tNearID);
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            find_hit_triangle(root_index, ref ray, ref p, ref fNearestT, ref tNearID);
             return tNearID;
         }
 
         protected void find_hit_triangle(int iBox, ref Ray3d ray, ref double fNearestT, ref int tID)
+        {
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            find_hit_triangle(iBox, ref ray, ref p, ref fNearestT, ref tID);
+        }
+
+        // (secondPoint: the ray's ExactRayTriangle.SecondPoint, once per query)
+        void find_hit_triangle(int iBox, ref Ray3d ray, ref Vector3d secondPoint, ref double fNearestT, ref int tID)
         {
             int idx = box_to_index[iBox];
             if ( idx < triangles_end ) {            // triange-list case, array is [N t1 t2 ... tN]
@@ -336,8 +346,11 @@ namespace g3
 
                     mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
                     double rayt;
-                    if (IntrRay3Triangle3.Intersects(ref ray, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
-                        if (rayt < fNearestT) {
+                    if (IntrRay3Triangle3.Intersects(ref ray, ref secondPoint, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
+                        // ties (a ray through a shared edge or vertex) go to the lowest id, as in
+                        // MeshQueries.FindHitTriangle_LinearSearch: otherwise the traversal order, which the absolute box
+                        // padding changes with the scale, picked the triangle
+                        if (rayt < fNearestT || (rayt == fNearestT && ti < tID)) {
                             fNearestT = rayt;
                             tID = ti;
                         }
@@ -359,7 +372,7 @@ namespace g3
                     iChild1 = (-iChild1) - 1;
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fNearestT + e) {
-                        find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                        find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                     }
 
                 } else {                            // 2 children, descend closest first
@@ -370,16 +383,16 @@ namespace g3
                     double fChild2T = box_ray_intersect_t(iChild2, ray);
                     if (fChild1T < fChild2T) {
                         if (fChild1T <= fNearestT + e) {
-                            find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                            find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             if (fChild2T <= fNearestT + e) {
-                                find_hit_triangle(iChild2, ref ray, ref fNearestT, ref tID);
+                                find_hit_triangle(iChild2, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             }
                         }
                     } else {
                         if (fChild2T <= fNearestT + e) {
-                            find_hit_triangle(iChild2, ref ray, ref fNearestT, ref tID);
+                            find_hit_triangle(iChild2, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             if (fChild1T <= fNearestT + e) {
-                                find_hit_triangle(iChild1, ref ray, ref fNearestT, ref tID);
+                                find_hit_triangle(iChild1, ref ray, ref secondPoint, ref fNearestT, ref tID);
                             }
                         }
                     }
@@ -411,11 +424,21 @@ namespace g3
             //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
             //   nearestT to double.MaxValue, then we will test all boxes (!)
             double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
-            int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, fUseMaxDist);
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, ref p, fUseMaxDist, false);
             return nCount;
         }
 
         protected int find_all_hit_triangles(int iBox, List<int> hitTriangles, ref Ray3d ray, double fMaxDist)
+        {
+            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            return find_all_hit_triangles(iBox, hitTriangles, ref ray, ref p, fMaxDist, false);
+        }
+
+        // perturbed: count the crossings of the perturbed ray (ExactRayTriangle.RayHitPerturbed: a ray through an edge
+        // or a vertex crosses exactly one triangle of a closed fan), for IsInside's parity; else the hits of the
+        // closed triangles (IntrRay3Triangle3)
+        int find_all_hit_triangles(int iBox, List<int> hitTriangles, ref Ray3d ray, ref Vector3d secondPoint, double fMaxDist, bool perturbed)
         {
             int hit_count = 0;
 
@@ -429,8 +452,17 @@ namespace g3
                         continue;
 
                     mesh.GetTriVertices(ti, ref tri.V0, ref tri.V1, ref tri.V2);
+                    if (perturbed) {
+                        // (only for IsInside, which casts an unbounded ray: no distance)
+                        if (ExactRayTriangle.RayHitPerturbed(ray.Origin, secondPoint, tri.V0, tri.V1, tri.V2) != ExactRayTriangle.Miss) {
+                            if (hitTriangles != null)
+                                hitTriangles.Add(ti);
+                            hit_count++;
+                        }
+                        continue;
+                    }
                     double rayt;
-                    if (IntrRay3Triangle3.Intersects(ref ray, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
+                    if (IntrRay3Triangle3.Intersects(ref ray, ref secondPoint, ref tri.V0, ref tri.V1, ref tri.V2, out rayt)) {
                         if (rayt < fMaxDist) {
                             if (hitTriangles != null)
                                 hitTriangles.Add(ti);
@@ -455,7 +487,7 @@ namespace g3
                     iChild1 = (-iChild1) - 1;
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fMaxDist + e)
-                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
 
                 } else {                            // 2 children, descend closest first
                     iChild1 = iChild1 - 1;
@@ -463,11 +495,11 @@ namespace g3
 
                     double fChild1T = box_ray_intersect_t(iChild1, ray);
                     if (fChild1T <= fMaxDist + e)
-                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild1, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
 
                     double fChild2T = box_ray_intersect_t(iChild2, ray);
                     if (fChild2T <= fMaxDist + e) 
-                        hit_count += find_all_hit_triangles(iChild2, hitTriangles, ref ray, fMaxDist);
+                        hit_count += find_all_hit_triangles(iChild2, hitTriangles, ref ray, ref secondPoint, fMaxDist, perturbed);
                 }
             }
 
@@ -1036,9 +1068,13 @@ namespace g3
 
         /// <summary>
         /// Returns true if point p is inside this mesh, using a ray-crossing parity test: a ray in a fixed
-        /// direction is cast from p and the point is inside if it hits an odd number of triangles.
-        /// Only reliable for closed meshes without self-intersections; can be wrong if the ray hits an
-        /// edge or vertex exactly. For open, non-manifold or noisy meshes use WindingNumber(p) &gt; 0.5 instead.
+        /// direction is cast from p and the point is inside if it crosses the surface an odd number of times. The
+        /// crossings are exact, with a symbolic perturbation of the ray (ExactRayTriangle.RayHitPerturbed): a ray
+        /// through an edge or a vertex crosses it once, a ray in the plane of a triangle not at all, so the parity is right for every closed mesh (each edge in
+        /// two triangles) without self-intersections and every p off its surface (p on the surface: either answer).
+        /// For open, non-manifold, self-intersecting or noisy meshes the parity has no meaning: use
+        /// WindingNumber(p) &gt; 0.5 (the general inside test for such inputs is ROADMAP Phase 5 #5, generalized
+        /// winding numbers).
         /// </summary>
         public virtual bool IsInside(Vector3d p)
         {
@@ -1056,10 +1092,24 @@ namespace g3
             //Vector3d rayOrigin = p - 2 * bounds.Width * rayDir;
             Vector3d rayOrigin = p;
 
-            Ray3d ray = new Ray3d(rayOrigin, rayDir);
-            int nHits = FindAllHitTriangles(ray, null);
+            // (the direction as given, not renormalized: the line through p and p + rayDir)
+            int nHits = CountCrossings(rayOrigin, rayDir);
 
             return (nHits % 2) != 0;
+        }
+
+        /// <summary>
+        /// The number of crossings of the ray from origin along direction (need not be normalized) with the mesh,
+        /// each counted once (ExactRayTriangle.RayHitPerturbed: a ray through an edge or a vertex crosses exactly one
+        /// triangle of a closed fan; FindAllHitTriangles counts every triangle there). IsInside's parity.
+        /// </summary>
+        internal int CountCrossings(Vector3d origin, Vector3d direction)
+        {
+            if (mesh_timestamp != mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.IsInside: mesh has been modified since tree construction");
+            Ray3d ray = new Ray3d(origin, direction, true);
+            Vector3d secondPoint = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, float.MaxValue, true);
         }
 
 
@@ -1714,23 +1764,26 @@ namespace g3
             Vector3d[] centers = new Vector3d[mesh.TriangleCount];
             foreach ( int ti in mesh.TriangleIndices()) {
                 Vector3d centroid = mesh.GetTriCentroid(ti);
-                double d2 = centroid.LengthSquared;
-                bool bInvalid = double.IsNaN(d2) || double.IsInfinity(d2);
-                Debug.Assert(bInvalid == false);
+                // (each coordinate: the squared length overflowed for finite centroids above about 1e154, and every
+                // triangle of such a mesh was skipped)
+                bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                    && Math.Abs(centroid.z) <= double.MaxValue);
                 if (bInvalid == false) {
                     triangles[i] = ti;
-                    centers[i] = mesh.GetTriCentroid(ti);
+                    centers[i] = centroid;
                     i++;
                 } // otherwise skip this tri
             }
+            // (the triangles kept: before, the skipped ones' slots were split too, as triangle 0 at the origin)
+            int count = i;
 
             boxes_set tris = new boxes_set();
             boxes_set nodes = new boxes_set();
             AxisAlignedBox3d rootBox;
             int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);    // a set is a leaf if its count is below this; below 2 the split never ends
             int rootnode = (bSorted) ?
-                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox)
-                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox);
+                split_tri_set_sorted(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox)
+                : split_tri_set_midpoint(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox);
 
             box_to_index = tris.box_to_index;
             box_centers = tris.box_centers;
@@ -1882,9 +1935,13 @@ namespace g3
                     // [RMS] is <= right here? if v.axis == midpoint, then this loop
                     //   can get stuck unless one of these has an equality test. But
                     //   I did not think enough about if this is the right thing to do...
-                    while (centers[iStart + l][axis] <= midpoint)
+                    // (bounded: when the extremes are adjacent doubles, the midpoint can round to the larger one, so
+                    // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
+                    while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
-                    while (centers[iStart + r][axis] > midpoint)
+                    // (r >= 0 is a guard only: every center above the midpoint would need a midpoint of -infinity, and
+                    // finite centroids, a third of a finite sum, cannot overflow a + b)
+                    while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)
                         break;      //done!
@@ -1895,7 +1952,13 @@ namespace g3
 
                 n0 = l;
                 n1 = iCount - n0;
-                Debug.Assert(n0 >= 1 && n1 >= 1);
+                // a side left empty (every center on one side of the rounded midpoint): half and half, as for a
+                // near-empty interval (before, the same set recursed with the next axis, without end on all three:
+                // a stack overflow)
+                if (n0 < 1 || n1 < 1) {
+                    n0 = iCount / 2;
+                    n1 = iCount - n0;
+                }
             } else {
                 // interval is near-empty, so no point trying to do sorting, just split half and half
                 n0 = iCount / 2;
@@ -2339,7 +2402,26 @@ namespace g3
         // Boxes are stored in double precision: with float boxes, meshes far from the origin (eg UTM
         // coordinates, where float resolution is ~0.5m) had boxes that did not contain their triangles,
         // so ray casts and nearest-point queries missed them.
-        const double box_eps = 50.0 * MathUtil.Epsilonf;
+        // The padding of every box (stored boxes are tight; queries use them padded by this, so the rounding of c +- e
+        // can never make a box miss a triangle). It is proportional to the larger of the size of the mesh and its
+        // distance from the origin, 2^-40 of it (thousands of units in the last place), so that scaling a mesh by a
+        // power of two scales the padding exactly and a query gives the same answer bit for bit: a fixed padding
+        // (50 * Epsilonf) changed the order in which the boxes of a nearest-point query are visited, and with it the
+        // triangle that wins a tie. It also stays far below the detail of the mesh (a padding of a fraction of the
+        // size would make the boxes of a fine part of a large scene overlap, and the queries slow). Coordinates so
+        // large that their sum overflows get the fixed padding (too small there, as before).
+        double box_eps = 50.0 * MathUtil.Epsilonf;
+
+        // the padding for a root box with this center and half extents (see box_eps)
+        internal static double ComputeBoxPadding(Vector3d rootCenter, Vector3d rootExtent)
+        {
+            double size = 2 * Math.Max(rootExtent.x, Math.Max(rootExtent.y, rootExtent.z));
+            double far = Math.Max(Math.Abs(rootCenter.x) + rootExtent.x, Math.Max(Math.Abs(rootCenter.y) + rootExtent.y, Math.Abs(rootCenter.z) + rootExtent.z));
+            double m = Math.Max(size, far);
+            if (!(m < double.MaxValue) || !(m > 0))
+                return 50.0 * MathUtil.Epsilonf;
+            return m * 9.0949470177292824e-13;      // 2^-40
+        }
 
         // float box for the public TreeTraversal.NextBoxF; rounded outwards so it contains the double box
         AxisAlignedBox3f get_box(int iBox)

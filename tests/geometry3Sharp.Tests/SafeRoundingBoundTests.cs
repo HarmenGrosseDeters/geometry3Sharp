@@ -173,10 +173,12 @@ namespace geometry3Sharp.Tests
             Assert.True(r.StripZips > 0 && r.StripZips <= r.Zips, $"strip zips {r.StripZips} of {r.Zips}");
             ResultChecks.AssertClean(m);
             AssertWithinBound(start, m, r, "strips");
-            // no strip zip, no clean result
+            // without the strip zip: not clean, or only with moves that drift farther (since the moves no longer depend on
+            // the scale, 16 moves repair these strips at 5 times the drift; before, Normalized zeroed their direction)
             DMesh3 m2 = new DMesh3(start);
             var without = new MeshRoundingRepair(m2) { SharedPositionsTouch = true, MaxStripTriangles = 1 };
-            Assert.False(without.Apply());
+            bool cleanWithout = without.Apply();
+            Assert.True(cleanWithout == false || without.MaxDrift > 2 * r.MaxDrift, $"drift {without.MaxDrift:G3} against {r.MaxDrift:G3}");
             Assert.Equal(0, without.StripZips);
         }
 
@@ -240,7 +242,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Utm_CleanWithTheUlpTolerance_WithinIt()
         {
-            // 108 of 114 clean with the default (UlpFactor 256); 92 with the relative bound only (UlpFactor 0, before).
+            // 108 of 114 clean with the default (UlpFactor 256); 95 with the relative bound only (UlpFactor 0, before; 92
+            // before the drift was charged to the apex of an edit).
             // Every result within its bound, MaxDrift <= MaxLength = 256 ulps (0.24 micrometres here)
             int clean = 0, cleanRelative = 0, removals = 0, n = 0;
             foreach (var (name, mesh) in UtmCases()) {
@@ -261,8 +264,68 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(114, n);
             Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
-            Assert.True(cleanRelative <= 92, $"relative bound only: {cleanRelative}");
+            Assert.True(cleanRelative <= 95, $"relative bound only: {cleanRelative}");
             Assert.True(removals > 0, "vertex removals");
+        }
+
+        // the 2^k scales give the same result bit for bit on the dense clusters too. Before the fix, 88 of the 198 clusters of
+        // SafeRoundingDegenerateInputTests differed at 2^-10 or 2^10 (eg Cluster k0 count 4 seed 5: clean only at 2^10):
+        // fix_degenerate moved the apex of a cap along Normalized, fix_intersection along GetTriNormal and Normalized, and
+        // those return 0 below the absolute MathUtil.Epsilon, so an offset of 1e-17 gave no move at scale 1 but one at
+        // 2^10 (docs/design/SAFE_ROUNDING.md, the snap-rounding experiment)
+        [Theory]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 4, 5)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 8, 4)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 30, 8, 1)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 40, 4, 0)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 52, 8, 3)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.FoldedCluster, 36, 8, 5)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.FoldedCluster, 44, 8, 1)]
+        [InlineData(SafeRoundingDegenerateInputTests.Family.FoldedCluster, 36, 8, 2)]
+        public void Clusters_PowerOfTwoScales_SameResultScaled(SafeRoundingDegenerateInputTests.Family f, int k, int count, int seed)
+        {
+            DMesh3 input = SafeRoundingDegenerateInputTests.Make(f, k, seed, count);
+            var op0 = new ExactMeshBoolean(new DMesh3(input), new DMesh3(), Ops.Union);
+            Assert.True(op0.Compute());
+            // (and extreme ones, where the edges are shorter than MathUtil.Epsilon: 2^-60, or longer than its inverse)
+            var scales = Similarity.All().Where(s => s.IsExact).Concat(new[] {
+                new Similarity("scale 2^-60", Math.Pow(2, -60), Matrix3d.Identity, Vector3d.Zero),
+                new Similarity("scale 2^60", Math.Pow(2, 60), Matrix3d.Identity, Vector3d.Zero) });
+            foreach (Similarity sim in scales) {
+                var op = new ExactMeshBoolean(Invariance.Transformed(input, sim), new DMesh3(), Ops.Union);
+                Assert.True(op.Compute(), sim.Name);
+                Assert.True(Invariance.Difference(op0.Result, Invariance.MappedBack(op.Result, sim)) == "", sim.Name);
+                Assert.Equal(op0.Rounding.MaxDrift * sim.Scale, op.Rounding.MaxDrift);
+                Assert.Equal(op0.RoundingClean, op.RoundingClean);
+            }
+        }
+
+        // a corner exactly at the origin, 2^-60 inside another box: fix_intersection's first step for a vertex at the
+        // origin was an absolute 1e-300 (times 16 per try), so the move it found did not scale with the mesh
+        [Fact]
+        public void CornerAtTheOrigin_PowerOfTwoScales_SameResultScaled()
+        {
+            DMesh3 Make(double s)
+            {
+                DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One * s)) }.Generate().MakeDMesh();
+                MeshEditor.Append(m, new TrivialBox3Generator() {
+                    Box = new Box3d(new AxisAlignedBox3d(new Vector3d(-0.75, -0.5, -1) * s, new Vector3d(0.5, 0.75, Math.Pow(2, -60)) * s)) }.Generate().MakeDMesh());
+                return m;
+            }
+            DMesh3 m0 = Make(1);
+            Assert.Contains(Vector3d.Zero, m0.Vertices());
+            var r0 = new MeshRoundingRepair(m0);
+            r0.Apply();
+            Assert.True(r0.Moves > 0, "moves");
+            foreach (double s in new[] { Math.Pow(2, -10), Math.Pow(2, 10) }) {
+                DMesh3 m = Make(s);
+                var r = new MeshRoundingRepair(m);
+                r.Apply();
+                DMesh3 back = new DMesh3(m);
+                MeshTransforms.Scale(back, 1 / s);
+                Assert.True(Invariance.Difference(m0, back) == "", s.ToString());
+                Assert.Equal(r0.MaxDrift * s, r.MaxDrift);
+            }
         }
 
         [Fact]
@@ -478,8 +541,11 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(far, a, b);
             int before = m.TriangleCount;
             var r = new MeshRoundingRepair(m);
-            r.Apply();
+            // (not clean: the needles stay, and the area test cannot see them; before, the sphere was removed as tiny)
+            Assert.False(r.Apply());
             Assert.Equal(0, r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(before, m.TriangleCount);
             Assert.True(double.IsNaN(r.MaxLength));
         }
     }

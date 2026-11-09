@@ -27,9 +27,14 @@ namespace g3
     {
         /// <summary> the snapped input: input points at their pixel centres, extra hot pixel centres appended, segments and rings as chains </summary>
         public ConstrainedMesh2Input Result;
+        /// <summary> per input segment, the index of its first piece in Result.Segments (one more entry: the end of the last chain) </summary>
+        internal int[] SegmentChainStart;
         /// <summary> the largest distance by which an input point moved, per axis (at most half a pixel) </summary>
         public double MaxDisplacement;
         public int Rounds, Crossings, Spread, Widened, ForcedSpread, CollapsedSegments, CollapsedRings, DroppedSeeds;
+        /// <summary> the input had outer rings and snapping collapsed every one of them: the domain is empty, not the hull (the result
+        /// has no outer ring left, which alone would read as a hull domain, D13) </summary>
+        public bool OuterRingsCollapsed;
         /// <summary> the pixel grid, for refinement on the grid (all output vertices on it, owner decision 2026-11-01) </summary>
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
@@ -54,6 +59,8 @@ namespace g3
         const int RoundLimit = 1000;
 
         readonly ConstrainedMesh2Input input;
+        /// <summary> the number of points of the input; the snapped input's points from here on are hot pixel centres it made </summary>
+        internal int InputCount => input.Points.Count;
         readonly System.Threading.CancellationToken cancel;
         readonly int emin;                  // the common exponent: coordinates and pixel width are integers times 2^emin
         readonly double w;
@@ -445,12 +452,16 @@ namespace g3
             }
             Grid = new SnapGrid(w);
             var result = new ConstrainedMesh2Input { Points = points, HoleSeeds = new List<Vector2d>(), Regions = new List<Mesh2Region>() };
-            foreach (var s in input.Segments) {
+            SegmentChainStart = new int[input.Segments.Count + 1];
+            for (int si = 0; si < input.Segments.Count; ++si) {
+                var s = input.Segments[si];
+                SegmentChainStart[si] = result.Segments.Count;
                 if (s.A == s.B) { result.Segments.Add(new Mesh2Segment(rep[(KX[s.A], KY[s.A])], rep[(KX[s.A], KY[s.A])], s.Marker, s.Locked)); continue; }
                 var chain = ChainOf(s.A, s.B);
                 if (chain.Count < 2) { ++CollapsedSegments; continue; }
                 for (int i = 0; i + 1 < chain.Count; ++i) result.Segments.Add(new Mesh2Segment(chain[i], chain[i + 1], s.Marker, s.Locked));
             }
+            SegmentChainStart[input.Segments.Count] = result.Segments.Count;
             List<int> Expand(IReadOnlyList<int> ring)
             {
                 var list = new List<int>();
@@ -472,6 +483,8 @@ namespace g3
                 for (int i = 0; i < list.Count && list.Count >= 2; ++i)
                     if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
             }
+            OuterRingsCollapsed = input.Rings.Any(r => !r.Hole) && !result.Rings.Any(r => !r.Hole);
+            if (OuterRingsCollapsed) Diagnostics.Add("snap: every outer ring collapsed below the tolerance; the domain is empty (not the convex hull: D13 is for input without outer rings)");
             // A hole or region seed that snapping swept (constraint geometry moved across it or onto it, eg a contour that collapsed around
             // it) is dropped: left on the other side, it would remove or label the cell there, eg the whole domain (clean-room answer 6,
             // MESHING2D_SNAP_QA.md; review of #277: a hole collapsing to a line, a seed next to an edge that moved over it). Any other seed,
@@ -583,8 +596,28 @@ namespace g3
         public readonly double W;
         public SnapGrid(double w) { W = w; }
 
-        /// <summary> the pixel index of x: floor(x / w + 1/2), exactly </summary>
+        /// <summary>
+        /// the pixel index of x: floor(x / w + 1/2), exactly. A filter first, else the exact quotient (<see cref="PixelExact"/>).
+        /// Refinement on the grid rounds every candidate point (profiled: the BigInteger quotient was a tenth of the split-point choice).
+        ///
+        /// The filter needs no error bound, only that rounding is monotone (w &gt; 0; for any other w the exact path alone, as before).
+        /// Let q = x / w exactly, r = fl(fl(q) + 1/2) and f = floor(r), and suppose f &lt; r (r is no integer; then |r| &lt; 2^52, beyond
+        /// which every double is one, and f + 1/2 is a double). If q + 1/2 &lt; f, then q &lt; f - 1/2, so fl(q) &lt;= fl(f - 1/2) and
+        /// r &lt;= fl(fl(f - 1/2) + 1/2) = f (at f = -2^52, f - 1/2 is no double, but q &lt; f - 1/2 then forces fl(q) &lt;= f - 1, and
+        /// fl(f - 1 + 1/2) = f, the tie rounding to the even f), a contradiction; if q + 1/2 &gt;= f + 1, then fl(q) &gt;= f + 1/2 and r &gt;= f + 1, again. So f &lt;= q + 1/2 &lt; f + 1: the index is
+        /// f. Where r is an integer (q + 1/2 may lie just below it), infinite or NaN, the exact quotient decides
+        /// </summary>
         public long Pixel(double x)
+        {
+            if (W > 0) {
+                double r = x / W + 0.5, f = Math.Floor(r);
+                if (f < r) return (long)f;
+            }
+            return PixelExact(x);
+        }
+
+        /// <summary> the pixel index of x: floor(x / w + 1/2), from the exact quotient </summary>
+        internal long PixelExact(double x)
         {
             ExactPoint3.Decompose(x, out var mx, out int ex);
             ExactPoint3.Decompose(W, out var mw, out int ew);
@@ -622,8 +655,59 @@ namespace g3
         public Vector2d Round(Vector2d p) => new Vector2d(Centre(Pixel(p.x)), Centre(Pixel(p.y)));
         public bool OnGrid(Vector2d p) => Round(p) == p;
 
-        /// <summary> does segment ab cross the open interior of pixel (kx, ky), exactly </summary>
+        /// <summary>
+        /// does segment ab cross the open interior of pixel (kx, ky), exactly. A filter first (<see cref="CrossesInteriorFilter"/>);
+        /// where it cannot decide, the exact test (<see cref="CrossesInteriorExact"/>). Refinement on the grid asks this for every
+        /// split point it tries (profiled: the BigInteger test was a tenth of the mesher's time on the Herne tiles at snap 0.01)
+        /// </summary>
         public bool CrossesInterior(Vector2d a, Vector2d b, long kx, long ky)
+        {
+            int f = CrossesInteriorFilter(a, b, kx, ky);
+            return f != 0 ? f > 0 : CrossesInteriorExact(a, b, kx, ky);
+        }
+
+        /// <summary>
+        /// The filter of <see cref="CrossesInterior"/>: 1 crosses, -1 does not, 0 undecided (the exact test decides). u = 2^-53.
+        /// - The pixel's sides: (k -+ 1/2) is exact for |k| &lt; 2^52, and the product with w rounds once, s = fl(S) of the true side S.
+        /// - The box test compares exact coordinates v (doubles) with the sides. Rounding is monotone, so v &lt; s implies v &lt; S (if
+        ///   S &lt;= v, then s = fl(S) &lt;= fl(v) = v), and v &gt; s implies v &gt; S; where v = s, undecided. No error bound is needed.
+        /// - A corner's orientation against ab, O = DX EY - DY EX (DX = bx - ax, EY = CY - ay for the true corner (CX, CY)), in
+        ///   doubles: dx = DX (1 + d1); ey = (CY (1 + d0) - ay)(1 + d2) = EY (1 + d2) + CY d0 (1 + d2); l = dx ey (1 + d3), and r
+        ///   alike; o = (l - r)(1 + d4). With |di| &lt;= u: |o - O| &lt;= (3u + O(u^2)) (|DX| |EY| + |DY| |EX|) + (u + O(u^2)) (|DX| |CY|
+        ///   + |DY| |CX|) + u (|l| + |r|) &lt;= 5u (1 + 4u) (|dx| (|ey| + |cy|) + |dy| (|ex| + |cx|)), the computed values standing in
+        ///   for the true ones within (1 + 2u). The bound used is 1e-14 times that sum, more than 17 times 5u (1 + 4u): an orientation
+        ///   beyond it has its true sign; within it, undecided. Valid where no rounding is absolute: every input, side, product and the
+        ///   bound normal and far from overflow, in [1e-140, 1e140] or zero (Ok; else undecided), and a difference of doubles that is
+        ///   subnormal is exact.
+        /// The decisions then equal the exact test's, step for step (the box test, then the four signs; a degenerate segment, a == b,
+        /// has every orientation 0 and goes to the exact test)
+        /// </summary>
+        internal int CrossesInteriorFilter(Vector2d a, Vector2d b, long kx, long ky)
+        {
+            // (w &gt; 0 only: the exact test alone otherwise, as before; |k| &lt; 2^52 by comparisons: Math.Abs(long.MinValue) throws)
+            const long big = 1L << 52;
+            if (!(W > 0) || !(kx > -big && kx < big && ky > -big && ky < big)) return 0;
+            double x0 = (kx - 0.5) * W, x1 = (kx + 0.5) * W, y0 = (ky - 0.5) * W, y1 = (ky + 0.5) * W;
+            bool Ok(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);
+            if (!(Ok(a.x) && Ok(a.y) && Ok(b.x) && Ok(b.y) && Ok(x0) && Ok(x1) && Ok(y0) && Ok(y1) && Ok(W))) return 0;
+            // the box test: outside where the segment's extent ends at or before a side (max &lt;= x0 or min &gt;= x1, per axis)
+            double ax = Math.Max(a.x, b.x), ix = Math.Min(a.x, b.x), ay = Math.Max(a.y, b.y), iy = Math.Min(a.y, b.y);
+            if (ax < x0 || ix > x1 || ay < y0 || iy > y1) return -1;
+            if (ax == x0 || ix == x1 || ay == y0 || iy == y1) return 0;
+            double dx = b.x - a.x, dy = b.y - a.y;
+            int pos = 0, neg = 0;
+            foreach (var (cx, cy) in new[] { (x0, y0), (x1, y0), (x1, y1), (x0, y1) }) {
+                double ex = cx - a.x, ey = cy - a.y, l = dx * ey, r = dy * ex, o = l - r;
+                double bound = 1e-14 * (Math.Abs(dx) * (Math.Abs(ey) + Math.Abs(cy)) + Math.Abs(dy) * (Math.Abs(ex) + Math.Abs(cx)));
+                if (!(Ok(l) && Ok(r) && Ok(bound))) return 0;
+                if (o > bound) ++pos; else if (o < -bound) ++neg;
+                else return 0;
+            }
+            return pos > 0 && neg > 0 ? 1 : -1;
+        }
+
+        /// <summary> does segment ab cross the open interior of pixel (kx, ky), from exact integers </summary>
+        internal bool CrossesInteriorExact(Vector2d a, Vector2d b, long kx, long ky)
         {
             var v = new[] { a.x, a.y, b.x, b.y, W };
             var m = new BigInteger[5]; var e = new int[5];

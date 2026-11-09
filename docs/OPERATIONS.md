@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -51,10 +51,12 @@ Add both: `using g3; using gs;`.
 | Nearest point, ray hit, inside test, winding number | `DMeshAABBTree3`, `MeshQueries` | [SpatialQueriesExample](examples/SpatialQueriesExample.cs) |
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
+| Iso-surface of an implicit field. Which one: `MarchingCubes` for vertices on the iso-surface (on the grid edges), a closed result and output that is deterministic also in parallel; `DualContouring` for sharp edges and corners (QEF vertices), far fewer triangles, sparse mode and local refinement, but ambiguous non-manifold quads are left out (`NonManifoldTriangles`, small holes); `gs.MarchingCubesPro` only for `GenerateContinuation` (surface-following from seed points, cost proportional to the surface, not the volume). `MarchingCubesPro` is maintained, not developed further: bug fixes only, and its parallel vertex ids still follow the thread schedule (geometry unaffected). `RootMode = LinearEdges` (both marching cubes): one linear interpolation of the original samples, without the endpoint nudges and without skipping a triangle; it requires finite samples, no sample on the level and crossings strictly inside their edges, and throws `InvalidOperationException` (`ArgumentException` for non-finite values, and for a `MarchingCubesPro` grid of more than 65535 cells per axis, 65534 for `GenerateContinuation`, or a continuation seed outside that grid), serial and parallel alike, instead of repairing a violation. It is the building block of a conditional conservative enclosure (winding number one at every zero of the field), whose further preconditions are in [CONSERVATIVE_MC_AUDIT](design/CONSERVATIVE_MC_AUDIT.md) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
+| Slope design from a toe line to a terrain (open-pit benches, dumps, embankments): cut, fill or mixed cut and fill (`Directions.Auto`, the clamp max(S_fill, min(T, S_cut))), never steeper than the given slope (exact check of every output triangle); catch lines with their accuracy, the composite terrain (or only the replacement of the changed terrain triangles), cut and fill volumes and areas, level lines at target heights (`TargetHeights`, the hook for berms). The result does not depend on the order of the toe pieces. Statuses with a kind (`StatusKind`): invalid input, unsupported by the method, geometrically infeasible (eg `ToeUndercut`, `ToeOvertopped`), not certified. The smallest feature it can guarantee (`UsedMinFeatureSize`) follows from the coordinates' magnitude, about 1.5 cm at UTM with the default `SlopeMargin`; `LocalFrame` computes on the inputs translated to a local origin and returns the outputs in that frame (XY + `UsedOrigin` is the input's; translating them back rounds by up to half an ulp and is not covered by the exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not share that terrain with work running concurrently. A copy instead cost 0.2–0.6 s, 167 MB of allocations and 300 MB of peak memory on a 2-million-triangle terrain | `gs.TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec`, `SlopePiece`, `CatchLine`, `TargetHeightLine` | tests: `TerrainSlopeDesignTests`, `TerrainSlopeCatchLineTests`, `TerrainSlopeMixedTests`, `TerrainSlopeTargetHeightTests`, `TerrainSlopeLocalFrameTests`; design: [TERRAIN.md](design/TERRAIN.md); example: [TerrainSlopeExample](examples/TerrainSlopeExample.cs); CLI: `g3cli slope` |
 | 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d --quality false`](#command-line-and-mcp-g3cli) |
-| 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`; CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
+| 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments. Two modes: constrained Delaunay (the default, `Conforming = false`; up to a minimum angle of 25.65° a segment is encroached only by a vertex in its diametral lens, Shewchuk 2002 §6.4, above by its diametral circle) and conforming Delaunay (`Conforming = true`, every triangle Delaunay also across segments, O2). Off-centres (Üngör 2004) for triangles bad by their angle. A small angle forced by the input stays and is reported (`BadTriangles`); at the Steiner limit the mesh is valid but the bounds are not guaranteed (`SteinerLimitReached`). With a snap tolerance every vertex, also those refinement adds, lies on the grid | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`, `QualityMesh2LensTests`, `Meshing2TrackerCasesTests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | 2D polygon booleans, polyline clipping, offsets, Minkowski sums, simplification (optional package `geometry3Sharp.Clipper2`) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options`, `Clipper2Result` | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
@@ -64,7 +66,7 @@ Add both: `using g3; using gs;`.
 | You have | Use | Result |
 |---|---|---|
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
-| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
+| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`; simplified within half its offset, with no new triangle below quality 0.3 (largest angles about 150 degrees); an optional quality pass, `AlphaWrapQualityPass`, off by default since Alpha Wrap 2.0: a little better angles, up to 5 % more triangles, about 40 % more time (30 % of the pipeline with it), certified within the same distance); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding` (on by default) repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`; `false` for speed), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
@@ -89,7 +91,11 @@ run the edge the same way are not joined, and the result is open along the edge;
 - **Solids that touch along an edge give a result that is non-manifold there**, as in Manifold. The union of two
   boxes that share only an edge is two solids meeting in a line: the four triangles at the edge are split into two
   manifold pairs, with copies of the edge's vertices (`NonManifoldEdges` counts these edges), so the `DMesh3` is
-  closed and manifold, but welded by position the edge has four triangles.
+  closed and manifold, but welded by position the edge has four triangles. `Contacts` counts the positions with two or
+  more vertices (points and edges where the solid touches itself), so that a caller that welds (eg writes STL) knows;
+  the in-memory result is the clean one (owner decision 2026-11-07, as Manifold). Two *different* exact points that
+  round to one double are not such a contact: `SafeRounding` separates them by a tiny, exactly checked move, and
+  `RoundingClean` requires none left (`Rounding.InitialFalseContacts`, `RemainingFalseContacts`).
   `MeshRobustRepair.SeparateTouchingVertices` moves such contacts apart if a strictly manifold mesh is needed.
 
 ## The examples
@@ -116,6 +122,11 @@ boolean.Compute();
 bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
 ```
 
+"The diagonal" of the tolerances is the diagonal of the result's largest connected component, not of the bounding box of
+all components: a small part far away (eg 1e8 off) does not make the others' triangles degenerate. Only the ulp term
+below is per component. A long thin component still sets the diagonal for all (eg a rod of length 1e8 makes a unit part
+"tiny", and it is removed), as the bound of `docs/design/SAFE_ROUNDING.md` section 1 decides.
+
 It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
 is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
@@ -126,7 +137,8 @@ contracted (also exact ones, eg a well-shaped triangle of size 2^-20 where an ex
 triangles trouble slicers, FEM and remeshers), and the edits also change well-shaped neighbours (flips, contractions,
 moves), all within a bound: the surface moves by at most `Rounding.MaxDrift` from the rounded result, at most
 `MaxDisplacement` = 1e-5 times the diagonal, in Hausdorff distance (without the components it removes as tiny
-or thin, counted in `Rounding.RemovedComponents`; up to an absolute rounding error of a few ulps of the largest
+or thin, counted in `Rounding.RemovedComponents`; a closed component thinner than the bound that holds real volume for its
+area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is not clean; up to an absolute rounding error of a few ulps of the largest
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
@@ -179,13 +191,23 @@ var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, Inva
 bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
 
-`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
+With the defaults (as upstream) the remeshers check no move for flipped triangles and flip and collapse edges across
+creases. For flat, coarse or creased inputs constrain the features with `MeshConstraintUtil.PreserveBoundaryAndFeatures`
+and set `PreventNormalFlips` (edge flips and collapses) and `MinTriangleQuality` (also the smoothing and projection
+moves); without them a coarse L-shaped part loses a leg and a flat fan folds (docs/ISSUE_CASE_FINDINGS.md, S2 and S3).
+`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2, the recommended robust setting: on 20 Thingi10K meshes remeshed at the mean edge length it removed all degenerate triangles, raised the median p01 minimum angle from 1.3 to 5.7 degrees and cut the slivers by 80 %, at +40 % time; higher values gain nothing, [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 7) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
 `MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
 creases, eg the apex of a cone with many slices, by their angle deficit.
+`PreserveBoundaryAndFeatures` also pins bowtie vertices (fans of triangles meeting only at a vertex, eg two cones tip
+to tip), so the remeshers neither move them nor join the fans; the `Reducer` keeps bowtie vertices in place by itself.
 `Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
 to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
+
+`PartitionedReducer` (opt-in) is `Reducer.ReduceToMaxQuadricError` on 8 fixed slabs in parallel: deterministic for any thread count, not the serial Reducer's result, the main use is
+`PreventSelfIntersections` (on 60 to 100k triangles 1.3 to 2.4 x the plain time instead of 4 to 5 x, 4 cores; no gain below about 20k triangles, where it reduces serially; the result has no
+attributes and does not keep the boundary shape; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 9).
 
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
@@ -213,7 +235,7 @@ See [RemeshExample](examples/RemeshExample.cs), [SimplificationExample](examples
 Vector2d volumeArea = MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex);
 var tree = new DMeshAABBTree3(mesh, autoBuild: true);
 int tid = tree.FindNearestTriangle(point);
-bool inside = tree.IsInside(point);             // closed meshes
+bool inside = tree.IsInside(point);             // closed meshes (exact parity, also through edges and vertices)
 double winding = tree.WindingNumber(point);     // ~1 inside, ~0 outside, also for open meshes
 ```
 
@@ -375,7 +397,7 @@ if (cut.Compute())
     new BoundaryFirstFlattening(cut.CutMesh).Compute();
 ```
 
-All parameterizations need discs. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
+The disc-based parameterizations need a cut before processing closed surfaces. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
 shortest paths: on a closed surface of genus g, 2g short loops; between boundary loops, shortest paths; for a
 sphere, a path), and splits the vertices along the seams in a new mesh. `ConeFlattening` is BFF with cone
 singularities: cones are placed greedily where the conformal scale factor is largest, the mesh is cut through
@@ -388,6 +410,31 @@ defects caused only by rounding (tiny or sliver triangles, eg vertices 1e-7 apar
 `FloatRoundingDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
 enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
 
+### Untangling supplied UVs without moving the boundary
+
+`new FoldoverFreeParameterization(mesh, startUV).Compute()` attempts to remove inverted/degenerate UV
+triangles on one connected open manifold mesh, including annuli. It rejects degenerate surface triangles.
+UVs are indexed by vertex id; all used vertices need finite entries. Every boundary vertex is fixed bit for
+bit. The input mesh and UV list are unchanged and reread on each Compute. No atlas integration is enabled.
+
+Options: `MaxIterations` (200, zero retains the initial map), `InitialEpsilon` (1) and `MinimumEpsilon`
+(1e-12, positive and <= InitialEpsilon). The epsilon schedule is equation 6 of Garanzha et al.; no alternate
+optimizer or free-boundary mode. `Success` requires finite UVs, zero flipped/degenerate triangles and finite
+symmetric Dirichlet distortion; it does **not** mean global injectivity or optimal distortion. Use
+`UVOverlap.Compute(mesh, result.UV)` separately. The result is the final iterate when it has no more invalid
+triangles than any earlier one (otherwise the earlier iterate with the fewest); `Converged` is false when that is
+not the final, converged iterate. `Energy` is the normalized shape/area objective evaluated at InitialEpsilon, not
+symmetric Dirichlet; surface area is normalized to one and UVs use a translated power-of-two frame.
+
+Iteration exhaustion or stalling with invalid triangles returns `FlippedTriangles` with the best finite map
+(fewest invalid triangles, then lowest common-epsilon energy). Invalid input/constraints and unrepresentable
+arithmetic/solver failures have distinct failure statuses and no UVs. The method cannot guarantee a feasible
+fixed boundary, a bounded iteration count to success, global overlap removal or SLIM-equivalent distortion.
+A collapsed locked edge or invalid fully locked triangle is rejected; near-collapsed boundaries are not
+silently declared infeasible. At extreme source/UV scales the existing distortion diagnostics can be
+unrepresentable even after internal normalization; this returns `SolverFailed`, not success.
+See [measured acceptance](../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md).
+
 | Method | Charts | Use |
 |---|---|---|
 | `Auto` (default) | one chart per component where cones work, else several | texture atlases |
@@ -396,6 +443,71 @@ enough (the layout is still overlap-free). From the command line: `g3cli uv mesh
 | `SingleChart` | one chart (cut to a disc), plain BFF | when one chart is required; distorts closed surfaces |
 
 See [UVAtlasExample](examples/UVAtlasExample.cs).
+
+### Terrain slope design
+
+`gs.TerrainSlopeDesign` builds the slope from toe lines to a terrain: open-pit benches and pits (cut), dumps and
+embankments (fill), or both (`Directions.Auto`). Design: [design/TERRAIN.md](design/TERRAIN.md).
+
+```csharp
+using g3; using gs;
+
+var design = new TerrainSlopeDesign() {
+    Toes = { SlopeToe.Constant(toePoints, closed: true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)) },   // 1:1.5
+    Terrain = tin,                  // a DMesh3 TIN (a height field under the slope)
+    Tolerance = 0.05,               // the professional accuracy in m: required, no library default
+    BuildComposite = true,          // the whole changed terrain; CompositeKinds.Replacement: only the replaced part
+};
+design.Compute();                   // false also for NoDaylight, a partial result: check Status
+if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != TerrainSlopeDesign.Statuses.NoDaylight)
+    Console.WriteLine(design.Status + " (" + design.StatusKind + "): " + design.Message);
+// design.CatchLines, design.Composite, design.SlopeRegion, design.CutVolume / FillVolume / CutArea / FillArea
+```
+
+- **Never steeper.** Every output triangle is checked exactly against its slope and its support (the toe), so a result is
+  never steeper than specified: a design that cannot be certified fails (`SlopeViolation`, `StatusKinds.NotCertified`)
+  instead of returning a violating surface.
+- **Within `Tolerance`.** The composite is within `Tolerance` of the clamp of the terrain and the slope (cut below
+  the terrain, fill above it), except near the steps at the toe, the lateral limits and the cap, where the move of the
+  catch points shifts the step: within `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
+  toe crossing with `Direction` Auto. That is certified per composite: a
+  composite whose catch points moved it too far fails with `SlopeViolation` (the message names the catch point).
+- **Slopes** per toe segment (start and end, cut and fill): `SlopeSpec.Ratio(n)` (1:n), `Percent`, `Degrees`, `Rise`.
+  Open toes (`Closed` false) have lateral limits; closed ones a side `Inside` or `Outside`.
+- **Statuses** and what to do (`StatusKind` says which kind a status is):
+
+  | Status | Kind | Meaning, what to do |
+  |---|---|---|
+  | `Success` | None | complete result |
+  | `NoDaylight` | None | the slope does not reach the terrain everywhere within its footprint or below `HeightLimit`: the result is kept but partial (`IsComplete` false); the catch lines that end there say so (`EndReasons.FootprintBoundary`, `HeightLimit`). Extend the terrain or set `HeightLimit` |
+  | `InvalidInput`, `NotHeightField` | InvalidInput | a toe, slope or parameter is wrong (`ToeProblems`), or the terrain under the slope is no height field: fix the input |
+  | `ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped` | GeometricallyInfeasible or UnsupportedByMethod | no surface meets the specification (or the phase 1 method cannot build it): `ToeProblems` names the segments |
+  | `NotImplemented` | UnsupportedByMethod | a slope that changes continuously along a segment (start and end differ): not in phase 1 |
+  | `SlopeViolation`, `CatchLineAccuracyNotReached` | NotCertified | the result could not be certified within `Tolerance` (or `RequiredCatchLineAccuracy`): a larger `Tolerance`, or `LocalFrame` at UTM coordinates for small features |
+  | `Cancelled` | Cancelled | `CancelF` returned true: no result |
+  | `CompositeFailed`, `Failed` | Internal | an internal failure (a bug: please report it with the input); `CompositeFailed` keeps `SlopeSurface` and `CatchLines` |
+
+- **Coordinates and the smallest feature.** The stored points are rounded to the input's coordinates, so the smallest
+  feature the result can guarantee (`UsedMinFeatureSize`) follows from their magnitude: about 1.5 cm at UTM with the default
+  `SlopeMargin`, micrometres near the origin. It scales with the input. For smaller features at UTM set `LocalFrame`: the
+  design is computed on the inputs translated to a local origin near the toes, and **every output is then in that local
+  frame** (add `UsedOrigin` to x and y for the input's frame; that rounds by up to half an ulp and is not covered by the
+  exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for
+  bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not
+  share that terrain with work running concurrently. `LocalFrameFallback`: an input coordinate could not be translated
+  exactly, and the design ran in the input's frame.
+- **Composite.** `CompositeKinds.Full` (default) is the whole terrain with the slope region; `Replacement` only the part that
+  replaces terrain triangles (those the region cuts, and their neighbours split where a cut one has a point inside
+  their shared edge), with `ReplacedTerrainTriangles` and `CompositeTerrainVertices` to join it, far less output on
+  a large terrain.
+- **Mixed cut and fill** (`Directions.Auto`): a cut run and a fill run on the terrain, the clamp max(S_fill, min(T, S_cut)),
+  one composite. **Target heights** (`TargetHeights`): the level lines of the slope region at those heights
+  (`TargetHeightLines`, eg bench levels).
+- **Determinism.** The result does not depend on the order of the toe pieces, and scaling the input by a power of two
+  scales it bit for bit (tested over `Similarity.All()`). Single-threaded.
+
+Runnable example: [TerrainSlopeExample](examples/TerrainSlopeExample.cs) (a pit, then the same at UTM in a local frame).
+The command line: `g3cli slope` (below).
 
 ### 2D polygon booleans and offsets (optional package)
 
@@ -445,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -471,7 +583,9 @@ The output lies in the XY plane (z = the heights, or 0), counterclockwise, with 
 points. `--quality false` gives the constrained Delaunay triangulation only (`ConstrainedDelaunayMesh2`, no Steiner
 points); `--steiner-limit` bounds the inserted points (then `steiner_limit_reached` and a warning); crossing constraints
 are split unless `--resolve-crossings false`; `--snap-tolerance t` snap-rounds the input to a grid of width t first (m2.snap: every
-vertex, also those refinement adds, on the grid; merges and collapsed rings are reported in `warnings`). An agent passes the input
+vertex, also those refinement adds, on the grid; merges and collapsed rings are reported in `warnings`). The result is a constrained
+Delaunay triangulation; `--conforming true` makes every triangle Delaunay also across segments (more points, the circumcircles of
+the triangles empty against all vertices). An agent passes the input
 inline instead of a file:
 
 ```
@@ -516,6 +630,33 @@ g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
 #   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
 ```
 
+**Evaluation metrics** (`fidelity`, `MeshFidelityMetrics`; `quality`, `TriangleQualityStatistics` and `MeshTopologySummary`):
+`fidelity` compares a mesh with a reference by what Hausdorff distance and volume IoU miss (lost features, reversed patches,
+changed topology); sampling uses a fixed seed (`--seed`), so a call is reproducible, and all distances are relative to the
+reported `size` (the reference's bounding box diagonal, in mesh units); curvatures are H*size and K*size^2, angles in degrees, `null` is not
+available and the string `"infinity"` is infinite (eg `edge_chamfer` when only one mesh has sharp edges). `quality` reports one mesh's triangle quality distributions and topology:
+
+```
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [...], "chamfer": ..., "normal_consistency": ..., "edge_recall": [...], "volume_iou": ...,
+#      "outer": {...}, "curvature": {...}, "reference_quality" / "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli quality simplified.stl
+#   -> "quality": { "min_angle": { "worst": ..., "worst_1_percent": ..., "median": ... }, ... }, "topology": { "genus": 0, ... }
+```
+
+**Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
+`PrimitiveFit3`): statistics only, no per-vertex output yet. `deviation` is positive outside the reference's solid (`--sign`),
+`--certified` adds the certified one-sided Hausdorff distance (`hausdorff_lower_bound`, `hausdorff_upper_bound`); `thickness`
+reports triangles without a value (no ray hit within `--max-distance`) and, with `--min-thickness`, the thin triangles; `fit`
+fails with `operation_failed` and `fit_result` (`too_few_points`, `rejected_by_limits`, ...) when no model is found:
+
+```
+g3cli deviation simplified.stl original.stl --certified
+g3cli thickness part.stl --method ray --min-thickness 0.8 --max-results 20
+g3cli fit pipe.stl --primitive cylinder
+#   -> "cylinder": { "axis_origin": [...], "axis_direction": [...], "radius": 12.5, "height": 80 }, "inliers": 4120, "rms_error": ...
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
@@ -529,6 +670,22 @@ g3cli query2d field.obj --points "10,10;50,30;85,30" --rect "65,25,75,35" --near
 #                  { "x": 85, "y": 30, "height": 21.5, ... } ],
 #      "rect": { "triangles_count": 58, "triangles": [...] }
 ```
+
+**Slope design** (`slope`, `TerrainSlopeDesign`): toe lines as GeoJSON (a `LineString` or `Polygon` per toe, with `side`
+and `slope` properties, coordinates as given, `crs` passed through), the terrain as a TIN mesh file. The outputs are
+checked against the library's result in `SlopeCliTests`; the input format is in the
+[g3cli README](../tools/g3cli/README.md#slope-design-input-slope):
+
+```
+g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --catch-lines pit_catch.geojson --region pit_region.ply
+#   -> "design_status": "success", "status_kind": "none", "complete": true, "cut_volume": ..., "fill_volume": 0,
+#      "catch_lines": [{"points": ..., "closed": true, "max_uncertainty": ...}], "min_feature_size": 0.0149, "attempts": 1, ...
+g3cli slope dgm_tin.ply road.geojson part.g3mesh --tolerance 0.05 --direction auto --composite replacement
+g3cli slope dgm_tin.ply pit_toe.geojson local.g3mesh --tolerance 0.05 --local-frame     # outputs local: add "used_origin"
+```
+
+A design that cannot be certified fails with `operation_failed`, an invalid toe or terrain with `read_error`; the error
+result carries `design_status`, `status_kind`, `design_message`, `toe_problems` and `problem_triangles`.
 
 **n-ary and SafeRounding booleans** (`boolean`, `resolve`; `ExactMeshBoolean`), on closed meshes `a.stl`, `b.stl`,
 `c.stl` of your own. `xor` keeps the points whose winding number is positive in an odd number of the inputs, so for three
@@ -551,16 +708,22 @@ Far from the origin (UTM coordinates) the repair may move the surface by up to `
 last place of the largest coordinate beyond the relative bound, or `--rounding-absolute-tolerance`; `--strict-rounding` allows
 the relative bound only and fails instead of writing a result with defects (`ExactMeshBoolean.RoundingUlpFactor`,
 `RoundingAbsoluteTolerance`, `StrictRounding`); `--rounding-max-displacement` sets the relative bound itself (default 1e-5 of
-the diagonal, `RoundingMaxDisplacement`). `repair` takes the same four options for its exact stage (`MeshRobustRepair`), where a
+the diagonal, `RoundingMaxDisplacement`), `--rounding-max-pair-tests` its effort budget (default 5M exact pair tests,
+`RoundingMaxPairTests`; past it the repair stops and reports `rounding.evaluation_limit_reached`). `repair` takes the same five options for its exact stage (`MeshRobustRepair`), where a
 strict rounding that is not clean rejects the exact resolve (`exact_resolve_reason`) and the other stages run, while the repair
 after the separation of touching vertices uses the relative bound only and does not fail; the two rounding
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the largest component's diagonal, or far from the origin the ulp or absolute
+term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
+`scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`:
+and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
+with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
+false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):
 
 ```
 g3cli repair scan.obj scan_fixed.stl --check-lost-components --no-alpha-wrap

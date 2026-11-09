@@ -11,7 +11,7 @@ namespace Meshing2Acceptance
     /// The corpus run: public test inputs of other projects (fetched by corpus/fetch.py at run time, never committed; sources
     /// and licenses in docs/design/MESHING2D_PROVENANCE.md), each meshed by the milestones' candidates and judged by the
     /// oracle. Only statistics are printed. Polygons (earcut, poly2tri) run through M2 and M3, point sets (delaunator)
-    /// through M1 and M3; M3 at each angle of --angles.
+    /// through M1 and M3; M3 at each angle of --angles; --mode constrained runs M3 in the constrained quality mode.
     /// </summary>
     static class Corpus
     {
@@ -22,15 +22,23 @@ namespace Meshing2Acceptance
             public List<double[]> Points;        // point set
         }
 
+        /// <summary> --snapped-area: report the mesh area against the snapped domain (OracleExpect.ReportSnappedArea) </summary>
+        static bool SnappedArea;
+
         public static int Run(string[] args, Func<string[], string, string> arg)
         {
+            SnappedArea = args.Contains("--snapped-area");
             string dir = arg(args, "--dir") ?? Path.Combine(RepositoryRoot(), "benchmarks", "Meshing2Benchmark", "corpus", "data");
             if (!Directory.Exists(dir)) {
                 Console.WriteLine("no corpus at " + dir + ": run python3 benchmarks/Meshing2Benchmark/corpus/fetch.py first");
                 return 2;
             }
-            var angles = (arg(args, "--angles") ?? "0,20,30").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
+            var angles = (arg(args, "--angles") ?? "0,20,25,30").Split(',').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
             string filter = arg(args, "--filter");
+            // --mode constrained: the M3 runs in the constrained quality mode (lenses, judged as constrained Delaunay)
+            string modeArg = arg(args, "--mode");
+            if (modeArg != null && modeArg != "constrained") throw new ArgumentException("--mode: only \"constrained\" is known");
+            bool constrained = modeArg == "constrained";
             int seconds = int.Parse(arg(args, "--seconds") ?? "120", CultureInfo.InvariantCulture);
             int judgeLimit = int.Parse(arg(args, "--judge-limit") ?? "60000", CultureInfo.InvariantCulture);
             // a filter is a part of the name, or with a trailing $ the end of it (earcut/water-huge$ is not water-huge2)
@@ -48,6 +56,7 @@ namespace Meshing2Acceptance
                 foreach (double a in angles) {
                     var q = Build(item);
                     q.MinAngleDeg = a;
+                    q.ConstrainedQuality = constrained;
                     runs.Add(("M3@" + a.ToString(CultureInfo.InvariantCulture), Milestone.M3, q));
                 }
                 foreach (var (mode, m, input) in runs) {
@@ -87,7 +96,7 @@ namespace Meshing2Acceptance
         {
             Mesh2Output output = null; Exception error = null;
             var sw = Stopwatch.StartNew();
-            var thread = new System.Threading.Thread(() => { try { output = candidate.Run(input); } catch (Exception e) { error = e; } }, 256 << 20);
+            var thread = new System.Threading.Thread(() => { try { MeshCommand.ApplyRefinementVariant(); output = candidate.Run(input); } catch (Exception e) { error = e; } }, 256 << 20);
             thread.IsBackground = true;
             thread.Start();
             if (!thread.Join(seconds * 1000)) { detail = "after " + seconds + " s"; return "TIMEOUT"; }
@@ -97,9 +106,9 @@ namespace Meshing2Acceptance
                 + ms.ToString("F0", CultureInfo.InvariantCulture) + " ms" + (output.SteinerLimitReached ? ", Steiner limit" : "");
             if (output.Status == Mesh2Status.Failed) { detail = output.FailureKind + "; " + size; return "FAILED"; }
             if (output.VX.Length > judgeLimit) { detail = size + " (above --judge-limit)"; return "unjudged"; }
-            var report = Oracle.Check(input, output, new OracleExpect { Milestone = m });
+            var report = Oracle.Check(input, output, new OracleExpect { Milestone = m, ReportSnappedArea = SnappedArea });
             string text = report.ToString();
-            if (report.MergeZoneExcused > 0) size += ", " + report.MergeZoneExcused + " excused in merge zones";
+            if (report.ExcusedSummary() != "") size += ", " + report.ExcusedSummary();
             detail = size + (report.Ok ? "" : "; " + (text.Length > 300 ? text.Substring(0, 300) : text));
             return report.Ok ? "ok" : "VIOLATION " + string.Join(",", report.Violations.Select(v => v.Kind.ToString()).Distinct());
         }

@@ -73,6 +73,10 @@ class Program
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input; BENCH_REJECT_TOPOLOGY=1: RejectTopologyChange),
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
+            // wrappipe = the wrap fallback's pipeline as MeshRobustRepair runs it: MeshAlphaWrap (BENCH_WRAP_ALPHA / _OFFSET,
+            // default 300 / 3000 as the fallback), SimplifyAlphaWrap and AlphaWrapQualityPass, with the time per phase and
+            // the quality of the raw wrap (raw_*), after a warm-up (BENCH_WRAP_WARMUP); BENCH_WRAP_SIMPLIFY=0 leaves the
+            // simplification out, BENCH_WRAP_QUALITY=1 adds the quality pass (off by default, as in the library),
             // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
             // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
@@ -165,6 +169,60 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                // BENCH_WRAP_QUALITY=1: with the quality pass (off by default in the library since Alpha Wrap 2.0)
+                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1";
+                // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
+                string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
+                // (the input as given: the repair may change mesh in place)
+                DMesh3 wqInput = string.IsNullOrEmpty(wq) ? null : new DMesh3(mesh);
+                if (string.IsNullOrEmpty(wq) == false) {
+                    r["wq_variant"] = wq;
+                    robust.ConfigureWrapQuality = (pass) => {
+                        foreach (string kv in wq.Split(',')) {
+                            string[] p = kv.Split('=');
+                            double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
+                            switch (p[0]) {
+                                // (the switches apply on top of the library's default settings, MeshRobustRepair.DefaultWrapQuality;
+                                // "default=0" first resets them to the pass's own, as for the variants measured before the default)
+                                case "default":
+                                    if (v == 0) {
+                                        pass.KeepNormalDeviation = false; pass.NormalDeviationSlackDegrees = 0;
+                                        pass.CapAngleDegrees = 180; pass.SplitCapsAboveDegrees = 180;
+                                    }
+                                    break;
+                                case "turn": pass.MaxNormalTurnDegrees = v; break;
+                                case "follow": pass.FollowReference = v != 0; break;
+                                case "crease": pass.MaxFlipDihedralDegrees = v; break;
+                                case "worst": pass.WorstFirst = v != 0; break;
+                                case "normals": pass.KeepNormalDeviation = v != 0; break;
+                                case "nslack": pass.NormalDeviationSlackDegrees = v; break;
+                                case "split": pass.SplitCapsAboveDegrees = v; break;
+                                case "capflip": pass.CapAngleDegrees = v; break;
+                                case "nsamples": pass.NormalSamples = (int)v; break;
+                                case "pin": pass.PinCreaseVerticesDegrees = v; break;
+                                case "protect":
+                                    // the input's sharp edges (dihedral above 20 degrees), kept v wrap offsets away from
+                                    // (the pass's Tolerance is 0.95 of half the offset)
+                                    foreach (int e in wqInput.EdgeIndices()) {
+                                        Index2i et = wqInput.GetEdgeT(e);
+                                        if (et.b < 0) continue;
+                                        if (wqInput.GetTriNormal(et.a).Dot(wqInput.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad)) {
+                                            Index2i ev = wqInput.GetEdgeV(e);
+                                            pass.ProtectedEdges.Add(new Segment3d(wqInput.GetVertex(ev.a), wqInput.GetVertex(ev.b)));
+                                        }
+                                    }
+                                    pass.ProtectedDistance = v * pass.Tolerance / 0.475;
+                                    break;
+                                case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
+                                case "flips": pass.EnableFlips = v != 0; break;
+                                case "moves": pass.EnableMoves = v != 0; break;
+                                case "collapse": pass.EnableCollapses = v != 0; break;
+                                case "growth": pass.MaxTriangleGrowth = v; break;
+                                default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
+                            }
+                        }
+                    };
+                }
                 // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
                 string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
                 if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
@@ -172,6 +230,10 @@ class Program
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
+                // BENCH_IOU_CELLS=0: the volume check samples in the region of sample_region always (A/B of the cells)
+                robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
+                string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
+                if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -190,10 +252,52 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
+                // (the exact resolve once more relative to the largest component, after the others failed, and the
+                // largest share of a component below the degenerate area of all triangles that triggered it)
+                r["robust_scale_retry"] = robust.ScaleRetry;
+                r["robust_scale_erosion_share"] = robust.MaxScaleErosionShare;
+                r["robust_result_reason"] = robust.ResultReason;
                 r["robust_phases"] = robust.PhaseMilliseconds;
+                // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
+                // sampled and the known volume (relative to the estimated union), the cells, and the times
+                r["robust_volume_checks"] = robust.VolumeCheckStats.ConvertAll(v => new System.Collections.Generic.Dictionary<string, object>() {
+                    ["cells"] = v.Cells, ["samples"] = v.Samples, ["union"] = v.UnionSamples, ["iou_lo"] = v.IoULow, ["iou_hi"] = v.IoUHigh,
+                    ["sampled_cells"] = v.SampledCells, ["child_tests"] = v.ChildTests, ["depth"] = v.Depth, ["unclassified"] = v.Unclassified, ["windings"] = v.WindingEvaluations,
+                    ["sampled_volume"] = v.SampledVolume, ["known_union"] = v.KnownUnion, ["known_both"] = v.KnownBoth,
+                    ["build_ms"] = v.BuildTicks * 1000.0 / Stopwatch.Frequency, ["sample_ms"] = v.SampleTicks * 1000.0 / Stopwatch.Frequency });
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
+            } else if (repairMode == "wrappipe") {
+                // the time budget is for a warm process (owner 2026-11-08): BENCH_WRAP_WARMUP = soup (default): the pipeline
+                // on a procedural input first (warmup_ms; JIT and tiering), then on the mesh; same: the mesh twice, the first
+                // time is pipe_ms_cold; none: a cold process (pipe_ms includes the JIT). BENCH_WRAP_REPEAT=n: n measured
+                // runs (pipe_ms_runs), the row keeps the last
+                string warmup = Environment.GetEnvironmentVariable("BENCH_WRAP_WARMUP") ?? "soup";
+                r["warmup"] = warmup;
+                if (warmup == "soup") {
+                    var wsw = Stopwatch.StartNew();
+                    // (alpha = diagonal / 60: about 1 s; as warm as a first run of the same mesh, measured on 3 meshes)
+                    var wr = new System.Collections.Generic.Dictionary<string, object>();
+                    WrapPipeline(WarmupInput(), wr, 60);
+                    r["warmup_ms"] = wsw.ElapsedMilliseconds;
+                    // (whether the warm-up reached the simplification and the quality pass: else their JIT lands in pipe_ms)
+                    r["warmup_simplified"] = wr.ContainsKey("pipe_simplified") ? wr["pipe_simplified"] : false;
+                    r["warmup_quality"] = wr.ContainsKey("pipe_quality_improved") ? wr["pipe_quality_improved"] : false;
+                } else if (warmup == "same") {
+                    WrapPipeline(original, r);
+                    r["pipe_ms_cold"] = r["pipe_ms"];
+                }
+                int repeat = int.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_REPEAT") ?? "1");
+                var runs = new System.Collections.Generic.List<object>();
+                result = null;
+                for (int k = 0; k < Math.Max(1, repeat); ++k) {
+                    result = WrapPipeline(original, r);
+                    runs.Add(r["pipe_ms"]);
+                }
+                if (repeat > 1) r["pipe_ms_runs"] = runs;
+                ok = r["wrap_status"].ToString() == "Success" || r["wrap_status"].ToString() == "PointLimitReached";
             } else if (repairMode == "wrap") {
                 result = Wrap(original, r);
                 ok = r["wrap_status"].ToString() == "Success";
@@ -243,10 +347,18 @@ class Program
                 }
             }
 
+            // BENCH_SAVE_DIR: the result as <dir>/<input name>.obj (for diagnostics; never committed)
+            string saveDir = Environment.GetEnvironmentVariable("BENCH_SAVE_DIR");
+            if (string.IsNullOrEmpty(saveDir) == false && result != null && result.TriangleCount > 0) {
+                System.IO.Directory.CreateDirectory(saveDir);
+                StandardMeshWriter.WriteMesh(System.IO.Path.Combine(saveDir, System.IO.Path.GetFileNameWithoutExtension(args[0]) + ".obj"), result, WriteOptions.Defaults);
+            }
             stage = "stats_after";
             swStats.Restart();
             Stats(result, r, "after");
             r["stats_after_ms"] = swStats.ElapsedMilliseconds;
+            // (for before/after comparisons of optimizations: the same hash, the same result bit for bit)
+            r["after_hash"] = Hash(result);
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
@@ -413,6 +525,83 @@ class Program
         return wrap.Result ?? new DMesh3();
     }
 
+    // the warm-up input of wrappipe: a bumpy sphere and a few random triangles through it (pinches, slivers: every phase
+    // of the pipeline runs), seeded
+    static DMesh3 WarmupInput()
+    {
+        DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
+        foreach (int vid in m.VertexIndices().ToArray()) {
+            Vector3d p = m.GetVertex(vid);
+            m.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+        }
+        var rnd = new Random(7);
+        for (int k = 0; k < 20; ++k) {
+            Func<Vector3d> q = () => new Vector3d(2.4 * rnd.NextDouble() - 1.2, 2.4 * rnd.NextDouble() - 1.2, 2.4 * rnd.NextDouble() - 1.2);
+            m.AppendTriangle(m.AppendVertex(q()), m.AppendVertex(q()), m.AppendVertex(q()));
+        }
+        return m;
+    }
+
+    // the wrap fallback pipeline of MeshRobustRepair (raw wrap, simplification within half the offset, quality pass), as
+    // MeshRobustRepair.Apply runs it after a failed solidify; pipe_ms is the time of the three steps, pipe_phases their
+    // sub-steps (wrap.* = MeshAlphaWrap.PhaseMilliseconds; simplify.reduce / .check / .certify; quality.pass / .check / .certify)
+    static DMesh3 WrapPipeline(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r, double alphaOverride = 0)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        double relAlpha = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "300", inv);
+        double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "3000", inv);
+        if (alphaOverride > 0) {
+            relOffset *= alphaOverride / relAlpha;
+            relAlpha = alphaOverride;
+        }
+        Func<bool> never = () => false;
+        var phases = new System.Collections.Generic.Dictionary<string, long>();
+        var sw = Stopwatch.StartNew();
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        wrap.Compute();
+        long wrapMs = sw.ElapsedMilliseconds;
+        r["wrap_ms"] = wrapMs;
+        r["wrap_status"] = wrap.Status.ToString();
+        if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        r["wrap_alpha"] = wrap.UsedAlpha;
+        r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_counts"] = wrap.Counts;
+        foreach (var kv in wrap.PhaseMilliseconds) phases[kv.Key.StartsWith("wrap") ? kv.Key : "wrap." + kv.Key] = kv.Value;
+        DMesh3 raw = wrap.Result;
+        if (raw == null || raw.TriangleCount == 0 || (wrap.Status != MeshAlphaWrap.WrapStatus.Success && wrap.Status != MeshAlphaWrap.WrapStatus.PointLimitReached)) {
+            r["pipe_ms"] = sw.ElapsedMilliseconds;
+            r["pipe_phases"] = phases;
+            return raw ?? new DMesh3();
+        }
+        DMesh3 result = raw;
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
+            var sp = new System.Collections.Generic.Dictionary<string, long>();
+            long t0 = sw.ElapsedMilliseconds;
+            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv, sp) ?? raw;
+            phases["simplify"] = sw.ElapsedMilliseconds - t0;
+            foreach (var kv in sp) phases["simplify." + kv.Key] = kv.Value;
+            r["pipe_simplified"] = result != raw;
+        }
+        // (the quality pass only with BENCH_WRAP_QUALITY=1, as in the library since Alpha Wrap 2.0, #413)
+        if (result != raw && Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1") {
+            var qp = new System.Collections.Generic.Dictionary<string, long>();
+            long t0 = sw.ElapsedMilliseconds;
+            DMesh3 improved = MeshRobustRepair.ImproveWrapQuality(result, raw, 0.5 * wrap.UsedOffset, true, never, MeshRobustRepair.DefaultWrapQuality, qp);
+            phases["quality"] = sw.ElapsedMilliseconds - t0;
+            foreach (var kv in qp) phases["quality." + kv.Key] = kv.Value;
+            r["pipe_quality_improved"] = improved != null;
+            if (improved != null) result = improved;
+        }
+        r["pipe_ms"] = sw.ElapsedMilliseconds;
+        r["pipe_phases"] = phases;
+        // the raw wrap's triangle quality (angles only; raw_tris for the size)
+        r["raw_tris"] = raw.TriangleCount;
+        Quality(raw, r, "raw", false);
+        return result;
+    }
+
     // CGAL's alpha wrap (external/cgal_wrap.cpp, path in CGAL_WRAP; GPL, for comparison only) on the input file,
     // with the same relative alpha and offset as Wrap; repair_ms is CGAL's own time (without process start and I/O)
     static DMesh3 CgalWrap(string file, System.Collections.Generic.Dictionary<string, object> r)
@@ -428,6 +617,8 @@ class Program
             var j = JsonDocument.Parse(line.Split('\n').Last()).RootElement;
             r["wrap_status"] = j.GetProperty("ok").GetBoolean() ? "Success" : "Failed";
             if (j.TryGetProperty("ms", out var ms)) r["wrap_ms"] = ms.GetInt64();
+            if (j.TryGetProperty("alpha", out var a)) r["wrap_alpha"] = a.GetDouble();
+            if (j.TryGetProperty("offset", out var o)) r["wrap_offset"] = o.GetDouble();
         }
         r["wrap_rel_alpha"] = relAlpha;
         r["wrap_rel_offset"] = relOffset;
@@ -498,6 +689,26 @@ class Program
     {
         if (input.TriangleCount == 0 || result.TriangleCount == 0)
             return;
+        // angle extremes of the result (wrap quality acceptance, owner decision 2026-11-02): triangles with a smallest
+        // angle below 0.5 degrees, share with a largest angle above 170 degrees, global min / max angle
+        {
+            int lt05 = 0, lt10 = 0, lt20 = 0, gt150 = 0, gt170 = 0, n = 0; double gmin = 180, gmax = 0;
+            foreach (int t in result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                result.GetTriVertices(t, ref a, ref b, ref c);
+                double A = Vector3d.AngleD((b - a).Normalized, (c - a).Normalized), B = Vector3d.AngleD((a - b).Normalized, (c - b).Normalized), C = 180 - A - B;
+                double mn = Math.Min(A, Math.Min(B, C)), mx = Math.Max(A, Math.Max(B, C));
+                if (mn < 0.5) lt05++;
+                if (mn < 10) lt10++;
+                if (mn < 20) lt20++;
+                if (mx > 150) gt150++;
+                if (mx > 170) gt170++;
+                gmin = Math.Min(gmin, mn); gmax = Math.Max(gmax, mx); n++;
+            }
+            r["q_min_angle"] = gmin; r["q_max_angle"] = gmax; r["q_lt05"] = lt05;
+            r["q_lt10_share"] = (double)lt10 / n; r["q_lt20_share"] = (double)lt20 / n;
+            r["q_gt150_share"] = (double)gt150 / n; r["q_gt170_share"] = (double)gt170 / n;
+        }
         double diag = input.CachedBounds.DiagonalLength;
         var sw = Stopwatch.StartNew();
         foreach (bool fwd in new[] { true, false }) {
@@ -511,8 +722,16 @@ class Program
                 r[k + "_converged"] = h.Converged;
             }
         }
+        // BENCH_FIDELITY=hd: the certified Hausdorff distances only (quick comparisons of the triangle quality)
+        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") == "hd") {
+            r["fidelity_ms"] = sw.ElapsedMilliseconds;
+            return;
+        }
         double missing, extra;
-        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+        // BENCH_FM_SEED: seed of the sampled measures (IoU, fm_*), to measure their sampling noise (noise_floor.py)
+        int seed = int.Parse(Environment.GetEnvironmentVariable("BENCH_FM_SEED") ?? "1");
+        if (seed != 1) r["fm_seed"] = seed;
+        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra, 100000, seed);
         r["iou_missing"] = missing;
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
@@ -527,7 +746,23 @@ class Program
             // closed components only): the reversed share would only report that the result is outward
             if (Vol(oriented) < 0)
                 foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
-            FidelityFields.Add(oriented, result, r);
+            FidelityFields.Add(oriented, result, r, seed: seed);
+            // BENCH_FM_SEEDS=2,3,4: the sampled measures (IoU, fm_*) again with these seeds, under fm_seeds (noise_floor.py)
+            string more = Environment.GetEnvironmentVariable("BENCH_FM_SEEDS");
+            if (string.IsNullOrEmpty(more) == false) {
+                var bySeed = new System.Collections.Generic.Dictionary<string, object>();
+                foreach (string sd in more.Split(',')) {
+                    int s2 = int.Parse(sd);
+                    var q = new System.Collections.Generic.Dictionary<string, object>();
+                    double mi, ex;
+                    q["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out mi, out ex, 100000, s2);
+                    q["iou_missing"] = mi;
+                    q["iou_extra"] = ex;
+                    FidelityFields.Add(oriented, result, q, seed: s2);
+                    bySeed[s2.ToString()] = q;
+                }
+                r["fm_seeds"] = bySeed;
+            }
         }
     }
 
@@ -572,6 +807,37 @@ class Program
         }
         r[p + "_degenerate_tris"] = nDegen;
         r[p + "_sliver_tris"] = nSliver;
+
+        // triangle angle distribution (degrees): global min / max, triangles with a min angle below 0.5 / 1 / 10
+        // and with a max angle above 150 / 170 (analyze_wrap.py)
+        double minAngle = 180, maxAngle = 0;
+        int lt05 = 0, lt1 = 0, lt10 = 0, gt150 = 0, gt170 = 0;
+        var minAngles = new System.Collections.Generic.List<double>(m.TriangleCount);
+        foreach (int tid in m.TriangleIndices()) {
+            m.GetTriVertices(tid, ref vA, ref vB, ref vC);
+            double a0 = angle_deg(vB - vA, vC - vA), a1 = angle_deg(vA - vB, vC - vB), a2 = angle_deg(vA - vC, vB - vC);
+            double lo = Math.Min(a0, Math.Min(a1, a2)), hi = Math.Max(a0, Math.Max(a1, a2));
+            minAngle = Math.Min(minAngle, lo); maxAngle = Math.Max(maxAngle, hi);
+            minAngles.Add(lo);
+            if (lo < 0.5) lt05++;
+            if (lo < 1) lt1++;
+            if (lo < 10) lt10++;
+            if (hi > 150) gt150++;
+            if (hi > 170) gt170++;
+        }
+        // (a zero-length edge gives angles of 0; no triangles: no global min / max)
+        if (m.TriangleCount > 0) {
+            r[p + "_angle_min"] = Math.Round(minAngle, 4);
+            r[p + "_angle_max"] = Math.Round(maxAngle, 4);
+            // the 1 % worst min angle (the min angle of the triangle at the 1st percentile)
+            minAngles.Sort();
+            r[p + "_angle_p01"] = Math.Round(minAngles[(int)(0.01 * (minAngles.Count - 1))], 4);
+        }
+        r[p + "_angle_lt05"] = lt05;
+        r[p + "_angle_lt1"] = lt1;
+        r[p + "_angle_lt10"] = lt10;
+        r[p + "_angle_gt150"] = gt150;
+        r[p + "_angle_gt170"] = gt170;
 
         // orientation consistency and fold-overs on interior edges
         int nFlippedEdges = 0, nFolds = 0;
@@ -654,6 +920,25 @@ class Program
         r[p + "_bbox_diag"] = Math.Round(m.CachedBounds.DiagonalLength, 4);
         r[p + "_edges_below_1e-4"] = m.EdgeIndices().Count(e => {
             Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) < 0.0001; });
+    }
+
+    // angle between u and v in degrees (atan2: accurate near 0 and 180)
+    static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
+
+    // vertex ids and coordinate bits, triangle ids and corners (as BooleanComparison profile)
+    static string Hash(DMesh3 mesh)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (int vid in mesh.VertexIndices()) {
+            Vector3d v = mesh.GetVertex(vid);
+            sb.Append(vid).Append(':').Append(BitConverter.DoubleToInt64Bits(v.x)).Append(',')
+                .Append(BitConverter.DoubleToInt64Bits(v.y)).Append(',').Append(BitConverter.DoubleToInt64Bits(v.z)).Append(';');
+        }
+        foreach (int tid in mesh.TriangleIndices()) {
+            Index3i t = mesh.GetTriangle(tid);
+            sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
+        }
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
     }
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected

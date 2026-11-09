@@ -137,8 +137,9 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
 - Scale invariance: without projection (terrain band) all configurations are 2^k scale invariant. With projection
   neither is on every input: Remesher fails at 2^-10 on `bumpy_uniform` and `noisy_coarsen` (and 2 Thingi
   meshes), RemesherPro on `bumpy_uniform` (`pro_iter`), `noisy_coarsen` (both) and `open_stretched`
-  (`pro_fastest`, both scales). Probably ties in `MeshProjectionTarget.Project` (the nearest of equally near
-  triangles depends on the AABB traversal), not verified.
+  (`pro_fastest`, both scales). Cause (found in Reducer / Remesher 2.0 T5): ties in `MeshProjectionTarget.Project`, the nearest of equally near
+  triangles depended on the AABB traversal, whose order the fixed box padding of `DMeshAABBTree3` changed with the scale.
+  Fixed there (padding relative to the mesh); the numbers of this paragraph are those before the fix.
 - Poor triangles: both remeshers leave degenerate triangles or self-intersections on 18 of the 20 Thingi10K meshes
   (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint. A separate
   opt-in quality pass follows in its own PR.
@@ -149,7 +150,7 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
   `RemeshIteration` is with the final #151 slower on the band and leaves a degenerate triangle in an existing
   test. To be measured again with the quality pass.
 
-Open bug (docs/ROADMAP.md, Phase 2): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
+Open bug (docs/roadmap/alpha-wrap-and-repair.md, Phase 2 items): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
 triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave
 degenerate triangles on most Thingi10K meshes.
 

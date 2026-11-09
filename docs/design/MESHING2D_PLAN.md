@@ -211,9 +211,17 @@ on the reference triangulation (Q9). Decisions and findings:
   (Shewchuk 2002). The oracle got the matching exemption `SpansSmallInputAngle` with an accept and a reject self-check. Without it F-39 took 103 000 vertices
   (the Steiner limit), with it 649.
 - Points within the automatic tolerance of an earlier point are merged into it (O11, Q14), for M2 and M3 (F-3/c needed it: a point 2^-39 from a segment's end).
+- Oracle, small input angles (2026-11-03): a triangle whose small angle is forced by an input angle phi is excused only when its
+  other two angles are at least arctan(sin phi / (2 − cos phi)), the bound Miller, Pav and Walkington (IJCGA 2005) state for every
+  angle of a triangle near a small input angle (from their abstract, not yet checked against the full text; corrected 2026-11-06:
+  it was credited to Shewchuk 2002, whose Theorem 12 gives the weaker arcsin(sin(phi/2) / √2)). Before, the whole triangle was excused. A probe over the corpus, the catalogue and the Herne
+  q20 tiles found no triangle that this rule rejects and no other excuse covers (one on Herne lies at the grid floor).
 - Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
   free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
   vertices within the tube of a hull edge count as moved (O2, D13: a split of a hull edge in doubles cannot stay exactly on it).
+- Oracle, hull domain (D13) with merged points (O11): a boundary edge may run past hull corners that lie within the tube of it, as
+  when a hull corner is merged into a point within the tolerance inside the hull (delaunator's robustness1, 2026-11-03); a corner
+  farther than the tube is a real corner (self-checks accept and reject).
 - Bugs found and fixed on the way: splitting a segment lifted its constraint before inserting (non-Delaunay edges and mixed tags, as in M2's crossings);
   the source lists of an edge grew without bound when a piece was re-inserted (now a union; out of memory before); split points on hull edges moved inwards
   left slivers at unconstrained hull edges (now they may round outwards; Lawson's flips remove the old hull edge).
@@ -262,6 +270,10 @@ ALKIS and DGM tiles (local only).
 4. **Merge-zone exemptions** (#252 for the angle bound, #265 for conforming): in the zone of 3 tube / sin(angle) around the apex of two input
    segments at a small angle the mesher places no point (it would merge the chains, O11), and the oracle excuses the angle bound and conforming
    Delaunay there (narrowed from 8 in #265: the corpus's 19 excused triangles at 5 apexes reach at most 2.14, an input vertex). They are counted in every report (`MergeZoneExcused`) and listed in #265 for the owner to accept or turn into findings.
+   Beyond the zone, a piece the mesher may not split gets the three exemptions of an unsplittable piece on the grid: every split point
+   it may choose lies within its tolerance of another input constraint. This is an O11-unsplittable piece (owner decision 2026-11-02;
+   `MESHING2D_SNAP.md` section 3g, oracle). The exemptions are counted as `O11LocalExcused`, `O11GlobalExcused` and `O11AngleExcused`.
+   Found with water-huge at 25 degrees, which is why the corpus now runs at 25 degrees too.
 5. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
    off-centre point in front of the segment, with a minimum distance from it, is the next thing to try), `m3.refine-again` (I8, F-33, O17: refining an
    existing mesh needs an API), F-31/a's ring lock (O8).
@@ -269,3 +281,117 @@ ALKIS and DGM tiles (local only).
    committed).
 7. **Performance and platforms:** M3 against spec 3.1 (F-27: more than 50 000 vertices in about 2 s) is not measured as a benchmark yet; net48 timing
    is open for all milestones.
+
+**State of 2026-11-03** (after the owner's order of 2026-11-02: lenses, grid-hole bugs, tracker cases, reference findings, docs).
+
+- **Merged:**
+  - #322 off-centres (Üngör 2004), only for triangles bad by their angle.
+  - #328 a pixel cache per vertex on the snap path, byte-identical, Herne 373600 q30 14.8 s → 9.1 s.
+  - #332 the constrained-quality mode, the library default (`Conforming = false`, judged as constrained Delaunay):
+    - diametral lenses up to arcsin(√3/4) = 25.65° (Shewchuk 2002 §6.4, without vertex deletion, so "unproven"), circles above;
+    - catalogue vertices −7.2 %, corpus at 20° 116k → 94k vertices;
+    - Herne 373600 q20-snap 93 320 → 62 303 triangles (the reference has 57 890).
+  - #334 a crossing inside a hole on the snap grid is no output vertex (Q8).
+  - #337 a grid split onto a vertex already there reroutes the chain, and the triangles it sweeps are retagged (stale domain tags
+    before; `REVIEW_CHECKLIST.md` §7).
+  - #340 with `Conforming`, the constrained edges of every triangle are queued, also those outside the domain: a segment piece inside
+    a hole hid a vertex across the hole (NotDelaunayGlobal).
+- **Open PRs at the time of writing:**
+  - #342: the oracle accepts a hull-domain boundary edge that cuts hull corners merged within the tube (O11, D13; delaunator's
+    robustness1).
+  - #344: twelve situations from other libraries' trackers as tests. All pass; the shallow crossing stops at the Steiner limit by
+    design.
+- **Fuzz:** the grid fuzz with holes runs refined at 20, 25 and 30 degrees with the tags checked after every operation
+  (`Meshing2GridHoleTests`).
+- **Open:**
+  - **T15 (owner decision 2026-11-03: (a), with vertex deletion in the kernel):** the grid fuzz with holes at pixel 1/3, 30° seed
+    867 and 25° seed 1367, failed with NotDelaunayGlobal. A piece of an input segment lying wholly in a hole stayed a constraint;
+    `ValidGridSplit` refused the split points of a hole edge that its pixel covered, and the oracle, which sees only the output, found
+    one of them valid. Design:
+    - **Carve before refinement** (`QualityMesh2.Refiner.CarveOutside`, after `ConstrainHull`). A constraint with the outside on both
+      sides (tag < 0, no ghost) that is a piece of free segments is lifted, and Lawson's flips make the triangulation constrained
+      Delaunay again across it (`RestoreDelaunay`). Ring edges stay, also where both sides are outside (a hole reaching beyond the
+      outer ring, D5): the tag check from scratch finds the domain by ring parity and would leak through a lifted ring edge (review).
+      Then every made vertex whose triangles all lie outside is deleted: a crossing of the constrained phase, and on the grid a hot
+      pixel centre that snap rounding appended to the input (an input vertex of the snapped input with an index at or above the
+      original input's count). Input points stay, by the owner's rule; they do not block the T15 seeds, and the oracle does not
+      count them (O2 now reads "the vertices of the output's triangles").
+    - **Why deletion and not "keep and exclude"** (keep the vertices, unconstrain the pieces, skip them in `Encroached` and
+      `ValidGridSplit`): every refinement predicate would need the exclusion, now and in any later rule, and a forgotten one fails
+      silently, as T14 and T15 did. Deletion makes the triangulation equal to that of the carved input, correct by construction,
+      in one place. The same kernel operation is what lenses with deletion (A) need (Shewchuk 2002 §6), so it is not code for
+      T15 alone.
+    - **How others solve it** (prior-art check, AGENT_WORKFLOW §2):
+      - Devillers 1999/2002 (arXiv cs/9907023, IJCGA 12): ear elimination with a priority queue of ears, Delaunay without flips,
+        O(k log k).
+      - Chew 1990 (Dartmouth PCS-TR90-147): the Delaunay triangulation of a convex polygon in linear expected time, with point
+        deletion as an application.
+      - Mostafavi, Gold, Dakowicz 2003 (Computers & Geosciences 29): insertion and deletion for interactive Delaunay/Voronoi
+        editing, building on Devillers' ear elimination.
+      - The flip algorithm for constrained Delaunay: Lawson 1977; Lee and Lin 1986; Chew 1989.
+
+      Chosen: any ear triangulation, then Lawson's flips. It is the simplest correct choice for small degrees, it reuses the
+      kernel's `RestoreDelaunay`, and it keeps constraints on the link for free. CGAL's deletion was not looked at (GPL).
+    - **Kernel** (`DelaunayKernel2.DeleteVertex`). The star of p is removed. Its link polygon is triangulated by ear clipping with
+      exact orientations (Meisters 1975; the first ear from the star's start, so the result depends only on the star), and
+      Lawson's flips restore the constrained Delaunay property. The triangles outside the star had empty circumcircles with p,
+      so they keep them without it (Devillers 1999), and the flips never leave the polygon. It refuses (and changes nothing) an
+      input vertex, a vertex on the hull, a vertex with a constrained edge, or one whose triangles carry different tags. Two
+      slots are freed, and the last slots move into them: a caller holding triangle ids must not call it (the carve runs before
+      refinement has any). `ExactPlanarSimplify` does the same in 3D (ear clipping and flips on a mesh); its structures differ,
+      so nothing could be shared.
+    - **Tests:** `DelaunayKernel2DeletionTests`:
+      - random insertions and deletions on a coarse grid (many ties), checked after every deletion for consistency and
+        constrained Delaunay, and against the triangulation built afresh up to cocircular ties;
+      - the same with constraints, whose midpoints must be refused;
+      - refusals that change nothing;
+      - invariance over `Similarity.All` (2^k bit for bit);
+      - the carve's counts.
+
+      `QualityMesh2HoleCarveTests`: the seeds reduced to two segments, at 20, 25 and 30° conforming (these fail on master) and at
+      20 and 25° in the constrained mode (these pass on master too), plus invariance (identity, 2^±10, 1e3 and 1e-3 fail on master)
+      and reuse.
+    - **Effect on an older test:** the reroute case 30 of #337 no longer takes the reroute path. Its target was a vertex of a
+      segment piece inside the hole, which the carve removes. Its retag tests still pass. Case 292 (fuzz seed 292 at 20°, one
+      segment) takes the path with the carve, and fails without the reroute fix (oracle INVALID before #337). It replaces case 30 in
+      the reroute counter test.
+  - **T15:** the grid fuzz with holes at pixel 1/3, 30° seed 867 and 25° seed 1367, fails with NotDelaunayGlobal on master. The
+    mesher refuses a grid split because of content inside a hole, which the oracle does not see. The owner decides between (a)
+    removing the content of holes before refinement (spec Q7) and (b) an oracle excuse; the coordinator recommends (a).
+  - **Q17 (2026-11-03):** domains narrower than a pixel collapse by snapping; the oracle accepts what is missing only on collapsed
+    links of the snap-rounded images (rule O-H5), and, by the owner's strict decision of 2026-11-03, only where the rounding of the
+    input alone collapses too: a pinch by refinement is a defect. The mesher's bugfix (no split rerouting a piece through a vertex of
+    refinement onto another chain, `MESHING2D_HULL_GRID.md` section 7) makes the zigzag with refinement and the fuzz's 188 pinches
+    VALID. The oracle's own SRR restore step (a) replaces the interim (c): the input's rounding holds its restore pixels at every
+    milestone, the 10 restore false rejections of the fuzz are VALID (#362). Then the oracle's hull model, RefinementCoincidence,
+    ChainSkipsHotPixel and RefinementPinch as a known violation with a ratchet (`MESHING2D_HULL_GRID.md` section 8); next the
+    mesher's pinch fix, then lenses (A). An area rule against the input-only snapped domain cannot
+    show a collapsed strip on Herne (grid splits move long boundary links within their envelopes), hence the topological rule.
+  - The reference run (90711d0c, constrained mode, both VALID): we use 2 to 2.5 times the reference's triangles on f-11/a (275 vs
+    108), f-11/b (416 vs 205), f-40/angle-33.75 (276 vs 130) and Herne 381000 q20 (5 400 vs 2 329). The cause is next, upper bound
+    first.
+  - f-38/a and f-38/b (1 triangle vs 13 and 19) are correct: a single thin triangle whose small angle is the input angle, with no
+    encroached segment.
+  - Fewer triangles than the reference by spec (O11, Q14): features below the automatic tolerance are merged. The mesher's tolerance
+    is 2^-41 of max(largest coordinate, extent) (D3; the oracle allows 2^-40), so 1.4e-14 at magnitude 10 (f-10/c, tolerance
+    4.5e-12) is noise:
+    - f-10/c: the point 1.4e-14 off the segment becomes a vertex of it.
+    - f-11/c and f-11/d: the near-duplicate points merge; the square with its centre gives 4 triangles.
+    - earcut infinite-loop-jhl: after the 1e-28 merge the hole equals the outer ring, so the domain is empty (status Empty).
+    - GEOS TestCentroid/33: three clusters, each under 1.4e-11 wide at magnitude 92.6 (tolerance 4.2e-11), merge into 3 points:
+      1 triangle.
+    - GEOS stmlf/447: the 5 exact crossings are overlaps collinear within 4.6e-9 at magnitude 5.5e6 (tolerance 2.5e-6). The
+      segments run through the vertices, no crossing vertex is made, and the 24 triangles are the 2n - 2 - h of 18 vertices, hull 10.
+  - Seven GEOS overlay rows (isochrone/49, 53, 54, 70, stmlf/1040, 1304, 1579) were INVALID (BoundaryNotConstrained) at f3d92da.
+    The meshes are byte-identical on master; the verdict changed with #342. Every hull corner the boundary edge skips is an
+    input point merged by O11, moved 5e-15 to 7e-15 at magnitude 49 and 4e-9 to 5e-9 at magnitude 5e6.
+
+| reference run (90711d0c, constrained) | ours, triangles | reference, triangles |
+|---|---|---|
+| f-38/a | 1 | 13 |
+| f-38/b | 1 | 19 |
+| f-11/a | 275 | 108 |
+| f-11/b | 416 | 205 |
+| f-40/angle-33.75 | 276 | 130 |
+| Herne 381000 q20 | 5 400 | 2 329 |
+| Herne 371800 q20-snap 1 cm | 11 278 | 277 418 |

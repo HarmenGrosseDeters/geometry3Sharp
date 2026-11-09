@@ -235,3 +235,365 @@ terrain's highest point. The number of builds is 1a's at that height and does no
 `composite=0` the last case also takes 4 builds (27.5 s), and 1a alone takes 2 to 3 builds for heights between 71.9 and
 72.2 m (12.6 to 18.6 s). Where clipped slope triangles fail the support check, the composite raises the measured toe
 lowering in the same loop (a build each). Avoiding repeated builds stays a 1c item.
+
+### Terrain 1c, idea A: one build per margin, the toe lowering by re-realization
+
+`TERRAIN_1C_PLAN.md`, idea A: the map is built once per margin δ from the specified toe, and a larger toe lowering λ
+only realizes it again (z lowered by λ, exactly rounded), since lowering every plane by λ does not change any line of
+two planes. Same machine, 2026-11-02, before = #285 (1b) head d38b030e, after = idea A; same commands as above
+(`Tolerance` 0.01, 1:1):
+
+| case | before | after | speedup | builds before / after | triangles |
+|---|---|---|---|---|---|
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 44.6 s | 30.9 s | 1.44× | 3 / 2 | 14577 / 14577 |
+| 24-gon r 200 m, h 60 m, UTM | 9.7 s | 5.2 s | 1.89× | 2 / 1 | 1222 / 1222 |
+| 24-gon r 20 m, h 6 m, local | 1.39 s | 1.00 s | 1.39× | 2 / 1 | 461 / 461 |
+| L shape 200 m, h 30 m, UTM | 0.93 s | 0.71 s | 1.31× | 3 / 2 | 567 / 567 |
+| 24-gon r 200 m, h 60 m, UTM, `terrain=wave tgrid=5` | 36.4 s | 17.0 s | 2.14× | 5 / 2 | 2281 / 2281 |
+
+The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44× is reached because its second build is
+a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
+the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
+of the cap now lies at H − λ (the map is lowered as a whole, the cap with it, so its lines stay where they are).
+
+### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
+
+The DGM1 2022 of `fetch_data.py` (only the 12 DGM tiles are needed: `dgm2022`, 3 x 4 km, no gaps, z −325 to +103 m) as
+the terrain: `slope ... cx=<E> cy=<N> cz=<toe z> terrain=dgm [grid=dgm2022] [tstride=1] [reach=400]`, the grid nodes
+within `reach` of the toe, every `tstride`-th. A hypothetical new pit floor below the deepest part of today's pit
+(E 328375, N 5642875, floor around −300 m), cut slope up to today's terrain, `Tolerance` 0.05 unless noted, 4 cores,
+2026-11-02, with idea A of 1c:
+
+| toe | grid | terrain tris | time | 1a / overlay / composite | builds | catch lines (points) | composite tris | overlaps | O1 | λ | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| octagon r 100 m at −330 m, 1:1.5 | 4 m | 124500 | 4.3 s | 2.2 / 0.58 / 0.85 s | 1 | 1 closed (967) | 122830 | 0 | 1511 / 1511 | 8.6e-8 m | Success |
+| the same | 1 m | 2417800 | 43.6 s | 2.7 / 21.9 / 14.7 s | 1 | 1 closed (2651) | 2352484 | 0 | 3200 / 3200 | 3.7e-7 m | Success |
+| L shape 120 m at −335 m, 1:2 | 2 m | 612180 | 12.5 s | 2.1 / 5.5 / 3.4 s | 1 | 2 closed (3049) | 542894 | 0 | 3319 / 3319 | 5.0e-6 m | Success |
+| wavy 48-gon r 150 m (toe z ±4 m) at −340 m, 1:1.5 | 2 m | 749070 | 135 s | 132 s in 1a | 1 | – | – | – | – | 5.0e-9 m | **Failed** (non-manifold realization) |
+| the same, after the fix of d744efb8 | 2 m | 749070 | 966 s | 926 / 20 / 9.3 s | 3 (δ 6.4e-5) | 1 closed (7523) | 960980 | 0 | 253093 / 253093 | 4.0e-5 m | Success, peak 5.1 GB |
+| the same, with the needle flips | 2 m | 749070 | 157 s | 137 / 10.4 / 5.7 s | 1 | 1 closed (5105) | 794379 | 0 | 89355 / 89355 | 3.8e-6 m | Success, peak 2.9 GB |
+| the same, `Tolerance` 0.2 | 2 m | 749070 | 92 s | 90 s in 1a | 3 | – | – | – | – | 1.1e-2 m | **SlopeViolation** (13 triangles at δ 5e-4) |
+
+Without the terrain, the wavy toe succeeded up to h 60 m (12 s) and failed with `SlopeViolation` (1 triangle) at
+h 100 m. After d744efb8 (two realization defects: needles from edge collapses next to collinear vertices, and faces
+narrower than the rounding) h 100 m takes one build (24 s, a unit test now) and the full case succeeds, but its margin
+was still raised twice, and the smaller facet share left a smaller facet angle, so 16 min and 253k slope triangles. The
+cause: faces of the map between two creases that meet at an angle of 1e-12 (nearly coplanar tangent planes of
+neighbouring apexes), which can only be triangulated into needles 90 m long and 1e-10 m wide; flipping needles thinner
+than 64 ulps across their sides removes them (h 130 m: one build, 44 s instead of 3 builds and 157 s, a unit test).
+The full case then takes one build, 157 s; what is left is the slope surface itself (insert 50 s, simplify 87 s),
+ideas B to D of the 1c plan. Open, for 1c: the uneven toe at large heights (230 m here, reach about 350 m) fails in 1a, once with a
+non-manifold realization that is reported as `Failed`, not caught by the check; and on the 1 m grid the overlay
+(22 s) and the composite (15 s) dominate, which the band-only overlay of 5.5 addresses. Peak memory 3.1 GB on the 1 m grid.
+
+After the local height limit (the cap at the highest terrain near the toe, raised while the region reaches it), the
+overlay restricted to the terrain triangles within the box of the slope surface, the terrain check reduced to
+finiteness, and the composite's overlap check restricted to the triangles it makes and their surroundings, with the
+untouched terrain copied by vertex id (2026-11-02, the same machine; phase times summed over both builds; earlier
+values in parentheses, from the tables above or the run before the composite change; the composite triangles are the
+same):
+
+```
+dotnet bin/Release/net10.0/TerrainBenchmark.dll slope <toe> cx=328375.25 cy=<N> cz=<toe z> ratio=1.5 tol=0.05 terrain=dgm reach=450 [tstride=1|2] [composite=0]
+```
+
+| toe | grid | terrain tris | time | terrain check / 1a / overlay / composite | builds | catch lines (points) | composite tris | overlaps | O1 | λ | peak |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| one edge, 200 m at −320 m (N 5642700.5), catch line only | 1 m | 1978200 | **0.86 s** | 0.07 / 0.02 / 0.44 / – s | 2 | 1 (426) | – | – | – | 5.0e-9 m | 0.48 GB |
+| the same, with the composite | 1 m | 1978200 | 2.3 s (5.6) | 0.09 / 0.02 / 0.48 / 1.4 s (4.6) | 2 | 1 (426) | 1972425 | 0 | 421 / 421 | 5.0e-9 m | 0.88 GB (1.06) |
+| octagon r 100 m at −330 m | 1 m | 2417800 | 17.8 s (43.6) | 0.07 / 1.7 / 8.9 / 6.7 s (12.2) | 2 | 1 closed (2548) | 2352098 | 0 | 2920 / 2920 | 1.2e-7 m | 1.50 GB (3.1) |
+| L shape 120 m at −335 m | 2 m | 612180 | 6.5 s | 0.03 / 1.0 / 2.8 / 2.3 s | 2 | 2 closed (2089) | 573032 | 0 | 2370 / 2370 | 2.4e-6 m | 0.64 GB |
+| wavy 48-gon r 150 m at −340 m | 2 m | 749070 | 87.4 s (157) | 0.03 / 74.0 / 7.3 / 3.6 s | 2 | 1 closed (4357) | 759911 | 0 | 55769 / 55769 | 1.4e-6 m | 1.49 GB (2.9) |
+
+(All rows at 1:1.5: the L shape row above at 1:2 is not comparable. Two builds: the
+local cap was raised once.) One toe edge on the 1 m grid now gives its catch line in 0.86 s (before: 4.3 s, of which
+the terrain check 2.8 s and the overlay index 1.1 s); with the composite it takes 2.3 s. Of the composite's 1.4 s
+(instrumented once): the overlap check 0.13 s (3.3 s over the whole composite before), the slope part 0.16 s, and
+1.0 s building the 2 million copied terrain triangles into the composite mesh. This phase split is the baseline for the band-only
+overlay and composite (5.5 of the 1c plan); the peak of 3.1 GB on the 1 m grid is its memory target. On the wavy
+toe the slope surface itself (insert and simplify, 74 s) is what remains, ideas B to D.
+
+### The replacement output and the start of the local height limit (#307)
+
+`composite=2` asks for `CompositeKind.Replacement`: only the part of the composite that replaces terrain triangles,
+with the replaced triangles and the terrain vertex of each of its vertices. The checks join it with the untouched
+terrain (outside the timing): `composite_tris` is then that of the full composite, and the overlap and oracle checks
+run on it. `repeat=N` runs `Compute` N times on one instance: `slope_first_s` is the first call of the process (with
+the JIT of the library's code), `slope_s` the median of the others (warm). The local height limit now starts at a
+fixed point (one build where the raise took two), terrain triangles wholly in the region are skipped before their
+CDT, and the composite's overlap check takes the nearby terrain from the overlay's pass. 2026-11-02, 4 cores, the
+same command as above plus `composite=` and `repeat=`.
+
+One toe edge (200 m at −320 m, N 5642700.5) on the 1 m grid, 1978200 terrain triangles:
+
+| output | warm, median of 8 (min) | first call of a process (median of 7–11 processes) | #297, first call |
+|---|---|---|---|
+| catch line only (`composite=0`) | **0.14 s** (0.13 s) | 0.63 s | 0.93 s |
+| replacement (`composite=2`): 1539 triangles for 7314 replaced | **0.28 s** (0.18 s) | 1.01 s | – |
+| full composite (`composite=1`): 1972425 triangles | 0.94 s (0.59 s) | 1.61 s | 2.25 s |
+
+The operation itself (warm) is well below 1 s for one edge with either the catch line or the replacement; the first
+call of a process adds about 0.7 s of JIT. The full composite costs about 0.6 s more for building the 2 million
+copied triangles into the output mesh.
+
+The other cases (one process each, first call; before: the table above):
+
+| toe | grid | output | time | builds | catch points | output tris (replaced) | joined tris | overlaps | O1 | peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| octagon r 100 m | 1 m | full | 6.8 s (17.8) | 1 (2) | 2419 | 2351468 | – | 0 | 2432 / 2432 | 1.25 GB (1.50) |
+| the same | 1 m | replacement | 6.2 s | 1 | 2419 | 7933 (74265) | 2351468 | 0 | 2432 / 2432 | 1.20 GB |
+| L shape 120 m | 2 m | full | 4.7 s (6.5) | 1 (2) | 2116 | 573104 | – | 0 | 2419 / 2419 | 0.65 GB |
+| the same | 2 m | replacement | 4.9 s | 1 | 2116 | 6345 (45421) | 573104 | 0 | 2419 / 2419 | 0.67 GB |
+| wavy 48-gon r 150 m | 2 m | full | 47.8 s (87.4) | 1 (2) | 4009 | 746831 | – | 0 | 43055 / 43055 | 1.40 GB (1.49) |
+| the same | 2 m | replacement | 49.4 s | 1 | 4009 | 49946 (52185) | 746831 | 0 | 43055 / 43055 | 1.41 GB |
+
+(The catch lines differ from the table above within Tolerance: the cap is another one, and with it the facets; see the
+local height limit in TERRAIN_1C_PLAN.md.) On the larger toes the slope surface (wavy: insert and simplify 40 s) and the
+overlay (octagon: 2.8 s) remain, the band-only overlay and ideas B to D.
+
+### The slope surface: insert and simplify without wasted work (#307)
+
+Found with a profile (`dotnet-trace`, sampled thread time, cross-checked with counters, since the sampler shows
+allocation sites more often than tight loops), each step with the same output (triangles, lowering, catch points; the
+predicate count unchanged except where noted):
+
+- `Simplify`: two edges on the same kernel line are collinear without a predicate (the corners of faces split by a
+  line that goes on are an exact zero, which the interval filter cannot decide: the exact stage ran every time);
+  merge corner orientations are remembered (1.5M tests, 384k distinct); a worklist visits only changed faces and
+  their neighbours, in the order of the reference (`Simplify_EqualsItsReference`: the same steps as master's
+  Simplify, bit for bit, on 19 stress cases).
+- The kernel's caches of plane lines and crossings: a pair hash that mixes both ids (the default hash of a long put
+  millions of pairs into a few thousand buckets).
+- `InsertPiece`: the relevance prefilter on the face's box before its corners (69 predicates fewer in the wavy case:
+  faces narrower than the rounding, which the polygon test took as distance 0).
+- Fewer allocations in the cycle walks of the insert.
+
+| case | #297 | now (first call) | insert | simplify | predicates (exact) |
+|---|---|---|---|---|---|
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 15.2 s | 7.5 s | 5.7 → 3.9 s | 8.8 → 2.9 s | 25.4M (1.93M) → 23.9M (0.49M) |
+| wavy 48-gon r 150 m, Hambach 2 m, replacement | 49.4 s | 24.0 s | 27.8 → 9.7 s | 46.5 → 7.6 s | – |
+| octagon r 100 m, Hambach 1 m, replacement (warm) | 24.4 s | 3.6 s (5.9 s) | 0.98 → 0.24 s | 0.78 → 0.04 s | – |
+| L shape 120 m, Hambach 2 m | 6.7 s | 3.0 s (4.4 s) | | | |
+
+One toe edge, 1 m grid, warm median of 8 on one instance (first call): catch line 0.17 s (0.72 s), replacement
+0.26 s (1.15 s), full composite 0.96 s (1.66 s).
+
+The wavy case now spends 9.7 s inserting (49M side tests, 4.2 s of them filtered and 0.38 s exact; 356k faces made,
+12.7k left after simplify) and 7.6 s simplifying (330 rounds; 0.57M orientations, 532k of them exact, 2.8 s). An
+experiment with a shuffled piece order (not committed) made 151k faces and 18M predicates instead (insert + simplify
+17.7 → 5.8 s), but with another triangulation of the same surface (16007 instead of 46805 triangles): a randomized
+order needs a canonical result first (idea D of the 1c plan).
+
+### Randomized insertion with a canonical result (idea D, `TERRAIN_1C_PLAN.md` section 9)
+
+The pieces in a seeded random order, the labels by (height, plane id), and `Simplify` as the canonical partition (one
+convex face per part of a label component between the rays from its reflex corners). The output is the same for every
+insertion order, and it has far fewer triangles. A/B on the same machine at the same time (2026-11-02), first call of
+a process, median of 3 (the #314 head against this branch):
+
+| case | #314 | D | insert | simplify | slope triangles | region triangles |
+|---|---|---|---|---|---|---|
+| wavy 48-gon r 150 m, Hambach 2 m, replacement | 27.4 s | **8.8 s** (3.1×) | 9.7 → 3.4 s | 7.6 → 0.16 s | 475 | 43055 → 2268 |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 7.3 s | **3.6–4.0 s** (1.9×) | 3.9 → 3.1 s | 2.9 → 0.18 s | 487 | – |
+| L shape 120 m, Hambach 2 m, full | 4.9 s | 5.0 s | | | | |
+| octagon r 100 m, Hambach 1 m, replacement | 6.1 s | 8.8 s | 0.48 → 0.44 s | 0.13 → 0.05 s | 409 → 159 | 2432 → 2278 |
+| one toe edge, 1 m, catch line / replacement (warm, repeat=8) | 0.27 / 0.40 s | 0.28 / 0.41 s | | | | |
+
+The octagon is slower: its slope faces are now large (159 triangles instead of 409), and the exact check of the
+region triangles that the composite clips from them measures a support excess above the first toe lowering, so a
+second realization runs, with a second overlay and composite (λ 3.0e-8 → 5.1e-8 m). The insert and simplify of the
+map are faster there too. A way back is a first lowering that covers the clipped triangles (a change of the lowering's
+estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in this PR.
+
+
+### The band merge for needles at near-quadruple points (item 4, `TERRAIN.md` 5.4)
+
+Needles whose short edge joins two crease vertices with plane sets that are not nested, closer than
+`MinFeatureSize` but further apart than the merge radius 64 e_xy, are merged when they fail the exact check. The
+band radius lives in the facets' slack, so designs without such needles are unchanged.
+
+Setup:
+- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is this branch.
+- The output hashes (`hash_surface`, `hash_region`, `hash_composite`: FNV over the vertices' bits and the triangles)
+  compare the slope surface, the region and the composite bit for bit.
+- The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
+- The last row is the procedural repro of `TerrainSlopeBandRepairTests`:
+  `slope toe=wavy n=48 r=150 h=60 cz=-340 ratio=1.5 tol=0.05 terrain=wave amp=20 tgrid=8 composite=1 coords=local`.
+
+| case | before | after | band merges | outputs |
+|---|---|---|---|---|
+| one toe edge, 1 m | 1.78 s | 1.79 s | 0 | bitwise equal |
+| octagon r 100 m, 1 m | 10.24 s | 9.96 s | 0 | bitwise equal |
+| L shape 120 m, 2 m | 2.96 s | 2.93 s | 0 | bitwise equal |
+| wavy 48-gon r 150 m, 2 m | 8.20 s | 8.35 s | 0 | bitwise equal |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 3.92 s | 3.90 s | 0 | bitwise equal |
+| procedural repro near the origin | `SlopeViolation` after 3 attempts, 6.93 s | `Success` in 1 attempt, 4.19 s | 1 (8.5e-12 m) | – |
+
+A rejected variant reserved a share of `Tolerance` for the band, taken from the facets. It changed every design: the
+facet angle shrank by 1–2 %, and the octagon took 10.2 → 14.3 s (one more λ round), although no design used the
+band.
+
+### The catch points' move in the budget, and its certificate (item (b), `TERRAIN.md` 5.5)
+
+On a terrain, `Tolerance` / 4 is reserved for the move of the composite's catch points, so the facets are finer. An
+exact certificate then bounds the surface's deviation at the moved points; if it does not fit, δ is raised.
+
+Setup:
+- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is this branch.
+- The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
+- "certificate" is the phase `certificate` (`SlopeComposite.SnapDeviation`) of the final build.
+
+| case | before (s) | after (s) | attempts | realizations | slope triangles | certificate (s) |
+|---|---|---|---|---|---|---|
+| one toe edge, 1 m | 1.89, 2.04 | 1.93, 2.25 | 1 → 1 | 1 → 1 | 3 → 3 | 0.09, 0.09 |
+| octagon r 100 m, 1 m | 10.64, 10.74 | 11.22, 10.83 | 1 → 1 | 2 → 2 | 159 → 182 | 0.27, 0.23 |
+| L shape 120 m, 2 m | 3.08, 3.13 | 4.41, 5.13 | 1 → 1 | 2 → 3 | 255 → 294 | 0.06, 0.07 |
+| wavy 48-gon r 150 m, 2 m | 9.32, 8.84 | 13.52, 13.78 | 1 → 1 | 2 → 3 | 474 → 565 | 0.21, 0.18 |
+| octagon, 1 m, `localframe=1` | 11.07, 10.81 | 10.71, 11.11 | 1 → 1 | 2 → 2 | 159 → 182 | 0.01, 0.01 |
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`, no terrain) | 4.14, 4.27 | 4.10, 4.25 | 1 → 1 | 2 → 2 | 487 → 487 | – |
+| wavy 48-gon on waves amp 20, local | 4.52, 4.56 | 4.70, 5.40 | 1 → 1 | 4 → 3 | 371 → 413 | 0.03, 0.03 |
+| wavy 32-gon on waves amp 10, local | 3.15, 3.05 | 4.44, 3.61 | 1 → 1 | 3 → 3 | 332 → 369 | 0.04, 0.03 |
+
+What the numbers show:
+- **Finer facets.** There are 10–19 % more slope triangles, and the time rises by 4–12 % where the realizations stay
+  the same.
+- **One more realization on the L shape and the wavy 48-gon (+46 %, +53 %).** Both times the composite's clipped
+  region fails its support check twice:
+  - λ is raised to 4 × the measured excess.
+  - The next realization clips differently and measures an excess 10–14 × the first (L shape 7.1e-7 → 1.0e-5 m,
+    wavy 7.3e-8 → 7.3e-7 m), so a third realization is needed.
+  - This is the clipped-region item (face 1 of `TERRAIN.md` §11). It is a speed follow-up there.
+- **The certificate costs 1.3–2.3 % of the run on the octagon, the L shape and the wavy case, and 4.5 % on the one
+  toe edge.** On the toe edge about half of it is the JIT compilation of the certificate's code (the profile's
+  unmanaged time), a fixed cost per process.
+  - The certificate is fast because of four things:
+    - an interval filter: heights and differences come from outward-rounded intervals, and are exact only where an
+      interval is wide;
+    - point queries in tiny boxes;
+    - only the terrain triangles that meet the composite triangle;
+    - the triangles of the move's sweep found by exact interior overlap (a box test took the fans around the far
+      vertex, 8 × the triangles).
+  - The first exact version took 14 % on the octagon.
+- **Without the reserved share** (the certificate alone, δ raised where it fails), the run takes more attempts on the
+  DGM:
+  - one toe edge: 2 attempts, 3.2 s;
+  - L shape: 2 attempts, 5.2 s;
+  - wavy 48-gon: 3 attempts, 27 s.
+  - On Mixed's 180 procedural designs at UTM, 7 need a second attempt.
+  - So the share stays.
+
+
+### RoundToGrid's upper bound (`slope ... round=w1,w2 zround=nearest|down margin=δ`, `TERRAIN_ROUND_TO_GRID.md`)
+
+- `round=`: after the run, the slope region's and the slope surface's coordinates are rounded to each grid width (at the
+  origin 0), and the exact checks run again. Each width gives a line: the triangles that flip or degenerate, get
+  steeper, or lose their support.
+- `zround=down`: rounds z down (a cut plane only lowers) instead of to nearest.
+- `margin=`: sets `SlopeMargin`.
+
+It runs only with a terrain and a composite, and it skips the fill pieces. The counts are exclusive, in this order:
+flipped or degenerate, then steeper, then unsupported (of those not steeper).
+
+On the Hambach cases about half of the region's triangles fail at 1 mm and at 0.1 mm with the default margin, and
+21 % / 28 % (steeper / unsupported) at 1 mm with `margin=1e-4`. The table and the conclusion are in the design note.
+
+## Directed closest-point terrain errors (`tdc`, `gtin`)
+
+Both cases now emit `closest_*` fields against the input grid TIN, including when
+`tdc` is constructed from a point cloud. For each sampled result point p, an
+unrestricted AABB-tree query finds q on the full valid reference surface:
+
+- `closest_d3_*`: length of p-q;
+- `closest_dh_*`: length of its XY component;
+- `closest_dv_*`: absolute Z component of the **same displacement**.
+
+Units are meters, Z is up, direction is `result_to_reference`. This is not a ray
+along a normal. Existing `dz_*` remains the vertical-ray error on its existing grid
+node domain; `missed` and `xy_overlaps` remain visible. Small directed errors do
+not establish coverage, absence of holes, or a symmetric Hausdorff bound.
+
+Each component reports `_n`, `_min`, `_p01`, `_p50`, `_p99`, `_max`, `_mean`, `_rms`.
+Quantiles use sorted index floor(p*(n-1)), as in `Checks.Stats`. The maximum is a
+**sampled maximum**, not a certified bound. Sampling follows
+`MeshFidelityMetrics.sample_surface`: stratified cumulative triangle area, uniform
+sqrt-barycentric triangle interiors, `System.Random` seed 0. It is benchmark-local
+because the existing sampler is internal; shared `fm_*` fields are unchanged.
+`closest_samples=10000` selects the default count; any positive integer is accepted.
+The JSON records count, seed, sampling, direction and units. Ties follow a fixed
+tree's traversal, deterministically for that tree; horizontal/vertical components
+need not survive arbitrary retriangulation of ambiguous equal-distance surfaces.
+
+`closest_valid`, `closest_invalid` (failed queries), `closest_missing` (requested
+samples not generated), `closest_invalid_reference_triangles`,
+`closest_invalid_result_triangles`, and `closest_missing_grid_triangles` expose
+validity and no-data exclusions. Non-finite or zero-area triangles are excluded.
+`closest_status` is `ok`, `partial` (exclusions or missing/failed samples), or
+`unavailable` (no valid correspondences). With no valid samples only `_n=0` is
+emitted; no finite zero or sentinel distance is substituted. Partial statistics
+refer only to valid correspondences, not to a complete surface measurement.
+
+`closest_reference_s`, `closest_tree_s`, and `closest_measure_s` separately time
+grid-TIN construction, reference filtering/tree construction, and sampling plus
+queries/statistics. Existing algorithm and check timers exclude these phases;
+`total_s` and process peak memory naturally include them.
+
+### Validation and reproduction
+
+No external geodata is needed. `test_analysis.py` writes a temporary procedural
+plane grid; integration exercises both commands and the additive JSON schema.
+The analyzer accepts old rows without the fields and prints `-` for unavailable
+values. CI runs its compatibility and integration tests.
+
+```sh
+dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~TerrainDistanceMetric
+dotnet build benchmarks/TerrainBenchmark -c Release
+TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
+python3 benchmarks/TerrainBenchmark/check_closest_mutations.py dotnet /tmp/terrain-mutations.json
+python3 benchmarks/TerrainBenchmark/verify_closest.py --dotnet dotnet --base /path/to/base/TerrainBenchmark.dll --current "$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" --out /tmp/terrain-closest-evidence.json
+```
+
+The analytic tests independently check planes, steep facets, all triangle
+features, queries outside the footprint, a brute-force projection/segment oracle,
+invalid inputs, same-row reuse, fixed-tree ties, area weighting, nonconstant
+statistics, and `Similarity.All()` with components recomputed in the fixed Z-up
+frame. Four controlled faults replace 3D distance with vertical distance, zero the
+horizontal component, mix correspondences, and cap the search. Each must fail the
+actual linked-helper tests before the restored implementation is accepted.
+
+Measured on 2026-11-07, .NET SDK 10.0.403, baseline `a482d490`, using the
+`verify_closest.py` command above after the builds completed. [Compact summary](validation/closest_runs_2026-11-07.json)
+(written by the script; command template, grid checksums, local/UTM placement, the pre-existing
+non-timing fields once per case and every new field per sample count; machine paths and
+run-to-run timings other than the two closest-point phase times are not kept).
+The 48 synthetic rows cover 24×24 flat, sloping and ridge grids, both operations,
+both placements, and 1k/10k/50k samples. All pre-existing non-timing fields match
+base exactly; the new distance fields are absent on base. Terrain algorithms and
+production geometry code are unchanged. No local Hambach geodata was available;
+these measurements make no large-TIN performance claim.
+
+Ridge, local coordinates (meters; single-process phase times, including first-use
+JIT; no concurrent build/benchmark):
+
+| case | samples | d3 mean | d3 p99 | d3 sampled max | tree/filter s | sample/query/stats s |
+|---|---:|---:|---:|---:|---:|---:|
+| tdc | 1,000 | 0.0244075 | 0.122011 | 0.132951 | 0.002699 | 0.009804 |
+| tdc | 10,000 | 0.0245089 | 0.121042 | 0.223753 | 0.002626 | 0.066025 |
+| tdc | 50,000 | 0.0245987 | 0.124365 | 0.266895 | 0.002492 | 0.213292 |
+| gtin | 1,000 | 0.0058433 | 0.0428042 | 0.0685863 | 0.002581 | 0.008464 |
+| gtin | 10,000 | 0.0057598 | 0.0492665 | 0.0705479 | 0.002702 | 0.065164 |
+| gtin | 50,000 | 0.0057979 | 0.0503305 | 0.0718491 | 0.003299 | 0.206402 |
+
+10k is the default compromise for reporting distributions: the ridge mean is
+within 0.7% and p99 within 2.7% of the 50k estimate for both operations. The tdc
+sampled maximum still changes substantially; this is why it is not called a global
+bound. Increase `closest_samples` when studying the tail. The analytic sloping
+plane test separately distinguishes d3=sqrt(2) from a vertical-ray error of 2,
+with dh=dv=1 at its known correspondence.
+
+[Captured checks](validation/closest_checks_2026-11-07.json): 9 targeted .NET tests,
+2 Python tests (including both CLI integrations), net48 builds, API-validated core
+and Clipper2 packs, and both package smoke tests pass. Existing compiler warnings
+remain. [Controlled mutation output](validation/closest_mutations_2026-11-07.json):
+vertical-instead-of-3D fails 3 tests, zero-horizontal 3, mixed-correspondence 2,
+capped-search 8; restored implementation passes all 9. The full unrelated .NET
+test suite and net48 execution were not run locally; CI runs those suites.

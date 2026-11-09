@@ -1,0 +1,54 @@
+name: Z3 pilot
+on:
+  pull_request:
+    paths:
+      - 'tools/Z3Pilot/**'
+      - 'comp_geom/SnapRounding2.cs'
+      - 'mesh_generators/MarchingCubes.cs'
+      - 'mesh_generators/MarchingCubesPro.cs'
+      - 'benchmarks/Meshing2Benchmark/Oracle/Oracle.cs'
+      - 'benchmarks/Meshing2Benchmark/Oracle/Exact.cs'
+      # pilot 2: the filter rules of the predicate generator and the generated filters
+      - 'tools/PredicateCompiler/Compiler.cs'
+      - 'math/Generated/IndirectPredicates.cs'
+      # pilot 2 step 1: the drift accounting of SafeRounding (the apex rule, D1)
+      - 'mesh_ops/MeshRoundingRepair.cs'
+      # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
+      - 'mesh_ops/ExactMeshArrangement.cs'
+      - '.github/workflows/z3-pilot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r tools/Z3Pilot/requirements.txt
+      # The full gate of each pilot runs once: test_all_obligations_and_exact_witness_replay (pilot 1),
+      # test_all_rule_lemmas_mutants_and_replays (pilot 2),
+      # test_drift_lemma_obligations_mutants_and_replays (pilot 2 step 1) and
+      # test_adapter_and_fp_envelopes (conservative marching cubes) write the reports that are uploaded below.
+      # Z3_PILOT_TIMEOUT_MS is the per-query timeout of every pilot.
+      - run: python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v
+        env:
+          Z3_PILOT_TIMEOUT_MS: '120000'
+          Z3_PILOT_REPORT: z3-report.json
+          Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
+          Z3_CONSERVATIVE_MC_REPORT: z3-conservative-mc-report.json
+          Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
+          Z3_TRITRI_REPORT: z3-tritri-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z3-pilot
+          path: |
+            z3-report.json
+            z3-filter-rules-report.json
+            z3-conservative-mc-report.json
+            z3-drift-apex-report.json
+            z3-tritri-report.json
