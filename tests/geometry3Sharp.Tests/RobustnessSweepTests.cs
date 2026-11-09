@@ -350,6 +350,12 @@ namespace geometry3Sharp.Tests
         };
 
         static readonly object ReportLock = new object();
+        /// <summary> expected failures on .NET Framework only (net48 CI job): "operation|case" -> finding id </summary>
+        public static readonly Dictionary<string, string> KnownFailuresNet48 = new Dictionary<string, string> {
+            { "MeshInsertPolygon|NaN vertex", "R36" },
+            { "MeshInsertPolygon|+Inf vertex", "R36" },
+        };
+
         static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
 
         static Sig RunOp(Op op, DMesh3 input, Similarity s, double param)
@@ -473,6 +479,13 @@ namespace geometry3Sharp.Tests
                     lock (ReportLock) System.IO.File.AppendAllText(file, $"SWEEP {key} => {(outcome == "" ? "ok" : outcome.Replace('\n', ' '))}\n");
                 return;
             }
+#if NETFRAMEWORK
+            // (cases that fail on .NET Framework only, where a double -> int cast of NaN gives int.MinValue; strict)
+            if (KnownFailuresNet48.TryGetValue(key, out string finding48)) {
+                Assert.True(outcome != "", $"{key} passes now: remove its entry ({finding48}) from KnownFailuresNet48 and update docs/ROBUSTNESS_SWEEP.md");
+                return;
+            }
+#endif
             if (KnownFailures.TryGetValue(key, out string finding)) {
 #if NETFRAMEWORK
                 // (the list is taken on net10, where double -> int casts saturate; .NET Framework casts NaN and out of
@@ -505,7 +518,7 @@ namespace geometry3Sharp.Tests
         public void Sweep_KnownFailuresNameExistingCases()
         {
             var keys = new HashSet<string>(SimilarityCases().Concat(NonFiniteCases()).Concat(DefectCases()).Concat(ExtremeScaleCases()).Select(x => x[0] + "|" + x[1]));
-            foreach (string key in KnownFailures.Keys)
+            foreach (string key in KnownFailures.Keys.Concat(KnownFailuresNet48.Keys))
                 Assert.True(keys.Contains(key), "unknown case " + key);
             // every finding id has a row in docs/ROBUSTNESS_SWEEP.md (found from the test directory upwards)
             string dir = AppContext.BaseDirectory, doc = null;
@@ -514,7 +527,7 @@ namespace geometry3Sharp.Tests
                 if (System.IO.File.Exists(f)) doc = System.IO.File.ReadAllText(f);
             }
             Assert.True(doc != null, "docs/ROBUSTNESS_SWEEP.md not found");
-            foreach (string id in KnownFailures.Values.Select(f => f.Split(' ').Last()).Distinct())
+            foreach (string id in KnownFailures.Values.Concat(KnownFailuresNet48.Values).Select(f => f.Split(' ').Last()).Distinct())
                 Assert.True(doc.Contains("| " + id + " |"), $"finding {id} has no row in docs/ROBUSTNESS_SWEEP.md");
         }
 
