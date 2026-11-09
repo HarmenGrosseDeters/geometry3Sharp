@@ -3291,11 +3291,19 @@ namespace Meshing2Acceptance
                         if (!below && atHigh && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, SmallPairSin2(slack)) || AtPrecisionLimit(t) || Zone(t, low)) continue;
                     if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t) || CircumcentreBehindO11Unsplittable(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
+
+            /// <summary>
+            /// The sine squared below which two input segments count as a small input angle for the excuse of <see cref="SpansSmallInputAngle(int[], Q)"/>:
+            /// that of 60 degrees less the slack, whatever the angle bound (owner decision 2026-11-09). Refinement towards the apex of an
+            /// input angle below 60 degrees may not terminate (Shewchuk 2002, section 6.2: Ruppert's and Chew's proofs need input angles of
+            /// at least 60 degrees), so the mesher stops there and the oracle excuses the triangles it leaves, as for an angle below the bound
+            /// </summary>
+            static Q SmallPairSin2(Q slack) => new Q(3, 4) - slack;
 
             Dictionary<int, List<int>> ConstraintsAround()
             {
