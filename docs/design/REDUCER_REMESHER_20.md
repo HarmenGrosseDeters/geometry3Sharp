@@ -98,7 +98,7 @@ simplification (UV, normals, colours: the partitioned path would drop them today
 guarantees; thin walls far above the wall thickness (roadmap bottleneck 5); comparisons with CGAL (black box only, owner's rule); the Alpha Wrap pipeline
 (its own milestone, 3.0).
 
-## 4. Decisions needed from the owner
+## 4. Options considered (decided in section 6)
 
 1. **Defaults vs opt-in [owner].** Quality guards change results of existing calls (the library already differs from upstream there:
    `PreventFoldOver`). Options: (a) new opt-in options and a documented preset, defaults unchanged; (b) flip defaults for `Remesher.MinTriangleQuality`
@@ -119,3 +119,12 @@ guarantees; thin walls far above the wall thickness (roadmap bottleneck 5); comp
 Work packages (one PR each): (1) T5 diagnosis and fix of the Remesher's absolute constants; (2) T1: probe the "against the worst" guard on the 20 meshes,
 then the option; (3) T2: preset / default `MinTriangleQuality`, probe of the Wang 2019 operators on 10 meshes; (4) T3 Reducer: `Partitioned` option for `si`;
 (5) T3 / T4 Remesher after (1)-(4). Sources of ports are listed in SOURCES.md before code is written.
+
+## 6. Owner decisions (2026-11-09, relayed by the coordinator)
+
+1. **Defaults**: opt-in first, through existing properties or a "Robust" preset. A default flip only after an 800-mesh corpus run shows
+   nothing worse and the speed target is met, as with Alpha Wrap 2.0 (section 4, item 1, options a / c).
+2. **Scope of 2.0**: T1, T2, T3, T5, T6. T4 (Remesher speed) later, re-measured after T2 / T3. Partitioned reduction stays internal until T3 is measured
+   (section 4, items 2 and 3).
+3. **Order**, one PR per target, each with tests per CLAUDE.md, an upper-bound check before each lever, before / after numbers from this harness and an
+   independent review: T5 (bit-identical 2^k, smallest), T2, T1, T3, T6. API compatible with 1.0.324; the test time limit holds.
