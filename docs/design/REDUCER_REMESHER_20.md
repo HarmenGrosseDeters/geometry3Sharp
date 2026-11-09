@@ -199,12 +199,11 @@ The target was `PreventSelfIntersections` at <= 8 x the plain Remesher time (tod
 them up to 30000 triangles with `si`). Probe: the phase profile of the `si` run (`profile=1`, 4 cores; 3 meshes) and the required speed-up per mesh from the baseline rows.
 - Share of the serial edge operations (collapse, flip, split) in the `si` run: 73 % (78295, 15 s), 70 % (93370, 69 s), 44 % (299291, 3.9 s); smoothing and projection
   (with the move check) 27 / 30 / 56 %. With the default (no `si`) the operations are 66-88 %.
-- Needed speed-up of the `si` run to reach 8 x the plain time: 1.58 x at the median (x1; 1.54 x for x2); 2 of 16 meshes are there already; one mesh (93370: 49 x) needs more than 4 x,
-  more than 4 cores can give.
+- Needed speed-up of the `si` run to reach 8 x the plain time: 1.58 x at the median (x1; 1.54 x for x2); 2 of 16 meshes are there already; one of the 16 (49 x) needs more than 4 x, more than 4 cores can give (the profiled 93370, 46k triangles, is at 64 x: 69 s against 1.07 s).
 - Bound for slabs on 4 cores: partitioning only the operations (share 0.7) gives at most 1 / (0.3 + 0.7 / 4) = 2.1 x; the Reducer's slabs realised 2.0 to 3.1 x over serial `si` on 60-100k triangles
-  and nothing below 20k, which is where 13 of the 16 meshes with `si` are. So the target is reachable, if at all, on the few large meshes, with a large build (slab limits for smoothing and
+  and nothing below 20k, which is where 15 of the 16 meshes with `si` are. So the target is reachable, if at all, on the few large meshes, with a large build (slab limits for smoothing and
   projection, the iterative passes, constraints across slab borders, flips of border edges) and an unknown effect on the result.
-- The absolute cost is small for most inputs: `si` takes 1.6 s at the median (x1), 6 s at the 75th percentile and 42 s at the maximum (93370, 46k triangles).
+- The absolute cost is small for most inputs: `si` takes 1.6 s at the median (x1) and 42 s at the maximum of the 16 meshes (and 69 s on the 46k-triangle 93370).
 
 Result: no lever worth its cost on the evidence; T3 for the Remesher is closed with this note (owner decision 2026-11-09: T4 / Remesher speed is re-measured later anyway). What exists today:
 `PreventSelfIntersections` is opt-in and removes the added self-intersections completely (0 of 16 meshes with more pairs than the input, against 14 of 19 without it), at 12 x the time.
