@@ -86,6 +86,38 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(analyze.outcome(self.row(union_clean_reason="degenerate triangles")), "degenerate")
         self.assertEqual(analyze.outcome(self.row(union_selfint=2, union_clean_reason="self-intersections")), "self-int.")
         self.assertEqual(analyze.outcome(self.row(diff_error=1e-3)), "volume")
+        self.assertEqual(analyze.outcome(self.row(union_clean_reason="inside-out components")), "inside-out")
+        self.assertFalse(analyze.correct(self.row(union_clean_reason="inside-out components")))
+
+    def test_concatenation_is_not_correct(self):
+        # union = A and B concatenated, intersection empty, difference = A: both identities hold, the union
+        # self-intersects. In the thingi-pairs classes that is not correct, and the empty intersection is not counted
+        # as volume-consistent; elsewhere self-intersections stay a correct outcome (touching parts)
+        r = self.row(union_selfint=12, union_clean_reason="self-intersections", intersection_clean_reason="empty", ie_error=2.8e-16, diff_error=0.0)
+        self.assertEqual(analyze.outcome(r), "self-int.")
+        self.assertFalse(analyze.correct(r))
+        self.assertFalse(tp.consistent(r))
+        other = dict(r, **{"class": "cgal"})
+        self.assertTrue(analyze.correct(other))
+        self.assertTrue(analyze.correct(self.row()) and tp.consistent(self.row(intersection_clean_reason="empty")))
+
+    def test_summary_counts_each_case_once_and_inconsistent_empties(self):
+        good = dict(self.row(intersection_clean_reason="empty"), file="p1", method="ours")
+        bad = dict(self.row(union_selfint=12, union_clean_reason="self-intersections", intersection_clean_reason="empty"), file="p2", method="ours")
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.jsonl")
+            with open(path, "w") as f:
+                for r in (good, good, bad):      # p1 twice (a resumed run appended it again)
+                    f.write(json.dumps(r) + "\n")
+            import io, contextlib
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                tp.cmd_summary([path])
+        row = out.getvalue().splitlines()[2].split("|")
+        self.assertEqual(row[3].strip(), "2")                 # pairs
+        self.assertEqual(row[4].strip(), "6")                 # operations
+        self.assertEqual(row[9].strip(), "1")                 # empty (volume-consistent): p1's only
+        self.assertIn("empty (inconsistent) 1", row[10])
 
 def cube(lo, hi):
     v = [(x, y, z) for x in (lo, hi) for y in (lo, hi) for z in (lo, hi)]
@@ -188,6 +220,15 @@ class PairOracleTests(unittest.TestCase):
                     pass
         self.assertEqual(sorted(r["file"] for r in rows), ["c0", "c1"])
         self.assertIn("resume: 2 cases finished, 0 to run", run())
+        # a method added later runs alone: the finished method's rows are not appended again
+        def run_methods(methods):
+            return subprocess.run([sys.executable, os.path.join(HERE, "compare.py"), cases, out, "--methods", methods, "--resume"],
+                                  check=True, capture_output=True, text=True).stdout
+        with open(out) as f:
+            before = sum(1 for l in f if '"method": "ours"' in l)
+        self.assertIn("resume: 2 cases finished, 0 to run", run_methods("ours"))
+        with open(out) as f:
+            self.assertEqual(before, sum(1 for l in f if '"method": "ours"' in l))
 
     def test_a_wrong_result_is_caught(self):
         # A and B as the tool prepares them, results by the tool, then the union damaged in three ways

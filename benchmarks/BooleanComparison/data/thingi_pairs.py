@@ -193,12 +193,22 @@ def cmd_manifest(pairs, d, out, limit=None):
 
 def geomean(x): return math.exp(sum(math.log(max(v, 1e-3)) for v in x) / len(x)) if x else float("nan")
 
+TOL = 1e-7    # analyze.CLASS_TOL of the thingi-pairs classes (README.md)
+
+def consistent(r):
+    return all((r.get(k) or 0) <= TOL for k in ("ie_error", "diff_error")) and \
+        all(r.get(f"{op}_clean_reason") != "self-intersections" and not r.get(f"{op}_selfint") for op in ("union", "intersection", "difference"))
+
 def cmd_summary(files):
     rows = [json.loads(l) for f in files for l in open(f) if l.strip()]
-    by = {}
+    # one row per case and method, the last (compare.py --resume may append a case again)
+    last = {}
     for r in rows:
         if r.get("method") != "export":
-            by.setdefault((r["class"], r["method"]), []).append(r)
+            last[(r["class"], r.get("file"), r["method"])] = r
+    by = {}
+    for r in last.values():
+        by.setdefault((r["class"], r["method"]), []).append(r)
     ops = ["union", "intersection", "difference"]
     print("| class | method | pairs | operations | ok | rejected | failed / crash / timeout | clean | empty (volume-consistent) | unclean | max volume error | median ms | geomean ms | p95 ms | max ms | median result triangles |")
     print("|" + "---|" * 16)
@@ -217,7 +227,10 @@ def cmd_summary(files):
                 tris.append(r.get(f"{op}_tris", 0))
                 reason = r.get(f"{op}_clean_reason")
                 if reason == "": clean += 1
-                elif reason == "empty": empty += 1
+                # (empty is volume-consistent only if the identities hold and no other result of the pair
+                # self-intersects: a union that only concatenates A and B makes an empty intersection consistent)
+                elif reason == "empty" and consistent(r): empty += 1
+                elif reason == "empty": unclean["empty (inconsistent)"] = unclean.get("empty (inconsistent)", 0) + 1
                 else: unclean[reason] = unclean.get(reason, 0) + 1
             errs += [r[k] for k in ("ie_error", "diff_error") if r.get(k) is not None]
         ms.sort()

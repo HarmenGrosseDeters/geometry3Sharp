@@ -98,8 +98,12 @@ with round-trip precision, so all tools read the same doubles.
   `""` is clean, `"empty"` is an empty result;
 - the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` (relative to V(A) + V(B)) and `V(A−B) = V(A) − V(A∩B)`
   (relative to V(A)) on the doubles of the written results, volumes relative to the centre of A. An empty result is
-  correct exactly when the identities hold with volume 0, so it is not an error by itself (A∩B of two apart models,
-  A−B of A inside B), but an empty union, or an empty difference with V(A−B) > 0, fails the identity.
+  not an error by itself (A∩B of two apart models, A−B of A inside B), and an empty union, or an empty difference with
+  V(A−B) > 0, fails the identity. But the identities alone do not make an empty result correct: a method that returns
+  A and B concatenated as the union, nothing as the intersection and A as the difference passes both. Its union
+  self-intersects, which for clean inputs in random poses a correct result does not, so in these classes a result with
+  self-intersections (or inside-out components) is not correct (`analyze.py`), and the summary counts an empty result
+  as volume-consistent only if no result of the pair self-intersects.
 
 `analyze.py` (outcome per pair and method as everywhere, `degenerate` is new: correct but NotCleanReason names degenerate
 triangles, bowties or inconsistent orientation) uses the tolerance **1e-7** for these classes (1e-6 elsewhere).
@@ -107,8 +111,10 @@ Why: the only error a correct boolean has is the rounding of the result's vertic
 A vertex is moved by at most half an ulp (1e-16 of the box), the volume by about surface area × that, so the relative
 error is about 1e-16 × area × size / volume (an estimate, not a bound; larger for thin models; the probe of 2026-11-04
 saw 5e-10 on 30 pairs; the trial below at most 1.1e-11 for our results and 1.6e-14 for the others, which do not round
-a new vertex). 1e-7 is 100× the largest value seen and still catches a missing or displaced sheet
-of a result (a moved vertex of 1e-4 in a unit box gives 1e-5 in a test). The tolerance is `CLASS_TOL` in
+a new vertex). 1e-7 is 100× the largest value seen and still catches a displaced sheet of a result
+(a moved vertex of 1e-4 in a unit box gives 1e-5 in a test). A limit of a volume oracle: a small closed part of the
+union that is dropped whole (the rest closed and clean) is seen only if its volume is above 1e-7 (V(A) + V(B)), about a
+cube of 3.7e-3 of the box; the triangle counts of the methods are in the raw rows. The tolerance is `CLASS_TOL` in
 `analyze.py`; change it only with the numbers of a run. Reported per method (`python3 data/thingi_pairs.py summary results.jsonl`): the
 operations by status, clean / empty / unclean (with the reasons), the largest volume error, the time of the boolean
 alone (median, geometric mean, p95, max, as every class) and the median result triangles. A result with

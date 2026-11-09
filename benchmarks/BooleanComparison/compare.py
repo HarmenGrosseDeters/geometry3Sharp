@@ -233,7 +233,7 @@ if __name__ == "__main__":
     ap.add_argument("--timeout", type=int, default=300, help="seconds per boolean, or per sequence")
     ap.add_argument("-j", type=int, default=1)
     ap.add_argument("--class", dest="cls", default="thingi10k", help="data class of a list or directory of meshes")
-    ap.add_argument("--resume", action="store_true", help="skip the cases that the output file has results of for all methods")
+    ap.add_argument("--resume", action="store_true", help="run per case only the methods the output file has no result of")
     ap.add_argument("--only", help="comma-separated case names to run")
     args = ap.parse_args()
     cases = read_cases(args.inputs, args.cls)
@@ -252,11 +252,14 @@ if __name__ == "__main__":
             except ValueError:
                 continue                   # ... and ignore it (its case runs again)
             have.setdefault((r["class"], r["file"]), set()).add(r["method"])
-        finished = {k for k, v in have.items() if set(methods) <= v}
-        cases = [c for c in cases if (c["class"], c["name"]) not in finished]
-        print(f"resume: {len(finished)} cases finished, {len(cases)} to run", flush=True)
+        # per case only the methods without a row (a run cut off between two methods, or a method added later)
+        todo = [(c, [m for m in methods if m not in have.get((c["class"], c["name"]), set())]) for c in cases]
+        todo = [(c, ms) for c, ms in todo if ms]
+        print(f"resume: {len(cases) - len(todo)} cases finished, {len(todo)} to run", flush=True)
+    else:
+        todo = [(c, methods) for c in cases]
     with open(args.out, "a") as f, ThreadPoolExecutor(args.j) as ex:
-        for rows in ex.map(lambda c: process(c, methods, args.timeout), cases):
+        for rows in ex.map(lambda cm: process(cm[0], cm[1], args.timeout), todo):
             for r in rows:
                 f.write(json.dumps(r) + "\n")
             f.flush()

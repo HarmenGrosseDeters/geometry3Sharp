@@ -17,7 +17,10 @@ static class ThingiPairs
     // A and B are each translated so that the centre of the bounding box is the origin and scaled by 1 / (longest
     // side), so that the longest side is 1 (the unit box); then B is rotated about the origin by the quaternion
     // (normalized here) and translated by t. Both meshes are written with round-trip precision, so every tool
-    // reads the same doubles. The inputs are trusted to be clean (the list was filtered with NotCleanReason).
+    // reads the same doubles. The list was filtered with NotCleanReason on the models as read; normalizing and rotating
+    // rounds the coordinates, so the transformed inputs are checked again (a contact or self-intersection made by the
+    // rounding would make their volumes and the identities wrong): if one is not clean, WriteCase resolves and measures
+    // them as for any other class.
     public static int Pair(string[] args)
     {
         DMesh3 a = Program.Load(args[0]), b = Program.Load(args[1]);
@@ -36,7 +39,7 @@ static class ThingiPairs
             ["a"] = Path.GetFileNameWithoutExtension(args[0]), ["b"] = Path.GetFileNameWithoutExtension(args[1]),
         };
         Program.WriteCase(a, b, args[2], Path.GetFileNameWithoutExtension(args[0]) + "+" + Path.GetFileNameWithoutExtension(args[1]),
-            extra, inputsClean: true);
+            extra, inputsClean: MeshRobustRepair.NotCleanReason(a) == "" && MeshRobustRepair.NotCleanReason(b) == "");
         return 0;
     }
 
