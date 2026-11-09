@@ -27,5 +27,23 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(InputAngleBelow60))]
         public void InputAngleBelow60_IsExcused(string name, QualityMesh2PropertyCase c)
             => Assert.Equal("", QualityMesh2Properties.Check(c, new[] { -11, 13 }));
+
+        static QualityMesh2PropertyCase Grid(string family, int[] x, int[] y, int[][] rings, int[][] segments, int denominator, int exponent, int snap, double angle, bool constrained, bool conforming)
+            => new QualityMesh2PropertyCase { Family = family, X = x, Y = y, Rings = rings, Holes = new bool[rings.Length], Segments = segments,
+                Denominator = denominator, Exponent = exponent, SnapLog2 = snap, Angle = angle, Constrained = constrained, Conforming = conforming };
+
+        public static IEnumerable<object[]> OpenGridFindings() => new[] {
+            // finding 2 (grid): the oracle's AreaMismatch / SegmentMissing on inputs whose hull or ring edge is rerouted through a hot
+            // pixel; M2 (no refinement) shows the same, so it is snap rounding or the oracle's domain, not the refinement
+            new object[] { "soup: the hull edge (1,4)-(5,5) passes the pixel of the input point (3,4)", Grid("soup", new[] { 5, 3, 6, 1 }, new[] { 5, 4, 4, 4 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 } }, 1, -2, 0, 30, false, true) },
+            new object[] { "wedge 252/253, pixel 1/2 unit", Grid("wedge", new[] { 0, 252, 253, 64 }, new[] { 0, -4, -4, 2 }, new[] { new[] { 0, 1, 2, 3 } }, new int[0][], 2, -4, -1, 0, true, false) },
+            new object[] { "wedge, pixel 1/4 unit, 30 degrees", Grid("wedge", new[] { 0, 111, 119, 237 }, new[] { 0, -1, 2, 4 }, new[] { new[] { 0, 1, 2, 3 } }, new int[0][], 1, 2, -2, 30, false, true) },
+            new object[] { "polygon with a ring edge across pixels", Grid("polygon", new[] { 26, 20, 6, 1, -26, -35 }, new[] { -8, 35, 18, 26, 17, 21 }, new[] { new[] { 0, 1, 2, 3, 4, 5 } }, new int[0][], 2, 2, -1, 20, true, false) },
+        };
+
+        [Theory(Skip = "open finding 2 of the T5 campaign: the oracle's verdict on rerouted hull and ring edges on the grid, decision pending")]
+        [MemberData(nameof(OpenGridFindings))]
+        public void OpenGridFindings_Pass(string name, QualityMesh2PropertyCase c)
+            => Assert.Equal("", QualityMesh2Properties.Check(c, new[] { -11, 13 }));
     }
 }
