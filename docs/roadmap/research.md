@@ -305,6 +305,13 @@ Ordered by expected value for the library.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
+   - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
+     B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),
+     but it lies on the input (no offset), has no angle control (triangles > 170°), one self-intersecting result and
+     about 3x the time; the C vertex post-passes keep every guarantee but reach only 17-42 % of B's Chamfer gain
+     (vertices move, edges do not follow the crease). Owner 2026-11-09: a study of *why B fails* and of a hybrid
+     (wrap guarantees with DC creases, e.g. an offset level set, crease-locked angle repair, DC only in crease
+     regions) is wanted later, on the strongest model; the C flip prototype waits for it.
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
@@ -348,7 +355,15 @@ Ordered by expected value for the library.
     - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
       ([platform.md](platform.md)).
 
-13. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
+13. **Intersection-free dual contouring in general** (owner 2026-11-09; probably within reach of Opus, since it is
+    mostly literature and engineering, not a new proof). `mesh_generators/DualContouring.cs` (manifold DC, Schaefer et
+    al. 2007, QEF vertices) and `mesh_ops/WindingContouring.cs` (DC on the winding number, with a self-intersection
+    check after the fact) can produce self-intersections. Wanted: a contouring that is self-intersection-free by
+    construction or by a local exact repair, keeps the QEF sharpness where it can and reports where it cannot.
+    Papers to start from: Ju & Udeshi 2006 (intersection-free contouring on an octree grid), Schaefer, Ju & Warren
+    2007 (manifold DC), Nielson 2004 (dual marching cubes), and newer DC variants (papers only, licences as usual).
+    Serves B above, `WindingContouring`'s repair use and later TPMS / implicit inputs.
+14. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
     form needs component labels that survive the edge operations, with a correctness argument
     ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
 
