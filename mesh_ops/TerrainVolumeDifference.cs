@@ -40,6 +40,17 @@ namespace gs
         /// <summary> fail if a surface is not a height field (overlapping triangles in XY) </summary>
         public bool RequireHeightField = true;
 
+        /// <summary> optional lattice of cells (<see cref="TerrainCellVolumes"/>): the polygons of the overlay are also split at the cell lines and summed per cell </summary>
+        internal CellLattice Lattice;
+        /// <summary> per cell [FillVolume, CutVolume, FillArea, CutArea, OverlapArea] (5 values each), for <see cref="Lattice"/> </summary>
+        internal double[] CellValues;
+
+        internal sealed class CellLattice
+        {
+            public double X0, Y0, DX, DY;
+            public int NX, NY;
+        }
+
 
         public TerrainVolumeDifference(DMesh3 before, DMesh3 after)
         {
@@ -67,6 +78,9 @@ namespace gs
             DMeshAABBTree3 spatial = new DMeshAABBTree3(After, true);
             int[] tris = new List<int>(Before.TriangleIndices()).ToArray();
             double[,] partial = new double[tris.Length, 5];
+            // (per triangle of Before, in the order of the traversal, which does not depend on the thread: the sum over the cells is deterministic)
+            List<(int cell, double[] v)>[] perCell = Lattice != null ? new List<(int, double[])>[tris.Length] : null;
+            double lx0 = Lattice != null ? Lattice.X0 - origin.x : 0, ly0 = Lattice != null ? Lattice.Y0 - origin.y : 0;
 
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
                 if (CancelF()) return;
@@ -94,6 +108,7 @@ namespace gs
                         if (poly.Count < 3)
                             return;
                         integrate(poly, planeA, planeB, k, partial, zeroTol);
+                        if (Lattice != null) integrate_cells(poly, planeA, planeB, zeroTol, Lattice, lx0, ly0, ref perCell[k]);
                     }
                 };
                 spatial.DoTraversal(traversal);
@@ -103,7 +118,36 @@ namespace gs
                 FillVolume += partial[k, 0]; CutVolume += partial[k, 1];
                 FillArea += partial[k, 2]; CutArea += partial[k, 3]; OverlapArea += partial[k, 4];
             }
+            if (Lattice != null) {
+                CellValues = new double[5 * Lattice.NX * Lattice.NY];
+                for (int k = 0; k < tris.Length; ++k)
+                    if (perCell[k] != null)
+                        foreach (var (cell, v) in perCell[k])
+                            for (int q = 0; q < 5; ++q) CellValues[5 * cell + q] += v[q];
+            }
             return CancelF() == false;
+        }
+
+        // the part of the overlay polygon in every cell it touches: clipped by the cell rectangle, then integrated as a whole
+        static void integrate_cells(List<Vector2d> poly, Plane a, Plane b, double zeroTol, CellLattice lat, double lx0, double ly0, ref List<(int cell, double[] v)> into)
+        {
+            double minx = double.MaxValue, maxx = double.MinValue, miny = double.MaxValue, maxy = double.MinValue;
+            foreach (Vector2d p in poly) { minx = Math.Min(minx, p.x); maxx = Math.Max(maxx, p.x); miny = Math.Min(miny, p.y); maxy = Math.Max(maxy, p.y); }
+            double fi0 = Math.Floor((minx - lx0) / lat.DX), fi1 = Math.Floor((maxx - lx0) / lat.DX), fj0 = Math.Floor((miny - ly0) / lat.DY), fj1 = Math.Floor((maxy - ly0) / lat.DY);
+            if (fi1 < 0 || fj1 < 0 || fi0 > lat.NX - 1 || fj0 > lat.NY - 1) return;
+            int i0 = (int)Math.Max(fi0, 0), i1 = (int)Math.Min(fi1, lat.NX - 1), j0 = (int)Math.Max(fj0, 0), j1 = (int)Math.Min(fj1, lat.NY - 1);
+            for (int j = j0; j <= j1; ++j)
+                for (int i = i0; i <= i1; ++i) {
+                    double xa = lx0 + i * lat.DX, xb = lx0 + (i + 1) * lat.DX, ya = ly0 + j * lat.DY, yb = ly0 + (j + 1) * lat.DY;
+                    List<Vector2d> piece = (i0 == i1 && j0 == j1) ? poly
+                        : clip_convex(poly, new List<Vector2d>(4) { new Vector2d(xa, ya), new Vector2d(xb, ya), new Vector2d(xb, yb), new Vector2d(xa, yb) });
+                    if (piece.Count < 3) continue;
+                    var one = new double[1, 5];
+                    integrate(piece, a, b, 0, one, zeroTol);
+                    if (one[0, 4] <= 0) continue;
+                    if (into == null) into = new List<(int, double[])>();
+                    into.Add((i + lat.NX * j, new[] { one[0, 0], one[0, 1], one[0, 2], one[0, 3], one[0, 4] }));
+                }
         }
 
 
