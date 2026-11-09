@@ -156,7 +156,8 @@ better; 0.75 is 1.09-1.22x.
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
-- **Reducer / Remesher 2.0 (milestone idea, owner 2026-11-08; after Alpha Wrap 2.0, upper bounds first):**
+- **Reducer / Remesher 2.0: done 2026-11-09** (baseline, T5, T2, T1, T3, T6; results, measured limits and open items T4 / feature-curve operators in
+  [design/REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) sections 6 to 11; no default changed). The milestone idea as first written (owner 2026-11-08, upper bounds first):
   (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
   quality guard (compare with the worst triangle around the edge) to the general `Reducer` as options, since today
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
