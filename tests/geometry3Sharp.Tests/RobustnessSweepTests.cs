@@ -272,7 +272,7 @@ namespace geometry3Sharp.Tests
                 } },
         };
 
-        /// <summary> the 25 operations of the first sweep, then the gap-list operations of QA 2.0 T1 (RobustnessSweepTests.GapOps.cs) </summary>
+        /// <summary> the operations of the first sweep, then the gap-list operations of QA 2.0 T1 (RobustnessSweepTests.GapOps.cs) </summary>
         public static readonly Op[] Ops = CoreOps.Concat(GapOps()).ToArray();
 
         public static IEnumerable<object[]> OpNames() => Ops.Select(o => new object[] { o.Name });
@@ -388,9 +388,17 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        static bool IsIdentity(Matrix3d r)
+        {
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (r[i, j] != (i == j ? 1.0 : 0.0)) return false;
+            return true;
+        }
+
         string SimilarityOutcome(Op op, Similarity s)
         {
-            if (op.PlanarInput && (s.Translation.z != 0 || s.Rotation.Equals(Matrix3d.Identity) == false)) return "";
+            if (op.PlanarInput && (s.Translation.z != 0 || IsIdentity(s.Rotation) == false)) return "";
             try {
                 Sig a = RunOp(op, op.Input(), Similarity.Identity, op.Param);
                 double param = double.IsNaN(op.Param) ? double.NaN : s.ApplyLength(op.Param);

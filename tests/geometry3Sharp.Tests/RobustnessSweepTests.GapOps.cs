@@ -73,9 +73,10 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static Sig WithOutput(Sig sig, DMesh3 result) => result == null ? sig : sig.Mesh("result", result);
+        /// <summary> the angle around the z axis, with the cut of the branch turned away from the x axis (a ring vertex there would flip under rounding) </summary>
+        static double Angle(Vector3d p) => Math.Atan2(p.y * Math.Cos(0.3) - p.x * Math.Sin(0.3), p.x * Math.Cos(0.3) + p.y * Math.Sin(0.3));
 
-        static IEnumerable<double> Finite(IEnumerable<double> values) => values;
+        static Sig WithOutput(Sig sig, DMesh3 result) => result == null ? sig : sig.Mesh("result", result);
 
         static Op[] GapOps()
         {
@@ -126,6 +127,7 @@ namespace geometry3Sharp.Tests
                         return WithOutput(sig, sol.Result);
                     } });
             }
+            // (Tol and CountTol are loose: the cells are axis aligned, so rotation and non-power-of-two scales change the sampled cells; the 2^k scales are bit exact)
             ops.Add(new Op { Name = "VolumeSampleCells", Type = typeof(VolumeSampleCells), SkipNonFinite = true, Input = () => Sphere(), Tol = 0.5, CountTol = 0.5,
                 Run = (m, s, p) => {
                     DMesh3 b = MappedSphere(s, 0.7, new Vector3d(0.6, 0.1, 0.05));
@@ -143,8 +145,14 @@ namespace geometry3Sharp.Tests
                     var sig = new Sig(s) { Failed = env.Status != EnvelopeStatus.Ready }.Count("status", (int)env.Status);
                     if (env.Status != EnvelopeStatus.Ready) return sig;
                     // points at 0.01, 0.2 and 1 from the surface (inside the 0.05 envelope only the first)
-                    foreach (double r in new[] { 1.01, 1.2, 2.0 })
-                        sig.Count("contains " + r, env.Contains(s.Apply(new Vector3d(0.1, 0.2, 0.3).Normalized * r)) ? 1 : 0);
+                    var tree = m.TriangleCount > 0 ? new DMeshAABBTree3(m, true) : null;
+                    foreach (double r in new[] { 1.01, 1.2, 2.0 }) {
+                        Vector3d q = s.Apply(new Vector3d(0.1, 0.2, 0.3).Normalized * r);
+                        bool inside = env.Contains(q);
+                        sig.Count("contains " + r, inside ? 1 : 0);
+                        // the guarantee: contained means within epsilon of the mesh (checked against the true distance)
+                        if (inside && tree != null && tree.FindNearestTriangle(q, out double d2) >= 0 && d2 > 1.0001 * p * p) sig.Contradiction = "a point farther than epsilon is contained";
+                    }
                     // (a triangle on the sphere: its corners lie on the mesh's vertices, its middle is off the surface)
                     Index3i t = m.GetTriangle(0);
                     sig.Count("triangle", env.ContainsTriangle(m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c)) ? 1 : 0);
@@ -181,14 +189,13 @@ namespace geometry3Sharp.Tests
                     loops[1].Reverse();
                     var st = new MeshStitchLoops(m, loops[0], loops[1]);
                     // (blind stitching is not supported: the corresponding vertices are given, top to bottom by angle)
-                    var a = loops[0].Vertices.OrderBy(v => Math.Atan2(s.Inverse(m.GetVertex(v)).y, s.Inverse(m.GetVertex(v)).x)).ToArray();
-                    var b = loops[1].Vertices.OrderBy(v => Math.Atan2(s.Inverse(m.GetVertex(v)).y, s.Inverse(m.GetVertex(v)).x)).ToArray();
+                    var a = loops[0].Vertices.OrderBy(v => Angle(s.Inverse(m.GetVertex(v)))).ToArray();
+                    var b = loops[1].Vertices.OrderBy(v => Angle(s.Inverse(m.GetVertex(v)))).ToArray();
                     st.AddKnownCorrespondences(new[] { a[0], a[a.Length / 2] }, new[] { b[0], b[b.Length / 2] });
                     return new Sig(s) { Failed = st.Stitch() == false }.Mesh("mesh", m);
                 } });
             ops.Add(new Op { Name = "MeshExtrudeMesh", Type = typeof(MeshExtrudeMesh), Input = Cap, Tol = 1e-5,
                 Run = (m, s, p) => {
-                    var normals = new MeshNormals(m); normals.Compute();
                     var ex = new MeshExtrudeMesh(m) { ExtrudedPositionF = (pos, nrm, vid) => pos + 0.1 * s.Scale * (Vector3d)nrm };
                     var sig = new Sig(s) { Failed = ex.Extrude() == false }.Mesh("mesh", m);
                     // (the extrusion duplicates a bad vertex, and its offset follows the (NaN) normals of the one-ring: not spreading)
@@ -216,7 +223,7 @@ namespace geometry3Sharp.Tests
                     Polygon2d poly = hull.GetHullPolygon();
                     // (every point on the inner side of every edge, in units of the input: no squares of the scale)
                     int n = poly.VertexCount;
-                    double orient = Math.Sign(poly.SignedArea);
+                    double orient = Math.Sign(poly.SignedArea / s.Scale / s.Scale);  // (in units of the input: the area underflows at subnormal scale)
                     for (int i = 0; i < n && sig.Contradiction == ""; ++i) {
                         Vector2d ea = poly[i] / s.Scale, eb = poly[(i + 1) % n] / s.Scale;
                         foreach (Vector2d q in pts) {
