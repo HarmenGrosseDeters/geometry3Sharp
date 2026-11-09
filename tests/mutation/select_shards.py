@@ -116,7 +116,8 @@ def _reporting_step_ok(lines, step, stryker_start, idents):
     with only plain keys, and a read-only command. A new step of the same name BEFORE the Stryker step (a `sed` on the
     thresholds, a write to $GITHUB_ENV, run_stryker.sh itself) is not harmless."""
     start, end, ident = step
-    uploads = any(re.match(r"^\s*(?:- )?uses:\s*actions/upload-artifact@", lines[k]) for k in range(start, end))
+    uploads = any(re.match(r"^\s*(?:- )?uses:\s*actions/upload-artifact@", lines[k]) and _indent(lines[k]) in (6, 8)
+                  for k in range(start, end))
     if not (ident in STEPS_OK or ident.startswith("uses:actions/upload-artifact") or uploads):
         return False                                    # (an upload step may have a name of its own: the logs step)
     if stryker_start is None or start < stryker_start or idents.count(ident) != 1:

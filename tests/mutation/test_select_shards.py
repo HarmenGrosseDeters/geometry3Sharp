@@ -271,6 +271,10 @@ class SelectShards(unittest.TestCase):
         other = step.replace("actions/upload-artifact@v4", "actions/cache/save@v4")
         self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", other + "      - uses: actions/upload-artifact@v4\n")))
         self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step.replace("with:", "shell: bash\n        with:") + "      - uses: actions/upload-artifact@v4\n")))
+        # a line that only looks like an upload inside another step's `with:` text is not an upload step
+        sneaky = ("      - name: Tweak\n        uses: actions/github-script@v7\n        with:\n          script: |\n"
+                  "            rm -rf StrykerOutput\n            uses: actions/upload-artifact@v4\n")
+        self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", sneaky + "      - uses: actions/upload-artifact@v4\n")))
         # the same name twice
         self.assertTrue(self._forces(e("      - uses: actions/upload-artifact@v4\n", step + step + "      - uses: actions/upload-artifact@v4\n")))
         # the real workflow's logs steps are harmless in both jobs (they are in it already: removing one is harmless, too)
@@ -279,6 +283,24 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(2, wf.count("name: Upload the Stryker logs"))
         removed = wf.replace(wf[wf.index("      - name: Upload the Stryker logs"):wf.index("          if-no-files-found: warn\n", wf.index("      - name: Upload the Stryker logs")) + len("          if-no-files-found: warn\n")], "", 1)
         self.assertFalse(self._forces(removed, wf))
+
+    def test_the_early_stop_limit_matches_each_jobs_timeout(self):
+        # run_stryker.sh assumes 350 min unless G3_LIMIT_SECONDS says otherwise: a job with a shorter timeout must say so
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        jobs = re.split(r"\n  (?=[a-z-]+:\n)", wf)
+        checked = 0
+        for job in jobs:
+            m = re.search(r"timeout-minutes:\s*(\d+)", job)
+            if not m or "run_stryker.sh" not in job:
+                continue
+            checked += 1
+            limit = re.search(r"G3_LIMIT_SECONDS:\s*'?(\d+)", job)
+            minutes = int(m.group(1))
+            if minutes != 350:
+                self.assertIsNotNone(limit, "a job with timeout-minutes %d needs G3_LIMIT_SECONDS" % minutes)
+                self.assertEqual(minutes * 60, int(limit.group(1)))
+        self.assertEqual(2, checked)
 
     def test_yaml_anchors_aliases_and_merge_keys_force_a_full_run(self):
         e = self._edit
