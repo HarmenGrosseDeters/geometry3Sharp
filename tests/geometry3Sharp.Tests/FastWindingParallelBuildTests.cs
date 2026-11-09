@@ -84,14 +84,13 @@ namespace geometry3Sharp.Tests
         [InlineData(ExactMeshBoolean.Operations.Difference)]
         public void OpenInputs_ParallelEqualsSerial_Repeated(ExactMeshBoolean.Operations op)
         {
-            // both inputs open: two winding trees, built concurrently
-            DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 0.5);
+            // A open (its winding tree is built in classify), B closed
+            DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 2);
+            Assert.True(b.IsClosed());
             ExactMeshBoolean serial = null;
             PlainRecursion(() => { serial = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op); serial.Compute(); });
             Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, serial.Status);
-            // (the intersection of these two open spheres comes out empty, on master too: reported separately)
-            if (op != ExactMeshBoolean.Operations.Intersection)
-                Assert.True(serial.Result.TriangleCount > 0);
+            Assert.True(serial.Result.TriangleCount > 0);
             for (int run = 0; run < 2; ++run) {
                 var parallel = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
                 parallel.Compute();
