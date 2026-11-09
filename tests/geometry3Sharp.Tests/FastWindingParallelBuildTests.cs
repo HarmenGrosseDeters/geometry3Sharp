@@ -78,6 +78,30 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void TwoOpenInputs_TreesBuiltConcurrently_EachItsOwn()
+        {
+            // both inputs open: classify builds their two trees concurrently; each stored tree is the one of its mesh and
+            // gives what a tree built afresh from that mesh gives, bit for bit
+            DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 0.5);
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute(), op.Error);
+            Assert.False(op.ExactWindingA || op.ExactWindingB);
+            DMeshAABBTree3 ta = op.StoredWindingTree(0), tb = op.StoredWindingTree(1);
+            Assert.NotNull(ta);
+            Assert.NotNull(tb);
+            Assert.NotSame(ta.Mesh, tb.Mesh);
+            Assert.Equal(a.TriangleCount, ta.Mesh.TriangleCount);
+            Assert.Equal(b.TriangleCount, tb.Mesh.TriangleCount);
+            Vector3d[] p = Points();
+            foreach (DMeshAABBTree3 t in new[] { ta, tb }) {
+                double[] fresh = null;
+                PlainRecursion(() => fresh = Winding(t.Mesh, p));
+                for (int i = 0; i < p.Length; ++i)
+                    Assert.True(BitConverter.DoubleToInt64Bits(fresh[i]) == BitConverter.DoubleToInt64Bits(t.FastWindingNumber(p[i])), $"point {i}");
+            }
+        }
+
         [Theory]
         [InlineData(ExactMeshBoolean.Operations.Union)]
         [InlineData(ExactMeshBoolean.Operations.Intersection)]

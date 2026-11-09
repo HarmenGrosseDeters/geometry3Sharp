@@ -1145,6 +1145,12 @@ namespace g3
             return tree;
         }
 
+        // the stored winding tree of an open mesh after Compute, null if none (FastWindingParallelBuildTests)
+        internal DMeshAABBTree3 StoredWindingTree(int mesh)
+        {
+            return windingTrees.TryGetValue(mesh, out DMeshAABBTree3 tree) ? tree : null;
+        }
+
         // a tree with its fast-winding cache built (reads only the mesh: safe to call concurrently for different meshes)
         DMeshAABBTree3 new_winding_tree(int mesh)
         {
