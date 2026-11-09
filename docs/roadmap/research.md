@@ -24,6 +24,25 @@ Part of the [roadmap](../ROADMAP.md).
      pattern, bit-identical); after the boolean queue and Lévy phase 2. Internal callers are switched only where the
      spatial-structure profile shows serial loops over single queries that pay (repair volume check, MaxDeviation /
      IsWithin, fidelity metrics, deviation maps).
+     Status 2026-11-09: stage 2 merged (#448, fb114adf): `MeshBatchQueries.IntersectBatch` / `AnyHitBatch` /
+     `IsInsideBatch` (crossings or winding number) / `NearestPointBatch`, bit-identical to the single calls (48 tests;
+     benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
+     (a new session after Lévy phase 2):
+     - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
+       single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
+       `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,
+       `TerrainSafety`, `TerrainOffset`, `AlphaWrapQualityPass`, `MeshRepairOrientation` (the ray time of the repair, 6-7 % of its CPU
+       time in the Q2/Q3 measurement) and `MeshRepairMetrics`. Switch a caller only for a serial loop over many independent
+       queries; a loop that already runs in parallel gains nothing (the batch is parallel itself), and a batch of fewer than
+       about 1000 queries is not sorted.
+     - Results do not depend on order, options or threads, so a switch keeps a caller's output bit for bit. One caveat:
+       `FindNearestTriangle` picks among equidistant triangles (a point on a vertex or an edge) by traversal order, which
+       is not 2^k-scale invariant; the batch inherits that, so a caller must not rely on which one.
+     - Not done, by owner decision or dependency: `Span` overloads (owner, later: `ReadOnlySpan<Ray3d>` / `Span<RayHit>`
+       under `#if NET`; the core uses closures in the parallel part, which cannot capture a span, so it needs an array or
+       pointer core or a copy), the early-out any-hit (needs `DMeshAABBTree3` internals: after the Lévy phase-2 change to
+       its cache), all-hits (`FindAllHitTriangles`), `MaxDegreeOfParallelism` (`gParallel.ForRange` has none), the CLI /
+       MCP commands `raycast` and `inside` (shape in docs/design/BATCH_QUERIES.md section 5; with the CLI / MCP update).
   2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
      provably correct; Unity, robotics, simulation; nothing comparable in .NET.
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value

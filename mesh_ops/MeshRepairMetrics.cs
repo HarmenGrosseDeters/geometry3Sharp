@@ -150,6 +150,9 @@ namespace gs
             missing = extra = 0;
             if (input.TriangleCount == 0)
                 return 0;
+            double scale = normalizing_scale(input, result);
+            if (scale != 1)
+                return VolumeIoU(scaled(input, scale), scaled(result, scale), out missing, out extra, samples, seed);
             // the solid the solidify fallback sees: inside-out inputs (winding number -1 inside) count as
             // their solid, not as none
             input = WindingContouring.OrientedCopy(input);
@@ -269,6 +272,69 @@ namespace gs
         }
 
         /// <summary>
+        /// The power of two that brings the extent of the triangles of a and b into [2^-300, 2^300] when it lies outside,
+        /// otherwise 1. The volume checks compute volumes (the cube of the extent overflows above about 5e102 and
+        /// underflows below about 1e-103) and far points at a few times the extent. Outside that range their IoU was
+        /// NaN, which passed as "no solid" (a result that lost most of a solid of size 1e160 was accepted), and near
+        /// 1e308 the far points were infinite and the exact predicates threw. Scaling by a power of two is exact (the
+        /// same inside decisions, the same IoU as at the scaled size; the checks give the same IoU for 2^k scales),
+        /// except for coordinates that become subnormal (below about 2^-1322 times the extent). 1 if a bound is not
+        /// finite (a NaN coordinate may not show in the bounds; it stays NaN), or if scaling up would make the
+        /// coordinates not finite (a tiny extent far from the origin).
+        /// </summary>
+        internal static double normalizing_scale(DMesh3 a, DMesh3 b)
+        {
+            AxisAlignedBox3d box = TriangleBounds(a);
+            if (b != null && b.TriangleCount > 0)
+                box.Contain(TriangleBounds(b));
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            double low = BitConverter.Int64BitsToDouble((long)(1023 - 300) << 52), high = BitConverter.Int64BitsToDouble((long)(1023 + 300) << 52);
+            if (ext >= low && ext <= high)
+                return 1;
+            // (an extent that overflows: the largest coordinate's exponent)
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // as little as needed: the extent into [2^299, 2^300) or [2^-300, 2^-299), so small parts far from the large
+            // ones keep their coordinates normal (scaled to [1, 2), a unit sphere next to a part of size 1e308 became
+            // subnormal and lost its shape)
+            int k = exponent(r);
+            int e = k > 0 ? 299 - k : -300 - k;
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+            // (scaling up a tiny extent far from the origin, eg x = 2^1000 with an extent of 2^-400 in y, would overflow the
+            // coordinates; scaling down never does, also for a mesh far from the origin; the margin of 2^6 keeps the far
+            // points of the exact winding finite)
+            if (s > 1 && !(largest * s <= double.MaxValue / 64))
+                return 1;
+            return s;
+        }
+
+        // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
+        static int exponent(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0)
+                return e - 1023;
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);    // 2^64 (subnormal: exact)
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        // a copy with every coordinate times s (a power of two)
+        static DMesh3 scaled(DMesh3 mesh, double s)
+        {
+            if (mesh == null)
+                return null;
+            var m = new DMesh3(mesh);
+            foreach (int v in m.VertexIndices())
+                m.SetVertex(v, s * m.GetVertex(v));
+            return m;
+        }
+
+        /// <summary>
         /// VolumeIoUAtLeast of the solids of input and result (result: SolidReference.Unoriented, as SolidInside). If
         /// both meshes are winding-closed, the samples are drawn only from the cells near the surfaces
         /// (VolumeSampleCells), and the cells known to be inside a solid count with their exact volume; otherwise
@@ -280,6 +346,10 @@ namespace gs
             iou = 0;
             if (input.Mesh.TriangleCount == 0)
                 return iou >= minIoU;
+            double scale = normalizing_scale(input.Mesh, result.Mesh);
+            if (scale != 1)
+                return VolumeIoUAtLeast(SolidReference.Unoriented(scaled(input.Mesh, scale)), SolidReference.Unoriented(scaled(result.Mesh, scale)),
+                    minIoU, out iou, samples, seed, z, stats, useCells, childBudget);
             var timer = System.Diagnostics.Stopwatch.StartNew();
             bool atLeast;
             if (useCells && result.Mesh.TriangleCount > 0 && input.WindingClosed && result.WindingClosed) {

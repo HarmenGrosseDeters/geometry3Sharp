@@ -583,6 +583,24 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Repair_DiagonalOverflows_FailsWithTheReason()
+        {
+            // a unit sphere and a sliver whose corners span about 2e308: the diagonal is not finite. The repair fails and
+            // says why (before: an ArgumentException from the exact predicates)
+            string input = m.Path_("huge_extent.g3mesh"), output = m.Path_("huge_extent_repaired.g3mesh");
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 5 }.Generate().MakeDMesh();
+            var far = new Vector3d(1e308, 1e307, -1.3e308);
+            int a = mesh.AppendVertex(far), b = mesh.AppendVertex(far + new Vector3d(1e290, 0, 0));
+            int c = mesh.AppendVertex(new Vector3d(-far.x, 0.999999 * far.y, -far.z));
+            mesh.AppendTriangle(a, b, c);
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(input, mesh, WriteOptions.Defaults).code);
+            var (exit, r) = Run("repair", input, output);
+            AssertError(exit, r, ResultCodes.OperationFailed);
+            Assert.Contains("scale not finite", S(r["message"]));
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
         public void Resolve_RoundingTolerances_AtUtmCoordinates()
         {
             string input = UtmCluster();

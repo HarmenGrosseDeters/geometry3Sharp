@@ -573,6 +573,15 @@ J. R. Shewchuk 1997 (see above); results only, no code.
   3.1. Paper-only mathematical source for the `LinearEdges` adapter and
   `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.
 
+## FPTaylor setup (test/tool only)
+
+[tools/FPTaylorPilot](../tools/FPTaylorPilot/README.md) installs FPTaylor b5a77cae (MIT) from its
+[official repository](https://github.com/soarlab/FPTaylor) for local analysis. It uses OCaml 4.14.2 and
+Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime dependencies; these are not
+ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
+Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
+FM 2015. The smoke example does not certify any geometry predicate.
+
 ## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
 
 [ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) and [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (the
@@ -580,3 +589,18 @@ mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
 (MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
 LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
 ported into geometry3Sharp and no dependency is added to the library package.
+
+## Batch ray and point queries (design note; the library PR follows)
+
+Design references of [BATCH_QUERIES.md](design/BATCH_QUERIES.md); papers only, no code read or ported (Embree, Apache-2.0,
+not read). The planned `MeshBatchQueries` runs the existing single queries in Morton-sorted order, in parallel.
+
+| Topic | Source |
+|---|---|
+| Coherent ray packets | I. Wald, P. Slusallek, C. Benthin, M. Wagner, *Interactive Rendering with Coherent Ray Tracing*, Computer Graphics Forum 20(3), 2001, [doi:10.1111/1467-8659.00508](https://doi.org/10.1111/1467-8659.00508) |
+| Ray groups (beams) | A. Reshetov, A. Soupikov, J. Hurley, *Multi-level ray tracing algorithm*, ACM TOG 24(3), 2005, [doi:10.1145/1073204.1073329](https://doi.org/10.1145/1073204.1073329); the method is patented by Intel (US 7,755,628, expired), and is not implemented |
+| Wide BVH for incoherent rays | H. Dammertz, J. Hanika, A. Keller, *Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays*, Computer Graphics Forum 27(4), 2008, [doi:10.1111/j.1467-8659.2008.01261.x](https://doi.org/10.1111/j.1467-8659.2008.01261.x) |
+| Ray sorting | K. Garanzha, C. Loop, *Fast Ray Sorting and Breadth-First Packet Traversal for GPU Ray Tracing*, Computer Graphics Forum 29(2), 2010, [doi:10.1111/j.1467-8659.2009.01598.x](https://doi.org/10.1111/j.1467-8659.2009.01598.x) |
+| CPU ray tracing kernels, survey | I. Wald, S. Woop, C. Benthin, G. S. Johnson, M. Ernst, *Embree*, ACM TOG 33(4), 2014, [doi:10.1145/2601097.2601199](https://doi.org/10.1145/2601097.2601199); D. Meister et al., *A Survey on Bounding Volume Hierarchies for Ray Tracing*, Computer Graphics Forum 40(2), 2021, [doi:10.1111/cgf.142662](https://doi.org/10.1111/cgf.142662) |
+| Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
+| Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
