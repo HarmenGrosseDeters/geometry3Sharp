@@ -251,12 +251,11 @@ No change to existing public types except additive members of `Delaunay3` (secti
 **MVP estimate: about 3 weeks (stage 0 + 1), 4-5 weeks with sliver removal.** Sonnet takes the bounded parts (quality
 measures, benchmark, writers, oracle); the termination / rounding argument and the reviews stay on the large model.
 
-Owner decisions:
-1. Accept (a) as the first release, with its surface being the **wrap** (not the input), or require input-exact
-   boundaries (then (b), months)?
-2. Stage 0 now as a cheap probe (2-3 days) before the rest is committed? Its numbers decide stage 1.
-3. Sliver strategy for stage 2: topological flips + smoothing (recommended, `Orient3d` only) or weighted-Delaunay
-   exudation (provable but needs a new power predicate and a regular-triangulation kernel).
-4. Quality targets T3-T5, especially the dihedral goal (10 degrees assumed).
-5. New public types `TetMesh3` / `TetMeshQuality` in this form; additive members on `Delaunay3`.
-6. Add (d) lattice stuffing later as an independent implicit-domain alternative?
+Owner decisions (2026-11-09, relayed by the coordinator):
+1. **Option (a)**, alpha wrap + Delaunay refinement inside; the wrap surface is the boundary (documented distance
+   `Offset` .. `Offset + Alpha` to the input).
+2. **Stage 0 starts now** as a probe; its measurements replace the planning numbers of this note.
+3. Sliver strategy: topological flips + smoothing (planning decision, to be confirmed with the stage-0 numbers).
+4. Quality targets T3-T5 as proposed, minimum dihedral 10 degrees (planning, to be confirmed with stage 0).
+5. New types `TetMesh3` / `TetMeshQuality`, `Delaunay3` only additive (planning, to be confirmed with stage 0).
+6. **(d) lattice stuffing later** as an alternative for implicit domains.
