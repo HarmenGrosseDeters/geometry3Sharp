@@ -716,6 +716,22 @@ Looked at in this round, not changed:
   constructions of the same point) and of cocircular points in the triangulation.
 - **Cold runs** still take about 3 times as long as warm ones (see above; an application setting, not the library).
 
+### Devillers-Guigue prefilter (November 2026)
+
+The arrangement decides candidate pairs whose triangles strictly straddle each other's plane from two more `Orient3d`
+(docs/design/TRITRI_PREFILTER.md) before it constructs any point. Master against master + the prefilter, 5 slow
+Thingi10K cohort models × 3 operations, 4 cores, best of 2 rounds, all result hashes identical
+(`perf/tritri_prefilter_2026-11-08.jsonl`):
+
+| | master | prefilter |
+|---|---|---|
+| total | 154.1 s | 120.7 s (−21.7 %) |
+| `intersections.intersect` | 34.8 s | 5.5 s (−84.1 %) |
+| operations over 5 s | 10 | 7 |
+| 1517923 (union / intersection / difference) | 9.9 / 7.0 / 7.6 s | 6.8 / 4.4 / 5.1 s |
+| 668056 / 668057 union | 6.5 / 6.0 s | 4.9 / 5.1 s |
+| 519511 union | 36.4 s | 28.4 s |
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,

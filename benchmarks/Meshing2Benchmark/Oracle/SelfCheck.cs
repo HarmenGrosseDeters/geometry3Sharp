@@ -163,6 +163,20 @@ namespace Meshing2Acceptance
         {
             var items = new List<Item>();
             void Must(string name, bool ok, string detail = null) => items.Add(new Item { Name = name, Passed = ok, Detail = ok ? null : detail ?? "failed" });
+            foreach (string index in new[] { "strtree", "strtree-hulls" }) {
+                Must("conformity index " + index + ": default indexed", Oracle.UseConformityIndex(true, null, index));
+                Must("conformity index " + index + ": explicit indexed", Oracle.UseConformityIndex(true, index, index));
+                Must("conformity index " + index + ": explicit sweep", !Oracle.UseConformityIndex(true, "sweep", index));
+                Must("conformity index " + index + ": reference default sweep", !Oracle.UseConformityIndex(false, null, index));
+                Must("conformity index " + index + ": reference ignores index", !Oracle.UseConformityIndex(false, index, index));
+                // set but empty or blank is unset; case and blanks around the value do not matter
+                Must("conformity index " + index + ": empty is default", Oracle.UseConformityIndex(true, "", index) && Oracle.UseConformityIndex(true, "  ", index));
+                Must("conformity index " + index + ": case-insensitive", Oracle.UseConformityIndex(true, index.ToUpperInvariant(), index) && !Oracle.UseConformityIndex(true, " Sweep ", index));
+                bool rejected = false;
+                try { Oracle.UseConformityIndex(true, "unknown", index); }
+                catch (InvalidOperationException ex) { rejected = ex.Message.Contains("'unknown'") && ex.Message.Contains(index) && ex.Message.Contains("sweep"); }
+                Must("conformity index " + index + ": reject unknown", rejected);
+            }
             void Accept(string name, Mesh2Input input, Mesh2Output o, OracleExpect e)
             {
                 var report = Oracle.Check(input, o, e);
@@ -1210,23 +1224,74 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 must(what, report.Has(Violation.AngleBelowBound) != excused, "report: " + report);
             }
-            // 5d. the piece's own chain at the candidate: the input segment (2, 10.3)-(9, 12.7) snaps to (2, 10)-(9, 13); a vertex at (3, 10)
-            //     in its envelope ends a subsegment to (3, 11), also in the envelope (its own chain by the oracle's attribution). The
-            //     candidate stays demanded, so the skinny triangle (2, 10), (9, 13), (5, 12) is judged; counting that subsegment as another
-            //     chain's would excuse it (found by a search over such layouts, against the oracle with the attribution dropped)
-            {
-                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 2, 10.3, 9, 12.7, 5, 12 };
+            // 5d. the piece's own chain is the stretch of the output's subsegment graph through non-hot degree-2 vertices (OwnStretch),
+            //     not the subsegments in the input segment's envelope. The piece (3, 13)-(9, 13) of an input segment along y = 13 has one
+            //     candidate, (6, 13) (a vertex there blocks the others, as in 5c); the skinny triangle (3, 13), (9, 13), (5, 14) is judged
+            //     when the candidate stays demanded. Chain layouts (hot ends (0, 13) / (15, 13) or a second input segment):
+            //       own-b     the chain runs on from the piece's end (9, 13) through (10, 13) and back through (6, 13): the subsegment at
+            //                 the candidate is the piece's own, the candidate stays demanded
+            //       other     the chain ends at the hot pixel (12, 13); a second input segment (12, 13)-(0, 13.3), also within a pixel
+            //                 along the piece, runs on through a vertex at (6, 13): another chain's (the envelope approximation counted it
+            //                 as the piece's own), the candidate is excluded, the angle excused
+            //       branch    as own-b with a third subsegment at (10, 13): the stretch ends at the branching vertex, so what lies beyond
+            //                 is another chain's, excused
+            //     Each of the dropped pieces of OwnStretch (the walk from either end, the hot-pixel stop, the degree test) flips one
+            foreach (var (kind, excused, what) in new[] {
+                ("own-b", false, "grid split: a candidate where only the piece's own chain (its stretch of the graph) ends stays demanded"),
+                ("other", true, "grid split: a candidate where a chain beyond a hot pixel ends, within the envelope of the piece, is another chain's: excused"),
+                ("branch", true, "grid split: a candidate beyond a branching vertex of the graph is another chain's: excused") }) {
+                bool second = kind == "other";
+                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 3, 13, 12, 13, 5, 14 };
+                if (second) xy.AddRange(new[] { 0.0, 13.3 });
                 var input = Points(xy.ToArray());
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
                 input.Segments.Add(new SegmentInput(4, 5));
+                if (second) input.Segments.Add(new SegmentInput(5, 7));
                 input.SnapTolerance = 1; input.MinAngleDeg = 20;
-                var vx = new[] { 0.0, 24, 24, 0, 2, 9, 5, 3, 3 }; var vy = new[] { 0.0, 0, 24, 24, 10, 13, 12, 10, 11 };
-                var tri = new[] { new[] { 4, 5, 6 } };
-                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
-                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 },
-                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, 5), new SubsegmentOutput(7, 8) } };
+                var vx = xy.Where((_, i) => i % 2 == 0).ToList(); var vy = xy.Where((_, i) => i % 2 == 1).ToList();
+                if (second) vy[7] = 13;
+                // 4 and 5: the input segment's ends, 6: the apex, then the vertices of refinement on y = 13
+                int Add(double x, double y) { vx.Add(x); vy.Add(y); return vx.Count - 1; }
+                int a = 4, m = Add(9, 13), c = Add(6, 13), x2 = Add(10, 13);
+                var subs = new List<SubsegmentOutput>();
+                switch (kind) {
+                    case "own-b": case "branch": subs.AddRange(new[] { new SubsegmentOutput(a, m), new SubsegmentOutput(m, x2), new SubsegmentOutput(x2, c), new SubsegmentOutput(c, 5) }); break;
+                    default: subs.AddRange(new[] { new SubsegmentOutput(a, m), new SubsegmentOutput(m, 5), new SubsegmentOutput(5, c), new SubsegmentOutput(c, 7) }); break;
+                }
+                if (kind == "branch") { int y2 = Add(10, 20); subs.Add(new SubsegmentOutput(x2, y2)); }
+                var tri = new[] { new[] { a, m, 6 } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx.ToArray(), VY = vy.ToArray(), InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 }, Subsegments = subs };
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-                must("grid split: a candidate where only the piece's own chain ends stays demanded", report.Has(Violation.AngleBelowBound), "report: " + report);
+                must(what, report.Has(Violation.AngleBelowBound) != excused, kind + " report: " + report);
+            }
+            // 5d'. OwnStretch on a graph, from either end of the piece (the orientation in which the call site passes it is not under the
+            //      check's control): a path 10 - 11 - 12 - 13 - 14 - 15 with the piece 12-13; 10 and 15 hot: the stretch is the whole path;
+            //      a hot 11 cuts it at 11 (11-12 stays: the stretch reaches the hot vertex, not beyond); a branch at 14 (14-20) cuts at 14;
+            //      the same with the roles of the piece's ends swapped
+            {
+                Dictionary<int, List<int>> Graph(params (int, int)[] edges)
+                {
+                    var g = new Dictionary<int, List<int>>();
+                    foreach (var (a, b) in edges) {
+                        if (!g.TryGetValue(a, out var la)) g[a] = la = new List<int>(); la.Add(b);
+                        if (!g.TryGetValue(b, out var lb)) g[b] = lb = new List<int>(); lb.Add(a);
+                    }
+                    return g;
+                }
+                long K(int a, int b) => Oracle.SubsegmentKey(a, b);
+                var path = Graph((10, 11), (11, 12), (12, 13), (13, 14), (14, 15));
+                var branch = Graph((10, 11), (11, 12), (12, 13), (13, 14), (14, 15), (14, 20));
+                foreach (var (ia, ib) in new[] { (12, 13), (13, 12) }) {
+                    var all = Oracle.StretchOfForSelfCheck(ia, ib, path, x => x == 10 || x == 15);
+                    must("stretch: the whole path between two hot vertices, from either end, piece " + ia + "-" + ib, all.SetEquals(new[] { K(10, 11), K(11, 12), K(12, 13), K(13, 14), K(14, 15) }), "stretch " + all.Count);
+                    var cut = Oracle.StretchOfForSelfCheck(ia, ib, path, x => x == 11);
+                    must("stretch: a hot vertex ends the walk (its subsegment stays in), from either end, piece " + ia + "-" + ib, cut.SetEquals(new[] { K(11, 12), K(12, 13), K(13, 14), K(14, 15) }), "stretch " + cut.Count);
+                    var br = Oracle.StretchOfForSelfCheck(ia, ib, branch, x => x == 10 || x == 15);
+                    must("stretch: a branching vertex ends the walk (its two path subsegments stay in), from either end, piece " + ia + "-" + ib, br.SetEquals(new[] { K(10, 11), K(11, 12), K(12, 13), K(13, 14) }), "stretch " + br.Count);
+                }
+                var ring = Graph((1, 2), (2, 3), (3, 4), (4, 1));
+                must("stretch: a closed cycle of degree-2 vertices ends (no endless walk)", Oracle.StretchOfForSelfCheck(1, 2, ring, x => false).Count == 4, "ring");
             }
             // 7. a subsegment with no split point on the grid excuses only itself and what it hides, never an unconstrained edge of a
             //    triangle next to it (review of #277: the exemption had covered every edge of such a triangle). Here (5, 5)-(6, 6) at pixel

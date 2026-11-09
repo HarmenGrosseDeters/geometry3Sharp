@@ -167,17 +167,19 @@ namespace geometry3Sharp.Tests
             Assert.Contains(log, l => l.Exempt && (l.U == apex || l.W == apex));
         }
 
-        /// <summary> the conforming mode is unchanged: no exemption, the same mesh as without the rule </summary>
+        /// <summary>
+        /// the conforming mode on the snap grid has rule C too (MESHING2D_SMALL_ANGLES_CONFORMING.md section 8; it was off there until the
+        /// oracle's pinch rule judged chain identity): exemptions are logged, and the mesh is another one than without the rule, with fewer triangles
+        /// </summary>
         [Fact]
-        public void ConformingMode_IsUnchanged()
+        public void ConformingModeOnTheGrid_HasTheRule()
         {
-            var input = QualityMesh2SmallAngleRuleTests.HullWedge(25, 5.0);
+            var input = QualityMesh2SmallAngleRuleTests.HullWedge(25, 5.0, 1.0 / 256);
             input.ConstrainedQuality = false;
             var log = Log(input, out var on);
-            Assert.DoesNotContain(log, l => l.Exempt);
+            Assert.Contains(log, l => l.Exempt);
             Log(input, out var off, exemption: false);
-            Assert.Equal(off.VX, on.VX);
-            Assert.Equal(off.Triangles.SelectMany(t => t), on.Triangles.SelectMany(t => t));
+            Assert.True(on.Triangles.Length < off.Triangles.Length, on.Triangles.Length + " against " + off.Triangles.Length);
         }
 
         /// <summary> how two closed segments meet, exactly: a shared endpoint, a T-junction, a crossing, and three that do not meet </summary>

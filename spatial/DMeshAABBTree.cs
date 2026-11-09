@@ -131,6 +131,8 @@ namespace g3
             else if (eStrategy == BuildStrategy.Default)
                 build_top_down(false);
             mesh_timestamp = mesh.ShapeTimestamp;
+            box_eps = ComputeBoxPadding(mesh.TriangleCount == 0 ? Vector3d.Zero : box_centers[root_index],
+                                        mesh.TriangleCount == 0 ? Vector3d.Zero : box_extents[root_index]);
         }
 
 
@@ -1762,23 +1764,26 @@ namespace g3
             Vector3d[] centers = new Vector3d[mesh.TriangleCount];
             foreach ( int ti in mesh.TriangleIndices()) {
                 Vector3d centroid = mesh.GetTriCentroid(ti);
-                double d2 = centroid.LengthSquared;
-                bool bInvalid = double.IsNaN(d2) || double.IsInfinity(d2);
-                Debug.Assert(bInvalid == false);
+                // (each coordinate: the squared length overflowed for finite centroids above about 1e154, and every
+                // triangle of such a mesh was skipped)
+                bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                    && Math.Abs(centroid.z) <= double.MaxValue);
                 if (bInvalid == false) {
                     triangles[i] = ti;
-                    centers[i] = mesh.GetTriCentroid(ti);
+                    centers[i] = centroid;
                     i++;
                 } // otherwise skip this tri
             }
+            // (the triangles kept: before, the skipped ones' slots were split too, as triangle 0 at the origin)
+            int count = i;
 
             boxes_set tris = new boxes_set();
             boxes_set nodes = new boxes_set();
             AxisAlignedBox3d rootBox;
             int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);    // a set is a leaf if its count is below this; below 2 the split never ends
             int rootnode = (bSorted) ?
-                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox)
-                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox);
+                split_tri_set_sorted(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox)
+                : split_tri_set_midpoint(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox);
 
             box_to_index = tris.box_to_index;
             box_centers = tris.box_centers;
@@ -1930,9 +1935,13 @@ namespace g3
                     // [RMS] is <= right here? if v.axis == midpoint, then this loop
                     //   can get stuck unless one of these has an equality test. But
                     //   I did not think enough about if this is the right thing to do...
-                    while (centers[iStart + l][axis] <= midpoint)
+                    // (bounded: when the extremes are adjacent doubles, the midpoint can round to the larger one, so
+                    // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
+                    while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
-                    while (centers[iStart + r][axis] > midpoint)
+                    // (r >= 0 is a guard only: every center above the midpoint would need a midpoint of -infinity, and
+                    // finite centroids, a third of a finite sum, cannot overflow a + b)
+                    while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)
                         break;      //done!
@@ -1943,7 +1952,13 @@ namespace g3
 
                 n0 = l;
                 n1 = iCount - n0;
-                Debug.Assert(n0 >= 1 && n1 >= 1);
+                // a side left empty (every center on one side of the rounded midpoint): half and half, as for a
+                // near-empty interval (before, the same set recursed with the next axis, without end on all three:
+                // a stack overflow)
+                if (n0 < 1 || n1 < 1) {
+                    n0 = iCount / 2;
+                    n1 = iCount - n0;
+                }
             } else {
                 // interval is near-empty, so no point trying to do sorting, just split half and half
                 n0 = iCount / 2;
@@ -2387,7 +2402,26 @@ namespace g3
         // Boxes are stored in double precision: with float boxes, meshes far from the origin (eg UTM
         // coordinates, where float resolution is ~0.5m) had boxes that did not contain their triangles,
         // so ray casts and nearest-point queries missed them.
-        const double box_eps = 50.0 * MathUtil.Epsilonf;
+        // The padding of every box (stored boxes are tight; queries use them padded by this, so the rounding of c +- e
+        // can never make a box miss a triangle). It is proportional to the larger of the size of the mesh and its
+        // distance from the origin, 2^-40 of it (thousands of units in the last place), so that scaling a mesh by a
+        // power of two scales the padding exactly and a query gives the same answer bit for bit: a fixed padding
+        // (50 * Epsilonf) changed the order in which the boxes of a nearest-point query are visited, and with it the
+        // triangle that wins a tie. It also stays far below the detail of the mesh (a padding of a fraction of the
+        // size would make the boxes of a fine part of a large scene overlap, and the queries slow). Coordinates so
+        // large that their sum overflows get the fixed padding (too small there, as before).
+        double box_eps = 50.0 * MathUtil.Epsilonf;
+
+        // the padding for a root box with this center and half extents (see box_eps)
+        internal static double ComputeBoxPadding(Vector3d rootCenter, Vector3d rootExtent)
+        {
+            double size = 2 * Math.Max(rootExtent.x, Math.Max(rootExtent.y, rootExtent.z));
+            double far = Math.Max(Math.Abs(rootCenter.x) + rootExtent.x, Math.Max(Math.Abs(rootCenter.y) + rootExtent.y, Math.Abs(rootCenter.z) + rootExtent.z));
+            double m = Math.Max(size, far);
+            if (!(m < double.MaxValue) || !(m > 0))
+                return 50.0 * MathUtil.Epsilonf;
+            return m * 9.0949470177292824e-13;      // 2^-40
+        }
 
         // float box for the public TreeTraversal.NextBoxF; rounded outwards so it contains the double box
         AxisAlignedBox3f get_box(int iBox)

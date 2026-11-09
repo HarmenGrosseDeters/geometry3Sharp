@@ -11,12 +11,20 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
-| `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
+| `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length; `--partitioned` (target `--max-error`): 8 slabs reduced in parallel and stitched, the same result for every `--threads` (`used_partition`) | `Reducer`, `PartitionedReducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
 | `slope` | slope design from toe lines (GeoJSON) to a terrain (a TIN mesh file): cut, fill or mixed (`--direction auto`), never steeper than the given slopes (every triangle checked exactly); the composite terrain or only its replacement, the slope surface and region, catch lines and target-height level lines (GeoJSON), cut / fill volumes and areas; `--local-frame` for finer guaranteed features at UTM (local outputs plus `used_origin`) | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
+| `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
+| `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
+| `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
+| `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
+| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings or winding number); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
+| `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
+| `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
+| `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 
 ## Build and run
 
@@ -133,6 +141,54 @@ g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --cat
 g3cli slope dgm_tin.ply dump_toe.geojson dump_part.g3mesh --tolerance 0.05 --direction fill --composite replacement --target-heights 120,110 --target-lines benches.geojson
 # at UTM: compute in a local frame (outputs local; add used_origin to x and y)
 g3cli slope dgm_tin.ply pit_toe.geojson pit_local.g3mesh --tolerance 0.05 --local-frame
+
+# fidelity of a simplified mesh against the original (sampled with a fixed seed, so reproducible; distances are relative to "size")
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [0.93, 0.99, 1.0], "chamfer": 0.0007, "normal_consistency": 0.98, "edge_recall": [...], "volume_iou": 0.996,
+#      "outer": {...}, "curvature": {...}, "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvature --seed 7
+# in the result: distances and lengths are relative to "size" (mesh units), curvatures are H*size and K*size^2, angles in degrees;
+# null = not available (NaN), the string "infinity" = infinite (eg edge_chamfer if only one mesh has sharp edges, the aspect ratio of a zero-area triangle)
+
+# quality and topology of one mesh
+g3cli quality part.stl
+#   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
+
+# alpha wrap: a closed, manifold surface around a scan or an assembly of overlapping parts; library defaults without options
+g3cli wrap scan.obj wrapped.stl
+#   -> "wrap_status": "success", "used_alpha": 3.1, "used_offset": 0.1, "mesh": { "closed": true, "clean": true, ... }
+g3cli wrap scan.obj wrapped.stl --alpha 0.5 --offset 0.02 --max-steiner-points 500000
+# "point_limit_reached" is ok with a warning (a valid wrap with less detail); other statuses fail with operation_failed
+
+# simplify a large closed mesh with slabs in parallel (max_error is a squared distance; the result does not depend on --threads)
+g3cli simplify big.ply big_small.ply --max-error 1e-6 --partitioned --threads 4
+#   -> "used_partition": true (false below 20000 triangles: one serial run, with a warning)
+
+# geodesics: distance from vertex 0 (heat method, about 2 % plus half an edge accurate), and a geodesic path between two vertices
+# (vertex ids are 0-based in the order of the mesh as read; the lists are cut at --max-results, the counts are not)
+g3cli geodesic terrain.ply --sources 0 --targets 120,4711
+#   -> "distance_statistics": { "max": ... }, "targets": [ { "vertex": 120, "distance": 41.2 }, ... ]
+g3cli geodesic part.ply --from 12 --to 3401            # or --through 12,800,3401 [--closed]
+#   -> "path_status": "success", "length": 88.3, "path_vertices": [12, 77, 3401], "path": [[x, y, z], ...]
+
+# batch queries: rays 'ox,oy,oz,dx,dy,dz;...', points 'x,y,z;...' (or @file with one entry per line)
+g3cli query3d part.stl --rays "0,0,-10,0,0,1;5,5,-10,0,0,1" --points "0,0,0;50,0,0" --nearest --inside crossings
+#   -> "rays": { "hits": 2, "results": [ { "triangle": 31, "t": 9.5, "point": [...] }, ... ] },
+#      "points": { "inside_count": 1, "results": [ { "point": [...], "nearest": {...}, "inside": "inside" }, ... ] }
+g3cli query3d part.stl --rays @rays.txt --any-hit --max-distance 100
+
+# deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
+g3cli deviation simplified.stl original.stl --certified
+#   -> "vertex_statistics": { "mean": ..., "rms": ..., "max_absolute": ..., "absolute_p95": ... }, "hausdorff_lower_bound": ..., "hausdorff_upper_bound": ...
+
+# wall thickness: triangles thinner than 0.8 (mesh units), by the shape diameter function
+g3cli thickness part.stl --min-thickness 0.8
+#   -> "statistics": { "min": ..., "median": ... }, "thin_triangles": 120, "thin_area_share": 0.03, "thin_triangle_ids": [...]
+
+# primitive fit: a cylinder (a failed fit is operation_failed with "fit_result"), or every primitive for comparison
+g3cli fit pipe.stl --primitive cylinder --inlier-distance 0.05
+g3cli fit unknown.stl --primitive all
+#   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
@@ -257,6 +313,22 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   the meshes, the catch and target lines (whose GeoJSON also carries `used_origin`). Add `used_origin` to x and y for the
   input's frame; that rounds each coordinate by up to half an ulp and is not covered by the exact checks.
   `local_frame_fallback` true: a coordinate could not be translated exactly, and the design ran in the input's frame.
+
+## Result fields of repair, boolean, resolve and mesh2d (additive)
+
+- `boolean` / `resolve`: `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`), `boolean.contacts` (positions where the
+  solid touches itself, or that the rounding made), `boolean.reoriented_triangles` (input triangles flipped to a consistent orientation) and
+  `boolean.counts` (the library's counters, eg `intersecting_pairs`, `points`, `pieces`); these three are `null` in the `boolean` object of a failed call
+  (the library stopped before counting them). A failed call (`operation_failed`) carries
+  `boolean_status`, `boolean_error` (the library's text, eg the defects left and the drift the smallest rejected edit needed with `--strict-rounding`)
+  and the `boolean` object.
+- The SafeRounding repair counts (`boolean.rounding`, `exact_resolve_rounding`, `separated_rounding` of `repair`): also `initial_false_contacts`,
+  `remaining_false_contacts`, `vertex_removals`, `smallest_rejected_drift` (`null`: no edit was rejected by the bound) and `remaining_defect_at`
+  (`[x, y, z]` of an intersection, degenerate triangle or false contact left, `null` if none is left).
+- `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is, or contains, the
+  long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
+- `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
+  triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).
 
 ## MCP server
 

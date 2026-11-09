@@ -1168,7 +1168,7 @@ Two earlier versions on the same 13 meshes (master `3d58441`):
 ## Alpha wrap quality pass (`MeshRobustRepair.AlphaWrapQualityPass`, stage 7b)
 
 The simplified wrap keeps slivers: the `Reducer` stops at needles and caps of about 1.7 degrees.
-`AlphaWrapQualityPass` (on by default) improves its triangles with flips, tangential moves, cap flips and cap splits
+`AlphaWrapQualityPass` (off by default since Alpha Wrap 2.0, see below; `BENCH_WRAP_QUALITY=1`) improves its triangles with flips, tangential moves, cap flips and cap splits
 (at most 5 % more triangles). Every operation is kept only if:
 - each new triangle is certified within 0.95 of half the wrap offset of the unsimplified wrap (`IsWithin` with the
   patch bound);
@@ -1184,7 +1184,8 @@ The angle diagnostics of the result are in `AlphaWrapMinAngleDegrees`, `AlphaWra
 above 170 degrees is kept, and only these fields show it.
 
 Switches:
-- `BENCH_WRAP_QUALITY=0`: turns the pass off.
+- `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
+  `BENCH_WRAP_QUALITY=0` until 2026-11-09).
 - `BENCH_WQ="k=v,..."`: internal variant switches, applied on top of the default settings: `turn`, `follow`,
   `crease`, `worst`, `normals`, `nslack`, `nsamples`, `split`, `capflip`, `pin`, `protect`, `protectflipsonly`,
   `flips`, `moves`, `collapse`, `growth`. `default=0`, given first, resets to the pass's own settings, as for the
@@ -1197,6 +1198,23 @@ Scripts:
 - `paired_fidelity.py base cand --noise out.json`: the #199 gate (5 %) or, with `--noise`, the noise-aware gate:
   worse only by more than max(5 %, the spread).
 - `wrap_quality_acceptance.py base cand`: the angle gates (c1) and (c2).
+
+### Default off (Alpha Wrap 2.0, owner decision 2026-11-08)
+With the simplification's quality guard (`WrapSimplifyMinQuality`, no new triangle below quality 0.3 unless it replaces
+a worse one), the simplified wrap no longer has the caps the pass was made for, and the pass adds little. 30 meshes of
+the 800 sample (`BENCH_REPAIR=wrappipe`, diagonal / 300, / 3000, full fidelity; the 800-mesh confirmation is in the
+PR):
+
+| | pass on | pass without moves | pass off |
+|---|---|---|---|
+| triangles < 0.5° / > 170° | 0 / 0 | 0 / 0 | 0 / 0 |
+| p01 angle, median | 10.67° | 10.59° | 10.52° |
+| max angle, median | 154.3° | 155.2° | 156.2° |
+| triangles > 150° (sum) | 188 | 347 | 299 |
+| F-score 0.1 % / 1 %, IoU (medians) | 0.9888 / 1.0000, 0.9818 | 0.9892 / 1.0000 | 0.9894 / 1.0000, 0.9817 |
+| time, paired median | 1 | 0.83 | **0.71** |
+
+So the pass is off by default (`MeshRobustRepair.AlphaWrapQualityPass = false`); `true` runs it as before.
 
 ### Before/after on the wrap cases (master `237b316` with #311, paired, P=2)
 

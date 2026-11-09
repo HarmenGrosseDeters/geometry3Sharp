@@ -24,9 +24,43 @@ The owner decided:
   `MeshRobustRepair` can run a second repair with a fresh budget: there the total is at most 2 `maxLength`.
 
 **Drift.** Every vertex has a drift d(v), 0 at the start of `Apply`. A proposed edit removes triangles R and adds
-triangles A. Let δ bound how far the edit moves the surface. Applying the edit sets d(v) = max over the vertices u of R
-and A of d(u), plus δ, for every vertex v of R and A. An edit is not applied if any of these drifts would exceed
-`maxLength` = `MaxDisplacement` (1e-5) times the diagonal. `MaxDrift` reports the largest drift reached.
+triangles A. Let δ bound how far the edit moves the surface, and M = max over the vertices u of R and A of d(u).
+Applying the edit sets d(c) = M + δ for its apex c, a vertex of every triangle of A, and keeps every other drift; an
+edit without an apex (a zip, a strip zip of a longer loop, an ear contraction, which adds no triangle) sets
+d(v) = M + δ for every vertex v of R and A (since November 2026, docs/design/ROUNDING_DRIFT_APEX.md; before, every edit
+did). An edit is not applied if M + δ would exceed `maxLength` = `MaxDisplacement` (1e-5) times the diagonal.
+`MaxDrift` reports the largest drift reached.
+
+**Scale (2026-11-08, Exact Boolean 2.0, the far-part defect).** The diagonal in the degenerate area and in
+`maxLength` is that of the largest connected component (vertices joined by triangles), not of the box of all
+triangles; the ulp term is per component, from the largest coordinate of its own triangles. Before, a small part far
+from the rest (a unit tetrahedron 1e8 away from two unit spheres) made the diagonal 1.7e8: every sphere triangle was
+degenerate, the bound 1732, and the union came out empty, reported clean. Edits stay within one component, so the drift
+bound is checked with the edit's component and the theorem below holds per component. Tiny components are still
+removed relative to the largest one (as decided above); the limit of this: a long thin component still sets the
+diagonal for all (a rod of length 1e8 makes a unit part tiny, and it is removed), which D′ accepts. A diagonal that is
+not finite (coordinates that are not, or finite ones whose extent overflows, beyond about 1e154) makes the size NaN
+whatever the order of the components: every edit is rejected, nothing is removed as tiny or thin (an infinite size would
+remove every closed component as tiny), and the repair is not clean (`ScaleNotFinite`). A closed component that the bound takes as thin but that holds
+real volume for its area (`|V| >= 1e-3 A^1.5`; a sphere has 0.094) is never removed: it is kept and counted
+(`ScaleDisparity`), and the repair is not clean. `MeshRobustRepair.NotCleanReason` keeps the box of all triangles, so
+for components far apart compared to their size it can flag triangles that the rounding keeps.
+
+**Degenerate area of components side by side (2026-11-09, the Exact Boolean 2.0 final run).** With the largest
+component's diagonal for every result, pieces close together (the three pieces of an intersection: box diagonal 114,
+largest piece 72) made the degenerate test weaker than `NotCleanReason`'s by (box / largest)^2, and slivers between the
+two areas stayed: 432 of the 16239 Thingi10K target operations were reported clean by the rounding and degenerate by the
+evaluator (#385: 81 unclean in all). Now the degenerate area is relative to the box of all triangles, as the evaluator's,
+unless the components lie far apart (the box's diagonal above 100 times the largest component's), and so are the steps
+that aim at it (the moves of `fix_degenerate` start at the height that area needs; the slivers `strip_around` takes);
+`maxLength`, the tiny test and the area below which a triangle may turn over in an edit keep the largest component's
+diagonal (a box of pieces side by side must not make them coarser: a small real piece would be removed as tiny). The rule without a constant, always the box, was checked on the
+far-part cases (1e4 to 1e12 away): their results were degenerate by the box under either rule, but with it the rounding
+tried to fix every triangle, took seconds instead of tens of milliseconds, and deformed a small far sphere within its ulp
+bound (7e-5 of volume at 1e12). The first threshold, 8 (#474), left 14 target operations degenerate: results
+broken into 29 to 785 fragments, box / largest 8.05 to 15.9 (no part far away). 100 leaves room above them (about 6 times) and
+below the far parts of the tests (box / largest about 430 for a part 1e3 away, `RobustRepairFarPartTests`; about 5e3
+and more from 1e4 on).
 
 **The bounds δ per edit** (proofs in the code comments of `MeshRoundingRepair`):
 
@@ -50,8 +84,9 @@ exact boolean result, the rounding of the vertices adds at most √3/2 ulp.
 - every point of S0 lies within the drift of the vertices of some current triangle.
 
 Each edit moves every point of the triangles it removes to within δ of the triangles it adds, or of a simplex spanned by
-the edit's vertices, and back; the bounds in the table are two-sided. The vertices of those triangles get at least the
-old maximum plus δ, so drifts never decrease, and untouched triangles that share those vertices stay valid.
+the edit's vertices, and back; the bounds in the table are two-sided. Every added triangle has a vertex with at least
+the old maximum plus δ (the apex, or with no apex all of them), so drifts never decrease, and untouched triangles
+that share those vertices stay valid (the lemma of ROUNDING_DRIFT_APEX.md section 3, checked by Z3).
 
 Special case, the ear: a contraction of a vertex with a single triangle adds no triangle. That triangle goes to the edge
 across, which lies in an untouched triangle with both ends among the edit's vertices. Edits never create, merge or split

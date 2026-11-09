@@ -260,6 +260,10 @@ namespace g3
         {
             Vector3d dv = (x - q);
             double len = dv.Length;
+            // q at the dipole itself: the kernel is singular (0 / 0 = NaN), and a point on the sample has no
+            // defined contribution; it adds nothing, so the winding number of the rest is returned
+            if (len == 0)
+                return 0;
             return (xA / MathUtil.FourPI) * xn.Dot(dv / (len * len * len));
         }
 

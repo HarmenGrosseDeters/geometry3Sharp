@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
                 yield return new object[] { f.ToString() };
         }
 
-        static Func<ExactMeshBoolean> Case(string name)
+        internal static Func<ExactMeshBoolean> Case(string name)
         {
             DMesh3 m;
             if (name.StartsWith("utm ")) {

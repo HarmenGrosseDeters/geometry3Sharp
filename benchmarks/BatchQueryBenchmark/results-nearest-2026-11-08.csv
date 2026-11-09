@@ -1,0 +1,29 @@
+# cores=4 rays=65536 points=64000 rounds=3
+mesh,triangles,query,workload,mode,ns/query,Mqueries/s,speedup vs a,check
+sphere,10092,NearestPoint,grid,a-loop-library,6214,0.16,1.00x,ref
+sphere,10092,NearestPoint,grid,b1-library-sorted-serial,6133,0.16,1.01x,equal
+sphere,10092,NearestPoint,grid,b1-library-sorted-parallel,1684,0.59,3.69x,equal
+sphere,10092,NearestPoint,grid-shuffled,a-loop-library,8186,0.12,1.00x,ref
+sphere,10092,NearestPoint,grid-shuffled,b1-library-sorted-serial,5845,0.17,1.40x,equal
+sphere,10092,NearestPoint,grid-shuffled,b1-library-sorted-parallel,1794,0.56,4.56x,equal
+sphere,10092,NearestPoint,random,a-loop-library,7490,0.13,1.00x,ref
+sphere,10092,NearestPoint,random,b1-library-sorted-serial,5957,0.17,1.26x,equal
+sphere,10092,NearestPoint,random,b1-library-sorted-parallel,1755,0.57,4.27x,equal
+sphere,99372,NearestPoint,grid,a-loop-library,20085,0.05,1.00x,ref
+sphere,99372,NearestPoint,grid,b1-library-sorted-serial,19219,0.05,1.05x,equal
+sphere,99372,NearestPoint,grid,b1-library-sorted-parallel,5469,0.18,3.67x,equal
+sphere,99372,NearestPoint,grid-shuffled,a-loop-library,27373,0.04,1.00x,ref
+sphere,99372,NearestPoint,grid-shuffled,b1-library-sorted-serial,19131,0.05,1.43x,equal
+sphere,99372,NearestPoint,grid-shuffled,b1-library-sorted-parallel,5983,0.17,4.58x,equal
+sphere,99372,NearestPoint,random,a-loop-library,28570,0.04,1.00x,ref
+sphere,99372,NearestPoint,random,b1-library-sorted-serial,19342,0.05,1.48x,equal
+sphere,99372,NearestPoint,random,b1-library-sorted-parallel,5542,0.18,5.15x,equal
+sphere,1002252,NearestPoint,grid,a-loop-library,77657,0.01,1.00x,ref
+sphere,1002252,NearestPoint,grid,b1-library-sorted-serial,69169,0.01,1.12x,equal
+sphere,1002252,NearestPoint,grid,b1-library-sorted-parallel,20173,0.05,3.85x,equal
+sphere,1002252,NearestPoint,grid-shuffled,a-loop-library,135794,0.01,1.00x,ref
+sphere,1002252,NearestPoint,grid-shuffled,b1-library-sorted-serial,66905,0.01,2.03x,equal
+sphere,1002252,NearestPoint,grid-shuffled,b1-library-sorted-parallel,18922,0.05,7.18x,equal
+sphere,1002252,NearestPoint,random,a-loop-library,137140,0.01,1.00x,ref
+sphere,1002252,NearestPoint,random,b1-library-sorted-serial,67742,0.01,2.02x,equal
+sphere,1002252,NearestPoint,random,b1-library-sorted-parallel,19809,0.05,6.92x,equal

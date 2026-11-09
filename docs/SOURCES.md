@@ -41,6 +41,41 @@ its JTS-derived content is available under the permissive BSD-style Eclipse Dist
 Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
 benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
 
+`benchmarks/OracleIndexPilot` also uses the public NetTopologySuite 2.6.0 STRtree
+API (BSD-3-Clause, same release license above), as an isolated test/benchmark
+dependency. NTS builds a point hierarchy; our traversal uses the existing oracle's
+unchanged orientation filter/exact fallback and the affine maximum of orientation
+over a closed rectangle to prune strictly exterior subtrees. No NTS geometric
+verdict is used and no implementation is read or ported. The oracle's default
+conformity searches (binary64 outputs; `G3_ORACLE_POINT_INDEX` / `G3_ORACLE_EDGE_INDEX`
+`=sweep` restore the sweeps) add NTS to the independent test-oracle project, never to
+the library; the compiler still enforces the oracle's lack of a geometry3Sharp reference.
+The proof, controls and measurements are documented
+in the [pilot README](../benchmarks/OracleIndexPilot/README.md).
+
+The second isolated variant uses exact endpoint convex hulls on STRtree nodes for
+proper edge-crossing queries. The monotone-chain hull is own code from the standard
+concept of A. M. Andrew, *Another efficient algorithm for convex hulls in two
+dimensions*, IPL 9(5), 1979, [doi:10.1016/0020-0190(79)90072-3](https://doi.org/10.1016/0020-0190(79)90072-3).
+Hierarchical geometric separation was considered from Gottschalk, Lin and Manocha,
+*OBBTree*, SIGGRAPH 1996; Bentley and Ottmann, *Algorithms for Reporting and Counting
+Geometric Intersections*, IEEE TC 1979, is the sweep alternative. Publication
+metadata/abstracts were consulted; no implementation code was read or copied.
+The two closed-half-plane certificates and the degenerate-hull handling are
+derived in the pilot comments/README and reviewed against the unchanged exact
+ProperCross predicate. A node keeps its exact hull only up to 16 vertices and
+otherwise tests the corners of its closed box (a containing polygon), so the test per
+node is bounded (own construction after the #411 review found O(E·h) work on convex
+boundaries). The point/triangle and duplicate checks remain in force.
+
+The large pilot mesh is generated externally from a GEOS XML test fixture at
+commit `159cc1f9dba3ee820e31123af4f90a2b6e090546`; source URL and input/output
+hashes are recorded in the pilot's numeric provenance. Upstream's pinned
+[COPYING](https://github.com/libgeos/geos/blob/159cc1f9dba3ee820e31123af4f90a2b6e090546/COPYING)
+is LGPL-2.1; no separate permissive fixture license is assumed. Fixtures and
+generated geometries/meshes are not committed. Only external data is used;
+GEOS implementation code is not consulted or ported.
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.
@@ -54,6 +89,8 @@ Implemented from the papers, no code taken over.
 | Constrained Delaunay triangulation (constraint insertion by flips) | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993; C. L. Lawson 1977 (flips) |
 | Vertex deletion in the constrained Delaunay kernel (`DelaunayKernel2.DeleteVertex`): ear clipping of the star's link, Lawson flips inside it | O. Devillers, *On deletion in Delaunay triangulations*, IJCGA 12, 2002 (arXiv cs/9907023, 1999): only the star changes; G. H. Meisters, *Polygons have ears*, 1975; C. L. Lawson 1977 and, for constraints, D. T. Lee, A. K. Lin 1986, L. P. Chew 1989 (the flip algorithm reaches the constrained Delaunay triangulation) |
 | Removal of unneeded vertices in flat regions (`ExactPlanarSimplify`): ear clipping of the hole, Lawson flips | G. H. Meisters, *Polygons have ears*, American Mathematical Monthly 1975 (ear clipping); C. L. Lawson, *Software for C1 surface interpolation*, 1977 (flips towards Delaunay) |
+| Box tree of the pair searches (`TriangleBoxTree`): above 4096 boxes sorted along a Morton curve of their centres (coordinates over the centres' box, or their ranks per axis where one far box would squeeze the others), each range split where the highest differing bit of the codes changes; small trees keep the median split (no code taken over; the layout of Geogram's `MeshFacetsAABB` was read, BSD-3) | C. Lauterbach, M. Garland, S. Sengupta, D. Luebke, D. Manocha, *Fast BVH Construction on GPUs*, Computer Graphics Forum (Eurographics) 2009; T. Karras, *Maximizing Parallelism in the Construction of BVHs, Octrees, and k-d Trees*, HPG 2012 (the split at the highest differing bit); B. Lévy, Geogram `mesh_AABB` (Inria, BSD-3) |
+| Candidate triangle pairs in the proper case (`ExactMeshArrangement.apart_on_the_line`): decided by orientation signs alone before any point is constructed (docs/design/TRITRI_PREFILTER.md) | O. Devillers, P. Guigue, *Faster Triangle-Triangle Intersection Tests*, INRIA Research Report RR-4488, 2002 (J. Graphics Tools 8(1), 2003) |
 | Generalized winding number for open meshes | A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 (via the existing `FastWindingNumber`, Barill et al. 2018) |
 | Open inputs where an open boundary lies on an edge that other pieces meet (`ConflictEdges`): the jumps of the winding numbers around the edge do not add up to zero, so no labelling of the regions around it fits all pieces (the input is not PWN there, the condition of Zhou et al. 2016); pieces that run the edge the same way are not joined | own reasoning |
 
@@ -83,6 +120,7 @@ Implemented from the papers, no code taken over. Read for the design (what the e
 | Part | Source |
 |---|---|
 | Local edits after rounding, each accepted only if it creates no intersection: contraction of short edges (link condition), flips of skinny triangles; removal of components thinner than the rounding distance; the d-separation argument (why rounding a separated mesh is safe) | V. Milenkovic, E. Sacks, *Geometric rounding and feature separation in meshes*, Computer-Aided Design 108, 2019 (arXiv 1805.03252). Their expansion and optimization stages (linear programs that separate the remaining close features before rounding) are not implemented in the default; instead single vertices are moved by tiny amounts after rounding, accepted under the same rule (a prototype of the expansion, after rounding, is the next row) |
+| Contacts made by the rounding (`MeshRoundingRepair`, with the exact point id per vertex from `ExactMeshBoolean`): vertices of different exact points at one double position, separated after the passes by moving one of them a few ulps towards its neighbours or along its normal, accepted by the same exact rule as every edit | own construction; the idea that rounding must not create contacts the exact arrangement does not have is the feature separation of Milenkovic and Sacks 2019 (above); the contract for contacts the exact solid has (duplicated vertices, manifold in memory) is that of Manifold (Apache-2.0, documentation only: duplicate vertices allowed as a geometric property) |
 | Separation prototype (option A of the snap-rounding experiment, measured and closed, on the branch `claude/snap-rounding-A-archive` only, `MeshRoundingRepair.Separate`): sequential linear programs over the vertices around a defect, slab constraints between vertex-disjoint near pairs, Δ-box trust region, maximize separation then minimize displacement; the exact d-separation certificate of the experiment (`tests/.../Harness/SeparationCertificate.cs`) | Milenkovic and Sacks 2019 (above), section 4 (expansion) [read in full, arXiv]. The area rows (each triangle around a defect kept above the degenerate area along a reference normal) after L. A. Freitag, P. Plassmann, *Local optimization-based simplicial mesh untangling and improvement*, IJNME 49, 2000 (the idea of maximizing the smallest signed area by a linear program; cited by Milenkovic and Sacks; paper not re-read in this session). One slack per row instead of one common s: own choice. No code exists to take over |
 | Small dense LP solver (`math/DenseSimplex.cs`, with option A on the branch `claude/snap-rounding-A-archive` only): tableau simplex, slack basis, Dantzig's rule, Bland's rule against cycling | V. Chvátal, *Linear Programming*, Freeman 1983, chapters 2-3 (from memory, the cycling example of the tests is his); R. G. Bland, *New finite pivoting rules for the simplex method*, Mathematics of Operations Research 2(2), 1977. Textbook method, no code taken over. Considered and not needed (the result is checked exactly afterwards): D. Applegate, W. Cook, S. Dash, D. Espinoza, *Exact solutions to linear programming problems*, ORL 35, 2007; A. Gleixner, D. Steffy, K. Wolter, *Iterative refinement for linear programming*, INFORMS JoC 28, 2016; A. Neumaier, O. Shcherbina, *Safe bounds in linear and mixed-integer linear programming*, Math. Prog. 99, 2004 (references from the handoff, not checked here) |
 | Snap fallback prototype (option B, `benchmarks/SnapRoundingExperiment/SnapFallback.cs`): vertices of the triangles still defective snapped to a grid, resolved again, iterated | L. Valque, S. Lazard, *Resolving self-intersections in 3D meshes while preserving floating-point coordinates*, CGF 44(5), 2025, and L. Valque, *3D Snap rounding*, thesis, Université de Lorraine, 2024 (the first version from the abstracts; the full texts were read by other sessions, SAFE_ROUNDING.md section 7, and the paper's fixed grid with hot voxels was added from those notes). CGAL's implementation is GPL and was not read |
@@ -113,7 +151,7 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Oracle (`Meshing2Benchmark`, rule O-H5 (ii')): the rounding of the input alone includes the restore step of snap rounding with restore, recomputed from the paper (`RestorePixels`: rounds of routing and critical pixels, ChoosePixel's rules R1 and R3 and a widened search, all choices of a round made on one arrangement); written from the paper and MESHING2D_SNAP.md section 3b, not from `SnapRounding2`, and compared with it in tests | A. Belussi, S. Migliorini, M. Negri, G. Pelagatti, *Snap rounding with restore: an algorithm for producing robust geometric datasets*, ACM TSAS 2(1), 2016 (Table II, Proposition 4.17); J. D. Hobby 1999 (above) |
 | Off-centres: a triangle below the angle bound is split on the perpendicular bisector of its shortest edge pq, where the triangle of pq and the new point has the bound at the point (|pq| cot(theta/2) / 2 from the midpoint), or at its circumcentre if that is closer (`QualityMesh2.Refiner.OffCentre`) | A. Üngör, *Off-centers: A New Type of Steiner Points for Computing Size-Optimal Quality-Guaranteed Delaunay Triangulations*, LATIN 2004 |
 | Grading in `QualityMesh2` with an angle bound: the split point of a triangle bad by its angle chosen among candidates in the petal of its shortest edge (the circumcentres of nearby triangles inside it and seven points of its arc, `QualityMesh2.Refiner.PetalCandidates`; step 1's points on the bisector behind a switch) by the bad triangles it removes and creates, never with a smaller insertion radius than the off-centre or circumcentre (`QualityMesh2.Refiner.BestCandidate`); bad triangles split worst first (`TriangleQueue`, own) | H. Erten, A. Üngör, *Triangulations with Locally Optimal Steiner Points*, Eurographics Symposium on Geometry Processing 2007 (read 2026-11-04; the journal version, SIAM J. Sci. Comput. 2009, not read): the idea of choosing among points and the petal (Algorithm 1); the arc's rational parametrisation, the score and the floor own (`docs/design/MESHING2D_GRADING.md` 4.3) |
-| The Meshing2 oracle's fast path (test tool, `benchmarks/Meshing2Benchmark/Oracle`): a checker independent of and simpler than the mesher, its indexes and filters each with an equivalence argument and a check against the full scan (`docs/design/MESHING2D_FAST_ORACLE.md`) | R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 2011 (the approach; the checks are own work) |
+| The Meshing2 oracle's fast path (test tool, `benchmarks/Meshing2Benchmark/Oracle`): a checker independent of and simpler than the mesher, its indexes and filters each with an equivalence argument and a check against the full scan (`docs/design/MESHING2D_FAST_ORACLE.md`). Source coverage reuses the existing tube boxes and BoxGrid, with a bounded query and exact scan fallback; diagnostics and full-report controls are in `benchmarks/OracleSourcePilot` | R. M. McConnell, K. Mehlhorn, S. Näher, P. Schweitzer, *Certifying algorithms*, Computer Science Review 2011 (the approach; the checks are own work) |
 | Integer coordinates for a robust common subdivision (not implemented; why the tracing suffices is in OPERATIONS.md) | M. Gillespie, N. Sharp, K. Crane, *Integer Coordinates for Intrinsic Geometry Processing*, ACM TOG (SIGGRAPH Asia) 2021 |
 | Intrinsic Delaunay triangulations, non-negative cotan weights, flip algorithm | A. I. Bobenko, B. A. Springborn, *A Discrete Laplace-Beltrami Operator for Simplicial Surfaces*, Discrete & Computational Geometry 2007; C. Indermitte, T. M. Liebling, M. Troyanov, H. Clémençon, *Voronoi diagrams on piecewise flat surfaces and an application to biological growth*, Theoretical Computer Science 2001 (termination of the flips) |
 | Intrinsic mollification of degenerate triangles | N. Sharp, K. Crane, *A Laplacian for Nonmanifold Triangle Meshes*, Computer Graphics Forum (SGP) 2020 |
@@ -139,9 +177,10 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
 | Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
 
-Choices described in the code: traversability by the circumradius of the facet (an alpha ball passes through
-its circumcircle; the variant with the smallest empty circumscribing ball was tried and refines thin sheets
-down to the scale of the offset), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
+Choices described in the code: traversability by the paper's Phi(f), the smallest empty ball through the facet's
+vertices (Definition 2, Fig. 23; Alpha Wrap 2.0. Before, the circumradius of the facet, which refines thin sheets
+less; Phi(f) doubles the triangles on a sheet of thickness 0, as CGAL's wrap does there, and the quality refinement needs
+it), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
 enclosed outside pockets, the manifold step (around a non-manifold edge or vertex the outside part connected
 to the box stays outside), and the contact margin of the intersection test (1e-6 of the offset).
 
@@ -159,6 +198,12 @@ Before the manifold step, it inserts offset-surface points into the outside cell
 inside, with the same separation guards, and carves again. The idea that a dense enough offset sample makes the
 restricted Delaunay surface a manifold is from J.-D. Boissonnat, S. Oudot 2005 (above). Measurements are in
 `docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 6.
+
+The quality refinement of the result facets (`RefineMinAngleDegrees`) is the quality rule of Chew 1993 and Boissonnat,
+Oudot 2005 (above): a facet with a smallest angle below the bound gets the center of its surface Delaunay ball (the
+crossing of its dual Voronoi edge with the offset surface), here otherwise the projection of its inside cell's
+circumcenter (as rule 2), each only with the separation min(offset, alpha - offset). Measurements are in
+`docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 7.
 
 ## Alpha wrap quality pass (`AlphaWrapQualityPass`, `MeshRobustRepair.AlphaWrapQualityPass`)
 
@@ -272,6 +317,7 @@ The sources named in the code:
 | Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation` and, per triangle, by `MeshDeviation.ComputeTriangleBounds`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
 | Patch bound (`TriangleDeviationBounds.PatchBound`, opt-in through `MeshHausdorffDistance.PatchBound`, used by `MeshRobustRepair`'s simplification of the alpha wrap): the target triangles under a triangle, seen along its normal, bound the distance by the largest height over the covered part, if their projections cover the triangle (coverage shown by the boundary edges of a consistently oriented, positively projecting patch) | own construction, an extra bound in the cascade of Sacht and Jacobson (above); the coverage argument is the boundary of a union of oriented triangles (a planar map) |
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
+| Reduction on fixed slabs in parallel with frozen borders and confinement (`PartitionedReducer`, `PartitionedReduction`) | own construction (the argument is in the class documentation of `PartitionedReduction`); the approach of partitioned out-of-core simplification: P. Lindstrom, *Out-of-core simplification of large polygonal models*, SIGGRAPH 2000; Ozaki, Kyota, Kanai, Eurographics PGV 2015 (found by search, not read); quadrics: M. Garland, P. Heckbert, SIGGRAPH 1997 | none (no code read) |
 | Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
 | Filter in front of it (`TriangleTriangleFilter`): exact separation in an axis projection (an edge line of one projected triangle with the other strictly outside; at a shared vertex, corners that share no ray) | the separating axis theorem for convex polygons, eg S. Gottschalk, M. Lin, D. Manocha, *OBBTree: a hierarchical structure for rapid interference detection*, SIGGRAPH 1996. Own construction of the projection argument and the shared-vertex and shared-edge certificates, and of the axis-plane case (one triangle in an axis plane: the Orient3d determinant factors into a coordinate difference times the projected Orient2d, so the other triangle's sides are comparisons, and where it touches the plane the 2D tests decide) |
 | Patch certificate for the self-intersection checks (design, `docs/design/SELF_INTERSECTION_PATCH_CERTIFICATE.md`, not implemented yet): a normal cone below 90 degrees and a star-shaped contour certify a consistently oriented disk free of self-intersections | P. Volino, N. Magnenat-Thalmann, *Efficient self-collision detection on smoothly discretized surface animations using geometrical shape regularity*, Computer Graphics Forum 1994; S. C. Schvartzman, J. Pérez, M. A. Otaduy, *Star-contours for efficient hierarchical self-collision detection*, ACM TOG (SIGGRAPH) 2010; context: S. Gumhold, P. Borodin, R. Klein, *Intersection free simplification*, IJSM 9(2), 2003; S. Curtis, R. Tamstorf, D. Manocha, *Fast collision detection for deformable models using representative-triangles*, I3D 2008. Own: the disk condition and the exact predicates that make it a certificate for a triangle mesh |
@@ -480,6 +526,9 @@ an implementation brief.
 | Stage 7b operators against obtuse / small angles | Y. Wang, D.-M. Yan, X. Liu, C. Tang, J. Guo, X. Zhang, P. Wonka, *Isotropic Surface Remeshing without Large and Small Angles*, IEEE TVCG 25(7):2430-2442, 2019, doi:10.1109/TVCG.2018.2837115 | paper only |
 | Curvature-adaptive sizing | M. Dunyach, D. Vanderhaeghe, L. Barthe, M. Botsch, *Adaptive Remeshing for Real-Time Mesh Deformation*, Eurographics 2013 Short Papers, pp. 29-32 | paper only |
 | Parallel decimation by independent sets (background for speculative certification) | P. Franc, V. Skala, *Parallel Triangular Mesh Reduction*, ALGORITMY 2000; S. Oh et al., *PaMO: Parallel Mesh Optimization for Intersection-Free Low-Poly Modeling on the GPU*, CGF 44(7), 2025 | PaMO code license not checked; not a port candidate |
+| Reducer / Remesher 2.0 proposal ([design/REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md)): QEM variants and parallel / partitioned simplification (approach only, not implemented) | M. Garland, P. Heckbert, *Surface simplification using quadric error metrics*, SIGGRAPH 1997; P. Lindstrom, G. Turk, *Fast and memory efficient polygonal simplification*, IEEE Visualization 1998; H. Hoppe, *New quadric metric for simplifying meshes with appearance attributes*, IEEE Visualization 1999; P. Lindstrom, *Out-of-core simplification of large polygonal models*, SIGGRAPH 2000; M. Franc, V. Skala, *Parallel triangular mesh decimation without sorting*, SCCG 2001; Ozaki, Kyota, Kanai, partition-based out-of-core QEM simplification, Eurographics PGV 2015 | papers only, citations of the last four from memory or a search hit: verify before use |
+| Same: isotropic remeshing and feature-aware decimation | P. Alliez, E. Colin de Verdière, O. Devillers, M. Isenburg, *Isotropic surface remeshing*, SMI 2003; S. Valette, J.-M. Chassery, *Approximated centroidal Voronoi diagrams for uniform polygonal mesh coarsening*, Eurographics 2004; D. Salinas, F. Lafarge, P. Alliez, *Structure-aware mesh decimation*, CGF 2015 | papers only, verify before use |
+| Same: implementations whose approach may be read | meshoptimizer (A. Kapoulkine; MIT, checked by search 2026-11-09); geogram (B. Lévy; BSD-3-Clause, checked by search); Fast-Quadric-Mesh-Simplification (MIT), OpenMesh and Instant Meshes (BSD-3): licences from memory, check the file before reading. Not to be read or ported: CGAL, TetWild, libigl (MPL-2.0), Blender, MeshLab; pmp-library not checked | approach only |
 
 ## Deterministic parallel output
 
@@ -523,3 +572,62 @@ Pilot 2 (`tools/Z3Pilot/filter_rules.py`, the error-bound rules of `tools/Predic
 model of floating-point arithmetic and its variant `fl(s) = s / (1 + d)` from N. J. Higham, *Accuracy and Stability
 of Numerical Algorithms*, 2nd ed., SIAM 2002, section 2.2, and the form of the filter bounds (`|e~ - e| <= c m~`) of
 J. R. Shewchuk 1997 (see above); results only, no code.
+
+- Alec Jacobson, *A Sharp Conservative Offset for Marching Cubes*,
+  [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
+  3.1. Paper-only mathematical source for the `LinearEdges` adapter and
+  `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.
+
+## FPTaylor setup (test/tool only)
+
+[tools/FPTaylorPilot](../tools/FPTaylorPilot/README.md) installs FPTaylor b5a77cae (MIT) from its
+[official repository](https://github.com/soarlab/FPTaylor) for local analysis. It uses OCaml 4.14.2 and
+Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime dependencies; these are not
+ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
+Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
+FM 2015. The smoke example does not certify any geometry predicate.
+
+## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
+
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) and [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (the
+mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
+(MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
+LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
+ported into geometry3Sharp and no dependency is added to the library package.
+
+## Batch ray and point queries (design note; the library PR follows)
+
+Design references of [BATCH_QUERIES.md](design/BATCH_QUERIES.md); papers only, no code read or ported (Embree, Apache-2.0,
+not read). The planned `MeshBatchQueries` runs the existing single queries in Morton-sorted order, in parallel.
+
+| Topic | Source |
+|---|---|
+| Coherent ray packets | I. Wald, P. Slusallek, C. Benthin, M. Wagner, *Interactive Rendering with Coherent Ray Tracing*, Computer Graphics Forum 20(3), 2001, [doi:10.1111/1467-8659.00508](https://doi.org/10.1111/1467-8659.00508) |
+| Ray groups (beams) | A. Reshetov, A. Soupikov, J. Hurley, *Multi-level ray tracing algorithm*, ACM TOG 24(3), 2005, [doi:10.1145/1073204.1073329](https://doi.org/10.1145/1073204.1073329); the method is patented by Intel (US 7,755,628, expired), and is not implemented |
+| Wide BVH for incoherent rays | H. Dammertz, J. Hanika, A. Keller, *Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays*, Computer Graphics Forum 27(4), 2008, [doi:10.1111/j.1467-8659.2008.01261.x](https://doi.org/10.1111/j.1467-8659.2008.01261.x) |
+| Ray sorting | K. Garanzha, C. Loop, *Fast Ray Sorting and Breadth-First Packet Traversal for GPU Ray Tracing*, Computer Graphics Forum 29(2), 2010, [doi:10.1111/j.1467-8659.2009.01598.x](https://doi.org/10.1111/j.1467-8659.2009.01598.x) |
+| CPU ray tracing kernels, survey | I. Wald, S. Woop, C. Benthin, G. S. Johnson, M. Ernst, *Embree*, ACM TOG 33(4), 2014, [doi:10.1145/2601097.2601199](https://doi.org/10.1145/2601097.2601199); D. Meister et al., *A Survey on Bounding Volume Hierarchies for Ray Tracing*, Computer Graphics Forum 40(2), 2021, [doi:10.1111/cgf.142662](https://doi.org/10.1111/cgf.142662) |
+| Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
+| Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
+
+## Tetrahedral meshing (design only, `docs/design/TET_MESHING.md`; no code yet)
+
+Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
+
+| Topic | Source |
+|---|---|
+| Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
+| Constrained Delaunay tetrahedralization, existence and recovery | J. R. Shewchuk, *A condition guaranteeing the existence of higher-dimensional constrained Delaunay triangulations*, SoCG 1998; *Updating and constructing constrained Delaunay and constrained regular triangulations by flips*, SoCG 2003; H. Si, K. Gärtner, *Meshing piecewise linear complexes by constrained Delaunay tetrahedralizations*, IMR 2005; H. Si, *TetGen*, ACM TOMS 41(2), 2015; M. Diazzi, D. Panozzo, A. Vaxman, M. Attene, *Constrained Delaunay tetrahedrization: a robust and practical approach*, ACM TOG 2023 (abstract read) |
+| Small input angles | S.-W. Cheng, S.-H. Poon, *Three-dimensional Delaunay mesh generation*, DCG 2006; S. Pav, N. Walkington, *Robust three dimensional Delaunay refinement*, IMR 2004 |
+| Restricted Delaunay for smooth surfaces | J.-D. Boissonnat, S. Oudot 2005; S. Oudot, L. Rineau, M. Yvinec, *Meshing volumes bounded by smooth surfaces*, IMR 2005 |
+| Sliver removal | S.-W. Cheng, T. K. Dey, H. Edelsbrunner, M. A. Facello, S.-H. Teng, *Sliver exudation*, J. ACM 2000; J. Tournois, R. Srinivasan, P. Alliez, *Perturbing slivers in 3D Delaunay meshes*, IMR 2009; J. Tournois, C. Wormser, P. Alliez, M. Desbrun, *Interleaving Delaunay refinement and optimization for practical isotropic tetrahedron mesh generation*, ACM TOG 28(3), 2009; B. M. Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007; J. R. Shewchuk, *Two discrete optimization algorithms for the topological improvement of tetrahedral meshes* |
+| Envelope and lattice approaches | Y. Hu et al., *Tetrahedral meshing in the wild*, ACM TOG 37(4), 2018; Y. Hu, T. Schneider, B. Wang, D. Zorin, D. Panozzo, *Fast tetrahedral meshing in the wild*, ACM TOG 39(4), 2020 (arXiv 1908.03581, abstract read); F. Labelle, J. R. Shewchuk, *Isosurface stuffing: fast tetrahedral meshes with good dihedral angles*, ACM TOG 26(3), 2007 |
+## Height grid readers (DGM)
+
+`HeightGridReader` / `HeightGridWriter` / `HeightGrid` (`io/`). Format descriptions only, no code read or ported:
+
+| Topic | Source |
+|---|---|
+| ESRI ASCII Grid (.asc) | ESRI, *ASCII to Raster* tool documentation (header ncols / nrows / xllcorner | xllcenter / yllcorner | yllcenter / cellsize / NODATA_value; north row first); the GDAL AAIGrid driver page describes the same format, including dx / dy |
+| XYZ ASCII DGM (Geobasis NRW `dgm1_xyz`) | the open-data product description of the Land NRW DGM1 (one "x y z" point per line on a regular 1 m grid); the reader accepts any regular square lattice |
+| Grid TIN with a fixed diagonal | Garland, Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 (regular grid triangulation as the full-resolution reference); the interpolation on the TIN is the library's own definition (`HeightGrid.Height`) |

@@ -13,6 +13,83 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
+  each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
+  alongside):**
+  1. Batch ray / point queries (`IntersectBatch`, `IsInsideBatch`; owner idea 2026-11-02), M. Stage 1 done
+     (2026-11-08, branch claude/batch-queries-stage1, docs/design/BATCH_QUERIES.md): batching over the existing
+     `DMeshAABBTree3` gives 2.2-5.2x (rays) / 3.6-5.3x (inside) on 4 cores, bit-identical to the single calls; an own
+     BVH at most ~1.3x more, SIMD 1.05-1.3x. Owner 2026-11-08: stage 2 = that batching only (new file
+     `spatial/MeshBatchQueries.cs`), nearest + any-hit in the first PR, plus a batched nearest-point / distance query (`NearestPointBatch`, same
+     pattern, bit-identical); after the boolean queue and Lévy phase 2. Internal callers are switched only where the
+     spatial-structure profile shows serial loops over single queries that pay (repair volume check, MaxDeviation /
+     IsWithin, fidelity metrics, deviation maps).
+     Status 2026-11-09: stage 2 merged (#448, fb114adf): `MeshBatchQueries.IntersectBatch` / `AnyHitBatch` /
+     `IsInsideBatch` (crossings or winding number) / `NearestPointBatch`, bit-identical to the single calls (48 tests;
+     benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
+     (a new session after Lévy phase 2):
+     - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
+       single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
+       `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,
+       `TerrainSafety`, `TerrainOffset`, `AlphaWrapQualityPass`, `MeshRepairOrientation` (the ray time of the repair, 6-7 % of its CPU
+       time in the Q2/Q3 measurement) and `MeshRepairMetrics`. Switch a caller only for a serial loop over many independent
+       queries; a loop that already runs in parallel gains nothing (the batch is parallel itself), and a batch of fewer than
+       about 1000 queries is not sorted.
+     - Results do not depend on order, options or threads, so a switch keeps a caller's output bit for bit. One caveat:
+       `FindNearestTriangle` picks among equidistant triangles (a point on a vertex or an edge) by traversal order, which
+       is not 2^k-scale invariant; the batch inherits that, so a caller must not rely on which one.
+     - Not done, by owner decision or dependency: `Span` overloads (owner, later: `ReadOnlySpan<Ray3d>` / `Span<RayHit>`
+       under `#if NET`; the core uses closures in the parallel part, which cannot capture a span, so it needs an array or
+       pointer core or a copy), the early-out any-hit (needs `DMeshAABBTree3` internals: after the Lévy phase-2 change to
+       its cache), all-hits (`FindAllHitTriangles`), `MaxDegreeOfParallelism` (`gParallel.ForRange` has none), the CLI /
+       MCP commands `raycast` and `inside` (shape in docs/design/BATCH_QUERIES.md section 5; with the CLI / MCP update).
+  2. Continuous collision detection (Tight-Inclusion, Wang et al. 2021, MIT, Phase 5 #8), M: conservative and
+     provably correct; Unity, robotics, simulation; nothing comparable in .NET.
+     Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
+     is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
+     first, then 2-3 days with an Opus-level review of the bounds.
+  3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
+     alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
+     predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
+     tetrahedrization much easier than for raw input (fTetWild's problem). Missing: a tetrahedrization bound to a given
+     clean surface, 3D Delaunay refinement with a radius-edge bound, sliver removal / exudation. It reuses the Meshing2D
+     work: the Delaunay-refinement theory (Ruppert, Shewchuk, Cheng-Dey-Shewchuk 2012, which covers 3D), the
+     small-angle handling (in 3D: small dihedral angles, protecting balls), exact-authoritative coordinates with
+     rounding to doubles, the independent exact oracle and golden / fuzz infrastructure, and the clean-room provenance
+     process. Licences: TetGen AGPL, the CDT of Diazzi et al. GPL / LGPL, fTetWild MPL: paper only. Stage 1 on the large
+     model (prior art, what `Delaunay3` lacks, an upper bound on reachable quality, a design note with the
+     termination argument); Sonnet only for bounded parts.
+     Design note 2026-11-09: [design/TET_MESHING.md](../design/TET_MESHING.md): recommended = wrap, then Delaunay
+     refinement of its inside cells (they already are a conforming tet mesh); MVP stages 0+1 about 3 weeks, owner
+     decisions in section 9; the boundary is the wrap surface, not the input.
+  4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+     guarantee; additive manufacturing showcase.
+  5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
+     sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
+     orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
+     and the batch queries (priority 1) are the building blocks.
+  6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  Then: quad remeshing (L, licences to check), feature-preserving offsets
+  (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
+  Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
+- **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
+  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 5).
+  - Meshing2D ↔ terrain: a TIN with breaklines is constrained quality meshing in 2.5D; the terrain restart (DGM
+    reader) designs with `QualityMesh2`, its oracle and golden tests.
+  - Exact booleans ↔ tetrahedral meshing ↔ practical 3D snap rounding: exact and implicit points, then doubles
+    without inverted tets; SafeRounding, the D1 rule and Z3 as a rule checker serve all three.
+  - Conservative marching cubes ↔ TPMS ↔ alpha wrap: lattices with a guaranteed enclosure; infill by intersecting
+    implicitly before marching cubes (cheaper than an exact boolean after); a cheap conservative bound for the
+    wrap's envelope checks.
+  - Batch queries ↔ fidelity metrics, wrap certification, point clouds, terrain height / ray queries, tet labelling,
+    CCD broad phase: priority 1 is the base for the others.
+  - Polyhedral envelope ↔ Reducer / Remesher ↔ tetrahedral meshing: too slow for the remeshers, but surface
+    preservation on a clean wrap surface may fit (fTetWild preserves the surface by an envelope).
+  - QA generators and the oracle pattern ↔ all modules: one CsCheck generator of multi-component, scale-disparate
+    inputs serves boolean, repair, wrap and later tets.
+  - CLI / MCP ↔ everything: batch raycast, inside test, wrap and later tet meshing form the chain agents need for
+    simulation and manufacturing.
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
@@ -35,13 +112,15 @@ Part of the [roadmap](../ROADMAP.md).
 
 **Pilot 2, exact booleans (owner 2026-11-08, started after #400):** Z3 as a proof checker for small lemmas, never in
 the library and never at run time. (1) D1 first: the Boolean 2.0 session states its tighter drift-accounting rule for
-SafeRounding as a precise lemma (assumptions, claim: no new intersection or degeneracy); Z3 (nonlinear real
+SafeRounding as a precise lemma (assumptions; claim: the Hausdorff invariant H(S, S0) <= MaxDrift is kept, while freedom from new intersections and degeneracy comes from the exact checks in improves()); lemma written in docs/design/ROUNDING_DRIFT_APEX.md (claude/d1-drift-lemma), Z3 check started 2026-11-08; Z3 (nonlinear real
 arithmetic, with rounding modelled as (1 + δ), |δ| <= u) proves it or returns a counterexample, which becomes a
 procedural test; D1 is built only after that. (2) The error-bound rules of the predicate generator (the per-operation
 rules from which the static filter bounds are derived), one lemma per rule, as a mechanical second check next to the
 bound review CLAUDE.md demands. This is consistent with "not a fit" above: the rules are small, the large predicates
 are not proved as a whole. Pilot 1 used the Python package `z3-solver` (MIT), not the NuGet `Microsoft.Z3`; still only
 in the tool project.
+
+**Pilot 2, step (1) result (2026-11-08, draft PR #416):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
 
 **Pilot 2, step (2) result (2026-11-08, draft PR):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
 
@@ -61,6 +140,24 @@ in the tool project.
     from self-intersections.
   - Test plan: procedural SDFs (sphere, box, a rotated torus), all exact zero-level points inside at sigma slightly
     above the bound, plus a known-wrong case below it.
+  - Status 2026-11-08: #423 (merged) adds the opt-in `RootfindingModes.LinearEdges` and a Z3 pilot (conditional winding
+    enclosure with a `2^-26` level pad). Follow-up (owner decision 2026-11-08, done in #433): restate the FP obligation in a
+    relative error model, which drops the preconditions `|f| <= 1` and sample-value gap `>= 2^-20` (a user cannot
+    check that gap for SDFs, and the code does not check it).
+  - Found in the #423 review (pre-existing, also in legacy modes, low priority): `MarchingCubesPro.GenerateContinuation`
+    runs past `done_cells` at the upper grid edge or with seeds outside the bounds (`IndexOutOfRangeException`, in
+    parallel an `AggregateException`, or a silent wrap into the next row), because `GridBounds.Contains` is inclusive.
+    Also silent: `done_cells` is sized nx*ny*nz, so cell (n, j, k) shares an index with (0, j+1, k) and a whole
+    component can be skipped without an exception (repro in the #423 review: bounds 0..2.5, h 1, spheres r 0.3 at
+    nodes (4,1,1) and (1,2,1), seeds in cells (3,0,0) and (0,1,0)). Fix: size `done_cells` (n+1)^3 or make the
+    neighbour test exclusive; changes legacy behaviour, so note it in UPSTREAM_CHANGES. Own bugfix PR with a test.
+    Fixed in #430 (2026-11-08).
+- 2D wrap (idea only, owner 2026-11-08; not scheduled). Clipper2 has no alpha wrap, but the Clipper2 addon can
+  already do a morphological closing: `Offset` / `OffsetPolyLines` by r + offset, `Union`, `Offset` by -r, then
+  `Simplify` (simple, non-self-intersecting polygons; gaps narrower than about 2r are closed). A small step would be
+  a documented recipe or a `Clipper2Polygons.Close(...)` helper with tests. A real 2D alpha wrap (after Portaneri et
+  al. 2022, cf. CGAL's 2026 2D package as a black box only) only if a use case needs coarse, low-vertex outlines or
+  large point sets as input (concave-hull style).
 - Feature-preserving offsets (`MeshOffset`, size L). Candidates: Zint et al. 2023, and Cao, Xu, Gao et al., *Robust and
   Feature-Preserving Offset Meshing* (arXiv 2412.15564, 2024, CC BY 4.0; no code link in the paper). Cao et al.:
   - per-vertex offset points by a constrained least-squares solve, several per vertex by dynamic programming where one
@@ -130,6 +227,13 @@ Problems where the library already has a head start and that could be researched
   sides (L > r + Δa + Δb). The report's idea 1 (a clearance certificate reused until the movement budget is spent,
   after Verlet skins) and idea 3 (fixed-collar search over representable positions per defect cluster) are the next
   probes here; each starts with its stated falsification run on a real rounding trace, not on a synthetic fixture.
+  **Z3 as a rule checker (owner 2026-11-08, step 3 of the Z3 pilot, only once someone takes up the empty-ball lead):**
+  (a) the lemma that a lower distance bound computed in doubles really is a lower bound (the rounding of every step,
+  as in pilot 2); (b) the lemma "the ball contains the whole moved primitive plus the motion of both sides and no
+  other primitive ⇒ no new intersection"; (c) for every candidate local rounding rule, a bounded counterexample
+  search on tiny configurations (2-3 triangles, small grid) for a new intersection or degenerate triangle; each
+  counterexample becomes a test. Not for Z3: the global guarantee over whole meshes (induction over cascades of moves,
+  termination) and the running-time question.
 - **An envelope-guaranteed exact pipeline.** Boolean → rounding → simplification / remeshing with every stage
   provably inside an ε-envelope and free of self-intersections (needs Phase 5 #2).
 - **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,

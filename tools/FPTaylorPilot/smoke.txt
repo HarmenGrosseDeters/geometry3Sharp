@@ -1,0 +1,6 @@
+Variables
+  float64 x in [1.0, 2.0]
+;
+Expressions
+  rnd64(x * x)
+;

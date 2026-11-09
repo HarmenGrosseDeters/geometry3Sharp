@@ -156,6 +156,13 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
   freezing an A/B candidate; do not label measurements by source changes alone.
+- An indexed existence query can defeat a scan's early exit by materializing every candidate first. Test dense/unknown
+  boxes and clusters beside outliers; bound extra enumeration and keep an exact scan fallback.
+- Reproduction commands must fail on unequal required reports/fingerprints. Saving hashes or relying on a one-off
+  manual comparison is not an acceptance gate; verify completed records again after resuming a campaign.
+- Pair enumeration callbacks may emit either index order. Normalize unordered pairs before deduplicating;
+  a `j <= i` guard is safe only when the caller guarantees the selected query is the lower index. Compare the
+  complete pair set with exhaustive enumeration, including nonempty hits (oracle edge-index review).
 
 ## 10a. The oracle itself
 
@@ -184,6 +191,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
 
 ## 12. Test oracles and generators (#229)
+
+- Tool-result validation: parse decimal bounds without binary floating-point underflow masking a negative value;
+  reject malformed, non-finite or missing results.
+
+- Fuzz harnesses: does seed validation propagate parse errors, and does a reader wrap internal exceptions in
+  error results that the harness must surface? Verify a stored artificial crash can be replayed without instrumentation.
 
 - Does each generator produce only inputs of the class it claims (eg "clean slivers"), and is that asserted,
   not let through by a relaxed check (`allowDegenerate`, a skipped probe)?

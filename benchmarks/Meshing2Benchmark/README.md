@@ -293,6 +293,33 @@ Oracle time only (`oracle --input --output`, one process each, this 4-core conta
 
 `Segments` (13.6 s here) keeps its own filters (`InTube`, with a far side only).
 
+### Conformity searches: certified STRtree pruning (2026-11-08, #411)
+
+On the fast path (binary64 output) `Conformity` finds the used vertices that touch a triangle and the properly crossing edge pairs with
+NetTopologySuite STRtrees (an oracle-only dependency) and certified pruning: a point node is skipped when the affine maximum of a triangle
+edge's orientation over its closed box is negative; an edge node when its containing polygon (the exact endpoint hull up to 16 vertices,
+else its box corners) lies on one closed side of the query line, or the query segment on the closed outer side of a polygon edge. The leaf
+tests are the oracle's unchanged `OrientV` filter with the exact fallback. The reference path keeps the sweep (`BoxPairs`). Proofs,
+controls and measurements: [OracleIndexPilot](../OracleIndexPilot/README.md).
+
+What it costs and gains (edge component, one 2-CPU container): where edge boxes overlap massively the sweep is quadratic and the hull
+search wins (a 301 453-triangle former timeout: 5.9 s against 1.7 s for 4096 sampled queries; a comb of 8000 diagonal chains: 6.4 s
+against 1.4 s); on convex boundaries, where few nodes can be pruned, it stays about 3-4 times slower than the sweep (a 60 000-point
+lens: 0.25 s against 0.93 s), growing like n log n.
+
+| Variable | Values | Default |
+|---|---|---|
+| `G3_ORACLE_POINT_INDEX` | `strtree`, `sweep` | `strtree` |
+| `G3_ORACLE_EDGE_INDEX` | `strtree-hulls`, `sweep` | `strtree-hulls` |
+
+Unset, empty or blank means the default; case and surrounding blanks do not matter. Any other value stops the command at its start
+(exit code 2) and `Oracle.Check` before any work, with the variable, the value and the accepted values. With
+`Oracle.CheckFastPathForTests` (the oracle tests) both searches are compared with the sweep pair for pair
+(`Meshing2OracleStrtreeTests`, `Meshing2OracleFastPathCheckTests`).
+
+`G3_ORACLE_TIMING` laps: the former `conformity` lap is now `conformity: point-triangle`, `conformity: edge-crossings` and
+`conformity: remaining` (duplicate and unused vertices, the domain). `recheck.py` reads lap names generically (`ORACLE <name> <ms> ms`).
+
 ## Herne ratchet and the snapped-area report (2026-11-03)
 
 `herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them

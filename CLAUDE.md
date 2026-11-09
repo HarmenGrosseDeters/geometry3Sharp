@@ -18,6 +18,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
   serial, repeated runs) if it has a parallel path. Tests of a success path check the result (closed,
   manifold, finite, eg `MeshRobustRepair.NotCleanReason`), not only the status.
+- Test time (owner 2026-11-09): a test takes at most 5 s (its duration in the full CI run's trx, linux net10.0).
+  Exceptions up to 10 s carry the `Slow` trait and a one-line reason in the test; nothing above 10 s. A check that
+  needs more (a corpus, a soak or long determinism run) is made cheaper with the same power (smaller procedural
+  inputs, shared work, split cases; a mutant the old test kills must still be killed) or moves to a benchmark or a
+  scheduled job.
 - A new reader or input format is added to `ReaderFuzzTests`.
 - Licenses: implement from papers; port only from MIT / Apache / BSD sources, never from GPL code (CGAL,
   parts of TetWild). List the sources in `docs/SOURCES.md`.
@@ -29,6 +34,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   listed in `.editorconfig`) FMA, `float` and parallel loops are build errors (`BannedSymbols.txt`, analyzers
   G3E0001-3). A new parallel loop there needs a review (no floating-point reduction across threads) and an entry in
   `core/ExactCodeAllowList.cs`.
+
+## Cost controls
+
+Binding for every session: [AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) section 8 (budget rules, messaging, runner
+sessions, combined mutation gates).
 
 ## Before every push
 
@@ -74,7 +84,11 @@ the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIS
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
 `mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the mutation workflow (`tests/mutation`) must stay above its threshold.
+the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
+stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
+(workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
+a revert only for a real defect (owner 2026-11-09).
 
 Performance or quality claims are backed by a benchmark (`benchmarks/`), with before/after numbers in the
 benchmark README or the PR.

@@ -19,7 +19,8 @@ namespace g3cli
     public static partial class Commands
     {
         public static readonly List<Command> All = new List<Command>() {
-            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope()
+            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope(),
+            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap(), Geodesic(), Query3d()
         };
 
         public static Command Find(string name)
@@ -225,7 +226,14 @@ namespace g3cli
                     };
                     if (repair.Apply() == false)
                         throw new CommandException(ResultCodes.OperationFailed,
-                            "MeshRobustRepair failed" + (repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
+                            "MeshRobustRepair failed" + (repair.ResultReason == MeshRobustRepair.ScaleDisparity || repair.ResultReason == MeshRobustRepair.ScaleNotFinite ? ": " + repair.ResultReason
+                                : repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""),
+                            new JsonObject() {
+                                ["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason, ["result_code"] = ReasonCode(repair.ResultReason),
+                                ["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason,
+                                ["exact_resolve_reason"] = repair.ExactResolveReason == "" ? null : repair.ExactResolveReason,
+                                ["exact_resolve_code"] = ReasonCode(repair.ExactResolveReason),
+                            });
                     result = repair.Mesh;
                     o["used_exact_resolve"] = repair.UsedExactResolve;
                     // genus of the mesh the exact stage resolved and of its result (null without the exact stage or where
@@ -246,6 +254,9 @@ namespace g3cli
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
                     o["wrap_reason"] = repair.WrapReason == "" ? null : repair.WrapReason;
                     o["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason;
+                    // (the short codes of the two scale reasons, whose texts are long; null for any other reason)
+                    o["result_code"] = ReasonCode(repair.ResultReason);
+                    o["exact_resolve_code"] = ReasonCode(repair.ExactResolveReason);
                     // the SafeRounding repairs of the exact stage's last round (null if not run)
                     o["strict_rounding"] = repair.StrictRounding;
                     o["exact_resolve_rounding"] = RoundingInfo(repair.ExactResolveRounding);
@@ -284,7 +295,40 @@ namespace g3cli
                 ["rounding_max_pair_tests"] = op.RoundingMaxPairTests,
                 ["removed_vertices"] = op.RemovedVertices,
                 ["rounding"] = RoundingInfo(op.Rounding),
+                // (the status of the exact operation, positions where the solid touches itself, reoriented input triangles, the library's counters)
+                ["status"] = ToSnake(op.Status.ToString()),
+                // (set by a successful Compute only: null after a failure, where the library stopped before it counted them)
+                ["contacts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.Contacts : (JsonNode)null,
+                ["reoriented_triangles"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? op.ReorientedTriangles : (JsonNode)null,
+                ["counts"] = op.Status == ExactMeshBoolean.BooleanStatus.Success ? CountsInfo(op.Counts) : null,
             };
+        }
+
+        static JsonObject CountsInfo(Dictionary<string, long> counts)
+        {
+            var o = new JsonObject();
+            if (counts != null)
+                foreach (var kv in counts.OrderBy(k => k.Key, StringComparer.Ordinal)) o[kv.Key] = kv.Value;
+            return o;
+        }
+
+        /// <summary> data of a failed boolean / resolve: the status and the library's message </summary>
+        static JsonObject BooleanFailure(ExactMeshBoolean op)
+        {
+            return new JsonObject() {
+                ["boolean_status"] = ToSnake(op.Status.ToString()), ["boolean_error"] = op.Error,
+                ["boolean"] = BooleanInfo(op),
+            };
+        }
+
+        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite / ScaleDisparity reasons, else null </summary>
+        static JsonNode ReasonCode(string reason)
+        {
+            // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
+            if (string.IsNullOrEmpty(reason)) return null;
+            if (reason.Contains(MeshRobustRepair.ScaleNotFinite)) return "scale_not_finite";
+            if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
+            return null;
         }
 
         /// <summary> the counts of a SafeRounding repair (MeshRoundingRepair), null if it did not run </summary>
@@ -304,6 +348,8 @@ namespace g3cli
                 ["zips"] = r.Zips,
                 ["strip_zips"] = r.StripZips,
                 ["removed_components"] = r.RemovedComponents,
+                ["scale_disparity"] = r.ScaleDisparity,
+                ["scale_not_finite"] = r.ScaleNotFinite,
                 ["removed_triangles"] = r.RemovedTriangles,
                 ["max_drift"] = MeshReport.Num(r.MaxDrift),
                 ["max_length"] = MeshReport.Num(r.MaxLength),
@@ -312,6 +358,13 @@ namespace g3cli
                 ["absolute_tolerance"] = r.AbsoluteTolerance,
                 ["max_pair_tests"] = r.MaxPairTests,
                 ["evaluation_limit_reached"] = r.EvaluationLimitReached,
+                ["initial_false_contacts"] = r.InitialFalseContacts,
+                ["remaining_false_contacts"] = r.RemainingFalseContacts,
+                ["vertex_removals"] = r.VertexRemovals,
+                // (infinity: no edit was rejected by the bound)
+                ["smallest_rejected_drift"] = double.IsPositiveInfinity(r.SmallestRejectedDrift) ? null : MeshReport.Num(r.SmallestRejectedDrift),
+                // (only where a defect is left: a scale problem alone has no position)
+                ["remaining_defect_at"] = r.RemainingIntersections + r.RemainingDegenerate + r.RemainingFalseContacts > 0 ? MeshReport.Vec(r.RemainingDefectAt) : null,
             };
         }
 
@@ -438,7 +491,7 @@ namespace g3cli
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
@@ -479,7 +532,7 @@ namespace g3cli
                 };
                 ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed (" + op.Status + "): " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "resolve failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
                 o["exact_winding"] = op.ExactWindingA;
@@ -655,11 +708,20 @@ namespace g3cli
             c.Params.Add(new Param("edge_length", ParamType.Number, "collapse edges shorter than this"));
             c.Params.Add(new Param("preserve_boundary", ParamType.Boolean, "keep the shape of boundary loops") { Default = true });
             c.Params.Add(new Param("crease_angle", ParamType.Number, "keep edges whose dihedral angle exceeds this (degrees, 0 = off)") { Default = 0.0 });
+            c.Params.Add(new Param("partitioned", ParamType.Boolean, "use PartitionedReducer: the mesh is cut into 8 slabs that are reduced in parallel and then stitched; the result is deterministic and independent of 'threads', but not the result of one serial run. Needs the target max_error; the boundary shape is not preserved and normals, colours, UVs and groups are dropped. Meshes below 20000 triangles run serially") { Default = false });
+            c.Params.Add(new Param("threads", ParamType.Integer, "partitioned: threads for the slabs (0 = platform default, 1 = serial); never changes the result") { Default = 0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
+                bool partitioned = args.Bool("partitioned");
+                if (partitioned && args.Has("max_error") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'partitioned' needs the target max_error");
+                if (partitioned && !(args.Number("max_error") > 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_error' must be > 0");
+                if (args.Integer("threads") < 0 || args.Integer("threads") > 256)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'threads' must be in 0..256");
                 string[] targets = new[] { "triangles", "ratio", "max_error", "edge_length" }.Where(args.Has).ToArray();
                 if (targets.Length != 1)
                     throw new CommandException(ResultCodes.InvalidArguments,
@@ -671,7 +733,20 @@ namespace g3cli
                     PreserveBoundaryShape = args.Bool("preserve_boundary"),
                     FeatureAngle = Math.Max(0, args.Number("crease_angle")),
                 };
-                switch (targets[0]) {
+                bool usedPartition = false;
+                if (partitioned) {
+                    if (args.Number("max_error") <= 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'max_error' must be > 0");
+                    double featureAngle = Math.Max(0, args.Number("crease_angle"));
+                    var pr = new PartitionedReducer() { MaxThreads = args.Integer("threads"), Configure = rr => rr.FeatureAngle = featureAngle };
+                    mesh = pr.Reduce(input, args.Number("max_error"));
+                    usedPartition = pr.UsedPartition;
+                    if (MeshIterators.BoundaryEdges(input).Any())
+                        warnings.Add("partitioned: the shape of boundary loops is not preserved");
+                    if (usedPartition == false)
+                        warnings.Add("partitioned: the mesh is below 20000 triangles or the slabs could not be kept apart: one serial run was used");
+                }
+                else switch (targets[0]) {
                     case "triangles":
                         if (args.Integer("triangles") < 1)
                             throw new CommandException(ResultCodes.InvalidArguments, "'triangles' must be >= 1");
@@ -701,6 +776,7 @@ namespace g3cli
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output"), ["target"] = targets[0] };
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
+                if (partitioned) o["used_partition"] = usedPartition;
                 if (args.Bool("deviation"))
                     o["hausdorff"] = Hausdorff(input, mesh);
                 o["warnings"] = Warnings(warnings);

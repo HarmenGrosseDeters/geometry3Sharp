@@ -457,6 +457,12 @@ namespace g3cli
                 o["area"] = MeshReport.Num(area);
                 o["bad_triangles"] = m2.BadTriangles.Count;
                 o["steiner_limit_reached"] = m2.SteinerLimitReached;
+                // (the effective options and the triangles below the angle bound, for an agent that reads the result and not the call)
+                o["conforming"] = quality && args.Has("conforming") && args.Bool("conforming");
+                o["resolve_crossings"] = args.Bool("resolve_crossings");
+                o["steiner_limit"] = quality && args.Has("steiner_limit") ? args.Integer("steiner_limit") : (JsonNode)null;   // (null: not given, the library's default)
+                o["bad_triangle_ids"] = new JsonArray(m2.BadTriangles.Take(100).Select(t => (JsonNode)t).ToArray());
+                o["diagnostics_count"] = diagnostics.Count;
                 o["labels"] = new JsonObject(labels.Select(kv => new KeyValuePair<string, JsonNode>(kv.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), kv.Value)));
                 o["mesh"] = MeshReport.Metrics(mesh, false);
                 var warnings = notes.Concat(diagnostics).ToList();

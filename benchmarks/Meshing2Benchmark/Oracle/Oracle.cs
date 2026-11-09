@@ -15,6 +15,15 @@ namespace Meshing2Acceptance
     /// </summary>
     public static partial class Oracle
     {
+        /// <summary> judge the grid split's pinch rule by the envelope approximation that the chain identity of the output's graph replaced (per thread; differential tests only) </summary>
+        public static bool LegacyEnvelopeChainForDifferential { get => Run.LegacyEnvelopeChainForDifferential; set => Run.LegacyEnvelopeChainForDifferential = value; }
+
+        /// <summary> the piece's own chain (OwnStretch) on a given graph, for the self-checks </summary>
+        public static HashSet<long> StretchOfForSelfCheck(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot) => Run.StretchOf(ia, ib, neighbours, isHot);
+
+        /// <summary> the key of a subsegment in a stretch (StretchOfForSelfCheck), the same for either orientation </summary>
+        public static long SubsegmentKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
         /// <summary>
         /// The mesher's pinch rule as the oracle applies it to a candidate split pixel q (MESHING2D_HULL_GRID.md section 7): q is no
         /// split point when it is no hot pixel of the input's own rounding and a subsegment of another chain ends there (the piece routed
@@ -65,7 +74,8 @@ namespace Meshing2Acceptance
         public static OracleReport Check(Mesh2Input input, Mesh2Output o, OracleExpect e)
         {
             if (ForceReference && !e.Reference) e = e.WithReference();
-            return new Run(input, o, e).Execute();
+            var (point, edge) = IndexSettings();
+            return new Run(input, o, e) { PointIndex = point, EdgeIndex = edge }.Execute();
         }
 
         /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
@@ -79,6 +89,33 @@ namespace Meshing2Acceptance
         [ThreadStatic] public static bool CheckFastPathForTests;
 
         internal static void FastPathDiffers(string what) => throw new InvalidOperationException("fast path differs: " + what);
+
+        // Binary64 outputs use certified geometric pruning by default. Keep the sweep for A/B diagnosis;
+        // exact-coordinate/reference runs always retain their existing independent sweep.
+        internal static bool UseConformityIndex(bool fast, string configured, string indexedName)
+            => fast && IndexSetting("the oracle index", configured, indexedName) != "sweep";
+
+        /// <summary>The environment variable that selects the point/triangle search: strtree (the default) or sweep.</summary>
+        public const string PointIndexVariable = "G3_ORACLE_POINT_INDEX";
+        /// <summary>The environment variable that selects the edge crossing search: strtree-hulls (the default) or sweep.</summary>
+        public const string EdgeIndexVariable = "G3_ORACLE_EDGE_INDEX";
+
+        /// <summary>A conformity index setting, normalized: unset, empty or blank is the default (the indexed name); case and surrounding
+        /// blanks do not matter; anything but the indexed name or sweep throws with the variable, the value and the accepted values.</summary>
+        internal static string IndexSetting(string variable, string value, string indexedName)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return indexedName;
+            string v = value.Trim().ToLowerInvariant();
+            if (v != indexedName && v != "sweep")
+                throw new InvalidOperationException(variable + "='" + value + "' is not a conformity index: use " + indexedName + " (the default) or sweep");
+            return v;
+        }
+
+        /// <summary>Reads and checks both index variables (Oracle.Check does so before any work, the command line at its start), so a
+        /// wrong value fails at once with a clear message instead of in the middle of a long judgment.</summary>
+        public static (string point, string edge) IndexSettings() => (
+            IndexSetting(PointIndexVariable, Environment.GetEnvironmentVariable(PointIndexVariable), "strtree"),
+            IndexSetting(EdgeIndexVariable, Environment.GetEnvironmentVariable(EdgeIndexVariable), "strtree-hulls"));
 
         /// <summary> self-checks: <see cref="Run.PassesPixel"/> (O-H4's rule, and O-H5's images) </summary>
         internal static bool PassesPixel(Pt a, Pt b, Pt c, Q pixel) => Run.PassesPixel(a, b, c, pixel);
@@ -130,7 +167,15 @@ namespace Meshing2Acceptance
             int aliases;                       // merged input slots (identity rules): vertices in the list that are no vertices of the mesh
             List<Pt> effectiveSeeds = new List<Pt>();
 
-            public Run(Mesh2Input input, Mesh2Output o, OracleExpect e) { this.input = input; this.o = o; this.e = e; }
+            public Run(Mesh2Input input, Mesh2Output o, OracleExpect e)
+            {
+                this.input = input; this.o = o; this.e = e;
+                indexSourceCoverage = SourceIndexSetting() != "scan";
+                SourceWorkForTests = 0;
+                SourceGridWorkForTests = 0;
+            }
+            /// <summary> the conformity searches (see Oracle.IndexSettings), read once before the run </summary>
+            public string PointIndex, EdgeIndex;
 
             static long Key(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
             static int KeyA(long k) => (int)(k >> 32);
@@ -182,7 +227,7 @@ namespace Meshing2Acceptance
                 EdgesAndNeighbours(); Lap("edges");
                 Sources(); Lap("sources");
                 Filters(); Lap("filters");
-                Conformity(); Lap("conformity");
+                Conformity(); Lap("conformity: remaining");
                 Crossings();
                 InventedVertices(); Lap("crossings, invented");
                 Segments(); Lap("segments");   // before Coverage: it measures how far the geometry moved
@@ -658,6 +703,63 @@ namespace Meshing2Acceptance
 
 
 
+
+            /// <summary> set to judge the pinch rule by the envelope approximation that OwnStretch replaced (differential tests only) </summary>
+            [ThreadStatic] public static bool LegacyEnvelopeChainForDifferential;
+
+            static long SubKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+            Dictionary<int, List<int>> subsegmentNeighbours;
+            readonly Dictionary<long, HashSet<long>> ownStretchMemo = new Dictionary<long, HashSet<long>>();
+
+            /// <summary>
+            /// The piece's own chain, recomputed from the output's subsegment graph and the input alone: the piece with the subsegments
+            /// reached from either end through vertices that are no hot pixel of the input's rounding and have exactly two neighbouring
+            /// subsegment vertices. That is the link of the snap-rounded image between two hot pixels (or two branching vertices) that
+            /// the piece lies on, ie the part of one chain the mesher's "shares an input source" holds for, without the envelope
+            /// approximation: two chains that run within a pixel of each other along the piece are two chains here (rule C makes that
+            /// regime reachable: the zigzag of Q17). It relies on monotonicity: a straight input segment crosses each open pixel in one interval and
+            /// candidates project strictly between the piece's ends, so a vertex of the piece's own source in q's pixel can only be an end of the
+            /// piece (skipped as q); a stretch beyond a hot pixel is another input segment's chain. A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
+            /// another chain's: the pinch is a failing violation of its own. Returned as subsegment keys (SubKey)
+            /// </summary>
+            HashSet<long> OwnStretch(int ia, int ib)
+            {
+                long key = SubKey(ia, ib);
+                if (ownStretchMemo.TryGetValue(key, out var memo)) return memo;
+                if (subsegmentNeighbours == null) {
+                    subsegmentNeighbours = new Dictionary<int, List<int>>();
+                    foreach (var g in o.Subsegments ?? new List<SubsegmentOutput>()) {
+                        if (g.A == g.B) continue;
+                        if (!subsegmentNeighbours.TryGetValue(g.A, out var la)) subsegmentNeighbours[g.A] = la = new List<int>();
+                        if (!la.Contains(g.B)) la.Add(g.B);
+                        if (!subsegmentNeighbours.TryGetValue(g.B, out var lb)) subsegmentNeighbours[g.B] = lb = new List<int>();
+                        if (!lb.Contains(g.A)) lb.Add(g.A);
+                    }
+                }
+                var stretch = StretchOf(ia, ib, subsegmentNeighbours, x => snapHot.Contains(PixelOf(v[x], snapPixel)));
+                return ownStretchMemo[key] = stretch;
+            }
+
+
+            /// <summary> OwnStretch on a given graph (vertex to its neighbouring subsegment vertices) and hot-pixel test, from either end of the piece </summary>
+            internal static HashSet<long> StretchOf(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot)
+            {
+                var stretch = new HashSet<long> { SubKey(ia, ib) };
+                foreach (var (start, from) in new[] { (ia, ib), (ib, ia) }) {
+                    int prev = from, x = start;
+                    var seen = new HashSet<int> { ia, ib };
+                    while (!isHot(x) && neighbours.TryGetValue(x, out var nb) && nb.Count == 2) {
+                        int next = nb[0] == prev ? nb[1] : nb[0];
+                        if (nb[0] != prev && nb[1] != prev) break;   // (a piece that is no subsegment of the output: only the self-checks)
+                        stretch.Add(SubKey(x, next));
+                        if (!seen.Add(next)) break;
+                        prev = x; x = next;
+                    }
+                }
+                return stretch;
+            }
+
             /// <summary> the grids over the subsegments' boxes and the vertices, in doubles (built once) </summary>
             void EnsureUnsplittableGrids()
             {
@@ -756,12 +858,12 @@ namespace Meshing2Acceptance
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
                         // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, no broader: q no hot pixel of the input's rounding,
-                        // and a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its
-                        // ends. By envelope, where the mesher goes by source: a subsegment along the piece within a pixel counts as its own
-                        // here, so the oracle may demand a split the mesher refuses, never excuse one it would make; the envelope a hair
-                        // wider, so that ties go to "own", ie to demanded; self-checks 5c, 5d)
+                        // and a subsegment ending in q's pixel that belongs to another chain, ie not in the piece's own stretch of the output's subsegment graph (OwnStretch)
+                        // ends. By chain identity recomputed from the output (OwnStretch), as the mesher goes by source; self-checks 5c, 5d)
                         if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
-                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))))) continue;
+                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => LegacyEnvelopeChainForDifferential
+                                ? own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))
+                                : OwnStretch(ia, ib).Contains(SubKey(g.A, g.B))))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];
@@ -1758,31 +1860,54 @@ namespace Meshing2Acceptance
                 var used = new HashSet<int>(o.Triangles.SelectMany(t => t)).OrderBy(i => i).ToArray();
                 var vertexBoxes = used.Select(i => new[] { rx[i], rx[i], ry[i], ry[i] }).ToArray();
                 // (the pairs come in no particular order: the violations are collected and the first 8 in index order reported)
-                var touching = new List<(int ti, int id)>();
-                OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
-                    var t = o.Triangles[ti];
-                    int id = used[vi];
-                    if (id == t[0] || id == t[1] || id == t[2]) return;
-                    if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0) touching.Add((ti, id));
-                });
-                touching.Sort();
+                List<(int ti, int id)> SweptTouches()
+                {
+                    var swept = new List<(int ti, int id)>();
+                    OverlapPairs(triBoxes, vertexBoxes, false, (ti, vi) => {
+                        var t = o.Triangles[ti];
+                        int id = used[vi];
+                        if (id == t[0] || id == t[1] || id == t[2]) return;
+                        if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0) swept.Add((ti, id));
+                    });
+                    swept.Sort();
+                    return swept;
+                }
+                List<(int ti, int id)> touching;
+                if (UseConformityIndex(Fast, PointIndex, "strtree")) {
+                    touching = new List<(int ti, int id)>(new StrtreePointSearch(o).FindTouches());
+                    touching.Sort();
+                    // (the STRtree's pruning against the sweep, pair for pair: the oracle's tests reach it through the fast path checks)
+                    if (CheckFastPathForTests && !touching.SequenceEqual(SweptTouches())) FastPathDiffers("the vertices touching a triangle (STRtree)");
+                } else touching = SweptTouches();
                 foreach (var (ti, id) in touching.Take(8)) {
                     var t = o.Triangles[ti];
                     r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
                 }
+                Lap("conformity: point-triangle");
                 var keys = edges.Keys.ToArray();
                 var edgeBoxes = keys.Select(k => new[] {
                     Math.Min(rx[KeyA(k)], rx[KeyB(k)]), Math.Max(rx[KeyA(k)], rx[KeyB(k)]),
                     Math.Min(ry[KeyA(k)], ry[KeyB(k)]), Math.Max(ry[KeyA(k)], ry[KeyB(k)]) }).ToArray();
-                var crossing = new List<(long, long)>();
-                OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
-                    int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
-                    if (a == c || a == d || b == c || b == d) return;
-                    if (ProperCrossV(a, b, c, d)) crossing.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));
-                });
-                crossing.Sort();
+                List<(long, long)> SweptCrossings()
+                {
+                    var swept = new List<(long, long)>();
+                    OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
+                        int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
+                        if (a == c || a == d || b == c || b == d) return;
+                        if (ProperCrossV(a, b, c, d)) swept.Add((Math.Min(keys[i], keys[j]), Math.Max(keys[i], keys[j])));
+                    });
+                    swept.Sort();
+                    return swept;
+                }
+                List<(long, long)> crossing;
+                if (UseConformityIndex(Fast, EdgeIndex, "strtree-hulls")) {
+                    crossing = new List<(long, long)>(new StrtreeEdgeSearch(o, keys).FindCrossings());
+                    crossing.Sort();
+                    if (CheckFastPathForTests && !crossing.SequenceEqual(SweptCrossings())) FastPathDiffers("the crossing edge pairs (STRtree hulls)");
+                } else crossing = SweptCrossings();
                 foreach (var (k1, k2) in crossing.Take(8))
                     r.Add(Violation.EdgesCross, "edges " + KeyA(k1) + "-" + KeyB(k1) + " and " + KeyA(k2) + "-" + KeyB(k2) + " cross");
+                Lap("conformity: edge-crossings");
                 // every used vertex that is a corner of two triangles with the same coordinates would pass the tests above
                 if (Fast) {
                     // the doubles are the exact vertices: equal doubles, equal points (0.0 and -0.0 made one)
@@ -1843,10 +1968,7 @@ namespace Meshing2Acceptance
                 int n = v.Length;
                 vxl = new double[n]; vxh = new double[n]; vyl = new double[n]; vyh = new double[n]; vKnown = new bool[n];
                 for (int i = 0; i < n; ++i) vKnown[i] = v[i].Bounds(false, out vxl[i], out vxh[i]) && v[i].Bounds(true, out vyl[i], out vyh[i]);
-                double reach = double.NaN;
-                if (tube2.Bounds(out _, out double t2hi)) reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300;
-                sBox = new double[4 * sources.Count];
-                for (int k = 0; k < sources.Count; ++k) SegmentBox(sources[k].a, sources[k].b, reach, sBox, 4 * k);
+                EnsureSourceBoxes();
                 // the ends of each source in doubles where they are doubles exactly (NaN otherwise), and the tube squared from above
                 sEnds = new double[4 * sources.Count];
                 for (int k = 0; k < sources.Count; ++k) {
@@ -1995,6 +2117,37 @@ namespace Meshing2Acceptance
                     }
                 }
 
+                /// <summary>Coverage only: null means restart with the exact scan.
+                /// Counts copied/marked unknowns, cell visits and bucket entries,
+                /// so candidate materialization cannot add unbounded work to a
+                /// scan that would have stopped early. Never returns a partial list.
+                /// The ordinary Query below is unchanged for other callers.</summary>
+                public List<int> QueryBounded(double xl, double xh, double yl, double yh, int maxWork, out int work)
+                {
+                    work = 1;
+                    if (unknown.Count > maxWork) return null;
+                    var result = new List<int>(unknown);
+                    work += unknown.Count;
+                    if (work > maxWork) return null;
+                    if (++round == int.MaxValue) { Array.Clear(stamp, 0, stamp.Length); round = 1; }
+                    foreach (int i in unknown) {
+                        if (++work > maxWork) return null;
+                        stamp[i] = round;
+                    }
+                    Cells(xl, xh, yl, yh, out int i0, out int i1, out int j0, out int j1);
+                    for (int ci = i0; ci <= i1; ++ci)
+                        for (int cj = j0; cj <= j1; ++cj) {
+                            if (++work > maxWork) return null;
+                            if (cells.TryGetValue((long)ci * ny + cj, out var list))
+                                foreach (int i in list) {
+                                    if (++work > maxWork) return null;
+                                    if (stamp[i] != round) { stamp[i] = round; result.Add(i); }
+                                }
+                        }
+                    result.Sort();
+                    return result;
+                }
+
                 public List<int> Query(double xl, double xh, double yl, double yh)
                 {
                     var result = new List<int>(unknown);
@@ -2105,7 +2258,7 @@ namespace Meshing2Acceptance
                     if (o.IdentityRules && o.NeighboursReported && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no subsegments (spec R4)");
                     constraintEdges = new HashSet<long>(EdgeKeys.Instance);
                     foreach (var key in edges.Keys)
-                        if (sources.Any(s => WithinTube(s, v[KeyA(key)]) && WithinTube(s, v[KeyB(key)]))) constraintEdges.Add(key);
+                        if (SourceCovers(KeyA(key), KeyB(key))) constraintEdges.Add(key);
                 }
             }
 
@@ -2318,7 +2471,6 @@ namespace Meshing2Acceptance
                 return found.Select(k => domainEdges[k]).ToList();
             }
 
-            bool SourceCovers(int a, int b) => sources.Any(s => WithinTube(s, v[a]) && WithinTube(s, v[b]));
 
             /// <summary>In the closure of the domain's interior: a boundary point of two touching holes is not, although it is on rings.</summary>
             List<(Pt a, Pt b)> closureEdges;

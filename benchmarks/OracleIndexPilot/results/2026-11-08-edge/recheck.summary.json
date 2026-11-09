@@ -1,0 +1,9 @@
+{
+  "selected": 18,
+  "completed": 18,
+  "verdicts": {
+    "VALID": 18
+  },
+  "valid_with_steiner_limit": 18,
+  "baseline_results_sha256": "6be15779d46066b62c35923c1825a30e00371c81f8c608d6ed215ef166f40453"
+}
