@@ -62,27 +62,49 @@ namespace geometry3Sharp.Tests
             return d;
         }
 
+        // fewer samples than the defaults keep each case well below the test time limit; the comparison is bit for bit,
+        // so the sample count does not weaken it
+        const int Samples = 8000;
+
+        // the results at unit size, computed once for all cases: (sphere vs sphere, sphere vs half radius) x (cells, region)
+        static readonly Lazy<(bool ok, double iou, double plain, double missing, double extra)[]> UnitResults =
+            new Lazy<(bool, double, double, double, double)[]>(() => {
+                var r = new (bool, double, double, double, double)[4];
+                for (int i = 0; i < 4; ++i)
+                    r[i] = Check(1, i / 2 == 0 ? 1 : 0.5, i % 2 == 0);
+                return r;
+            });
+
+        static (bool ok, double iou, double plain, double missing, double extra) Check(double s, double f, bool cells)
+        {
+            bool ok = MeshRepairMetrics.VolumeIoUAtLeast(new MeshRepairMetrics.SolidReference(UnitSphere(s)),
+                MeshRepairMetrics.SolidReference.Unoriented(UnitSphere(f * s)), 0.99, out double iou, samples: Samples, useCells: cells);
+            // (VolumeIoU has no cells: once, with the region case)
+            double plain = double.NaN, missing = double.NaN, extra = double.NaN;
+            if (!cells)
+                plain = MeshRepairMetrics.VolumeIoU(UnitSphere(s), UnitSphere(f * s), out missing, out extra, Samples);
+            return (ok, iou, plain, missing, extra);
+        }
+
         [Theory]
         [MemberData(nameof(Exponents))]
         public void VolumeCheck_Pow2Scales_SameIoUAsAtUnitSize(int k, bool cells)
         {
             // the IoU of a sphere and of the sphere at half the radius is bit for bit the one at unit size, for scales
-            // 2^k far outside [2^-300, 2^300]. Before: NaN, which passed as "no solid" (true) above about 1e102, and a
-            // throw from the exact predicates near 1e308
+            // 2^k far outside [2^-300, 2^300] (VolumeIoUAtLeast on the cells or the region; VolumeIoU on the region).
+            // Before: NaN, which passed as "no solid" (true) above about 1e102, and a throw from the exact predicates
+            // near 1e308
             double s = Math.Pow(2, k);
-            Assert.Equal(Math.Pow(2, k), s);
-            foreach (double f in new[] { 1, 0.5 }) {
-                bool unitOk = MeshRepairMetrics.VolumeIoUAtLeast(new MeshRepairMetrics.SolidReference(UnitSphere(1)),
-                    MeshRepairMetrics.SolidReference.Unoriented(UnitSphere(f)), 0.99, out double unitIoU, useCells: cells);
-                bool ok = MeshRepairMetrics.VolumeIoUAtLeast(new MeshRepairMetrics.SolidReference(UnitSphere(s)),
-                    MeshRepairMetrics.SolidReference.Unoriented(UnitSphere(f * s)), 0.99, out double iou, useCells: cells);
-                Assert.Equal(f == 1, unitOk);
-                Assert.Equal(unitOk, ok);
-                Assert.Equal(unitIoU, iou);
-                double plain = MeshRepairMetrics.VolumeIoU(UnitSphere(s), UnitSphere(f * s), out double missing, out double extra);
-                Assert.Equal(MeshRepairMetrics.VolumeIoU(UnitSphere(1), UnitSphere(f), out double m1, out double e1), plain);
-                Assert.Equal(m1, missing);
-                Assert.Equal(e1, extra);
+            for (int i = 0; i < 2; ++i) {
+                double f = i == 0 ? 1 : 0.5;
+                var unit = UnitResults.Value[2 * i + (cells ? 0 : 1)];
+                var got = Check(s, f, cells);
+                Assert.Equal(f == 1, unit.ok);
+                Assert.Equal(unit.ok, got.ok);
+                Assert.Equal(unit.iou, got.iou);
+                Assert.Equal(unit.plain, got.plain);
+                Assert.Equal(unit.missing, got.missing);
+                Assert.Equal(unit.extra, got.extra);
             }
         }
 
