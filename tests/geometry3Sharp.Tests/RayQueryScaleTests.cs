@@ -148,5 +148,37 @@ namespace geometry3Sharp.Tests
             var ray = new Ray3d(new Vector3d(x - 1e300, 1e299, 1e299), Vector3d.AxisX);
             Assert.Equal(0, tree.FindNearestHitTriangle(ray));
         }
+
+        // nearest hit, all hits and IsInside under every similarity (the same triangles; for the powers of two also the same
+        // boxes and so the same answers bit for bit)
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void RayQueries_AreInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m = Octahedron();
+            new MeshEditor(m).AppendMesh(Scaled(Octahedron(), 0.4));
+            DMesh3 t = Invariance.Transformed(m, sim);
+            var tree = new DMeshAABBTree3(m, true);
+            var treeT = new DMeshAABBTree3(t, true);
+            var rnd = new Random(11);
+            int hits = 0;
+            for (int i = 0; i < 100; ++i) {
+                Vector3d origin = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                var dir = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                var ray = new Ray3d(origin, dir);
+                var rayT = new Ray3d(sim.Apply(origin), sim.ApplyDirection(dir).Normalized);
+                int a = tree.FindNearestHitTriangle(ray), b = treeT.FindNearestHitTriangle(rayT);
+                Assert.Equal(a, b);
+                if (a != DMesh3.InvalidID) ++hits;
+                var all = new List<int>(); var allT = new List<int>();
+                tree.FindAllHitTriangles(ray, all); treeT.FindAllHitTriangles(rayT, allT);
+                Assert.Equal(all.OrderBy(x => x), allT.OrderBy(x => x));
+                Assert.Equal(tree.IsInside(origin), treeT.IsInside(sim.Apply(origin)));
+            }
+            Assert.True(hits > 80);
+        }
+
+        public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
     }
 }
