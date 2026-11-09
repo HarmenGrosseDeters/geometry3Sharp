@@ -1184,7 +1184,8 @@ The angle diagnostics of the result are in `AlphaWrapMinAngleDegrees`, `AlphaWra
 above 170 degrees is kept, and only these fields show it.
 
 Switches:
-- `BENCH_WRAP_QUALITY=0`: turns the pass off.
+- `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
+  `BENCH_WRAP_QUALITY=0` until 2026-11-09).
 - `BENCH_WQ="k=v,..."`: internal variant switches, applied on top of the default settings: `turn`, `follow`,
   `crease`, `worst`, `normals`, `nslack`, `nsamples`, `split`, `capflip`, `pin`, `protect`, `protectflipsonly`,
   `flips`, `moves`, `collapse`, `growth`. `default=0`, given first, resets to the pass's own settings, as for the
