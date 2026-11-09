@@ -17,14 +17,15 @@ namespace geometry3Sharp.Tests
             // even reaches beyond offset + 2 alpha from the input (0.2041 against 0.2032, so CheckWrap's band fails);
             // with it on, neither
             DMesh3 m = AlphaWrapTests.RandomSoup(42);
-            var off = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false };
+            // (gates by circumradius and no quality refinement, which resolve some of these pinches themselves)
+            var off = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(off.Compute(), off.Error);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(off.Result));
             Assert.False(off.Counts.ContainsKey("pinch_points"));
             Assert.True(off.Counts["manifold_flips"] > 0);
             Assert.ThrowsAny<Exception>(() => AlphaWrapTests.AssertAngleBoundOnAllTriangles(off, "off"));
 
-            var on = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
+            var on = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(on.RefineNonManifold);
             Assert.True(on.Compute(), on.Error);
             Assert.True(on.Counts["pinch_points"] > 0 && on.Counts["pinch_rounds"] > 0);
@@ -38,10 +39,12 @@ namespace geometry3Sharp.Tests
             // the extra points count against the point limit: one point above what the wrap needs without the refinement ends
             // in the first round at non-manifold spots, with PointLimitReached and its guarantees (closed, manifold, enclosing)
             DMesh3 m = AlphaWrapTests.RandomSoup(42);
-            var plain = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false };
+            // (gates by circumradius, no quality refinement: the pinch refinement alone; AlphaWrapQualityRefinementTests has
+            // the same for the quality refinement)
+            var plain = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(plain.Compute(), plain.Error);
             long needed = plain.Counts["steiner_points"];
-            var limited = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, MaxSteinerPoints = (int)needed + 1 };
+            var limited = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200, MaxSteinerPoints = (int)needed + 1, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.False(limited.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, limited.Status);
             Assert.Equal(needed + 1, limited.Counts["steiner_points"]);

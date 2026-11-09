@@ -177,9 +177,10 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
 | Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
 
-Choices described in the code: traversability by the circumradius of the facet (an alpha ball passes through
-its circumcircle; the variant with the smallest empty circumscribing ball was tried and refines thin sheets
-down to the scale of the offset), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
+Choices described in the code: traversability by the paper's Phi(f), the smallest empty ball through the facet's
+vertices (Definition 2, Fig. 23; Alpha Wrap 2.0. Before, the circumradius of the facet, which refines thin sheets
+less; Phi(f) doubles the triangles on a sheet of thickness 0, as CGAL's wrap does there, and the quality refinement needs
+it), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
 enclosed outside pockets, the manifold step (around a non-manifold edge or vertex the outside part connected
 to the box stays outside), and the contact margin of the intersection test (1e-6 of the offset).
 
@@ -197,6 +198,12 @@ Before the manifold step, it inserts offset-surface points into the outside cell
 inside, with the same separation guards, and carves again. The idea that a dense enough offset sample makes the
 restricted Delaunay surface a manifold is from J.-D. Boissonnat, S. Oudot 2005 (above). Measurements are in
 `docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 6.
+
+The quality refinement of the result facets (`RefineMinAngleDegrees`) is the quality rule of Chew 1993 and Boissonnat,
+Oudot 2005 (above): a facet with a smallest angle below the bound gets the center of its surface Delaunay ball (the
+crossing of its dual Voronoi edge with the offset surface), here otherwise the projection of its inside cell's
+circumcenter (as rule 2), each only with the separation min(offset, alpha - offset). Measurements are in
+`docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 7.
 
 ## Alpha wrap quality pass (`AlphaWrapQualityPass`, `MeshRobustRepair.AlphaWrapQualityPass`)
 
@@ -565,3 +572,10 @@ J. R. Shewchuk 1997 (see above); results only, no code.
   [arXiv:2609.13430v1](https://arxiv.org/html/2609.13430v1), 2026, sections 1, 3,
   3.1. Paper-only mathematical source for the `LinearEdges` adapter and
   `tools/Z3Pilot/conservative_mc.py`; no external MC code ported.
+
+## Coverage-guided reader fuzzing (test/tool only)
+
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) uses [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
+(MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
+LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
+ported into geometry3Sharp and no dependency is added to the library package.

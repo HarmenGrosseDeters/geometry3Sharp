@@ -96,6 +96,7 @@ jobs:
           python3 test_select_shards.py
           python3 test_baseline.py
           python3 test_incremental.py
+          python3 test_suggest_split.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}
@@ -138,6 +139,7 @@ jobs:
         env:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          G3_LIMIT_SECONDS: '9000'                # the job's timeout-minutes (150) in seconds, for the early stop
         run: bash run_stryker.sh stryker-config.json
       - name: Summary
         if: always()
@@ -149,6 +151,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
@@ -225,6 +236,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs-mesh-${{ matrix.shard }}
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)

@@ -115,10 +115,12 @@ namespace geometry3Sharp.Tests
         }
 
         // the wrap of a shape with a sliver put in: vertex v (the k-th vertex) moved next to a neighbour (needle) or next
-        // to the midpoint of the opposite edge of one of its triangles (cap), within the tangent plane
+        // to the midpoint of the opposite edge of one of its triangles (cap), within the tangent plane. (The wrap with the
+        // gates and without the quality refinement of before #408, the inputs these cases were chosen on: on the wrap of
+        // #408, 1 of the 44 slivers stays)
         static DMesh3 WrapWithSliver(string shape, int k, bool cap, out double tol)
         {
-            var w = new MeshAlphaWrap(Shape(shape)) { RelativeAlpha = 60, RelativeOffset = 600 };
+            var w = new MeshAlphaWrap(Shape(shape)) { RelativeAlpha = 60, RelativeOffset = 600, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             Assert.True(w.Compute());
             DMesh3 m = new DMesh3(w.Result);
             tol = 0.5 * w.UsedOffset;
@@ -162,7 +164,9 @@ namespace geometry3Sharp.Tests
         [InlineData(90)]
         public void SimplifyWithin_WorstTriangleOfTheWrapImproved(int seed)
         {
-            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false };
+            // (the gates of before #408 and no quality refinement: the poor triangles these seeds were chosen for)
+            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = 20, RelativeOffset = 200, RefineNonManifold = false,
+                TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
             w.Compute();
             Assert.NotNull(w.Result);
             DMesh3 wrap = w.Result;

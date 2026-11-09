@@ -163,6 +163,38 @@ class PlanAndMerge(unittest.TestCase):
     def test_plan_without_the_file_in_the_baseline_runs_in_full(self):
         self.assertIsNone(inc.plan(self.config, report(OLD, [], key="/w/repo/Other.cs"), self.root))
 
+    def test_plan_with_a_baseline_without_counted_mutants_runs_in_full(self):
+        # (only ignored or compile-error mutants: nothing to combine a score from)
+        self.assertIsNone(inc.plan(self.config, report(OLD, [mutant(2, "Ignored"), mutant(3, "CompileError")]), self.root))
+        self.assertIsNone(inc.plan(self.config, report(OLD, []), self.root))
+        self.assertIsNotNone(inc.plan(self.config, report(OLD, [mutant(2, "Survived")]), self.root))
+        self.assertIsNotNone(inc.plan(self.config, report(OLD, [mutant(2, "NoCoverage")]), self.root))
+
+    def test_plan_and_merge_read_only_these_baseline_fields(self):
+        # What a stored baseline must hold for plan and merge: per file `source` and `mutants` with `status` and the
+        # `location` lines. If this fails after a change, plan or merge reads another field: old baselines in the cache lack
+        # it, so bump tests/mutation/BASELINE_FORMAT (README, Baseline).
+        minimal = {"files": {"A.cs": {"source": OLD, "mutants": [
+            {"status": "Killed", "location": {"start": {"line": 3}, "end": {"line": 3}}},
+            {"status": "Survived", "location": {"start": {"line": 4}, "end": {"line": 4}}}]}}}
+        mutate, files = inc.plan(self.config, minimal, self.root)
+        self.assertEqual(2, len(mutate))
+        run = {"files": {"A.cs": {"mutants": [{"status": "Killed"}]}}}
+        c = inc.merge(self.config, minimal, run, self.root)
+        self.assertEqual({"run": (1, 0), "baseline": (0, 1), "replaced": 1}, c)
+
+    def test_merge_without_any_counted_mutant_fails(self):
+        cfg = self.write("cfg.json", {"stryker-config": self.config})
+        # every baseline mutant is on the changed line and the run found none that counts
+        bl = self.write("bl.json", report(OLD, [mutant(3, "Killed")]))
+        run = self.write("run.json", report(NEW, [mutant(3, "Ignored")]))
+        code, out = self.cli("merge", cfg, bl, run)
+        self.assertEqual(1, code, out)
+        self.assertIn("no mutant counts", out)
+        # (and the same with a baseline that has some left over: passes)
+        bl = self.write("bl2.json", report(OLD, [mutant(3, "Killed"), mutant(2, "Killed")]))
+        self.assertEqual(0, self.cli("merge", cfg, bl, run)[0])
+
     def test_merge_counts_a_deletion_once(self):
         with open(os.path.join(self.root, "A.cs"), "w") as f:
             f.write(OLD.replace("    int g(int a) { return a - 1; }\n", ""))
@@ -234,7 +266,7 @@ class PlanAndMerge(unittest.TestCase):
 class RunStryker(unittest.TestCase):
     """run_stryker.sh with a fake dotnet that logs its arguments and writes a report"""
 
-    def run_script(self, mode, with_baseline, source=NEW, slow=False, progress=None):
+    def run_script(self, mode, with_baseline, source=NEW, slow=False, progress=None, rc=0, late=0.0, runners=2):
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "repo")
             work = os.path.join(root, "tests", "mutation")
@@ -247,14 +279,16 @@ class RunStryker(unittest.TestCase):
             os.makedirs(bindir)
             run_report = json.dumps(report(NEW, [mutant(3, "Killed")]))
             with open(os.path.join(bindir, "dotnet"), "w") as f:
-                # (slow: the log files Stryker writes with --log-to-file, Stryker's count, two test runs, and time for
-                # the progress line)
-                logs = ('mkdir -p StrykerOutput/2026-01-01.00-00-00/logs\n'
+                # (slow: the log files Stryker writes with --log-to-file, Stryker's count, `runners` test runs (and a
+                # file that only contains "Runner "), and time for the progress line; late: they appear that many
+                # seconds after Stryker started; rc: the exit code of dotnet stryker after it wrote its report)
+                logs = ('sleep %s\nmkdir -p StrykerOutput/2026-01-01.00-00-00/logs\n'
                         'echo "[INF] 7    total mutants will be tested" > StrykerOutput/2026-01-01.00-00-00/logs/log-1.txt\n'
-                        'touch "StrykerOutput/2026-01-01.00-00-00/logs/Runner 0-log.host.1.txt" '
-                        '"StrykerOutput/2026-01-01.00-00-00/logs/Runner 1-log.host.2.txt"\nsleep 3\n') if slow else ''
+                        'touch "StrykerOutput/2026-01-01.00-00-00/logs/log Runner 9.txt"\n'
+                        'for i in $(seq 1 %d); do touch "StrykerOutput/2026-01-01.00-00-00/logs/Runner $i-log.host.$i.txt"; done\n'
+                        'sleep 3\n' % (late, runners)) if slow else ''
                 f.write('#!/usr/bin/env bash\necho "ARGS: $*"\nmkdir -p StrykerOutput/2026-01-01.00-00-00/reports\n' + logs +
-                        "echo '%s' > StrykerOutput/2026-01-01.00-00-00/reports/mutation-report.json\n" % run_report)
+                        "echo '%s' > StrykerOutput/2026-01-01.00-00-00/reports/mutation-report.json\nexit %d\n" % (run_report, rc))
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             if with_baseline:
                 os.makedirs(os.path.join(work, "baseline"))
@@ -302,6 +336,108 @@ class RunStryker(unittest.TestCase):
         code, args, full_marker, out = self.run_script("full", True, slow=True)
         self.assertEqual(0, code, out)
         self.assertNotIn("[progress", out)
+
+    def test_progress_line_when_the_logs_come_late(self):
+        # (the ticker subshell must survive the polls before the log directory exists)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, late=2.5)
+        self.assertEqual(0, code, out)
+        self.assertIn("test runs started: 2, mutants to test: 7", out)
+
+    def test_progress_line_counts_only_runner_files(self):
+        # (a file with "Runner " inside its name does not count, and no run started is 0, not an error)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, runners=0)
+        self.assertEqual(0, code, out)
+        self.assertIn("test runs started: 0, mutants to test: 7", out)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1, runners=3)
+        self.assertIn("test runs started: 3, mutants to test: 7", out)
+
+    def test_the_runner_is_printed(self):
+        out = self.run_script("full", True)[3]
+        self.assertRegex(out, r"runner: \S+ cpus, [0-9]* MB memory")
+
+    def test_the_exit_code_of_stryker_passes_through(self):
+        # full: a failing Stryker (below its own break threshold, or a crash) fails the script with the same code
+        code, args, full_marker, out = self.run_script("full", True, rc=1)
+        self.assertEqual((1, True), (code, full_marker), out)
+        self.assertEqual(3, self.run_script("full", True, rc=3)[0])
+        # tests mode and source without a baseline (which runs in full)
+        self.assertEqual(3, self.run_script("tests", False, rc=3)[0])
+        self.assertEqual(2, self.run_script("source", False, rc=2)[0])
+        # source with a plan: no merge (no score) after a failing run
+        code, args, full_marker, out = self.run_script("source", True, rc=1)
+        self.assertEqual(1, code, out)
+        self.assertEqual(["stryker --log-to-file --config-file incremental-run.json --break-at 0"], args)
+        self.assertNotIn("Score of the shard", out)
+
+    def run_fake(self, body, env_extra, timeout=60):
+        """run_stryker.sh in full mode with a fake dotnet that runs `body` (a bash script)"""
+        with tempfile.TemporaryDirectory() as d:
+            work = os.path.join(d, "repo", "tests", "mutation")
+            os.makedirs(work)
+            with open(os.path.join(work, "stryker-x.json"), "w") as f:
+                json.dump({"stryker-config": {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}}, f)
+            bindir = os.path.join(d, "bin")
+            os.makedirs(bindir)
+            with open(os.path.join(bindir, "dotnet"), "w") as f:
+                f.write("#!/usr/bin/env bash\n" + body)
+            os.chmod(os.path.join(bindir, "dotnet"), 0o755)
+            env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE="full",
+                       GITHUB_STEP_SUMMARY=os.path.join(d, "summary"), PROGRESS_SECONDS="1", **env_extra)
+            env.pop("GITHUB_OUTPUT", None)
+            t0 = __import__("time").time()
+            p = subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), "stryker-x.json"], cwd=work, env=env,
+                               capture_output=True, text=True, timeout=timeout)
+            marker = os.path.join(work, "StrykerOutput", "stopped-early")
+            summary = ""
+            if os.path.isfile(os.path.join(d, "summary")):
+                with open(os.path.join(d, "summary")) as f:
+                    summary = f.read()
+            return p.returncode, p.stdout, os.path.isfile(marker), summary, __import__("time").time() - t0
+
+    # a fake Stryker that finishes its coverage pass at once (1000 mutants to test) and then starts 2 test runs per second
+    FAKE_RUNS = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                 'echo "[INF] 1000    total mutants will be tested" > $L/log-1.txt\n'
+                 'for i in $(seq 1 %d); do touch "$L/Runner $i-log.host.$i.txt"; sleep 0.5; done\n')
+
+    def test_a_run_projected_far_over_the_limit_is_stopped_early(self):
+        code, out, marker, summary, elapsed = self.run_fake(self.FAKE_RUNS % 200, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "2"})
+        self.assertEqual((3, True), (code, marker), out)
+        self.assertIn("stopped early", out)
+        self.assertIn("::error::", out)
+        self.assertIn("projected total:", out)
+        self.assertIn("Mutation run stopped early", summary)
+        self.assertLess(elapsed, 40)                      # (not the 100 s the fake would run)
+
+    def test_a_run_within_the_limit_or_with_the_stop_switched_off_is_not_stopped(self):
+        body = self.FAKE_RUNS % 12                        # (about 6 s)
+        for extra in ({"G3_LIMIT_SECONDS": "21000", "G3_MIN_RUNS": "2"},                     # the projection fits the limit x 1.15? no: 1000 runs at 2/s is 500 s
+                      {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "2", "G3_NO_EARLY_STOP": "1"},    # switched off
+                      {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "1000"}):                          # too few runs to project
+            code, out, marker, summary, elapsed = self.run_fake(body, extra)
+            self.assertEqual((0, False), (code, marker), (extra, out))
+            self.assertNotIn("stopped early", out)
+        # the projection is printed once it can be made (the first case, 2 runs per second against 1000 mutants)
+        code, out, marker, _, _ = self.run_fake(body, {"G3_LIMIT_SECONDS": "21000", "G3_MIN_RUNS": "2"})
+        self.assertRegex(out, r"projected total: \d+ min \(limit 350 min\)")
+
+    def test_the_projection_needs_two_ticks_the_time_so_far_and_only_the_runs_after_the_coverage_pass(self):
+        # one tick over the limit is not enough: the fake ends after about 2.6 s, before the third tick
+        code, out, marker, _, _ = self.run_fake(self.FAKE_RUNS % 5, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "1"})
+        self.assertEqual((0, False), (code, marker), out)
+        # the projection is the time so far plus the runs left at the measured rate: 8 mutants at 2 runs per second
+        # and a hung Stryker afterwards: at the second tick 2 s + 2 s = 4 s, over the limit of 3 s x 1.15
+        body = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                'echo "[INF] 8    total mutants will be tested" > $L/log-1.txt\n'
+                'for i in $(seq 1 8); do touch "$L/Runner $i-log.host.$i.txt"; sleep 0.5; done\nsleep 20\n')
+        code, out, marker, _, elapsed = self.run_fake(body, {"G3_LIMIT_SECONDS": "3", "G3_MIN_RUNS": "2"})
+        self.assertEqual((3, True), (code, marker), out)
+        self.assertLess(elapsed, 15)
+        # 50 test runs of the coverage pass are not mutants: nothing started after the first tick, nothing to project
+        body = ('L=StrykerOutput/2026-01-01.00-00-00/logs; mkdir -p $L\n'
+                'for i in $(seq 1 50); do touch "$L/Runner $i-log.host.$i.txt"; done\n'
+                'echo "[INF] 1000    total mutants will be tested" > $L/log-1.txt\nsleep 6\n')
+        code, out, marker, _, _ = self.run_fake(body, {"G3_LIMIT_SECONDS": "5", "G3_MIN_RUNS": "10"})
+        self.assertEqual((0, False), (code, marker), out)
 
     def test_unknown_mode_fails(self):
         self.assertNotEqual(0, self.run_script("nonsense", False)[0])

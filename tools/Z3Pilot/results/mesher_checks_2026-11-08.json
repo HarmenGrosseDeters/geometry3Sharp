@@ -1,0 +1,124 @@
+{
+  "contracts": {
+    "margin_exponent": "40",
+    "lo": "1/10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "hi": "100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "obligations": [
+    {
+      "name": "S1_square_relative_error_(1+u)^3-1",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.007,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "S2_sum_of_squares_(1+u)^4-1",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.332,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "S3_length_error_2^-50_in_the_guarded_range",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.001,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "S3_mutant_without_the_lower_range_guard",
+      "result": "sat",
+      "expected": "sat",
+      "seconds": 0.001,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "order_margin_2^-40",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.002,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "order_margin_2^-52",
+      "result": "sat",
+      "expected": "sat",
+      "seconds": 0.001,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "fp_margin_constant_is_exact_in_range",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.201,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "lens_predicate_iff_angle_120",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.006,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "lens_angle_120_iff_two_disks",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.031,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "apex_angles_le_90_imply_locally_delaunay",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.004,
+      "ok": true,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "shell_piece_vertex_within_1.5_of_an_end",
+      "result": "unsat",
+      "expected": "unsat",
+      "seconds": 0.001,
+      "ok": true,
+      "assumptions_result": "sat"
+    }
+  ],
+  "reports": [
+    {
+      "name": "S2_with_2^-51_in_place_of_(1+u)^4-1 (the derivation does not give 2^-51)",
+      "result": "sat",
+      "expected": "report",
+      "seconds": 0.006,
+      "ok": false,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "S3_length_error_2^-51_in_the_guarded_range (reported)",
+      "result": "sat",
+      "expected": "report",
+      "seconds": 0.002,
+      "ok": false,
+      "assumptions_result": "sat"
+    },
+    {
+      "name": "order_margin_2^-49 (reported)",
+      "result": "unsat",
+      "expected": "report",
+      "seconds": 0.003,
+      "ok": false,
+      "assumptions_result": "sat"
+    }
+  ],
+  "passed": true
+}

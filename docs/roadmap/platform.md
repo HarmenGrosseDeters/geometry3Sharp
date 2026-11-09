@@ -7,6 +7,39 @@ Part of the [roadmap](../ROADMAP.md).
   the DAP audit, the upstream ledger, the test suite on other locales, and the release.
 - **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
   issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
+- **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
+  visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
+  it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
+  so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
+  when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (draft, measured 8 November 2026): (1) `--verbosity debug` / `trace` log no line per test during capture
+  (a 51-test filter: the capture test host logs `InProgressTests is null` / `Sending test run statistics` lines in batches,
+  20 and 6 of them after 10 min), so the ticker shows elapsed time only; (2) the Stryker logs are uploaded with `if: always()`
+  (`mutation-logs-mesh-<shard>`, 7 days); (3) `run_stryker.sh` stops a shard early when the projection after the capture
+  exceeds the limit by 15 % on two ticks in a row (exit 3, `StrykerOutput/stopped-early`, step summary); (4) `dots` prints
+  nothing without a terminal. Open from the analysis: per-part reduced test filters (`exclusive_kills.py`), a `gate` mode
+  that fingerprints without thresholds, a two-tier test split, a timeout A/B (`timeout-ratio`), tests for the envelope
+  survivors that look real, baseline import through a data branch.
+- **#403 merged (2026-11-09, 1fad195d):** its last run was green on all 14 shards within 350 min (rounding parts
+  145-294 min, margin >= 56 min). Master baselines dispatched for the 14 non-rounding shards; the rounding baselines are
+  seeded after the integration PR (it changes the rounding code, so earlier baselines would be stale at once).
+- **JOB-1 on the owner's machine (2026-11-09, runs/mutation-local e4137017):** label A (part 4, 174 tests) is not a kill
+  measurement: all 282 mutants Timeout in about 5 s of mutant phase (the Windows test runner most likely failed; the log
+  was overwritten). Its capture took 6 h 34 min, about 2x CI. F1 has 171 tests, so a reduced filter barely shortens
+  capture; B2 dropped. Decision: no kill measurements on the owner's machine; kills only in CI.
+- **CI speed (owner 2026-11-09; Sonnet session, branch claude/ci-test-tiers):** master suite 8133 tests, 23 min wall,
+  5296 s summed; tests >= 5 s are 171 tests and 67 % of the time; xunit runs one class serially, so the 753 s
+  `TagCheck_HoldsOnTheCoveredCatalogueRows` was the critical path. Plan: split the long tests into classes (same checks,
+  a test proves the partition), remove a duplicated oracle run in `ExtremeScales` (-48 %), a `Slow` trait with a fast
+  draft tier (~6-8 min) and the full suite on ready-for-review and master, path-based CI for tools/benchmark/docs PRs;
+  then #434 (coverage gate) as its own job over the fast tier. Follow-up candidate: catalogue row F-37 takes ~300 s in
+  the tag check alone (a test-oracle cost, like the conformity sweep in #392); profile before deciding.
+- **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
+  8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
+  #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
+  7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
+  touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
+  decision, not needed for the gate).
 - **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
@@ -114,7 +147,8 @@ Tier: S, M. Parallel: up to 2 sessions
     - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
       the hand derivation (complements Z3, which checks logical rules).
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
-      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test.
+      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
+      STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
 
 #### Test suite on German Windows
 

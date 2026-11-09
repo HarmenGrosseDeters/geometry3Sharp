@@ -43,6 +43,7 @@ Read both before you change anything. If anything below conflicts with them, the
   a change to `mutation.yml` in a region that can change how a shard runs (the Stryker step, runner, setup, matrix,
   workflow `env`) runs every shard in full (4-5 h of runners; an edit of the trigger, `max-parallel`, a reporting step or
   a cache key runs nothing by itself, tests/mutation/README.md), and a change to a shard's `stryker-*.json` gives it a new cache
-  key, so that shard runs in full. If a test cannot
+  key, so that shard runs in full, and a change to `run_stryker.sh`, `incremental.py` or `baseline.py` runs the
+  `fixed` shard in full as a representative. If a test cannot
   match, extending a filter or `paths` is allowed; say so and why in the PR. Other changes to the workflow or the
   scripts go through the coordinator, as every PR's mutation gate depends on them.
