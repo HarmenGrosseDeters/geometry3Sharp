@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the polygon booleans and offsets `polygon2d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -557,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `PolygonCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -655,6 +655,16 @@ g3cli deviation simplified.stl original.stl --certified
 g3cli thickness part.stl --method ray --min-thickness 0.8 --max-results 20
 g3cli fit pipe.stl --primitive cylinder
 #   -> "cylinder": { "axis_origin": [...], "axis_direction": [...], "radius": 12.5, "height": 80 }, "inliers": 4120, "rms_error": ...
+```
+
+**2D polygon booleans and offsets** (`polygon2d`, the optional [Clipper2 adapter](#2d-polygon-booleans-and-offsets-optional-package); `g3cli`
+references the adapter, the core library stays free of the dependency): GeoJSON polygons (with holes) in, a GeoJSON `MultiPolygon` out.
+Union, intersection, difference, xor and offset on the integer grid of the adapter (`frame` in the result); an empty result is `ok` with
+zero polygons; `invalid_input` of the adapter (an unusable extent) is `operation_failed` with `clipper_status`:
+
+```
+g3cli polygon2d parcel.geojson building.geojson free.geojson --op difference
+g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
