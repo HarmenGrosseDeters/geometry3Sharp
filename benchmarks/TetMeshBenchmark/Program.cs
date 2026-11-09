@@ -30,6 +30,14 @@ static class Program
             var mesh = StandardMeshReader.ReadMesh(args[1]);
             Header();
             Wrap(System.IO.Path.GetFileName(args[1]), mesh, ra, ro);
+        } else if (mode == "export") {          // export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]: the wrap's inside cells as a tet file
+            double ra = args.Length > 3 ? double.Parse(args[3], Inv) : 20, ro = args.Length > 4 ? double.Parse(args[4], Inv) : 600;
+            var w = new MeshAlphaWrap(StandardMeshReader.ReadMesh(args[1])) { RelativeAlpha = ra, RelativeOffset = ro };
+            if (!w.Compute()) { Console.Error.WriteLine("wrap failed: " + w.Status); return 2; }
+            TetFiles.Write(w.ExtractTetMesh(), args[2]);
+        } else if (mode == "eval") {            // eval <tet file .mesh|.msh> [name] [time_s] [threads]: quality of a tet mesh of another mesher
+            Console.WriteLine(TetFiles.Header);
+            Console.WriteLine(TetFiles.Evaluate(args.Length > 2 ? args[2] : System.IO.Path.GetFileName(args[1]), args[1], args.Length > 3 ? args[3] : "", args.Length > 4 ? args[4] : ""));
         } else return 1;
         return 0;
     }
