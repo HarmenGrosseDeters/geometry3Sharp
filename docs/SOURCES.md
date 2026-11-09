@@ -630,3 +630,10 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 | ESRI ASCII Grid (.asc) | ESRI, *ASCII to Raster* tool documentation (header ncols / nrows / xllcorner | xllcenter / yllcorner | yllcenter / cellsize / NODATA_value; north row first); the GDAL AAIGrid driver page describes the same format, including dx / dy |
 | XYZ ASCII DGM (Geobasis NRW `dgm1_xyz`) | the open-data product description of the Land NRW DGM1 (one "x y z" point per line on a regular 1 m grid); the reader accepts any regular square lattice |
 | Grid TIN with a fixed diagonal | Garland, Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 (regular grid triangulation as the full-resolution reference); the interpolation on the TIN is the library's own definition (`HeightGrid.Height`) |
+
+## Sharp-feature probe (`benchmarks/SharpFeatureProbe`)
+
+| Method | Source |
+|---|---|
+| QEF vertex from Hermite data (planes of the input around a vertex, singular values cut off) | T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual Contouring of Hermite Data*, SIGGRAPH 2002; S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
+| Feature sensitive extraction (read for the prior-art line only) | L. Kobbelt, M. Botsch, U. Schwanecke, H.-P. Seidel, *Feature Sensitive Surface Extraction from Volume Data*, SIGGRAPH 2001 |

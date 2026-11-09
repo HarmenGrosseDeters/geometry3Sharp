@@ -57,6 +57,11 @@ guarantees and angles unchanged, deterministic); the owner sets them; one PR per
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
 and memory): both use "evaluate in parallel, apply serially".
 
+**Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
+(B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
+(C) vertex post-pass toward the QEF points, all exact checks kept (C1 offset miter, C2 input crease, C3 = C1 before the simplification): Chamfer 0.87x / 0.68x / 0.86x, edge F 0.1 % 0.75-0.76, crease normal 0.58x, 20/20 clean, angle floors and offset band unchanged, +15-35 % time: recovers 17-42 % of B's Chamfer gain, about 40 % of its edge F; (D1) alpha / 2 as the bound of a locally smaller alpha (option 4): Chamfer 0.75x at 1.7x triangles and 2.5x time (9 meshes); the QEF-guided Steiner idea (D2) was not built (needs library changes; C3 is its cheap proxy). Side finding: the simplified wrap grazes the input on 20/20 meshes (the raw wrap never does).
+How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Kobbelt et al. 2001 (feature-sensitive extraction: feature vertex + edge flips), recent mitered offset meshing (arXiv 2412.15564, Feature-Preserving Offset Mesh Generation from Topology-Adapted Octrees, CGF 2023) which keep sharp features by DC / point-to-plane offsets, not by an alpha wrap; the alpha wrap paper itself names sharp features as a limit. Recommendation in the PR / report.
+
 **Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
 PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
 60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
