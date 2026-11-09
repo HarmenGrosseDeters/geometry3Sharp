@@ -31,6 +31,7 @@ within max(5 s, 50 µs × raw triangles), 92 of the 189 others within 10 %, 168 
 189 over budget ~60 % of the time is the wrap itself (intersection oracle 14 %, Delaunay insertion 13 %, touch 12 %,
 the two pinch passes 18 %), reduction 17 %, certification 7 %; together with parallelism. The Reducer / Remesher 2.0
 hand-over is docs/design/PARTITIONED_REDUCTION_HANDOVER.md (#454).
+Reducer / Remesher 2.0: a Sonnet session measures the baseline and proposes targets first (started 2026-11-09).
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):

@@ -161,7 +161,7 @@ Tier: S, M. Parallel: up to 2 sessions
 SharpFuzz + libFuzzer (STL reader pilot #442; mesh-ops pilot after #449), FPTaylor (#436), Z3 (#400, #407, #443),
 CsCheck property campaigns (the list above), changed-line coverage with coverlet (#434), mutation shards (#403, #445)
 and the test tiers and time limit (#447, the backlog program).
-- **Step 1, inventory:** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
+- **Step 1, inventory (Sonnet session started 2026-11-09):** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
   oracle, Clipper2 addon, MarchingCubes / contouring, terrain, remesher / reducer, spatial queries), each cell with
   what exists, what the tool would check there, the expected finds and the cost. Then a rollout order by ROI for the
   owner.
@@ -181,6 +181,9 @@ and the test tiers and time limit (#447, the backlog program).
   `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
   `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
   triangle inputs through the wrap / solidify fallbacks (performance, not a hang).
+- **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
+  tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
+  (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 
