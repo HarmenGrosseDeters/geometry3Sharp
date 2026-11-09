@@ -106,14 +106,51 @@ namespace g3cli.Tests
         }
 
         [Fact]
-        public void Wrap_RefinementOptions_ChangeTheResult()
+        public void Wrap_RefinementOptions_EachChangeTheResult()
         {
             string[] common = { "--alpha", "0.3", "--offset", "0.02", "--compact" };
-            var (_, withAll) = Run(new[] { "wrap", m.Overlapping, m.Path_("wa.obj") }.Concat(common).ToArray());
-            var (e, none) = Run(new[] { "wrap", m.Overlapping, m.Path_("wn.obj"), "--no-refine-non-manifold", "--refine-min-angle", "0" }.Concat(common).ToArray());
-            Assert.Equal(0, e);
-            Assert.NotEqual(I(withAll["mesh"]["triangles"]), I(none["mesh"]["triangles"]));
-            Assert.True(B(none["mesh"]["closed"]));
+            int Tris(params string[] more)
+            {
+                var (e, r) = Run(new[] { "wrap", m.Overlapping, m.Path_("wr.obj") }.Concat(common).Concat(more).ToArray());
+                Assert.Equal(0, e);
+                Assert.True(B(r["mesh"]["closed"]));
+                return I(r["mesh"]["triangles"]);
+            }
+            int baseline = Tris();
+            Assert.Equal(baseline, Tris("--refine-non-manifold", "--refine-min-angle", "15"));     // the library defaults, spelled out
+            Assert.NotEqual(baseline, Tris("--refine-min-angle", "0"));
+            Assert.NotEqual(baseline, Tris("--refine-min-angle", "30"));
+            Assert.NotEqual(Tris("--refine-min-angle", "0"), Tris("--refine-min-angle", "30"));
+            // refine_non_manifold only acts where the carved surface is non-manifold, which none of the small generated inputs produces
+            // (no triangle count changes with it): here it is only checked that the switch is accepted and the wrap stays closed
+            var (en, rn) = Run(new[] { "wrap", m.Overlapping, m.Path_("wn.obj"), "--no-refine-non-manifold" }.Concat(common).ToArray());
+            Assert.Equal(0, en);
+            Assert.True(B(rn["mesh"]["closed"]));
+        }
+
+        [Fact]
+        public void Wrap_ZeroExtentInput_IsInvalidArguments_AndNothingIsWritten()
+        {
+            string point = m.Path_("point.obj");
+            File.WriteAllText(point, "v 1 1 1\nv 1 1 1\nv 1 1 1\nf 1 2 3\n");
+            string output = m.Path_("wrap_point.obj");
+            var (exit, r) = Run("wrap", point, output, "--compact");
+            Assert.NotEqual(0, exit);
+            Assert.Equal("error", S(r["status"]));
+            Assert.False(File.Exists(output));
+            Assert.NotNull(r["wrap_status"]);
+        }
+
+        [Fact]
+        public void Wrap_LimitsOnUntrustedValues()
+        {
+            foreach (string[] bad in new[] {
+                new[] { "--max-steiner-points", "2000001" }, new[] { "--relative-alpha", "1001" }, new[] { "--relative-offset", "100001" },
+                new[] { "--alpha", "0.001" }, new[] { "--offset", "1e-9" } }) {
+                var (exit, r) = Run(new[] { "wrap", m.Cube, m.Path_("lim.obj") }.Concat(bad).ToArray());
+                AssertError(exit, r, "invalid_arguments");
+                Assert.False(File.Exists(m.Path_("lim.obj")));
+            }
         }
 
         [Fact]
@@ -181,6 +218,25 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void SimplifyPartitioned_SmallerMaxError_KeepsMoreTriangles()
+        {
+            int Tris(string maxError) => I(Run("simplify", Big, m.Path_("pm.ply"), "--max-error", maxError, "--partitioned", "--compact").result["mesh"]["triangles"]);
+            int loose = Tris("1e-5"), tight = Tris("1e-8");
+            Assert.True(tight > loose, $"{tight} <= {loose}");
+            Assert.True(loose < 24300);
+        }
+
+        [Fact]
+        public void SimplifyPartitioned_CreaseAngle_ReachesTheReducer()
+        {
+            // a cube-like ridge: a box subdivided by simplification keeps its sharp edges only with a crease angle
+            var (e1, plain) = Run("simplify", m.Cube, m.Path_("pc1.obj"), "--max-error", "1", "--partitioned", "--compact");
+            var (e2, crease) = Run("simplify", m.Cube, m.Path_("pc2.obj"), "--max-error", "1", "--partitioned", "--crease-angle", "30", "--compact");
+            Assert.Equal(0, e1); Assert.Equal(0, e2);
+            Assert.True(I(crease["mesh"]["triangles"]) >= I(plain["mesh"]["triangles"]));
+        }
+
+        [Fact]
         public void SimplifyPartitioned_SmallMeshRunsSerially_WithAWarning()
         {
             var (exit, r) = Run("simplify", m.Sphere, m.Path_("ps.obj"), "--max-error", "1e-4", "--partitioned", "--compact");
@@ -193,6 +249,7 @@ namespace g3cli.Tests
         public void SimplifyPartitioned_OpenMesh_WarnsAboutTheBoundary()
         {
             var (exit, r) = Run("simplify", m.Open, m.Path_("po.obj"), "--max-error", "1e-4", "--partitioned", "--compact");
+            Assert.Equal(0, exit);
             Assert.Contains(r["warnings"].AsArray().Select(S), w => w.Contains("boundary"));
         }
 
@@ -218,6 +275,8 @@ namespace g3cli.Tests
         {
             var (e1, r1) = Run("simplify", m.Sphere, m.Path_("pe.obj"), "--max-error", "1e-4", "--partitioned", "--threads", "-1"); AssertError(e1, r1, "invalid_arguments");
             var (e2, r2) = Run("simplify", m.Sphere, m.Path_("pe.obj"), "--max-error", "0", "--partitioned"); AssertError(e2, r2, "invalid_arguments");
+            var (e3, r3) = Run("simplify", m.Path_("missing.obj"), m.Path_("pe.obj"), "--max-error", "1e-4", "--partitioned", "--threads", "257"); AssertError(e3, r3, "invalid_arguments");
+            var (e4, r4) = Run("simplify", m.Path_("missing.obj"), m.Path_("pe.obj"), "--max-error", "-1", "--partitioned"); AssertError(e4, r4, "invalid_arguments");
         }
     }
 }

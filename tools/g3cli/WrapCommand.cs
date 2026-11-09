@@ -20,6 +20,13 @@ namespace g3cli
             return v;
         }
 
+        static double AtMost(double v, double max, string name)
+        {
+            if (v > max)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' must be <= {max}");
+            return v;
+        }
+
         static Command Wrap()
         {
             var c = new Command() {
@@ -52,13 +59,13 @@ namespace g3cli
                 var warnings = new List<string>();
                 var wrapper = new MeshAlphaWrap((DMesh3)null);
                 if (args.Has("alpha")) wrapper.Alpha = Positive(args, "alpha");
-                if (args.Has("relative_alpha")) wrapper.RelativeAlpha = Positive(args, "relative_alpha");
+                if (args.Has("relative_alpha")) wrapper.RelativeAlpha = AtMost(Positive(args, "relative_alpha"), 1000, "relative_alpha");
                 if (args.Has("offset")) wrapper.Offset = Positive(args, "offset");
-                if (args.Has("relative_offset")) wrapper.RelativeOffset = Positive(args, "relative_offset");
+                if (args.Has("relative_offset")) wrapper.RelativeOffset = AtMost(Positive(args, "relative_offset"), 100000, "relative_offset");
                 if (args.Has("max_steiner_points")) {
                     int n = args.Integer("max_steiner_points");
-                    if (n < 1)
-                        throw new CommandException(ResultCodes.InvalidArguments, "'max_steiner_points' must be >= 1");
+                    if (n < 1 || n > 2000000)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'max_steiner_points' must be in 1..2000000 (the library default)");
                     wrapper.MaxSteinerPoints = n;
                 }
                 if (args.Has("refine_non_manifold")) wrapper.RefineNonManifold = args.Bool("refine_non_manifold");
@@ -70,6 +77,12 @@ namespace g3cli
                 }
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
                 wrapper.Mesh = input;
+                // the cost grows with 1 / alpha^2: absolute values are bounded relative to the input's size, as the relative ones are
+                double diagonal = input.GetBounds().DiagonalLength;
+                if (args.Has("alpha") && diagonal / wrapper.Alpha > 1000)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'alpha' must be at least 1/1000 of the bounding box diagonal (" + diagonal / 1000 + ")");
+                if (args.Has("offset") && diagonal / wrapper.Offset > 100000)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'offset' must be at least 1/100000 of the bounding box diagonal (" + diagonal / 100000 + ")");
                 bool ok = wrapper.Compute();
                 string status = ToSnake(wrapper.Status.ToString());
                 if (wrapper.Status == MeshAlphaWrap.WrapStatus.InvalidParameters)

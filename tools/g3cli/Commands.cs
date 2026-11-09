@@ -669,6 +669,8 @@ namespace g3cli
                 bool partitioned = args.Bool("partitioned");
                 if (partitioned && args.Has("max_error") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "'partitioned' needs the target max_error");
+                if (partitioned && !(args.Number("max_error") > 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_error' must be > 0");
                 if (args.Integer("threads") < 0 || args.Integer("threads") > 256)
                     throw new CommandException(ResultCodes.InvalidArguments, "'threads' must be in 0..256");
                 string[] targets = new[] { "triangles", "ratio", "max_error", "edge_length" }.Where(args.Has).ToArray();
