@@ -136,6 +136,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ApplyAgain_OnAnEmptiedMesh_NoStaleContacts()
+        {
+            // reuse: an Apply that leaves a contact, then the mesh is emptied and Apply runs again on the same instance.
+            // The early return for an empty mesh resets every count, so Apply and IsClean agree (before, the contact
+            // counts kept the first Apply's values: Apply true, IsClean false)
+            (DMesh3 m, Func<int, int> pointId, int[] apex) = Cones(4, twoEach: true);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, PointIdF = pointId };
+            Assert.False(r.Apply());
+            Assert.Equal(1, r.RemainingFalseContacts);
+            r.Mesh = new DMesh3();
+            Assert.True(r.Apply());
+            Assert.True(r.IsClean);
+            Assert.Equal(0, r.InitialFalseContacts);
+            Assert.Equal(0, r.RemainingFalseContacts);
+        }
+
+        [Fact]
         public void SinglePointOfTheSmallestVertex_Moved_TheContactOfTheOtherKept()
         {
             // the vertex of smallest id is the single vertex of its point: the point with two vertices stays (not the

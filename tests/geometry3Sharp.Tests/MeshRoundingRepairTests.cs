@@ -284,6 +284,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Degenerate(m), repair.RemainingDegenerate);
             Assert.True(repair.RemainingDegenerate > 0 && repair.RemainingDegenerate < before);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            // reused on an empty mesh: the limit is not reported again (the early return resets it)
+            repair.Mesh = new DMesh3();
+            Assert.True(repair.Apply());
+            Assert.False(repair.EvaluationLimitReached);
         }
 
         [Fact]

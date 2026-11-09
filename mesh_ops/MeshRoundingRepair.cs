@@ -361,6 +361,8 @@ namespace g3
             anyCoarse = false;
             ScaleDisparity = 0;
             ScaleNotFinite = false;
+            InitialFalseContacts = RemainingFalseContacts = 0;
+            EvaluationLimitReached = false;
             if (SharedPositionsTouch == false)
                 atPosition = null;
             // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
@@ -406,12 +408,10 @@ namespace g3
             InitialIntersections = pairs.Count;
             InitialDegenerate = bad.Count;
             evaluations = pairTests = 0;
-            InitialFalseContacts = RemainingFalseContacts = 0;
             if (PointIdF != null && atPosition != null)
                 InitialFalseContacts = false_contacts().Count;
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
-            EvaluationLimitReached = false;
             frozenMost = null;
             repair_passes(ref pairs, ref bad);
             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
