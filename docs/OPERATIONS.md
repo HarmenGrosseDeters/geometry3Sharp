@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity` and `quality`, `geodesic`, the batch queries `query3d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, `geodesic`, the batch queries `query3d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -557,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `GeodesicQueryCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `GeodesicQueryCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -654,6 +654,19 @@ mesh as read. `query3d` answers each query as the single query would (a ray's `t
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 g3cli geodesic part.ply --through 12,800,3401 --closed
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
+```
+
+**Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
+`PrimitiveFit3`): statistics only, no per-vertex output yet. `deviation` is positive outside the reference's solid (`--sign`),
+`--certified` adds the certified one-sided Hausdorff distance (`hausdorff_lower_bound`, `hausdorff_upper_bound`); `thickness`
+reports triangles without a value (no ray hit within `--max-distance`) and, with `--min-thickness`, the thin triangles; `fit`
+fails with `operation_failed` and `fit_result` (`too_few_points`, `rejected_by_limits`, ...) when no model is found:
+
+```
+g3cli deviation simplified.stl original.stl --certified
+g3cli thickness part.stl --method ray --min-thickness 0.8 --max-results 20
+g3cli fit pipe.stl --primitive cylinder
+#   -> "cylinder": { "center": [...], "axis_direction": [...], "radius": 12.5, "height": 80 }, "inliers": 4120, "rms_error": ...
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with

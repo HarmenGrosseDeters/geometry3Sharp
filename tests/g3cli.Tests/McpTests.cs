@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "fidelity", "quality", "geodesic", "query3d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "fidelity", "quality", "deviation", "thickness", "fit", "geodesic", "query3d" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -171,6 +171,20 @@ namespace g3cli.Tests
             Assert.True(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
             Assert.Contains("tolerance", S(r["result"]["structuredContent"]["message"]));
+        }
+
+        [Fact]
+        public void ShapeAnalysisTools_TakeIntegerAndNumberArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "fit", new JsonObject() {
+                ["input"] = m.Sphere, ["primitive"] = "sphere", ["seed"] = 2, ["max_iterations"] = 500, ["inlier_distance"] = 0.01 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("success", S(r["result"]["structuredContent"]["fit_result"]));
+            r = Handle(server, Call(2, "thickness", new JsonObject() {
+                ["input"] = m.Cube, ["method"] = "ray", ["ray_count"] = 10, ["min_thickness"] = 3.0 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(12, I(r["result"]["structuredContent"]["thin_triangles"]));
         }
 
         [Fact]
