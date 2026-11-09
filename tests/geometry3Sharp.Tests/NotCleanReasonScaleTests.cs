@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
         public static TheoryData<int> Exponents()
         {
             var d = new TheoryData<int>();
-            foreach (int k in new[] { -900, -600, -530, -520, -400, -300, 0, 300, 400, 520, 600, 900 })
+            foreach (int k in new[] { -900, -600, -530, -520, -400, -300, -270, 0, 300, 400, 520, 600, 900, 1022 })
                 d.Add(k);
             return d;
         }
@@ -69,9 +69,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FlatTriangle_ExtentOf2To1023_Degenerate()
+        {
+            // an extent of 2^1023 or more (the first version of the fix returned the scale 0 there and saw nothing)
+            DMesh3 m = Scaled(FlatTetrahedron(), 1022);
+            Assert.Equal(Math.Pow(2, 1023), m.CachedBounds.MaxDim);
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(m, false));
+        }
+
+        [Fact]
+        public void TinyFlatTriangleFarFromTheOrigin_Degenerate()
+        {
+            // corners at x = 2^1000 with an extent of 2^-600 in y and z: the scaled coordinates would overflow, the scaled
+            // differences do not (before: the threshold underflowed to 0)
+            double x = Math.Pow(2, 1000), t = Math.Pow(2, -600);
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(x, 0, 0)), b = m.AppendVertex(new Vector3d(x, 2 * t, 0));
+            int c = m.AppendVertex(new Vector3d(x, t, 0)), d = m.AppendVertex(new Vector3d(x, 0, t));
+            m.AppendTriangle(a, c, b);
+            m.AppendTriangle(a, b, d);
+            m.AppendTriangle(b, c, d);
+            m.AppendTriangle(c, a, d);
+            Assert.True(m.IsClosed());
+            Assert.True((MeshRobustRepair.FindDefects(m, false) & MeshRobustRepair.Defects.DegenerateTriangles) != 0);
+        }
+
+        [Fact]
         public void NormalSizes_Unchanged()
         {
-            // inside [2^-300, 2^300] the test is the plain one: a sliver just above / below the threshold at unit size
+            // inside [2^-100, 2^100] the test is the plain one: a sliver at unit size keeps the plain formula's verdict
             var m = new DMesh3();
             int a = m.AppendVertex(Vector3d.Zero), b = m.AppendVertex(new Vector3d(1, 0, 0)), c = m.AppendVertex(new Vector3d(0.5, 4e-12, 0));
             m.AppendTriangle(a, b, c);
