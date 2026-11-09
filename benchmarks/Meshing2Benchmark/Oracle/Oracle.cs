@@ -22,6 +22,14 @@ namespace Meshing2Acceptance
         /// together there), and so does a pixel where only subsegments of the piece's own chain end. Given whether q is such a hot
         /// pixel and, for each subsegment ending in q's pixel, whether it belongs to the piece's own chain
         /// </summary>
+        /// <summary> judge the grid split's pinch rule by the envelope approximation that the chain identity of the output's graph replaced (per thread; differential tests only) </summary>
+        public static bool LegacyEnvelopeChainForDifferential { get => Run.LegacyEnvelopeChainForDifferential; set => Run.LegacyEnvelopeChainForDifferential = value; }
+
+        public static HashSet<long> StretchOfForSelfCheck(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot) => Run.StretchOf(ia, ib, neighbours, isHot);
+
+        /// <summary> the key of a subsegment in a stretch (StretchOfForSelfCheck), the same for either orientation </summary>
+        public static long SubsegmentKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
         public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
             => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
 
@@ -694,6 +702,61 @@ namespace Meshing2Acceptance
 
 
 
+
+            /// <summary> set to judge the pinch rule by the envelope approximation that OwnStretch replaced (differential tests only) </summary>
+            [ThreadStatic] public static bool LegacyEnvelopeChainForDifferential;
+
+            static long SubKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+            Dictionary<int, List<int>> subsegmentNeighbours;
+            readonly Dictionary<long, HashSet<long>> ownStretchMemo = new Dictionary<long, HashSet<long>>();
+
+            /// <summary>
+            /// The piece's own chain, recomputed from the output's subsegment graph and the input alone: the piece with the subsegments
+            /// reached from either end through vertices that are no hot pixel of the input's rounding and have exactly two neighbouring
+            /// subsegment vertices. That is the link of the snap-rounded image between two hot pixels (or two branching vertices) that
+            /// the piece lies on, ie the part of one chain the mesher's "shares an input source" holds for, without the envelope
+            /// approximation: two chains that run within a pixel of each other along the piece are two chains here (rule C makes that
+            /// regime reachable: the zigzag of Q17). A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
+            /// another chain's: the pinch is a failing violation of its own. Returned as subsegment keys (SubKey)
+            /// </summary>
+            HashSet<long> OwnStretch(int ia, int ib)
+            {
+                long key = SubKey(ia, ib);
+                if (ownStretchMemo.TryGetValue(key, out var memo)) return memo;
+                if (subsegmentNeighbours == null) {
+                    subsegmentNeighbours = new Dictionary<int, List<int>>();
+                    foreach (var g in o.Subsegments ?? new List<SubsegmentOutput>()) {
+                        if (g.A == g.B) continue;
+                        if (!subsegmentNeighbours.TryGetValue(g.A, out var la)) subsegmentNeighbours[g.A] = la = new List<int>();
+                        if (!la.Contains(g.B)) la.Add(g.B);
+                        if (!subsegmentNeighbours.TryGetValue(g.B, out var lb)) subsegmentNeighbours[g.B] = lb = new List<int>();
+                        if (!lb.Contains(g.A)) lb.Add(g.A);
+                    }
+                }
+                var stretch = StretchOf(ia, ib, subsegmentNeighbours, x => snapHot.Contains(PixelOf(v[x], snapPixel)));
+                return ownStretchMemo[key] = stretch;
+            }
+
+
+            /// <summary> OwnStretch on a given graph (vertex to its neighbouring subsegment vertices) and hot-pixel test, from either end of the piece </summary>
+            internal static HashSet<long> StretchOf(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot)
+            {
+                var stretch = new HashSet<long> { SubKey(ia, ib) };
+                foreach (var (start, from) in new[] { (ia, ib), (ib, ia) }) {
+                    int prev = from, x = start;
+                    var seen = new HashSet<int> { ia, ib };
+                    while (!isHot(x) && neighbours.TryGetValue(x, out var nb) && nb.Count == 2) {
+                        int next = nb[0] == prev ? nb[1] : nb[0];
+                        if (nb[0] != prev && nb[1] != prev) break;   // (a piece that is no subsegment of the output: only the self-checks)
+                        stretch.Add(SubKey(x, next));
+                        if (!seen.Add(next)) break;
+                        prev = x; x = next;
+                    }
+                }
+                return stretch;
+            }
+
             /// <summary> the grids over the subsegments' boxes and the vertices, in doubles (built once) </summary>
             void EnsureUnsplittableGrids()
             {
@@ -793,11 +856,11 @@ namespace Meshing2Acceptance
                         // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
                         // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, no broader: q no hot pixel of the input's rounding,
                         // and a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its
-                        // ends. By envelope, where the mesher goes by source: a subsegment along the piece within a pixel counts as its own
-                        // here, so the oracle may demand a split the mesher refuses, never excuse one it would make; the envelope a hair
-                        // wider, so that ties go to "own", ie to demanded; self-checks 5c, 5d)
+                        // ends. By chain identity recomputed from the output (OwnStretch), as the mesher goes by source; self-checks 5c, 5d)
                         if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
-                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))))) continue;
+                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => LegacyEnvelopeChainForDifferential
+                                ? own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))
+                                : OwnStretch(ia, ib).Contains(SubKey(g.A, g.B))))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];
