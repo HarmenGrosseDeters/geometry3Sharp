@@ -608,3 +608,16 @@ not read). The planned `MeshBatchQueries` runs the existing single queries in Mo
 | CPU ray tracing kernels, survey | I. Wald, S. Woop, C. Benthin, G. S. Johnson, M. Ernst, *Embree*, ACM TOG 33(4), 2014, [doi:10.1145/2601097.2601199](https://doi.org/10.1145/2601097.2601199); D. Meister et al., *A Survey on Bounding Volume Hierarchies for Ray Tracing*, Computer Graphics Forum 40(2), 2021, [doi:10.1111/cgf.142662](https://doi.org/10.1111/cgf.142662) |
 | Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
 | Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
+
+## Tetrahedral meshing (design only, `docs/design/TET_MESHING.md`; no code yet)
+
+Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
+
+| Topic | Source |
+|---|---|
+| Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
+| Constrained Delaunay tetrahedralization, existence and recovery | J. R. Shewchuk, *A condition guaranteeing the existence of higher-dimensional constrained Delaunay triangulations*, SoCG 1998; *Updating and constructing constrained Delaunay and constrained regular triangulations by flips*, SoCG 2003; H. Si, K. Gärtner, *Meshing piecewise linear complexes by constrained Delaunay tetrahedralizations*, IMR 2005; H. Si, *TetGen*, ACM TOMS 41(2), 2015; M. Diazzi, D. Panozzo, A. Vaxman, M. Attene, *Constrained Delaunay tetrahedrization: a robust and practical approach*, ACM TOG 2023 (abstract read) |
+| Small input angles | S.-W. Cheng, S.-H. Poon, *Three-dimensional Delaunay mesh generation*, DCG 2006; S. Pav, N. Walkington, *Robust three dimensional Delaunay refinement*, IMR 2004 |
+| Restricted Delaunay for smooth surfaces | J.-D. Boissonnat, S. Oudot 2005; S. Oudot, L. Rineau, M. Yvinec, *Meshing volumes bounded by smooth surfaces*, IMR 2005 |
+| Sliver removal | S.-W. Cheng, T. K. Dey, H. Edelsbrunner, M. A. Facello, S.-H. Teng, *Sliver exudation*, J. ACM 2000; J. Tournois, R. Srinivasan, P. Alliez, *Perturbing slivers in 3D Delaunay meshes*, IMR 2009; J. Tournois, C. Wormser, P. Alliez, M. Desbrun, *Interleaving Delaunay refinement and optimization for practical isotropic tetrahedron mesh generation*, ACM TOG 28(3), 2009; B. M. Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007; J. R. Shewchuk, *Two discrete optimization algorithms for the topological improvement of tetrahedral meshes* |
+| Envelope and lattice approaches | Y. Hu et al., *Tetrahedral meshing in the wild*, ACM TOG 37(4), 2018; Y. Hu, T. Schneider, B. Wang, D. Zorin, D. Panozzo, *Fast tetrahedral meshing in the wild*, ACM TOG 39(4), 2020 (arXiv 1908.03581, abstract read); F. Labelle, J. R. Shewchuk, *Isosurface stuffing: fast tetrahedral meshes with good dihedral angles*, ACM TOG 26(3), 2007 |
