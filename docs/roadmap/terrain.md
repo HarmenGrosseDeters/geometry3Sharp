@@ -17,6 +17,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Restart design (owner 2026-11-08):** the DGM-to-TIN step with breaklines is constrained quality meshing in
   2.5D; design it with `QualityMesh2` (its oracle and golden tests) instead of a new triangulator.
+  Proposal for the owner (2026-11-09): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
 
 - **Restart:** first a DGM reader in the CLI (owner 2026-11-03: after the pause). The terrain mutation shards (#302)
   wait for the restart.
