@@ -31,7 +31,14 @@ within max(5 s, 50 µs × raw triangles), 92 of the 189 others within 10 %, 168 
 189 over budget ~60 % of the time is the wrap itself (intersection oracle 14 %, Delaunay insertion 13 %, touch 12 %,
 the two pinch passes 18 %), reduction 17 %, certification 7 %; together with parallelism. The Reducer / Remesher 2.0
 hand-over is docs/design/PARTITIONED_REDUCTION_HANDOVER.md (#454).
-Reducer / Remesher 2.0: a Sonnet session measures the baseline and proposes targets first (started 2026-11-09).
+**Reducer / Remesher 2.0 (owner 2026-11-09):** baseline in #457 (benchmarks/ReducerRemesherBaseline,
+docs/design/REDUCER_REMESHER_20.md): topology kept and deterministic everywhere; Reducer 3.2 µs/tri, p01 0.6° on real
+meshes, self-intersections created in 9 of 19 clean inputs; Remesher 11-23 µs/tri, degenerate triangles in 17 of 20,
+self-intersections in 14 of 19, not bit-identical under 2^k in 4 cases. Targets: T1 Reducer quality / target within the
+genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by default at <= 4x / <= 8x (via #432's
+slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
+flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
+until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
 
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
