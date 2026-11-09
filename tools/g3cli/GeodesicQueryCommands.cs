@@ -17,8 +17,12 @@ namespace g3cli
     {
         const int MaxIds = 100000, MaxQueries = 1000000;
 
+        const int MaxTextChars = 32 * 1024 * 1024;
+
         static List<int> ParseIds(string text, string name)
         {
+            if (text.Length > 20 * MaxIds)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': at most {MaxIds} ids");
             var ids = new List<int>();
             foreach (string part in text.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)) {
                 if (int.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int id) == false)
@@ -68,7 +72,7 @@ namespace g3cli
             c.Params.Add(new Param("from", ParamType.Integer, "path mode: start vertex id (with 'to')"));
             c.Params.Add(new Param("to", ParamType.Integer, "path mode: end vertex id (with 'from')"));
             c.Params.Add(new Param("through", ParamType.String, "path mode: waypoint vertex ids 'a,b,c' (kept fixed), instead of from / to"));
-            c.Params.Add(new Param("closed", ParamType.Boolean, "path mode with 'through': also back from the last waypoint to the first") { Default = false });
+            c.Params.Add(new Param("closed", ParamType.Boolean, "path mode: also back from the last vertex to the first (with 'through' or 'from' / 'to')") { Default = false });
             c.Params.Add(new Param("intrinsic_delaunay", ParamType.Boolean, "distance mode: compute on the intrinsic Delaunay triangulation (library default true; robust for needles and caps)"));
             c.Params.Add(new Param("time_factor", ParamType.Number, "distance mode: heat time as a multiple of the squared mean edge length (library default 1)"));
             c.Params.Add(new Param("max_results", ParamType.Integer, "path mode: at most this many points / vertices in the lists (the counts are always given)") { Default = 1000 });
@@ -80,6 +84,10 @@ namespace g3cli
                 int maxResults = args.Integer("max_results");
                 if (maxResults < 0 || maxResults > 100000)
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
+                if (distanceMode && (args.Has("closed") && args.Bool("closed")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'closed' is an option of the path mode");
+                if (pathMode && (args.Has("targets") || args.Has("intrinsic_delaunay") || args.Has("time_factor")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'targets', 'intrinsic_delaunay' and 'time_factor' are options of the distance mode");
                 List<int> sources = null, targets = null, waypoints = null;
                 if (distanceMode) {
                     sources = ParseIds(args.String("sources"), "sources");
@@ -92,6 +100,8 @@ namespace g3cli
                     if (args.Has("through")) waypoints = ParseIds(args.String("through"), "through");
                     else if (args.Has("from") && args.Has("to")) waypoints = new List<int> { args.Integer("from"), args.Integer("to") };
                     else throw new CommandException(ResultCodes.InvalidArguments, "give both 'from' and 'to'");
+                    if (waypoints.Count > 1000)
+                        throw new CommandException(ResultCodes.InvalidArguments, "a path has at most 1000 waypoints (each leg is a search over the mesh)");
                     if (waypoints.Count < 2)
                         throw new CommandException(ResultCodes.InvalidArguments, "a path needs at least two vertices");
                     if (waypoints.Any(w => w < 0))
@@ -153,15 +163,26 @@ namespace g3cli
         {
             if (text.StartsWith("@")) {
                 string file = text.Substring(1);
-                if (File.Exists(file) == false)
+                // a regular file of bounded size only: not a device, a pipe or stdin (they would block or never end)
+                string full;
+                try { full = Path.GetFullPath(file); } catch (Exception e) { throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': cannot use '{file}': {e.Message}"); }
+                if (full.StartsWith("/dev/") || full.StartsWith("/proc/") || full.StartsWith("/sys/") || File.Exists(full) == false)
                     throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': file not found: {file}");
-                text = File.ReadAllText(file);
-            }
+                try {
+                    if (new FileInfo(full).Length > MaxTextChars)
+                        throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': the file is larger than {MaxTextChars / (1024 * 1024)} MB");
+                    text = File.ReadAllText(full);
+                } catch (IOException e) { throw new CommandException(ResultCodes.ReadError, $"'{name}': cannot read '{file}': {e.Message}"); }
+                catch (UnauthorizedAccessException e) { throw new CommandException(ResultCodes.ReadError, $"'{name}': cannot read '{file}': {e.Message}"); }
+            } else if (text.Length > MaxTextChars)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': longer than {MaxTextChars} characters");
             var list = new List<double[]>();
             foreach (string part in text.Split(new[] { ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).Where(p => p.Length > 0)) {
-                double[] v = ParseNumbers(part, name);
+                double[] v;
+                try { v = ParseNumbers(part, name); }
+                catch (CommandException) { throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': entry {list.Count + 1} is not a list of finite numbers"); }
                 if (v.Length != size)
-                    throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': '{part}' needs {size} numbers");
+                    throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': entry {list.Count + 1} needs {size} numbers");
                 list.Add(v);
                 if (list.Count > MaxQueries)
                     throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': at most {MaxQueries} entries");
@@ -195,6 +216,8 @@ namespace g3cli
             c.Run = args => {
                 if (args.Has("rays") == false && args.Has("points") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "give rays or points (or both)");
+                if (args.Bool("any_hit") && args.Has("rays") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'any_hit' needs 'rays'");
                 if (args.Has("points") && args.Bool("nearest") == false && args.Has("inside") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "points need 'nearest' or 'inside'");
                 if ((args.Bool("nearest") || args.Has("inside")) && args.Has("points") == false)
@@ -214,9 +237,11 @@ namespace g3cli
                 if (rayList != null) {
                     rays = new Ray3d[rayList.Count];
                     for (int i = 0; i < rays.Length; i++) {
-                        var dir = new Vector3d(rayList[i][3], rayList[i][4], rayList[i][5]);
-                        if (!(dir.Length > 0))
-                            throw new CommandException(ResultCodes.InvalidArguments, $"'rays': ray {i} has a zero direction");
+                        double scale = Math.Max(Math.Abs(rayList[i][3]), Math.Max(Math.Abs(rayList[i][4]), Math.Abs(rayList[i][5])));
+                        if (!(scale > 0))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'rays': ray {i + 1} has a zero direction");
+                        // (scaled by the largest component first: a direction of 1e-200 or 1e200 normalizes as any other)
+                        var dir = new Vector3d(rayList[i][3] / scale, rayList[i][4] / scale, rayList[i][5] / scale);
                         rays[i] = new Ray3d(new Vector3d(rayList[i][0], rayList[i][1], rayList[i][2]), dir.Normalized);
                     }
                 }
@@ -255,6 +280,9 @@ namespace g3cli
                         }).ToArray());
                     }
                     rr["truncated"] = rays.Length > maxResults;
+                    int badRays = status.Count(x => x != RayStatus.Ok);
+                    rr["not_ok"] = badRays;
+                    if (badRays > 0) warnings.Add($"{badRays} rays could not be answered (status not ok: origin or direction not finite or not normalized); they have no hit");
                     o["rays"] = rr;
                 }
                 if (points != null) {
@@ -277,6 +305,8 @@ namespace g3cli
                         }
                     }
                     if (args.Has("inside")) {
+                        if (args.String("inside") == "crossings" && (MeshIterators.BoundaryEdges(mesh).Any() || mesh.TriangleCount > 0 && ExactMeshBoolean.IsWindingClosed(mesh) == false))
+                            warnings.Add("inside by crossings is exact only for a closed mesh without self-intersections; this mesh is not closed: use inside=winding_number");
                         var inside = new InsideStatus[points.Length];
                         var method = args.String("inside") == "crossings" ? InsideMethod.Crossings : InsideMethod.WindingNumber;
                         BatchOk(MeshBatchQueries.IsInsideBatch(tree, points, inside, method, options));

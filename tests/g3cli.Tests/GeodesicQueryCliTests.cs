@@ -153,6 +153,37 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Geodesic_Path_ToAnIsolatedVertex_IsOperationFailed()
+        {
+            string path = m.Path_("isolated.obj");
+            File.WriteAllText(path, File.ReadAllText(Grid("grid_iso.obj")) + "v 100 100 0\n");
+            var (exit, r) = Run("geodesic", path, "--from", "0", "--to", (N * N).ToString(), "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Contains(S(r["path_status"]), new[] { "invalid_input", "no_path" });
+            // a distance to the isolated vertex is not defined: null, and counted
+            var (e2, d) = Run("geodesic", path, "--sources", "0", "--targets", (N * N).ToString(), "--compact");
+            Assert.Equal(0, e2);
+            Assert.Null(d["targets"][0]["distance"]);
+            Assert.Equal(1, I(d["vertices_without_distance"]));
+        }
+
+        [Fact]
+        public void Geodesic_Path_ScalesExactlyWithThePowerOfTwoScale()
+        {
+            string grid = Grid("grid8.obj");
+            DMesh3 mesh = StandardMeshReader.ReadMesh(grid);
+            MeshTransforms.Scale(mesh, 4, 4, 4);
+            string big = m.Path_("grid8_x4.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(big, mesh, WriteOptions.Defaults).code);
+            var (_, a) = Run("geodesic", grid, "--from", "0", "--to", (N * N - 1).ToString(), "--compact");
+            var (_, b) = Run("geodesic", big, "--from", "0", "--to", (N * N - 1).ToString(), "--compact");
+            Assert.Equal(4 * D(a["length"]), D(b["length"]), 9);
+            var (_, c) = Run("geodesic", grid, "--sources", "0", "--targets", "100", "--compact");
+            var (_, e) = Run("geodesic", big, "--sources", "0", "--targets", "100", "--compact");
+            Assert.Equal(4 * D(c["targets"][0]["distance"]), D(e["targets"][0]["distance"]), 6);
+        }
+
+        [Fact]
         public void Geodesic_Path_BetweenComponents_IsOperationFailed()
         {
             var (exit, r) = Run("geodesic", m.Overlapping, "--from", "0", "--to", "8", "--compact");   // the two cubes are separate components
@@ -178,7 +209,12 @@ namespace g3cli.Tests
             string grid = Grid("grid7.obj");
             var (e1, r1) = Run("geodesic", grid); AssertError(e1, r1, "invalid_arguments");
             var (e2, r2) = Run("geodesic", grid, "--sources", "0", "--from", "0", "--to", "1"); AssertError(e2, r2, "invalid_arguments");
-            var (e3, r3) = Run("geodesic", grid, "--through", "5", ""); AssertError(e3, r3, "invalid_arguments");
+            var (e3, r3) = Run("geodesic", grid, "--through", "5"); AssertError(e3, r3, "invalid_arguments");
+            Assert.Contains("two vertices", S(r3["message"]));
+            var (e8, r8) = Run("geodesic", grid, "--sources", "0", "--closed"); AssertError(e8, r8, "invalid_arguments");
+            var (e9, r9) = Run("geodesic", grid, "--from", "0", "--to", "5", "--time-factor", "2"); AssertError(e9, r9, "invalid_arguments");
+            var (e10, r10) = Run("geodesic", grid, "--from", "0", "--to", "5", "--targets", "1"); AssertError(e10, r10, "invalid_arguments");
+            var (e11, r11) = Run("geodesic", grid, "--through", string.Join(",", Enumerable.Repeat("1,2", 501))); AssertError(e11, r11, "invalid_arguments");
             var (e4, r4) = Run("geodesic", grid, "--sources", "100000"); AssertError(e4, r4, "invalid_arguments");
             Assert.Contains("not a vertex", S(r4["message"]));
             var (e5, r5) = Run("geodesic", grid, "--from", "0", "--to", "100000"); AssertError(e5, r5, "invalid_arguments");
@@ -261,9 +297,9 @@ namespace g3cli.Tests
         public void Query3d_ResultsDoNotDependOnOrderOrParallel()
         {
             var rnd = new Random(7);
-            var rays = Enumerable.Range(0, 200).Select(_ => $"{rnd.NextDouble() * 6 - 3},{rnd.NextDouble() * 6 - 3},-5,{rnd.NextDouble() - 0.5},{rnd.NextDouble() - 0.5},1").ToList();
+            var rays = Enumerable.Range(0, 2500).Select(_ => $"{rnd.NextDouble() * 6 - 3},{rnd.NextDouble() * 6 - 3},-5,{rnd.NextDouble() - 0.5},{rnd.NextDouble() - 0.5},1").ToList();
             JsonArray Results(System.Collections.Generic.IEnumerable<string> list, params string[] more) =>
-                Run(new[] { "query3d", m.Sphere, "--rays", string.Join(";", list), "--max-results", "1000", "--compact" }.Concat(more).ToArray()).result["rays"]["results"].AsArray();
+                Run(new[] { "query3d", m.Sphere, "--rays", string.Join(";", list), "--max-results", "5000", "--compact" }.Concat(more).ToArray()).result["rays"]["results"].AsArray();
             var a = Results(rays);
             var b = Results(rays, "--no-parallel");
             Assert.Equal(a.ToJsonString(), b.ToJsonString());
@@ -272,6 +308,18 @@ namespace g3cli.Tests
                 Assert.Equal(a[i].ToJsonString(), reversed[i].ToJsonString());
             Assert.Contains(a, x => x["triangle"] != null);
             Assert.Contains(a, x => x["triangle"] == null);
+
+            // points: nearest and inside, 2500 (above the batch's sort and block size)
+            var pts = Enumerable.Range(0, 2500).Select(_ => $"{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2},{rnd.NextDouble() * 4 - 2}").ToList();
+            JsonArray PointResults(System.Collections.Generic.IEnumerable<string> list, params string[] more) =>
+                Run(new[] { "query3d", m.Sphere, "--points", string.Join(";", list), "--nearest", "--inside", "winding_number", "--max-results", "5000", "--compact" }.Concat(more).ToArray()).result["points"]["results"].AsArray();
+            var pa = PointResults(pts);
+            Assert.Equal(pa.ToJsonString(), PointResults(pts, "--no-parallel").ToJsonString());
+            var preversed = PointResults(Enumerable.Reverse(pts)).Reverse().ToList();
+            for (int i = 0; i < pts.Count; i++)
+                Assert.Equal(pa[i].ToJsonString(), preversed[i].ToJsonString());
+            Assert.Contains(pa, x => S(x["inside"]) == "inside");
+            Assert.Contains(pa, x => S(x["inside"]) == "outside");
         }
 
         [Fact]
@@ -288,19 +336,69 @@ namespace g3cli.Tests
         }
 
         [Theory]
-        [InlineData("--rays", "1,2,3")]
-        [InlineData("--rays", "0,0,0,0,0,0")]                                         // zero direction
-        [InlineData("--rays", "a,b,c,d,e,f")]
-        [InlineData("--rays", "")]
-        [InlineData("--rays", "@/no/such/file")]
-        [InlineData("--points", "1,2")]
-        [InlineData("--max-distance", "0")]
-        [InlineData("--max-results", "-1")]
-        [InlineData("--inside", "sometimes")]
-        public void Query3d_BadArguments_AreInvalidArguments(string name, string value)
+        [InlineData("1,2,3")]
+        [InlineData("0,0,0,0,0,0")]                                        // zero direction
+        [InlineData("a,b,c,d,e,f")]
+        [InlineData("")]
+        [InlineData("@/no/such/file")]
+        [InlineData("@/dev/zero")]                                         // a device would never end
+        [InlineData("@/dev/stdin")]
+        [InlineData("@/etc/passwd")]                                       // not numbers: no content in the message
+        public void Query3d_BadRays_AreInvalidArguments(string rays)
         {
-            var (exit, r) = Run("query3d", m.Path_("missing.obj"), name, value, "--rays", "0,0,0,1,0,0");
+            var (exit, r) = Run("query3d", m.Cube, "--rays", rays);
             AssertError(exit, r, "invalid_arguments");
+            Assert.DoesNotContain("root:", S(r["message"]));
+        }
+
+        [Fact]
+        public void Query3d_BadPointsAndOtherOptions_AreInvalidArguments()
+        {
+            var (e1, r1) = Run("query3d", m.Cube, "--points", "1,2", "--nearest"); AssertError(e1, r1, "invalid_arguments");
+            var (e2, r2) = Run("query3d", m.Cube, "--points", "1,2,3;4,5", "--inside", "crossings"); AssertError(e2, r2, "invalid_arguments");
+            foreach (string[] bad in new[] { new[] { "--max-distance", "0" }, new[] { "--max-results", "-1" }, new[] { "--inside", "sometimes" } }) {
+                var (exit, r) = Run(new[] { "query3d", m.Path_("missing.obj"), "--rays", "0,0,0,1,0,0" }.Concat(bad).ToArray());
+                AssertError(exit, r, "invalid_arguments");                  // validated before the file is read
+            }
+            var (e3, r3) = Run("query3d", m.Cube, "--points", "0,0,0", "--inside", "crossings", "--any-hit"); AssertError(e3, r3, "invalid_arguments");
+            string dir = m.Path_("adir"); Directory.CreateDirectory(dir);
+            var (e4, r4) = Run("query3d", m.Cube, "--rays", "@" + dir); AssertError(e4, r4, "invalid_arguments");
+        }
+
+        [Fact]
+        public void Query3d_TinyAndHugeDirections_AreNormalizedLikeAnyOther()
+        {
+            var (exit, r) = Run("query3d", m.Cube, "--rays", "-5,0,0,1e-17,0,0;-5,0,0,1e200,0,0;-5,0,0,1e-200,1e-201,0", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(3, I(r["rays"]["hits"]));
+            Assert.Equal(0, I(r["rays"]["not_ok"]));
+            Assert.Equal(4.0, D(r["rays"]["results"][0]["t"]), 9);
+            Assert.Equal(4.0, D(r["rays"]["results"][1]["t"]), 9);
+        }
+
+        [Fact]
+        public void Query3d_Crossings_WarnsOnAMeshThatIsNotClosed()
+        {
+            var (_, open) = Run("query3d", m.Open, "--points", "0,0,0", "--inside", "crossings", "--compact");
+            Assert.Contains(open["warnings"].AsArray().Select(S), w => w.Contains("winding_number"));
+            var (_, openWinding) = Run("query3d", m.Open, "--points", "0,0,0", "--inside", "winding_number", "--compact");
+            Assert.Empty(openWinding["warnings"].AsArray());
+            var (_, closed) = Run("query3d", m.Cube, "--points", "0,0,0", "--inside", "crossings", "--compact");
+            Assert.Empty(closed["warnings"].AsArray());
+        }
+
+        [Fact]
+        public void Query3d_ScaledMesh_ScalesTheResultsExactly()
+        {
+            DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+            MeshTransforms.Scale(cube, 4, 4, 4);
+            string big = m.Path_("cube_x4.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(big, cube, WriteOptions.Defaults).code);
+            var (_, a) = Run("query3d", m.Cube, "--rays", "-5,0.1,0.2,1,0.01,0.02", "--points", "3,0.5,0.25", "--nearest", "--compact");
+            var (_, b) = Run("query3d", big, "--rays", "-20,0.4,0.8,1,0.01,0.02", "--points", "12,2,1", "--nearest", "--compact");
+            Assert.Equal(4 * D(a["rays"]["results"][0]["t"]), D(b["rays"]["results"][0]["t"]));          // 2^k scales are exact
+            Assert.Equal(4 * D(a["points"]["results"][0]["nearest"]["distance"]), D(b["points"]["results"][0]["nearest"]["distance"]));
+            Assert.Equal(I(a["rays"]["results"][0]["triangle"]), I(b["rays"]["results"][0]["triangle"]));
         }
 
         [Fact]
