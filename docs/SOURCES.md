@@ -582,9 +582,10 @@ ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigoro
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
 
-## Coverage-guided reader fuzzing (test/tool only)
+## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
 
-[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) uses [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md) and [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (the
+mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
 (MIT) and [libfuzzer-dotnet](https://github.com/Metalnem/libfuzzer-dotnet) (MIT; libFuzzer Apache-2.0 with
 LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
 ported into geometry3Sharp and no dependency is added to the library package.

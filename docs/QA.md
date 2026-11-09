@@ -238,8 +238,9 @@ Mesh inputs to the operations are fuzzed the same way:
 - random edits of clean meshes (flips, removed or duplicated triangles, welded vertices).
 
 Each operation must return a documented status, never throw, and never report success on an output that
-fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT) can follow for the binary readers if the seeded fuzzing
-finds bugs.
+fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): the STL reader in
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), the mesh operations in
+[MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (campaigns on a runner, not in CI).
 
 ### 2.6 Coverage in CI
 

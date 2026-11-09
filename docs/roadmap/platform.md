@@ -154,6 +154,10 @@ Tier: S, M. Parallel: up to 2 sessions
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
       long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
       STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
+    - Coverage-guided fuzzing of the mesh operations (owner 2026-11-09): [MeshFuzzPilot](../../tools/MeshFuzzPilot/README.md)
+      decodes bytes into small closed meshes at every binary scale and runs ExactMeshBoolean, MeshRobustRepair and
+      MeshRoundingRepair; a finding is an exception, a timeout or a result that contradicts its own claim, and becomes
+      a procedural regression test in its own bugfix PR.
 
 #### QA 2.0 milestone
 
