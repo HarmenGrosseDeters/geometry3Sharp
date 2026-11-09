@@ -133,6 +133,7 @@ namespace geometry3Sharp.Tests
         /// 11 since an input whose outer rings all collapse has an empty domain; 0 since the mesher's pinch rule, when they became a
         /// failing violation)
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void RefinementPinches_Ratchet()
         {

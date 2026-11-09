@@ -15,7 +15,25 @@ namespace geometry3Sharp.Tests
         static readonly List<CatalogueRow> Rows = Catalogue.Rows()
             .Where(r => r.State == CaseState.Covered && r.Test == null && r.Case != null && !r.Slow && CandidateRegistry.For(r.Case.Milestone) != null).ToList();
 
-        public static IEnumerable<object[]> RowIds() => Rows.Select(r => new object[] { r.Id });
+        // The rows that take 5 s or more in CatalogueRow / CorruptedRow (measured on net10.0, 4 cores) run in classes of their own, tagged
+        // Slow (the draft tier of CI skips those) and in three groups that run in parallel. RowIds() is every other row; the groups plus
+        // RowIds() are exactly the old set (RowGroups_PartitionTheCoveredRows).
+        static readonly string[][] SlowRowGroups = {
+            new[] { "F-39", "F-4/b" },
+            new[] { "F-42", "F-38/d", "F-34" },
+            new[] { "F-24/b", "F-37", "F-12/b", "F-4/a", "F-5" },
+        };
+
+        public static IEnumerable<object[]> RowIds() => Rows.Where(r => SlowRowGroups.All(g => !g.Contains(r.Id))).Select(r => new object[] { r.Id });
+
+        public static IEnumerable<object[]> SlowRowIds(int group) => SlowRowGroups[group].Select(id => new object[] { id });
+
+        [Fact]
+        public void RowGroups_PartitionTheCoveredRows()
+        {
+            var ids = RowIds().Select(a => (string)a[0]).Concat(Enumerable.Range(0, SlowRowGroups.Length).SelectMany(g => SlowRowIds(g)).Select(a => (string)a[0])).ToList();
+            Assert.Equal(Rows.Select(r => r.Id).OrderBy(x => x, StringComparer.Ordinal), ids.OrderBy(x => x, StringComparer.Ordinal));
+        }
 
         /// <summary> what a verdict consists of: the kinds with their counts, and the measured values </summary>
         static string Verdict(OracleReport r) =>
@@ -24,7 +42,7 @@ namespace geometry3Sharp.Tests
             + " | constructed " + r.ConstructedVertices + " | zone " + r.MergeZoneExcused
             + " | o11 " + r.O11LocalExcused + "/" + r.O11GlobalExcused + "/" + r.O11AngleExcused;
 
-        static void Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
+        static (OracleReport reference, OracleReport fast) Same(Mesh2Input input, Mesh2Output output, OracleExpect e, string what)
         {
             var reference = Oracle.Check(input, output, e.WithReference());
             // The reference path runs the global empty-circumcircle pass only up to GlobalDelaunayLimit triangle-vertex pairs, by design
@@ -35,6 +53,7 @@ namespace geometry3Sharp.Tests
             var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
             Assert.Equal(reference.GlobalDelaunayChecked, fast.GlobalDelaunayChecked);
             Assert.True(Verdict(fast) == Verdict(reference), what + ": fast " + Verdict(fast) + " / reference " + Verdict(reference));
+            return (reference, fast);
         }
 
         // The expensive theories sit in nested classes (ExtremeScales split in two): xUnit runs classes in parallel but the rows of one class
@@ -43,6 +62,30 @@ namespace geometry3Sharp.Tests
         {
             [Theory]
             [MemberData(nameof(RowIds), MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CatalogueRowsSlow1
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 0, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CatalogueRowsSlow2
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 1, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CatalogueRowsSlow3
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 2, MemberType = typeof(Meshing2OracleModesTests))]
             public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
         }
 
@@ -62,9 +105,25 @@ namespace geometry3Sharp.Tests
         {
             [Theory]
             [InlineData("F-38/a", -270)]
-            [InlineData("F-38/d", -270)]
             [InlineData("F-44", -270)]
             [InlineData("spike-0.84", -300)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        // F-38/d (22k triangles) is the long one, once at 2^-270 and once at 2^512: a class each, so that they run in parallel
+        [Trait("Category", "Slow")]
+        public class ExtremeScalesSmallF38d
+        {
+            [Theory]
+            [InlineData("F-38/d", -270)]
+            public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
+        }
+
+        [Trait("Category", "Slow")]
+        public class ExtremeScalesLargeF38d
+        {
+            [Theory]
+            [InlineData("F-38/d", 512)]
             public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
         }
 
@@ -73,7 +132,6 @@ namespace geometry3Sharp.Tests
             [Theory]
             [InlineData("F-38/a", 450)]
             [InlineData("F-38/a", 512)]
-            [InlineData("F-38/d", 512)]
             [InlineData("F-44", 512)]
             [InlineData("spike-0.84", 512)]
             public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
@@ -99,10 +157,9 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < output.VX.Length; ++i) { output.VX[i] *= f; output.VY[i] *= f; }
             output.ExactVertices = null; output.Locate = null;   // (the candidate's location belongs to the unscaled mesh)
             var e = new OracleExpect { Milestone = row.Case.Milestone };
-            Same(input, output, e, id + " at 2^" + exponent);
+            // (the reports of Same are the ones to compare in detail: the same two checks on the same arguments, once instead of twice)
+            var (reference, fast) = Same(input, output, e, id + " at 2^" + exponent);
             string Details(OracleReport r) => string.Join("; ", r.Violations.Select(v => v.ToString()).OrderBy(x => x, StringComparer.Ordinal));
-            var reference = Oracle.Check(input, output, e.WithReference());
-            var fast = Oracle.Check(input, output, reference.GlobalDelaunayChecked ? e : e.WithGlobalDelaunayLimit(0));
             Assert.Equal(Details(reference), Details(fast));
         }
 
@@ -151,6 +208,30 @@ namespace geometry3Sharp.Tests
             var swapped = Copy(); int w = o.Triangles[0][1];
             (swapped.VX[v], swapped.VX[w]) = (swapped.VX[w], swapped.VX[v]); (swapped.VY[v], swapped.VY[w]) = (swapped.VY[w], swapped.VY[v]);
             yield return ("two vertices swapped", swapped);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CorruptedRowsSlow1
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 0, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CorruptedRowsSlow2
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 1, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
+        }
+
+        [Trait("Category", "Slow")]
+        public class CorruptedRowsSlow3
+        {
+            [Theory]
+            [MemberData(nameof(SlowRowIds), 2, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
         }
 
         public class CorruptedRows

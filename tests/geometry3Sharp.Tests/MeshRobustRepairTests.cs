@@ -181,6 +181,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Mesh.Vertices().Count(v => input.Contains(v)) > 0.8 * r.Mesh.VertexCount);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void UncleanResultResolvedExactly_VolumeCheckedOnce()
         {
@@ -943,6 +944,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
         {
@@ -1046,6 +1048,7 @@ namespace geometry3Sharp.Tests
                 && a.TriangleIndices().All(t => a.GetTriangle(t) == b.GetTriangle(t));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
         {
@@ -1101,6 +1104,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Solidify_IsDeterministic()
         {
@@ -1119,6 +1123,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
@@ -1148,6 +1153,7 @@ namespace geometry3Sharp.Tests
             Assert.True(SameMesh(without.Mesh, failed.Mesh));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void CancelledDuringWrap_NoFinish()
         {
@@ -1163,6 +1169,7 @@ namespace geometry3Sharp.Tests
             Assert.False(r.PhaseMilliseconds.ContainsKey("solidify.finish"));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void WrapFailed_ReasonReported()
         {

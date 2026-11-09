@@ -344,6 +344,7 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Volume(solid.Result), 980, 1020);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void AdaptiveSolidify_SameAsUniform_WithFarFewerEvaluations()
         {

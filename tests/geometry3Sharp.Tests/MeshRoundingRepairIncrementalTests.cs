@@ -126,6 +126,7 @@ namespace geometry3Sharp.Tests
             Assert.True(unchanged > 0, "no search skipped");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void SerialEqualsParallel_BitIdentical(string name)

@@ -17,9 +17,27 @@ done since and what is open.
 - `tests/g3cli.Tests` covers the CLI and the MCP server.
 - CI runs both suites on Linux (net10.0), runs the library tests on Windows (net48 against the
   netstandard2.0 build), packs the package with API validation against 1.0.324, and runs a smoke test
-  of the package.
+  of the package. The library tests run in two tiers, see "Test tiers" below.
 - Before the harness of 2.1 there were no skipped tests; it adds two that document reported bugs. No flaky
   test showed up in repeated runs, after the `BitArray` races were fixed (ThreadingFixesTests).
+
+**Test tiers (2026-11-09).** A full run of the suite (8133 tests) took 21-23 min on 4 cores, and PR CI 25-35 min.
+- A test that takes 5 s or more (measured in a full run) carries `[Trait("Category", "Slow")]`. A long test is split into
+  test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
+  another), each class checking a share of the rows, with a test that the shares are exactly the old set
+  (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
+- Draft PRs run the library tests with `--filter "Category!=Slow"` (Linux, and both net48 shards with `&Category!=Slow`
+  added to their complementary filters). A PR that is ready for review (`ready_for_review` starts the run), every push
+  to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
+- The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
+  (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
+  "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
+  runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+- A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
+  (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)
+  skips the library suites (net10.0, net48, Clipper2). The library build, the API validation (pack), the smoke tests,
+  the benchmark builds, the tool tests and the acceptance gates run as before; the g3cli tests run when `tools/g3cli`
+  changed. The `netstandard` jobs still start (the check names are fixed) and skip their steps.
 
 **Kinds of tests.**
 - Almost all tests are example-based regression tests: one hand-built input per bug, with the expected

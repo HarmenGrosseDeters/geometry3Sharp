@@ -97,6 +97,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Predicates_SubnormalPartialProducts_TimesLargeFactors()
         {

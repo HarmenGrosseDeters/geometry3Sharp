@@ -132,6 +132,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SimplifyWithin_SliverOfTheWrap_Removed()
         {

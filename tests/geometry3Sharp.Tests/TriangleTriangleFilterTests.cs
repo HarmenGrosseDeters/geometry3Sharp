@@ -214,6 +214,7 @@ namespace geometry3Sharp.Tests
         // the projection along axis k that TriangleTriangleFilter uses: the other two coordinates in cyclic order
         static Vector2d DropCyclic(Vector3d v, int k) => k == 0 ? new Vector2d(v.y, v.z) : k == 1 ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(0)]
         [InlineData(1)]

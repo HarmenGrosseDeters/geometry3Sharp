@@ -121,6 +121,7 @@ namespace geometry3Sharp.Tests
         // horizontal: exact (bisection on the terrain edges); along the surface: on flat ground the same,
         // within about 2% plus half an edge (edges 1 m: 0.6 m, plus margin). Sources: the surveyed (exact)
         // crest polyline; detected break lines can have gaps and are not meant as sources for safety lines
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(TerrainSafetyLines.Modes.Horizontal, 0.01)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, 0.7)]
@@ -292,6 +293,7 @@ namespace geometry3Sharp.Tests
             return best;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SafetyLine_Guaranteed_OutsideTheDistanceAndCertified()
         {
@@ -319,6 +321,7 @@ namespace geometry3Sharp.Tests
             Assert.True(safety.UsedSteinerPoints > 3);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SafetyLine_Guaranteed_GapNotCertified()
         {

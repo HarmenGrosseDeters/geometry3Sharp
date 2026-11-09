@@ -205,18 +205,30 @@ namespace geometry3Sharp.Tests
             return input;
         }
 
-        /// <summary>
-        /// The tag check (tags against domain membership from scratch, after every operation) on the catalogue rows. On a hull domain a
-        /// hull edge whose split point rounds inwards leaves a sliver between its pieces and the old, now unconstrained hull edge: the
-        /// tags put it outside the constrained hull, and so must the check (F-35 and F-3/c failed it; the check reached them only when another test had switched it on in parallel).
-        /// Only the M3 rows reach the refiner and its check, so only they run; they run in parallel, the per-thread switch set on each
-        /// worker (serially over all covered rows this one test took 951 s on net10.0, the longest stretch of the suite).
-        /// </summary>
-        [Fact]
-        public void TagCheck_HoldsOnTheCoveredCatalogueRows()
+        // The rows by what the tag check costs on net10.0 (serially: F-37 303 s, F-41/a 106 s, F-38/d 21 s, F-42 8 s, F-4/b 6 s, the
+        // rest together about 20 s): F-37 and F-41/a get a class each, so that the three long stretches run in parallel
+        // (TagCheckRows_PartitionTheCoveredM3Rows: the classes together check exactly the old set of rows).
+        static readonly string[][] TagCheckGroups = {
+            new[] { "F-37" },
+            new[] { "F-41/a" },
+            new[] { "F-38/d", "F-42", "F-4/b", "F-4/a", "F-12/b" },
+        };
+
+        static List<CatalogueRow> TagCheckAllRows() =>
+            Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow && r.Case.Milestone == Milestone.M3).ToList();
+
+        /// <summary> group 0..2 as listed above, 3: every other row </summary>
+        static List<CatalogueRow> TagCheckRows(int group)
         {
-            var rows = Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow && r.Case.Milestone == Milestone.M3).ToList();
-            Assert.True(rows.Count > 20, rows.Count + " M3 rows");
+            var all = TagCheckAllRows();
+            return group < TagCheckGroups.Length ? all.Where(r => TagCheckGroups[group].Contains(r.Id)).ToList()
+                                                 : all.Where(r => TagCheckGroups.All(g => !g.Contains(r.Id))).ToList();
+        }
+
+        static void TagCheckRun(int group)
+        {
+            var rows = TagCheckRows(group);
+            Assert.True(rows.Count > 0, "no M3 rows in group " + group);
             var wrong = new System.Collections.Concurrent.ConcurrentBag<string>();
             Parallel.ForEach(rows, row => {
                 QualityMesh2.Refiner.CheckTagsForTests = true;
@@ -225,6 +237,36 @@ namespace geometry3Sharp.Tests
                 finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
             });
             Assert.True(wrong.IsEmpty, string.Join("\n", wrong.OrderBy(w => w, StringComparer.Ordinal)));
+        }
+
+        /// <summary>
+        /// The tag check (tags against domain membership from scratch, after every operation) on the catalogue rows. On a hull domain a
+        /// hull edge whose split point rounds inwards leaves a sliver between its pieces and the old, now unconstrained hull edge: the
+        /// tags put it outside the constrained hull, and so must the check (F-35 and F-3/c failed it; the check reached them only when another test had switched it on in parallel).
+        /// Only the M3 rows reach the refiner and its check, so only they run, in four classes (one test took 951 s serially on net10.0,
+        /// the longest stretch of the suite, F-37 alone 303 s of it); within a class in parallel, the per-thread switch set on each worker.
+        /// </summary>
+        [Trait("Category", "Slow")]
+        public class TagCheckF37 { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(0); }
+
+        [Trait("Category", "Slow")]
+        public class TagCheckF41a { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(1); }
+
+        [Trait("Category", "Slow")]
+        public class TagCheckLongRows { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(2); }
+
+        [Trait("Category", "Slow")]
+        public class TagCheckOtherRows { [Fact] public void TagCheck_HoldsOnTheCoveredCatalogueRows() => TagCheckRun(3); }
+
+        [Fact]
+        public void TagCheckRows_PartitionTheCoveredM3Rows()
+        {
+            var all = TagCheckAllRows();
+            Assert.True(all.Count > 20, all.Count + " M3 rows");
+            var parts = Enumerable.Range(0, TagCheckGroups.Length + 1).SelectMany(g => TagCheckRows(g)).Select(r => r.Id).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            Assert.Equal(all.Select(r => r.Id).OrderBy(x => x, StringComparer.Ordinal), parts);
+            // every named row exists (a misspelt id would silently move the row to the last class and leave its group empty)
+            for (int g = 0; g < TagCheckGroups.Length; ++g) Assert.Equal(TagCheckGroups[g].Length, TagCheckRows(g).Count);
         }
 
         /// <summary>
@@ -349,6 +391,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SpikeOf084Degrees_ReachesAnO11UnsplittablePiece()
         {
