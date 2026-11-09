@@ -120,7 +120,8 @@ Tier: S, M. Parallel: up to 2 sessions
     - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
       the hand derivation (complements Z3, which checks logical rules).
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
-      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test.
+      long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
+      STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
 
 #### Test suite on German Windows
 
