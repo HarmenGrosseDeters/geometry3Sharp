@@ -7,7 +7,7 @@
 //
 //   dotnet run -c Release --project benchmarks/ReducerRemesherBaseline -- [thingi=<dir>] [only=<regex>] [procedural=1]
 //       [runs=2] [si_max=30000] [inv_max=30000] [invariance=1] [fidelity=1] [ops=reduce,remesh] [json=<file>]
-//       [profile=1] [reduce_q=<q>] [remesh_q=<q>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
+//       [hd_tol=<f>] [profile=1] [reduce_q=<q>] [remesh_q=<q>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
 // One JSON line per case and variant on stdout (or json=<file>), then the summary tables as Markdown.
 using System;
 using System.Collections.Generic;
@@ -48,6 +48,7 @@ static class Program
     delegate DMesh3 Operation(DMesh3 input, double target, bool si, bool parallel);
 
     static double ReduceQuality, RemeshQuality;      // reduce_q / remesh_q: Reducer.MinCollapseTriangleQuality / Remesher.MinTriangleQuality (0: library default, off)
+    static double HdTolerance = 0.001;      // hd_tol: tolerance of the certified Hausdorff bounds, relative to the box diagonal
     static bool Profile;      // profile=1: Remesher.ENABLE_PROFILING (per pass phase times on stdout, for the upper bounds of the design note)
 
     static int Main(string[] args)
@@ -59,6 +60,7 @@ static class Program
             return 0;
         }
         Profile = get("profile", "0") == "1";
+        HdTolerance = double.Parse(get("hd_tol", "0.001"), CultureInfo.InvariantCulture);
         ReduceQuality = double.Parse(get("reduce_q", "0"), CultureInfo.InvariantCulture); RemeshQuality = double.Parse(get("remesh_q", "0"), CultureInfo.InvariantCulture);
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
         int runs = Math.Max(1, int.Parse(get("runs", "2")));
@@ -185,7 +187,7 @@ static class Program
 
         // fidelity: certified one-sided Hausdorff upper bounds relative to the input's box diagonal
         foreach (bool forward in new[] { true, false }) {
-            var hd = new MeshHausdorffDistance(forward ? c.Input : result, forward ? result : c.Input) { Symmetric = false, Tolerance = 0.001 * c.Diagonal, MaxSubdivisions = 2000000 };
+            var hd = new MeshHausdorffDistance(forward ? c.Input : result, forward ? result : c.Input) { Symmetric = false, Tolerance = HdTolerance * c.Diagonal, MaxSubdivisions = 2000000 };
             hd.Compute();
             F[forward ? "hd_in_to_out" : "hd_out_to_in"] = hd.UpperBound / c.Diagonal;
             F[forward ? "hd_in_to_out_conv" : "hd_out_to_in_conv"] = hd.Converged;
@@ -204,7 +206,8 @@ static class Program
             }
         }
 
-        // topology / cleanliness: new self-intersections relative to the input (an input may have its own)
+        // topology / cleanliness: more self-intersecting pairs than the input (a lower bound of the new ones: removing old pairs hides new ones;
+        // exact for an input without pairs)
         int pairs = MeshRepairMetrics.SelfIntersections(result);
         F["self_pairs_in"] = c.SelfPairs; F["self_pairs_out"] = pairs; F["new_self_pairs"] = Math.Max(0, pairs - c.SelfPairs);
         F["not_clean"] = MeshRobustRepair.NotCleanReasons(result, false);
@@ -273,7 +276,7 @@ static class Program
             Console.WriteLine();
             Console.WriteLine($"### {g.Key.Op} {g.Key.TargetLabel} {g.Key.Variant}, {g.Key.Group} ({l.Count} cases)");
             Console.WriteLine();
-            Console.WriteLine("| time s median (p10-p90) | us per input tri | out tris / target (reduce) or input tris (remesh) | p01 deg (input) | min angle deg | slivers <0.5 / >170 deg (cases) | hd in->out (max) | hd out->in (max) | F 0.1% | F 0.5% | vol. IoU | topology changed | new self-int. cases | not clean | repeat / serial differ | invariance: pow2 differ (cases) |");
+            Console.WriteLine("| time s median (p10-p90) | us per input tri | out tris / target (reduce) or input tris (remesh) | p01 deg (input) | min angle deg | slivers <0.5 / >170 deg (cases) | hd in->out (max) | hd out->in (max) | F 0.1% | F 0.5% | vol. IoU | topology changed | more self-int. pairs than input (cases) | not clean | repeat / serial differ | invariance: pow2 differ (cases) |");
             Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
             Console.WriteLine($"| {pct(l.Select(r => r.D("seconds")))} | {pct(l.Select(r => r.D("us_per_in_tri")))} | {pct(l.Select(r => r.D("out_tris") / (r.Op == "reduce" ? r.D("target_value") : r.D("in_tris"))))} | " +
                 $"{pct(l.Select(r => r.D("p01")))} ({pct(l.Select(r => r.D("in_p01")))}) | {pct(l.Select(r => r.D("min_angle")))} | " +
