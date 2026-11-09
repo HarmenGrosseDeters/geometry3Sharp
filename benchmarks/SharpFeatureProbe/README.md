@@ -55,3 +55,10 @@ over the 20 meshes), it lies on the input (no offset, it is not outside it), one
 recovers about 17-42 % of B's Chamfer gain and about 40 % of its edge F at 0.1 %, with every guarantee and angle floor unchanged, at +15-35 % time: it can only move
 vertices, but a crease needs vertices *on* it and edges along it. (3) The simplified wrap A touches the input (20/20, a chord across a convex crease; the raw wrap never does, minimum vertex
 distance 0.35 offset after simplification): independent of this work, worth a note on the offset guarantee. (4) A smaller alpha helps linearly and costs 1.7x triangles and 2.5x time (D1).
+
+### Guarantee audit (variant G, independent of the pipeline's certification)
+
+Exact triangle-triangle tests (`ExactTriangleIntersection`) and nearest distances on sample points (corners, edge midpoints, centroid); T1 20 meshes / 6 procedural.
+Raw wrap: 0 vertices < offset, 0 triangles cross the input (the class guarantee "the input is strictly inside" holds). Simplified wrap (A): T1 346k vertices, 1 below 0.5 offset (minimum 0.352),
+0 inside the input; 692k triangles, 247 cross the input exactly (all 20 meshes), 10 have a sample point inside the input's solid (3 meshes); procedural: 29 of 68.8k cross (6/6).
+The raw wrap's triangles already come within 0.007 offset of the input between their vertices (sagitta; 49k of 2.67M triangles have a sample < 0.5 offset), so a simplification within 0.5 offset can cross it.

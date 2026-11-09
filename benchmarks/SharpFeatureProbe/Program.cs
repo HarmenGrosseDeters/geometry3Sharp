@@ -108,6 +108,15 @@ class Program
         var inputTree = new DMeshAABBTree3(oriented, true);
         switch (variant) {
             case "A": result = a.Final; ms = a.Ms; r["raw_tris"] = a.Raw.TriangleCount; r["raw_ms"] = a.RawMs; break;
+            case "G": {
+                // guarantee audit, independent of the pipeline's certification: exact triangle-triangle tests and nearest distances
+                var inGrid2 = new TriangleHashGrid(oriented.CachedBounds.Min, Math.Max(a.Alpha, 1e-12));
+                foreach (int tid in oriented.TriangleIndices()) inGrid2.Insert(tid, Snap.Box(Snap.Tri(oriented, tid)));
+                Audit(a.Raw, "raw", oriented, inputTree, inGrid2, a.Delta, r);
+                Audit(a.Final, "fin", oriented, inputTree, inGrid2, a.Delta, r);
+                r["delta"] = a.Delta; r["alpha"] = a.Alpha; r["status"] = "ok"; r["tris"] = a.Final.TriangleCount; r["ms"] = a.Ms;
+                return;
+            }
             case "R": result = a.Raw; ms = a.RawMs; break;
             case "D1": {
                 if (a.Raw.TriangleCount > int.Parse(Environment.GetEnvironmentVariable("PROBE_D1_MAX") ?? "120000")) { r["status"] = "skipped_large"; return; }
@@ -169,6 +178,49 @@ class Program
         }
         r["b_cell"] = bestH; r["b_cell_rel"] = bestH / input.CachedBounds.DiagonalLength; r["b_search_ms"] = search;
         return best;
+    }
+
+    // per mesh: sample points (corners, edge midpoints, centroid) of every triangle; distances to the input in offsets, points inside the
+    // input's solid (winding number > 0.5), and triangles that intersect an input triangle (exact predicates)
+    static void Audit(DMesh3 m, string tag, DMesh3 input, DMeshAABBTree3 tree, TriangleHashGrid grid, double delta, Dictionary<string, object> r)
+    {
+        int vLt05 = 0, vLt025 = 0, vInside = 0, tLt05 = 0, tLt025 = 0, tInside = 0, tCross = 0, nv = 0;
+        double minV = double.MaxValue, minT = double.MaxValue;
+        var vd = new List<double>();
+        foreach (int vid in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(vid);
+            double d2; tree.FindNearestTriangle(p, out d2);
+            double d = Math.Sqrt(d2) / delta;
+            vd.Add(d); nv++;
+            if (d < 0.5) vLt05++; if (d < 0.25) vLt025++;
+            if (tree.FastWindingNumber(p) > 0.5) vInside++;
+            minV = Math.Min(minV, d);
+        }
+        foreach (int tid in m.TriangleIndices()) {
+            Triangle3d t = Snap.Tri(m, tid);
+            Vector3d[] pts = { t.V0, t.V1, t.V2, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0), (t.V0 + t.V1 + t.V2) / 3 };
+            double mn = double.MaxValue; bool inside = false;
+            foreach (Vector3d p in pts) {
+                double d2; tree.FindNearestTriangle(p, out d2);
+                mn = Math.Min(mn, Math.Sqrt(d2) / delta);
+                if (tree.FastWindingNumber(p) > 0.5) inside = true;
+            }
+            minT = Math.Min(minT, mn);
+            if (mn < 0.5) tLt05++; if (mn < 0.25) tLt025++; if (inside) tInside++;
+            bool cross = false;
+            grid.Query(Snap.Box(t), (it) => {
+                if (cross) return;
+                Triangle3d u = Snap.Tri(input, it);
+                if (ExactTriangleIntersection.IsDegenerate(ref u)) return;
+                if (ExactTriangleIntersection.Intersects(ref t, ref u)) cross = true;
+            });
+            if (cross) tCross++;
+        }
+        vd.Sort();
+        r["au_" + tag + "_verts"] = nv; r["au_" + tag + "_tris"] = m.TriangleCount;
+        r["au_" + tag + "_v_min"] = minV; r["au_" + tag + "_v_p001"] = vd[(int)(0.001 * (vd.Count - 1))]; r["au_" + tag + "_v_p01"] = vd[(int)(0.01 * (vd.Count - 1))]; r["au_" + tag + "_v_med"] = vd[vd.Count / 2];
+        r["au_" + tag + "_v_lt05"] = vLt05; r["au_" + tag + "_v_lt025"] = vLt025; r["au_" + tag + "_v_inside"] = vInside;
+        r["au_" + tag + "_t_min"] = minT; r["au_" + tag + "_t_lt05"] = tLt05; r["au_" + tag + "_t_lt025"] = tLt025; r["au_" + tag + "_t_inside"] = tInside; r["au_" + tag + "_t_cross"] = tCross;
     }
 
     static void Measure(DMesh3 input, DMesh3 oriented, DMeshAABBTree3 inputTree, DMesh3 result, double alpha, double delta, Dictionary<string, object> r)
