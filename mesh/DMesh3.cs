@@ -849,18 +849,11 @@ namespace g3
         /// </summary>
         public double GetTriSolidAngle(int tID, ref Vector3d p)
         {
+            // (the formula and its scaling for sizes outside [1e-30, 1e30] are in MathUtil.TriSolidAngle: the same arithmetic)
             int ti = 3 * tID;
-            int ta = 3 * triangles[ti];
-            Vector3d a = new Vector3d(vertices[ta] - p.x, vertices[ta + 1] - p.y, vertices[ta + 2] - p.z);
-            int tb = 3 * triangles[ti + 1];
-            Vector3d b = new Vector3d(vertices[tb] - p.x, vertices[tb + 1] - p.y, vertices[tb + 2] - p.z);
-            int tc = 3 * triangles[ti + 2];
-            Vector3d c = new Vector3d(vertices[tc] - p.x, vertices[tc + 1] - p.y, vertices[tc + 2] - p.z);
-            // note: top and bottom are reversed here from formula in the paper? but it doesn't work otherwise...
-            double la = a.Length, lb = b.Length, lc = c.Length;
-            double bottom = (la * lb * lc) + a.Dot(ref b) * lc + b.Dot(ref c) * la + c.Dot(ref a) * lb;
-            double top = a.x * (b.y * c.z - c.y * b.z) - a.y * (b.x * c.z - c.x * b.z) + a.z * (b.x * c.y - c.x * b.y);
-            return 2.0 * Math.Atan2(top, bottom);
+            int ta = 3 * triangles[ti], tb = 3 * triangles[ti + 1], tc = 3 * triangles[ti + 2];
+            return MathUtil.TriSolidAngle(new Vector3d(vertices[ta], vertices[ta + 1], vertices[ta + 2]),
+                new Vector3d(vertices[tb], vertices[tb + 1], vertices[tb + 2]), new Vector3d(vertices[tc], vertices[tc + 1], vertices[tc + 2]), ref p);
         }
 
 
