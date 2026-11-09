@@ -252,11 +252,15 @@ namespace g3
         // their bound coarse. Per vertex its component; per component the degenerate area, the drift bound and whether
         // the ulp term of the bound is active (see UlpFactor). maxLength is the largest bound, for MaxLength
         int[] componentOf;
-        double[] areaEpsC, maxLengthC;
+        double[] areaEpsC, sizeAreaC, maxLengthC;
         bool[] coarseC;
         double maxLength;
         bool anyCoarse;
         double areaEps_of(int v) { return areaEpsC[componentOf[v]]; }
+        // DegenerateArea times the largest component's diagonal squared: the scale of the guards that are not the
+        // degenerate test (tiny components, triangles that may turn over in an edit), which a box of components side by
+        // side must not make coarser
+        double sizeArea_of(int v) { return sizeAreaC[componentOf[v]]; }
         double maxLength_of(int v) { return maxLengthC[componentOf[v]]; }
         bool coarse_at(int v) { return coarseC[componentOf[v]]; }
         // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
@@ -522,7 +526,9 @@ namespace g3
         }
 
         // the components (union-find over the triangles' vertices) and their tolerances: degenerate area DegenerateArea
-        // box^2 (box: the diagonal of all triangles, the largest component's if they are far apart) and bound
+        // box^2 (box: the diagonal of all triangles, the largest component's if they are far apart; for the degenerate
+        // test and the steps that aim at it), the area of the other guards DegenerateArea size^2 (tiny components,
+        // triangles that may turn over) and bound
         // max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance), with size the
         // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
         // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
@@ -531,7 +537,7 @@ namespace g3
         {
             List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
             int n = Math.Max(boxes.Count, 1);
-            areaEpsC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
+            areaEpsC = new double[n]; sizeAreaC = new double[n]; maxLengthC = new double[n]; coarseC = new bool[n];
             maxLength = 0;
             // the size: the largest component's diagonal (not the box of all: components far apart would inflate it).
             // A diagonal that is not finite (NaN or infinite: coordinates that are not finite, or finite ones whose extent
@@ -559,6 +565,7 @@ namespace g3
                 AxisAlignedBox3d bounds = boxes[c];
                 double diag = size;
                 areaEpsC[c] = DegenerateArea * areaSize * areaSize;
+                sizeAreaC[c] = DegenerateArea * diag * diag;
                 // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit;
                 // a bound that is not finite has no ulp term)
                 double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
@@ -1074,7 +1081,7 @@ namespace g3
                 // (slivers just above the degenerate area, and triangles not higher than twice the displacement
                 // of the edit, may turn over: tiny folds, intersections are checked)
                 double longest = Math.Max(T.V0.Distance(T.V1), Math.Max(T.V1.Distance(T.V2), T.V2.Distance(T.V0)));
-                if (oldCross[i].Length < 2 * OrientedArea * areaEps_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
+                if (oldCross[i].Length < 2 * OrientedArea * sizeArea_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
                     oldCross[i] = Vector3d.Zero;
                 else
                     crossSum += oldCross[i];
@@ -2262,7 +2269,7 @@ namespace g3
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
                 int v0 = Mesh.GetTriangle(comp.Indices[0]).a;
-                bool tiny = sum < 1e4 * areaEps_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
+                bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
                 if (closed == false || (tiny == false && thin == false))
                     continue;
                 // never as thin a component that holds real volume for its area (a sphere has |V| = 0.094 A^1.5, a slab

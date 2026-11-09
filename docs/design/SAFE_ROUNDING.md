@@ -51,8 +51,10 @@ component's diagonal for every result, pieces close together (the three pieces o
 largest piece 72) made the degenerate test weaker than `NotCleanReason`'s by (box / largest)^2, and slivers between the
 two areas stayed: 432 of the 16239 Thingi10K target operations were reported clean by the rounding and degenerate by the
 evaluator (#385: 81 unclean in all). Now the degenerate area is relative to the box of all triangles, as the evaluator's,
-unless the components lie far apart (the box's diagonal above 8 times the largest component's); `maxLength` and the
-tiny test keep the largest component's diagonal. The rule without a constant, always the box, was checked on the
+unless the components lie far apart (the box's diagonal above 8 times the largest component's), and so are the steps
+that aim at it (the moves of `fix_degenerate` start at the height that area needs; the slivers `strip_around` takes);
+`maxLength`, the tiny test and the area below which a triangle may turn over in an edit keep the largest component's
+diagonal (a box of pieces side by side must not make them coarser: a small real piece would be removed as tiny). The rule without a constant, always the box, was checked on the
 far-part cases (1e4 to 1e12 away): their results were degenerate by the box under either rule, but with it the rounding
 tried to fix every triangle, took seconds instead of tens of milliseconds, and deformed a small far sphere within its ulp
 bound (7e-5 of volume at 1e12). 8 leaves room above the intersection pieces (1.6) and far below the far parts (1e4).

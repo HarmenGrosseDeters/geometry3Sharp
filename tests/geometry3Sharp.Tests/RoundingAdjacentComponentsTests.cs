@@ -17,9 +17,9 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class RoundingAdjacentComponentsTests
     {
-        // three unit spheres in a row, 2.5 apart (box diagonal about 7.6, largest component 3.5), the first with needles:
-        // every 9th edge split at 3e-10 from its first end (area about 0.5 * 3e-10 * the opposite height)
-        static DMesh3 Row()
+        // three unit spheres in a row, spacing apart (2.5: box diagonal about 7.6, largest component 3.5), the first with
+        // needles: every 9th edge split at 3e-10 from its first end (area about 0.5 * 3e-10 * the opposite height)
+        static DMesh3 Row(double spacing = 2.5)
         {
             var m = new DMesh3();
             for (int i = 0; i < 3; ++i) {
@@ -33,7 +33,7 @@ namespace geometry3Sharp.Tests
                         Assert.Equal(MeshResult.Ok, s.SplitEdge(eid, out DMesh3.EdgeSplitInfo info));
                         s.SetVertex(info.vNew, p + 3e-10 * (q - p).Normalized);
                     }
-                MeshTransforms.Translate(s, new Vector3d(2.5 * i, 0, 0));
+                MeshTransforms.Translate(s, new Vector3d(spacing * i, 0, 0));
                 new MeshEditor(m).AppendMesh(s);
             }
             return m;
@@ -51,7 +51,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Row();
             // the setup: needles below the box's degenerate area but above the largest component's
-            double box = m.CachedBounds.DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
+            double box = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
             Assert.True(box < 8 * largest && box > 2 * largest);
             int between = m.TriangleIndices().Count(t => m.GetTriArea(t) >= 1e-12 * largest * largest && m.GetTriArea(t) < 1e-12 * box * box);
             Assert.True(between > 0);
@@ -63,6 +63,48 @@ namespace geometry3Sharp.Tests
             var comps = new MeshConnectedComponents(m);
             comps.FindConnectedT();
             Assert.Equal(3, comps.Count);
+        }
+
+        [Theory]
+        [InlineData(9.5, 6.0, false)]
+        [InlineData(20, 12.0, true)]
+        public void FarApartThreshold_BoxBelow8TimesTheLargest(double spacing, double ratio, bool far)
+        {
+            // the box's diagonal up to 8 times the largest component's: the box's degenerate area (the needles are
+            // repaired); above: the largest component's (they stay, as for parts far apart: the rounding calls the result
+            // clean, NotCleanReason degenerate; ExactBooleanFarComponentTests)
+            DMesh3 m = Row(spacing);
+            double box = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
+            Assert.InRange(box / largest, ratio - 0.5, ratio + 0.5);
+            Assert.Contains(m.TriangleIndices(), t => m.GetTriArea(t) >= 1e-12 * largest * largest && m.GetTriArea(t) < 1e-12 * box * box);
+            MeshRoundingRepair r = Repair(m);
+            Assert.True(r.IsClean && m.IsClosed());
+            Assert.Equal(far ? "degenerate triangles" : "", MeshRobustRepair.NotCleanReason(m));
+        }
+
+        [Fact]
+        public void SideBySide_SmallRealPart_NotRemovedAsTiny()
+        {
+            // the tiny test keeps the largest component's diagonal: a corner tetrahedron with legs 4e-4 between the
+            // spheres (area 3.8e-7: above 1e4 DegenerateArea largest^2 = 1.2e-7, below the box's 5.7e-7; not thin) with
+            // a needle (so that the rounding works on it) stays
+            DMesh3 m = Row();
+            double a = 4e-4;
+            var p = new Vector3d(1.25, 0, 0);
+            int v0 = m.AppendVertex(p), v1 = m.AppendVertex(p + a * Vector3d.AxisX), v2 = m.AppendVertex(p + a * Vector3d.AxisY), v3 = m.AppendVertex(p + a * Vector3d.AxisZ);
+            m.AppendTriangle(v0, v2, v1); m.AppendTriangle(v0, v1, v3); m.AppendTriangle(v0, v3, v2); m.AppendTriangle(v1, v2, v3);
+            int e = m.FindEdge(v1, v2);
+            Assert.Equal(MeshResult.Ok, m.SplitEdge(e, out DMesh3.EdgeSplitInfo info));
+            m.SetVertex(info.vNew, m.GetVertex(v1) + 1e-8 * (m.GetVertex(v2) - m.GetVertex(v1)).Normalized);
+            double box = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
+            double tetArea = 1.5 * a * a + 0.5 * Math.Sqrt(3) * a * a;
+            Assert.InRange(tetArea, 1e-8 * largest * largest, 1e-8 * box * box);
+            MeshRoundingRepair r = Repair(m);
+            Assert.Equal(0, r.RemovedComponents);
+            var comps = new MeshConnectedComponents(m);
+            comps.FindConnectedT();
+            Assert.Equal(4, comps.Count);
+            Assert.True(r.IsClean && m.IsClosed());
         }
 
         [Fact]
