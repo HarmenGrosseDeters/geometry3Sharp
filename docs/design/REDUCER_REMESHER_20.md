@@ -373,3 +373,16 @@ allocation in the operations 0.2 GB (from 3.7). The per-pass snapshot of `Reject
 - **Square-root-free quality pre-test in `flip_removes_degenerate`** (called for every edge that is not flipped; sound filter, quality at least 4x the threshold decides): A/B over the 24 inputs, alternating twice, hashes 48 / 48 equal, **0.94-0.95 x** (slower: the extra cross product and compare is paid on every call, the square roots it saves are not the cost). Dropped.
 - **Warm-started nearest-point query** (initial distance bound from the vertex's previous nearest triangle; projection is 14 % of the run): would need a change in `DMeshAABBTree3`, which is shared spatial code; not touched without telling the coordinator, and not bit-identical in distance ties. Open as a proposal.
 - Everything else in the plain profile is a flat cache-bound spread (look-up 13 %, collapse 11 %, split 9 %, flip test 25 % with its four valence reads and two vertex reads): no single item above 5 % that a local change reaches.
+
+**Tried in code, not only bounded (owner 2026-11-09: all levers):**
+
+| lever | what was built for the measurement | result |
+|---|---|---|
+| warm-started projection | `FindNearestTriangle(p, out d, maxDist)` with the distance to the vertex's previous nearest triangle as the bound (no tree change; scratch probe on the remeshed vertices, displaced as after smoothing) | 0.97 x (sphere), 1.10 x (torus), 2.05 x (78295), 1.25 x (93370), 1.15 x (299291) of the query time; the same triangle in 48609 + 34478 + 12716 + 22371 + 9134 of the same numbers of points. Projection is 14 % of the run, so 1-5 % overall: not built |
+| (c) cheaper first test in `pair_intersects` | the one-shared-vertex plane shortcut (`beyond_plane`, 2 `Orient3d`) moved in front of `TriangleTriangleFilter`; results identical by construction | `si` x1 0.93 x, x2 0.95 x on 6 meshes (hashes 24 / 24 equal): slower, the filter decides more pairs per cost than the plane test. Dropped |
+| flip pre-test without square roots | see above | 0.94-0.95 x. Dropped |
+| inversion guard work arrays reused | see above | no change. Dropped |
+| (b) refit of the move check's AABB tree | `DMeshAABBTree3` has no refit; adding one is shared spatial code (not touched without the coordinator) and bounded by the second tree of a pass, 2.5 % of an `si` run | not built |
+| (a) `NearestPointBatch` | probe above | 0.5-1.2 x. Not built |
+
+Result of T4: one lever pays (PR 1, 1.49 x / 1.29 x); every other lever of the list was measured, six of them with a code change, none gained.
