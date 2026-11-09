@@ -253,7 +253,7 @@ So the defaults of the Reducer and the Remesher did not change result or fidelit
 
 | inputs, target | p01 median | slivers (< 0.5 or > 170 degrees) | not clean | Hausdorff in to out, median (max) | F 0.1 % / 0.5 % | volume IoU | meshes with more pairs than the input | time per input triangle |
 |---|---|---|---|---|---|---|---|---|
-| Thingi10K x1 | 1.30 -> 5.65 degrees | 6213 -> 1263 | 17 -> 0 of 20 | 2.2 % (24 %) -> 1.9 % (24 %) | 0.760 -> 0.771 / 0.978 -> 0.973 | 0.935 -> 0.939 | 19 -> 13 | +47 % (17.4 -> 25.4 µs) |
+| Thingi10K x1 | 1.30 -> 5.65 degrees | 6213 -> 1263 | 17 -> 0 of 20 | 2.2 % (24 %) -> 1.9 % (24 %) | 0.760 -> 0.771 / 0.978 -> 0.973 | 0.935 -> 0.939 | 19 -> 13 | +46 % (17.4 -> 25.4 µs) |
 | Thingi10K x2 | 0 -> 1.81 degrees | 9005 -> 1359 | 18 -> 0 of 20 | 4.0 % (32 %) -> 3.4 % (19 %) | 0.613 -> 0.619 / 0.780 -> 0.811 | 0.818 -> 0.820 | 19 -> 15 | +39 % (8.7 -> 12.1 µs) |
 | procedural x1 / x2 | 40.1 -> 38.3 / 42.5 -> 42.4 degrees | 0 -> 0 | 1 -> 1 (the open terrain) | 0.1 % -> 0.1 % | 1.0 -> 1.0 | 0.9998 -> 0.9998 | 0 -> 0 | +18 % / +22 % |
 
