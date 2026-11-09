@@ -341,3 +341,32 @@ for); the time of stage 0 (wrap median 0.33 s) is far below fTetWild's 18-50 s, 
 quality, so the comparison becomes meaningful only after stages 1 and 2 (their cost is the open part, section 10 item 3).
 Note that the dihedral target cannot be checked against fTetWild's own output from its paper; a run of fTetWild itself on the same subset
 (black box, MPL, no code read) would settle it, an owner decision.
+
+## 11. Hand-over (2026-11-09): where stage 1 would start
+
+**Status.** Stage 0 is done (#487). Stage 1 is **on hold** (owner 2026-11-09) until (1) the fTetWild black-box comparison
+on the 40 Thingi10K meshes has run (`runs/tet-meshing`, `jobs/JOB-1.md`, `jobs/JOB-2.md`; evaluator modes `export` / `eval` of
+`TetMeshBenchmark` on branch `claude/tet-fetwild-eval`, to be merged with the next PR on this topic) and (2) the alpha wrap keeps
+sharp edges (Alpha Wrap 3.0, dual-contouring lever): without sharp edges the tet mesh would carry rounded features and is
+probably not worth building.
+
+**What exists.** `MeshAlphaWrap.ExtractTetMesh`, `TetMesh3`, `TetMeshQuality` (`NotValidReason`, `Measure`), the independent oracle
+`TetOracle`, `TetMeshingStage0Tests`, `benchmarks/TetMeshBenchmark` (modes `insert`, `wrap`, `file`; `export` / `eval` on the branch above).
+
+**What stage 1 would start from (measured, section 10 / 10.1).**
+- Raw inside cells of the wrap: exactly valid on 8 of 8 procedural and 40 of 40 Thingi10K subset meshes; quality missing
+  (min dihedral per mesh median 0.22 degrees, 0 of 40 meshes at 10 degrees, radius-edge above 2 for a median 25 % of the tets).
+- `Delaunay3` costs 13 us per point = 1.9 us per cell in coherent order (random order is up to 5x slower per point at 400k):
+  stage 1 must insert in a spatially coherent order; T5 (25 us per tet for refinement alone) is kept and to be measured.
+- Real wrap surfaces have acute dihedral angles (1.0 % of the edges below 90 degrees, smallest 12.0 degrees) and triangle angles down to 1.29 degrees
+  (procedural inputs: >= 86 and >= 8.6 degrees). Shewchuk's 90-degree condition does not hold, so the minimum-length floor
+  of 5.2 is the working termination mechanism; `UnrefinedBadTets` per mesh must be reported.
+- Design of stage 1 (5.2, 5.3): circumcentre insertion with encroachment, in-plane facet splits with rounded Steiner points
+  and exact post-check with undo (needs `Delaunay3` cavity undo, per-cell labels, `IsFacet`), size control, no sliver removal.
+
+**Open decisions for the owner when work resumes.**
+1. Result of the fTetWild comparison: does fTetWild reach 10 degrees on all 40 meshes (`dih_ge10_all`)? If not, the target is a floor, not a copy.
+2. Sharp features: only after Alpha Wrap 3.0; the corpus must then include sharp concave inputs (slot, notch, re-entrant corners),
+   agreed but not yet added.
+3. Sliver strategy for stage 2 (flips + smoothing recommended) and the dihedral target (10 degrees assumed).
+4. Whether option (d) lattice stuffing (1-2 weeks, guaranteed dihedral bound) is worth building first for implicit domains.
