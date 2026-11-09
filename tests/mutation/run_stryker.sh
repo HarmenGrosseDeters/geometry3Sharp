@@ -13,11 +13,30 @@ here="$(cd "$(dirname "$0")" && pwd)"
 baseline="${BASELINE_DIR:-baseline}/stryker-report.json"
 summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+# dotnet stryker with a progress line every 10 minutes in the job log: Stryker's progress reporter prints nothing
+# without a terminal, so the line counts the test runs started, one log file each in StrykerOutput/*/logs (written with
+# --log-to-file), against the mutants to test from Stryker's own log. A shard that will not finish within the job's
+# limit shows it before it is cancelled
+stryker() {
+  ( while sleep "${PROGRESS_SECONDS:-600}" </dev/null >/dev/null 2>&1; do
+      logs="$(ls -d StrykerOutput/*/logs 2>/dev/null | sort | tail -1)"
+      [ -n "$logs" ] || continue
+      total="$(grep -ho '[0-9]\+ *total mutants will be tested' "$logs"/log-*.txt 2>/dev/null | tail -1 | grep -o '^[0-9]\+' || true)"
+      runs="$(ls "$logs" | grep -c '^Runner ' || true)"
+      echo "[progress $(date -u +%H:%M) UTC] test runs started: $runs, mutants to test: ${total:-not yet known}"
+    done ) &
+  local ticker=$!
+  local rc=0
+  dotnet stryker --log-to-file "$@" || rc=$?
+  kill "$ticker" 2>/dev/null || true
+  return $rc
+}
+
 full() {
   mkdir -p StrykerOutput
   touch StrykerOutput/full-run
   echo "dotnet stryker --config-file $config"
-  dotnet stryker --config-file "$config"
+  stryker --config-file "$config"
 }
 
 latest_report() {
@@ -27,7 +46,7 @@ latest_report() {
 case "${MODE:-full}" in
   tests)
     echo "dotnet stryker --config-file $config --since:$BASE --break-at 0"
-    dotnet stryker --config-file "$config" "--since:$BASE" --break-at 0 ;;
+    stryker --config-file "$config" "--since:$BASE" --break-at 0 ;;
   source)
     if [ ! -f "$baseline" ]; then
       echo "::notice::no baseline in the cache for $config: running it in full"
@@ -41,7 +60,7 @@ case "${MODE:-full}" in
     case "$plan" in
       run)
         echo "dotnet stryker --config-file incremental-run.json --break-at 0"
-        dotnet stryker --config-file incremental-run.json --break-at 0
+        stryker --config-file incremental-run.json --break-at 0
         report="$(latest_report)"
         if [ -z "$report" ]; then
           echo "::error::the incremental run wrote no report"

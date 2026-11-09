@@ -234,7 +234,7 @@ class PlanAndMerge(unittest.TestCase):
 class RunStryker(unittest.TestCase):
     """run_stryker.sh with a fake dotnet that logs its arguments and writes a report"""
 
-    def run_script(self, mode, with_baseline, source=NEW):
+    def run_script(self, mode, with_baseline, source=NEW, slow=False, progress=None):
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "repo")
             work = os.path.join(root, "tests", "mutation")
@@ -247,7 +247,13 @@ class RunStryker(unittest.TestCase):
             os.makedirs(bindir)
             run_report = json.dumps(report(NEW, [mutant(3, "Killed")]))
             with open(os.path.join(bindir, "dotnet"), "w") as f:
-                f.write('#!/usr/bin/env bash\necho "ARGS: $*"\nmkdir -p StrykerOutput/2026-01-01.00-00-00/reports\n'
+                # (slow: the log files Stryker writes with --log-to-file, Stryker's count, two test runs, and time for
+                # the progress line)
+                logs = ('mkdir -p StrykerOutput/2026-01-01.00-00-00/logs\n'
+                        'echo "[INF] 7    total mutants will be tested" > StrykerOutput/2026-01-01.00-00-00/logs/log-1.txt\n'
+                        'touch "StrykerOutput/2026-01-01.00-00-00/logs/Runner 0-log.host.1.txt" '
+                        '"StrykerOutput/2026-01-01.00-00-00/logs/Runner 1-log.host.2.txt"\nsleep 3\n') if slow else ''
+                f.write('#!/usr/bin/env bash\necho "ARGS: $*"\nmkdir -p StrykerOutput/2026-01-01.00-00-00/reports\n' + logs +
                         "echo '%s' > StrykerOutput/2026-01-01.00-00-00/reports/mutation-report.json\n" % run_report)
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             if with_baseline:
@@ -257,22 +263,24 @@ class RunStryker(unittest.TestCase):
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE=mode, BASE="abc123",
                        REPO_ROOT=root, GITHUB_STEP_SUMMARY=os.path.join(d, "summary"))
             env.pop("GITHUB_OUTPUT", None)
+            if progress is not None:
+                env["PROGRESS_SECONDS"] = str(progress)
             p = subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), "stryker-x.json"], cwd=work, env=env,
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, timeout=60)
             args = [l[len("ARGS: "):] for l in p.stdout.splitlines() if l.startswith("ARGS: ")]
             full_marker = os.path.isfile(os.path.join(work, "StrykerOutput", "full-run"))
             return p.returncode, args, full_marker, p.stdout
 
     def test_full(self):
-        self.assertEqual((0, ["stryker --config-file stryker-x.json"], True), self.run_script("full", True)[:3])
+        self.assertEqual((0, ["stryker --log-to-file --config-file stryker-x.json"], True), self.run_script("full", True)[:3])
 
     def test_tests_only_reports(self):
-        self.assertEqual((0, ["stryker --config-file stryker-x.json --since:abc123 --break-at 0"], False),
+        self.assertEqual((0, ["stryker --log-to-file --config-file stryker-x.json --since:abc123 --break-at 0"], False),
                          self.run_script("tests", False)[:3])
 
     def test_source_with_a_baseline_runs_the_changed_lines(self):
         code, args, full_marker, out = self.run_script("source", True)
-        self.assertEqual((0, ["stryker --config-file incremental-run.json --break-at 0"], False),
+        self.assertEqual((0, ["stryker --log-to-file --config-file incremental-run.json --break-at 0"], False),
                          (code, args, full_marker), out)
         self.assertIn("tested in this run", out)
         self.assertIn("Score of the shard: 100.00 %", out)
@@ -283,7 +291,17 @@ class RunStryker(unittest.TestCase):
         self.assertIn("nothing to run", out)
 
     def test_source_without_a_baseline_runs_in_full(self):
-        self.assertEqual((0, ["stryker --config-file stryker-x.json"], True), self.run_script("source", False)[:3])
+        self.assertEqual((0, ["stryker --log-to-file --config-file stryker-x.json"], True), self.run_script("source", False)[:3])
+
+    def test_full_prints_progress_and_returns(self):
+        # (a progress line from the logs of the run; the script returns when Stryker does, the waiting ticker does
+        # not keep the output open)
+        code, args, full_marker, out = self.run_script("full", True, slow=True, progress=1)
+        self.assertEqual((0, True), (code, full_marker), out)
+        self.assertIn("test runs started: 2, mutants to test: 7", out)
+        code, args, full_marker, out = self.run_script("full", True, slow=True)
+        self.assertEqual(0, code, out)
+        self.assertNotIn("[progress", out)
 
     def test_unknown_mode_fails(self):
         self.assertNotEqual(0, self.run_script("nonsense", False)[0])

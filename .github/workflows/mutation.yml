@@ -57,7 +57,7 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding, boolean-1, ...)'
+        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
 # a new push to the same PR cancels the running run
@@ -125,8 +125,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         env:
@@ -160,7 +160,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   exact-mesh:
     needs: changes
@@ -169,8 +169,11 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      # at most 4 shards at a time: a full run leaves runners free for CI (the account runs about 20 jobs at once)
-      max-parallel: 4
+      # at most 12 shards at a time (was 4: the 15 mesh shards of a full run then took 4 waves, about 12 hours of wall
+      # time, with the longest shards queued behind others). The account runs at most 20 jobs at once; a full run is
+      # 12 mesh shards + the arithmetic job + the selection job = 14, which leaves 6 for the CI of the PRs. Scheduling
+      # only: it changes no shard's result (select_shards.py: not a reason for full runs)
+      max-parallel: 12
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:
@@ -188,8 +191,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         # a mutant can turn a loop into one that allocates without end: a heap limit per process makes that an
@@ -233,4 +236,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
