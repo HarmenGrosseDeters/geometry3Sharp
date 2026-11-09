@@ -12,7 +12,7 @@ namespace geometry3Sharp.Tests
     /// MeshRobustRepair.NotCleanReason, against 81 unclean in #385). Since the far-component tolerances the degenerate
     /// area was relative to the largest component's diagonal; NotCleanReason's is relative to the diagonal of all
     /// triangles. With pieces close together (thingi 100606's intersection: 3 pieces, box 114, largest 72) slivers
-    /// between the two areas stayed. Now the box's diagonal, unless the components are far apart (box above 8 times the
+    /// between the two areas stayed. Now the box's diagonal, unless the components are far apart (box above 100 times the
     /// largest component's; ExactBooleanFarComponentTests).
     /// </summary>
     public class RoundingAdjacentComponentsTests
@@ -66,20 +66,49 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(9.5, 6.0, false)]
-        [InlineData(20, 12.0, true)]
-        public void FarApartThreshold_BoxBelow8TimesTheLargest(double spacing, double ratio, bool far)
+        [InlineData(20, 12.0, false)]
+        [InlineData(345, 200.0, true)]
+        public void FarApartThreshold_BoxBelow100TimesTheLargest(double spacing, double ratio, bool far)
         {
-            // the box's diagonal up to 8 times the largest component's: the box's degenerate area (the needles are
+            // the box's diagonal up to 100 times the largest component's: the box's degenerate area (the needles are
             // repaired); above: the largest component's (they stay, as for parts far apart: the rounding calls the result
             // clean, NotCleanReason degenerate; ExactBooleanFarComponentTests)
             DMesh3 m = Row(spacing);
             double box = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
-            Assert.InRange(box / largest, ratio - 0.5, ratio + 0.5);
+            Assert.InRange(box / largest, 0.95 * ratio, 1.05 * ratio);
             Assert.Contains(m.TriangleIndices(), t => m.GetTriArea(t) >= 1e-12 * largest * largest && m.GetTriArea(t) < 1e-12 * box * box);
             MeshRoundingRepair r = Repair(m);
             Assert.True(r.IsClean && m.IsClosed());
             Assert.Equal(far ? "degenerate triangles" : "", MeshRobustRepair.NotCleanReason(m));
+        }
+
+        [Fact]
+        public void Fragments_BoxSixteenTimesTheLargest_Repaired()
+        {
+            // a result in many pieces (the Thingi10K intersections and differences the threshold 8 left degenerate: 29 to
+            // 785 fragments, box / largest 8 to 16): 16 unit spheres on a 4 x 4 grid, 13 apart, the first with needles
+            DMesh3 m = Row();
+            foreach (int t in m.TriangleIndices().ToArray())
+                if (m.GetTriCentroid(t).x > 1.5)
+                    m.RemoveTriangle(t, true, false);
+            m = new DMesh3(m, true);
+            for (int i = 0; i < 4; ++i)
+                for (int j = 0; j < 4; ++j) {
+                    if (i == 0 && j == 0)
+                        continue;
+                    DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+                    MeshTransforms.Translate(s, new Vector3d(13 * i, 13 * j, 0));
+                    new MeshEditor(m).AppendMesh(s);
+                }
+            double box = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength, largest = gs.MeshRepairMetrics.LargestComponentDiagonal(m);
+            Assert.InRange(box / largest, 15, 18);
+            Assert.Contains(m.TriangleIndices(), t => m.GetTriArea(t) >= 1e-12 * largest * largest && m.GetTriArea(t) < 1e-12 * box * box);
+            MeshRoundingRepair r = Repair(m);
+            Assert.True(r.IsClean && m.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            var comps = new MeshConnectedComponents(m);
+            comps.FindConnectedT();
+            Assert.Equal(16, comps.Count);
         }
 
         [Fact]
