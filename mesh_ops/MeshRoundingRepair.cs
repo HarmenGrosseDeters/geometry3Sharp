@@ -109,10 +109,10 @@ namespace g3
         /// <summary> the mesh, repaired in place </summary>
         public DMesh3 Mesh;
         /// <summary>
-        /// a triangle is degenerate below this area, relative to the squared diagonal of the size of the mesh: the
-        /// diagonal of its largest connected component (not of the box of all components: a part far from the rest would
-        /// make every triangle of the rest degenerate). MeshRobustRepair.NotCleanReason uses the box of all triangles; the
-        /// two agree unless the components lie far apart compared to their size
+        /// a triangle is degenerate below this area, relative to the squared diagonal of the box of all triangles, as
+        /// MeshRobustRepair.NotCleanReason, unless the components lie far apart (that diagonal above 8 times the largest
+        /// connected component's): then relative to the largest component's diagonal (a part far from the rest would
+        /// make every triangle of the rest degenerate), and NotCleanReason may still call the result degenerate
         /// </summary>
         public double DegenerateArea = 1e-12;
         /// <summary>
@@ -267,6 +267,9 @@ namespace g3
         // the proposed edit's apex, a vertex of every triangle it adds (-1: none, or nothing added): only the apex gets
         // the edit's drift (docs/design/ROUNDING_DRIFT_APEX.md)
         int editApex;
+        // components whose box (all triangles) has a diagonal above this many times the largest component's are far
+        // apart: the degenerate area is then relative to the largest component, not to the box (component_scales)
+        const double FarApart = 8;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -519,8 +522,9 @@ namespace g3
         }
 
         // the components (union-find over the triangles' vertices) and their tolerances: degenerate area DegenerateArea
-        // size^2 and bound max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance),
-        // with size the largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
+        // box^2 (box: the diagonal of all triangles, the largest component's if they are far apart) and bound
+        // max(MaxDisplacement size, UlpFactor ulp(largest coordinate of the component), AbsoluteTolerance), with size the
+        // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
         // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
         // component
         void component_scales()
@@ -536,10 +540,25 @@ namespace g3
             // and the repair is not clean (ScaleNotFinite: by area nothing is degenerate)
             double size = gs.MeshRepairMetrics.LargestDiagonal(boxes);
             ScaleNotFinite = double.IsNaN(size);
+            // the degenerate area: relative to the diagonal of all triangles, as MeshRobustRepair.NotCleanReason, while
+            // the components lie close together (that box at most FarApart times the largest component's diagonal):
+            // the repair then never calls clean what the evaluator calls degenerate. With the largest component's
+            // diagonal, components side by side (eg the pieces of an intersection, box / largest 1.6) made the test
+            // weaker by (box / largest)^2 and the slivers between the two areas stayed. Components far apart (a part
+            // 1e4 to 1e12 away) keep the largest component's: with the box's, every triangle of the parts is
+            // "degenerate", and the edits that try to fix them deform the far part within its ulp bound (a radius 0.1
+            // sphere 1e12 away lost 7e-5 of volume) and cost seconds, while the result stays degenerate by the box
+            // anyway (MeshRobustRepair's ScaleDisparity). Not finite (an overflowing box): the largest component's
+            var all = AxisAlignedBox3d.Empty;
+            foreach (AxisAlignedBox3d bx in boxes)
+                all.Contain(bx);
+            double areaSize = all.DiagonalLength;
+            if (boxes.Count == 0 || double.IsNaN(size) || !(areaSize <= FarApart * size))
+                areaSize = size;
             for (int c = 0; c < boxes.Count; ++c) {
                 AxisAlignedBox3d bounds = boxes[c];
                 double diag = size;
-                areaEpsC[c] = DegenerateArea * diag * diag;
+                areaEpsC[c] = DegenerateArea * areaSize * areaSize;
                 // (ulp of the largest absolute coordinate, a power of two: 2^k scales keep the same result, bit for bit;
                 // a bound that is not finite has no ulp term)
                 double largest = Math.Max(bounds.Min.MaxAbs, bounds.Max.MaxAbs);
