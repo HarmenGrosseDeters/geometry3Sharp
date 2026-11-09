@@ -270,6 +270,25 @@ namespace Meshing2Acceptance
                 Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
             }
 
+            // ---- rule O-G, the grid tube (MESHING2D_HULL_GRID.md): with a snap tolerance the output boundary may run off the input's boundary
+            // by one pixel and the area changes by that much (Guibas and Marimont 1998: the image lies in the Minkowski sum of the input with a
+            // pixel). The hull domain of (5, 5), (3, 4), (6, 4), (1, 4) at pixel 1: the hull edge (1, 4)-(5, 5) passes the pixel of (3, 4), snap
+            // rounding routes it through (3, 4) onto the bottom edge, and the mesh is the triangle (3, 4), (6, 4), (5, 5), 3 of the hull's 5
+            // (found by the CsCheck campaign of QualityMesh2, T5). A boundary vertex 4 pixels off the hull is another matter
+            {
+                var gridIn = new Mesh2Input { X = new double[] { 5, 3, 6, 1 }, Y = new double[] { 5, 4, 4, 4 }, SnapTolerance = 1 };
+                var tri = new[] { new[] { 1, 2, 0 } };
+                Mesh2Output Grid(double[] vx, double[] vy) => new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = tri, Neighbours = NeighboursOf(tri), TriangleLabels = new[] { 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] };
+                var rerouted = Oracle.Check(gridIn, Grid(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M2 });
+                Must("accept: a hull edge rerouted through a hot pixel, the mesh smaller by the collapsed triangle", !rerouted.Has(Violation.AreaMismatch) && !rerouted.Has(Violation.BoundaryOutsideTube), "report: " + rerouted);
+                var noGrid = new Mesh2Input { X = gridIn.X, Y = gridIn.Y };
+                var exact = Oracle.Check(noGrid, Grid(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: the same mesh without a snap tolerance as AreaMismatch (the exact comparison stays)", exact.Has(Violation.AreaMismatch), "report: " + exact);
+                var away = Oracle.Check(gridIn, Grid(new double[] { 5, 3, 6, 1 }, new double[] { 9, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: a boundary vertex 4 pixels off the hull as BoundaryOutsideTube", away.Has(Violation.BoundaryOutsideTube), "report: " + away);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed

@@ -2343,27 +2343,58 @@ namespace Meshing2Acceptance
                     var p = Pt.FromDoubles(seed[0], seed[1]);
                     if (domain.Classify(p) == Where.Inside) effectiveSeeds.Add(p);
                 }
-                if (domain.IsHull) {
+                // The grid (rule O-G, MESHING2D_HULL_GRID.md): with an explicit snap tolerance the output boundary is the input boundary
+                // snap-rounded, so a boundary vertex may lie off the input boundary, by at most GridTubePixels pixel (the image of an input
+                // edge lies in the Minkowski sum of the edge with a pixel, Guibas and Marimont 1998; D14: drift of half a pixel per axis).
+                // Computed from the output mesh and the input domain alone, not from the snapped domain.
+                bool grid = input.SnapTolerance > 0;
+                Q boundaryTube2 = tube2;
+                if (grid) { Q px = Q.FromDouble(input.SnapTolerance) * GridTubePixels; boundaryTube2 = Q.Max(tube2, px * px); }
+                if (domain.IsHull || grid) {
                     // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
                     // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
                     var hullEdges = domain.Edges().ToList();
+                    var checkedVertices = new HashSet<int>();
                     foreach (var pair in edges) {
                         if (pair.Value.Count != 1) continue;
                         foreach (int id in new[] { pair.Value[0].a, pair.Value[0].b }) {
+                            if (!checkedVertices.Add(id)) continue;
                             // (the edges within the tube only: the minimum counts only when it is within the tube, and then its edge is
                             // among them)
-                            var near = DomainEdgesNear(v[id], tube2);
+                            var near = DomainEdgesNear(v[id], boundaryTube2);
                             if (CheckFastPathForTests && hullEdges.Count > 0) {
                                 Q full = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
                                 Q got = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                                if (full <= tube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
+                                if (full <= boundaryTube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
                             }
                             // (no hull edge at all, every input point the same: the scan's minimum of nothing threw; the domain is degenerate
                             // and reported as such, TrianglesOnDegenerate)
-                            if (near.Count == 0) continue;
-                            Q d = near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                            if (d <= tube2) moved2 = Q.Max(moved2, d);
+                            if (hullEdges.Count == 0) continue;
+                            Q d = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                            if (near.Count == 0 || d > boundaryTube2) {
+                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary");
+                                continue;
+                            }
+                            moved2 = Q.Max(moved2, d);
                         }
+                    }
+                    if (grid && o.IdentityRules) {
+                        // the boundary edges between the vertices (a chain link between two pixel centres is straight, the input boundary is not):
+                        // their quarter points, as far from the input boundary as they are
+                        int far = 0;
+                        foreach (var pair in edges) {
+                            if (pair.Value.Count != 1) continue;
+                            Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
+                            foreach (var f in new[] { new Q(1, 4), new Q(1, 2), new Q(3, 4) }) {
+                                var pt = new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f);
+                                var nearEdges = DomainEdgesNear(pt, boundaryTube2);
+                                if (nearEdges.Count == 0) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                Q dd = nearEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, pt)).Aggregate(Q.Min);
+                                if (dd > boundaryTube2) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                moved2 = Q.Max(moved2, dd);
+                            }
+                        }
+                        InputBoundaryNearOutput(hullEdges, boundaryTube2);
                     }
                 }
                 // (C): the mesh area against the snapped domain with all hot pixels, a report (see OracleReport.MeshMinusSnappedArea)
@@ -2388,7 +2419,7 @@ namespace Meshing2Acceptance
                     bool constrained = constraintEdges.Contains(pair.Key);
                     if (domain.IsHull) {
                         // on a hull edge: within the tube of it, so exactly on it if the tube is 0
-                        bool hull = DomainEdgesNear(v[a], tube2).Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2)
+                        bool hull = DomainEdgesNear(v[a], boundaryTube2).Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= boundaryTube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= boundaryTube2)
                             || CutsMergedHullCorners(v[a], v[b]);
                         if (!hull && !(constrained && SourceCovers(a, b))) r.Add(e.Milestone == Milestone.M1 ? Violation.HullBoundary : Violation.BoundaryNotConstrained,
                             "boundary edge " + a + "-" + b + " neither on the hull nor on a constraint");
@@ -2421,6 +2452,39 @@ namespace Meshing2Acceptance
                 }
                 foreach (var p in e.Removed) if (LocateExact(Pt.FromDoubles(p[0], p[1])) >= 0) r.Add(Violation.RemovedPointCovered, "(" + p[0] + ", " + p[1] + ") must be in no triangle");
                 foreach (var p in e.Kept) if (LocateExact(Pt.FromDoubles(p[0], p[1])) < 0) r.Add(Violation.KeptPointMissing, "(" + p[0] + ", " + p[1] + ") must be in a triangle");
+            }
+
+            /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
+            const int GridTubePixels = 1;
+
+            /// <summary>
+            /// The other direction of rule O-G: points of the input boundary (the quarter points of its edges) lie within the grid tube of an
+            /// output boundary edge, or are collapsed or merged: within the tube of another input edge (a feature narrower than a pixel
+            /// vanishes in snap rounding, Q17, which also drops the other edge's boundary)
+            /// </summary>
+            void InputBoundaryNearOutput(List<(Pt a, Pt b)> inputEdges, Q tube2Grid)
+            {
+                var boundary = new List<(int a, int b)>();
+                foreach (var pair in edges) if (pair.Value.Count == 1) boundary.Add((pair.Value[0].a, pair.Value[0].b));
+                if ((long)boundary.Count * inputEdges.Count > 4000000L) return;   // beyond that the check is skipped, as the global Delaunay pass is
+                int reports = 0;
+                for (int i = 0; i < inputEdges.Count; ++i) {
+                    var ed = inputEdges[i];
+                    foreach (var f in new[] { new Q(1, 4), new Q(1, 2), new Q(3, 4) }) {
+                        var p = new Pt(ed.a.Qx + (ed.b.Qx - ed.a.Qx) * f, ed.a.Qy + (ed.b.Qy - ed.a.Qy) * f);
+                        bool found = false;
+                        foreach (var (a, b) in boundary) if (Exact.Dist2ToSegment(v[a], v[b], p) <= tube2Grid) { found = true; break; }
+                        if (found) continue;
+                        // collapsed or merged: another input edge within the tube of p (not the edge itself, nor a neighbour near their common vertex)
+                        for (int j = 0; j < inputEdges.Count && !found; ++j) {
+                            if (j == i) continue;
+                            var other = inputEdges[j];
+                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid) continue;
+                            found = true;
+                        }
+                        if (!found && reports++ < 8) r.Add(Violation.BoundaryOutsideTube, "the input boundary near " + p + " has no output boundary within " + GridTubePixels + " pixel");
+                    }
+                }
             }
 
             bool NearBoundary(Pt p) => DomainEdgesNear(p, moved2).Any(s => Exact.Dist2ToSegment(s.a, s.b, p) <= moved2);

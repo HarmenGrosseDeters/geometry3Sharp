@@ -105,7 +105,7 @@ namespace Meshing2Acceptance
         SubsegmentMarker, LockedSplit, BoundaryNotConstrained, TriangleOutsideDomain, RemovedPointCovered, KeptPointMissing,
         RegionLabelWrong, AngleBelowBound, BadListWrong, AreaAboveBound, SizeAboveBound, SteinerLimitExceeded, SteinerFlagWrong,
         LocateWrong, SnapTooFar, MissingReport, InputInvalid, CountOutOfRange, DoublesNotRounded, CannotJudge, OffGrid,
-        ChainPassesHotPixel, ChainSkipsHotPixel, RefinementCoincidence, RefinementPinch
+        ChainPassesHotPixel, ChainSkipsHotPixel, RefinementCoincidence, RefinementPinch, BoundaryOutsideTube
     }
 
     public sealed class ViolationRecord
