@@ -2,6 +2,11 @@
 //   export <mesh> <dir>                  A = the mesh, B = a rotated, shifted copy (as in MeshRepairBenchmark),
 //                                        written as A.off / B.off with round-trip precision; info.json
 //   pair <meshA> <meshB> <dir>           A and B as given (no transformation); A.off / B.off, info.json
+//   thingi-pair <meshA> <meshB> <dir> <qx qy qz qw tx ty tz>
+//                                        a pair of the thingi-pairs class (ThingiPairs.cs): both meshes normalized to the unit
+//                                        box, B rotated by the quaternion and translated; A.off / B.off, info.json
+//   thingi-filter <out.csv> <mesh>...    id, triangles and MeshRobustRepair.NotCleanReason of each mesh (appends, skips ids
+//                                        that are in out.csv already)
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
 //                                        scale differences) and iterated sequences; writes <dir>/cases.jsonl
 //   run <A.off> <B.off> <op> <out.off>   ExactMeshBoolean; prints {"ms":..} (boolean only, without I/O)
@@ -46,6 +51,8 @@ static class Program
             case "pair": return Pair(args[1], args[2], args[3]);
             case "components": return Components(args[1], args[2]);
             case "array": return ArrayCase(args[1], args[2], int.Parse(args[3]));
+            case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
+            case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
             case "run": return Run(args[1], args[2], args[3], args[4]);
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
@@ -59,7 +66,7 @@ static class Program
         return 1;
     }
 
-    static DMesh3 Load(string meshFile)
+    internal static DMesh3 Load(string meshFile)
     {
         DMesh3Builder builder = new DMesh3Builder();
         IOReadResult rr = StandardMeshReader.ReadFile(meshFile, ReadOptions.Defaults, builder);
@@ -146,22 +153,24 @@ static class Program
     }
 
     // A.off, B.off and info.json with the input properties of both meshes and the reference volumes
-    internal static Dictionary<string, object> WriteCase(DMesh3 a, DMesh3 b, string dir, string name, Dictionary<string, object> extra = null)
+    internal static Dictionary<string, object> WriteCase(DMesh3 a, DMesh3 b, string dir, string name, Dictionary<string, object> extra = null, bool inputsClean = false)
     {
         Directory.CreateDirectory(dir);
         WriteOFF(a, Path.Combine(dir, "A.off"));
         WriteOFF(b, Path.Combine(dir, "B.off"));
         // reference volumes of the solids (self-intersections resolved exactly)
-        DMesh3 ra = ExactMeshBoolean.Resolve(a), rb = ExactMeshBoolean.Resolve(b);
-        int sa = SelfIntersections(a), sb = SelfIntersections(b);
+        // inputsClean: the caller has checked NotCleanReason == "" (closed, manifold, no self-intersections, positive
+        // volume), so the volumes are those of the meshes themselves and the checks are skipped
+        DMesh3 ra = inputsClean ? a : ExactMeshBoolean.Resolve(a), rb = inputsClean ? b : ExactMeshBoolean.Resolve(b);
+        int sa = inputsClean ? 0 : SelfIntersections(a), sb = inputsClean ? 0 : SelfIntersections(b);
         // volumes are measured relative to this point (eval uses it too): with coordinates far from the origin
         // (UTM), the sum of a·(b×c) over the triangles would cancel catastrophically
         Vector3d center = a.CachedBounds.Center;
         var info = new Dictionary<string, object> {
             ["file"] = name, ["tris"] = a.TriangleCount + b.TriangleCount,
             // properties of both inputs: the case is valid for CGAL only if both are closed and self-intersection free
-            ["closed"] = a.IsClosed() && b.IsClosed(),
-            ["wclosed"] = ExactMeshBoolean.IsWindingClosed(a) && ExactMeshBoolean.IsWindingClosed(b),
+            ["closed"] = inputsClean || a.IsClosed() && b.IsClosed(),
+            ["wclosed"] = inputsClean || ExactMeshBoolean.IsWindingClosed(a) && ExactMeshBoolean.IsWindingClosed(b),
             ["selfint"] = sa < 0 || sb < 0 ? -1 : sa + sb,
             ["vA"] = ra != null ? Volume(ra, center) : double.NaN, ["vB"] = rb != null ? Volume(rb, center) : double.NaN,
             ["center"] = new[] { center.x, center.y, center.z },
@@ -274,6 +283,14 @@ static class Program
         return volume;
     }
 
+    // the default hash of a long is lo ^ hi = x ^ y for the key of an edge (x, y): neighbouring vertices have close
+    // indices, so very few distinct hashes, and a result of 1M triangles took more than 30 minutes to evaluate
+    sealed class EdgeKeyComparer : IEqualityComparer<long>
+    {
+        public bool Equals(long a, long b) => a == b;
+        public int GetHashCode(long k) => (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 32);
+    }
+
     static int Eval(string dir)
     {
         var info = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(Path.Combine(dir, "info.json")));
@@ -286,6 +303,8 @@ static class Program
         // analytically known volumes of the results (synthetic cases)
         var expected = info.TryGetValue("expected", out JsonElement ex)
             ? ex.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetDouble()) : null;
+        // oracle of the thingi-pairs class: MeshRobustRepair.NotCleanReason of every result, self-intersections of any size
+        bool notClean = info.TryGetValue("notclean", out JsonElement nc) && nc.GetBoolean();
         string first = "_" + ops[0] + ".";
         var methods = Directory.GetFiles(dir).Select(Path.GetFileName)
             .Where(f => f.Contains(first)).Select(f => f.Substring(0, f.IndexOf(first))).Distinct();
@@ -303,7 +322,7 @@ static class Program
                     if (ids.TryGetValue(p, out int id) == false) { id = ids.Count; ids[p] = id; } return id; }).ToArray();
                 DMesh3 soup = new DMesh3();
                 foreach (var kv in ids.OrderBy(kv => kv.Value)) soup.AppendVertex(kv.Key);
-                var edgeUse = new Dictionary<long, int>();
+                var edgeUse = new Dictionary<long, int>(new EdgeKeyComparer());
                 int degenerate = 0;
                 var tris = new List<Index3i>();
                 foreach (Index3i f in t) {
@@ -341,7 +360,12 @@ static class Program
                 r[op + "_manifold_closed"] = manifold;
                 r[op + "_degenerate"] = degenerate;
                 r[op + "_zero_area"] = zeroArea;
-                r[op + "_selfint"] = mesh.TriangleCount <= 400000 ? MeshRepairMetrics.SelfIntersections(mesh) : -1;
+                int selfint = mesh.TriangleCount <= 400000 || notClean ? MeshRepairMetrics.SelfIntersections(mesh) : -1;
+                r[op + "_selfint"] = selfint;
+                if (notClean) {
+                    string reason = MeshRobustRepair.NotCleanReason(mesh, false);
+                    r[op + "_clean_reason"] = reason == "" && selfint != 0 ? "self-intersections" : reason;
+                }
                 r[op + "_volume"] = volume;
             }
             r["all_results"] = all;
