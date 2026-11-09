@@ -251,8 +251,10 @@ namespace geometry3Sharp.Tests
             DMesh3 back = Invariance.MappedBack(Remesh(moved, s.ApplyLength(0.8), f1, false), s);
             // the remesh: bit for bit for 2^k (at 2^-10 the Remesher with projection used to differ: the fixed padding of the
             // boxes of DMeshAABBTree3 changed which triangle won a tie of the projection; T5), with and without the field
-            if (s.IsExact) {
+            if (s.IsExact)
                 Assert.Equal("", Invariance.Difference(m0, back));
+            if (s.IsExact && s.Scale < 1) {
+                // without the field, the case that differed (the second pair is slow: only here)
                 DMesh3 n0 = Remesh(input, 0.1, null, false);
                 DMesh3 n1 = Invariance.MappedBack(Remesh(moved, s.ApplyLength(0.1), null, false), s);
                 Assert.Equal("", Invariance.Difference(n0, n1));

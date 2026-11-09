@@ -2402,12 +2402,14 @@ namespace g3
         // Boxes are stored in double precision: with float boxes, meshes far from the origin (eg UTM
         // coordinates, where float resolution is ~0.5m) had boxes that did not contain their triangles,
         // so ray casts and nearest-point queries missed them.
-        // The padding of every box (stored boxes are tight; queries use them padded by this, so rounding can never
-        // make a box miss a triangle). It is proportional to the size of the mesh (or, if larger, to its distance from
-        // the origin, for rounding), so that scaling a mesh by a power of two scales the padding exactly and a query
-        // gives the same answer bit for bit: a fixed padding changed the order in which the boxes of a nearest-point
-        // query are visited, and with it the triangle that wins a tie. A mesh of size 1 around the origin has the
-        // padding of the earlier constant, 50 * Epsilonf.
+        // The padding of every box (stored boxes are tight; queries use them padded by this, so the rounding of c +- e
+        // can never make a box miss a triangle). It is proportional to the larger of the size of the mesh and its
+        // distance from the origin, 2^-40 of it (thousands of units in the last place), so that scaling a mesh by a
+        // power of two scales the padding exactly and a query gives the same answer bit for bit: a fixed padding
+        // (50 * Epsilonf) changed the order in which the boxes of a nearest-point query are visited, and with it the
+        // triangle that wins a tie. It also stays far below the detail of the mesh (a padding of a fraction of the
+        // size would make the boxes of a fine part of a large scene overlap, and the queries slow). Coordinates so
+        // large that their sum overflows get the fixed padding (too small there, as before).
         double box_eps = 50.0 * MathUtil.Epsilonf;
 
         // the padding for a root box with this center and half extents (see box_eps)
@@ -2415,10 +2417,10 @@ namespace g3
         {
             double size = 2 * Math.Max(rootExtent.x, Math.Max(rootExtent.y, rootExtent.z));
             double far = Math.Max(Math.Abs(rootCenter.x) + rootExtent.x, Math.Max(Math.Abs(rootCenter.y) + rootExtent.y, Math.Abs(rootCenter.z) + rootExtent.z));
-            if (!(size < double.MaxValue) || !(far < double.MaxValue) || (size <= 0 && far <= 0))
+            double m = Math.Max(size, far);
+            if (!(m < double.MaxValue) || !(m > 0))
                 return 50.0 * MathUtil.Epsilonf;
-            double byRounding = far * 8.8817841970012523e-16;      // 2^-50
-            return Math.Max(50.0 * MathUtil.Epsilonf * size, byRounding);
+            return m * 9.0949470177292824e-13;      // 2^-40
         }
 
         // float box for the public TreeTraversal.NextBoxF; rounded outwards so it contains the double box

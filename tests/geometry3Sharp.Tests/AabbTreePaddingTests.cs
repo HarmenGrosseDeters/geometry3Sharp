@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     /// the tree were padded by a fixed 50 * Epsilonf, which changed the order in which the boxes of a nearest-point
     /// query are visited when the mesh was scaled (by a power of two, which is exact), and with it which triangle
     /// won a tie, so the Remesher's projection moved a vertex by one bit. The padding is now proportional to the size
-    /// of the mesh.
+    /// of the mesh (or its distance from the origin) and small against its detail.
     /// </summary>
     public class AabbTreePaddingTests
     {
@@ -94,11 +94,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(Remesh(input, target, 3), Remesh(input, target, 3)));
         }
 
+        const double Unit = 9.0949470177292824e-13;      // 2^-40
+
         [Fact]
-        public void BoxPadding_OfAUnitMesh_IsTheEarlierConstant()
+        public void BoxPadding_OfAUnitMesh_IsTwoToTheMinus40()
         {
-            Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(new Vector3d(0.5, 0.5, 0.1), new Vector3d(0.5, 0.5, 0.1)));
-            Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(0.5, 0.25, 0.1)));
+            Assert.Equal(Unit, DMeshAABBTree3.ComputeBoxPadding(new Vector3d(0.5, 0.5, 0.1), new Vector3d(0.5, 0.5, 0.1)));
+            Assert.Equal(Unit, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(0.5, 0.25, 0.1)));
         }
 
         [Theory]
@@ -114,25 +116,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void BoxPadding_FollowsTheSize_AndCoversRoundingFarFromTheOrigin()
+        public void BoxPadding_FollowsTheLargerOfSizeAndDistanceFromTheOrigin()
         {
-            // proportional to the size (twice the largest half extent)
-            Assert.Equal(Old * 0.25, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(0.125, 0.01, 0.01)));
-            Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(0.5, 0.01, 0.01)));
-            Assert.Equal(Old * 3, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(1.5, 0.01, 0.01)));
-            // a small mesh in UTM coordinates: the rounding of the coordinates (about 1e-9 at 6e6) dominates the size term
+            // size (twice the largest half extent) at the origin
+            Assert.Equal(Unit * 0.25, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(0.125, 0.01, 0.01)));
+            Assert.Equal(Unit * 3, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(1.5, 0.01, 0.01)));
+            // a small mesh in UTM coordinates: the distance from the origin (the rounding of the coordinates) dominates
             double far = DMeshAABBTree3.ComputeBoxPadding(new Vector3d(632117, 5712043, 113), new Vector3d(1e-4, 1e-4, 1e-4));
-            Assert.True(far >= 5712043 * 8e-16 && far < 1e-6, far.ToString());
+            Assert.Equal(5712043.0001 * Unit, far, 15);
+            Assert.True(far > 5712043 * 8e-16 && far < 1e-5, far.ToString());
+        }
+
+        [Fact]
+        public void BoxPadding_StaysFarBelowTheDetailOfALargeScene()
+        {
+            // a 10 km ground plate with fine detail (0.05 sphere) in it: the padding must stay far below the detail (it was
+            // a fraction of the size in a first version, which made the boxes of the fine part overlap: 1000 x slower queries)
+            double pad = DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(5000, 5000, 1));
+            Assert.True(pad < 1e-7, pad.ToString());
+            Assert.True(pad < 1e-5 * 0.05);
         }
 
         [Fact]
         public void BoxPadding_DegenerateAndNonFiniteRoots_FallBackToTheConstant()
         {
             Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, Vector3d.Zero));
-            // a root of zero size away from the origin (all corners at one point): the rounding term alone
-            Assert.Equal(5 * Math.Pow(2, -50), DMeshAABBTree3.ComputeBoxPadding(new Vector3d(5, 0, 0), Vector3d.Zero));
             Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(Vector3d.Zero, new Vector3d(double.PositiveInfinity, 1, 1)));
             Assert.Equal(Old, DMeshAABBTree3.ComputeBoxPadding(new Vector3d(double.NaN, 0, 0), new Vector3d(1, 1, 1)));
+            // a root of zero size away from the origin (all corners at one point): the distance alone
+            Assert.Equal(5 * Unit, DMeshAABBTree3.ComputeBoxPadding(new Vector3d(5, 0, 0), Vector3d.Zero));
         }
 
         [Fact]
