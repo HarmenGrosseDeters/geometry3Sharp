@@ -840,6 +840,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(1, (uvA[c] / a3[c]) / (uvA[0] / a3[0]), 6);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Atlas_ClosedSurfaces_NoOverlap_BoundedDistortion()
         {

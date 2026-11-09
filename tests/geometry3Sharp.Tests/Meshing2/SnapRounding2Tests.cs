@@ -152,6 +152,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4, snap.Result.Segments.Count(s => s.A == extra || s.B == extra));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Fuzz_SeparationAndSimilarity_WithRestore()
         {

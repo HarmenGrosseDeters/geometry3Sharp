@@ -426,6 +426,7 @@ namespace g3
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
+                CheckTagsNow();
                 k.Dirty = null;
                 // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
                 // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
@@ -566,7 +567,7 @@ namespace g3
             }
 
             /// <summary>
-            /// tests only: after every operation compare the tags with domain membership computed from scratch (slow). Per thread, so
+            /// tests only: after operations compare the tags with domain membership computed from scratch (slow). Per thread, so
             /// that a test switching it on does not reach meshers that other tests run in parallel (refinement runs on the calling thread)
             /// </summary>
             [ThreadStatic] internal static bool CheckTagsForTests;
@@ -575,11 +576,28 @@ namespace g3
             string lastOperation;
             long operations;
 
+            // tests only: the check recomputes the domain from scratch, so it is quadratic in the number of operations when it runs after
+            // each one. On meshes of this many triangles or more it runs after operations 1, 2, 4, 8, ... and at the end of refinement (a wrong tag that heals between two checks goes unseen there; smaller meshes are checked after every operation)
+            const int DenseCheckBelowTriangles = 2000;
+
             void CheckTags()
             {
                 ++operations;
                 if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                if (k.TriangleSlots >= DenseCheckBelowTriangles && (operations & (operations - 1)) != 0) return;
+                CheckTagsNow();
+            }
+
+            void CheckTagsNow()
+            {
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
                 var inside = b.InsideFromScratch();
+                // The rule "a ghost neighbour counts as outside" in Collect reads -1 and not the ghost's stored tag, because every ghost's tag
+                // is -1; with that invariant the two are the same (so are ignoring the ghost, since the sliver is also tagged from the sides
+                // of the lifted piece: both mutants survive the tag tests, evidence in the PR #447). A change that breaks it fails here.
+                for (int t = 0; t < inside.Length; ++t)
+                    if (k.IsGhost(t) && k.Tag[t] != -1)
+                        throw new InvalidOperationException("tag of ghost triangle " + t + " is " + k.Tag[t] + ", not -1, after operation " + operations + ": " + lastOperation);
                 for (int t = 0; t < inside.Length; ++t)
                     if (!k.IsGhost(t) && (k.Tag[t] >= 0) != inside[t])
                         throw new InvalidOperationException("tag of triangle " + t + " (" + string.Join(" ", new[] { k.V[3 * t], k.V[3 * t + 1], k.V[3 * t + 2] }.Select(q => q + "=(" + k.X[q].ToString("R") + ", " + k.Y[q].ToString("R") + ")")) + ") is " + k.Tag[t]
