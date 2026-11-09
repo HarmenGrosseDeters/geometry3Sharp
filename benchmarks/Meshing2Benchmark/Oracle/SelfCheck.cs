@@ -291,6 +291,17 @@ namespace Meshing2Acceptance
                 Must("reject: a boundary vertex 4 pixels off the hull as BoundaryOutsideTube", ogAway.Has(Violation.BoundaryOutsideTube), "report: " + ogAway);
             }
 
+            // ---- rule O-G, the other direction: a hole of 10 x 10 in a square of 20 x 20 at pixel 1 left out of the mesh (its boundary has no
+            // output boundary near it, and no other input edge within two pixels that could have collapsed it)
+            {
+                var holeIn = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 5, 15, 15, 5 }, Y = new double[] { 0, 0, 20, 20, 5, 5, 15, 15 }, SnapTolerance = 1 };
+                holeIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); holeIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+                var solid = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                var noHole = Oracle.Check(holeIn, new Mesh2Output { Status = Mesh2Status.Success, VX = holeIn.X, VY = holeIn.Y, InputToVertex = Enumerable.Range(0, 8).ToArray(),
+                    Triangles = solid, Neighbours = NeighboursOf(solid), TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: a hole left out of the mesh, on the grid, as BoundaryOutsideTube", noHole.Has(Violation.BoundaryOutsideTube), "report: " + noHole);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed

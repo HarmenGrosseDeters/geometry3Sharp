@@ -187,18 +187,21 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
 
 **Rule O-G, the grid tube (owner decision 2026-11-09, found by the CsCheck campaign of `QualityMesh2`, QA 2.0 T5).** With an explicit snap
 tolerance the output boundary is the input boundary snap-rounded, so it may run off the input's by up to a pixel and enclose a different
-area. The exact area comparison and the tube of 2^-40 are replaced there by a tube of one pixel, computed from the output mesh and the
+area. The tube there is one pixel already (`Max(AutoTolerance, SnapTolerance)`); what changes is how it is used: the movement is measured on the
+output boundary's links and the check also covers ring domains and the input boundary's side. Computed from the output mesh and the
 input domain alone (not from a snapped domain, which would be the mesher's own claim):
 - **Bound:** `GridTubePixels` = 1 pixel. Basis: the image of a segment under snap rounding lies in the Minkowski sum of the segment with
   a pixel (Guibas and Marimont 1998), D14's drift is half a pixel per axis, so a vertex or a link of the image is within 1 pixel of the
   input boundary; iterated rounding (Halperin and Packer 2002) only reroutes links between pixel centres through further hot pixels
-  within that tube. Measured on the campaign's grid families: see the PR.
-- **Boundary, output to input:** every vertex of the output boundary, and the quarter points of its edges, lie within the tube of the
+  within that tube. The bound is not proven for iterated rounding; the campaign (20 000 grid and extreme-scale cases) found no boundary
+  vertex beyond it.
+- **Boundary, output to input:** every vertex of the output boundary, and the eighth points of its edges, lie within the tube of the
   input domain's edges (`BoundaryOutsideTube` otherwise). The largest distance found is the movement `moved2` of the area tolerance
   (`diff <= 2 perimeter sqrt(moved2)`), so only what really moved grants area; the probes and the sliver test use it as before.
-- **Boundary, input to output:** the quarter points of every input boundary edge lie within the tube of an output boundary edge, or
-  within two tubes of another input edge (both sides of a feature move by up to a pixel, so one up to two pixels wide may collapse, Q17,
+- **Boundary, input to output:** the eighth points of every input boundary edge lie within the tube of an output boundary edge, or
+  within two tubes of another input edge (also a neighbour at an acute corner; both sides of a feature move by up to a pixel, so one up to two pixels wide may collapse, Q17,
   and takes its boundary with it).
+- **Not applied** with an effective hole seed (the removed cell is bounded by constraints that the domain's ring edges do not list).
 - **Unchanged:** without a snap tolerance the comparison is exact (tube 2^-40); SegmentMissing, VertexUnused and TrianglesOnDegenerate
   keep their rules (O-H4, O-H5): a segment or point is excused only where the oracle's own images collapse it. What O-G did not excuse is
   a finding for the mesher, not a tolerance.

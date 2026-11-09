@@ -2347,7 +2347,8 @@ namespace Meshing2Acceptance
                 // snap-rounded, so a boundary vertex may lie off the input boundary, by at most GridTubePixels pixel (the image of an input
                 // edge lies in the Minkowski sum of the edge with a pixel, Guibas and Marimont 1998; D14: drift of half a pixel per axis).
                 // Computed from the output mesh and the input domain alone, not from the snapped domain.
-                bool grid = input.SnapTolerance > 0;
+                // (not with an effective hole seed: the cell it removes is bounded by constraints that Domain.Edges() does not list)
+                bool grid = input.SnapTolerance > 0 && effectiveSeeds.Count == 0;
                 Q boundaryTube2 = tube2;
                 if (grid) { Q px = Q.FromDouble(input.SnapTolerance) * GridTubePixels; boundaryTube2 = Q.Max(tube2, px * px); }
                 if (domain.IsHull || grid) {
@@ -2385,7 +2386,7 @@ namespace Meshing2Acceptance
                         foreach (var pair in edges) {
                             if (pair.Value.Count != 1) continue;
                             Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
-                            foreach (var f in new[] { new Q(1, 4), new Q(1, 2), new Q(3, 4) }) {
+                            foreach (var f in EighthPoints) {
                                 var pt = new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f);
                                 var nearEdges = DomainEdgesNear(pt, boundaryTube2);
                                 if (nearEdges.Count == 0) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
@@ -2457,6 +2458,10 @@ namespace Meshing2Acceptance
             /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
             const int GridTubePixels = 1;
 
+            // the points between the ends of an edge that rule O-G samples: the distance to a set is 1-Lipschitz, so between samples a
+            // chord of length L can be at most L/16 beyond the tube
+            static readonly Q[] EighthPoints = Enumerable.Range(1, 7).Select(k => new Q(k, 8)).ToArray();
+
             /// <summary>
             /// The other direction of rule O-G: points of the input boundary (the quarter points of its edges) lie within the grid tube of an
             /// output boundary edge, or are collapsed or merged: within the tube of another input edge (a feature narrower than a pixel
@@ -2466,23 +2471,33 @@ namespace Meshing2Acceptance
             {
                 var boundary = new List<(int a, int b)>();
                 foreach (var pair in edges) if (pair.Value.Count == 1) boundary.Add((pair.Value[0].a, pair.Value[0].b));
-                if ((long)boundary.Count * inputEdges.Count > 4000000L) return;   // beyond that the check is skipped, as the global Delaunay pass is
+                if (boundary.Count == 0) return;
+                // a grid over the output boundary edges' boxes, as the domain edges have one
+                var box = new double[4 * boundary.Count];
+                for (int k = 0; k < boundary.Count; ++k) SegmentBox(v[boundary[k].a], v[boundary[k].b], 0, box, 4 * k);
+                var index = e.Reference ? null : new BoxGrid(box, boundary.Count);
+                bool NearOutput(Pt p)
+                {
+                    IEnumerable<int> candidates = Enumerable.Range(0, boundary.Count);
+                    if (index != null && DistanceQueryBox(p, tube2Grid, out double xl, out double xh, out double yl, out double yh)) candidates = index.Query(xl, xh, yl, yh);
+                    foreach (int k in candidates) if (Exact.Dist2ToSegment(v[boundary[k].a], v[boundary[k].b], p) <= tube2Grid) return true;
+                    return false;
+                }
                 int reports = 0;
                 for (int i = 0; i < inputEdges.Count; ++i) {
                     var ed = inputEdges[i];
-                    foreach (var f in new[] { new Q(1, 4), new Q(1, 2), new Q(3, 4) }) {
+                    foreach (var f in EighthPoints) {
                         var p = new Pt(ed.a.Qx + (ed.b.Qx - ed.a.Qx) * f, ed.a.Qy + (ed.b.Qy - ed.a.Qy) * f);
-                        bool found = false;
-                        foreach (var (a, b) in boundary) if (Exact.Dist2ToSegment(v[a], v[b], p) <= tube2Grid) { found = true; break; }
-                        if (found) continue;
-                        // collapsed or merged: another input edge within two tubes of p
-                        for (int j = 0; j < inputEdges.Count && !found; ++j) {
-                            if (j == i) continue;
-                            var other = inputEdges[j];
-                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid * 4) continue;   // both sides of a collapsed feature moved by up to a pixel: it vanishes up to two pixels wide
-                            found = true;
+                        if (NearOutput(p)) continue;
+                        // collapsed or merged: another input edge within two tubes of p (also a neighbour at an acute corner: a wedge up to two
+                        // pixels wide collapses onto it; the area tolerance, measured on the output boundary, bounds what that can hide)
+                        bool collapsed = false;
+                        foreach (var other in DomainEdgesNear(p, tube2Grid * 4)) {
+                            if (other.a.Equals(ed.a) && other.b.Equals(ed.b) || other.a.Equals(ed.b) && other.b.Equals(ed.a)) continue;
+                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid * 4) continue;
+                            collapsed = true; break;
                         }
-                        if (!found && reports++ < 8) r.Add(Violation.BoundaryOutsideTube, "the input boundary near " + p + " has no output boundary within " + GridTubePixels + " pixel");
+                        if (!collapsed && reports++ < 8) r.Add(Violation.BoundaryOutsideTube, "the input boundary near " + p + " has no output boundary within " + GridTubePixels + " pixel");
                     }
                 }
             }
