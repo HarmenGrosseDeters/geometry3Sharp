@@ -62,5 +62,67 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        static Dictionary<string, string> TestFilters(string root)
+        {
+            var filters = new Dictionary<string, string>();
+            foreach (string cfg in Directory.GetFiles(Path.Combine(root, "tests", "mutation"), "stryker*.json")) {
+                Match m = Regex.Match(File.ReadAllText(cfg), @"""test-case-filter""\s*:\s*""([^""]*)""");
+                if (m.Success)
+                    filters[Path.GetFileNameWithoutExtension(cfg)] = m.Groups[1].Value;
+            }
+            return filters;
+        }
+
+        // the terms of a filter: its |-alternatives, parentheses removed
+        static string[] Alternatives(string filter) => filter.Split('|').Select(t => t.Trim('(', ')')).ToArray();
+
+        [Fact]
+        public void TestFilters_EveryTermNamesTests()
+        {
+            // a FullyQualifiedName term that names no test (a typo, a renamed class) silently drops those tests
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var names = typeof(MutationConfigTests).Assembly.GetTypes()
+                .SelectMany(t => t.GetMethods().Where(mi => mi.GetCustomAttributes(typeof(FactAttribute), true).Length > 0)
+                    .Select(mi => t.FullName + "." + mi.Name)).ToList();
+            var filters = TestFilters(root);
+            Assert.NotEmpty(filters);
+            foreach (var kv in filters)
+                foreach (string alt in Alternatives(kv.Value))
+                    foreach (string cond in alt.Split('&')) {
+                        Match m = Regex.Match(cond, @"^FullyQualifiedName~(.+)$");
+                        if (m.Success)
+                            Assert.True(names.Any(n => n.Contains(m.Groups[1].Value)), kv.Key + ": " + cond + " names no test");
+                        else
+                            Assert.Matches(@"^DisplayName!~\w+$", cond);
+                    }
+        }
+
+        [Fact]
+        public void RoundingParts_SharedTests_FewExtras()
+        {
+            // every part of the rounding shard runs the same tests; the coverage pass costs about 100-200 minutes per
+            // part with them (README). rounding-7 on the 19-term union of every rounding test (229 tests, 73 s instead
+            // of 32 s) never left its coverage pass within the job's 350 minutes (master run 42567558219). Its span
+            // (set_vertex to the end) only adds the tests of the Exact Boolean 2.0 changes there: the tolerances of the
+            // largest component (6913d092) and the exact flag cleared on a position write (4b94d093)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-1"]));
+            Assert.Equal(8, shared.Count);
+            var extras = new Dictionary<string, string[]>() {
+                ["stryker-mesh-rounding-7"] = new[] {
+                    "FullyQualifiedName~ExactBooleanFarComponentTests",
+                    "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
+                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip" },
+            };
+            for (int i = 1; i <= 7; ++i) {
+                string part = "stryker-mesh-rounding-" + i;
+                var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
+                Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
+            }
+        }
     }
 }
