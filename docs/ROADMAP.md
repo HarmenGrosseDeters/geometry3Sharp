@@ -56,6 +56,9 @@ Status on 2026-11-08 (evening, Berlin).
   #417, #429 and #432 (parallel slab reduction, 2026-11-09); the final 800 run is next. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
   CGAL's on the T1 100. Open: the per-mesh speed budget (72 of 100 with (A) on a 4-core machine) goes to the owner with
   the final numbers. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
+  mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
+  a rollout by ROI. [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
   machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the

@@ -155,6 +155,28 @@ Tier: S, M. Parallel: up to 2 sessions
       long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
       STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
 
+#### QA 2.0 milestone
+
+**QA 2.0 (owner 2026-11-09):** the new test tools go from pilots to broad use across the library. They are:
+SharpFuzz + libFuzzer (STL reader pilot #442; mesh-ops pilot after #449), FPTaylor (#436), Z3 (#400, #407, #443),
+CsCheck property campaigns (the list above), changed-line coverage with coverlet (#434), mutation shards (#403, #445)
+and the test tiers and time limit (#447, the backlog program).
+- **Step 1, inventory:** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
+  oracle, Clipper2 addon, MarchingCubes / contouring, terrain, remesher / reducer, spatial queries), each cell with
+  what exists, what the tool would check there, the expected finds and the cost. Then a rollout order by ROI for the
+  owner.
+- **Rollout:** one bounded Sonnet task per (tool, area), test-only. Findings become procedural regression tests in
+  bugfix PRs of the owning area. Long campaigns run on a runner or the owner's machine, CI runs small seeded ones.
+  Every addition respects the test time limit and the test tiers.
+- **Done when:**
+  - every reader and every public operation that takes untrusted geometry has a coverage-guided fuzz harness with
+    a replay corpus;
+  - every floating-point filter has a tool-checked bound (FPTaylor) and every filter or termination rule a Z3 lemma;
+  - every robustness-critical module has a property campaign and a mutation shard;
+  - the changed-line coverage gate is active.
+- **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
+  CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
+
 #### Test suite on German Windows
 
 **Test suite on German Windows (2026-11-04):** merged in #383 (test fixtures and pinned messages formatted invariantly, CRLF-normalized generated-file check, de-DE / en-US regression tests; the production .poly/.node/.ele writers were already invariant). CI shards rebalanced in #381 (envelope tests to net48 shard b: a 39 min, b 30 min; the mesher tests are the bulk of a). Open, small: `QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap` and `Predicates_MatchTheOracle_AtAllSizes` fail only in a full local run (pass in isolation): wall-clock budgets under CPU contention, the same class as the oracle timing test fixed with a DisableParallelization collection; check whether they belong there.
