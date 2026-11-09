@@ -242,6 +242,30 @@ fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): the STL reader in
 [ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), the mesh operations in
 [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (campaigns on a runner, not in CI).
 
+### 2.5a Supported input range: correct inside, fail gracefully outside (owner 2026-11-09)
+
+Fuzzers and random generators reach magnitudes no real input has (coordinates near 1e154, components below 1e-154,
+a sphere of radius 1e100). Findings there are real robustness gaps, but they are not correctness bugs of the same
+weight as a wrong result on a CAD assembly. So every operation is tested against two properties, split by a
+documented **supported range**:
+
+1. **Inside the supported range: correct.** The full checks apply (2.3, `NotCleanReason`, the operation's own
+   guarantees, invariance under `Similarity.All()`). A failure is a bug of the owning area, fixed with a test that
+   fails on the old code.
+2. **Outside the supported range: fail gracefully.** No crash, no hang (time budget), no non-finite output spread to
+   finite vertices, no false success: the operation returns a documented status or a documented
+   `ArgumentException`. A crash or hang there is fixed if the fix is cheap (an early range check is usually enough);
+   any other deviation is documented as a limit, not built for.
+
+The range is set per module by the QA 2.0 range task (see the roadmap) and written in the module's class doc and in
+one table here. It covers at least: the absolute coordinate magnitude, the ratio of the largest to the smallest
+feature or component (scale disparity, the F1 class of the repair campaign), the triangle / vertex count, and
+non-finite values (always outside). The default is derived from what the exact kernels and their bound tables allow
+([design/FIXED_WIDTH_EXACT_POINTS.md](design/FIXED_WIDTH_EXACT_POINTS.md)) and from overflow of squared lengths
+(about 1e154), with margin; a module may support less and says so. Generators of property campaigns sample inside
+the range (with a bias toward its edges, where the scale-disparity bugs were found), and add a separate small
+out-of-range sample for property 2. Fuzz harnesses report out-of-range findings in their own class.
+
 ### 2.6 Coverage in CI
 
 - coverlet (MIT) collects line and branch coverage in the Linux job.
