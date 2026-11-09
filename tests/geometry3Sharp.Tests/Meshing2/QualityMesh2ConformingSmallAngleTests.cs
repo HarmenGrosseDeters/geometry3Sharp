@@ -75,13 +75,13 @@ namespace geometry3Sharp.Tests
             Assert.False(Run(Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, 2.6)), null, false).Report.Ok);
         }
 
-        /// <summary> pinned triangle counts of rule C (they change only with the rule: the ghost side counts as Delaunay, a tie of the in-circle test too) </summary>
+        /// <summary> pinned triangle counts of rule C (they change only with the rule, and with the pair threshold, which became 60 degrees on 2026-11-09: the ghost side counts as Delaunay, a tie of the in-circle test too) </summary>
         [Theory]
         [InlineData("wedge", 2.6, 20, 24)]
-        [InlineData("wedge", 10.0, 20, 7)]
-        [InlineData("wedge", 1.0, 30, 37)]
-        [InlineData("pair", 1, 20, 22)]
-        [InlineData("pair", 3, 30, 28)]
+        [InlineData("wedge", 10.0, 20, 6)]
+        [InlineData("wedge", 1.0, 30, 36)]
+        [InlineData("pair", 1, 20, 17)]
+        [InlineData("pair", 3, 30, 27)]
         public void RuleC_PinnedCounts(string kind, double what, double angle, int triangles)
         {
             var input = kind == "wedge" ? Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(angle, what)) : Conforming(QualityMesh2ApexExemptionTests.Pair((int)what, angle));

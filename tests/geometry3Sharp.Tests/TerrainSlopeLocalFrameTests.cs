@@ -187,6 +187,7 @@ namespace geometry3Sharp.Tests
         // before #350 where UTM succeeded (SlopeViolation from needles of near-quadruple points, now merged:
         // TerrainSlopeBandRepairTests). It succeeds locally, with local outputs that pass the checks. (Its local input is
         // not the repro's: the origin is the toe box's centre, about 13 m from the polygon's centre)
+        [Trait("Category", "Slow")]
         [Fact]
         public void WavyToeAtUtm_SucceedsLocally()
         {

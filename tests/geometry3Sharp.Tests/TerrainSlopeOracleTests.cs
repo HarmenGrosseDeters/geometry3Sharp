@@ -160,6 +160,7 @@ namespace geometry3Sharp.Tests
 
         // triangles near their limit (a plane with gradient of magnitude about s), perturbed by a few ulp, at many
         // magnitudes: the oracle agrees with the reference on every one
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(1.0, 0.0)]
         [InlineData(1.0, 632117.25)]

@@ -23,6 +23,7 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ParallelSmoothing_SameResultAsSerial()
         {

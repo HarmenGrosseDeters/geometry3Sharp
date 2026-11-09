@@ -189,6 +189,12 @@ and the test tiers and time limit (#447, the backlog program).
 - **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
   tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
   (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
+- **Supported input range (owner 2026-11-09, [QA.md 2.5a](../QA.md#25a-supported-input-range-correct-inside-fail-gracefully-outside-owner-2026-11-09)):**
+  findings are judged against a documented range per module: inside, a wrong result is a bug; outside, only a crash,
+  a hang or a false success is fixed (cheaply, by a range check), anything else is a documented limit. Task (Sonnet,
+  docs and tests): set the range per module (coordinate magnitude, scale disparity, size), write it in the class docs
+  and the QA.md table, move the generators to sample inside it plus a small out-of-range sample, and re-classify the
+  open sweep / fuzz findings (radius-1e100 ray queries, the 4-12 triangle repair times) under the two properties.
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 

@@ -69,6 +69,7 @@ namespace geometry3Sharp.Tests
             new[] { Family.Collinear, Family.Sliver, Family.ShortEdge, Family.Coincident, Family.Unwelded,
                     Family.VertexOnFace, Family.SharedFace }.Select(f => new object[] { f });
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(CleanFamilies))]
         public void Family_RepairedCleanWithinTheBound(Family f)
@@ -119,6 +120,7 @@ namespace geometry3Sharp.Tests
         // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
         // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
+        [Trait("Category", "Slow")]
         [Fact]
         public void DenseClusters_WithinTheBound_MostlyClean()
         {
@@ -150,6 +152,7 @@ namespace geometry3Sharp.Tests
 
         // degenerate input in Booleans: a box cuts the poked and split spheres; all 198 clean (before the strip zip 183,
         // before the moves stopped depending on the scale 197: ShortEdge 2^-44, union, seed 0 kept a degenerate triangle)
+        [Trait("Category", "Slow")]
         [Fact]
         public void DegenerateInput_InBooleans_CleanWithinTheBound()
         {
