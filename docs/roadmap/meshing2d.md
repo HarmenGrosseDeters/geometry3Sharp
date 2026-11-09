@@ -33,7 +33,14 @@ Small input angles and triangle count:
   change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
   per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
   at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
-- **Rule C on the snap grid** (own grid item; Sonnet session started 2026-11-09): a split that rule C forces late can be refused where the oracle's
+- **Rule C on the snap grid** (own grid item; Sonnet session started 2026-11-09): Finding: the mesher's pinch rule
+  identifies "another chain" by input source (Q17, owner 2026-11-03), the oracle's GridUnsplittable approximates it by
+  the widened envelope; they differ when another chain runs within a pixel along the piece (the Q17 zigzag z0 becomes
+  INVALID with rule C on). Probe (722 runs): wedge / pair snap inputs −74 % / −83 % triangles, fuzz −3 to −5 %,
+  Herne-style parcels and golden rows unchanged. **Owner decision 2026-11-09: option A**, the oracle computes chain
+  identity exactly from the output subsegment graph (as snap-rounding papers do by hot-pixel sequence; spec text
+  unchanged, oracle stays independent), with extended self-checks, mutants and a differential (no case the old oracle
+  judged VALID becomes INVALID without a stated reason); then rule C on the grid. a split that rule C forces late can be refused where the oracle's
   `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
   ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
