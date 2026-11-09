@@ -141,6 +141,8 @@ g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.0
 #   -> "f_score": [0.93, 0.99, 1.0], "chamfer": 0.0007, "normal_consistency": 0.98, "edge_recall": [...], "volume_iou": 0.996,
 #      "outer": {...}, "curvature": {...}, "mesh_quality": {...}, "topology_changes": ["components_lost"]
 g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvature --seed 7
+# in the result: distances and lengths are relative to "size" (mesh units), curvatures are H*size and K*size^2, angles in degrees;
+# null = not available (NaN), the string "infinity" = infinite (eg edge_chamfer if only one mesh has sharp edges, the aspect ratio of a zero-area triangle)
 
 # quality and topology of one mesh
 g3cli quality part.stl

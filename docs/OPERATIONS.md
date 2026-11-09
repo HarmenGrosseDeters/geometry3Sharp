@@ -629,7 +629,8 @@ g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
 **Evaluation metrics** (`fidelity`, `MeshFidelityMetrics`; `quality`, `TriangleQualityStatistics` and `MeshTopologySummary`):
 `fidelity` compares a mesh with a reference by what Hausdorff distance and volume IoU miss (lost features, reversed patches,
 changed topology); sampling uses a fixed seed (`--seed`), so a call is reproducible, and all distances are relative to the
-reported `size` (the reference's bounding box diagonal). `quality` reports one mesh's triangle quality distributions and topology:
+reported `size` (the reference's bounding box diagonal, in mesh units); curvatures are H*size and K*size^2, angles in degrees, `null` is not
+available and the string `"infinity"` is infinite (eg `edge_chamfer` when only one mesh has sharp edges). `quality` reports one mesh's triangle quality distributions and topology:
 
 ```
 g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01

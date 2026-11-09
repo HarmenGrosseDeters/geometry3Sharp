@@ -68,6 +68,8 @@ namespace g3cli.Tests
             Assert.Contains("boundary_loops_added", r["topology_changes"].AsArray().Select(S));
             Assert.Equal(1, I(r["mesh_topology"]["boundary_loops"]));
             // the open cube lies on the cube: all of it is precise, but a twelfth of the reference is missing
+            Assert.Equal(12, I(r["reference_quality"]["triangles"]));
+            Assert.Equal(11, I(r["mesh_quality"]["triangles"]));
             Assert.Equal(1.0, D(r["precision"][0]), 6);
             Assert.InRange(D(r["recall"][0]), 0.85, 0.95);
         }
@@ -84,6 +86,74 @@ namespace g3cli.Tests
 
         static string Strip(string json) => json.Substring(0, json.IndexOf("\"elapsed_ms\""));
 
+        [Fact]
+        public void Fidelity_DistancesAreRelativeToSize_AndScaleInvariant()
+        {
+            var (e1, a) = Fid(m.Cube, m.Far);
+            Assert.Equal(0, e1);
+            Assert.Equal(2 * System.Math.Sqrt(3), D(a["size"]), 6); // diagonal of [-1,1]^3
+            // both meshes scaled by 1000: size scales, the relative values do not
+            string big = m.Path_("cube_big.obj"), bigFar = m.Path_("far_big.obj");
+            Scaled(m.Cube, big, 1000); Scaled(m.Far, bigFar, 1000);
+            var (e2, b) = Fid(big, bigFar);
+            Assert.Equal(0, e2);
+            Assert.Equal(1000 * D(a["size"]), D(b["size"]), 3);
+            Assert.Equal(D(a["chamfer"]), D(b["chamfer"]), 9);
+            Assert.Equal(D(a["distance_mesh_to_reference"]), D(b["distance_mesh_to_reference"]), 9);
+            Assert.Equal(D(a["max_distance_reference_to_mesh"]), D(b["max_distance_reference_to_mesh"]), 9);
+            // a shift of 5 on a diagonal of 3.46: far more than the cube's own size, so the mean distance exceeds 1
+            Assert.True(D(a["distance_mesh_to_reference"]) > 1);
+        }
+
+        static void Scaled(string from, string to, double factor)
+        {
+            var mesh = g3.StandardMeshReader.ReadMesh(from);
+            g3.MeshTransforms.Scale(mesh, factor, factor, factor);
+            g3.StandardMeshWriter.WriteMesh(to, mesh, g3.WriteOptions.Defaults);
+        }
+
+        [Fact]
+        public void Fidelity_OptionsTakeEffect()
+        {
+            string baseline = Strip(Fid(m.Sphere, m.Flipped, "--seed", "1").r.ToJsonString());
+            Assert.NotEqual(baseline, Strip(Fid(m.Sphere, m.Flipped, "--seed", "2").r.ToJsonString()));
+            string[] fast = { "--surface-samples", "2000", "--edge-samples", "500", "--volume-samples", "4000" };
+            // a sphere has no sharp edges at 30 degrees, a cube has; at 180 nothing is sharp
+            var (_, cube30) = Run(new[] { "fidelity", m.Cube, m.Cube, "--compact" }.Concat(fast).ToArray());
+            Assert.True(D(cube30["sharp_edge_length_reference"]) > 0);
+            var (_, cube180) = Run(new[] { "fidelity", m.Cube, m.Cube, "--compact", "--sharp-edge-angle", "180" }.Concat(fast).ToArray());
+            Assert.Equal(0.0, D(cube180["sharp_edge_length_reference"]));
+            Assert.Equal(D(cube30["sharp_edge_length_reference"]), D(cube30["sharp_edge_length_mesh"]), 9);
+            // surface and volume samples change the sampled results
+            var (_, few) = Run("fidelity", m.Sphere, m.Flipped, "--compact", "--surface-samples", "300", "--edge-samples", "100", "--volume-samples", "1000");
+            var (_, many) = Run("fidelity", m.Sphere, m.Flipped, "--compact", "--surface-samples", "3000", "--edge-samples", "100", "--volume-samples", "1000");
+            Assert.NotEqual(D(few["normals_mesh_to_reference"]["samples"]), D(many["normals_mesh_to_reference"]["samples"]));
+        }
+
+        [Fact]
+        public void Fidelity_BlocksCarryValues()
+        {
+            var (exit, r) = Fid(m.Cube, m.Open);
+            Assert.Equal(0, exit);
+            Assert.InRange(D(r["normal_consistency"]), 0.5, 1.0);
+            Assert.Equal(0.0, D(r["distance_mesh_to_reference"]), 6);        // the open cube lies on the cube
+            Assert.True(D(r["distance_reference_to_mesh"]) > 0);               // the missing triangle
+            Assert.True(D(r["max_distance_reference_to_mesh"]) > D(r["max_distance_mesh_to_reference"]));
+            Assert.True(D(r["outer"]["share"]) > 0);
+            Assert.NotNull(r["curvature"]["total_abs_mean_reference"]);
+            Assert.True(D(r["sharp_edge_length_reference"]) > 0);
+            Assert.True(D(r["volume_missing"]) >= 0);
+        }
+
+        [Fact]
+        public void Fidelity_InfinityIsAString_NotNull()
+        {
+            // the cube has sharp edges, the sphere none: the edge Chamfer distance is infinite
+            var (exit, r) = Fid(m.Cube, m.Sphere);
+            Assert.Equal(0, exit);
+            Assert.Equal("infinity", S(r["edge_chamfer"]));
+        }
+
         [Theory]
         [InlineData("--relative-thresholds", "0.01,-1")]
         [InlineData("--relative-thresholds", "abc")]
@@ -91,10 +161,15 @@ namespace g3cli.Tests
         [InlineData("--edge-samples", "-3")]
         [InlineData("--volume-samples", "0")]
         [InlineData("--sharp-edge-angle", "181")]
+        [InlineData("--surface-samples", "2147483647")]
+        [InlineData("--relative-thresholds", "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17")]
         public void Fidelity_BadOptions_AreInvalidArguments(string name, string value)
         {
             var (exit, r) = Run("fidelity", m.Cube, m.Cube, name, value);
             AssertError(exit, r, "invalid_arguments");
+            // validated before the inputs are read
+            var (exit2, r2) = Run("fidelity", m.Path_("missing.obj"), m.Cube, name, value);
+            AssertError(exit2, r2, "invalid_arguments");
         }
 
         [Fact]
@@ -134,6 +209,10 @@ namespace g3cli.Tests
             Assert.Equal(90.0, D(r["quality"]["max_angle"]["worst"]), 6);
             Assert.Equal(0, I(r["quality"]["max_angle_above_90"]));
             Assert.Equal(0, I(r["quality"]["min_angle_below_30"]));
+            Assert.Equal(0, I(r["quality"]["min_angle_below_10"]));
+            Assert.Equal(0, I(r["quality"]["max_angle_above_160"]));
+            Assert.Equal(12, I(r["quality"]["aspect_ratio_above_1_3"])); // right isosceles triangles: aspect ratio ~1.5
+            Assert.Equal(0, I(r["quality"]["condition_above_1_3"])); // condition 1.155
         }
 
         [Fact]
@@ -150,10 +229,34 @@ namespace g3cli.Tests
             Assert.Equal(2, I(two["topology"]["closed_components"]));
             Assert.Equal(2, two["topology"]["component_list"].AsArray().Count);
 
+            var (e0, none) = Run("quality", m.Overlapping, "--max-components", "0", "--compact");
+            Assert.Equal(0, e0);
+            Assert.Empty(none["topology"]["component_list"].AsArray());
+            Assert.True(B(none["topology"]["component_list_truncated"]));
+
             var (e3, limited) = Run("quality", m.Overlapping, "--max-components", "1", "--compact");
             Assert.Equal(0, e3);
             Assert.Single(limited["topology"]["component_list"].AsArray());
             Assert.True(B(limited["topology"]["component_list_truncated"]));
+        }
+
+        [Fact]
+        public void Quality_DegenerateAndSliverTriangles_AreCounted_InfinityIsNotNull()
+        {
+            string path = m.Path_("sliver.obj");
+            System.IO.File.WriteAllText(path, "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 2 0 0\nv 3 0 0\nv 4 0.001 0\nf 1 2 3\nf 1 2 4\nf 2 4 6\n");
+            var (exit, r) = Run("quality", path, "--compact");
+            Assert.Equal(0, exit);
+            var q = r["quality"];
+            Assert.Equal(3, I(q["triangles"]));
+            Assert.Equal(1, I(q["degenerate"]));
+            Assert.Equal("infinity", S(q["aspect_ratio"]["worst"]));
+            Assert.Equal("infinity", S(q["condition"]["worst"]));
+            Assert.True(I(q["min_angle_below_1"]) >= 2);
+            Assert.True(I(q["max_angle_above_160"]) >= 2);
+            Assert.True(I(q["scaled_jacobian_below_0_5"]) >= 2);
+            Assert.True(I(q["min_angle_below_10"]) >= I(q["min_angle_below_1"]));
+            Assert.True(D(q["min_angle"]["worst"]) < 1e-6);
         }
 
         [Fact]

@@ -15,24 +15,34 @@ namespace g3cli
     /// </summary>
     public static partial class Commands
     {
+        /// <summary> like MeshReport.Num, but infinity (eg the aspect ratio of a zero-area triangle, the edge Chamfer distance when only one mesh has sharp edges) is the string "infinity" / "-infinity" instead of null; null is NaN: no value </summary>
+        static JsonNode Val(double d)
+        {
+            if (double.IsPositiveInfinity(d)) return "infinity";
+            if (double.IsNegativeInfinity(d)) return "-infinity";
+            return MeshReport.Num(d);
+        }
+
         static JsonArray NumArray(IEnumerable<double> values)
         {
-            return values == null ? null : new JsonArray(values.Select(v => MeshReport.Num(v)).ToArray());
+            return values == null ? null : new JsonArray(values.Select(v => Val(v)).ToArray());
         }
+
+        const int MaxSamples = 20000000, MaxThresholds = 16;
 
         static double[] ParseThresholds(string text)
         {
             double[] v = ParseNumbers(text, "relative_thresholds");
-            if (v.Length == 0 || v.Any(d => !(d > 0)))
-                throw new CommandException(ResultCodes.InvalidArguments, "'relative_thresholds' must be a list of positive numbers");
+            if (v.Length == 0 || v.Length > MaxThresholds || v.Any(d => !(d > 0)))
+                throw new CommandException(ResultCodes.InvalidArguments, $"'relative_thresholds' must be a list of 1 to {MaxThresholds} positive numbers");
             return v;
         }
 
         static JsonObject Distribution(QualityDistribution d)
         {
             return new JsonObject() {
-                ["worst"] = MeshReport.Num(d.Worst), ["worst_1_percent"] = MeshReport.Num(d.Worst1Percent),
-                ["worst_5_percent"] = MeshReport.Num(d.Worst5Percent), ["median"] = MeshReport.Num(d.Median),
+                ["worst"] = Val(d.Worst), ["worst_1_percent"] = Val(d.Worst1Percent),
+                ["worst_5_percent"] = Val(d.Worst5Percent), ["median"] = Val(d.Median),
             };
         }
 
@@ -112,8 +122,10 @@ namespace g3cli
                 Description = "Compare a mesh with a reference by the evaluation metrics of MeshFidelityMetrics, which see what the Hausdorff " +
                     "distance and the volume IoU miss: precision, recall and F-score at relative distance thresholds, Chamfer distance, normal " +
                     "consistency and the share of reversed normals, edge Chamfer / precision / recall on sharp edges, volume IoU (also of the outer " +
-                    "surface), curvature agreement, the triangle quality of both meshes and the topology changes. The distances (chamfer, distance_*, max_distance_*, edge_chamfer) are relative to 'size', " +
-                    "the reference's size (bounding box diagonal, also reported). Sampled with a fixed seed: the result is reproducible.",
+                    "surface), curvature agreement, the triangle quality of both meshes and the topology changes. 'size' is the reference's size (bounding box diagonal) in mesh units; " +
+                    "every distance and length (chamfer, distance_*, max_distance_*, edge_*distance*, sharp_edge_length_*) is relative to it, " +
+                    "curvatures are H*size and K*size^2, angles are in degrees, volume_missing / volume_extra fractions of the reference solid. " +
+                    "A value null is not available (NaN), the string \"infinity\" is infinite (eg edge_chamfer if only one mesh has sharp edges). Sampled with a fixed seed: the result is reproducible.",
             };
             c.Params.Add(Input("reference", "reference mesh file"));
             c.Params.Add(Input("mesh", "mesh file compared with the reference"));
@@ -127,10 +139,7 @@ namespace g3cli
             c.Params.Add(new Param("seed", ParamType.Integer, "seed of the sampling (library default 1)"));
             c.Params.Add(new Param("parallel", ParamType.Boolean, "use all cores (the result does not depend on it)") { Default = true });
             c.Run = args => {
-                var warnings = new List<string>();
-                DMesh3 reference = MeshFiles.Read(args.String("reference"), warnings);
-                DMesh3 mesh = MeshFiles.Read(args.String("mesh"), warnings);
-                var f = new MeshFidelityMetrics(reference, mesh) { Parallel = args.Bool("parallel") };
+                var f = new MeshFidelityMetrics(null, null) { Parallel = args.Bool("parallel") };
                 if (args.Has("relative_thresholds")) f.RelativeThresholds = ParseThresholds(args.String("relative_thresholds"));
                 if (args.Has("surface_samples")) f.SurfaceSamples = PositiveInt(args, "surface_samples");
                 if (args.Has("edge_samples")) f.EdgeSamples = PositiveInt(args, "edge_samples");
@@ -144,6 +153,10 @@ namespace g3cli
                 if (args.Has("outer_surface")) f.OuterSurface = args.Bool("outer_surface");
                 if (args.Has("curvature")) f.Curvature = args.Bool("curvature");
                 if (args.Has("seed")) f.Seed = args.Integer("seed");
+                var warnings = new List<string>();
+                DMesh3 reference = MeshFiles.Read(args.String("reference"), warnings);
+                DMesh3 mesh = MeshFiles.Read(args.String("mesh"), warnings);
+                f.Reference = reference; f.Mesh = mesh;
                 if (f.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed,
                         "fidelity metrics failed (a mesh without usable triangles or with non-finite coordinates)");
@@ -162,7 +175,9 @@ namespace g3cli
                 o["normals_reference_to_mesh"] = Agreement(f.NormalsReferenceToMesh);
                 o["sharp_edge_length_reference"] = MeshReport.Num(f.SharpEdgeLengthReference);
                 o["sharp_edge_length_mesh"] = MeshReport.Num(f.SharpEdgeLengthMesh);
-                o["edge_chamfer"] = MeshReport.Num(f.EdgeChamfer);
+                o["edge_chamfer"] = Val(f.EdgeChamfer);
+                o["edge_distance_mesh_to_reference"] = Val(f.EdgeDistanceMeshToReference);
+                o["edge_distance_reference_to_mesh"] = Val(f.EdgeDistanceReferenceToMesh);
                 o["edge_precision"] = NumArray(f.EdgePrecision); o["edge_recall"] = NumArray(f.EdgeRecall); o["edge_f_score"] = NumArray(f.EdgeFScore);
                 o["volume_iou"] = MeshReport.Num(f.VolumeIoU);
                 o["volume_missing"] = MeshReport.Num(f.VolumeMissing); o["volume_extra"] = MeshReport.Num(f.VolumeExtra);
@@ -172,6 +187,7 @@ namespace g3cli
                         ["edge_recall"] = NumArray(f.OuterEdgeRecall), ["edge_share"] = MeshReport.Num(f.OuterEdgeShare),
                         ["volume_iou"] = MeshReport.Num(f.OuterVolumeIoU),
                         ["volume_missing"] = MeshReport.Num(f.OuterVolumeMissing), ["volume_extra"] = MeshReport.Num(f.OuterVolumeExtra),
+                        ["distance_reference_to_mesh"] = Val(f.OuterDistanceReferenceToMesh), ["max_distance_reference_to_mesh"] = Val(f.OuterMaxDistanceReferenceToMesh),
                         ["face_share"] = MeshReport.Num(f.OuterFaceShare), ["face_rounds"] = f.OuterFaceRounds,
                         ["faces_converged"] = f.OuterFacesConverged,
                     };
@@ -181,6 +197,9 @@ namespace g3cli
                         ["mesh_to_reference"] = CurvAgreement(f.CurvatureMeshToReference),
                         ["reference_to_mesh"] = CurvAgreement(f.CurvatureReferenceToMesh),
                         ["mean_error"] = MeshReport.Num(f.MeanCurvatureError), ["gaussian_error"] = MeshReport.Num(f.GaussianCurvatureError),
+                        ["mean_distance"] = MeshReport.Num(f.MeanCurvatureDistance), ["gaussian_distance"] = MeshReport.Num(f.GaussianCurvatureDistance),
+                        ["total_abs_mean_reference"] = MeshReport.Num(f.TotalAbsMeanCurvatureReference), ["total_abs_mean_mesh"] = MeshReport.Num(f.TotalAbsMeanCurvatureMesh),
+                        ["total_abs_gaussian_reference"] = MeshReport.Num(f.TotalAbsGaussianCurvatureReference), ["total_abs_gaussian_mesh"] = MeshReport.Num(f.TotalAbsGaussianCurvatureMesh),
                     };
                 }
                 o["reference_quality"] = QualityReport(f.ReferenceQuality);
@@ -197,8 +216,8 @@ namespace g3cli
         static int PositiveInt(Args args, string name)
         {
             int v = args.Integer(name);
-            if (v <= 0)
-                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' must be > 0");
+            if (v <= 0 || v > MaxSamples)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' must be in 1..{MaxSamples}");
             return v;
         }
 
@@ -221,8 +240,8 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_components' must be >= 0");
                 var warnings = new List<string>();
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
-                if (mesh.TriangleCount == 0)
-                    throw new CommandException(ResultCodes.EmptyMesh, "the input has no triangles");
+                if (mesh.VertexIndices().Any(v => !mesh.GetVertex(v).IsFinite))
+                    throw new CommandException(ResultCodes.OperationFailed, "the input has non-finite coordinates");
                 var o = new JsonObject() { ["input"] = args.String("input") };
                 o["quality"] = QualityReport(TriangleQualityStatistics.Compute(mesh));
                 o["topology"] = TopologyReport(MeshTopologySummary.Compute(mesh), maxComponents);
