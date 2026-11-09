@@ -231,13 +231,83 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Sphere(24);
             int calls = 0;
-            Action<Reducer> throwing = (r) => { if (Interlocked.Increment(ref calls) > 1) throw new InvalidOperationException("part"); };
-            var pr = new PartitionedReducer() { MinTriangles = 0, Configure = throwing };
-            var ex = Assert.Throws<AggregateException>(() => pr.Reduce(m, MaxError(m, 0.004)));
-            Assert.IsType<InvalidOperationException>(ex.InnerExceptions[0]);
+            // (the 1st call is the scratch reducer of the option check, the 2nd the quadrics on the calling thread, then the parts)
+            Action<Reducer> throwing = (r) => { if (Interlocked.Increment(ref calls) > 2) throw new InvalidOperationException("part"); };
+            foreach (int threads in new[] { 0, 1, 4 }) {
+                calls = 0;
+                var pr = new PartitionedReducer() { MinTriangles = 0, MaxThreads = threads, Configure = throwing };
+                var ex = Assert.Throws<AggregateException>(() => pr.Reduce(m, MaxError(m, 0.004)));
+                Assert.IsType<InvalidOperationException>(ex.InnerExceptions[0]);
+                Assert.False(pr.UsedPartition);
+            }
+            // thrown by Configure on the calling thread while the quadrics are computed: the same type on the partition path
+            calls = 1;
+            Assert.Throws<AggregateException>(() => new PartitionedReducer() { MinTriangles = 0, Configure = throwing }.Reduce(m, MaxError(m, 0.004)));
             calls = 0;
             var serial = new PartitionedReducer() { MinTriangles = 1000000, Configure = (r) => throw new InvalidOperationException("serial") };
             Assert.Throws<InvalidOperationException>(() => serial.Reduce(m, 1));
+        }
+
+        // options the partition cannot honour (each part would take its own mesh as the deviation reference; constraints and
+        // projection targets refer to vertex ids of other meshes): refused up front, on every path
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1000000)]
+        public void MaxDeviationAndConstraintsInConfigure_AreRefused(int minTriangles)
+        {
+            DMesh3 m = Sphere(24);
+            var pr = new PartitionedReducer() { MinTriangles = minTriangles, Configure = r => r.MaxDeviation = 0.01 };
+            Assert.Throws<ArgumentException>(() => pr.Reduce(m, 1));
+            pr.Configure = r => r.SetExternalConstraints(new MeshConstraints());
+            Assert.Throws<ArgumentException>(() => pr.Reduce(m, 1));
+            pr.Configure = Si;
+            Assert.True(pr.Reduce(m, MaxError(m, 0.004)).TriangleCount > 0);
+        }
+
+        // Configure cannot undo the contract: PreserveBoundaryShape and Progress are set after it
+        [Fact]
+        public void ConfigureCannotRestoreTheBoundaryShape_OrReplaceTheCancel()
+        {
+            DMesh3 m = Terrain(110);
+            double e = MaxError(m, 0.003);
+            DMesh3 a = new PartitionedReducer() { MinTriangles = 0, Configure = Si }.Reduce(m, e);
+            DMesh3 b = new PartitionedReducer() { MinTriangles = 0, Configure = r => { Si(r); r.PreserveBoundaryShape = true; } }.Reduce(m, e);
+            Assert.Equal("", Invariance.Difference(a, b));
+            DMesh3 c = new PartitionedReducer() { MinTriangles = 0, CancelF = () => true, Configure = r => { Si(r); r.Progress = new ProgressCancel(() => false); } }.Reduce(m, e);
+            Assert.True(c.TriangleCount >= 0.9 * m.TriangleCount, $"{c.TriangleCount} of {m.TriangleCount}");
+        }
+
+        // vertices that no triangle uses are not in the result, and do not steer the slabs (they were in the bounds and the cuts)
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1000000)]
+        public void IsolatedVertices_AreDropped_AndDoNotChangeTheResult(int minTriangles)
+        {
+            DMesh3 m = Sphere(24);
+            double e = MaxError(m, 0.004);
+            DMesh3 withIsolated = new DMesh3(m);
+            withIsolated.AppendVertex(new Vector3d(0.1, 100, 0.2));
+            DMesh3 a = new PartitionedReducer() { MinTriangles = minTriangles, Configure = Si }.Reduce(m, e);
+            DMesh3 b = new PartitionedReducer() { MinTriangles = minTriangles, Configure = Si }.Reduce(withIsolated, e);
+            Assert.Equal("", Invariance.Difference(a, b));
+            Assert.Equal(a.VertexCount, a.VertexIndices().Count(v => a.GetVtxEdgeCount(v) > 0));
+        }
+
+        [Fact]
+        public void UsedPartition_IsResetByEveryCall()
+        {
+            DMesh3 m = Sphere(24);
+            var pr = Make();
+            pr.Reduce(m, MaxError(m, 0.004));
+            Assert.True(pr.UsedPartition);
+            pr.Reduce(new DMesh3(), 1);
+            Assert.False(pr.UsedPartition);
+            pr.Reduce(m, MaxError(m, 0.004));
+            Assert.True(pr.UsedPartition);
+            Assert.Throws<ArgumentOutOfRangeException>(() => pr.Reduce(m, -1));
+            pr.Configure = r => { throw new InvalidOperationException(); };
+            Assert.Throws<InvalidOperationException>(() => pr.Reduce(m, 1));
+            Assert.False(pr.UsedPartition);
         }
 
         [Fact]
@@ -248,6 +318,9 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentOutOfRangeException>(() => pr.Reduce(new DMesh3(), -1));
             Assert.Throws<ArgumentOutOfRangeException>(() => pr.Reduce(new DMesh3(), double.NaN));
             Assert.Equal(0, pr.Reduce(new DMesh3(), 1).TriangleCount);
+            var onlyVertices = new DMesh3();
+            onlyVertices.AppendVertex(new Vector3d(1, 2, 3));
+            Assert.Equal(0, pr.Reduce(onlyVertices, 1).VertexCount);      // isolated vertices are dropped, also without triangles
             Assert.False(pr.UsedPartition);
             DMesh3 m = Sphere(24);
             DMesh3 r = pr.Reduce(m, 0);       // error 0: only collapses that change nothing; valid, not larger

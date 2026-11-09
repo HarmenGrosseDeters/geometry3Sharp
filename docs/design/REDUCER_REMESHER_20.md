@@ -164,8 +164,8 @@ Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along
 
 New public sealed class `PartitionedReducer` (`mesh_ops/PartitionedReducer.cs`, purely additive): `PartitionedReduction` (#432) on 8 fixed slabs, with
 `Reduce(mesh, maxQuadricError)`, `Configure(Action<Reducer>)`, `MaxThreads`, `CancelF`, `MinTriangles` (default 20000: below it one serial Reducer run), `UsedPartition`.
-The contract (deterministic for any thread count, not the serial result, no attributes in the result, `PreserveBoundaryShape = false`, thread-safe `Configure` and `CancelF`,
-`AggregateException`, the two serial fallbacks) is in the class documentation and pinned by `PartitionedReducerTests`. No triangle-count target in v1. Opt-in; the plain reduction stays serial.
+The contract (deterministic for any thread count, not the serial result, no attributes and no isolated vertices in the result, `PreserveBoundaryShape = false`, thread-safe `Configure` and `CancelF`,
+`MaxDeviation` and external constraints in `Configure` refused, `AggregateException` for every `MaxThreads`, the two serial fallbacks) is in the class documentation and pinned by `PartitionedReducerTests`. No triangle-count target in v1. Opt-in; the plain reduction stays serial.
 
 Measured (`ReducerRemesherBaseline partition=1 min_tris=0`, 24 inputs, `ReduceToMaxQuadricError` at 0.003 of the box diagonal, `AreaWeightedQuadrics = false`,
 `PreserveBoundaryShape = false`, 4 cores, warm, one run each; the partition forced on). Time of the plain Reducer, of `PreventSelfIntersections` serial, and of the same on 8 slabs:
@@ -186,11 +186,10 @@ Below 20000 triangles (15 meshes, 2.4k to 18k): the slabs take 0.8 to 1.5 x the 
 `MinTriangles` defaults to 20000.
 
 Totals over the 24 meshes: plain 2.8 s, `si` serial 67.4 s (23.7 x), slabs 16.0 s (5.6 x plain, 4.2 x faster than `si` serial). Without the box (a closed box with large coplanar faces
-makes the self-intersection check 55 x the plain time): plain 1.8 s, `si` 9.5 s (5.4 x), slabs 5.7 s (3.2 x, 1.7 x faster). Result sizes agree within 1 to 3 % (63709, whose input has 1298
-self-intersecting pairs, 4390 against 4506); the certified one-sided Hausdorff distance to the input is the same to the digits shown except small meshes
-(0.0015 / 0.0032 on 118679). Not bit-identical to the serial run (as #432).
+makes the self-intersection check 55 x the plain time): plain 1.8 s, `si` 9.5 s (5.4 x), slabs 5.7 s (3.2 x, 1.7 x faster). Result sizes agree within 1 to 4 % (93370: 12080 against 11560;
+the box: 12 against 14; 63709, whose input has 1298 self-intersecting pairs: 4506 against 4390). The certified one-sided Hausdorff distance to the input is equal or within 0.0008 of the
+diagonal (78295: 0.0016 / 0.0021; 118679: 0.0015 / 0.0032; 1053376: 0.0074 / 0.0067). Not bit-identical to the serial run (as #432).
 
 Reading against the target (T3, Reducer: `si` at <= 4 x the plain time): reached on the large smooth meshes (sphere 2.0 x, torus 2.4 x, terrain 1.3 x, against 4.0 to 5.1 x serial), not on
-CAD-like inputs with large flat faces (box 9.7 x, against 55 x) and not below 20k triangles (5 to 24 x, but at most 0.2 s). The earlier scratch probe (section 9 of an earlier draft: area-weighted
-quadrics, 1.2 to 1.6 x) used a lighter reduction; these numbers are with the settings of the class documentation. The Remesher part of T3 is not probed (needs slab limits for smoothing
+CAD-like inputs with large flat faces (box 9.7 x, against 55 x) and not below 20k triangles (5 to 24 x, but at most 0.2 s). An earlier scratch probe (area-weighted quadrics, 1.2 to 1.6 x) used a lighter reduction; these numbers are with the settings of the class documentation. The Remesher part of T3 is not probed (needs slab limits for smoothing
 and projection) and comes after, with its own probe.

@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Linq;
 using g3;
 
 namespace gs
@@ -7,10 +8,10 @@ namespace gs
     /// <summary>
     /// <see cref="Reducer"/> on a fixed spatial partition, the parts in parallel (Reducer / Remesher 2.0, T3): the same
     /// quadric edge collapses, but the cost of an expensive guard such as <see cref="Reducer.PreventSelfIntersections"/>
-    /// (about 5 times the plain reduction) is shared by the cores. On meshes of 60 to 100k triangles with that guard it takes
-    /// 1.2 to 1.6 times the plain serial time instead of 2.9 to 4.4 times (4 cores, ReduceToMaxQuadricError at 0.3 % of the
-    /// box diagonal, docs/design/REDUCER_REMESHER_20.md section 9). Opt-in: for the plain reduction of a mesh the serial
-    /// <see cref="Reducer"/> is as fast.
+    /// (4 to 5 times the plain reduction on smooth meshes) is shared by the cores. On smooth meshes of 60 to 100k triangles with
+    /// that guard it takes 1.3 to 2.4 times the plain serial time instead of 4.0 to 5.1 times (4 cores, ReduceToMaxQuadricError at
+    /// 0.3 % of the box diagonal, docs/design/REDUCER_REMESHER_20.md section 9; a closed box with large flat faces 9.7 instead
+    /// of 55 times). Opt-in: the plain reduction without such a guard is cheap enough to stay serial.
     ///
     /// How it works (the argument, and the tests that pin each part, are in <c>PartitionedReduction</c>): the bounding box
     /// is cut into <see cref="Slabs"/> slabs along its longest axis, at quantiles of the vertex coordinates, separated by
@@ -29,8 +30,15 @@ namespace gs
     ///    triangle count is usually within a few percent), so a caller that needs the serial result uses the Reducer.
     ///  - The target is a maximum quadric error (as <see cref="Reducer.ReduceToMaxQuadricError"/>); there is no triangle
     ///    count target.
-    ///  - The input mesh is not modified; the result is a new compact mesh <b>without</b> vertex normals, colours, UVs and
-    ///    triangle groups (also when the serial fallback is used).
+    ///  - The input mesh is not modified; the result is a new compact mesh <b>without</b> vertex normals, colours, UVs,
+    ///    triangle groups and isolated vertices (also when the serial fallback is used). Vertices that no triangle uses do
+    ///    not take part (they are removed from the working copy first, so they do not steer the slabs either).
+    ///  - <see cref="Configure"/> may set guards and weights (PreventSelfIntersections, AreaWeightedQuadrics, the quality and
+    ///    fold-over settings, EdgeFlipTolerance). It must <b>not</b> set <c>MaxDeviation</c> (the deviation reference of each
+    ///    part would be its own mesh, so the bound would add up over the rounds) or external constraints: both are refused
+    ///    with an <see cref="ArgumentException"/> before any work (Configure is called once on a scratch reducer to check).
+    ///    Projection targets and deviation references cannot be detected and must not be set either (they would be
+    ///    applied to meshes with other vertex ids). Use the Reducer for these.
     ///  - <see cref="Configure"/> is called for the reducer of every part and of the last pass (and once more on the whole
     ///    mesh to compute the quadrics), from the calling thread and from the threads of the parts, so it must be thread-safe
     ///    and give the same settings every time. Every reducer runs with <c>PreserveBoundaryShape = false</c> (set after <see cref="Configure"/>): the
@@ -39,9 +47,10 @@ namespace gs
     ///  - <see cref="CancelF"/> is called from several threads at the same time (and between the rounds). When it returns
     ///    true, the mesh reduced so far is returned (a valid mesh, not the full reduction). It is also given to every
     ///    reducer as <c>Progress</c>, replacing one set by <see cref="Configure"/>.
-    ///  - An exception in a part surfaces as an <see cref="AggregateException"/> (the serial fallback throws the original).
+    ///  - An exception thrown while reducing on the partition path (in a part, or by Configure) surfaces as an
+    ///    <see cref="AggregateException"/> for every <see cref="MaxThreads"/> (the serial fallback throws the original).
     ///  - Falls back to one serial Reducer run (same settings) when the mesh has fewer than
-    ///    <see cref="MinTriangles"/> triangles (the partition does not pay below about 10k; default 20000), and when the
+    ///    <see cref="MinTriangles"/> triangles (the partition does not pay below about 20k; default 20000), and when the
     ///    slabs cannot be kept apart (the gap is lost in the rounding of the coordinates). <see cref="UsedPartition"/> tells.
     ///  - The instance keeps no state between calls except the outputs; it is not thread-safe.
     /// Sources: Garland and Heckbert 1997 (quadrics); the partition with frozen borders is the approach of out-of-core
@@ -51,7 +60,7 @@ namespace gs
     public sealed class PartitionedReducer
     {
         /// <summary> number of slabs, a constant: deriving it from the cores would make the result depend on the machine </summary>
-        public const int Slabs = 8;
+        public static readonly int Slabs = 8;
 
         /// <summary> threads for the parts; 0 or less: the default of the platform. 1 is the serial reference of the same result. </summary>
         public int MaxThreads = 0;
@@ -71,12 +80,20 @@ namespace gs
         /// <summary> (tests) gap between the slabs in mean edge lengths; 0 makes the slabs inseparable </summary>
         internal double GapEdgeLengths = 1.0;
 
-        // a compact copy without vertex normals, colours, UVs and triangle groups
+        // a compact copy without vertex normals, colours, UVs, triangle groups and isolated vertices
         static DMesh3 Plain(DMesh3 m)
         {
             DMesh3 c = new DMesh3(m, true, MeshComponents.None);
             if (c.HasTriangleGroups) c.DiscardTriangleGroups();
-            return c;
+            RemoveIsolatedVertices(c);
+            return c.IsCompact ? c : new DMesh3(c, true, MeshComponents.None);
+        }
+
+        static void RemoveIsolatedVertices(DMesh3 m)
+        {
+            foreach (int vid in m.VertexIndices().ToArray())
+                if (m.GetVtxEdgeCount(vid) == 0)
+                    m.RemoveVertex(vid);
         }
 
         /// <summary>
@@ -93,6 +110,13 @@ namespace gs
             if (double.IsNaN(maxQuadricError) || maxQuadricError < 0)
                 throw new ArgumentOutOfRangeException(nameof(maxQuadricError), "must be a number >= 0");
             UsedPartition = false;
+            // (the options the partition cannot honour are refused before any work, on the calling thread)
+            var probe = new Reducer(new DMesh3());
+            Configure?.Invoke(probe);
+            if (probe.MaxDeviation > 0)
+                throw new ArgumentException("Configure must not set MaxDeviation: the partitioned parts would each take their own mesh as the reference");
+            if (probe.Constraints != null)
+                throw new ArgumentException("Configure must not set external constraints: the parts and the last pass work on meshes with other vertex ids");
             if (mesh.TriangleCount == 0)
                 return Plain(mesh);
 
@@ -101,19 +125,29 @@ namespace gs
                 r.PreserveBoundaryShape = false;
                 if (CancelF != null) r.Progress = new ProgressCancel(CancelF);
             };
-            if (mesh.TriangleCount >= MinTriangles) {
+            // (a copy without the vertices no triangle uses: they would steer the axis and the cuts of the slabs)
+            DMesh3 work = new DMesh3(mesh, true, MeshComponents.None);
+            RemoveIsolatedVertices(work);
+            if (work.TriangleCount >= MinTriangles) {
                 var pr = new PartitionedReduction() { Slabs = Slabs, MaxThreads = MaxThreads, Configure = configure, GapEdgeLengths = GapEdgeLengths };
                 if (CancelF != null) pr.CancelF = CancelF;
-                DMesh3 result = pr.Reduce(mesh, maxQuadricError);
+                DMesh3 result;
+                try {
+                    result = pr.Reduce(work, maxQuadricError);
+                } catch (AggregateException) {
+                    throw;
+                } catch (Exception e) {
+                    // (with one thread the parts run in a loop and the original escapes; the same type for every MaxThreads)
+                    throw new AggregateException(e.Message, e);
+                }
                 // (pr has done the one serial run itself if the slabs could not be kept apart)
                 UsedPartition = pr.SerialFallbacks == 0;
                 return Plain(result);
             }
-            DMesh3 m = new DMesh3(mesh, true);
-            var reducer = new Reducer(m);
+            var reducer = new Reducer(work);
             configure(reducer);
             reducer.ReduceToMaxQuadricError(maxQuadricError);
-            return Plain(m);
+            return Plain(work);
         }
     }
 }

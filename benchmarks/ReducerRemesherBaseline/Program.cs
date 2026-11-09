@@ -50,6 +50,7 @@ static class Program
     static double ReduceQuality, RemeshQuality;      // reduce_q / remesh_q: Reducer.MinCollapseTriangleQuality / Remesher.MinTriangleQuality (0: library default, off)
     static double RemeshCrease = 30;      // remesh_crease=<deg>: the crease angle of PreserveBoundaryAndFeatures (0: the boundary only)
     static double HdTolerance = 0.001;      // hd_tol: tolerance of the certified Hausdorff bounds, relative to the box diagonal
+    static double RelErr = 0.003;      // rel=<f>: the quadric error (as a distance, relative to the box diagonal) of partition=1
     static bool Profile;      // profile=1: Remesher.ENABLE_PROFILING (per pass phase times on stdout, for the upper bounds of the design note)
 
     static int Main(string[] args)
@@ -61,6 +62,7 @@ static class Program
             return 0;
         }
         Profile = get("profile", "0") == "1";
+        RelErr = double.Parse(get("rel", "0.003"), CultureInfo.InvariantCulture);
         RemeshCrease = double.Parse(get("remesh_crease", "30"), CultureInfo.InvariantCulture);
         HdTolerance = double.Parse(get("hd_tol", "0.001"), CultureInfo.InvariantCulture);
         ReduceQuality = double.Parse(get("reduce_q", "0"), CultureInfo.InvariantCulture); RemeshQuality = double.Parse(get("remesh_q", "0"), CultureInfo.InvariantCulture);
@@ -244,10 +246,10 @@ static class Program
 
     static void PartitionTable(List<Case> cases, int minTris)
     {
-        double rel = 0.003;
+        double rel = RelErr;
         Action<Reducer> si = r => { r.PreventSelfIntersections = true; r.AreaWeightedQuadrics = false; r.PreserveBoundaryShape = false; };
         Action<Reducer> plainCfg = r => { r.AreaWeightedQuadrics = false; r.PreserveBoundaryShape = false; };
-        { var w = new DMesh3(cases[0].Input); var rr = new Reducer(w); si(rr); rr.ReduceToMaxQuadricError(1e-6); }
+        { var w = new DMesh3(cases[0].Input); var rr = new Reducer(w); si(rr); rr.ReduceToMaxQuadricError(1e-6); new PartitionedReducer() { Configure = si, MinTriangles = 0 }.Reduce(cases[0].Input, 1e-6); }
         Console.WriteLine("| mesh | triangles | plain s (tris) | si serial s (tris) | si on 8 slabs s (tris) | si / plain | slabs / plain | slabs speed-up over si serial | used partition | Hausdorff si serial / slabs (of diagonal) |");
         Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");
         double sp = 0, ss = 0, sq = 0;
