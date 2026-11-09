@@ -65,7 +65,7 @@ namespace g3
         public bool SortForCoherence = true;
         /// <summary> as the fMaxDist of the single queries: only hits strictly closer than this count </summary>
         public double MaxDistance = double.MaxValue;
-        /// <summary> checked once per block of queries </summary>
+        /// <summary> checked before the call and once per block of queries (not during the sort); after Cancelled the results and statuses of the skipped blocks are not written </summary>
         public CancellationToken Cancel = default(CancellationToken);
     }
 
@@ -79,8 +79,11 @@ namespace g3
     ///
     /// Thread safety: the tree and its mesh are only read; the mesh must not change during a call, and a
     /// DMeshAABBTree3.TriangleFilterF must be thread-safe with Parallel (the default).
-    /// A batch does not throw for one bad query: see RayStatus and PointStatus; the single call's exceptions
-    /// (stale tree) are BatchStatus.MeshModified.
+    /// A batch does not throw for a bad query (see RayStatus and PointStatus), and a stale or unbuilt tree is
+    /// BatchStatus.MeshModified instead of the single call's exception (an unbuilt tree of an empty mesh is not told apart
+    /// from a built one: every query has no result). An exception of the user's TriangleFilterF, or a mesh modified during
+    /// the call, ends the batch as it ends a single call (several at once from the worker threads as AggregateException)
+    /// with the results partly written.
     /// </summary>
     public static class MeshBatchQueries
     {
@@ -149,12 +152,16 @@ namespace g3
             var noResult = new NearestPointResult() { Triangle = DMesh3.InvalidID, Distance = double.MaxValue };
             Action<int> one = i => {
                 Vector3d p = points[i];
-                if (p.IsFinite == false) {
+                if (Finite(p) == false) {
                     results[i] = noResult;
                     if (status != null) status[i] = PointStatus.NonFinite;
                     return;
                 }
                 if (status != null) status[i] = PointStatus.Ok;
+                if (mesh.TriangleCount == 0) {
+                    results[i] = noResult;
+                    return;
+                }
                 double dSqr;
                 int tid = tree.FindNearestTriangle(p, out dSqr, maxDist);
                 if (tid == DMesh3.InvalidID) {
@@ -173,6 +180,12 @@ namespace g3
 
         // ---- shared implementation ----
 
+        // every component finite (Vector3d.IsFinite sums the components, which overflows for finite 1e308 values)
+        static bool Finite(Vector3d v)
+        {
+            return (v.x - v.x) == 0 && (v.y - v.y) == 0 && (v.z - v.z) == 0;
+        }
+
         delegate void RayQuery(Ray3d ray, int index, double maxDist);
 
         static BatchStatus RunRays(DMeshAABBTree3 tree, Ray3d[] rays, RayStatus[] status, BatchOptions options, RayQuery query, Action<int> noHit)
@@ -181,15 +194,16 @@ namespace g3
             if (bs != BatchStatus.Ok)
                 return bs;
             double maxDist = options.MaxDistance;
+            bool empty = tree.Mesh.TriangleCount == 0;      // (nothing to hit; an unbuilt tree of an empty mesh is not told apart from a built one)
             Action<int> one = i => {
                 Ray3d ray = rays[i];
                 RayStatus rs = RayStatus.Ok;
-                if (ray.Origin.IsFinite == false || ray.Direction.IsFinite == false)
+                if (Finite(ray.Origin) == false || Finite(ray.Direction) == false)
                     rs = RayStatus.NonFinite;
                 else if (ray.Direction.IsNormalized == false)
                     rs = RayStatus.NotNormalized;
                 if (status != null) status[i] = rs;
-                if (rs != RayStatus.Ok) {
+                if (rs != RayStatus.Ok || empty) {
                     noHit(i);
                     return;
                 }
@@ -204,6 +218,8 @@ namespace g3
                 options = new BatchOptions();
             if (options.MaxDistance < 0 || double.IsNaN(options.MaxDistance))
                 return BatchStatus.InvalidArguments;
+            if (tree.Mesh == null)
+                return BatchStatus.InvalidArguments;
             if (tree.IsValid == false)
                 return BatchStatus.MeshModified;
             return BatchStatus.Ok;
@@ -214,10 +230,12 @@ namespace g3
         // result, so the order and the thread count do not change a result.
         static BatchStatus Execute(int n, BatchOptions options, Func<ulong[]> makeKeys, Action<int> one)
         {
+            if (options.Cancel.IsCancellationRequested)
+                return BatchStatus.Cancelled;
             int[] order = null;
             if (options.SortForCoherence && n >= MinSortCount)
                 order = SortedOrder(n, makeKeys);
-            int blocks = (n + BlockSize - 1) / BlockSize;
+            int blocks = (int)(((long)n + BlockSize - 1) / BlockSize);
             int cancelled = 0;
             CancellationToken cancel = options.Cancel;
             Action<int, int> block = (b, unused) => {
@@ -225,7 +243,7 @@ namespace g3
                     Volatile.Write(ref cancelled, 1);
                     return;
                 }
-                int end = Math.Min(n, (b + 1) * BlockSize);
+                int end = (int)Math.Min((long)n, ((long)b + 1) * BlockSize);
                 for (int i = b * BlockSize; i < end; ++i)
                     one(order != null ? order[i] : i);
             };
@@ -236,6 +254,10 @@ namespace g3
                     block(b, 0);
             return Volatile.Read(ref cancelled) != 0 ? BatchStatus.Cancelled : BatchStatus.Ok;
         }
+
+        // (for the tests: the order the queries are answered in)
+        internal static int[] RayOrder(Ray3d[] rays) { return SortedOrder(rays.Length, () => RayKeys(rays)); }
+        internal static int[] PointOrder(Vector3d[] points) { return SortedOrder(points.Length, () => PointKeys(points)); }
 
         static int[] SortedOrder(int n, Func<ulong[]> makeKeys)
         {
@@ -265,12 +287,12 @@ namespace g3
         {
             var b = AxisAlignedBox3d.Empty;
             for (int i = 0; i < rays.Length; ++i)
-                if (rays[i].Origin.IsFinite)
+                if (Finite(rays[i].Origin))
                     b.Contain(rays[i].Origin);
             var keys = new ulong[rays.Length];
             for (int i = 0; i < rays.Length; ++i) {
                 Ray3d r = rays[i];
-                if (r.Origin.IsFinite == false || r.Direction.IsFinite == false)
+                if (Finite(r.Origin) == false || Finite(r.Direction) == false)
                     continue;       // key 0
                 ulong mo = Morton3(Q10(Unit(r.Origin.x, b.Min.x, b.Max.x)), Q10(Unit(r.Origin.y, b.Min.y, b.Max.y)), Q10(Unit(r.Origin.z, b.Min.z, b.Max.z)));
                 ulong md = Morton3(Q10(Unit(r.Direction.x, -1, 1)), Q10(Unit(r.Direction.y, -1, 1)), Q10(Unit(r.Direction.z, -1, 1)));
@@ -283,12 +305,12 @@ namespace g3
         {
             var b = AxisAlignedBox3d.Empty;
             for (int i = 0; i < points.Length; ++i)
-                if (points[i].IsFinite)
+                if (Finite(points[i]))
                     b.Contain(points[i]);
             var keys = new ulong[points.Length];
             for (int i = 0; i < points.Length; ++i) {
                 Vector3d p = points[i];
-                if (p.IsFinite == false)
+                if (Finite(p) == false)
                     continue;
                 keys[i] = Morton3(Q10(Unit(p.x, b.Min.x, b.Max.x)), Q10(Unit(p.y, b.Min.y, b.Max.y)), Q10(Unit(p.z, b.Min.z, b.Max.z)));
             }
