@@ -424,6 +424,50 @@ namespace geometry3Sharp.Tests
                     });
         }
 
+        // ---- world-coordinate rounding (UTM-sized coordinates) ----
+
+        /// <summary>A steep, rough terrain (neighbouring nodes differ by up to 40) at the given origin.</summary>
+        static HeightGrid SteepTerrain(int n, double x0, double y0, int seed)
+        {
+            var r = new Random(seed);
+            var z = new double[n * n];
+            for (int k = 0; k < z.Length; ++k) z[k] = Math.Round(r.NextDouble() * 40 * (k % 3 == 0 ? 1 : 0.2), 3);
+            return new HeightGrid(z, n, n, x0, y0, 1);
+        }
+
+        [Fact]
+        public void WorldRounding_IsPartOfTheMargin_SoAnEpsilonBelowItIsRejected()
+        {
+            // rounding x = X0 + i to a double moves a vertex by about 1e-10 at UTM; with neighbouring heights 40 apart that is a height error of about 1e-8
+            double eps = 5e-9;
+            var utm = new TerrainGridTin { Grid = SteepTerrain(17, 632117.25, 5712043.5, 1), Epsilon = eps };
+            Assert.False(utm.Compute());
+            Assert.Equal(TerrainGridTinStatus.InvalidInput, utm.Status);
+            Assert.Contains("rounding margin", utm.Message);
+            // the same terrain near the origin has none of it
+            Assert.True(new TerrainGridTin { Grid = SteepTerrain(17, 0, 0, 1), Epsilon = eps }.Compute());
+            // and a flat terrain at UTM is not affected by the origin
+            Assert.True(new TerrainGridTin { Grid = new HeightGrid(new double[17 * 17], 17, 17, 632117.25, 5712043.5, 1), Epsilon = eps }.Compute());
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void WorldRounding_ResultInWorldCoordinates_IsWithinTheReportedError(int seed)
+        {
+            HeightGrid g = SteepTerrain(33, 632117.25, 5712043.5, seed);
+            var rand = new Random(seed + 100);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 3e-7 };
+            for (int l = 0; l < 3; ++l)
+                t.Breaklines.Add(new TerrainBreakline(Enumerable.Range(0, 4).Select(_ => new Vector2d(g.X0 + 1 + rand.NextDouble() * 30, g.Y0 + 1 + rand.NextDouble() * 30))));
+            Assert.True(t.Compute(), t.Status + " " + t.Message);
+            Assert.True(t.SurfaceError <= t.Epsilon);
+            // the scan of the vertices as they are written (world coordinates)
+            TerrainGridTin.ErrorOfTin(g, t.Result, out _, out double world);
+            Assert.True(world <= t.SurfaceError, $"world {world:R} reported {t.SurfaceError:R}");
+        }
+
         [Fact]
         public void Epsilon_BelowTheRoundingMargin_IsRejected()
         {

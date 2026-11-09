@@ -162,6 +162,7 @@ namespace gs
             double zmax = 0;
             foreach (double z in g.Z) if (HeightGrid.IsData(z)) zmax = Math.Max(zmax, Math.Abs(z));
             double margin = 64 * 2.220446049250313e-16 * (1 + zmax) * Math.Max(nx, ny);      // rounding of the scan in index space
+            margin += WorldRoundingMargin(g);
             if (Epsilon <= 2 * margin)
                 return Fail(TerrainGridTinStatus.InvalidInput, "Epsilon " + Epsilon + " is below the rounding margin of the computation (" + 2 * margin + ")");
             double act = Epsilon - margin;               // a violation is an error above this
@@ -303,6 +304,33 @@ namespace gs
                 return Fail(TerrainGridTinStatus.NotConverged, "the surface error " + lastSurf + " is above Epsilon after " + Rounds + " rounds", false);
             Status = TerrainGridTinStatus.Ok;
             return true;
+        }
+
+        /// <summary>
+        /// The effect of rounding the output vertices to world coordinates on |TIN - S|. The mesh is built in index space (exact); a vertex is written as
+        /// x = X0 + p.x CellSize, which moves it by at most u (|X0| + 2 extent) per axis (u = 2^-53; the product and the sum are rounded once each), and the
+        /// same for y. A point of a moved triangle has the same barycentric coordinates and so the same TIN height as before, and lies at most that far
+        /// (hypot of the two axis bounds) from the point of the exact triangle, where S differs by at most its Lipschitz constant times the distance.
+        /// S is piecewise linear and continuous on right isosceles triangles, so its gradient components are at most D / CellSize (D: the largest height
+        /// difference of two neighbouring nodes with data) and the Lipschitz constant is at most sqrt(2) D / CellSize. A factor 2 covers the rounding of
+        /// this computation itself.
+        /// </summary>
+        static double WorldRoundingMargin(HeightGrid g)
+        {
+            const double u = 1.1102230246251565e-16;
+            double extX = (g.NX - 1) * g.CellSize, extY = (g.NY - 1) * g.CellSize;
+            double dx = u * (Math.Abs(g.X0) + 2 * extX), dy = u * (Math.Abs(g.Y0) + 2 * extY);
+            double delta = Math.Sqrt(dx * dx + dy * dy);
+            double d = 0;
+            int nx = g.NX, ny = g.NY;
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    double z = g[i, j];
+                    if (!HeightGrid.IsData(z)) continue;
+                    if (i + 1 < nx && HeightGrid.IsData(g[i + 1, j])) d = Math.Max(d, Math.Abs(g[i + 1, j] - z));
+                    if (j + 1 < ny && HeightGrid.IsData(g[i, j + 1])) d = Math.Max(d, Math.Abs(g[i, j + 1] - z));
+                }
+            return 2 * Math.Sqrt(2) * d / g.CellSize * delta;
         }
 
         bool Fail(TerrainGridTinStatus status, string message, bool clear = true)
