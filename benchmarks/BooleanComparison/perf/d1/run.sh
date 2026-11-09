@@ -21,6 +21,7 @@ for f in "$WORK"/thingi/*.stl; do
     done
 done
 python3 benchmarks/BooleanComparison/perf/d1/table.py "$WORK/thingi.txt"
+# thingi_regressions_*.txt: the same loop for 103194 1036402 135793 366253 471990 837999 838003 958469 958470
 # the procedural patches (dense_patch_*.txt): in the patched tree,
 #   G3_D1=apex|ref G3_D1_OUT=<file> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~D1ProbeTmp
 # the test suites of the rounding under the prototype:

@@ -288,6 +288,30 @@ rule). On today's master 9 of the 42 are unclean, and the prototype clears all 9
 A full cohort run (16 239 operations: clean-status changes of operations that are clean today, `MaxDrift`
 distribution, times) is not done here; it is a runner job and the gate before a merge (section 7).
 
+**The 12 operations that became unclean against the #385 baseline** (FINAL-1 control of Boolean 2.0, all
+"degenerate triangles"; `thingi_regressions_2026-11-09.txt` for the nine models not in the set above, same probe):
+
+| operation | master: left, drift, smallest rejected | reference rule | D1 mechanism |
+|---|---|---|---|
+| 103194 intersection | 1, 0.56, 1.017 | clean, 0.65 | yes |
+| 1036402 difference | 1, 0.94, 1.027 | clean, 0.93 | yes |
+| 118037 intersection | 1, 0.91, 1.161 | clean, 0.93 | yes |
+| 135793 intersection | 1, 0.99, 1.050 | clean, 0.76 | yes |
+| 366253 intersection | 1, 0.87, 1.123 | clean, 0.85 | yes |
+| 471990 intersection | 1, 0.97, 1.010 | clean, 0.99 | yes |
+| 548875 intersection | 1, 1.00, 1.006 | clean, 0.94 | yes |
+| 837999 intersection | 3, 0.02, no edit rejected by the bound | 3 left, unchanged | no: no edit improves, the bound is not involved |
+| 837999 difference | 1, 0.79, 1.250 | 1 left, unchanged | no: the smallest rejected edit needs 1.25 times the bound under both rules |
+| 838003 difference | 2, 0.97, 1.095 | 2 left, 1.105 | no: 1.10 times the bound under both rules |
+| 958469 difference | 3, 0.46, 1.534 | 3 left, 0.37 | no |
+| 958470 difference | 2, 0.54, 5.257 | 2 left, unchanged | no |
+
+7 of the 12 are cleared; the other 5 are not budget cases (their rejected edits need 1.1 to 5.3 times the bound
+under either accounting, or none is rejected), so no accounting helps them: they are single edits larger than
+`maxLength`, a question of the edit set or of the bound. Among the 27 operations of these nine models none becomes
+unclean with the rule (135793 union and difference report self-intersections by `NotCleanReason` under both rules,
+with `RoundingClean` true: not a rounding defect).
+
 **Procedural** (`dense_patch_2026-11-09.txt`): unions of the dense-patch sphere with its copy, patch radius 1e-5 to
 2e-4 and edge 3.3e-6 or 1.5e-6 of the diagonal (128 to 413k degenerate triangles at the start): master leaves
 degenerate triangles in all 8 (1 to 364k); the prototype is clean in 6 with a drift of 0.34-0.52, and the two
