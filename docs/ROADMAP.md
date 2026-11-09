@@ -46,21 +46,20 @@ selectively.
 Status on 2026-11-08 (evening, Berlin).
 - **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
-  documented exceptions). Ten PRs are ready or nearly (#397, #398, #406, #409, #412, #419, #420, #424, #425, #426:
-  levers −41 % total / −68 % rounding bit-identical, D1 apex rule, scale disparity, empty-union fix, edge-key hash);
-  they merge through one combined mutation gate on an integration branch once #403 (shard split) has merged and the
-  master baselines are seeded. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
+  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424 and #440's L3 test) merged as
+  one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
+  runs on master after the merge (owner decision) and seeds the rounding baselines. #425 and #426 are still drafts. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
   report RoundingClean false honestly), the final Thingi10K run, the
   control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
   (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405 (simplification guard), #413
-  (quality pass off by default), #422 (Reducer speedups); next #404, #408, #410, #417, #429, then #432 (parallel slab
-  reduction), then the final 800 run. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
+- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405, #413, #422, #404, #408, #410,
+  #417, #429 and #432 (parallel slab reduction, 2026-11-09); the final 800 run is next. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
   CGAL's on the T1 100. Open: the per-mesh speed budget (72 of 100 with (A) on a 4-core machine) goes to the owner with
   the final numbers. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- **Mutation tooling:** #403 (rounding in 7 parts, envelope thresholds from the first CI run) is running its CI;
-  the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
-  `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
+- **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
+  2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
+  machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the
+  exclusive kills, full runs weekly. [platform.md](roadmap/platform.md)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443). Coarsening closed (re-measured: −4.5 % triangles for +50 % mesher time).
   Rule C on the snap grid is open.
