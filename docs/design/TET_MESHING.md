@@ -259,3 +259,43 @@ Owner decisions (2026-11-09, relayed by the coordinator):
 4. Quality targets T3-T5 as proposed, minimum dihedral 10 degrees (planning, to be confirmed with stage 0).
 5. New types `TetMesh3` / `TetMeshQuality`, `Delaunay3` only additive (planning, to be confirmed with stage 0).
 6. **(d) lattice stuffing later** as an alternative for implicit domains.
+
+## 10. Stage 0 result (2026-11-09)
+
+Built: `MeshAlphaWrap.ExtractTetMesh()`, `TetMesh3`, `TetMeshQuality` (`NotValidReason`, `Measure`), the independent
+BigInteger oracle `tests/.../Harness/TetOracle.cs`, `TetMeshingStage0Tests` (18 tests, under 1 s in total: five inputs
+valid + conforming to the wrap, reuse, `Similarity.All()` with bit-for-bit 2^k scales, measures of known tets, eight
+mutants of a valid cube mesh rejected) and `benchmarks/TetMeshBenchmark` (raw numbers in its README). Mutation
+checks: dropping a boundary facet, accepting zero volume (first survived, test added), a wrong dihedral formula are
+killed; a volume-identity check was an equivalent mutant (it follows from the facet matching) and was removed.
+
+Measured, replacing the planning numbers:
+
+| Quantity | Measured | Planning figure of section 4 |
+|---|---|---|
+| `Delaunay3` insertion, spatially coherent order | **13 us per point, 1.9 us per cell**, constant to 400k points | 1-2 us per point |
+| `Delaunay3` insertion, random order | 26 us (20k) .. 68 us (400k) per point: point location dominates | not considered |
+| Validity of the inside cells | 8 of 8 procedural wraps valid, exactly | expected |
+| Interior of the wrap | only 1.4k .. 5k tets per wrap (all vertices lie on the surface) | expected: coarse |
+| Tets with radius-edge above 2 | **87-99 %** of the tets; median 1.6 .. 8.8; worst 4.8 .. 18 | quality missing |
+| Smallest dihedral angle per mesh | 4e-11 .. 0.46 degrees; 5 % percentile 1.0 .. 9.6 degrees; median 4 .. 31 degrees | slivers expected |
+| Tets with a dihedral above 170 degrees | 0.8 % (box) .. 58 % (sphere n=40) | |
+| Surface dihedral angles (alpha 20, offset 600) | minimum 86.4 .. 170.7 degrees; only 3 of 20k edges below 90 | risk of acute angles (5.2) |
+| Surface triangle min angle | 8.6 .. 30 degrees | wrap bound 0.95 degrees |
+
+Consequences for the stage-1 decisions:
+
+1. **Raw inside cells are not usable as an FEM mesh**: almost every tet violates the radius-edge bound and the dihedral
+   tails reach 0 and 180 degrees. Stage 1 is needed, as planned.
+2. **The termination risk of 5.2 is smaller than feared on this set**: the wrap surfaces have no acute dihedral angles
+   to speak of (86 degrees at the worst) and triangle angles of at least 8.6 degrees, so Shewchuk's 90-degree condition holds to
+   within 4 degrees. The floor argument stays as the safety net. This set is smooth or convex; sharp
+   concave inputs (a thin slot, a notch) are not covered and should be added to the corpus before stage 1 is closed.
+3. **The speed target T5 (25 us per output tet) is tight**: a plain triangulation costs 1.9 us per cell, and refinement
+   adds circumcentre computation, encroachment checks and a queue. A realistic expectation is 5-10x the plain
+   insertion, 10-20 us per tet, before sliver removal. The planning figure of 2-5 us per tet is withdrawn. Decision
+   for the owner: keep T5 at 25 us per tet for refinement alone and measure it in stage 1, or relax it to 50 us.
+4. The point-location walk matters: stage 1 should insert in a spatially coherent order (the queue by position, or a
+   Hilbert order for the size-driven phase), and pass hints.
+5. **Not measured**: Thingi10K (hosts blocked here; the `file` mode of the benchmark takes any mesh), the wrap time share
+   (the wrap takes 40-240 ms for these inputs and dominates tiny meshes, not large ones).
