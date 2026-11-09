@@ -210,6 +210,128 @@ namespace geometry3Sharp.Tests
             Assert.DoesNotContain(hits, h => h.Triangle != DMesh3.InvalidID && h.Triangle % 3 == 0);
         }
 
+        // ---- IsInsideBatch ----
+
+        static InsideStatus SingleInside(DMeshAABBTree3 tree, Vector3d p, InsideMethod m)
+        {
+            bool inside = m == InsideMethod.Crossings ? tree.IsInside(p) : tree.FastWindingNumber(p) > 0.5;
+            return inside ? InsideStatus.Inside : InsideStatus.Outside;
+        }
+
+        public static IEnumerable<object[]> InsideCases()
+        {
+            foreach (var m in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber })
+                foreach (var oc in OptionCases())
+                    yield return new object[] { m, oc[0], oc[1] };
+        }
+
+        [Theory, MemberData(nameof(InsideCases))]
+        public void IsInsideBatch_EqualsSingleCalls(InsideMethod method, bool parallel, bool sort)
+        {
+            var mesh = Sphere(); var tree = new DMeshAABBTree3(mesh, true);
+            var pts = Points(mesh, 3000, 30);          // random, on the surface (vertices) and near it
+            var res = new InsideStatus[pts.Length];
+            Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, pts, res, method, new BatchOptions() { Parallel = parallel, SortForCoherence = sort }));
+            int inside = 0;
+            for (int i = 0; i < pts.Length; ++i) {
+                Assert.Equal(SingleInside(tree, pts[i], method), res[i]);
+                if (res[i] == InsideStatus.Inside) inside++;
+            }
+            Assert.InRange(inside, 100, pts.Length - 100);
+        }
+
+        [Fact]
+        public void IsInsideBatch_SphereSanity_BothMethods()
+        {
+            var mesh = Sphere(); var tree = new DMeshAABBTree3(mesh, true);
+            var r = new Random(31);
+            var pts = Enumerable.Range(0, 2000).Select(i => (i % 2 == 0 ? 0.8 : 1.3) * RandDir(r)).ToArray();
+            foreach (var m in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber }) {
+                var res = new InsideStatus[pts.Length];
+                MeshBatchQueries.IsInsideBatch(tree, pts, res, m);
+                for (int i = 0; i < pts.Length; ++i)
+                    Assert.Equal(i % 2 == 0 ? InsideStatus.Inside : InsideStatus.Outside, res[i]);
+            }
+        }
+
+        [Fact]
+        public void IsInsideBatch_OpenMesh_WindingNumberEqualsSingleCalls()
+        {
+            var mesh = Sphere();
+            foreach (int t in mesh.TriangleIndices().Where(t => t % 5 == 0).ToArray()) mesh.RemoveTriangle(t);   // holes
+            var tree = new DMeshAABBTree3(mesh, true);
+            var pts = Points(mesh, 2500, 32);
+            var res = new InsideStatus[pts.Length];
+            Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, pts, res, InsideMethod.WindingNumber));
+            for (int i = 0; i < pts.Length; ++i) Assert.Equal(SingleInside(tree, pts[i], InsideMethod.WindingNumber), res[i]);
+        }
+
+        [Fact]
+        public void IsInsideBatch_InvarianceAndStatuses()
+        {
+            var mesh = Sphere(12);
+            var pts = Points(mesh, 1500, 33);
+            var refTree = new DMeshAABBTree3(mesh, true);
+            var refRes = new InsideStatus[pts.Length];
+            MeshBatchQueries.IsInsideBatch(refTree, pts, refRes);
+            foreach (var sim in Similarity.All())
+                foreach (var m in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber }) {
+                    var tree = new DMeshAABBTree3(Invariance.Transformed(mesh, sim), true);
+                    var tp = pts.Select(sim.Apply).ToArray(); var res = new InsideStatus[tp.Length];
+                    Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, tp, res, m));
+                    for (int i = 0; i < tp.Length; ++i) Assert.Equal(SingleInside(tree, tp[i], m), res[i]);
+                    if (sim.IsExact && m == InsideMethod.Crossings)      // the exact crossings do not change under 2^k scaling
+                        Assert.Equal(refRes, res);
+                }
+            var tree2 = new DMeshAABBTree3(mesh, true);
+            var bad = new[] { new Vector3d(0, 0, 0), new Vector3d(double.NaN, 0, 0), new Vector3d(0, double.PositiveInfinity, 0), new Vector3d(1e308, 1e308, 1e308), new Vector3d(0, 0, 3) };
+            var bres = new InsideStatus[5];
+            Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree2, bad, bres));
+            Assert.Equal(new[] { InsideStatus.Inside, InsideStatus.Invalid, InsideStatus.Invalid, SingleInside(tree2, bad[3], InsideMethod.Crossings), InsideStatus.Outside }, bres);
+        }
+
+        [Fact]
+        public void IsInsideBatch_ArgumentsStateCancellationAndEmptyMesh()
+        {
+            var mesh = Sphere(); var tree = new DMeshAABBTree3(mesh, true);
+            var pts = Points(mesh, 3000, 34); var res = new InsideStatus[pts.Length];
+            Assert.Equal(BatchStatus.InvalidArguments, MeshBatchQueries.IsInsideBatch(null, pts, res));
+            Assert.Equal(BatchStatus.InvalidArguments, MeshBatchQueries.IsInsideBatch(tree, null, res));
+            Assert.Equal(BatchStatus.InvalidArguments, MeshBatchQueries.IsInsideBatch(tree, pts, null));
+            Assert.Equal(BatchStatus.InvalidArguments, MeshBatchQueries.IsInsideBatch(tree, pts, res, (InsideMethod)7));
+            Assert.Equal(BatchStatus.BufferTooSmall, MeshBatchQueries.IsInsideBatch(tree, pts, new InsideStatus[3]));
+            using (var cts = new CancellationTokenSource()) {
+                cts.Cancel();
+                Assert.Equal(BatchStatus.Cancelled, MeshBatchQueries.IsInsideBatch(tree, pts, res, InsideMethod.Crossings, new BatchOptions() { Cancel = cts.Token }));
+            }
+            Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, new Vector3d[0], new InsideStatus[0]));
+            var etree = new DMeshAABBTree3(new DMesh3(), true);
+            foreach (var m in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber }) {
+                var eres = new InsideStatus[2];
+                Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(etree, new[] { Vector3d.Zero, new Vector3d(double.NaN, 0, 0) }, eres, m));
+                Assert.Equal(new[] { InsideStatus.Outside, InsideStatus.Invalid }, eres);
+            }
+            mesh.SetVertex(0, mesh.GetVertex(0) + new Vector3d(0.01, 0, 0));
+            Assert.Equal(BatchStatus.MeshModified, MeshBatchQueries.IsInsideBatch(tree, pts, res));
+            Assert.Equal(BatchStatus.MeshModified, MeshBatchQueries.IsInsideBatch(tree, pts, res, InsideMethod.WindingNumber));
+        }
+
+        [Fact]
+        public void IsInsideBatch_DeterministicAcrossOptionsAndRepeats()
+        {
+            var mesh = Sphere(); var tree = new DMeshAABBTree3(mesh, true);
+            var pts = Points(mesh, 4000, 35);
+            foreach (var m in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber }) {
+                InsideStatus[] first = null;
+                for (int run = 0; run < 2; ++run)
+                    foreach (var oc in OptionCases()) {
+                        var res = new InsideStatus[pts.Length];
+                        MeshBatchQueries.IsInsideBatch(tree, pts, res, m, new BatchOptions() { Parallel = (bool)oc[0], SortForCoherence = (bool)oc[1] });
+                        if (first == null) first = res; else Assert.Equal(first, res);
+                    }
+            }
+        }
+
         // ---- determinism, reuse ----
 
         [Fact]

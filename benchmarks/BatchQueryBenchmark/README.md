@@ -57,3 +57,26 @@ perturbation), which is exact for the generic points used here. In a library ver
 | 1002252 | NearestPointBatch | grid | 78989 | 0.99x | 1.10x | 3.79x |
 | 1002252 | NearestPointBatch | grid-shuffled | 113838 | 1.02x | 1.60x | 5.46x |
 | 1002252 | NearestPointBatch | random | 114737 | 1.01x | 1.57x | 5.73x |
+
+`IsInsideBatch` (`-- 256 40 30,92,290 inside`, raw: `results-inside-2026-11-09.csv`; same conditions; loop of `tree.IsInside` / `tree.FastWindingNumber(p) > 0.5`; `check`: every flag equal to the loop):
+
+| triangles | query | workload | loop ns | serial, unsorted | serial, sorted | parallel, sorted |
+|---:|---|---|---:|---:|---:|---:|
+| 10092 | IsInsideBatch-Crossings | grid | 2711 | 0.95x | 1.01x | 3.19x |
+| 10092 | IsInsideBatch-Crossings | grid-shuffled | 3050 | 1.03x | 1.14x | 3.40x |
+| 10092 | IsInsideBatch-Crossings | random | 3558 | 1.24x | 1.33x | 3.88x |
+| 10092 | IsInsideBatch-WindingNumber | grid | 3609 | 1.07x | 1.19x | 3.35x |
+| 10092 | IsInsideBatch-WindingNumber | grid-shuffled | 4132 | 1.08x | 1.33x | 3.68x |
+| 10092 | IsInsideBatch-WindingNumber | random | 4264 | 1.11x | 1.36x | 3.83x |
+| 99372 | IsInsideBatch-Crossings | grid | 3490 | 0.99x | 0.92x | 3.03x |
+| 99372 | IsInsideBatch-Crossings | grid-shuffled | 3987 | 1.00x | 1.15x | 3.24x |
+| 99372 | IsInsideBatch-Crossings | random | 3975 | 0.94x | 1.15x | 3.35x |
+| 99372 | IsInsideBatch-WindingNumber | grid | 3754 | 1.11x | 1.12x | 3.26x |
+| 99372 | IsInsideBatch-WindingNumber | grid-shuffled | 4610 | 0.87x | 1.11x | 3.91x |
+| 99372 | IsInsideBatch-WindingNumber | random | 5439 | 1.14x | 1.48x | 4.75x |
+| 1002252 | IsInsideBatch-Crossings | grid | 6931 | 1.19x | 1.39x | 4.16x |
+| 1002252 | IsInsideBatch-Crossings | grid-shuffled | 7414 | 1.08x | 1.34x | 5.09x |
+| 1002252 | IsInsideBatch-Crossings | random | 6688 | 0.94x | 1.24x | 3.46x |
+| 1002252 | IsInsideBatch-WindingNumber | grid | 4237 | 1.01x | 1.06x | 3.08x |
+| 1002252 | IsInsideBatch-WindingNumber | grid-shuffled | 6531 | 0.95x | 1.47x | 4.86x |
+| 1002252 | IsInsideBatch-WindingNumber | random | 6414 | 0.96x | 1.56x | 5.50x |

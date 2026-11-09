@@ -220,6 +220,24 @@ static class Program
         }
     }
 
+    // IsInsideBatch against the loop of single calls, both methods, bit for bit
+    static void ApiInside(string name, DMesh3 mesh, DMeshAABBTree3 tree, int pointSide)
+    {
+        foreach (var method in new[] { InsideMethod.Crossings, InsideMethod.WindingNumber })
+            foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) {
+                var pts = PointWorkload(wl, pointSide); int n = pts.Length;
+                var ref0 = new InsideStatus[n]; var res = new InsideStatus[n];
+                tree.FastWindingNumber(pts[0]);
+                double a = Time(() => { for (int i = 0; i < n; ++i) ref0[i] = (method == InsideMethod.Crossings ? tree.IsInside(pts[i]) : tree.FastWindingNumber(pts[i]) > 0.5) ? InsideStatus.Inside : InsideStatus.Outside; }, n);
+                string q = "IsInsideBatch-" + method;
+                Row(name, mesh.TriangleCount, q, wl, "a-loop-library", a, a, "ref");
+                foreach (var (label, o) in new[] { ("api-serial-unsorted", new BatchOptions() { Parallel = false, SortForCoherence = false }), ("api-serial-sorted", new BatchOptions() { Parallel = false }), ("api-parallel-sorted", new BatchOptions()) }) {
+                    double x = Time(() => MeshBatchQueries.IsInsideBatch(tree, pts, res, method, o), n);
+                    Row(name, mesh.TriangleCount, q, wl, label, x, a, res.SequenceEqual(ref0) ? "equal" : "DIFF");
+                }
+            }
+    }
+
     static void Main(string[] args)
     {
         int raySide = args.Length > 0 ? int.Parse(args[0]) : 512;      // rays = side^2
@@ -229,8 +247,10 @@ static class Program
         Console.WriteLine("mesh,triangles,query,workload,mode,ns/query,Mqueries/s,speedup vs a,check");
         bool nearestOnly = args.Length > 3 && args[3] == "nearest";
         bool api = args.Length > 3 && args[3] == "api";
+        bool inside = args.Length > 3 && args[3] == "inside";
         foreach (int e in sizes) {
             var mesh = Sphere(e); var tree = new DMeshAABBTree3(mesh, true); var bvh = new Bvh(mesh);
+            if (inside) { ApiInside("sphere", mesh, tree, pointSide); continue; }
             if (api) { Api("sphere", mesh, tree, raySide, pointSide); continue; }
             if (nearestOnly) { foreach (var wl in new[] { "grid", "grid-shuffled", "random" }) Nearest("sphere", mesh, tree, wl, pointSide); continue; }
             foreach (var wl in new[] { "camera", "camera-shuffled", "random" }) Rays("sphere", mesh, tree, bvh, wl, raySide);

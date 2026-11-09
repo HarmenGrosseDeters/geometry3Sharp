@@ -44,6 +44,23 @@ namespace g3
         NonFinite
     }
 
+    /// <summary> Result of one inside test: Invalid for a point that is not finite </summary>
+    public enum InsideStatus : byte
+    {
+        Outside = 0,
+        Inside = 1,
+        Invalid = 2
+    }
+
+    /// <summary> How IsInsideBatch decides </summary>
+    public enum InsideMethod
+    {
+        /// <summary> tree.IsInside(p): the exact parity of the crossings of a ray (closed meshes without self-intersections; meaningless for others) </summary>
+        Crossings,
+        /// <summary> tree.FastWindingNumber(p) &gt; 0.5: also defined for open, non-manifold and noisy meshes (approximate near the surface, see FastWindingNumber) </summary>
+        WindingNumber
+    }
+
     /// <summary>
     /// The nearest triangle of a point: the triangle (DMesh3.InvalidID: none strictly closer than MaxDistance), the
     /// closest point on it, its barycentric coordinates and the distance (double.MaxValue if there is none).
@@ -175,6 +192,44 @@ namespace g3
                 results[i] = r;
             };
             return Execute(n, options, () => PointKeys(points), one);
+        }
+
+
+        /// <summary>
+        /// For every point whether it is inside the mesh: results[i] is Inside or Outside as tree.IsInside(p)
+        /// (method Crossings, the default: exact, for closed meshes) or as tree.FastWindingNumber(p) &gt; 0.5 (method
+        /// WindingNumber: for any mesh), Invalid for a point that is not finite. options.MaxDistance does not apply. An empty
+        /// mesh has no inside. The winding number cache is built once before the parallel part.
+        /// </summary>
+        public static BatchStatus IsInsideBatch(DMeshAABBTree3 tree, Vector3d[] points, InsideStatus[] results, InsideMethod method = InsideMethod.Crossings, BatchOptions options = null)
+        {
+            if (tree == null || points == null || results == null)
+                return BatchStatus.InvalidArguments;
+            if (method != InsideMethod.Crossings && method != InsideMethod.WindingNumber)
+                return BatchStatus.InvalidArguments;
+            if (results.Length < points.Length)
+                return BatchStatus.BufferTooSmall;
+            BatchStatus bs = Check(tree, ref options);
+            if (bs != BatchStatus.Ok)
+                return bs;
+            bool empty = tree.Mesh.TriangleCount == 0;
+            if (method == InsideMethod.WindingNumber && !empty) {
+                // (built under a lock on first use anyway; once here, so that the workers do not queue up on it)
+                for (int i = 0; i < points.Length; ++i)
+                    if (Finite(points[i])) { tree.FastWindingNumber(points[i]); break; }
+            }
+            Action<int> one = i => {
+                Vector3d p = points[i];
+                if (Finite(p) == false)
+                    results[i] = InsideStatus.Invalid;
+                else if (empty)
+                    results[i] = InsideStatus.Outside;
+                else if (method == InsideMethod.Crossings)
+                    results[i] = tree.IsInside(p) ? InsideStatus.Inside : InsideStatus.Outside;
+                else
+                    results[i] = tree.FastWindingNumber(p) > 0.5 ? InsideStatus.Inside : InsideStatus.Outside;
+            };
+            return Execute(points.Length, options, () => PointKeys(points), one);
         }
 
 
