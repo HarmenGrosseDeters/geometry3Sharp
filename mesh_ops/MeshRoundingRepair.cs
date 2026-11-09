@@ -2121,10 +2121,10 @@ namespace g3
                 return;
             // height for the degenerate area, and more
             double h = 2 * areaEps_of(apex) / -len[0], bound = maxLength_of(apex);
-            // the first step: twice that height; where it underflows to 0 (a component below about 1e-154: its
-            // degenerate area is 0, and an exactly degenerate triangle is left; before, s stayed 0 and the loop never
-            // ended), a few units in the last place of the apex, or at the origin the unit of the bound, as the
-            // contact separation does
+            // the first step: twice that height; where it underflows to 0 (a component of about 2^-537 to 2^-517: its
+            // degenerate area is 0 while its edges are not, and an exactly degenerate triangle is left; before, s stayed
+            // 0 and the loop never ended), a few units in the last place of the apex, or at the origin the unit of the
+            // bound, as the contact separation does
             double s0 = 2 * h;
             if (!(s0 > 0)) {
                 Vector3d ca = pos(apex);

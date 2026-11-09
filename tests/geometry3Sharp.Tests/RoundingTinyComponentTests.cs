@@ -7,11 +7,13 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// SafeRounding on a component below about 1e-154 (found by tools/MeshFuzzPilot: an octahedron near 1e-159 whose
-    /// equator corners coincide). Its degenerate area, DegenerateArea times the squared diagonal, underflows to 0; an
-    /// exactly degenerate triangle is still bad, and fix_degenerate's steps started at twice the height for that area,
-    /// 0, so "s *= 4" never left 0 and Apply() never returned. Now the steps start a few units in the last place of
-    /// the apex.
+    /// SafeRounding on a component of size about 2^-537 to 2^-517 (found by tools/MeshFuzzPilot: an octahedron near
+    /// 1e-159 whose equator corners coincide). Its degenerate area, DegenerateArea times the squared diagonal,
+    /// underflows to 0, but an edge length does not yet (below about 2^-537 the squared edge underflows and
+    /// fix_degenerate returns before its steps). An exactly degenerate triangle is still bad, and fix_degenerate's steps
+    /// started at twice the height for that area, 0, so "s *= 4" never left 0 and Apply() never returned. Now the steps
+    /// start a few units in the last place of the apex. The test pins that Apply() returns and the counts are honest; on
+    /// this input the repair clears the mesh by other edits (a collapse), not by the new steps.
     /// </summary>
     public class RoundingTinyComponentTests
     {
@@ -38,9 +40,9 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(-520)]
         [InlineData(-530)]
-        [InlineData(-600)]
-        [InlineData(-1000)]
+        [InlineData(-536)]
         public void CollapsedOctahedron_Tiny_ApplyReturns(int exponent)
         {
             double s = Math.Pow(2, exponent);
