@@ -46,9 +46,9 @@ selectively.
 Status on 2026-11-08 (evening, Berlin).
 - **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
-  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424 and #440's L3 test) merged as
+  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
   one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
-  runs on master after the merge (owner decision) and seeds the rounding baselines. #425 and #426 are still drafts. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
+  runs on master after the merge (owner decision) and seeds the rounding baselines. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
   report RoundingClean false honestly), the final Thingi10K run, the
   control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
   (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
