@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, `geodesic`, the batch queries `query3d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -204,6 +204,10 @@ creases, eg the apex of a cone with many slices, by their angle deficit.
 to tip), so the remeshers neither move them nor join the fans; the `Reducer` keeps bowtie vertices in place by itself.
 `Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
 to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
+
+`PartitionedReducer` (opt-in) is `Reducer.ReduceToMaxQuadricError` on 8 fixed slabs in parallel: deterministic for any thread count, not the serial Reducer's result, the main use is
+`PreventSelfIntersections` (on 60 to 100k triangles 1.3 to 2.4 x the plain time instead of 4 to 5 x, 4 cores; no gain below about 20k triangles, where it reduces serially; the result has no
+attributes and does not keep the boundary shape; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 9).
 
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
@@ -553,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `WrapPartitionedCliTests`, `GeodesicQueryCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -624,6 +628,56 @@ cat > l.poly <<'POLY'
 POLY
 g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
 #   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
+```
+
+**Evaluation metrics** (`fidelity`, `MeshFidelityMetrics`; `quality`, `TriangleQualityStatistics` and `MeshTopologySummary`):
+`fidelity` compares a mesh with a reference by what Hausdorff distance and volume IoU miss (lost features, reversed patches,
+changed topology); sampling uses a fixed seed (`--seed`), so a call is reproducible, and all distances are relative to the
+reported `size` (the reference's bounding box diagonal, in mesh units); curvatures are H*size and K*size^2, angles in degrees, `null` is not
+available and the string `"infinity"` is infinite (eg `edge_chamfer` when only one mesh has sharp edges). `quality` reports one mesh's triangle quality distributions and topology:
+
+```
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [...], "chamfer": ..., "normal_consistency": ..., "edge_recall": [...], "volume_iou": ...,
+#      "outer": {...}, "curvature": {...}, "reference_quality" / "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli quality simplified.stl
+#   -> "quality": { "min_angle": { "worst": ..., "worst_1_percent": ..., "median": ... }, ... }, "topology": { "genus": 0, ... }
+```
+
+**Alpha wrap and partitioned simplification** (`wrap`, `MeshAlphaWrap`; `simplify --partitioned`, `PartitionedReducer`): `wrap`
+makes a closed, 2-manifold surface that encloses any input at about `offset`, following detail down to about `alpha`; without
+options the library defaults apply (bounding box diagonal / 20 and / 600). `point_limit_reached` is still a valid wrap (warning);
+other statuses fail with `operation_failed` and `wrap_status`. `simplify --partitioned` needs the target `--max-error` (a squared
+distance) and gives the same result for every `--threads`, not that of one serial run; it does not preserve boundary shapes:
+
+```
+g3cli wrap assembly.off wrapped.stl --relative-alpha 40 --relative-offset 1000
+g3cli simplify big.ply small.ply --max-error 1e-6 --partitioned --threads 4
+```
+
+**Geodesics and batch queries** (`geodesic`: `MeshGeodesicDistance`, `MeshGeodesicPath`; `query3d`: `MeshBatchQueries`): distances
+from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
+components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
+mesh as read. `query3d` answers each query as the single query would (a ray's `t` is in mesh units; the direction is normalized);
+`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh:
+
+```
+g3cli geodesic terrain.ply --sources 0 --targets 120,4711
+g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
+```
+
+**Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
+`PrimitiveFit3`): statistics only, no per-vertex output yet. `deviation` is positive outside the reference's solid (`--sign`),
+`--certified` adds the certified one-sided Hausdorff distance (`hausdorff_lower_bound`, `hausdorff_upper_bound`); `thickness`
+reports triangles without a value (no ray hit within `--max-distance`) and, with `--min-thickness`, the thin triangles; `fit`
+fails with `operation_failed` and `fit_result` (`too_few_points`, `rejected_by_limits`, ...) when no model is found:
+
+```
+g3cli deviation simplified.stl original.stl --certified
+g3cli thickness part.stl --method ray --min-thickness 0.8 --max-results 20
+g3cli fit pipe.stl --primitive cylinder
+#   -> "cylinder": { "center": [...], "axis_direction": [...], "radius": 12.5, "height": 80 }, "inliers": 4120, "rms_error": ...
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with

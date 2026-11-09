@@ -125,7 +125,7 @@ overlay of the efficiency bullet of 5.5; km-scale benchmarks. These are 1c (or l
   in the same direction by both triangles) fails instead of being used.
 - **No new error bound.** The decisions are exact predicates; the positions of catch points are approximations whose
   accuracy is 1c's report; the merge share above is the only addition to the budget.
-- **Stryker** (`tests/mutation/terrain-overlay-stryker.json`, `TerrainSlopeOverlay.cs`, the catch-line tests without the
+- **Stryker** (`tests/mutation/stryker-mesh-terrain-overlay.json`, `TerrainSlopeOverlay.cs`, the catch-line tests without the
   stress test, local, 36 min): **97.06 %** (385 killed, 110 timeout, 2 survived, 13 no coverage). Survivors: the two
   `>`→`>=` of the SoS tie break on x (lines 120 and 130), equivalent, as they differ only for a zero-length edge, which
   no surface has. No coverage: the messages and returns of internal-error paths (a face with 1 or 3 sign changes, an

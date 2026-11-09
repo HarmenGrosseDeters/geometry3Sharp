@@ -58,6 +58,27 @@ namespace gs
         /// </summary>
         public void Apply()
         {
+            // outside an extent of [2^-100, 2^100] the squares of lengths and areas overflow or underflow: run on the
+            // mesh scaled by a power of two to an extent of about 1 (exact) and scale it back, with the reference
+            // diagonal; a 2^k scale then gives the unit-scale result times 2^k
+            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh);
+            if (s == 1) {
+                apply_unit();
+                return;
+            }
+            double reference = ReferenceDiagonal;
+            MeshRepairMetrics.ScaleVertices(Mesh, s);
+            ReferenceDiagonal = s * reference;
+            try {
+                apply_unit();
+            } finally {
+                ReferenceDiagonal = reference;
+                MeshRepairMetrics.ScaleVertices(Mesh, 1 / s);
+            }
+        }
+
+        void apply_unit()
+        {
             double diag = (ReferenceDiagonal > 0 && ReferenceDiagonal < double.PositiveInfinity) ? ReferenceDiagonal
                 : Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
             areaEps = DegenerateAreaFactor * diag * diag;

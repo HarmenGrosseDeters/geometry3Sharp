@@ -619,7 +619,16 @@ not depend on the implementer's own tests. Order of priority:
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
    replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
-   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`).
+   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`) and for `MeshRobustRepair` /
+   `MeshRoundingRepair` (`RepairCampaignTests`, QA 2.0 T3: scenes of 1-4 pieces of very different sizes and
+   distances, touching, nearly touching, overlapping, flipped / duplicated / dropped faces, jitter; properties: Apply()
+   true implies clean by `NotCleanReason`, no defect the input lacks, displacement <= MaxDrift, 2^k scale invariance
+   bit for bit, determinism, parallel = serial, reuse; findings in `RepairCampaignFindings`). Campaign classes carry
+   `[Trait("Category", "Campaign")]` and have "Campaign" in their name; the Stryker `test-case-filter` terms are name
+   parts and must not select them (`CampaignConventionTests` checks it). CI runs the default sample counts; a large
+   local campaign: `G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter
+   "Category=Campaign"` (add `G3_PROPERTY_ALL=1` to list every failing seed instead of stopping at the first,
+   `G3_CAMPAIGN_DEFAULTS=1` for the default solidify / wrap resolution).
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,

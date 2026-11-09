@@ -159,3 +159,120 @@ to the benchmark, and move on to T1. The stretch target and the x2 quality go to
 Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along the feature curves) for the crease slivers with creases kept
 (x1 p01 5.65° -> 10° stretch) and the coarsening quality (x2 p01 median 1.8°). Before anything is built: a bound from a probe on 10 meshes
 (5 of 20 meshes hold most of the remaining slivers), and a check that the Hausdorff / F-score stay at the level of the creases-kept row above.
+
+## 8. T1 probe results (2026-11-09, upper-bound check before a lever; stop rule applied)
+
+20 Thingi10K meshes, `ReduceToTriangleCount` to 10 % and 1 %, no projection (`reduce_q`, `reduce_fold`, `reduce_worst` of the benchmark; the guard
+by reflection; raw rows not committed). `missed` = result above 1.1 x the target; slivers = triangles < 0.5° plus > 170°.
+
+| setting | 10 %: missed, p01 median, slivers | 1 %: missed, p01, slivers | 1 %: Hausdorff median (max), F 0.1 %, IoU | meshes with more self-int. pairs than the input (10 % / 1 %) |
+|---|---|---|---|---|
+| input | - | - | - | 22654 slivers |
+| default | 1, 0.61°, 3440 | 8, 2.5°, 885 | 7.0 % (30 %), 0.17, 0.62 | 4 / 9 |
+| `PreventFoldOver` off | 1, 0.85°, 2768 | 5, 3.0°, 582 | 6.0 % (19 %), 0.17, 0.60 | 5 / 11 |
+| `MinCollapseTriangleQuality` 0.3 plus the internal "against the worst" form | 18, 0.26°, 12719 | 20, 0.26°, 12719 | 3.0 % (11 %), 0.75, 0.91 | 5 / 6 |
+| `MinCollapseTriangleQuality` 0.3 plain, 0.1 plain / worst | 19-20 missed, p01 0.1-0.3° in all (earlier probe, 6 settings) | | | |
+
+Reading:
+- **The sliver part of T1 is met by the default**: on every one of the 20 meshes the result has fewer triangles < 0.5° or > 170° than the input
+  (22654 in the input, 3440 at 10 %, 885 at 1 %). The target "no more than the input" does not need a lever.
+- **The quality guard is not a lever for real meshes**, plain or "against the worst": it misses the count on 18-20 of 20 meshes (the inputs contain triangles below
+  the threshold, so the collapses around them are refused and the reduction stops early with the input's slivers still in place), and p01 gets worse, not better
+  (0.26° against 0.61°). On clean meshes it works (p01 8° -> 12.8°, earlier probe), which is why #405 uses it inside `SimplifyWithin`.
+- **Why the count is missed at 1 %** (8 of 20): 4 targets are below the minimum triangle count of the mesh's genus (a closed genus-g mesh needs at least 2V - 4 + 4g triangles
+  with V >= (7 + sqrt(1 + 48g)) / 2: 196126, 118679, 237642, 267659), 93370 sits at that minimum, and the rest are stopped by the
+  reference-normal guard `PreventFoldOver`: with it off, 39460, 63709 and 104582 reach the target (5 meshes still miss). But switching it off is no gain in quality
+  (p01 +0.5°, Hausdorff and F-score about the same, more meshes with extra self-intersections 11 against 9) and it is the guard against folded surfaces; the
+  1 % results of these small, detailed meshes (30 to 400 triangles from 2.4k to 46k) are poor either way (IoU 0.6).
+- **No safe lever found**, so by the stop rule T1 is reported and not built: nothing to change in the Reducer. What remains is documentation: `ReduceToTriangleCount` can stop above the
+  target (guards, genus minimum), callers check `TriangleCount`; and the recommendation to use `FeatureAngle`, `MaxDeviation` or `ReduceToMaxQuadricError` when a quality criterion rather than a count is meant.
+
+Proposal: T1 closed with this note (no code); T3 next (`PreventSelfIntersections` is the lever for the self-intersection columns above).
+
+## 9. T3: `PartitionedReducer` (the public partitioned Reducer; owner decision 2026-11-09, option A)
+
+New public sealed class `PartitionedReducer` (`mesh_ops/PartitionedReducer.cs`, purely additive): `PartitionedReduction` (#432) on 8 fixed slabs, with
+`Reduce(mesh, maxQuadricError)`, `Configure(Action<Reducer>)`, `MaxThreads`, `CancelF`, `MinTriangles` (default 20000: below it one serial Reducer run), `UsedPartition`.
+The contract (deterministic for any thread count, not the serial result, no attributes and no isolated vertices in the result, `PreserveBoundaryShape = false`, thread-safe `Configure` and `CancelF`,
+`MaxDeviation` and external constraints in `Configure` refused, `AggregateException` for every `MaxThreads`, the two serial fallbacks) is in the class documentation and pinned by `PartitionedReducerTests`. No triangle-count target in v1. Opt-in; the plain reduction stays serial.
+
+Measured (`ReducerRemesherBaseline partition=1 min_tris=0`, 24 inputs, `ReduceToMaxQuadricError` at 0.003 of the box diagonal, `AreaWeightedQuadrics = false`,
+`PreserveBoundaryShape = false`, 4 cores, warm, one run each; the partition forced on). Time of the plain Reducer, of `PreventSelfIntersections` serial, and of the same on 8 slabs:
+
+| mesh | triangles | plain s (tris) | si serial s (tris) | si on 8 slabs s (tris) | si / plain | slabs / plain | slabs speed-up over si serial | used partition | Hausdorff si serial / slabs (of diagonal) |
+|---|---|---|---|---|---|---|---|---|---|
+| bumpy_sphere | 95052 | 0.34 (4792) | 1.35 (4792) | 0.69 (4820) | 4.0 x | 2.0 x | 1.97 x | yes | 0.0012 / 0.0013 |
+| torus | 67600 | 0.19 (4328) | 0.96 (4328) | 0.45 (4354) | 5.1 x | 2.4 x | 2.16 x | yes | 0.0012 / 0.0013 |
+| terrain | 96800 | 0.35 (7121) | 1.45 (7121) | 0.46 (7109) | 4.1 x | 1.3 x | 3.14 x | yes | 0.0190 / 0.0190 |
+| box | 57132 | 1.06 (12) | 57.87 (12) | 10.23 (14) | 54.7 x | 9.7 x | 5.65 x | yes | 0.0005 / 0.0004 |
+| 1043471 | 20204 | 0.05 (1044) | 0.30 (1044) | 0.32 (1060) | 5.5 x | 5.9 x | 0.93 x | yes | 0.0020 / 0.0020 |
+| 104582 | 39608 | 0.17 (3908) | 0.91 (3912) | 0.90 (3930) | 5.5 x | 5.5 x | 1.00 x | yes | 0.0025 / 0.0025 |
+| 1053376 | 42612 | 0.15 (5592) | 0.78 (5756) | 0.33 (5724) | 5.2 x | 2.2 x | 2.37 x | yes | 0.0074 / 0.0067 |
+| 78295 | 42492 | 0.15 (4018) | 1.10 (4018) | 0.67 (4080) | 7.4 x | 4.5 x | 1.65 x | yes | 0.0016 / 0.0021 |
+| 93370 | 45694 | 0.12 (12078) | 1.20 (12080) | 0.53 (11560) | 9.8 x | 4.4 x | 2.25 x | yes | 0.0022 / 0.0022 |
+
+Below 20000 triangles (15 meshes, 2.4k to 18k): the slabs take 0.8 to 1.5 x the serial `si` time (no gain; setup and the serial last pass dominate), at most 0.2 s, which is why
+`MinTriangles` defaults to 20000.
+
+Totals over the 24 meshes: plain 2.8 s, `si` serial 67.4 s (23.7 x), slabs 16.0 s (5.6 x plain, 4.2 x faster than `si` serial). Without the box (a closed box with large coplanar faces
+makes the self-intersection check 55 x the plain time): plain 1.8 s, `si` 9.5 s (5.4 x), slabs 5.7 s (3.2 x, 1.7 x faster). Result sizes agree within 1 to 4 % (93370: 12080 against 11560;
+the box: 12 against 14; 63709, whose input has 1298 self-intersecting pairs: 4506 against 4390). The certified one-sided Hausdorff distance to the input is equal or within 0.0008 of the
+diagonal (78295: 0.0016 / 0.0021; 118679: 0.0015 / 0.0032; 1053376: 0.0074 / 0.0067). Not bit-identical to the serial run (as #432).
+
+Reading against the target (T3, Reducer: `si` at <= 4 x the plain time): reached on the large smooth meshes (sphere 2.0 x, torus 2.4 x, terrain 1.3 x, against 4.0 to 5.1 x serial), not on
+CAD-like inputs with large flat faces (box 9.7 x, against 55 x) and not below 20k triangles (5 to 24 x, but at most 0.2 s). An earlier scratch probe (area-weighted quadrics, 1.2 to 1.6 x) used a lighter reduction; these numbers are with the settings of the class documentation. The Remesher part of T3 is in the next subsection.
+
+### Remesher part of T3: upper-bound probe (stop rule applied, not built)
+
+The target was `PreventSelfIntersections` at <= 8 x the plain Remesher time (today 12.6 x at the median for x1, 12.3 x for x2; 20 Thingi10K meshes, `g3cli` settings, 16 of
+them up to 30000 triangles with `si`). Probe: the phase profile of the `si` run (`profile=1`, 4 cores; 3 meshes) and the required speed-up per mesh from the baseline rows.
+- Share of the serial edge operations (collapse, flip, split) in the `si` run: 73 % (78295, 15 s), 70 % (93370, 69 s), 44 % (299291, 3.9 s); smoothing and projection
+  (with the move check) 27 / 30 / 56 %. With the default (no `si`) the operations are 66-88 %.
+- Needed speed-up of the `si` run to reach 8 x the plain time: 1.58 x at the median (x1; 1.54 x for x2); 2 of 16 meshes are there already; one of the 16 (49 x) needs more than 4 x, more than 4 cores can give (the profiled 93370, 46k triangles, is at 64 x: 69 s against 1.07 s).
+- Bound for slabs on 4 cores: partitioning only the operations (share 0.7) gives at most 1 / (0.3 + 0.7 / 4) = 2.1 x; the Reducer's slabs realised 2.0 to 3.1 x over serial `si` on 60-100k triangles
+  and nothing below 20k, which is where 15 of the 16 meshes with `si` are. So the target is reachable, if at all, on the few large meshes, with a large build (slab limits for smoothing and
+  projection, the iterative passes, constraints across slab borders, flips of border edges) and an unknown effect on the result.
+- The absolute cost is small for most inputs: `si` takes 1.6 s at the median (x1) and 42 s at the maximum of the 16 meshes (and 69 s on the 46k-triangle 93370).
+
+Result: no lever worth its cost on the evidence; T3 for the Remesher is closed with this note (owner decision 2026-11-09: T4 / Remesher speed is re-measured later anyway). What exists today:
+`PreventSelfIntersections` is opt-in and removes the added self-intersections completely (0 of 16 meshes with more pairs than the input, against 14 of 19 without it), at 12 x the time.
+
+## 10. T6: fidelity non-regression record (2026-11-09)
+
+The same harness command as the baseline of #457 (24 inputs, `runs=2`, `fidelity=1`, `inv_max=100000`, 4 cores, warm), on master after #457, #466, #468, #469, #470, compared with the baseline rows:
+
+- **Results unchanged**: 158 of 160 rows (every case, operation, target and variant, including `si`) have the same result hash, bit for bit. The 2 rows that changed are the Remesher cases of T5 (terrain at x1, box at x2) with the same triangle count, Hausdorff distance and F-score.
+- **Medians over the Thingi10K meshes, before -> after, both operations and both targets**: p01, Hausdorff in to out and out to in, F-score at 0.1 % and 0.5 %, volume IoU: equal to the digits shown (eg Reducer 1 %: p01 2.50 degrees, Hausdorff 7.0 %, F 0.168, IoU 0.616; Remesher x1: p01 1.30 degrees, F 0.760).
+- **Topology** changed: 0 of 160 -> 0. Rows with more self-intersecting pairs than the input: 51 -> 51. Rows not clean: 53 -> 53. Repeated runs and parallel = serial: all equal.
+- **Scale invariance (2^k, bit for bit)**: 4 rows not identical -> 0.
+- Time per input triangle is 17 to 25 % lower than in the baseline run; the code of these paths did not change (T5 changes a padding constant), so this is the state of the machine between the two runs, not a gain.
+
+So the defaults of the Reducer and the Remesher did not change result or fidelity; the opt-in additions are the measured ones below.
+
+**Documented robust settings** (`Remesher.MinTriangleQuality = 0.2`, `g3cli remesh`'s value; same harness, `remesh_q=0.2`, against the defaults on the same master):
+
+| inputs, target | p01 median | slivers (< 0.5 or > 170 degrees) | not clean | Hausdorff in to out, median (max) | F 0.1 % / 0.5 % | volume IoU | meshes with more pairs than the input | time per input triangle |
+|---|---|---|---|---|---|---|---|---|
+| Thingi10K x1 | 1.30 -> 5.65 degrees | 6213 -> 1263 | 17 -> 0 of 20 | 2.2 % (24 %) -> 1.9 % (24 %) | 0.760 -> 0.771 / 0.978 -> 0.973 | 0.935 -> 0.939 | 19 -> 13 | +46 % (17.4 -> 25.4 µs) |
+| Thingi10K x2 | 0 -> 1.81 degrees | 9005 -> 1359 | 18 -> 0 of 20 | 4.0 % (32 %) -> 3.4 % (19 %) | 0.613 -> 0.619 / 0.780 -> 0.811 | 0.818 -> 0.820 | 19 -> 15 | +39 % (8.7 -> 12.1 µs) |
+| procedural x1 / x2 | 40.1 -> 38.3 / 42.5 -> 42.4 degrees | 0 -> 0 | 1 -> 1 (the open terrain) | 0.1 % -> 0.1 % | 1.0 -> 1.0 | 0.9998 -> 0.9998 | 0 -> 0 | +18 % / +22 % |
+
+No fidelity measure is worse at the median, topology is kept, and the repeat / serial checks hold. The `PreventSelfIntersections` variants of both operations (`si`) are in the baseline rows above; `PartitionedReducer` is in section 9.
+
+## 11. Close-out of Reducer / Remesher 2.0 (2026-11-09)
+
+Delivered (PRs #457 baseline and proposal, #466 T5, #468 T2, #469 T1, #470 T3; no default changed):
+- A fixed baseline harness (`benchmarks/ReducerRemesherBaseline`, tested logic in `Harness.cs`) with quality, fidelity, topology, determinism and scale-invariance columns, the probe knobs, and the baseline numbers.
+- **T5**: the Remesher (and `MeshICP`, the winding number, `RemeshSizing`) are bit-identical under 2^k scaling; the cause was the fixed box padding of `DMeshAABBTree3`.
+- **T2**: `Remesher.MinTriangleQuality = 0.2` is the documented robust setting (0 degenerate triangles on 20 of 20, p01 1.3 -> 5.65 degrees, slivers -80 %, +40 % time).
+- **T3**: the public, opt-in `PartitionedReducer` (`PreventSelfIntersections` at 1.3 to 2.4 x the plain time instead of 4 to 5 x on large smooth meshes).
+- **T1, T3 (Remesher)**: probed, no safe lever, stop rule applied (sections 8 and 9).
+- **T6**: this record.
+
+Measured limits (what the numbers do not give):
+- `PartitionedReducer` helps from about 20k triangles; closed meshes with large flat faces (box) stay at 9.7 x (from 55 x). Below 20k there is no gain.
+- The quality guard of the Reducer is no lever on inputs that already hold bad triangles; the 1 % target is missed where it lies below the minimum triangle count of the genus or the fold-over guard stops the reduction.
+- The Remesher's remaining slivers sit at the crease constraints (without creases p01 12 degrees, but the fidelity halves); `PreventSelfIntersections` for the Remesher stays at 12 x the time (closed in section 9).
+
+Open (not scheduled): **T4** (Remesher speed, 1.3 to 1.5 x at best on the serial edge operations; re-measure when wanted); **feature-curve operators** (Wang et al. 2019) for the crease slivers and the x2 quality (research note in section 7); a flip of any default needs a proposal and the 800-mesh corpus run (owner 2026-11-09), none is on the table.
+
