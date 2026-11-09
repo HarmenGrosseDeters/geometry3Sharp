@@ -39,6 +39,19 @@ genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by de
 slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
 flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
 until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
+**Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed):** speed and parallelism on top of 2.0.
+Starting point (final 800 run, the 189 meshes over budget): pinch passes 18 %, reduction 17 %, intersection oracle 14 %,
+Delaunay insertion 13 %, touch test 12 %, certification 7 %. Levers: (1) intersection oracle and touch test through
+batched queries on the input tree (#448), cheap prefilters, per-facet caching; (2) Delaunay insertion in spatial
+(BRIO / Hilbert) order with a compact tetrahedron layout and fewer allocations; (3) parallelism: evaluate the carving
+candidates' gate tests in parallel batches and apply them serially in a fixed order (deterministic), certification in
+parallel batches; (4) pinch passes more local (on #429); (5) reduction via PartitionedReducer (#470) and an incremental
+tree (shared with Reducer / Remesher 2.x). Process: a Sonnet session measures a per-phase profile, an upper bound per
+lever, a short literature check (papers only, never CGAL code) and proposes targets (e.g. 95 % of the 800 within budget,
+guarantees and angles unchanged, deterministic); the owner sets them; one PR per lever, measured with the 800 harness on
+the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
+and memory): both use "evaluate in parallel, apply serially".
+
 **Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
 PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
 60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
