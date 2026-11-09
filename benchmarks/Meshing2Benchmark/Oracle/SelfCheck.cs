@@ -285,6 +285,8 @@ namespace Meshing2Acceptance
                 }
                 var small = Oracle.Check(SpanIn(24, 18), SpanOut(24, 18, 1, 0.75), new OracleExpect { Milestone = Milestone.M3 });
                 Must("accept: the shortest edge spans an input angle of 36.87 degrees, above the bound of 20 and below 60", !small.Has(Violation.AngleBelowBound), "report: " + small);
+                var nearly = Oracle.Check(SpanIn(16, 27), SpanOut(16, 27, 0.64, 1.08), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the same at an input angle of 59.34 degrees, just below 60", !nearly.Has(Violation.AngleBelowBound), "report: " + nearly);
                 var wide = Oracle.Check(SpanIn(12, 24), SpanOut(12, 24, 0.5, 1), new OracleExpect { Milestone = Milestone.M3 });
                 Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
             }

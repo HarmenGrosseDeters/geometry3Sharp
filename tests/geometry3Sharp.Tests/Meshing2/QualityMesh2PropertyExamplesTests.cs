@@ -26,7 +26,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [MemberData(nameof(InputAngleBelow60))]
         public void InputAngleBelow60_IsExcused(string name, QualityMesh2PropertyCase c)
-            => Assert.Equal("", QualityMesh2Properties.Check(c, new[] { -11, 13 }));
+            => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
 
         static QualityMesh2PropertyCase Grid(string family, int[] x, int[] y, int[][] rings, int[][] segments, int denominator, int exponent, int snap, double angle, bool constrained, bool conforming)
             => new QualityMesh2PropertyCase { Family = family, X = x, Y = y, Rings = rings, Holes = new bool[rings.Length], Segments = segments,
@@ -44,6 +44,6 @@ namespace geometry3Sharp.Tests
         [Theory(Skip = "open finding 2 of the T5 campaign: the oracle's verdict on rerouted hull and ring edges on the grid, decision pending")]
         [MemberData(nameof(OpenGridFindings))]
         public void OpenGridFindings_Pass(string name, QualityMesh2PropertyCase c)
-            => Assert.Equal("", QualityMesh2Properties.Check(c, new[] { -11, 13 }));
+            => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
     }
 }
