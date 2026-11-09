@@ -610,7 +610,7 @@ namespace g3
                 if (e == 0)
                     e = (int)((BitConverter.DoubleToInt64Bits(m * 18446744073709551616.0) >> 52) & 0x7FF) - 64;      // subnormal
                 int shift = -(e - 1023);
-                double half = Math.Pow(2, shift / 2), rest = Math.Pow(2, shift - shift / 2);
+                double half = BitConverter.Int64BitsToDouble((long)(shift / 2 + 1023) << 52), rest = BitConverter.Int64BitsToDouble((long)(shift - shift / 2 + 1023) << 52);   // (exact powers of two)
                 a = new Vector3d(a.x * half * rest, a.y * half * rest, a.z * half * rest);
                 b = new Vector3d(b.x * half * rest, b.y * half * rest, b.z * half * rest);
                 c = new Vector3d(c.x * half * rest, c.y * half * rest, c.z * half * rest);
