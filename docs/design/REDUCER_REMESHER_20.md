@@ -236,3 +236,43 @@ them up to 30000 triangles with `si`). Probe: the phase profile of the `si` run 
 
 Result: no lever worth its cost on the evidence; T3 for the Remesher is closed with this note (owner decision 2026-11-09: T4 / Remesher speed is re-measured later anyway). What exists today:
 `PreventSelfIntersections` is opt-in and removes the added self-intersections completely (0 of 16 meshes with more pairs than the input, against 14 of 19 without it), at 12 x the time.
+
+## 10. T6: fidelity non-regression record (2026-11-09)
+
+The same harness command as the baseline of #457 (24 inputs, `runs=2`, `fidelity=1`, `inv_max=100000`, 4 cores, warm), on master after #457, #466, #468, #469, #470, compared with the baseline rows:
+
+- **Results unchanged**: 158 of 160 rows (every case, operation, target and variant, including `si`) have the same result hash, bit for bit. The 2 rows that changed are the Remesher cases of T5 (terrain at x1, box at x2) with the same triangle count, Hausdorff distance and F-score.
+- **Medians over the Thingi10K meshes, before -> after, both operations and both targets**: p01, Hausdorff in to out and out to in, F-score at 0.1 % and 0.5 %, volume IoU: equal to the digits shown (eg Reducer 1 %: p01 2.50 degrees, Hausdorff 7.0 %, F 0.168, IoU 0.616; Remesher x1: p01 1.30 degrees, F 0.760).
+- **Topology** changed: 0 of 160 -> 0. Rows with more self-intersecting pairs than the input: 51 -> 51. Rows not clean: 53 -> 53. Repeated runs and parallel = serial: all equal.
+- **Scale invariance (2^k, bit for bit)**: 4 rows not identical -> 0.
+- Time per input triangle is 17 to 25 % lower than in the baseline run; the code of these paths did not change (T5 changes a padding constant), so this is the state of the machine between the two runs, not a gain.
+
+So the defaults of the Reducer and the Remesher did not change result or fidelity; the opt-in additions are the measured ones below.
+
+**Documented robust settings** (`Remesher.MinTriangleQuality = 0.2`, `g3cli remesh`'s value; same harness, `remesh_q=0.2`, against the defaults on the same master):
+
+| inputs, target | p01 median | slivers (< 0.5 or > 170 degrees) | not clean | Hausdorff in to out, median (max) | F 0.1 % / 0.5 % | volume IoU | meshes with more pairs than the input | time per input triangle |
+|---|---|---|---|---|---|---|---|---|
+| Thingi10K x1 | 1.30 -> 5.65 degrees | 6213 -> 1263 | 17 -> 0 of 20 | 2.2 % (24 %) -> 1.9 % (24 %) | 0.760 -> 0.771 / 0.978 -> 0.973 | 0.935 -> 0.939 | 19 -> 13 | +46 % (17.4 -> 25.4 µs) |
+| Thingi10K x2 | 0 -> 1.81 degrees | 9005 -> 1359 | 18 -> 0 of 20 | 4.0 % (32 %) -> 3.4 % (19 %) | 0.613 -> 0.619 / 0.780 -> 0.811 | 0.818 -> 0.820 | 19 -> 15 | +39 % (8.7 -> 12.1 µs) |
+| procedural x1 / x2 | 40.1 -> 38.3 / 42.5 -> 42.4 degrees | 0 -> 0 | 1 -> 1 (the open terrain) | 0.1 % -> 0.1 % | 1.0 -> 1.0 | 0.9998 -> 0.9998 | 0 -> 0 | +18 % / +22 % |
+
+No fidelity measure is worse at the median, topology is kept, and the repeat / serial checks hold. The `PreventSelfIntersections` variants of both operations (`si`) are in the baseline rows above; `PartitionedReducer` is in section 9.
+
+## 11. Close-out of Reducer / Remesher 2.0 (2026-11-09)
+
+Delivered (PRs #457 baseline and proposal, #466 T5, #468 T2, #469 T1, #470 T3; no default changed):
+- A fixed baseline harness (`benchmarks/ReducerRemesherBaseline`, tested logic in `Harness.cs`) with quality, fidelity, topology, determinism and scale-invariance columns, the probe knobs, and the baseline numbers.
+- **T5**: the Remesher (and `MeshICP`, the winding number, `RemeshSizing`) are bit-identical under 2^k scaling; the cause was the fixed box padding of `DMeshAABBTree3`.
+- **T2**: `Remesher.MinTriangleQuality = 0.2` is the documented robust setting (0 degenerate triangles on 20 of 20, p01 1.3 -> 5.65 degrees, slivers -80 %, +40 % time).
+- **T3**: the public, opt-in `PartitionedReducer` (`PreventSelfIntersections` at 1.3 to 2.4 x the plain time instead of 4 to 5 x on large smooth meshes).
+- **T1, T3 (Remesher)**: probed, no safe lever, stop rule applied (sections 8 and 9).
+- **T6**: this record.
+
+Measured limits (what the numbers do not give):
+- `PartitionedReducer` helps from about 20k triangles; closed meshes with large flat faces (box) stay at 9.7 x (from 55 x). Below 20k there is no gain.
+- The quality guard of the Reducer is no lever on inputs that already hold bad triangles; the 1 % target is missed where it lies below the minimum triangle count of the genus or the fold-over guard stops the reduction.
+- The Remesher's remaining slivers sit at the crease constraints (without creases p01 12 degrees, but the fidelity halves); `PreventSelfIntersections` for the Remesher stays at 12 x the time (closed in section 9).
+
+Open (not scheduled): **T4** (Remesher speed, 1.3 to 1.5 x at best on the serial edge operations; re-measure when wanted); **feature-curve operators** (Wang et al. 2019) for the crease slivers and the x2 quality (research note in section 7); a flip of any default needs a proposal and the 800-mesh corpus run (owner 2026-11-09), none is on the table.
+

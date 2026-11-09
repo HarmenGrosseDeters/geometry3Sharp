@@ -20,6 +20,9 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
+| `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
+| `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
+| `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 
 ## Build and run
 
@@ -158,6 +161,19 @@ g3cli wrap scan.obj wrapped.stl --alpha 0.5 --offset 0.02 --max-steiner-points 5
 # simplify a large closed mesh with slabs in parallel (max_error is a squared distance; the result does not depend on --threads)
 g3cli simplify big.ply big_small.ply --max-error 1e-6 --partitioned --threads 4
 #   -> "used_partition": true (false below 20000 triangles: one serial run, with a warning)
+
+# deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
+g3cli deviation simplified.stl original.stl --certified
+#   -> "vertex_statistics": { "mean": ..., "rms": ..., "max_absolute": ..., "absolute_p95": ... }, "hausdorff_lower_bound": ..., "hausdorff_upper_bound": ...
+
+# wall thickness: triangles thinner than 0.8 (mesh units), by the shape diameter function
+g3cli thickness part.stl --min-thickness 0.8
+#   -> "statistics": { "min": ..., "median": ... }, "thin_triangles": 120, "thin_area_share": 0.03, "thin_triangle_ids": [...]
+
+# primitive fit: a cylinder (a failed fit is operation_failed with "fit_result"), or every primitive for comparison
+g3cli fit pipe.stl --primitive cylinder --inlier-distance 0.05
+g3cli fit unknown.stl --primitive all
+#   -> "fits": [ { "primitive": "plane", "inlier_share": 0.4, "rms_error": ... }, { "primitive": "sphere", ... }, ... ]
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
