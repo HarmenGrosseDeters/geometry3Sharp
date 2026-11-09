@@ -7,12 +7,15 @@
 #                  downloaded and exported once here to learn its class; the others are only classified.
 #   phase control  the #385 baseline build cd7fb8ab on the target class, same machine (timing comparison)
 #   phase rest     master on the other classes: closed self-intersecting, closed with unknown selfint, open
+#                  (on 48cb8c9a: master with #474, SafeRounding's degenerate area; target and control ran before on
+#                  1fd946aa, the target class's unclean models again on #474: results/target_rerun_pr474.jsonl)
 #
 # Builds (pinned commits):
-#   master   1fd946aa  master with #449 (MeshRobustRepair / volume check at extreme extents)
+#   master   48cb8c9a  master with #474 (the target phase ran on 1fd946aa, master with #449); a runner built from
+#            another commit is rebuilt (runner_<name>/build.sha)
 #   base385  cd7fb8ab  the #385 baseline
-# The export (input classes, A.off / B.off) always comes from master's BooleanComparison, so both builds see the
-# same inputs. Models run one at a time (each operation uses every core); nothing else may run on the machine.
+# The export (input classes, A.off / B.off) always comes from BooleanComparison of the first master build
+# (tool_export is never rebuilt), so every build and phase sees the same inputs. Models run one at a time (each operation uses every core); nothing else may run on the machine.
 #
 # usage (from the repository root):  bash runs/final/job.sh <phase> [work dir]      phase: target | control | rest
 #        IDS_FILE=<file> limits the run to the ids in it (a smoke run in a separate work dir)
@@ -26,16 +29,19 @@ ROOT=$(git rev-parse --show-toplevel)
 J=$ROOT/runs/final
 W=${2:-$HOME/boolean2-final-run}
 mkdir -p "$W/out/$PHASE" "$W/out/class" "$W/raw" "$W/cases"
-BUILDS="master:1fd946aa8a3c7c0cf15f4c9cddbe06449254668d base385:cd7fb8abba0af09d5725b60c700dfec95234e7ad"
+BUILDS="master:48cb8c9add8e64b51de2a73f2ebd4114cce6dd3d base385:cd7fb8abba0af09d5725b60c700dfec95234e7ad"
 
 git -C "$ROOT" fetch -q origin master
 for b in $BUILDS; do
   name=${b%%:*}; sha=${b#*:}
-  if [ ! -f "$W/runner_$name/FinalRunner.dll" ]; then
+  if [ ! -f "$W/runner_$name/FinalRunner.dll" ] || [ "$(cat "$W/runner_$name/build.sha" 2>/dev/null || true)" != "$sha" ]; then
+    rm -rf "${W:?}/runner_$name"
+    git -C "$ROOT" worktree remove --force "$W/src_$name" 2>/dev/null || true
     rm -rf "${W:?}/src_$name" "${W:?}/rsrc_$name"
     git -C "$ROOT" worktree add -f --detach "$W/src_$name" "$sha"
     cp -r "$J/FinalRunner" "$W/rsrc_$name"
     dotnet build "$W/rsrc_$name" -c Release -p:G3Src="$W/src_$name" -o "$W/runner_$name"
+    echo "$sha" > "$W/runner_$name/build.sha"
   fi
 done
 if [ ! -f "$W/tool_export/BooleanComparison.dll" ]; then
