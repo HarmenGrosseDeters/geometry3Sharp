@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
             var tree = new PointAABBTree3(m, true) { FWNAreaEstimateF = v => 4 * Math.PI / m.VertexCount };
             foreach (int v in m.VertexIndices().Take(20)) {
                 double w = tree.FastWindingNumber(m.GetVertex(v));
-                Assert.True(double.IsFinite(w), "vertex " + v + ": " + w);
+                Assert.True(MathUtil.IsFinite(w), "vertex " + v + ": " + w);
             }
         }
 
@@ -32,7 +32,7 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(0, 1, 2);
             var tree = new PointAABBTree3(m, true) { FWNAreaEstimateF = v => 0.5 / 3 };
             double atVertex = tree.FastWindingNumber(Vector3d.Zero);
-            Assert.True(double.IsFinite(atVertex));
+            Assert.True(MathUtil.IsFinite(atVertex));
             double expected = 0;
             for (int v = 1; v < 3; ++v) {
                 Vector3d d = m.GetVertex(v);
