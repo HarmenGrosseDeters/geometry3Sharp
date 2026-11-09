@@ -48,6 +48,12 @@ the CI reference machine).
   window before 07:00.
 - The controller and the label scripts are not part of the repository; they run Stryker with the job's commands.
 
+- **Label B2 was removed from the chain** (owner decision, 9 Nov, 03:55 Berlin): F2 is F1 plus more tests, so it cannot
+  finish before 07:00. Its `B2-F2.exit` says `not-run`. F1 finds 171 tests against 174 for the full filter, so the filter
+  saves little time in the coverage phase.
+- **Scope on this machine:** kill measurements are no longer run here (owner decision). Kills are measured in CI only.
+  The capture time of B1 is the measurement that stays.
+
 ## Times
 
 Logs and `*.start`/`*.end` files are in UTC, as the job asks. The times in the chat were Berlin time (UTC+1).
