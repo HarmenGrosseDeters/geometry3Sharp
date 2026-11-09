@@ -6,9 +6,20 @@ them). The trx of a full run records each test's duration but not its traits, so
 list: the output of `dotnet test --no-build --list-tests --filter "Category=Slow"` (--slow-list; the lines with the
 test names are indented). This script lists the tests above the threshold that are not on it.
 
+Ratchet (CLAUDE.md, "Test time"): with --backlog FILE the script fails for
+  - a test of more than --max-seconds (default 10) whose method is not on the backlog,
+  - a test of --threshold seconds or more (default 5) without the trait Slow whose method is not on the backlog,
+  - a backlog entry that names no test of the run (renamed or deleted: remove it),
+  - with --backlog-base FILE, a backlog entry that the base branch's list does not have (the list only shrinks).
+The backlog (tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt) has one `Class.Method` per line (nested classes as
+`Outer+Inner.Method`, all rows of a theory together), `#` starts a comment. --make-backlog FILE writes one from the
+trx: every method with a row of --backlog-from seconds or more (default 4: a margin under the threshold, the CI
+runner is not the machine the list was made on).
+
 Usage:
     python3 tools/trx_durations.py <file.trx>... [--slow-list <file>] [--top N] [--threshold SECONDS]
-        [--fail-above SECONDS] [--summary <markdown file>]
+        [--fail-above SECONDS] [--backlog FILE [--backlog-base FILE] [--max-seconds S]] [--summary <markdown file>]
+    python3 tools/trx_durations.py <file.trx> --make-backlog FILE [--backlog-from SECONDS]
 
 Exit code 1 when an untagged test took --fail-above seconds or more (default: never fail, report only).
 """
@@ -59,6 +70,49 @@ def class_of(full_name):
     return head.rsplit(".", 1)[0] if "." in head else head
 
 
+def method_key(full_name):
+    """`Class.Method` of a test display name (namespace and theory arguments dropped, nested classes as Outer+Inner)."""
+    head = full_name.split("(")[0]
+    cls, _, method = head.rpartition(".")
+    return cls.split(".")[-1] + "." + method
+
+
+def read_backlog(path):
+    with open(path, encoding="utf-8") as f:
+        return {line.split("#")[0].strip() for line in f if line.split("#")[0].strip()}
+
+
+def max_by_method(rows):
+    result = {}
+    for name, sec, _, _ in rows:
+        k = method_key(name)
+        result[k] = max(result.get(k, 0.0), sec)
+    return result
+
+
+def make_backlog(rows, floor):
+    return sorted(k for k, v in max_by_method(rows).items() if v >= floor)
+
+
+def ratchet(rows, backlog, base, threshold, max_seconds):
+    """-> list of error lines."""
+    errors = []
+    for name, sec, _, slow in sorted(rows, key=lambda r: -r[1]):
+        if method_key(name) in backlog:
+            continue
+        if sec > max_seconds:
+            errors.append(f"{sec:.1f} s > {max_seconds:g} s, not on the backlog: {name}")
+        elif sec >= threshold and not slow:
+            errors.append(f"{sec:.1f} s without the trait Slow, not on the backlog: {name}")
+    present = {method_key(r[0]) for r in rows}
+    for entry in sorted(backlog - present):
+        errors.append(f"backlog entry names no test of this run (renamed or deleted: remove it): {entry}")
+    if base is not None:
+        for entry in sorted(backlog - base):
+            errors.append(f"backlog entry that the base branch does not have (the list only shrinks): {entry}")
+    return errors
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("trx", nargs="+")
@@ -67,12 +121,25 @@ def main(argv=None):
     p.add_argument("--threshold", type=float, default=5.0)
     p.add_argument("--fail-above", type=float, default=None)
     p.add_argument("--summary")
+    p.add_argument("--backlog", help="SLOW_BACKLOG.txt: switches the ratchet on")
+    p.add_argument("--backlog-base", help="the base branch's SLOW_BACKLOG.txt (the list must not grow)")
+    p.add_argument("--max-seconds", type=float, default=10.0)
+    p.add_argument("--make-backlog", help="write a backlog from the trx to this file and stop")
+    p.add_argument("--backlog-from", type=float, default=4.0)
     a = p.parse_args(argv)
 
     rows = [r for f in a.trx for r in read_trx(f)]
     if a.slow_list:
         names = read_slow_list(a.slow_list)
         rows = [(n, sec, o, slow or n in names) for n, sec, o, slow in rows]
+    if a.make_backlog:
+        entries = make_backlog(rows, a.backlog_from)
+        with open(a.make_backlog, "w", encoding="utf-8", newline="\n") as f:
+            f.write("# Tests above the time rule (CLAUDE.md, \"Test time\"): Class.Method, all rows of a theory together.\n"
+                    "# The list only shrinks (tools/trx_durations.py --backlog-base): fix a test, then delete its line.\n")
+            f.writelines(e + "\n" for e in entries)
+        print(f"{len(entries)} entries written")
+        return 0
     total = sum(r[1] for r in rows)
     lines = [f"{len(rows)} tests, sum of durations {total:.0f} s", ""]
     lines.append(f"Slowest {a.top} tests:")
@@ -88,11 +155,20 @@ def main(argv=None):
     lines += ["", f"Tests tagged Slow that took less than {a.threshold / 5:g} s: {len(tagged_fast)} (candidates to untag)"]
     for name, sec, _, _ in tagged_fast[:5]:
         lines.append(f"  {sec:8.1f} s  {name}")
+    errors = []
+    if a.backlog:
+        backlog = read_backlog(a.backlog)
+        base = read_backlog(a.backlog_base) if a.backlog_base else None
+        errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds)
+        lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations"] + ["  " + e for e in errors[:50]]
     out = "\n".join(lines)
     print(out)
     if a.summary:
         with open(a.summary, "a", encoding="utf-8") as f:
             f.write("### Test tiers\n```\n" + out + "\n```\n")
+    if errors:
+        print(f"::error::{len(errors)} violations of the test time rule (CLAUDE.md, Test time)")
+        return 1
     if a.fail_above is not None and any(r[1] >= a.fail_above for r in untagged):
         print(f"::error::untagged tests of {a.fail_above:g} s or more (tag them with [Slow])")
         return 1

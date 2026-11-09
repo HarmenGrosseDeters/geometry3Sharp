@@ -66,6 +66,49 @@ class Trx(unittest.TestCase):
             self.assertIn("without the trait Category=Slow: 1", f.read())     # only the 7.25 s test is left
         self.assertEqual(t.read_slow_list(listing), {"N.B+C.Row(x: 1.5)", "N.A.Other"})
 
+    def test_method_key(self):
+        self.assertEqual(t.method_key("geometry3Sharp.Tests.A.B+C.Row(x: 1.5)"), "B+C.Row")
+        self.assertEqual(t.method_key("geometry3Sharp.Tests.A.Fast"), "A.Fast")
+
+    def write(self, name, text):
+        path = os.path.join(self.dir.name, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def test_make_backlog_and_ratchet(self):
+        out = os.path.join(self.dir.name, "backlog.txt")
+        self.assertEqual(t.main([self.path, "--make-backlog", out, "--backlog-from", "4"]), 0)
+        backlog = t.read_backlog(out)
+        self.assertEqual(backlog, {"A.SlowTagged", "A.SlowUntagged", "B+C.Row"})
+        self.assertEqual(t.main([self.path, "--backlog", out]), 0)         # every violation is on the list
+
+    def test_ratchet_violations(self):
+        empty = self.write("empty.txt", "# nothing\n")
+        rows = t.read_trx(self.path)
+        errors = t.ratchet(rows, set(), None, 5.0, 10.0)
+        self.assertEqual(len(errors), 3)                                   # 90 s tagged, 120 s untagged, 7.25 s untagged
+        self.assertTrue(any("7.2" in e and "without the trait Slow" in e for e in errors))
+        self.assertTrue(any("> 10 s" in e for e in errors))
+        self.assertEqual(t.main([self.path, "--backlog", empty]), 1)
+
+    def test_ratchet_stale_and_growing_entries(self):
+        rows = t.read_trx(self.path)
+        full = {"A.SlowTagged", "A.SlowUntagged", "B+C.Row"}
+        self.assertEqual(t.ratchet(rows, full, full, 5.0, 10.0), [])
+        stale = t.ratchet(rows, full | {"Gone.Test"}, None, 5.0, 10.0)
+        self.assertEqual(len(stale), 1)
+        self.assertIn("Gone.Test", stale[0])
+        grown = t.ratchet(rows, full, {"A.SlowTagged"}, 5.0, 10.0)        # base has fewer entries: two were added
+        self.assertEqual(len(grown), 2)
+
+    def test_a_fast_test_passes_without_backlog(self):
+        fast = self.write("fast.trx", TRX.replace('duration="00:01:30.0000000"', 'duration="00:00:01.0000000"')
+                          .replace('duration="00:00:07.2500000"', 'duration="00:00:01.0000000"')
+                          .replace('duration="00:02:00.0000000"', 'duration="00:00:01.0000000"'))
+        empty = self.write("empty.txt", "")
+        self.assertEqual(t.main([fast, "--backlog", empty]), 0)
+
     def test_class_of(self):
         self.assertEqual(t.class_of("N.B+C.Row(x: 1.5)"), "N.B+C")
 
