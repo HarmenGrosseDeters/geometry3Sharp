@@ -49,6 +49,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ExactResolve_ReportsAGenusChange_AndRejectsItIfAsked()
         {

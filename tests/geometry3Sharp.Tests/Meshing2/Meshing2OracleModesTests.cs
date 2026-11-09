@@ -19,7 +19,7 @@ namespace geometry3Sharp.Tests
         // Slow (the draft tier of CI skips those) and in three groups that run in parallel. RowIds() is every other row; the groups plus
         // RowIds() are exactly the old set (RowGroups_PartitionTheCoveredRows).
         static readonly string[][] SlowRowGroups = {
-            new[] { "F-39", "F-4/b" },
+            new[] { "F-39", "F-4/b", "F-24/a" },
             new[] { "F-42", "F-38/d", "F-34" },
             new[] { "F-24/b", "F-37", "F-12/b", "F-4/a", "F-5" },
         };

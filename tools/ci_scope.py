@@ -28,6 +28,7 @@ SHARED = (
     "benchmarks/Meshing2Benchmark/MeshCommand.cs",
     "benchmarks/Meshing2Benchmark/golden/",
     "benchmarks/TerrainBenchmark/ClosestFields.cs",
+    "benchmarks/ReducerRemesherBaseline/Harness.cs",
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/predicates.spec",

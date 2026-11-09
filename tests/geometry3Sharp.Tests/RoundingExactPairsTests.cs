@@ -99,6 +99,7 @@ namespace geometry3Sharp.Tests
             return sb.ToString();
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void SkippingSearch_SameAsFull_AndSkips(string name)

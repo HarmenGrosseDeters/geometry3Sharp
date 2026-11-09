@@ -836,6 +836,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void OuterVolumeIoU_NotConverged_NaN()
         {
