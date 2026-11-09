@@ -62,7 +62,7 @@ Status on 2026-11-08 (evening, Berlin).
   the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
   `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
-  no verdict worse; Z3 pilot 3 #443). Coarsening re-measured (−4.5 % triangles for +50 % mesher time): owner decision open.
+  no verdict worse; Z3 pilot 3 #443). Coarsening closed (re-measured: −4.5 % triangles for +50 % mesher time).
   Rule C on the snap grid is open.
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
