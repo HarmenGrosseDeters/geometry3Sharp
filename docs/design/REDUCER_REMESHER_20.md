@@ -159,3 +159,38 @@ to the benchmark, and move on to T1. The stretch target and the x2 quality go to
 Feature-curve operators (Wang et al. 2019: insertion / removal of vertices along the feature curves) for the crease slivers with creases kept
 (x1 p01 5.65° -> 10° stretch) and the coarsening quality (x2 p01 median 1.8°). Before anything is built: a bound from a probe on 10 meshes
 (5 of 20 meshes hold most of the remaining slivers), and a check that the Hausdorff / F-score stay at the level of the creases-kept row above.
+
+## 9. T3: `PartitionedReducer` (the public partitioned Reducer; owner decision 2026-11-09, option A)
+
+New public sealed class `PartitionedReducer` (`mesh_ops/PartitionedReducer.cs`, purely additive): `PartitionedReduction` (#432) on 8 fixed slabs, with
+`Reduce(mesh, maxQuadricError)`, `Configure(Action<Reducer>)`, `MaxThreads`, `CancelF`, `MinTriangles` (default 20000: below it one serial Reducer run), `UsedPartition`.
+The contract (deterministic for any thread count, not the serial result, no attributes in the result, `PreserveBoundaryShape = false`, thread-safe `Configure` and `CancelF`,
+`AggregateException`, the two serial fallbacks) is in the class documentation and pinned by `PartitionedReducerTests`. No triangle-count target in v1. Opt-in; the plain reduction stays serial.
+
+Measured (`ReducerRemesherBaseline partition=1 min_tris=0`, 24 inputs, `ReduceToMaxQuadricError` at 0.003 of the box diagonal, `AreaWeightedQuadrics = false`,
+`PreserveBoundaryShape = false`, 4 cores, warm, one run each; the partition forced on). Time of the plain Reducer, of `PreventSelfIntersections` serial, and of the same on 8 slabs:
+
+| mesh | triangles | plain s (tris) | si serial s (tris) | si on 8 slabs s (tris) | si / plain | slabs / plain | slabs speed-up over si serial | used partition | Hausdorff si serial / slabs (of diagonal) |
+|---|---|---|---|---|---|---|---|---|---|
+| bumpy_sphere | 95052 | 0.34 (4792) | 1.35 (4792) | 0.69 (4820) | 4.0 x | 2.0 x | 1.97 x | yes | 0.0012 / 0.0013 |
+| torus | 67600 | 0.19 (4328) | 0.96 (4328) | 0.45 (4354) | 5.1 x | 2.4 x | 2.16 x | yes | 0.0012 / 0.0013 |
+| terrain | 96800 | 0.35 (7121) | 1.45 (7121) | 0.46 (7109) | 4.1 x | 1.3 x | 3.14 x | yes | 0.0190 / 0.0190 |
+| box | 57132 | 1.06 (12) | 57.87 (12) | 10.23 (14) | 54.7 x | 9.7 x | 5.65 x | yes | 0.0005 / 0.0004 |
+| 1043471 | 20204 | 0.05 (1044) | 0.30 (1044) | 0.32 (1060) | 5.5 x | 5.9 x | 0.93 x | yes | 0.0020 / 0.0020 |
+| 104582 | 39608 | 0.17 (3908) | 0.91 (3912) | 0.90 (3930) | 5.5 x | 5.5 x | 1.00 x | yes | 0.0025 / 0.0025 |
+| 1053376 | 42612 | 0.15 (5592) | 0.78 (5756) | 0.33 (5724) | 5.2 x | 2.2 x | 2.37 x | yes | 0.0074 / 0.0067 |
+| 78295 | 42492 | 0.15 (4018) | 1.10 (4018) | 0.67 (4080) | 7.4 x | 4.5 x | 1.65 x | yes | 0.0016 / 0.0021 |
+| 93370 | 45694 | 0.12 (12078) | 1.20 (12080) | 0.53 (11560) | 9.8 x | 4.4 x | 2.25 x | yes | 0.0022 / 0.0022 |
+
+Below 20000 triangles (15 meshes, 2.4k to 18k): the slabs take 0.8 to 1.5 x the serial `si` time (no gain; setup and the serial last pass dominate), at most 0.2 s, which is why
+`MinTriangles` defaults to 20000.
+
+Totals over the 24 meshes: plain 2.8 s, `si` serial 67.4 s (23.7 x), slabs 16.0 s (5.6 x plain, 4.2 x faster than `si` serial). Without the box (a closed box with large coplanar faces
+makes the self-intersection check 55 x the plain time): plain 1.8 s, `si` 9.5 s (5.4 x), slabs 5.7 s (3.2 x, 1.7 x faster). Result sizes agree within 1 to 3 % (63709, whose input has 1298
+self-intersecting pairs, 4390 against 4506); the certified one-sided Hausdorff distance to the input is the same to the digits shown except small meshes
+(0.0015 / 0.0032 on 118679). Not bit-identical to the serial run (as #432).
+
+Reading against the target (T3, Reducer: `si` at <= 4 x the plain time): reached on the large smooth meshes (sphere 2.0 x, torus 2.4 x, terrain 1.3 x, against 4.0 to 5.1 x serial), not on
+CAD-like inputs with large flat faces (box 9.7 x, against 55 x) and not below 20k triangles (5 to 24 x, but at most 0.2 s). The earlier scratch probe (section 9 of an earlier draft: area-weighted
+quadrics, 1.2 to 1.6 x) used a lighter reduction; these numbers are with the settings of the class documentation. The Remesher part of T3 is not probed (needs slab limits for smoothing
+and projection) and comes after, with its own probe.

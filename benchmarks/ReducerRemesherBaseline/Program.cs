@@ -7,7 +7,7 @@
 //
 //   dotnet run -c Release --project benchmarks/ReducerRemesherBaseline -- [thingi=<dir>] [only=<regex>] [procedural=1]
 //       [runs=2] [si_max=30000] [inv_max=30000] [invariance=1] [fidelity=1] [ops=reduce,remesh] [json=<file>]
-//       [hd_tol=<f>] [profile=1] [reduce_q=<q>] [remesh_q=<q>] [remesh_crease=<deg>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
+//       [hd_tol=<f>] [partition=1 [min_tris=<n>]] [profile=1] [reduce_q=<q>] [remesh_q=<q>] [remesh_crease=<deg>] [summary=<json file>]     (only the summary tables of an earlier run's JSON lines)
 // One JSON line per case and variant on stdout (or json=<file>), then the summary tables as Markdown.
 using System;
 using System.Collections.Generic;
@@ -94,6 +94,11 @@ static class Program
             cases.Add(c);
         }
         if (cases.Count == 0) { Console.Error.WriteLine("no cases"); return 1; }
+
+        if (get("partition", "0") == "1") {
+            PartitionTable(cases, int.Parse(get("min_tris", "0")));
+            return 0;
+        }
 
         // JIT warm-up on the smallest case, so the first timing is not a cold one
         Case small = cases.OrderBy(c => c.Input.TriangleCount).First();
@@ -232,6 +237,39 @@ static class Program
             F["inv_failed"] = string.Join(";", failed);
         }
         return run;
+    }
+
+    // ---- PartitionedReducer (T3): ReduceToMaxQuadricError at rel x box diagonal, plain, with PreventSelfIntersections, and the same
+    // with PartitionedReducer (partition=1 [min_tris=<n>] [rel=<f>]) ----
+
+    static void PartitionTable(List<Case> cases, int minTris)
+    {
+        double rel = 0.003;
+        Action<Reducer> si = r => { r.PreventSelfIntersections = true; r.AreaWeightedQuadrics = false; r.PreserveBoundaryShape = false; };
+        Action<Reducer> plainCfg = r => { r.AreaWeightedQuadrics = false; r.PreserveBoundaryShape = false; };
+        { var w = new DMesh3(cases[0].Input); var rr = new Reducer(w); si(rr); rr.ReduceToMaxQuadricError(1e-6); }
+        Console.WriteLine("| mesh | triangles | plain s (tris) | si serial s (tris) | si on 8 slabs s (tris) | si / plain | slabs / plain | slabs speed-up over si serial | used partition | Hausdorff si serial / slabs (of diagonal) |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");
+        double sp = 0, ss = 0, sq = 0;
+        foreach (var c in cases) {
+            double e = rel * c.Diagonal; e *= e;
+            DMesh3 a = new DMesh3(c.Input), b = new DMesh3(c.Input);
+            var sw = Stopwatch.StartNew(); var ra = new Reducer(a); plainCfg(ra); ra.ReduceToMaxQuadricError(e); double tp = sw.Elapsed.TotalSeconds;
+            sw.Restart(); var rb = new Reducer(b); si(rb); rb.ReduceToMaxQuadricError(e); double ts = sw.Elapsed.TotalSeconds;
+            var pr = new PartitionedReducer() { Configure = si, MinTriangles = minTris };
+            sw.Restart(); DMesh3 d = pr.Reduce(c.Input, e); double tq = sw.Elapsed.TotalSeconds;
+            double h1 = Hd(c.Input, b, c.Diagonal), h2 = Hd(c.Input, d, c.Diagonal);
+            Console.WriteLine($"| {c.Name} | {c.Input.TriangleCount} | {tp:F2} ({a.TriangleCount}) | {ts:F2} ({b.TriangleCount}) | {tq:F2} ({d.TriangleCount}) | {ts / tp:F1} x | {tq / tp:F1} x | {ts / tq:F2} x | {(pr.UsedPartition ? "yes" : "no")} | {h1:F4} / {h2:F4} |");
+            sp += tp; ss += ts; sq += tq;
+        }
+        Console.WriteLine($"| total | | {sp:F1} | {ss:F1} | {sq:F1} | {ss / sp:F1} x | {sq / sp:F1} x | {ss / sq:F2} x | | |");
+    }
+
+    static double Hd(DMesh3 a, DMesh3 b, double diag)
+    {
+        var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 0.0005 * diag };
+        h.Compute();
+        return h.UpperBound / diag;
     }
 
     // ---- summary ----
