@@ -597,3 +597,33 @@ remain. [Controlled mutation output](validation/closest_mutations_2026-11-07.jso
 vertical-instead-of-3D fails 3 tests, zero-horizontal 3, mixed-correspondence 2,
 capped-search 8; restored implementation passes all 9. The full unrelated .NET
 test suite and net48 execution were not run locally; CI runs those suites.
+
+## TIN spike: error-driven rounds around QualityMesh2 (2026-11-09)
+
+`tinspike n=<nodes per side> eps=<m> frac=<threshold fraction>` runs method B2 of
+[TERRAIN_DGM_TO_TIN.md](../../docs/design/TERRAIN_DGM_TO_TIN.md) on a procedural grid (hills, an open pit with 8 benches, 2-3 cm of
+roughness; cell 1 m, no breaklines, no gaps yet) and compares it with `TerrainGreedyTIN` (same grid, `MaxError = eps`). B2: a constrained
+Delaunay triangulation (`QualityMesh2`, `MinAngle 0`) of the selected nodes in grid index space, an exact error scan of the real mesher output, and
+the nodes next to the worst violations of every bad triangle are added, until the error is within `eps`. "node": the guarantee is the error at the
+grid nodes (as `TerrainGreedyTIN`); "surface": the guarantee is the exact surface error against the grid TIN (overlay vertices: grid nodes inside a
+triangle, and crossings of its edges with the lines x = i, y = j and the diagonals; a cell whose four corners are all vertices but whose diagonal
+differs from the grid's gets that diagonal as a locked segment). Cloud runner, 1 run each (timings single shot), 513 x 513 nodes (263 169), eps 0.1 m:
+
+| Method | Vertices | vs greedy | Time | Rounds | Node error | Surface error |
+|---|---|---|---|---|---|---|
+| TerrainGreedyTIN | 5019 | 1.00 | 0.15 s | | <= 0.1 | not measured |
+| TerrainGreedyTIN + RemoveVertices | 1958 | 0.39 | 0.56 s | | <= 0.1 | not measured |
+| B2 node guarantee, frac 0 (every violation each round) | 8096 | 1.61 | 0.86 s | 20 | 0.0999 | not measured |
+| B2 node guarantee, frac 0.5 | 7042 | 1.40 | 2.4 s | 75 | 0.0999 | not measured |
+| B2 node guarantee, frac 0.7 | 6604 | 1.32 | 4.3 s | 158 | 0.0999 | not measured |
+| **B2 surface guarantee**, frac 0 | 10 748 | **2.14** | 1.6 s (**10.8x**) | 26 | 0.0997 | 0.09993 |
+| B2 surface guarantee, frac 0.5 | 10 651 | 2.12 | 5.8 s | 110 | 0.0998 | 0.09998 |
+| B2 surface guarantee, frac 0.7 | 10 355 | 2.06 | 10.9 s | 238 | 0.0998 | 0.09999 |
+
+Findings: (1) the time is the mesher: 90 % or more of the time is the `QualityMesh2` call of the rounds, each round a full constrained Delaunay of the
+current vertices (the error scan is 0.2-0.4 s in total); fewer rounds cost more vertices (frac 0 -> 0.7: 20 -> 158 rounds, 8096 -> 6604 vertices).
+(2) the surface guarantee costs +33 % vertices (10 748 against 8096) and +88 % time at frac 0 against the node guarantee; 1462 diagonals had to
+be locked, each adds its two corners. (3) Against the stop rule of D8 (more than 2x the vertices or 5x the time of `TerrainGreedyTIN`): the surface
+guarantee is at 2.06-2.14x the vertices and 10.8x the time of the plain greedy, and 5.3x the vertices of greedy with `RemoveVertices` (the
+fair comparison for a minimum); the node guarantee is at 1.3-1.6x and 5.7x. Not measured: real DGM data (the Hambach data need the download of `fetch_data.py`),
+breaklines, gaps, 12 km^2 windows, the surface error of the greedy results.

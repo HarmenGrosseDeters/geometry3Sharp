@@ -56,6 +56,7 @@ class Program
                 case "repair": stage = kase; Repair(w); break;
                 case "tdc": stage = kase; Tdc(w); break;
                 case "gtin": stage = kase; GreedyTin(w); break;
+                case "tinspike": stage = kase; TinSpikeCase(); break;
                 case "offset": stage = kase; Offset(w); break;
                 case "safety": stage = kase; Safety(w); break;
                 case "geodesic": stage = kase; Geodesic(w); break;
@@ -288,6 +289,31 @@ class Program
 
 
     // ---------------------------------------------------------------- greedy insertion TIN
+    // docs/design/TERRAIN_DGM_TO_TIN.md, method B2 vs TerrainGreedyTIN on the same (procedural) grid: n=, eps=, amp=
+    static void TinSpikeCase()
+    {
+        int n = (int)ArgD("n", 257);
+        double eps = ArgD("eps", 0.1), amp = ArgD("amp", 30);
+        HeightGrid g = TinSpike.Pit(n, amp, 1);
+        R["nodes"] = g.Z.Length;
+        var sw = Stopwatch.StartNew();
+        var gt = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps };
+        gt.Compute();
+        R["greedy_vertices"] = gt.Result.VertexCount; R["greedy_s"] = Secs(sw);
+        sw.Restart();
+        var gr = new TerrainGreedyTIN((double[])g.Z.Clone(), n, n, 0, 0, 1) { MaxError = eps, RemoveVertices = true };
+        gr.Compute();
+        R["greedy_remove_vertices"] = gr.Result.VertexCount; R["greedy_remove_s"] = Secs(sw);
+        foreach (bool surface in new[] { false, true }) {
+            TinSpike.Result r = TinSpike.Run(g, eps, surface, ArgD("frac", 0.5));
+            string k = surface ? "surface" : "node";
+            R[k + "_ok"] = r.Ok; R[k + "_note"] = r.Note;
+            R[k + "_vertices"] = r.Vertices; R[k + "_triangles"] = r.Triangles; R[k + "_rounds"] = r.Rounds;
+            R[k + "_s"] = r.Seconds; R[k + "_mesh_s"] = r.MeshSeconds; R[k + "_scan_s"] = r.ScanSeconds;
+            R[k + "_node_error"] = r.NodeError; R[k + "_surface_error"] = r.SurfaceError; R[k + "_locked_diagonals"] = r.LockedDiagonals;
+        }
+    }
+
     static void GreedyTin(double[] w)
     {
         var sw = Stopwatch.StartNew();
