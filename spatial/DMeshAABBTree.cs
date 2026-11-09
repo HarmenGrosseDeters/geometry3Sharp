@@ -1923,7 +1923,9 @@ namespace g3
             double midpoint = interval.Center;
 
             int n0, n1;
-            if (Math.Abs(interval.a - interval.b) > MathUtil.ZeroTolerance) {
+            // (any spread splits: a spread below an absolute 1e-8 (small meshes, thin sets) made another tree than the same
+            // mesh scaled up, and so other tie-breaks in the queries; a midpoint that rounds onto an end is handled below)
+            if (interval.a < interval.b) {
                 // we have to re-sort the centers & triangles lists so that centers < midpoint
                 // are first, so that we can recurse on the two subsets. We walk in from each side,
                 // until we find two out-of-order locations, then we swap them.
