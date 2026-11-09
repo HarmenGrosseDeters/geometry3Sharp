@@ -15,6 +15,15 @@ namespace Meshing2Acceptance
     /// </summary>
     public static partial class Oracle
     {
+        /// <summary> judge the grid split's pinch rule by the envelope approximation that the chain identity of the output's graph replaced (per thread; differential tests only) </summary>
+        public static bool LegacyEnvelopeChainForDifferential { get => Run.LegacyEnvelopeChainForDifferential; set => Run.LegacyEnvelopeChainForDifferential = value; }
+
+        /// <summary> the piece's own chain (OwnStretch) on a given graph, for the self-checks </summary>
+        public static HashSet<long> StretchOfForSelfCheck(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot) => Run.StretchOf(ia, ib, neighbours, isHot);
+
+        /// <summary> the key of a subsegment in a stretch (StretchOfForSelfCheck), the same for either orientation </summary>
+        public static long SubsegmentKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
         /// <summary>
         /// The mesher's pinch rule as the oracle applies it to a candidate split pixel q (MESHING2D_HULL_GRID.md section 7): q is no
         /// split point when it is no hot pixel of the input's own rounding and a subsegment of another chain ends there (the piece routed
@@ -22,14 +31,6 @@ namespace Meshing2Acceptance
         /// together there), and so does a pixel where only subsegments of the piece's own chain end. Given whether q is such a hot
         /// pixel and, for each subsegment ending in q's pixel, whether it belongs to the piece's own chain
         /// </summary>
-        /// <summary> judge the grid split's pinch rule by the envelope approximation that the chain identity of the output's graph replaced (per thread; differential tests only) </summary>
-        public static bool LegacyEnvelopeChainForDifferential { get => Run.LegacyEnvelopeChainForDifferential; set => Run.LegacyEnvelopeChainForDifferential = value; }
-
-        public static HashSet<long> StretchOfForSelfCheck(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot) => Run.StretchOf(ia, ib, neighbours, isHot);
-
-        /// <summary> the key of a subsegment in a stretch (StretchOfForSelfCheck), the same for either orientation </summary>
-        public static long SubsegmentKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-
         public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
             => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
 
@@ -717,7 +718,9 @@ namespace Meshing2Acceptance
             /// subsegment vertices. That is the link of the snap-rounded image between two hot pixels (or two branching vertices) that
             /// the piece lies on, ie the part of one chain the mesher's "shares an input source" holds for, without the envelope
             /// approximation: two chains that run within a pixel of each other along the piece are two chains here (rule C makes that
-            /// regime reachable: the zigzag of Q17). A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
+            /// regime reachable: the zigzag of Q17). It relies on monotonicity: a straight input segment crosses each open pixel in one interval and
+            /// candidates project strictly between the piece's ends, so a vertex of the piece's own source in q's pixel can only be an end of the
+            /// piece (skipped as q); a stretch beyond a hot pixel is another input segment's chain. A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
             /// another chain's: the pinch is a failing violation of its own. Returned as subsegment keys (SubKey)
             /// </summary>
             HashSet<long> OwnStretch(int ia, int ib)
@@ -855,7 +858,7 @@ namespace Meshing2Acceptance
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
                         // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, no broader: q no hot pixel of the input's rounding,
-                        // and a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its
+                        // and a subsegment ending in q's pixel that belongs to another chain, ie not in the piece's own stretch of the output's subsegment graph (OwnStretch)
                         // ends. By chain identity recomputed from the output (OwnStretch), as the mesher goes by source; self-checks 5c, 5d)
                         if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
                             subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => LegacyEnvelopeChainForDifferential

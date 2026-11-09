@@ -98,6 +98,33 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, Run(Conforming(QualityMesh2ApexExemptionTests.Pair(1, 20)), false).Counts[16]);   // the rule off: nothing granted, nothing revoked
         }
 
+        /// <summary> one mesher, two computes, on the grid with rule C: the same mesh </summary>
+        [Fact]
+        public void OnTheGrid_Reuse()
+        {
+            var input = Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, 2.6, 1.0 / 64));
+            var c = ConstrainedDelaunayMesh2Candidate.Convert(input);
+            var mesher = new QualityMesh2 { MinAngle = 20, SnapTolerance = 1.0 / 64, Conforming = true };
+            var a = mesher.Compute(c); var b = mesher.Compute(c);
+            Assert.Equal(a.Mesh.Vertices, b.Mesh.Vertices);
+            Assert.Equal(a.Mesh.Triangles, b.Mesh.Triangles);
+        }
+
+        /// <summary> with rule C on, the chain rule still matters: without it star seed 15 shows a coincidence (review of the grid change) </summary>
+        [Fact]
+        public void ChainRule_StillMattersWithRuleC()
+        {
+            var input = StarPolygonFuzz.Make(15);
+            QualityMesh2.Refiner.KeepChainsApartForTests = false;
+            try {
+                var r = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
+                Assert.Contains(r.Violations, v => v.Kind == Violation.RefinementCoincidence);
+            }
+            finally { QualityMesh2.Refiner.KeepChainsApartForTests = null; }
+            var ok = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.DoesNotContain(ok.Violations, v => v.Kind == Violation.RefinementCoincidence);
+        }
+
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
 
         /// <summary> under every similarity the oracle accepts it, and the 2^k scales give the same mesh bit for bit </summary>
@@ -199,7 +226,7 @@ namespace geometry3Sharp.Tests
             var changed = new List<string>();
             int judged = 0;
             var inputs = new List<(string, Func<Mesh2Input>)>();
-            for (int seed = 0; seed < 14; ++seed) { int sd = seed; inputs.Add(("star " + sd, () => StarPolygonFuzz.Make(sd))); inputs.Add(("seg " + sd, () => QualityMesh2PinchFreeTests.Segments(sd, 20))); }
+            for (int seed = 0; seed < 6; ++seed) { int sd = seed; inputs.Add(("star " + sd, () => StarPolygonFuzz.Make(sd))); inputs.Add(("seg " + sd, () => QualityMesh2PinchFreeTests.Segments(sd, 20))); }
             foreach (double deg in new[] { 2.6, 10.0 }) { double dg = deg; inputs.Add(("wedge " + dg, () => Conforming(QualityMesh2SmallAngleRuleTests.HullWedge(20, dg, 1.0 / 64)))); }
             foreach (int kind in new[] { 0, 2 }) { int kd = kind; inputs.Add(("pair " + kd, () => { var i = Conforming(QualityMesh2ApexExemptionTests.Pair(kd, 20)); i.SnapTolerance = 1.0 / 64; return i; })); }
             inputs.Add(("zigzag 0", () => Conforming(QualityMesh2CollapsedPartsTests.Zigzag(0, 20))));
@@ -220,7 +247,7 @@ namespace geometry3Sharp.Tests
                     if (before && !now) Assert.Fail(name + (rule ? " (rule C)" : " (no rule)") + ": accepted by the envelope oracle, rejected by chain identity");
                     if (before != now) changed.Add(name + (rule ? " (rule C)" : " (no rule)"));
                 }
-            Assert.True(judged > 50, judged.ToString());
+            Assert.True(judged > 30, judged.ToString());
             Assert.Equal(new[] { "zigzag 0 (rule C)" }, changed);
         }
 

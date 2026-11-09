@@ -710,7 +710,7 @@ namespace g3
             {
                 // the conforming mode (rule C) has no lenses and no Chew deletion; with lenses forced on by a benchmark the rule stays off there.
                 // On the snap grid rule C is on too (MESHING2D_SMALL_ANGLES_CONFORMING.md section 8): a split it forces late can be refused by
-                // the pinch rule of ValidGridSplit, and the oracle excuses exactly those subsegments (its pinch rule judges chain identity
+                // the pinch rule of ValidGridSplit, and the oracle excuses those subsegments and may demand more (its pinch rule judges chain identity
                 // from the output's subsegment graph, Oracle.OwnStretch, as the mesher goes by source)
                 if (options.Conforming && lenses || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
                 // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
