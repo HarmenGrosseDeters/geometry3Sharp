@@ -2350,7 +2350,58 @@ namespace Meshing2Acceptance
                 // (not with an effective hole seed: the cell it removes is bounded by constraints that Domain.Edges() does not list)
                 bool grid = input.SnapTolerance > 0 && effectiveSeeds.Count == 0;
                 Q boundaryTube2 = tube2;
-                if (grid) { Q px = Q.FromDouble(input.SnapTolerance) * GridTubePixels; boundaryTube2 = Q.Max(tube2, px * px); }
+                // (the output boundary may run off the exact input boundary as far as the iterated image does, up to the guard
+                // GridImageDriftPixels; what is measured on the vertices and the links is the movement of the area tolerance)
+                Q driftTube2 = tube2;
+                List<(Pt a, Pt b)> imageLinks = null;
+                if (grid) {
+                    Q px = Q.FromDouble(input.SnapTolerance);
+                    boundaryTube2 = Q.Max(tube2, px * px * (GridTubePixels * GridTubePixels));
+                    driftTube2 = Q.Max(tube2, px * px * (GridImageDriftPx * GridImageDriftPx));
+                    Snap();
+                    double worstImage = 0;
+                    double pxD = input.SnapTolerance;
+                    foreach (var kv in full.Images) {
+                        if (!o.IdentityRules) break;
+                        // the guard on the image itself: no node farther than GridImageDriftPx pixels from the exact source. In doubles where
+                        // the magnitudes allow (FilterRange; the guard has a margin of 0.9 pixel over the largest drift measured), else exact
+                        var sa = PtD(kv.Key.a); var sb = PtD(kv.Key.b);
+                        double dx = sb.x - sa.x, dy = sb.y - sa.y;
+                        bool inRange = !double.IsNaN(sa.x) && !double.IsNaN(sb.x) && FilterRange(Math.Max(Math.Abs(dx), Math.Abs(dy)))
+                            && FilterRange(Math.Max(Math.Abs(sa.x), Math.Abs(sa.y)) + pxD) && FilterRange(pxD);
+                        foreach (var n in kv.Value) {
+                            double pxDist;
+                            if (inRange) {
+                                double cx = (double)n.x * pxD, cy = (double)n.y * pxD, len2 = dx * dx + dy * dy;
+                                double t = Math.Max(0, Math.Min(1, ((cx - sa.x) * dx + (cy - sa.y) * dy) / len2));
+                                double ex = sa.x + t * dx - cx, ey = sa.y + t * dy - cy;
+                                pxDist = Math.Sqrt(ex * ex + ey * ey) / pxD;
+                            } else {
+                                Q q = Exact.Dist2ToSegment(kv.Key.a, kv.Key.b, Centre(n, snapPixel)) / (snapPixel * snapPixel);
+                                q.Bounds(out _, out double qhi);
+                                pxDist = Math.Sqrt(qhi);
+                            }
+                            if (double.IsNaN(pxDist)) pxDist = double.PositiveInfinity;   // fail closed
+                            worstImage = Math.Max(worstImage, pxDist);
+                        }
+                    }
+                    r.MaxImageDriftPixels = worstImage;
+                    if (o.IdentityRules && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
+                }
+                // a boundary point at distance d2 (squared) from the exact input boundary is accepted within the pixel tube, or, farther but
+                // within the drift guard, if it lies within the pixel tube of an image link; false: outside (BoundaryOutsideTube)
+                bool OnImage(Pt pt)
+                {
+                    if (!o.IdentityRules) return false;
+                    if (imageLinks == null) {
+                        // (built on the first use: only a boundary point beyond the pixel tube needs it)
+                        imageLinks = new List<(Pt a, Pt b)>();
+                        foreach (var kv in full.Images)
+                            for (int k = 0; k + 1 < kv.Value.Count; ++k) imageLinks.Add((Centre(kv.Value[k], snapPixel), Centre(kv.Value[k + 1], snapPixel)));
+                    }
+                    foreach (var (la, lb) in imageLinks) if (Exact.Dist2ToSegment(la, lb, pt) <= boundaryTube2) return true;
+                    return false;
+                }
                 if (domain.IsHull || grid) {
                     // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
                     // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
@@ -2362,18 +2413,19 @@ namespace Meshing2Acceptance
                             if (!checkedVertices.Add(id)) continue;
                             // (the edges within the tube only: the minimum counts only when it is within the tube, and then its edge is
                             // among them)
-                            var near = DomainEdgesNear(v[id], boundaryTube2);
+                            var near = DomainEdgesNear(v[id], driftTube2);
                             if (CheckFastPathForTests && hullEdges.Count > 0) {
-                                Q full = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                                Q full0 = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
                                 Q got = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                                if (full <= boundaryTube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
+                                if (full0 <= driftTube2 && (near.Count == 0 || got != full0)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
                             }
                             // (no hull edge at all, every input point the same: the scan's minimum of nothing threw; the domain is degenerate
                             // and reported as such, TrianglesOnDegenerate)
                             if (hullEdges.Count == 0) continue;
                             Q d = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                            if (near.Count == 0 || d > boundaryTube2) {
-                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary");
+                            bool inside = near.Count > 0 && d <= (grid ? driftTube2 : tube2) && (!grid || d <= boundaryTube2 || OnImage(v[id]));
+                            if (!inside) {
+                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary and off its image");
                                 continue;
                             }
                             moved2 = Q.Max(moved2, d);
@@ -2388,10 +2440,10 @@ namespace Meshing2Acceptance
                             Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
                             foreach (var f in EighthPoints) {
                                 var pt = new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f);
-                                var nearEdges = DomainEdgesNear(pt, boundaryTube2);
+                                var nearEdges = DomainEdgesNear(pt, driftTube2);
                                 if (nearEdges.Count == 0) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
                                 Q dd = nearEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, pt)).Aggregate(Q.Min);
-                                if (dd > boundaryTube2) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                if (dd > driftTube2 || dd > boundaryTube2 && !OnImage(pt)) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary and its image near " + pt); continue; }
                                 moved2 = Q.Max(moved2, dd);
                             }
                         }
@@ -2456,7 +2508,18 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
+            Dictionary<(BigInteger x, BigInteger y), List<int>> pixelVertices;
+
             const int GridTubePixels = 1;
+
+            /// <summary>
+            /// The guard on the image itself (owner decision 2026-11-10): no node of a source's iterated image lies farther than this many
+            /// pixels from the exact source. Input rounding moves at most half a pixel per axis (SR with restore); refinement vertices may reroute
+            /// other chains through hot pixels (Q17), so a chain at a sub-pixel wedge can end up farther: measured at most 1.6 pixels, p99.9
+            /// 0.707 pixel over about 85 000 sources. A bounded drift cannot give back one pixel (Packer 2006, 2008: the bound must be about
+            /// three times the deviation of snap rounding; Belussi et al. 2016, section 5.2: it collapses at small angles).
+            /// </summary>
+            static readonly Q GridImageDriftPx = new Q(5, 2);   // 2.5 pixels
 
             // the points between the ends of an edge that rule O-G samples: the distance to a set is 1-Lipschitz, so between samples a
             // chord of length L can be at most L/16 beyond the tube
@@ -2747,8 +2810,31 @@ namespace Meshing2Acceptance
                             farGap = Math.Min(farGap, gap);
                         }
                     }
+                    // With a snap tolerance the chain follows the source's iterated image (Q17: output vertices are hot pixels and reroute it), which
+                    // can leave the tube of the exact segment at a sub-pixel wedge (up to ~1.6 pixels measured, rule O-G): the vertices at the
+                    // pixel centres of the image's nodes are candidates too, in addition to the tube's (owner decision 2026-11-10, option A)
+                    var imageNear = new List<int>();
+                    if (input.SnapTolerance > 0 && o.IdentityRules) {
+                        Snap();
+                        if (full.Images.TryGetValue((s.a, s.b), out var imageNodes)) {
+                            if (pixelVertices == null) {
+                                // (the vertices at their pixel centres by pixel, once: not a scan of all vertices per source)
+                                pixelVertices = new Dictionary<(BigInteger x, BigInteger y), List<int>>();
+                                for (int i = 0; i < v.Length; ++i) {
+                                    if (!AtPixelCentre(v[i], v[i], snapPixel)) continue;
+                                    var key = PixelOf(v[i], snapPixel);
+                                    if (!pixelVertices.TryGetValue(key, out var list)) pixelVertices.Add(key, list = new List<int>());
+                                    list.Add(i);
+                                }
+                            }
+                            var nearSet = new HashSet<int>(near);
+                            foreach (var node in imageNodes)
+                                if (pixelVertices.TryGetValue(node, out var inPixel)) foreach (int i in inPixel) if (nearSet.Add(i)) imageNear.Add(i);
+                        }
+                    }
                     foreach (var piece in RetainedPieces(s.a, s.b, ringEdges, double.IsNaN(own[0]) || !(farGap > 0) ? allRingEdges : null, farGap)) {
                         var candidates = new HashSet<int>(near);
+                        foreach (int i in imageNear) candidates.Add(i);
                         // A piece ends where a ring edge cuts it. At a tiny angle that point is ill-conditioned along the lines: a crossing rounded
                         // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
                         // source and of a ring edge through the end also ends the chain.

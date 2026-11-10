@@ -39,6 +39,16 @@ Nothing is open. The items below are **parked until a concrete use case** (owner
   realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
   in-place translation with a bitwise restore (#355) costs no copy, and only a caller that shares the terrain concurrently
   would gain.
+- **Slope envelope construction (slow tests, class F; parked, needs an owner decision).** The 48-gon designs take 3-5 s
+  (`WavyToe_130mHigh` 3.6 s; `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, 85-90 % in `SlopeMap.InsertPiece`).
+  Profile (2026-11-10): the incremental map builds about 134k faces (1.6M `split_face` calls) for 48 pieces and simplifies them to 762;
+  the order of insertion changes the time 2.5x (id order 8.9 s, fixed shuffle 3.4 s) but never the result. Constant factors are done
+  (about 1.1x). Merging equal-label neighbours during insertion shrinks the live faces 20x but is not bit-identical in near-degenerate
+  designs (`Merge_RaisesTheToeLowering`: 80 instead of 81 triangles, `MergedPositions` 0 instead of 3): the ghost vertices of planes that
+  later lost are seen by Simplify's close-position merge, so the output is not a pure function of the labels there; and it gained only
+  1.05-1.4x because the split count, not the face count, drives the time. The lever left is a different construction, for example the
+  lower envelope of a fan per sector, or divide and conquer over the pieces. It changes the vertex history and so the near-degenerate
+  outputs: the owner decides whether that is acceptable (or whether the near-degenerate cases get a canonical rule first).
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
   re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).

@@ -1,7 +1,8 @@
 # Classification in the exact boolean: Lévy-style propagation and cheaper levers (phase 1)
 
-Status 2026-11-08: phase 1 done (data, profile, upper bound, literature); no library code. Coordinator assessment
-2026-11-08: recommendation agreed; phase 2 waits for the merge queue (#397 ... #426). Supersedes the hand-over note
+Status 2026-11-09: phase 2 done (section 4.1 item 2, ways 1 and 2: the fast-winding trees built concurrently,
+bit-identical; section 4.3). Phase 1 (2026-11-08): data, profile, upper bound, literature; no library code. Coordinator
+assessment 2026-11-08: recommendation agreed; phase 2 after the merge queue (#397 ... #426). Supersedes the hand-over note
 [LEVY_CLASSIFICATION_HANDOVER.md](LEVY_CLASSIFICATION_HANDOVER.md). Literature: [LEVY_CLASSIFICATION_LITERATURE.md](LEVY_CLASSIFICATION_LITERATURE.md)
 (Lévy 2025 / Geogram, Zhou 2016, Cherchi 2022, EMBER, Manifold, GWN) and
 [LEVY_CLASSIFICATION_WINDING2026.md](LEVY_CLASSIFICATION_WINDING2026.md) (Antipodal Method, Xie et al. 2026).
@@ -150,6 +151,26 @@ exactly.
    2018, translate the child moments to the parent centre) would make the cache build O(n) without HashSets, but
    changes the floating-point values of the public `FastWindingNumber` and can flip thresholded open classifications
    in rare cases: only with an owner decision.
+
+### 4.3 Phase 2 result (2026-11-09)
+
+Ways 1 and 2 as in item 2, in the library: `ExactMeshBoolean.classify` builds the trees of the open meshes concurrently
+(`new_winding_tree`, stored serially in mesh order), `DMeshAABBTree3.build_fast_winding_cache` builds the two subtrees
+of the top `FastWindingParallelDepth` = 3 levels concurrently (the prototype used 4). Item 1 (local centroids) and item 3
+(bottom-up moments) are not done. Tests: `FastWindingParallelBuildTests` (FastWindingNumber and the booleans of an open
+input equal the plain recursion, depth 0, bit for bit over repeated runs; a mutant swapping the subtrees' triangle sets
+fails them). Measured on a 4-core cloud machine (`prototype/phase2_ab.sh`; rows in `results/phase2/`):
+
+| model | op | Compute ms base / phase 2 | classification ms base / phase 2 | hashes |
+|---|---|---|---|---|
+| 112798 | intersection | 18016 / 15394 | 6257 / 3440 (-45 %) | equal |
+| 1005586 | intersection | 21958 / 19571 | 7354 / 4340 (-41 %) | equal |
+| 117959 | intersection | 16788 / 14694 | 5433 / 3254 (-40 %) | equal |
+| 113906 | intersection | 12700 / 12304 | 5374 / 5090 (-5 %) | equal |
+| 1087141 | intersection | 13547 / 12398 | 3091 / 1862 (-40 %) | equal |
+
+(two rounds, means). Both samples (`sample.txt`, `sample_random.txt`: 57 models, 171 ops, one round): result hashes
+equal on all 171; classification 257.8 -> 197.8 s (-23.3 %), Compute 1111.8 -> 1037.0 s (-6.7 %).
 
 ### 4.2 Later option (owner decision, after a patent check)
 
