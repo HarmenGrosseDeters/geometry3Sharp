@@ -13,7 +13,8 @@ namespace geometry3Sharp.Tests
     /// fix_degenerate returns before its steps). An exactly degenerate triangle is still bad, and fix_degenerate's steps
     /// started at twice the height for that area, 0, so "s *= 4" never left 0 and Apply() never returned. Now the steps
     /// start a few units in the last place of the apex. The test pins that Apply() returns and the counts are honest; on
-    /// this input the repair clears the mesh by other edits (a collapse), not by the new steps.
+    /// this input the repair clears the mesh by other edits (a collapse), not by the new steps. (Below 2^-200 the input is
+    /// outside the supported range and Apply() returns at once with OutsideRange; the steps are reached only inside.)
     /// </summary>
     public class RoundingTinyComponentTests
     {
@@ -51,13 +52,14 @@ namespace geometry3Sharp.Tests
             // the setup: the degenerate area of this size underflows to 0
             double diag = m.CachedBounds.DiagonalLength;
             Assert.Equal(0.0, 1e-12 * diag * diag);
+            DMesh3 before = new DMesh3(m);
             MeshRoundingRepair r = ApplyWithin(m, 5);
-            Assert.True(r.InitialDegenerate > 0);
+            // below 2^-200 the coordinates are outside the supported range (docs/QA.md 2.5a): reported, the mesh not touched
+            // (it hung or removed the whole mesh as tiny and reported it clean before)
+            Assert.True(r.OutsideRange);
+            Assert.False(r.IsClean);
+            Assert.Equal("", Invariance.Difference(before, m));
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
-            Assert.True(m.Vertices().All(v => Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue));
-            // the counts are the mesh's (whether the repair can clear it at this size is not claimed)
-            Assert.Equal(r.RemainingDegenerate == 0 && r.RemainingIntersections == 0 && r.RemainingFalseContacts == 0
-                && r.ScaleDisparity == 0 && !r.ScaleNotFinite, r.IsClean);
         }
 
         [Fact]

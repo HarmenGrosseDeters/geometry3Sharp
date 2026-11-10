@@ -102,6 +102,9 @@ namespace g3
     /// degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200] (about 6e-61 to
+    /// 2e60; subnormal numbers are outside), and the largest and the smallest component are at most 2^60 apart in size.
+    /// Outside, Apply() returns false with OutsideRange and the mesh is not touched.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class MeshRoundingRepair
@@ -237,10 +240,16 @@ namespace g3
         /// </summary>
         public bool ScaleNotFinite;
         /// <summary>
-        /// no self-intersections, no degenerate triangles and no contacts made by the rounding remain, no component was
-        /// kept for ScaleDisparity, and the scale is finite (ScaleNotFinite)
+        /// a coordinate of a triangle is outside the supported range (class comment): nonzero with a magnitude outside
+        /// [2^-200, 2^200], subnormal numbers included. Apply() returns false at once and leaves the mesh as it is; the repair is
+        /// not clean (before, the rounding removed whole meshes below 2^-280 as tiny and reported them clean)
         /// </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false; } }
+        public bool OutsideRange;
+        /// <summary>
+        /// no self-intersections, no degenerate triangles and no contacts made by the rounding remain, no component was
+        /// kept for ScaleDisparity, the scale is finite (ScaleNotFinite) and the coordinates are in the supported range (OutsideRange)
+        /// </summary>
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false && OutsideRange == false; } }
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
@@ -345,6 +354,18 @@ namespace g3
         HashSet<Index2i> inputBoundaryEdges = new HashSet<Index2i>();
         Dictionary<int, int> slidTowards = new Dictionary<int, int>();
 
+        // zero, or a magnitude in [2^-200, 2^200] (about 6e-61 to 2e60)
+        static bool in_range(Vector3d p)
+        {
+            return in_range(p.x) && in_range(p.y) && in_range(p.z);
+        }
+
+        static bool in_range(double x)
+        {
+            double a = Math.Abs(x);
+            return a == 0 || (a >= 6.2230152778611417e-61 && a <= 1.6069380442589903e60);
+        }
+
         /// <summary> repair (see class comment); returns IsClean </summary>
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
@@ -368,6 +389,7 @@ namespace g3
             anyCoarse = false;
             ScaleDisparity = 0;
             ScaleNotFinite = false;
+            OutsideRange = false;
             InitialFalseContacts = RemainingFalseContacts = 0;
             EvaluationLimitReached = false;
             if (SharedPositionsTouch == false)
@@ -393,6 +415,15 @@ namespace g3
                 if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false) {
                     InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                     ScaleNotFinite = true;
+                    return false;
+                }
+            }
+            // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
+            foreach (int tid in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(tid);
+                if (in_range(Mesh.GetVertex(tv.a)) == false || in_range(Mesh.GetVertex(tv.b)) == false || in_range(Mesh.GetVertex(tv.c)) == false) {
+                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                    OutsideRange = true;
                     return false;
                 }
             }
