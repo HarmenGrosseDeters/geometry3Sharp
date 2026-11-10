@@ -311,8 +311,9 @@ Ordered by expected value for the library.
    - Result (#503, 2026-11-09): the reference rule (per-triangle anchors and carried bounds, ghosts for collapsed
      triangles; never stricter than the apex rule) checked with Z3; prototype on 75 ops of 25 models: 23 with
      degenerate triangles left on master, 5 with the rule, 0 newly unclean; 7 of the 12 FINAL-1 regressions cleared,
-     the other 5 are not budget cases (single edits above the bound or no edit). **Owner 2026-11-10: build it** (the
-     research session builds, tier L; the Boolean session reviews), gate: the 16 239-op cohort run on the runner after
+     the other 5 are not budget cases (single edits above the bound or no edit). **Owner 2026-11-10: build it** (owner
+     2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
+     session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
 3. **Rounding cost on large or rotated results.**
    - Measured:
