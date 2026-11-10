@@ -26,7 +26,8 @@ namespace ReaderFuzz
         static string Check(byte[] data)
         {
             string text = Encoding.UTF8.GetString(data);
-            if (text.IndexOf("tools/call", StringComparison.Ordinal) >= 0 || text.IndexOf("resources/", StringComparison.Ordinal) >= 0) return "";
+            // conservative: any JSON encoding of the method "tools/call" holds either the literal "call" or a backslash escape; resources/* likewise
+            if (text.IndexOf("call", StringComparison.Ordinal) >= 0 || text.IndexOf("resource", StringComparison.Ordinal) >= 0 || text.IndexOf('\\') >= 0) return "";
             try {
                 new g3cli.McpServer(new System.IO.StringReader(""), new System.IO.StringWriter()).Handle(text);
                 return "";

@@ -21,7 +21,11 @@ namespace ReaderFuzz
 
         public void Run(byte[] data)
         {
-            string problem = Check(data);
+            // the checks set the invariant culture on the calling thread (the test thread pool must not inherit it)
+            var culture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            string problem;
+            try { problem = Check(data); }
+            finally { System.Threading.Thread.CurrentThread.CurrentCulture = culture; }
             if (problem != "") throw new ReaderFuzzFinding(Name + ": " + problem);
         }
     }

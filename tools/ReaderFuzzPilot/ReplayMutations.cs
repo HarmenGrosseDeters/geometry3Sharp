@@ -41,18 +41,37 @@ namespace ReaderFuzz
                     copy[at] = (byte)word; copy[at + 1] = (byte)(word >> 8); copy[at + 2] = (byte)(word >> 16); copy[at + 3] = (byte)(word >> 24);
                     yield return copy;
                 }
-            if (!text) yield break;
+            if (!text && !LooksLikeText(seed)) yield break;
             string s = Encoding.ASCII.GetString(seed);
-            int i = 0, tokens = 0;
-            while (i < s.Length && tokens < 400) {
+            // every number of the seed is a position; at most about maxNumbers of them, evenly spread over the whole seed
+            var starts = new List<int[]>();
+            for (int i = 0; i < s.Length;) {
                 if (char.IsDigit(s[i]) || ((s[i] == '-' || s[i] == '.') && i + 1 < s.Length && char.IsDigit(s[i + 1]))) {
                     int j = i + 1;
                     while (j < s.Length && (char.IsDigit(s[j]) || s[j] == '.' || s[j] == 'e' || s[j] == 'E' || ((s[j] == '-' || s[j] == '+') && (s[j - 1] == 'e' || s[j - 1] == 'E')))) ++j;
-                    foreach (string token in ExtremeTokens)
-                        yield return Encoding.ASCII.GetBytes(s.Substring(0, i) + token + s.Substring(j));
-                    i = j; ++tokens;
+                    starts.Add(new[] { i, j });
+                    i = j;
                 } else ++i;
             }
+            int numberStride = Math.Max(1, starts.Count / 400);
+            for (int k = 0; k < starts.Count; k += numberStride) {
+                // the last number of the seed is always mutated
+                int[] r = starts[k];
+                foreach (string token in ExtremeTokens)
+                    yield return Encoding.ASCII.GetBytes(s.Substring(0, r[0]) + token + s.Substring(r[1]));
+            }
+            if (starts.Count > 0 && (starts.Count - 1) % numberStride != 0) {
+                int[] r = starts[starts.Count - 1];
+                foreach (string token in ExtremeTokens)
+                    yield return Encoding.ASCII.GetBytes(s.Substring(0, r[0]) + token + s.Substring(r[1]));
+            }
+        }
+
+        static bool LooksLikeText(byte[] seed)
+        {
+            foreach (byte b in seed)
+                if (b >= 0x80 || (b < 0x20 && b != '\n' && b != '\r' && b != '\t')) return false;
+            return seed.Length > 0;
         }
     }
 }
