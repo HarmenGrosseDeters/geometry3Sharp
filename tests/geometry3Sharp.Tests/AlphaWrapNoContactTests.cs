@@ -19,7 +19,9 @@ namespace geometry3Sharp.Tests
         static DMesh3 Wrapped(DMesh3 input, out MeshRobustRepair r)
         {
             r = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 24, WrapRelativeAlpha = 70, WrapRelativeOffset = 700 };
-            Assert.True(r.Apply());
+            MeshRobustRepair rr = r;
+            // (a not-clean solidify, so the wrap is used: MeshRobustRepairTests.WithUnrepairedContour)
+            Assert.True(MeshRobustRepairTests.WithUnrepairedContour(() => rr.Apply()));
             Assert.True(r.UsedAlphaWrap && r.AlphaWrapSimplified);
             return r.Mesh;
         }

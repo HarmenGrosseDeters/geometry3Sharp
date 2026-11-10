@@ -490,6 +490,33 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, restored.TriangleCount);
         }
 
+        [Theory]
+        [InlineData(9999)]
+        [InlineData(-1)]
+        public void gSerialization_Restore_TriangleVertexOutOfRange_IsRejectedAsInvalidData(int value)
+        {
+            // found by the coverage-guided reader fuzzing: a corrupt .g3mesh whose triangle has a vertex index outside the vertex
+            // buffer, at a corner that none of the stored (valid) edges names, passed the edge checks and the rebuild threw
+            // ArgumentOutOfRangeException instead of the reader's invalid-data error
+            var mesh = new DMesh3();
+            mesh.AppendVertex(new Vector3d(0, 0, 0));
+            mesh.AppendVertex(new Vector3d(1, 0, 0));
+            mesh.AppendVertex(new Vector3d(0, 1, 0));
+            mesh.AppendTriangle(0, 1, 2);
+            // only the edge (0,1) stays valid; the two edges at the third corner become free slots
+            int kept = mesh.FindEdge(0, 1);
+            for (int eid = 0; eid < mesh.MaxEdgeID; ++eid)
+                if (eid != kept)
+                    mesh.EdgesRefCounts.RawRefCounts[eid] = 0;
+            mesh.TrianglesBuffer[2] = value;
+            var ms = new MemoryStream();
+            var w = new BinaryWriter(ms);
+            gSerialization.Store(mesh, w);
+            w.Flush();
+            ms.Position = 0;
+            var ex = Assert.ThrowsAny<Exception>(() => gSerialization.Restore(new DMesh3(), new BinaryReader(ms)));
+            Assert.Contains("invalid mesh data (triangle vertices)", ex.Message);
+        }
 
         // ---------------------------------------------------------------- DVector
 

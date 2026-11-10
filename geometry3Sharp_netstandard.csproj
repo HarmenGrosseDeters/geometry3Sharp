@@ -58,6 +58,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
+    <InternalsVisibleTo Include="ReaderFuzzPilot" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
     <InternalsVisibleTo Include="MeshRepairBenchmark" />

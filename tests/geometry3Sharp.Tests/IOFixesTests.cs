@@ -92,6 +92,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void STLReader_Ascii_VertexLinesBeforeAnySolid_AreReadAsOneUnknownSolid()
+        {
+            // found by the coverage-guided reader fuzzing: a corrupted header left "vertex" lines before any solid / facet line,
+            // append_vertex then threw InvalidOperationException (Sequence contains no elements)
+            string stl = "outer loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\n";
+            var builder = new DMesh3Builder();
+            IOReadResult result = new STLReader().Read(new StringReader(stl), ReadOptions.Defaults, builder);
+            Assert.Equal(IOCode.Ok, result.code);
+            Assert.Single(builder.Meshes);
+            Assert.Equal(1, builder.Meshes[0].TriangleCount);
+            Assert.Equal(3, builder.Meshes[0].VertexCount);
+        }
+
+        [Fact]
         public void OFFReader_ParsesDecimalPointWithoutCultureSwitch()
         {
             // OFFReader is internal, so go through StandardMeshReader with its culture switch turned off
