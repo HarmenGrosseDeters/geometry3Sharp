@@ -34,34 +34,6 @@ namespace Meshing2Acceptance
         public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
             => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
 
-        /// <summary>
-        /// The lobe bound of rule (ii') (2026-11-10): the nodes of a rerouted stretch, between its ends a and b, all lie within one pixel of
-        /// the chord a-b, and the lobe (the polygon a, the nodes, b) has at most one pixel squared of area. The area bound keeps the excuse
-        /// from covering a sliver several pixels long (a Steiner vertex 0.7 pixel off a 20-pixel chord opens 7.5 pixels squared, which the
-        /// strict rule (ii') still rejects, post-review B1). Pixel centres; exact
-        /// </summary>
-        public static bool LobeWithinTube(Pt a, Pt b, IEnumerable<Pt> between, Q pixel)
-        {
-            Q tube = pixel * pixel;
-            var ring = new List<Pt> { a };
-            foreach (var p in between) { if (Exact.Dist2ToSegment(a, b, p) > tube) return false; ring.Add(p); }
-            ring.Add(b);
-            // (the sum of the absolute areas of the fan from a: an upper bound of the lobe's area, also where the path crosses itself)
-            Q twice = Q.Zero;
-            for (int i = 1; i + 1 < ring.Count; ++i) {
-                Q cross = (ring[i].Qx - a.Qx) * (ring[i + 1].Qy - a.Qy) - (ring[i + 1].Qx - a.Qx) * (ring[i].Qy - a.Qy);
-                twice += Q.Abs(cross);
-            }
-            return twice <= tube * 2;
-        }
-
-        /// <summary> the lobe bound for a point: every link at its pixel ends in a neighbouring pixel (index distance at most 1 per axis) </summary>
-        public static bool LinksStayAdjacent((BigInteger x, BigInteger y) pixel, IEnumerable<(BigInteger x, BigInteger y)> ends)
-        {
-            foreach (var q in ends) if (BigInteger.Abs(q.x - pixel.x) > 1 || BigInteger.Abs(q.y - pixel.y) > 1) return false;
-            return true;
-        }
-
         /// <summary> the smallest positive double, 2^-1074: the step of the subnormal grid </summary>
         static readonly Q SubnormalStep = new Q(1, BigInteger.One << 1074);
 
@@ -1564,9 +1536,10 @@ namespace Meshing2Acceptance
             /// <summary>
             /// O-H5 with rule (ii') on the image of source: which links of its full image are excused, and whether output vertices
             /// rerouted any of them. The full image and the input's own image are matched at the pixels they share, in order (the ends are
-            /// shared: both are input points); a link of the full image is excused if it is collapsed there and every link of the
-            /// input's own image between the same two shared pixels is collapsed in the input's own rounding. So an output vertex may
-            /// reroute a chain only across a stretch the input's rounding collapses, and never creates a collapse (owner 2026-11-03).
+            /// shared: both are input points); a link of the full image is excused if every link of the input's own image between the
+            /// same two shared pixels is collapsed in the input's own rounding, whatever the full image makes of it (the reference is the
+            /// rounded input; owner decisions 2026-11-03 and B of 2026-11-10). So an output vertex may reroute a chain only across a
+            /// stretch the input's rounding collapses.
             /// Judging the input's rounding beside the full link's middle instead is unsound: a rerouted link can run outside the
             /// input's band while the band keeps area next to it (post-review B1, the wedge self-check).
             /// </summary>
@@ -1589,33 +1562,14 @@ namespace Meshing2Acceptance
                     if (!ownCollapsed) continue;
                     bool same = f1 - f0 == o1 - o0;
                     for (int k = f0; k < f1 && same; ++k) same = image[k].Equals(own[o0 + k - f0]);
-                    for (int k = f0; k < f1; ++k)
-                        if (LinkCollapsed(full, image[k], image[k + 1]) || LobeAround(image[k], image[k + 1])) { excused[k] = true; rerouted[k] = !same; }
+                    for (int k = f0; k < f1; ++k) {
+                        // the reference is the rounded input (owner 2026-11-10): a stretch that the input's own rounding collapses is excused
+                        // whatever the full image makes of it; a reroute through refinement pixels that opens area there (a lobe) is not required of the mesh
+                        if (!LinkCollapsed(full, image[k], image[k + 1])) ++r.LobeChainExcuses;
+                        excused[k] = true; rerouted[k] = !same;
+                    }
                 }
                 return excused;
-            }
-
-            /// <summary>
-            /// The lobe (rule (ii'), 2026-11-10): a link p-q that the input's rounding collapses (a spike) is not collapsed in the full
-            /// image because some source's full image goes from p to q through further hot pixels (output vertices of another chain,
-            /// Q17) and the reroute makes a lobe with the link, which even-odd parity counts as area. Refinement never creates a collapse,
-            /// but need not keep what the input's rounding collapses: excused if all nodes of that reroute lie within one pixel of the
-            /// chord p-q (counted in the report)
-            /// </summary>
-            bool LobeAround((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
-            {
-                Pt ca = Centre(p, snapPixel), cb = Centre(q, snapPixel);
-                foreach (var kv in full.Images) {
-                    var im = kv.Value;
-                    int ip = im.IndexOf(p), iq = im.IndexOf(q);
-                    // (a pixel visited twice, the two sides of a spike, is ambiguous: not judged here)
-                    if (ip < 0 || iq < 0 || Math.Abs(ip - iq) < 2 || im.LastIndexOf(p) != ip || im.LastIndexOf(q) != iq) continue;
-                    int lo = Math.Min(ip, iq), hi = Math.Max(ip, iq);
-                    if (!LobeWithinTube(ca, cb, Enumerable.Range(lo + 1, hi - lo - 1).Select(t => Centre(im[t], snapPixel)), snapPixel)) continue;
-                    ++r.LobeChainExcuses;
-                    return true;
-                }
-                return false;
             }
 
             /// <summary> point p's pixel in state st: every link there collapsed, or, with no link, its centre not inside </summary>
@@ -1638,16 +1592,9 @@ namespace Meshing2Acceptance
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
                 if (!PixelCollapsed(inputOnly, p)) return false;
-                if (!PixelCollapsed(full, p)) {
-                    // the lobe (2026-11-10, as in ChainThroughContactedPixels): the input's rounding collapses the point's pixel (a spike's tip),
-                    // and output vertices rerouted the links at it so that the full image has area beside one of them; excused when every link
-                    // at the pixel in the full image ends in a neighbouring pixel, i.e. the lobe lies within the pixel tube
-                    var tip = PixelOf(p, snapPixel);
-                    if (!full.LinksAt.TryGetValue(tip, out var tipLinks) || tipLinks.Count == 0) return false;
-                    if (!LinksStayAdjacent(tip, tipLinks)) return false;
-                    ++r.LobePointExcuses;
-                    return true;
-                }
+                // the reference is the rounded input (owner 2026-11-10): the input's rounding collapses the point's pixel (a spike's tip), so the
+                // mesh need not have area there, even if output vertices rerouted the links at it and the full image has a lobe beside one of them
+                if (!PixelCollapsed(full, p)) { ++r.LobePointExcuses; return true; }
                 // (iii): the links at its pixel differ between the roundings: output vertices rerouted them
                 var n = PixelOf(p, snapPixel);
                 full.LinksAt.TryGetValue(n, out var withAll); inputOnly.LinksAt.TryGetValue(n, out var withInput);
@@ -2983,8 +2930,8 @@ namespace Meshing2Acceptance
             /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
             /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
-            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
-            /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
+            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in the input's own rounding
+            /// (a pixel that collapses in the input's own rounding lies on such links). A subsegment between two pixels of the piece's image that skips
             /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only (review of
             /// #36, S2). Known gap (third review of #36): another edge's link between two pixels of the image can still stand in for the
             /// piece's, where two further chains give the skipped pixel's vertex both sides (about four edges). Pixels of refinement are
@@ -3012,21 +2959,19 @@ namespace Meshing2Acceptance
                 var index = new Dictionary<(BigInteger x, BigInteger y), int>(image.Count);
                 for (int t = 0; t < image.Count; ++t) index[image[t]] = t;
                 // A stretch between two pixels of the input's image is gone when the input's rounding collapses it (a spike: no area beside
-                // it) and the full image does too, or, if output vertices rerouted it through further hot pixels (Q17) so that the
-                // reroute makes a lobe with another chain (even-odd area in the full image that the mesh, as the input's rounding, does not
-                // have), when that lobe lies within the pixel tube of the stretch: refinement never creates a collapse, but need not keep
-                // what the input's rounding collapses (owner decision 2026-11-10). A stretch with area in the input's own image is judged
-                // by the full image as before.
+                // it): the reference is the rounded input, and the mesh need not rebuild what that rounding collapses, whatever the full image
+                // makes of it after output vertices rerouted it through further hot pixels (Q17; owner decision 2026-11-10). A stretch with
+                // area in the input's own image is judged by the full image as before.
                 bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
                 {
                     if (!LinkCollapsed(inputOnly, p, q)) return false;
-                    if (LinkCollapsed(full, p, q)) return true;
-                    return LobeAround(p, q);
+                    if (!LinkCollapsed(full, p, q)) ++r.LobeChainExcuses;
+                    return true;
                 }
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
-                    // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
+                    // that side collapses (O-H5's rule (ii'), B: the input's own rounding collapses it, refinement may open area there)
                     Q along = Along(Centre(h, snapPixel));
                     if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
@@ -3045,7 +2990,7 @@ namespace Meshing2Acceptance
                             }
                             if (before && after) { onChain = true; break; }
                         }
-                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in both images
+                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in the input's own rounding
                     if (!onChain && k >= 0) {
                         Snap();
                         onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);

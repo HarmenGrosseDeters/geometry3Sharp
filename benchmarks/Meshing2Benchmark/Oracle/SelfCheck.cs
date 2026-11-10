@@ -697,8 +697,8 @@ namespace Meshing2Acceptance
                             rw2.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw2.CollapsedSegments == 0, "report: " + rw2 + " / " + rw2.ExcusedSummary());
                         // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
                         // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
-                        // row 4 there), opens 7.5 px², and
-                        // the mesh of that triangle without the upper edge's chain is rejected: a link must be collapsed in both roundings
+                        // row 4 there), opens 7.5 px²: the mesh of that
+                        // triangle has no chain of the upper edge.
                         var sliver = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { 0, 4.55, 5.45 } };
                         sliver.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
                         var tsl = new[] { new[] { 0, 3, 1 } };
@@ -706,8 +706,10 @@ namespace Meshing2Acceptance
                             Triangles = tsl, Neighbours = NeighboursOf(tsl), TriangleLabels = new int[1], BadTriangles = new int[0],
                             Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 3), new SubsegmentOutput(3, 1) } };
                         var rsl = Oracle.Check(sliver, osl, m3);
-                        Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
-                            rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
+                        // (since the owner decision B of 2026-11-10 the reference is the rounded input, which collapses this sliver: the missing chain is
+                        // excused, and the mesh is still rejected, for the triangle's edge that is no constraint)
+                        Must("reject: the triangle an output vertex opens in a sliver the input's rounding collapses (rule (ii'), B), as BoundaryNotConstrained, no chain missing",
+                            rsl.Has(Violation.BoundaryNotConstrained) && !rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
                         // SRR's known discrepancy (Belussi et al. 2016): Listing 2 against Proposition 4.14. The segment (0, 0) - (10, 1.4)
                         // with the point (5, 0.4) gets the restore pixels (4, 1) and (3, 0); the segment (5.4, 3.4) - (3.4, 1.2) crosses the
                         // interior of (4, 1), but its link (3, 1) - (5, 3) only touches its corner. Listing 2 restores critical edges only,

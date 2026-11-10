@@ -42,18 +42,16 @@ namespace geometry3Sharp.Tests
         /// the inputs <see cref="StarPolygonFuzz"/> seeds 0 to 2999 at M3 that the oracle rejects, by class; every other seed is VALID
         /// (all 188 refinement pinches among them, and the 10 restore cases since the oracle's own restore step, see
         /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): a segment to a free point outside the ring
-        /// (SegmentMissing), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
-        /// their own, as they were before the fix
+        /// (SegmentMissing); a finding of its own, as it was before the fix
         /// </summary>
         static readonly Dictionary<int, string> Rejected = new Dictionary<int, string> {
             // (free points outside the ring meshed, 37, 41, 1019, 1052, 1331, 2200 and 2248: the only outer ring collapsed in snapping and
             // the domain became the hull; fixed, the domain is empty now: QualityMesh2CollapsedRingDomainTests)
             // a segment to a free point outside the ring
             [709] = "SegmentMissing",
-            // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
-            // (the lobe excuse of rule (ii'), 2026-11-10: seed 2504 is valid now, a spike tip whose lobe is within a pixel squared; seed 56 loses
-            // its ChainSkipsHotPixel and keeps the unused point, whose lobe is larger)
-            [56] = "VertexUnused", [1013] = "VertexUnused,SegmentMissing", [2858] = "VertexUnused",
+            // (the lobe excuse of rule (ii'), 2026-11-10, and owner decision B of the same day, the reference is the rounded input: seed 2504 is
+            // valid since the lobe excuse, seeds 56, 1013 and 2858 since B: an input point or a chain dropped where the input's own rounding
+            // collapses it, whatever lobe the full image has there; the oracle still checks the mesh's area against the snapped domain)
         };
 
         /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests). Seven

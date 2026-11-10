@@ -270,14 +270,15 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   bottom of the triangle (0, -0.45), (20, -0.45), (20, 0.55) that the hypotenuse then contacts, the mesh dropping 6 of 10 px²) is
   rejected. The report counts apart (iii) the segment pieces whose chain search needs a stretch that output vertices rerouted (it
   fails without those bridges), and the points whose pixel has other links in the two states.
-- **Amendment to (ii'), the lobe (owner 2026-11-10):** refinement never creates a collapse, but need not keep what the input's rounding
-  collapses. A stretch (or a point's pixel, the tip of a spike) that the input-only image collapses is excused even if output vertices
-  rerouted it through the hot pixel of a refinement vertex of another chain and the full image then has area beside it, a lobe that
-  even-odd parity counts as domain although the mesh, like the input's rounding, has none (found by the CsCheck campaign of
-  `QualityMesh2`, T5: a hole ring with a spike tip, ChainSkipsHotPixel and VertexUnused on a valid mesh). Conditions: the input-only
-  image collapses it; the lobe lies within one pixel of the stretch's chord (for a point: every link at its pixel in the full image
-  ends in a neighbouring pixel); the excuses are counted in `OracleReport.LobeExcuses`. A stretch with area in the input's own image is
-  judged by the full image as before.
+- **Amendment to (ii'), the lobe (owner 2026-11-10), widened by decision B (owner 2026-11-10, T5):** the reference is the rounded input; the
+  mesher need not rebuild what the input's rounding collapses. A stretch of a chain (or a point's pixel, the tip of a spike) that the
+  input-only image collapses is excused whatever the full image makes of it: if output vertices rerouted it through the hot pixel of a
+  refinement vertex of another chain, the full image has area beside it (a lobe that even-odd parity counts as domain although the mesh,
+  like the input's rounding, has none), and the length of the spike does not matter. First form (#530): the lobe within one pixel of the
+  stretch's chord and at most one pixel squared; the CsCheck campaign then found a spike about 20 pixels long and under a pixel wide
+  whose lobe was 5.5 pixels squared (seed 0000000020-F1), and dropping the area bound alone did not clear it, so the bounds are gone. The
+  excuses are counted in `OracleReport.LobeChainExcuses` / `LobePointExcuses`. A stretch with area in the input's own image is judged by
+  the full image as before (post-review B1, review 5 S-C: self-checks keep them rejected; a mutant that drops that condition fails ten of them).
 - **Hull edges whole for the small-angle excuse (T5, 2026-11-10):** on the grid the oracle's `HullSources()` are not split at the input
   points on a hull edge (gridless they are). The mesher takes the angle of a hull chain from the input constraint (`OriginOf`: the whole
   hull edge), so a triangle whose shortest edge spans a small angle between a segment and a hull edge is excused when the apex lies
