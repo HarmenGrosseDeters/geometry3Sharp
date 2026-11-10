@@ -678,6 +678,15 @@ g3cli wrap assembly.off wrapped.stl --relative-alpha 40 --relative-offset 1000
 g3cli simplify big.ply small.ply --max-error 1e-6 --partitioned --threads 4
 ```
 
+**Point clouds** (`MeshAlphaWrap(IEnumerable<Vector3d>)` or `Points`): the wrap of a point set is closed, oriented, 2-manifold,
+free of self-intersections and encloses every point, like the wrap of a mesh; vertices without triangles in `Mesh` count as
+points. It is not a reconstruction of the detail: the result lies about `Offset` outside the points, does not follow noise
+below about `Alpha`, and bridges holes that an `Alpha` ball cannot pass. Rule of thumb from procedural samplings (a torus with
+noise, a hole and a 10:1 density ratio, [design note](design/POINT_CLOUD_RECONSTRUCTION.md) section 4): `Alpha` at least about
+2.5 sampling spacings and 4 noise sigmas keeps the wrap close to the surface (genus kept on a dense sampling); a smaller `Alpha`
+gives a wrap with many layers and cavities. Pinned in `AlphaWrapPointCloudTests`. A flat sampling gives a thin closed shell.
+Detail recovery and normal estimation for point clouds are planned (same note).
+
 **Geodesics and batch queries** (`geodesic`: `MeshGeodesicDistance`, `MeshGeodesicPath`; `query3d`: `MeshBatchQueries`): distances
 from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
 components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
