@@ -45,6 +45,15 @@ namespace geometry3Sharp.Tests
     /// 2^74 to 2^96 (and below an extent of 2^-25): the solidify fallback ran unnormalized within [2^-100, 2^100]. It is computed on a copy scaled
     /// to an extent in [1, 2) now (SolidifyScaleInvarianceTests); the campaign's edge shifts go up with it.
     ///
+    /// F5 (open, found by the edge shifts of the campaign, 2026-11-10): the Reducer is not scale invariant above a mesh extent of about 2^63: the
+    /// priorities of its edge queue are floats (Reducer.InitializeQueue, UpdateNeighbours: (float)error), and a quadric error (a squared length
+    /// times a squared length) overflows to +infinity there, so every edge has the same priority and the order is that of the ids, erratic in a
+    /// window of scales (the robust repair's alpha wrap simplification shows it from shift 70: [box(2^-6, overlap, axis 3, defect 11, seed 795);
+    /// plate(2^-1, gap 2^-10, axis 4, thin 2^-17, defect 4, seed 159)] gives a different result at each of the shifts 70 to 90 and one stable one from 91).
+    /// Multiplying the errors by a power of two derived from the extent before the cast (a pure exponent shift, the same order wherever the
+    /// floats did not overflow) moves the first difference of a bumpy sphere's reduction from shift 63 to 80; at least one more cause remains there,
+    /// not located (the Reducer's constants below an extent of 2^-25 are R14 of docs/ROBUSTNESS_SWEEP.md). The campaign's edge shifts stay at 2^40.
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in
