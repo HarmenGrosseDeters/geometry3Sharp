@@ -176,10 +176,9 @@ namespace geometry3Sharp.Tests
             GenScene(Gen.Int[0, 4], Gen.OneOfConst(0, 1, 2, 3, 4, 4, 4), Gen.OneOfConst(0, 16, 16, 2 + 16, 8 + 16), 3, 6, 40);
 
         /// <summary>
-        /// the scale of the robust repair's frame: 2^-4 .. 2^10 times the scene (pieces of half size 2^-8 .. 2^8, so none
-        /// smaller than 2^-12 = 2.4e-4). Smaller than that the spatial queries' absolute padding (DMeshAABBTree3 box_eps
-        /// 6e-6, the ray window 1e-8) is no longer small against the geometry, and the solidify fallback differs in the
-        /// last bits between scales (F3 in RepairCampaignFindings). The rounding repair is scale relative: 2^-10 .. 2^10.
+        /// the scale of the robust repair's frame: 2^-20 .. 2^10 times the scene (pieces of half size 2^-8 .. 2^8). Below, the absolute
+        /// constants of the other stages (the Reducer's R14, the exact resolve's tree) come in; the solidify fallback is scale invariant at
+        /// every scale since #537 (F3, F4 in RepairCampaignFindings). The rounding repair is scale relative: 2^-10 .. 2^10.
         /// </summary>
         static readonly Gen<int> RobustShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(24, 32, 40) : Gen.Int[-20, 10]);
 
