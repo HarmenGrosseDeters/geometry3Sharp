@@ -229,13 +229,18 @@ namespace geometry3Sharp.Tests
                     if (origin[k] + h * Math.Round((v[k] - origin[k]) / h) == v[k]) n++;
                 return n;
             };
-            int onFace = 0;
+            // a QEF vertex (not an edge vertex) on any grid plane (a face, edge or corner of its cell) is not strictly
+            // inside its cell
+            int onBoundary = 0, seen = 0;
+            foreach (int v in dc.Mesh.VertexIndices())
+                if (dc.edgeVertexIds.Contains(v) == false && planes(dc.Mesh.GetVertex(v)) > 0) seen++;
+            Assert.True(seen > 0);
             foreach (int t in dc.coveredTriangles) {
                 Index3i tri = dc.Mesh.GetTriangle(t);
                 for (int j = 0; j < 3; ++j)
-                    if (planes(dc.Mesh.GetVertex(tri[j])) == 1) onFace++;
+                    if (dc.edgeVertexIds.Contains(tri[j]) == false && planes(dc.Mesh.GetVertex(tri[j])) > 0) onBoundary++;
             }
-            Assert.Equal(0, onFace);
+            Assert.Equal(0, onBoundary);
             Assert.True(dc.CoveredTriangles > 0);
             AssertClean(dc, "margin 0");
         }
@@ -254,6 +259,36 @@ namespace geometry3Sharp.Tests
             DMesh3 open = OpenCubeWithSpike(false);
             Assert.True(WindingContouring.FinishHoles(open, 0, true, out fill));
             Assert.False(open.IsClosed());
+        }
+
+        [Fact]
+        public void FinishHoles_AgreesWithTheExactCount_AtABowtie()
+        {
+            // two open boxes whose holes meet in one shared vertex (a bowtie on the hole borders): the split leaves
+            // two coincident vertices, which MeshRepairMetrics counts as touching; the flag must agree with it
+            DMesh3 m = new DMesh3();
+            DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), 0.5 * Vector3d.One) }.Generate().MakeDMesh();
+            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1.5, 1.5, 1.5), 0.5 * Vector3d.One) }.Generate().MakeDMesh();
+            foreach (int t in a.TriangleIndices().Where(t => a.GetTriNormal(t).z > 0.9).ToList()) a.RemoveTriangle(t, true, false);
+            foreach (int t in b.TriangleIndices().Where(t => b.GetTriNormal(t).z < -0.9).ToList()) b.RemoveTriangle(t, true, false);
+            MeshEditor.Append(m, a);
+            MeshEditor.Append(m, b);
+            // weld the corner (1, 1, 1) of both boxes into one vertex
+            var corner = m.VertexIndices().Where(v => m.GetVertex(v).DistanceSquared(Vector3d.One) == 0).ToList();
+            Assert.Equal(2, corner.Count);
+            foreach (int t in m.VtxTrianglesItr(corner[1]).ToList()) {
+                Index3i tri = m.GetTriangle(t);
+                m.RemoveTriangle(t, false, false);
+                for (int j = 0; j < 3; ++j) if (tri[j] == corner[1]) tri[j] = corner[0];
+                Assert.True(m.AppendTriangle(tri) >= 0);
+            }
+            m.RemoveVertex(corner[1], true, false);
+            Assert.NotEmpty(MeshIterators.BowtieVertices(m));
+            int fill;
+            bool free = WindingContouring.FinishHoles(m, 1, true, out fill);
+            int exact = MeshRepairMetrics.SelfIntersections(m);
+            Assert.Equal(exact == 0, free);
+            Assert.Equal(exact, fill);
         }
 
         [Fact]

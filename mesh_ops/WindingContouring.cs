@@ -732,13 +732,14 @@ namespace gs
         }
 
         /// <summary>
-        /// FillSmallHoles, then an exact check of the triangles it added or changed against the whole mesh: returns the number of intersecting pairs that involve one of them (0: the fill
-        /// added none). The bowties along the hole borders are split first, so the split itself, which leaves
-        /// coincident vertices but adds no triangle, is not counted.
+        /// FillSmallHoles, then an exact check of the triangles it added or changed against the whole mesh: returns
+        /// the number of intersecting pairs that involve one of them (0: the fill added none). Changed triangles
+        /// include those at the bowtie vertices FillSmallHoles splits: the split leaves coincident vertices with
+        /// different ids, which touch, and MeshRepairMetrics.SelfIntersections counts that contact too, so the
+        /// count agrees with it.
         /// </summary>
         public static int FillSmallHolesChecked(DMesh3 mesh)
         {
-            new MeshEditor(mesh).DisconnectAllBowties();
             var before = new Dictionary<int, Index3i>();
             foreach (int t in mesh.TriangleIndices())
                 before[t] = mesh.GetTriangle(t);
@@ -746,7 +747,8 @@ namespace gs
             var changed = new HashSet<int>();
             foreach (int t in mesh.TriangleIndices()) {
                 Index3i old;
-                // (the fillers only add triangles; an existing one whose vertices changed is checked as well)
+                // (the fillers do not move existing vertices; a triangle whose vertex ids changed, eg at a split
+                // bowtie, is checked)
                 if (before.TryGetValue(t, out old) == false || old != mesh.GetTriangle(t))
                     changed.Add(t);
             }

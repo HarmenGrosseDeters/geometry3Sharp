@@ -203,6 +203,7 @@ namespace g3
             ResolveMilliseconds = 0;
             CoveredTriangles = CheckedTriangles = ForcedDiagonals = EdgeVertices = 0;
             coveredTriangles = new HashSet<int>();
+            edgeVertexIds = new HashSet<int>();
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -1582,6 +1583,7 @@ namespace g3
         /// </summary>
         public int EdgeVertices;
         internal HashSet<int> coveredTriangles = new HashSet<int>();
+        internal HashSet<int> edgeVertexIds = new HashSet<int>();
 
         const int EnvelopeNone = -2, EnvelopeAny = -1, EnvelopeEdgeVertex = 4;
 
@@ -1656,6 +1658,7 @@ namespace g3
             }
             mark_covered(before);
             EdgeVertices++;
+            edgeVertexIds.Add(vid);
             return true;
         }
         int forcedVertex;

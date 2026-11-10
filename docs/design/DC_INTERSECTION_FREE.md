@@ -218,9 +218,9 @@ These triangles are covered (`CoveredTriangles`). The exact self-intersection ch
 against the whole mesh; after a repair move, the triangles around the moved vertices are checked again, as before, so
 every triangle that is not checked is covered at its current position. `SelfIntersectionFree` keeps its meaning.
 
-`WindingContouring` checks the hole fill exactly (`FinishHoles` / `FillSmallHolesChecked`: the bowties along the
-hole borders are split first, then the triangles the fill added or changed are checked
-against the whole mesh; `HoleFillIntersections`), and its `SelfIntersectionFree` is true only if the fill added none
+`WindingContouring` checks the hole fill exactly (`FinishHoles` / `FillSmallHolesChecked`: the triangles the fill
+added or changed, including those at the bowtie vertices it splits, whose coincident copies touch, are checked against
+the whole mesh, so the count agrees with `MeshRepairMetrics.SelfIntersections`; `HoleFillIntersections`), and its `SelfIntersectionFree` is true only if the fill added none
 (holes the fill could not close may remain). Not in this PR: the non-adaptive call in `MeshWindingNumberSolidify`
 still calls the unchecked `FillSmallHoles` (its `knownFree` stays false there, so nothing is reported wrongly), and
 `Compute()` still returns true after a fill with intersections; both belong to another session's file and switch to
