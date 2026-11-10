@@ -166,6 +166,15 @@ Tier: S, M. Parallel: up to 2 sessions
        on terrain, repeated run and 2^-9 / 2^11 scaled input bit-identical; Remesher: the same topology checks, parallel smoothing equals
        serial, repeated and scaled bit-identical; 12 (Reducer) and 20 (Remesher) samples in CI; scaling by 2^k only, the other similarities are covered by the invariance tests). Known deferred item R13 (`MeshIterativeSmooth`, non-finite input) is out of scope by construction (finite meshes); R14 (Reducer below scale 2^-25) was fixed by #549, so the sizes reach 2^-30 (and 2^-39 scaled). 1 500 Reducer (terrain noise as above) and 4 000 Remesher samples: Remesher
        no finding; Reducer one open finding (partial effect known from S1): on a noisy terrain (input a height field) `PreventFoldOver` still leaves a triangle slightly past vertical (normal z -0.01 .. -0.13). 200 seeds, 17 x 17 cells, 35 % kept, with the guard (without): vertical noise step 0: 0 (0), 1: 7 (46), 2: 6 (66), 3: 6 (71), 4: 29 (104); the guard needs only a positive dot with the absorbed reference normal. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it.
+    6. Terrain slope design (QA 2.0 T11, terrain relations, done 2026-11-10): `TerrainSlopeCampaignTests.CsCheck.cs` (a closed polygonal
+       toe with cut, fill or Auto, on the outside or inside, ratios 1 to 3, wavy terrains with jitter, flipped grids, 0 to 3 no-data
+       triangles at a corner; after a result: `MaxSlopeRatio` at most 1, the catch-line and composite oracles of `TerrainSlopeCatchLineTests`,
+       the design's cut and fill volumes against `TerrainVolumeDifference` of terrain and composite, a second Compute on the same instance
+       and a new instance equal bit for bit, 2^-9 and 2^11 scaled equal bit for bit, translated to UTM the same status and catch lines
+       and close volumes; 5 samples in CI, 4 s). 1 800 samples: one open finding: a closed toe with the slope on its inside (a cone to an apex
+       of needle triangles) is certified only after retries of the exact check (4 attempts, slope margin from 1e-6 to 5e-4) and ended once
+       in about 500 such designs with `SlopeViolation` (a safe failure: fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671); the same
+       design on the outside is certified at once. Second open finding: `Direction.Auto` on a terrain that tilts through the toe plane ends, with the failing catch point at a toe edge, with `SlopeViolation` ("the composite is not certified: its catch points moved ... changed the surface by up to 0.23, where at most 0.0127 fits into Tolerance", a safe failure; 1 of 700 designs, tilt 0 and 1 certified). Both counted by the campaign (`G3_PROPERTY_STRICT=1` fails on them) and pinned as fixed examples; not fixed.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
