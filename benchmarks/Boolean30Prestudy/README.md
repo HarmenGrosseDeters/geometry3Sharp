@@ -21,6 +21,7 @@ for id in ...; do dotnet $W/tool_pre/BooleanComparison.dll export $W/raw/$id.* $
 | 4 exact output | `exact_job.sh W W/tool_pre "<ids>"` | `analyze_exact.py results/exact.jsonl` | `results/exact.jsonl` | `results/exact_summary.md` |
 | 5.1 Antipodal cost model (T5 count) | `antipodal_job.sh W W/tool_pre` | `analyze_antipodal.py results/antipodal.jsonl` | `results/antipodal.jsonl` | `results/antipodal_summary.md` |
 | 5 batched fast winding bound | `fwn_job.sh W W/tool_perpiece "<ids>"` (BooleanComparison of this branch built in a worktree of bfaa0158) | `analyze_fwn.py results/fwn.jsonl` | `results/fwn.jsonl` | `results/fwn_summary.md` |
+| 7 one body against many (T3a subtract many, T3b intersect each; terrain and CAD) | `many_job.sh W W/tool_pre` | `analyze_many.py results/many_a.jsonl results/many_b.jsonl` | `results/many_a.jsonl`, `results/many_b.jsonl` | `results/many_summary.md` |
 | 6 positioning (thingi-pairs CGAL sample + 10 size pairs) | `../BooleanComparison/compare.py` (see its README), methods ours, manifold, cgal_epeck | `../BooleanComparison/data/thingi_pairs.py summary` | not committed (CGAL results are GPL-tool output) | `results/positioning_summary.md` |
 
 All timings: the 4-core cloud machine, nothing else running, one job at a time.
