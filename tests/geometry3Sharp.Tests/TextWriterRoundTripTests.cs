@@ -40,6 +40,14 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // (.NET Framework's double.Parse("-0") returns +0: the sign of a zero is lost when reading, which is the parser's, not the
+        // writer's; the text "-0" is checked on its own. A correctly rounded parser, docs/design/DETERMINISM.md C2, restores it.)
+        static bool SameValueBits(double x, double back)
+        {
+            if (x == 0 && back == 0) return true;
+            return BitConverter.DoubleToInt64Bits(x) == BitConverter.DoubleToInt64Bits(back);
+        }
+
         [Fact]
         public void FormatDouble_ReadsBackBitForBit()
         {
@@ -47,7 +55,7 @@ namespace geometry3Sharp.Tests
             foreach (double x in Values(20000)) {
                 string s = MeshIOUtil.FormatDouble(x);
                 double back = double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True(BitConverter.DoubleToInt64Bits(x) == BitConverter.DoubleToInt64Bits(back), $"{x:R} -> \"{s}\" -> {back:R}");
+                Assert.True(SameValueBits(x, back), $"{x:R} -> \"{s}\" -> {back:R}");
                 ++checkedCount;
             }
             Assert.True(checkedCount > 20000);
@@ -60,7 +68,7 @@ namespace geometry3Sharp.Tests
             foreach (double x in Values(20000)) {
                 string s = MeshIOUtil.FormatDoubleByDigits(x);
                 double back = double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True(BitConverter.DoubleToInt64Bits(x) == BitConverter.DoubleToInt64Bits(back), $"{x:R} -> \"{s}\" -> {back:R}");
+                Assert.True(SameValueBits(x, back), $"{x:R} -> \"{s}\" -> {back:R}");
             }
             Assert.Equal("0.1", MeshIOUtil.FormatDoubleByDigits(0.1));
             Assert.Equal("0.3333333333333333", MeshIOUtil.FormatDoubleByDigits(1.0 / 3.0));
@@ -76,7 +84,7 @@ namespace geometry3Sharp.Tests
                 if (float.IsNaN(x) || float.IsInfinity(x)) continue;
                 string s = MeshIOUtil.FormatFloatByDigits(x);
                 float back = float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True(BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
+                Assert.True((x == 0 && back == 0) || BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
             }
         }
 
@@ -89,7 +97,7 @@ namespace geometry3Sharp.Tests
                 if (float.IsNaN(x) || float.IsInfinity(x)) continue;
                 string s = MeshIOUtil.FormatFloat(x);
                 float back = float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True(BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
+                Assert.True((x == 0 && back == 0) || BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
             }
         }
 
