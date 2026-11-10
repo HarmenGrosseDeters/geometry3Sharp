@@ -213,6 +213,12 @@ namespace gs
         /// (non-manifold edges, see DualContouring.NonManifoldCells) are refined and contoured again
         /// </summary>
         public int MaxNonManifoldRounds = 2;
+        /// <summary>
+        /// local refinement: also refine (in the same rounds) around face vertices that could not be placed at their
+        /// in-face QEF point (DualContouring.ClampedFaceCells), to keep the sharpness there. Measurement switch for
+        /// the owner's decision (docs/design/DC_INTERSECTION_FREE.md section 6); off by default.
+        /// </summary>
+        internal static bool RefineClampedFaces = false;
         /// <summary> local refinement: how often the last ContourRefined refined for non-manifold edges </summary>
         public int NonManifoldRefinements;
         /// <summary> local refinement: fine crossings not assigned to a coarse patch (see DualContouring.TransitionErrors) </summary>
@@ -347,7 +353,7 @@ namespace gs
             dc.Generate();
             // polygons left out for non-manifold edges: refine around them (one level more if nothing is
             // refined yet, else grow the refined region) and contour again
-            for (int round = 0; round < MaxNonManifoldRounds && dc.NonManifoldCells.Count > 0 && CancelF() == false; ++round) {
+            for (int round = 0; round < MaxNonManifoldRounds && (dc.NonManifoldCells.Count > 0 || (RefineClampedFaces && dc.ClampedFaceCells.Count > 0)) && CancelF() == false; ++round) {
                 bool newLevel = false;
                 if (log2F == 0) {
                     if (used >= maxLevels || octree.MaxDepth + 1 > WindingNumberOctree.MaxSupportedDepth)
@@ -359,6 +365,9 @@ namespace gs
                 int before = region.Count;
                 foreach (Vector3i c in dc.NonManifoldCells)
                     add_to_region(region, octree, c);
+                if (RefineClampedFaces)
+                    foreach (Vector3i c in dc.ClampedFaceCells)
+                        add_to_region(region, octree, c);
                 if (region.Count == before)
                     break;
                 int inRegion = 0;
