@@ -64,8 +64,10 @@ upper bound per lever on the 2.0 benchmark set.
 73-model set; parallel deterministic sort in merge_points, classification setup, input orientation, simplify / assembly
 per region, box-tree build) and T2 memory (<= 300 B retained / <= 1.2 KB peak per input triangle: input points without
 FixedPoint3, struct-of-arrays triangles) approved; T3a / T3b by topic 7; T5: first the Antipodal cost count on the slow
-open models, the method itself only after the owner's patent check (Martens, Trettner, Bessmeltsev 2026, MIT code; one
-author at Shaped Code GmbH); T6 stay the only all-clean method and close the gap to CGAL EPECK on 1k-100k to <= 2x.
+open models, patent check done by the owner 2026-11-10 (PDFs of arXiv:2605.01536 and
+arXiv:2408.04466, Google Patents, Espacenet, DPMA, Shaped Code site: no patent, application or notice; freedom to operate),
+so the method may be implemented from the paper or ported from the MIT reference code (attribution in docs/SOURCES.md, FMA
+replaced by Dekker splitting) if the cost count shows a gain; T6 stay the only all-clean method and close the gap to CGAL EPECK on 1k-100k to <= 2x.
 Pre-study: #532, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md.
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
