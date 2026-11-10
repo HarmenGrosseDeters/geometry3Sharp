@@ -22,14 +22,18 @@ def main():
                PATH=str(dotnet.parent) + os.pathsep + os.environ['PATH'])
     with tempfile.TemporaryDirectory(prefix='reader-fuzz-crash-check-') as directory:
         work = Path(directory)
-        source = (HERE / 'Program.cs').read_text()
-        needle = '        Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;'
+        # a copy of the harness sources with a synthetic crash on 134-byte inputs (the generated binary STL seed)
+        for name in ('Program.cs', 'FuzzTarget.cs', 'ReaderTargets.cs', 'ReaderTargetsMcp.cs', 'ReplayMutations.cs'):
+            shutil.copy(HERE / name, work / name)
+        source = (work / 'FuzzTarget.cs').read_text()
+        needle = '            string problem = Check(data);'
         if source.count(needle) != 1:
             raise SystemExit('source drift: cannot inject the synthetic crash')
-        (work / 'Program.cs').write_text(source.replace(needle, needle +
-            '\n        if (stream.Length == 134) throw new InvalidOperationException("SyntheticCrashForHarnessTest");'))
+        (work / 'FuzzTarget.cs').write_text(source.replace(needle,
+            '            if (data.Length == 134) throw new InvalidOperationException("SyntheticCrashForHarnessTest");\n' + needle))
         project = (HERE / 'ReaderFuzzPilot.csproj').read_text().replace(
-            '../../geometry3Sharp_netstandard.csproj', str(ROOT / 'geometry3Sharp_netstandard.csproj'))
+            '../../geometry3Sharp_netstandard.csproj', str(ROOT / 'geometry3Sharp_netstandard.csproj')).replace(
+            '../g3cli/g3cli.csproj', str(ROOT / 'tools/g3cli/g3cli.csproj'))
         (work / 'ReaderFuzzPilot.csproj').write_text(project)
         subprocess.run([str(dotnet), 'publish', str(work / 'ReaderFuzzPilot.csproj'), '-c', 'Release',
                         '-o', str(work / 'replay'), '-m:1', '-nr:false'], check=True, env=env,
