@@ -86,6 +86,10 @@ Part of the [roadmap](../ROADMAP.md).
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
      path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
      `WindingContouring` on the lever 6 set (#498) as the upper bound.
+     Candidate follow-up (owner 2026-11-10, not scheduled): a topology guarantee for the contouring (the result has the
+     topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
+     Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
+     `WindingContouring` a certified repair path.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
