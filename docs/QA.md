@@ -294,7 +294,7 @@ scale checks of the campaigns (the scaling is not exact there).
 |---|---|---|---|---|
 | `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
 | `MeshRoundingRepair` | 2^-200 .. 2^200 | 2^60 | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
-| `MeshRobustRepair` | 2^-200 .. 2^200 | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
 | `Reducer`, `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 | -- | sphere: ok 2^-250 .. 2^500; no reduction below 2^-300; invalid mesh above 2^700 | not guaranteed (documented limit) |
 | `DMeshAABBTree3` ray, `IsInside`, winding numbers | up to 2^1000 | -- | fuzzed to 2^1000 | not guaranteed above |

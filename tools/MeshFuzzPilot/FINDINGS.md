@@ -41,7 +41,7 @@ PR #493 and #495 where noted.
 
 | # | Range of the module | Class now | Action |
 |---|---|---|---|
-| 3 | robust repair: magnitude 2^-200 .. 2^200 | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
+| 3 | robust repair: magnitude 2^-200 .. 2^400, extent >= 2^-40 of it | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
 | 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
 | 5a, 5b | boolean / rounding: 2^-200 .. 2^200, disparity 2^60 | out **false success** | range check (bugfix PR) |
 | 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
