@@ -43,9 +43,18 @@ namespace geometry3Sharp.Tests
             // (no bowties either, and every vertex has triangles)
             Assert.True(r.CheckValidity(false, FailMode.ReturnOnly), what + ": invalid DMesh3");
             Assert.True(r.VertexIndices().All(v => r.GetVtxEdgeCount(v) > 0), what + ": vertex without triangles");
-            // the edges left open where the pieces do not fit together are counted
-            if (conflicts)
-                Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
+            // the edges left open where the pieces do not fit together are counted (the union of these inputs has them;
+            // with the per-piece classification of the open input, the intersection and the difference do not)
+            if (conflicts) {
+                if (op.Operation == ExactMeshBoolean.Operations.Union)
+                    Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
+                else
+                    Assert.Equal(0, op.ConflictEdges);
+            }
+            // every result triangle on the side of the other input that the operation keeps (its generalized winding
+            // number at the triangle, ExactBooleanOpenPerPieceTests)
+            ExactBooleanOpenPerPieceTests.AssertPieces(op.MeshA, op.MeshB, op, op.Operation, what);
+            Assert.Equal(0, MeshIterators.BowtieVertices(r).Count());
             Assert.True(r.Vertices().All(v => v.IsFinite), what + ": non-finite coordinates");
         }
 
@@ -70,6 +79,9 @@ namespace geometry3Sharp.Tests
                     b.Compute();
                     Assert.False(b.ExactWindingA);
                     AssertConsistent(b, $"{name} {op} simplify {simplify} safe rounding {safe}");
+                    // the unrounded union has bowtie vertices where pieces meet at a point only; they are split (the
+                    // result has none, AssertConsistent)
+                    Assert.Equal(name == "minimized, unrounded" && op == ExactMeshBoolean.Operations.Union ? 5 : 0, b.SplitBowtieVertices);
                 }
         }
 
