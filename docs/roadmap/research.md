@@ -13,6 +13,13 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Depth over breadth (owner 2026-11-10):** no new topic unless it has a synergy with an existing feature (it
+  builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
+  list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
+  item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
+  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection), 6 (point
+  clouds) and 7 (deformation) move to Later; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
   alongside):**
@@ -280,6 +287,11 @@ Problems where the library already has a head start and that could be researched
   Orthotics: geodesic cut lines, wall thickness, feature-preserving offsets.
 
 #### Hard open problems (candidates for a stronger model)
+
+Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
+2026-11-10), 3 together with the leads of 1 (after D1 has merged), 11 (the proof part, after the net48 / net10 measurement).
+Useful, not must-win: 10, 12. Running or decided: 2 (D1 build), 13 (DC build, option A then B), 8 (fixed; Antipodal),
+6 (option D, B reopenable). Not now: 1 alone, 4, 5 (tet), 7, 14.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
