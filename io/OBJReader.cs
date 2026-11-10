@@ -402,7 +402,7 @@ namespace g3
                             // (a partly added line would shift all following vertices)
                             if (tokens.Length == 7) {
                                 double x = MeshIOUtil.ParseDouble(tokens[1]), y = MeshIOUtil.ParseDouble(tokens[2]), z = MeshIOUtil.ParseDouble(tokens[3]);
-                                float r = float.Parse(tokens[4], NumberStyles.Float, CultureInfo.InvariantCulture), g = float.Parse(tokens[5], NumberStyles.Float, CultureInfo.InvariantCulture), b = float.Parse(tokens[6], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                float r = MeshIOUtil.ParseFloat(tokens[4]), g = MeshIOUtil.ParseFloat(tokens[5]), b = MeshIOUtil.ParseFloat(tokens[6]);
                                 if (ReadOptions.RejectsPosition(options, x, y, z))
                                     return ReadOptions.NonFinitePosition(x, y, z);
                                 vPositions.Add(x); vPositions.Add(y); vPositions.Add(z);
@@ -419,7 +419,7 @@ namespace g3
 
                         } else if (tokens[0][1] == 'n') {
                             if (tokens.Length >= 4) {
-                                float x = float.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture), y = float.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture), z = float.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                float x = MeshIOUtil.ParseFloat(tokens[1]), y = MeshIOUtil.ParseFloat(tokens[2]), z = MeshIOUtil.ParseFloat(tokens[3]);
                                 vNormals.Add(x); vNormals.Add(y); vNormals.Add(z);
                             } 
                             if (tokens.Length != 4)
@@ -427,7 +427,7 @@ namespace g3
 
                         } else if (tokens[0][1] == 't') {
                             if (tokens.Length >= 3) {
-                                float u = float.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture), v = float.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                float u = MeshIOUtil.ParseFloat(tokens[1]), v = MeshIOUtil.ParseFloat(tokens[2]);
                                 vUVs.Add(u); vUVs.Add(v);
                                 nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length - 1);
                             } 
@@ -751,9 +751,9 @@ namespace g3
                 emit_warning("OBJReader::parse_material_color : xyz color not supported!");
                 return new Vector3f(1, 0, 0);
             } else {
-                float r = float.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture);
-                float g = float.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture);
-                float b = float.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture);
+                float r = MeshIOUtil.ParseFloat(tokens[1]);
+                float g = MeshIOUtil.ParseFloat(tokens[2]);
+                float b = MeshIOUtil.ParseFloat(tokens[3]);
                 return new Vector3f(r, g, b);
             }
         }

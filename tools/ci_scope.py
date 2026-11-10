@@ -34,6 +34,9 @@ SHARED = (
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/g3cli/TrianglePolyFormat.cs",
+    "tools/ReaderFuzzPilot/FuzzTarget.cs",        # ReaderFuzzReplayTests
+    "tools/ReaderFuzzPilot/ReaderTargets.cs",
+    "tools/ReaderFuzzPilot/ReplayMutations.cs",
     "docs/examples/",
     "docs/OPERATIONS.md",             # DocExamplesTests
     "docs/ROBUSTNESS_SWEEP.md",      # RobustnessSweepTests

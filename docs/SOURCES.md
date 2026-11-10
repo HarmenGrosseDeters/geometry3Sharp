@@ -545,6 +545,12 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
 
+## Text number parsing across frameworks (`ExactDecimal`, `MeshIOUtil.ParseDouble`; docs/design/DETERMINISM.md)
+
+| Method | Source |
+|---|---|
+| Correctly rounded decimal-to-double / float conversion for the text readers where the platform parser is wrong (`ExactDecimal`, .NET Framework: 1 ulp errors for long digit strings, "-0" read as +0): the value as an integer times a power of ten, quotient of two big integers scaled by a power of two, remainder decides the rounding (ties to even); Clinger's exact fast path for at most 15 digits and |exponent| <= 22. Own implementation, nothing ported; the fast_float / Eisel-Lemire algorithm (Lemire, *Number Parsing at a Gigabyte per Second*, 2021) was considered and not used | W. D. Clinger, *How to Read Floating Point Numbers Accurately*, PLDI 1990; D. M. Gay, *Correctly rounded binary-decimal and decimal-binary conversions*, AT&T Bell Labs Numerical Analysis Manuscript 90-10, 1990 |
+
 ## Cross-field research
 
 The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
@@ -648,3 +654,16 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the piecewise linearity of both surfaces (the difference is linear on the cells of the overlay of two triangulations, so its maximum is at overlay
 vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
 the usual GIS distinction between constrained and conforming TINs with breaklines.
+
+
+## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
+
+Implemented from the papers below; no code of any of them was read.
+
+| Part | Source |
+|---|---|
+| Normal axis from a PCA of the nearest neighbours (tangent plane) | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992, pp. 71-78 (bibliographic data checked by web search only) |
+| The wrap of the cloud | `MeshAlphaWrap` (Portaneri et al. 2022, see its entry) |
+| Sign by two probe points against the wrap (outer side = the probe outside the closed wrap) | own construction, not from a paper; the pairing "alpha wrap for normal orientation" was not found in the literature searched (design note section 2) |
+| Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
+| k-nearest neighbours | a uniform grid with ring search; textbook method, own code |
