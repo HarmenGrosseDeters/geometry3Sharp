@@ -160,6 +160,70 @@ namespace gs
         }
 
 
+        // ---------------------------------------------------------------- inside a shared triangulation (MeshGeodesicBezier)
+
+        bool noOutput;
+
+        /// <summary>
+        /// Geodesic between two vertices (indices of the triangulation, inserted ones too) of an existing
+        /// triangulation, which is flipped in place; vertices stay where they are. With traceOutput = false the
+        /// path is not traced over the mesh (Path and PathVertices stay empty; Length and the segments are valid).
+        /// </summary>
+        internal GeodesicPathStatus ComputeIn(IntrinsicTriangulation triangulation, int a, int b, bool traceOutput)
+        {
+            Path = new List<Vector3d>();
+            PathVertices = new List<int>();
+            Length = InitialLength = 0;
+            Iterations = Flips = 0;
+            T = triangulation;
+            Triangulation = T;
+            closed = false;
+            noOutput = traceOutput == false;
+            segs = new List<int>();
+            fixedTail = new List<bool>();
+            emptyVertex = a;
+            if (a < 0 || b < 0 || a >= T.VertexCount || b >= T.VertexCount) return fail(GeodesicPathStatus.InvalidInput);
+            if (dijkstra(a, b, segs) == false) return fail(GeodesicPathStatus.NoPath);
+            for (int j = 0; j < segs.Count; ++j) fixedTail.Add(j == 0);
+            if (segs.Count == 0) {      // a == b
+                Status = GeodesicPathStatus.Success;
+                if (traceOutput) {
+                    PathVertices.Add(T.VertexID(a));
+                    Path.Add(T.VertexPosition(a));
+                }
+                return Status;
+            }
+            return run();
+        }
+
+        /// <summary>
+        /// The vertex (index of the triangulation) at the given fraction of the length of the last path, from its
+        /// start: an end or joint of the path if the fraction is within snap (relative to the segment's length) of
+        /// it, else a new vertex that splits the segment's edge there. -1 if the edge could not be split.
+        /// </summary>
+        internal int VertexAtFraction(double fraction, double snap)
+        {
+            if (segs.Count == 0) return emptyVertex;
+            if (fraction <= 0) return seg_tail(segs[0]);
+            if (fraction >= 1) return seg_head(segs[segs.Count - 1]);
+            double target = fraction * path_length(), done = 0;
+            for (int k = 0; k < segs.Count; ++k) {
+                int s = segs[k];
+                double l = seg_length(s), local = target - done;
+                if (!(l > 0)) return seg_tail(s);
+                if (local <= l || k == segs.Count - 1) {
+                    double u = Math.Min(Math.Max(local / l, 0), 1);
+                    if (u <= snap) return seg_tail(s);
+                    if (u >= 1 - snap) return seg_head(s);
+                    // the parameter on the halfedge: a reversed boundary segment runs from the head of its halfedge
+                    return T.SplitEdge(seg_halfedge(s), s >= 0 ? u : 1 - u);
+                }
+                done += l;
+            }
+            return -1;
+        }
+
+
         // ---------------------------------------------------------------- path representation
         //
         // The path is a list of segments, each an intrinsic edge with a direction: s >= 0 is halfedge s from its
@@ -192,7 +256,7 @@ namespace gs
             PathVertices = new List<int>();
             Length = InitialLength = 0;
             Iterations = Flips = 0;
-            segs = null; fixedTail = null; closed = false;
+            segs = null; fixedTail = null; closed = false; noOutput = false;
             try {
                 T = new IntrinsicTriangulation(Mesh);
             } catch (ArgumentException) {
@@ -511,6 +575,10 @@ namespace gs
                 }
             }
             Status = status;
+            if (noOutput) {
+                Length = path_length();
+                return Status;
+            }
             if (build_output() == false) Status = GeodesicPathStatus.TraceFailed;
             return Status;
         }

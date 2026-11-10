@@ -199,6 +199,11 @@ namespace g3
         public void Generate()
         {
             SelfIntersectionFree = false;
+            Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;
+            ResolveMilliseconds = 0;
+            CoveredTriangles = CheckedTriangles = ForcedDiagonals = EdgeVertices = 0;
+            coveredTriangles = new HashSet<int>();
+            edgeVertexIds = new HashSet<int>();
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -336,6 +341,7 @@ namespace g3
             var vertexPlane = new List<Vector3d>();
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
+            var vertexPatches = new List<int>();
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -345,6 +351,7 @@ namespace g3
                     vertexMass.Add(cellGroupMass[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
+                    vertexPatches.Add(groupVertex.Length);
                     // last resort for resolving self-intersections: the cell center if it is a fine cell with
                     // one patch (the polygons are then squares between cell centers), else halfway between the
                     // patch's crossing centroid and the cell center; in a coarse cell (its center can be far
@@ -389,6 +396,14 @@ namespace g3
                 }
                 if (valid == false)
                     continue;
+                if (Diagnostics != null)
+                    diagnose_polygon(e, poly, polyCells, anyFine && anyCoarse, vertexPatches);
+                // Wang's envelope criterion on a quad of four single-patch cells of one size, before the
+                // orientation swap (it needs the counter-clockwise order): which triangulation stays inside the
+                // envelope of e, so that no other covered triangle can intersect it
+                int envelope = (anyFine && anyCoarse) ? EnvelopeNone : envelope_case(e, poly, polyCells, vertexPatches);
+                if (envelope >= 0 && envelope < 4)
+                    forcedVertex = poly[envelope];
                 // cells are ordered counter-clockwise around the +axis direction. The polygon normal must point
                 // from inside to outside, ie along +axis if the edge start corner is inside.
                 if (is_inside(node_value(e.Start)) == false) {
@@ -412,14 +427,31 @@ namespace g3
                     } else if (n != 4)
                         continue;
                 }
-                if (append_quad(poly[0], poly[1], poly[2], poly[3]) == false)
+                if (emit_quad(e, ci, envelope, poly, hpoints, vertexMass, vertexPlane, vertexCell, vertexLast, vertexPatches, polyCells[0]) == false)
                     add_non_manifold_cells(nonManifoldCells, polyCells);
             }
+            CoveredTriangles = coveredTriangles.Count;
             var nmc = new List<KeyValuePair<long, Vector3i>>(nonManifoldCells);
             nmc.Sort((x, y) => x.Key.CompareTo(y.Key));
             NonManifoldCells = new List<Vector3i>();
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
 
+            Vector3d[] qefPositions = null;
+            if (Diagnostics != null) {
+                qefPositions = new Vector3d[Mesh.MaxVertexID];
+                for (int v = 0; v < qefPositions.Length; ++v) {
+                    if (Mesh.IsVertex(v) == false) continue;   // (an edge vertex rolled back)
+                    qefPositions[v] = Mesh.GetVertex(v);
+                    Cell c = vertexCell[v];
+                    Vector3d lo = node_pos(c.Min), hi = node_pos(c.Min + cell_size(c) * Vector3i.One);
+                    bool strict = true;
+                    for (int k = 0; k < 3; ++k)
+                        strict &= qefPositions[v][k] > lo[k] && qefPositions[v][k] < hi[k];
+                    if (!strict && vertexPatches[v] > 0) Diagnostics.VerticesNotStrictlyInCell++;
+                    if (vertexPatches[v] > 1) Diagnostics.MultiPatchVertices++;
+                }
+                Diagnostics.Vertices = qefPositions.Length;
+            }
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
             if (ResolveSelfIntersections) {
@@ -444,9 +476,15 @@ namespace g3
                     return c;
                 };
                 fallback = (v) => transitionVertices.Contains(v) ? ring_target(v) : vertexMass[v];
-                resolve_self_intersections(fallback, (v) => vertexLast[v]);
+                var resolveTimer = System.Diagnostics.Stopwatch.StartNew();
+                long diagnosticMs = resolve_self_intersections(fallback, (v) => vertexLast[v]);
+                ResolveMilliseconds = resolveTimer.ElapsedMilliseconds - diagnosticMs;
             }
             phase("intersections");
+            if (qefPositions != null) {
+                for (int v = 0; v < qefPositions.Length; ++v)
+                    if (Mesh.IsVertex(v) && Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
+            }
 
             // safety net: closed results must have positive volume (relative to the center: results with
             // holes are not closed)
@@ -454,8 +492,97 @@ namespace g3
             if (Mesh.TriangleCount > 0 && MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (vid) => Mesh.GetVertex(vid) - center).x < 0)
                 Mesh.ReverseOrientation(false);
             phase("mesh");
+            if (GenerateFinished != null)
+                GenerateFinished(this);
         }
         long gapMilliseconds;
+
+        // Measurement only (benchmarks/DualContouringIntersections, design note DC_INTERSECTION_FREE.md): off by
+        // default, no effect on the result. Counts, per dual polygon, the "concave envelope vertices" of Wang's
+        // intersection-free criterion (C.C.L. Wang, Intersection-free dual contouring on uniform grids: an
+        // approach based on convex/concave analysis, CUHK tech. report): the envelope of a grid edge e is the
+        // union of the tetrahedra (v_i, v_i+1, e+, e-) of the cell vertices around it; the polygon's triangles
+        // lie in it if no vertex is concave, with one concave vertex for the diagonal through it, with two an
+        // edge vertex is needed.
+        // (mutable statics: a test that sets them must run in a non-parallel collection)
+        internal static bool CollectDiagnostics = false;
+        /// called at the end of every Generate (also with CollectDiagnostics off, for timings)
+        internal static Action<DualContouring> GenerateFinished = null;
+        /// time of the self-intersection check and repair of the last Generate (ms), without the diagnostics
+        internal long ResolveMilliseconds;
+        internal class DiagnosticCounts
+        {
+            public int Polygons, TransitionPolygons, MultiPatchPolygons, DegeneratePolygons;
+            public int[] Concave = new int[5];     // uniform single-patch quads by number of concave vertices
+            public int OnPlane;                    // of those, quads with an exactly coplanar envelope test
+            public int Vertices, MultiPatchVertices, VerticesNotStrictlyInCell, ResolveMovedVertices;
+            // class of the polygon a triangle comes from (by its sorted vertex ids): 1 uniform single-patch quad,
+            // triangle inside the envelope; 2 the same, outside it (wrong diagonal or two concave vertices);
+            // 3 multi-patch; 4 transition; 5 degenerate quad
+            public Dictionary<long, byte> TriangleClass = new Dictionary<long, byte>(EdgeKeyComparer.Instance);
+            // triangles of the intersecting pairs found in the first resolve round, by class (index 0: unknown)
+            public int[] IntersectingByClass = new int[6];
+            // intersecting pairs of the first resolve round (each once), and those with both triangles inside
+            // their envelopes (the criterion says: none)
+            public int Pairs, CoveredPairs;
+        }
+        static long tri_key(int a, int b, int c)
+        {
+            System.Diagnostics.Debug.Assert(a >= 0 && b >= 0 && c >= 0 && a < (1 << 21) && b < (1 << 21) && c < (1 << 21));
+            if (a > b) { int t = a; a = b; b = t; }
+            if (b > c) { int t = b; b = c; c = t; }
+            if (a > b) { int t = a; a = b; b = t; }
+            return (long)a | ((long)b << 21) | ((long)c << 42);
+        }
+        void classify_all(int[] poly, byte cls)
+        {
+            for (int m = 0; m < 4; ++m)
+                Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = cls;
+        }
+        internal DiagnosticCounts Diagnostics;
+
+        void diagnose_polygon(GridEdge e, int[] poly, Cell[] cells, bool transition, List<int> vertexPatches)
+        {
+            Diagnostics.Polygons++;
+            if (transition) { Diagnostics.TransitionPolygons++; classify_all(poly, 4); return; }
+            for (int q = 0; q < 4; ++q)
+                for (int r = q + 1; r < 4; ++r)
+                    if (poly[q] == poly[r]) { Diagnostics.DegeneratePolygons++; classify_all(poly, 5); return; }
+            bool multi = false;
+            for (int q = 0; q < 4; ++q) multi |= vertexPatches[poly[q]] > 1;
+            if (multi) { Diagnostics.MultiPatchPolygons++; classify_all(poly, 3); return; }
+            Vector3d[] v = { Mesh.GetVertex(poly[0]), Mesh.GetVertex(poly[1]), Mesh.GetVertex(poly[2]), Mesh.GetVertex(poly[3]) };
+            int concaveAt;
+            bool onPlane;
+            int concave = ConcaveEnvelopeVertices(v, node_pos(e.Start), node_pos(e.End(F)), out concaveAt, out onPlane);
+            Diagnostics.Concave[concave]++;
+            // the triangle without vertex m has the diagonal (m+1, m+3)
+            for (int m = 0; m < 4; ++m) {
+                bool inside = concave == 0 || (concave == 1 && (concaveAt == (m + 1) % 4 || concaveAt == (m + 3) % 4));
+                Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = (byte)(inside ? 1 : 2);
+            }
+            if (onPlane) Diagnostics.OnPlane++;
+        }
+        /// <summary>
+        /// Wang's test: the number of concave envelope vertices of the cell vertices v[0..3] around the grid edge
+        /// from eMinus to ePlus (cells counter-clockwise around the direction eMinus to ePlus). v[i] is concave
+        /// if it is not strictly above the oriented triangles (v[i-1], v[i+1], ePlus) and (v[i+1], v[i-1], eMinus);
+        /// an exactly coplanar test counts as concave and sets onPlane. concaveAt: the last concave vertex.
+        /// </summary>
+        internal static int ConcaveEnvelopeVertices(Vector3d[] v, Vector3d eMinus, Vector3d ePlus, out int concaveAt, out bool onPlane)
+        {
+            int concave = 0;
+            concaveAt = -1;
+            onPlane = false;
+            for (int i = 0; i < 4; ++i) {
+                Vector3d p = v[i], s = v[(i + 3) % 4], n = v[(i + 1) % 4];
+                int a = ExactPredicates.Orient3d(s, n, ePlus, p), b = ExactPredicates.Orient3d(n, s, eMinus, p);
+                if (a == 0 || b == 0) onPlane = true;
+                if (a != ConvexSign || b != ConvexSign) { concave++; concaveAt = i; }
+            }
+            return concave;
+        }
+        static readonly int ConvexSign = ExactPredicates.Orient3d(new Vector3d(1, -1, 0), new Vector3d(-1, 1, 0), new Vector3d(0, 0, 1), new Vector3d(1, 1, 0));
 
         class CellCrossings
         {
@@ -1159,7 +1286,10 @@ namespace g3
         /// crossing centroid).
         /// </summary>
         public bool ResolveSelfIntersections = true;
-        /// <summary> intersecting triangle pairs found before / left after resolving </summary>
+        /// <summary>
+        /// intersecting triangle pairs found before / left after resolving. Only pairs with a triangle that is not
+        /// covered are looked for (see CoveredTriangles); two covered triangles cannot intersect.
+        /// </summary>
         public int SelfIntersectionsFound, SelfIntersectionsLeft;
         /// <summary>
         /// true if the last Generate() checked its result for intersecting triangle pairs (exactly, as
@@ -1170,10 +1300,18 @@ namespace g3
         /// <summary> rounds of the self-intersection resolve (each moves the vertices of the intersecting pairs) </summary>
         internal int MaxResolveRounds = 10;
 
-        void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
+        // returns the time spent in the diagnostics (ms)
+        long resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
+            long diagnosticMs = 0;
             var tree = new DMeshAABBTree3(Mesh, true);
-            HashSet<int> candidates = new HashSet<int>(Mesh.TriangleIndices());
+            // only triangles the envelope criterion does not cover can intersect (a covered triangle lies in the
+            // envelope of its grid edge, and the envelopes of different edges are disjoint): check those against all
+            HashSet<int> candidates = new HashSet<int>();
+            foreach (int t in Mesh.TriangleIndices())
+                if (coveredTriangles.Contains(t) == false)
+                    candidates.Add(t);
+            CheckedTriangles = candidates.Count;
             var moves = new Dictionary<int, int>();
             for (int round = 0; round < MaxResolveRounds; ++round) {
                 var moving = new HashSet<int>();
@@ -1210,10 +1348,46 @@ namespace g3
                     }
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
+                if (round == 0 && Diagnostics != null) {
+                    // (serial again, all pairs of all triangles, covered ones included, each once: classify the
+                    // triangles of the intersecting pairs)
+                    var diagTimer = System.Diagnostics.Stopwatch.StartNew();
+                    var hitTris = new HashSet<int>();
+                    foreach (int ta in Mesh.TriangleIndices()) {
+                        Index3i ia = Mesh.GetTriangle(ta);
+                        Triangle3d A = new Triangle3d(Mesh.GetVertex(ia.a), Mesh.GetVertex(ia.b), Mesh.GetVertex(ia.c));
+                        if (ExactTriangleIntersection.IsDegenerate(ref A)) continue;
+                        AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                        byte clsA;
+                        Diagnostics.TriangleClass.TryGetValue(tri_key(ia.a, ia.b, ia.c), out clsA);
+                        tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                            NextBoxDF = (bx, depth) => bx.Intersects(box),
+                            NextTriangleF = (tb) => {
+                                if (tb <= ta) return;
+                                Index3i ib = Mesh.GetTriangle(tb);
+                                Triangle3d B = new Triangle3d(Mesh.GetVertex(ib.a), Mesh.GetVertex(ib.b), Mesh.GetVertex(ib.c));
+                                if (ExactTriangleIntersection.IsDegenerate(ref B) == false && ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) {
+                                    byte clsB;
+                                    Diagnostics.TriangleClass.TryGetValue(tri_key(ib.a, ib.b, ib.c), out clsB);
+                                    Diagnostics.Pairs++;
+                                    if (clsA == 1 && clsB == 1) Diagnostics.CoveredPairs++;
+                                    hitTris.Add(ta); hitTris.Add(tb);
+                                }
+                            }
+                        });
+                    }
+                    foreach (int t in hitTris) {
+                        Index3i it = Mesh.GetTriangle(t);
+                        byte cls;
+                        Diagnostics.TriangleClass.TryGetValue(tri_key(it.a, it.b, it.c), out cls);
+                        Diagnostics.IntersectingByClass[cls]++;
+                    }
+                    diagnosticMs += diagTimer.ElapsedMilliseconds;
+                }
                 SelfIntersectionsLeft = pairs;
                 if (pairs == 0) {
                     SelfIntersectionFree = true;
-                    return;
+                    return diagnosticMs;
                 }
                 var targets = new List<KeyValuePair<int, Vector3d>>();
                 foreach (int v in moving) {
@@ -1232,6 +1406,7 @@ namespace g3
                     foreach (int tt in Mesh.VtxTrianglesItr(v))
                         candidates.Add(tt);
             }
+            return diagnosticMs;
         }
 
         Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
@@ -1388,6 +1563,109 @@ namespace g3
                 if (F == 1 || c.Coarse)
                     cells[node_key(coarse)] = coarse;
             }
+        }
+
+        /// <summary>
+        /// Triangles of the last Generate() that lie, by construction, inside the envelope of their grid edge
+        /// (C.C.L. Wang's convex/concave criterion, decided with exact orient3d predicates): quads of four
+        /// single-patch cells of one size whose vertices are strictly inside their cells. Envelopes of different
+        /// grid edges are disjoint, so these cannot intersect each other; only the other triangles (CheckedTriangles)
+        /// are checked for self-intersections.
+        /// </summary>
+        public int CoveredTriangles;
+        /// <summary> triangles the self-intersection check of the last Generate() started from (not covered; 0 if ResolveSelfIntersections is off) </summary>
+        public int CheckedTriangles;
+        /// <summary> quads split along the diagonal the envelope criterion requires (one concave envelope vertex) </summary>
+        public int ForcedDiagonals;
+        /// <summary>
+        /// vertices inserted on grid edges (at the edge's surface point): quads with two concave envelope vertices
+        /// (or an exactly coplanar test), split into four triangles that stay inside the envelope
+        /// </summary>
+        public int EdgeVertices;
+        internal HashSet<int> coveredTriangles = new HashSet<int>();
+        internal HashSet<int> edgeVertexIds = new HashSet<int>();
+
+        const int EnvelopeNone = -2, EnvelopeAny = -1, EnvelopeEdgeVertex = 4;
+
+        // EnvelopeNone: the criterion does not apply (multi-patch, refinement transition, degenerate, a vertex not
+        // strictly in its cell); EnvelopeAny: both diagonals are covered; 0..3: only the diagonal through poly[k]
+        // (in the counter-clockwise order) is; EnvelopeEdgeVertex: neither is, an edge vertex is needed
+        int envelope_case(GridEdge e, int[] poly, Cell[] cells, List<int> vertexPatches)
+        {
+            for (int q = 0; q < 4; ++q) {
+                if (vertexPatches[poly[q]] != 1) return EnvelopeNone;
+                for (int r = q + 1; r < 4; ++r)
+                    if (poly[q] == poly[r]) return EnvelopeNone;
+                Vector3d lo = node_pos(cells[q].Min), hi = node_pos(cells[q].Min + cell_size(cells[q]) * Vector3i.One);
+                Vector3d p = Mesh.GetVertex(poly[q]);
+                for (int k = 0; k < 3; ++k)
+                    if (!(p[k] > lo[k] && p[k] < hi[k])) return EnvelopeNone;
+            }
+            Vector3d[] v = { Mesh.GetVertex(poly[0]), Mesh.GetVertex(poly[1]), Mesh.GetVertex(poly[2]), Mesh.GetVertex(poly[3]) };
+            int concaveAt;
+            bool onPlane;
+            int concave = ConcaveEnvelopeVertices(v, node_pos(e.Start), node_pos(e.End(F)), out concaveAt, out onPlane);
+            if (onPlane || concave >= 2) return EnvelopeEdgeVertex;
+            return concave == 0 ? EnvelopeAny : concaveAt;
+        }
+
+        // appends the polygon (in output orientation) as triangles; covered ones are recorded. forcedAt is the
+        // case from envelope_case, with the diagonal given by a vertex id when forced.
+        bool emit_quad(GridEdge e, int ci, int envelope, int[] poly, Vector3d[] hpoints, List<Vector3d> vertexMass, List<Vector3d> vertexPlane,
+            List<Cell> vertexCell, List<Vector3d> vertexLast, List<int> vertexPatches, Cell cell)
+        {
+            if (envelope == EnvelopeNone)
+                return append_quad(poly[0], poly[1], poly[2], poly[3]);
+            int before = Mesh.MaxTriangleID;
+            if (envelope == EnvelopeAny) {
+                if (append_quad(poly[0], poly[1], poly[2], poly[3]) == false)
+                    return false;
+                mark_covered(before);
+                return true;
+            }
+            if (envelope != EnvelopeEdgeVertex) {
+                // the vertex the diagonal must pass through (by id: the orientation swap kept the diagonals)
+                int j = Array.IndexOf(poly, forcedVertex);
+                if (try_split(poly[j], poly[(j + 1) % 4], poly[(j + 2) % 4], poly[(j + 3) % 4])) {
+                    mark_covered(before);
+                    ForcedDiagonals++;
+                    return true;
+                }
+            }
+            // edge vertex: on the grid edge (the coordinates across the edge are the nodes', so it is exactly on
+            // the segment), at the surface point along it, strictly between the end nodes
+            Vector3d a = node_pos(e.Start), b = node_pos(e.End(F));
+            Vector3d ve = a;
+            double lo = a[e.Axis], hi = b[e.Axis], t = hpoints[ci][e.Axis];
+            double margin = QEFCellMargin * (hi - lo);
+            ve[e.Axis] = (t > lo + margin && t < hi - margin) ? t : 0.5 * (lo + hi);
+            if (!(ve[e.Axis] > lo && ve[e.Axis] < hi))
+                return append_quad(poly[0], poly[1], poly[2], poly[3]);   // (the edge is too short to split in double)
+            int vid = Mesh.AppendVertex(ve);
+            // (per-vertex lists are indexed by vertex id; a rolled back edge vertex can leave its id free for reuse)
+            while (vertexMass.Count <= vid) {
+                vertexMass.Add(ve); vertexPlane.Add(Vector3d.Zero); vertexCell.Add(cell); vertexLast.Add(ve); vertexPatches.Add(0);
+            }
+            vertexMass[vid] = ve; vertexPlane[vid] = Vector3d.Zero; vertexCell[vid] = cell; vertexLast[vid] = ve; vertexPatches[vid] = 0;
+            int[] tris = new int[4];
+            for (int i = 0; i < 4; ++i) {
+                tris[i] = Mesh.AppendTriangle(poly[i], poly[(i + 1) % 4], vid);
+                if (tris[i] < 0) {
+                    for (int k = 0; k < i; ++k) Mesh.RemoveTriangle(tris[k], false, false);
+                    Mesh.RemoveVertex(vid, false, false);
+                    return append_quad(poly[0], poly[1], poly[2], poly[3]);
+                }
+            }
+            mark_covered(before);
+            EdgeVertices++;
+            edgeVertexIds.Add(vid);
+            return true;
+        }
+        int forcedVertex;
+        void mark_covered(int fromTid)
+        {
+            for (int t = fromTid; t < Mesh.MaxTriangleID; ++t)
+                if (Mesh.IsTriangle(t)) coveredTriangles.Add(t);
         }
 
         bool append_quad(int v0, int v1, int v2, int v3)

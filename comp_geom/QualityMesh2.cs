@@ -254,7 +254,7 @@ namespace g3
                     return top.t;
                 }
             }
-            readonly HashSet<long> unsplittable = new HashSet<long>();
+            readonly HashSet<long> unsplittable = new HashSet<long>(PairKeys.Comparer);
             readonly HashSet<long> exempt = new HashSet<long>();
             long limit, inserted, splits;
             /// <summary> vertices below this id existed before refinement: input points and crossings, the apexes of input angles </summary>
@@ -1225,7 +1225,7 @@ namespace g3
             }
 
             // per ordered pair of sources (they do not change during refinement): the angle test once, not on every query
-            readonly Dictionary<long, SmallPair> smallPairs = new Dictionary<long, SmallPair>();
+            readonly Dictionary<long, SmallPair> smallPairs = new Dictionary<long, SmallPair>(PairKeys.Comparer);
 
             /// <summary> how the closed input segments s1 and s2 meet, exactly: 0 not at all (or collinear), 1 at a shared endpoint, 2 elsewhere
             /// (an end on the other's interior, or a proper crossing) </summary>
