@@ -7,8 +7,8 @@
 #        <rest rows dir>: the per-model rows of FINAL-1's rest phase (job.sh, master 79a2c1ab, before #528), eg
 #        ~/b2final/out/rest
 #
-# 1. the sample (runs/final/open_sample.py): every open model with an operation slower than 5 s, not clean ("" or
-#    "empty") or with an error in the rest phase, filled to 300 from the other open models stratified by their slowest
+# 1. the sample (runs/final/open_sample.py): every open model with an operation slower than 5 s, not clean (other than
+#    "", "empty" and the expected "not closed") or with an error in the rest phase, filled to 300 from the other open models stratified by their slowest
 #    operation (5 strata, seeded); and from it the timing sample (sample_timing.py, 8 per stratum)
 # 2. correctness: job2.sh correct on 293d0e3b (#528), 4 models at a time, 1 core each
 # 3. timing: job2.sh timing of the timing sample, pre (79a2c1ab) and fix (293d0e3b) interleaved, nothing else running
