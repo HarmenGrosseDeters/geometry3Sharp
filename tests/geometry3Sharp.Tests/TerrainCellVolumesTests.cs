@@ -131,6 +131,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ASingleCellInsideManySmallPolygons_GetsExactlyItsOwnArea()
+        {
+            // surfaces with triangles of size 1 on the integer lattice, the single cell [0.5, 1.5]^2 cuts four of their cells: every polygon crosses the lattice border
+            DMesh3 before = Grid(0, 0, 10, 10, 11, (x, y) => 0), after = Grid(0, 0, 10, 10, 11, (x, y) => 2, true);
+            TerrainCellVolumes c = Run(before, after, 0.5, 0.5, 1, 1, 1, 1);
+            Assert.Equal(1, c.OverlapArea[0], 12);
+            Assert.Equal(2, c.FillVolume[0], 12);
+            Assert.Equal(198, c.OutsideFillVolume, 9);
+        }
+
+        [Fact]
         public void HeightGrids_AreTheirGridTins()
         {
             var g1 = new HeightGrid(Enumerable.Range(0, 81).Select(k => Math.Sin(k * 0.3)).ToArray(), 9, 9, 100, 200, 2);
