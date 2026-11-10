@@ -73,7 +73,11 @@ jobs:
       - name: Test time rule (CLAUDE.md, "Test time"; report, ratchet over SLOW_BACKLOG.txt)
         if: needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
         # fails for a test of more than 10 s, and for one of 5 s or more without the trait Slow, unless its method is on
-        # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list)
+        # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
+        # RATCHET_ENFORCE=0: report mode (violations go to the step summary and as warnings, the step passes) while the backlog
+        # is filled from the runner timings of master's full runs; then a PR sets it to 1.
+        env:
+          RATCHET_ENFORCE: '0'
         run: |
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
           base=()
@@ -81,7 +85,7 @@ jobs:
             git fetch --depth=1 origin "${{ github.base_ref }}"
             if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
           fi
-          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" --summary "$GITHUB_STEP_SUMMARY"
+          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
       - name: Test CLI / MCP server (tools/g3cli)
         if: needs.scope.outputs.g3cli == 'true'
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results

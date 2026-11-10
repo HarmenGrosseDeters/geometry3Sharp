@@ -132,6 +132,7 @@ def main(argv=None):
     p.add_argument("--backlog", help="SLOW_BACKLOG.txt: switches the ratchet on")
     p.add_argument("--backlog-base", help="the base branch's SLOW_BACKLOG.txt (the list must not grow)")
     p.add_argument("--max-seconds", type=float, default=10.0)
+    p.add_argument("--report-only", action="store_true", help="print the ratchet's violations (as warnings) but exit 0")
     p.add_argument("--fail-from", type=float, default=7.0, help="untagged tests from this many seconds fail the ratchet (default 7)")
     p.add_argument("--make-backlog", help="write a backlog from the trx to this file and stop")
     p.add_argument("--backlog-from", type=float, default=4.0)
@@ -177,7 +178,9 @@ def main(argv=None):
     if a.summary:
         with open(a.summary, "a", encoding="utf-8") as f:
             f.write("### Test tiers\n```\n" + out + "\n```\n")
-    if errors:
+    if errors and a.report_only:
+        print(f"::warning::{len(errors)} violations of the test time rule (CLAUDE.md, Test time), report mode (RATCHET_ENFORCE=0)")
+    elif errors:
         print(f"::error::{len(errors)} violations of the test time rule (CLAUDE.md, Test time)")
         return 1
     if a.fail_above is not None and any(r[1] >= a.fail_above for r in untagged):

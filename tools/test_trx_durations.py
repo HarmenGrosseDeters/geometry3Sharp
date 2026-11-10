@@ -110,6 +110,11 @@ class Trx(unittest.TestCase):
         self.assertEqual([w.split(": ")[-1] for w in t.untagged_warnings(rows, set(), 5.0)], ["N.A.Mid"])
         self.assertEqual(t.untagged_warnings(rows, {"A.Mid"}, 5.0), [])
 
+    def test_report_only_exits_zero_with_violations(self):
+        empty = self.write("empty2.txt", "")
+        self.assertEqual(t.main([self.path, "--backlog", empty]), 1)
+        self.assertEqual(t.main([self.path, "--backlog", empty, "--report-only"]), 0)
+
     def test_a_fast_test_passes_without_backlog(self):
         fast = self.write("fast.trx", TRX.replace('duration="00:01:30.0000000"', 'duration="00:00:01.0000000"')
                           .replace('duration="00:00:07.2500000"', 'duration="00:00:01.0000000"')
