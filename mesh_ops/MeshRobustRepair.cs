@@ -371,6 +371,10 @@ namespace gs
                 ResultReason = ScaleNotFinite;
                 return false;
             }
+            if (Mesh.TriangleCount > 0 && !CoordinatesInRange(Mesh)) {
+                ResultReason = OutsideRange;
+                return false;
+            }
             DMesh3 input = new DMesh3(Mesh);
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
@@ -590,6 +594,39 @@ namespace gs
         /// bounds); Mesh is not replaced (only its unused vertices are removed, as always)
         /// </summary>
         public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds is not a finite double (coordinates that are not finite, or an extent above about 1e154); not repaired";
+        /// <summary>
+        /// ResultReason when Apply() returns false because the input is outside the supported range (class comment,
+        /// docs/QA.md 2.5a): a nonzero coordinate with a magnitude outside [2^-200, 2^400] (subnormal numbers
+        /// included), or an extent below 2^-40 of the largest coordinate magnitude (a scene far from the origin compared
+        /// to its size). Mesh is not replaced. (Such inputs did not terminate beyond about 1e100 from the origin, or
+        /// reported a clean result that was not, with subnormal coordinates.)
+        /// </summary>
+        public const string OutsideRange = "outside the supported range: a nonzero coordinate has a magnitude outside [2^-200, 2^400], or the extent is below 2^-40 of the largest magnitude (or a coordinate is not finite); not repaired";
+        const double RangeMin = 6.2230152778611417e-61, RangeMax = 2.5822498780869086e120;   // 2^-200, 2^400
+
+        /// <summary> the supported range of the class comment, for the used vertices </summary>
+        static bool CoordinatesInRange(DMesh3 m)
+        {
+            Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+            double biggest = 0;
+            foreach (int tid in m.TriangleIndices()) {
+                Index3i t = m.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = m.GetVertex(t[k]);
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (!(a == 0 || (a >= RangeMin && a <= RangeMax)))
+                            return false;
+                        biggest = Math.Max(biggest, a);
+                        lo[c] = Math.Min(lo[c], p[c]);
+                        hi[c] = Math.Max(hi[c], p[c]);
+                    }
+                }
+            }
+            double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+            return extent >= biggest * 9.094947017729282e-13;      // 2^-40
+        }
+
         /// <summary>
         /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
         /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
