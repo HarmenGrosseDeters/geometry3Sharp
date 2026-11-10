@@ -258,7 +258,7 @@ comment only.
 - **Hull sources on the grid.**
   - The mesher's hull sources on the grid are the snapped chains of the hull edges (`HullSegmentsFrom`–`HullSegmentsTo`, MESHING2D_HULL_GRID.md
     §7), resolved with `OriginOf`.
-  - The oracle's `HullSources()` are the edges of the domain's outer hull (rounded on M3), split at input points on them.
+  - The oracle's `HullSources()` are the edges of the domain's outer hull (rounded on M3), split at input points on them without a grid (whole on the grid, next bullet).
   - On the grid the oracle takes a hull edge whole, not split at the input points on it, as `OriginOf` does: the apex of a small angle may lie
     on another piece than the triangle's vertex (found by the CsCheck campaign of `QualityMesh2`, T5; owner/coordinator decision 2026-11-10).
     Without a grid the pieces stay separate sources.

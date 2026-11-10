@@ -282,7 +282,7 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   points on a hull edge (gridless they are). The mesher takes the angle of a hull chain from the input constraint (`OriginOf`: the whole
   hull edge), so a triangle whose shortest edge spans a small angle between a segment and a hull edge is excused when the apex lies
   on another piece of the edge than the triangle's vertex (found by the CsCheck campaign: AngleBelowBound on a fine grid). Self-checks:
-  the excuse holds at 36.87 degrees with the apex on the other piece, and stays rejected for a vertex three times as far from the apex and at 63.43 degrees.
+  the excuse holds at 36.87 degrees with the apex on the other piece, and stays rejected for a vertex 3.75 times as far from the apex and at 63.43 degrees.
 - **Post-review of (ii') (B1, fixed):** a first form probed the input-only domain beside the middle of the full image's link. A
   rerouted link can run outside the input's band while the band keeps area next to it: the wedge (0, 0), (40, 4.6), (40, 5.6) with a
   Steiner vertex at (10, 1), both edges then on the link (0, 0) - (10, 1), was accepted although the input's rounding keeps 1.25 px²

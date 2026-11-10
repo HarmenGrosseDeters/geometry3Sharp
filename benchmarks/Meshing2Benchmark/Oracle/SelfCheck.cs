@@ -327,7 +327,8 @@ namespace Meshing2Acceptance
             // domain A = (0, 0), E1 = (120, 0), E2 = (96, 72) (the hull angle at A is 36.87 degrees) with the input point P = (2, 0) on the bottom
             // edge, at pixel 1, a bound of 20 degrees and the triangle p E1 q with p = (4, 0) on the piece P-E1 and q on A-E2: its shortest
             // edge p-q spans the hull angle at A, whose apex lies on the other piece A-P. On the grid the hull edge is taken whole (as the
-            // mesher's OriginOf does), so the triangle is excused; without the grid the pieces are separate sources
+            // mesher's OriginOf does), so the triangle is excused; without the grid the pieces are separate sources. (The meshes are not
+            // otherwise valid outputs: only AngleBelowBound is asserted)
             {
                 Mesh2Input GridIn(double ex, double ey) => new Mesh2Input { SnapTolerance = 1, X = new[] { 0, 120, ex, 2 }, Y = new[] { 0, 0, ey, 0 }, MinAngleDeg = 20 };
                 Mesh2Output GridOut(double ex, double ey, double qx, double qy) {
@@ -339,7 +340,7 @@ namespace Meshing2Acceptance
                 var onGrid = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 4, 3), new OracleExpect { Milestone = Milestone.M3 });
                 Must("accept: on the grid the shortest edge spans the hull angle whose apex is on another piece of the split hull edge", !onGrid.Has(Violation.AngleBelowBound), "report: " + onGrid);
                 var farQ = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 12, 9), new OracleExpect { Milestone = Milestone.M3 });
-                Must("reject: on the grid the same with q three times as far from the apex as p, as AngleBelowBound", farQ.Has(Violation.AngleBelowBound), "report: " + farQ);
+                Must("reject: on the grid the same with q 3.75 times as far from the apex as p, as AngleBelowBound", farQ.Has(Violation.AngleBelowBound), "report: " + farQ);
                 var wideGrid = Oracle.Check(GridIn(32, 64), GridOut(32, 64, 2, 4), new OracleExpect { Milestone = Milestone.M3 });
                 Must("reject: on the grid the same at a hull angle of 63.43 degrees as AngleBelowBound", wideGrid.Has(Violation.AngleBelowBound), "report: " + wideGrid);
             }
