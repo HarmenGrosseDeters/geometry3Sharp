@@ -153,8 +153,13 @@ Tier: S, M. Parallel: up to 2 sessions
        the result') for flat input at relative alpha 5 to 8 (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at
        10 and at the default 20), pinned as a skipped example and counted as an open class (`G3_PROPERTY_STRICT=1` fails on it); the fix
        is a bugfix PR of its own.
-    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
-       (never steeper, cut + fill consistent).
+    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions (QA 2.0 T11, done 2026-11-10,
+       `MarchingCubesCampaignTests.CsCheck.cs`: random unions and subtractions of 1-Lipschitz sphere, box, torus and capsule SDFs;
+       LinearEdges at the normalized recipe of CONSERVATIVE_MC_AUDIT.md: no exception, closed, valid, every sampled point of {f <= 0}
+       enclosed (winding > 0.99); all four root modes of `MarchingCubes`: parallel equals serial, a repeated run agrees, and `MarchingCubesPro` (LinearEdges only) has the same vertices and triangles by coordinates; the
+       field, bounds, cell size and level scaled by 2^-9 and 2^11 give the same mesh bit for bit; 20 samples in CI. 4 000 samples: no
+       finding; scenes whose shape reaches the extraction boundary (6 of 4 000) are outside the recipe and keep only the determinism and
+       scale checks). Terrain metamorphic relations (never steeper, cut + fill consistent) are still open.
     5. Reducer and Remesher (QA 2.0 T7, done 2026-11-10): `RemeshReduceCampaignTests.CsCheck.cs` (sphere, noisy sphere, torus, noisy torus,
        two spheres, open terrain; sizes 2^-30 .. 2^6; Reducer: valid, finite, closed stays closed, Euler characteristic and components,
        no bowtie, positive volume, MaxDeviation on vertices and centroids also over a second call on the same instance, `PreventFoldOver`
