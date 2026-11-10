@@ -26,7 +26,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [MemberData(nameof(InputAngleBelow60))]
         public void InputAngleBelow60_IsExcused(string name, QualityMesh2PropertyCase c)
-            => Assert.Equal("", QualityMesh2Properties.Check(c, new[] { -11, 13 }));
+            => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
 
         static QualityMesh2PropertyCase Grid(string family, int[] x, int[] y, int[][] rings, int[][] segments, int denominator, int exponent, int snap, double angle, bool constrained, bool conforming)
             => new QualityMesh2PropertyCase { Family = family, X = x, Y = y, Rings = rings, Holes = new bool[rings.Length], Segments = segments,
@@ -61,6 +61,23 @@ namespace geometry3Sharp.Tests
             // one not (the same input without snapping is valid)
             new object[] { "soup: a triangle below 15 degrees on a fine grid", Grid("soup", new[] { 0, 2, 6, 4, 6, 1, 4, 6, 0, 4 }, new[] { 0, 5, 4, 4, 2, 3, 3, 3, 1, 0 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 4, 5 }, new[] { 6, 7 }, new[] { 8, 9 } }, 2, -1, -3, 15, false, false) },
         };
+
+        /// <summary> the campaign's filter classifies each open case in its class (and none of the rerouting cases): not hidden, not dead </summary>
+        [Theory]
+        [MemberData(nameof(OpenGridFindings))]
+        public void OpenGridFindings_AreClassified(string name, QualityMesh2PropertyCase c)
+        {
+            Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11 }), name);
+            Assert.NotNull(QualityMesh2Properties.LastOpenClass);
+        }
+
+        [Theory]
+        [MemberData(nameof(GridRerouting))]
+        public void GridRerouting_IsNoOpenClass(string name, QualityMesh2PropertyCase c)
+        {
+            QualityMesh2Properties.Check(c, new[] { -11 });
+            Assert.True(QualityMesh2Properties.LastOpenClass == null, name);
+        }
 
         [Theory(Skip = "open grid findings of the T5 campaign (mesher or spec): see the cases' comments")]
         [MemberData(nameof(OpenGridFindings))]

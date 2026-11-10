@@ -32,11 +32,11 @@ namespace geometry3Sharp.Tests
 
         public Mesh2Input Build(int extraExponent = 0)
         {
-            double unit = Math.Pow(2, Exponent + extraExponent - Denominator);
+            double unit = Math.ScaleB(1.0, Exponent + extraExponent - Denominator);
             var input = new Mesh2Input {
                 X = X.Select(v => v * unit).ToArray(), Y = Y.Select(v => v * unit).ToArray(),
                 MinAngleDeg = Angle, ConstrainedQuality = Constrained, Conforming = Conforming, SteinerLimit = SteinerLimit,
-                SnapTolerance = SnapLog2 == null ? 0 : Math.Pow(2, SnapLog2.Value) * unit
+                SnapTolerance = SnapLog2 == null ? 0 : Math.ScaleB(1.0, SnapLog2.Value) * unit
             };
             for (int i = 0; i < Rings.Length; ++i) input.Rings.Add(new RingInput((int[])Rings[i].Clone(), Holes[i]));
             foreach (var s in Segments) input.Segments.Add(new SegmentInput(s[0], s[1]));
@@ -70,19 +70,31 @@ namespace geometry3Sharp.Tests
         public static int TimeoutMs = 60000;
 
         /// <summary>
-        /// Open grid findings of the T5 campaign (after the oracle's rule O-G): on a snap grid the oracle's verdict still fails in four
-        /// classes (AngleBelowBound on fine grids, SegmentMissing and VertexUnused with conforming refinement of slivers,
-        /// TrianglesOnDegenerate). Not a failure of the campaign until decided or fixed; G3_PROPERTY_STRICT counts them.
+        /// The open grid class of the last <see cref="Check"/> on this thread (null: none). Open grid findings of the T5 campaign, after
+        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in four classes, each only in its documented setting:
+        /// AngleBelowBound on a grid finer than the lattice unit; SegmentMissing / VertexUnused (with ChainSkipsHotPixel) with
+        /// conforming refinement; TrianglesOnDegenerate. Not a failure of the campaign until decided or fixed (the other properties still
+        /// run); G3_PROPERTY_STRICT=1 makes them fail. Any other kind of violation stays a failure.
         /// </summary>
-        public static bool IsOpenGridFinding(QualityMesh2PropertyCase c, string reason)
-            => c.SnapLog2 != null && reason.StartsWith("oracle verdict: ", StringComparison.Ordinal);
+        [ThreadStatic] public static string LastOpenClass;
+
+        static string OpenClass(QualityMesh2PropertyCase c, HashSet<Violation> kinds)
+        {
+            if (c.SnapLog2 == null || Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") == "1") return null;
+            if (kinds.SetEquals(new[] { Violation.AngleBelowBound }) && c.SnapLog2 < 0 && c.Angle != null) return "AngleBelowBound";
+            if (kinds.IsSubsetOf(new[] { Violation.SegmentMissing, Violation.VertexUnused, Violation.ChainSkipsHotPixel }) && !c.Constrained && c.Angle != null)
+                return "SegmentMissing/VertexUnused";
+            if (kinds.SetEquals(new[] { Violation.TrianglesOnDegenerate })) return "TrianglesOnDegenerate";
+            return null;
+        }
 
         static Mesh2Output Run(Mesh2Input input)
         {
             Mesh2Output result = null;
             Exception error = null;
-            var task = Task.Run(() => { try { result = new QualityMesh2Candidate().Run(input); } catch (Exception e) { error = e; } });
-            if (!task.Wait(TimeoutMs)) throw new TimeoutException("no result after " + TimeoutMs + " ms");
+            var thread = new System.Threading.Thread(() => { try { result = new QualityMesh2Candidate().Run(input); } catch (Exception e) { error = e; } }, 16 * 1024 * 1024) { IsBackground = true };
+            thread.Start();
+            if (!thread.Join(TimeoutMs)) throw new TimeoutException("no result after " + TimeoutMs + " ms");
             if (error != null) throw new InvalidOperationException(error.GetType().Name + ": " + error.Message, error);
             return result;
         }
@@ -119,7 +131,11 @@ namespace geometry3Sharp.Tests
             OracleReport report;
             try { report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 }); }
             catch (Exception e) { return "oracle exception: " + e.GetType().Name + ": " + e.Message; }
-            if (!report.Ok) return "oracle verdict: " + string.Join("; ", report.Violations.Take(5));
+            LastOpenClass = null;
+            if (!report.Ok) {
+                LastOpenClass = OpenClass(c, new HashSet<Violation>(report.Violations.Select(v => v.Kind)));
+                if (LastOpenClass == null) return "oracle verdict: " + string.Join("; ", report.Violations.Take(5));
+            }
 
             string reason = SegmentsAreUnions(c, input, o);
             if (reason != "") return reason;
@@ -141,7 +157,7 @@ namespace geometry3Sharp.Tests
             foreach (int shift in scaleShifts ?? new int[0]) {
                 try {
                     var scaled = Run(c.Build(shift));
-                    reason = SameMesh(o, scaled, Math.Pow(2, shift), "scale 2^" + shift);
+                    reason = SameMesh(o, scaled, Math.ScaleB(1.0, shift), "scale 2^" + shift);
                     if (reason != "") return reason;
                 } catch (Exception e) { return "scale 2^" + shift + ": " + e.Message; }
             }

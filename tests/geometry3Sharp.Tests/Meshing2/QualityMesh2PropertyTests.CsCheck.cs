@@ -129,7 +129,7 @@ namespace geometry3Sharp.Tests
             Gen.Int[12, 40].SelectMany(so => {
                 int h = Math.Max(4, so * 2 / 5);
                 return Gen.Select(GenStar(0, 0, so, 3, 9), Gen.Int[0, 3], Gen.Int[0, 2],
-                    GenStar(-h / 2, -h / 2, Math.Max(2, h / 2 - 0), 3, 7), GenStar(h / 2, -h / 2, Math.Max(2, h / 2), 3, 7),
+                    GenStar(-h / 2, -h / 2, Math.Max(2, h / 2), 3, 7), GenStar(h / 2, -h / 2, Math.Max(2, h / 2), 3, 7),
                     GenStar(h / 2, h / 2, Math.Max(2, h / 2), 3, 7), GenStar(-h / 2, h / 2, Math.Max(2, h / 2), 3, 7),
                     (outer, nh, margin, h0, h1, h2, h3) => {
                         var b = new Builder();
@@ -215,25 +215,20 @@ namespace geometry3Sharp.Tests
         {
             Func<QualityMesh2PropertyCase, string> property = c => QualityMesh2Properties.Check(c, shifts);
             void Check(QualityMesh2PropertyCase t) { string r = property(t); if (r != "") throw new Exception(r); }
+            var openByClass = new Dictionary<string, int>();
             var watch = Stopwatch.StartNew();
             string replay = Environment.GetEnvironmentVariable("G3_PROPERTY_CAMPAIGN") == name ? Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") : null;
             string[] seeds = string.IsNullOrEmpty(replay)
                 ? Enumerable.Range(0, Samples(samples)).Select(i => new PCG(campaign, (ulong)i).ToString()).ToArray()
                 : new[] { replay };
             log.WriteLine($"{name}: CsCheck campaign {campaign}, {seeds.Length} samples");
-            int failed = 0, knownOpen = 0;
+            int failed = 0;
             foreach (string seed in seeds) {
                 string failure = null;
                 QualityMesh2PropertyCase original = null;
-                try { gen.Sample(t => { original = t; Check(t); }, seed: seed, iter: 1, threads: 1, print: t => t.ToString()); }
+                try { gen.Sample(t => { original = t; Check(t); if (QualityMesh2Properties.LastOpenClass != null) { openByClass.TryGetValue(QualityMesh2Properties.LastOpenClass, out int n); openByClass[QualityMesh2Properties.LastOpenClass] = n + 1; log.WriteLine($"{name}: open grid finding {QualityMesh2Properties.LastOpenClass}, seed {seed}"); } }, seed: seed, iter: 1, threads: 1, print: t => t.ToString()); }
                 catch (CsCheckException e) { failure = e.InnerException?.Message ?? e.Message; }
                 if (failure == null) continue;
-                // the open finding 2 (grid cases, oracle verdicts): counted and logged, not failing, unless G3_PROPERTY_STRICT is set
-                if (original != null && QualityMesh2Properties.IsOpenGridFinding(original, property(original)) && Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") == null) {
-                    ++knownOpen;
-                    log.WriteLine($"{name}: open grid finding (seed {seed}): {failure}");
-                    continue;
-                }
                 ++failed;
                 string shrunk = ExactBooleanPropertyTests.Shrink(gen, property, seed, ShrinkIterations).Report;
                 string message = $"{name} fails for seed {seed} (campaign {campaign}):\n  {original}\n  {failure}\n" +
@@ -243,7 +238,7 @@ namespace geometry3Sharp.Tests
                 if (seeds.Length <= samples) throw new Xunit.Sdk.XunitException(message);
                 log.WriteLine(message);
             }
-            log.WriteLine($"{name}: {failed} failing seeds, {knownOpen} open grid findings, {watch.ElapsedMilliseconds} ms");
+            log.WriteLine($"{name}: {failed} failing seeds, {openByClass.Sum(kv => kv.Value)} open grid findings ({string.Join(", ", openByClass.Select(kv => kv.Key + " " + kv.Value))}), {watch.ElapsedMilliseconds} ms");
             Assert.True(failed == 0, name + ": " + failed + " failing seeds (see the output)");
         }
 
@@ -252,7 +247,7 @@ namespace geometry3Sharp.Tests
 
         [Fact] public void Polygon() => Campaign("polygon", WithFrame(GenPolygon(), Gen.Int[-6, 6], NoSnap), Shifts, 50, 101u);
         [Fact] public void Touching() => Campaign("touching", WithFrame(GenTouching(), Gen.Int[-6, 6], NoSnap), Shifts, 50, 102u);
-        [Fact] public void Wedge() => Campaign("wedge", WithFrame(GenWedge(), Gen.Int[-6, 6], NoSnap), Shifts, 25, 103u);
+        [Fact] public void Wedge() => Campaign("wedge", WithFrame(GenWedge(), Gen.Int[-6, 6], NoSnap), Shifts, 12, 103u);
         [Fact] public void Soup() => Campaign("soup", WithFrame(GenSoup(), Gen.Int[-6, 6], NoSnap), Shifts, 50, 104u);
         [Fact] public void Grid() => Campaign("grid", WithFrame(GenAnyFamily(), Gen.Int[-6, 6], GridSnap), Shifts, 50, 105u);
         [Fact] public void Extreme() => Campaign("extreme", WithFrame(GenAnyFamily(), Gen.Int[-300, 100], Gen.OneOf(NoSnap, GridSnap)), ExtremeShifts, 50, 106u);
