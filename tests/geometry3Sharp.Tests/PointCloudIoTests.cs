@@ -141,7 +141,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData("nan 2 3")]
+        [InlineData("NaN 2 3")]
         [InlineData("1 -1e400 3")]
         [InlineData("1 2 1e400")]
         public void Xyz_NonFinitePosition_RejectedUnlessAllowed(string line)

@@ -19,8 +19,6 @@ namespace g3
     /// </summary>
     class XYZReader : IMeshReader
     {
-        public event ParsingMessagesHandler warningEvent;
-
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
             return new IOReadResult(IOCode.FormatNotSupportedError, "binary read not supported for XYZ format");

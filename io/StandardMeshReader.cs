@@ -453,7 +453,6 @@ namespace g3
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
             XYZReader reader = new XYZReader();
-            reader.warningEvent += messages;
             return reader.Read(new StreamReader(stream), options, builder);
         }
     }
