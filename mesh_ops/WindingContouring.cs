@@ -23,6 +23,11 @@ namespace gs
 
         // outputs of ContourAdaptive()
         public int NonManifoldTriangles;
+        /// <summary>
+        /// intersecting triangle pairs the hole fill of the last contour added (the holes where dual contouring left
+        /// out non-manifold quads); SelfIntersectionFree is false if any
+        /// </summary>
+        public int HoleFillIntersections;
         public int WindingEvaluations;
         public int HiddenGapEdges;
         /// <summary> grid edges through material thinner than a cell (both ends outside), see HiddenWall </summary>
@@ -152,10 +157,11 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
-            // (the hole fills are not checked)
-            SelfIntersectionFree = dc.SelfIntersectionFree && NonManifoldTriangles == 0;
+            HoleFillIntersections = 0;
             if (NonManifoldTriangles > 0)
-                FillSmallHoles(dc.Mesh);
+                HoleFillIntersections = FillSmallHolesChecked(dc.Mesh);
+            // the fill triangles are checked exactly against the whole contour, the rest by the dual contouring
+            SelfIntersectionFree = dc.SelfIntersectionFree && HoleFillIntersections == 0;
             return dc.Mesh;
         }
 
@@ -714,6 +720,49 @@ namespace gs
         /// where both cells have a single patch). Fill the resulting small holes; bowties this can leave are
         /// removed by the cleanup pass.
         /// </summary>
+        /// <summary>
+        /// FillSmallHoles, then an exact check of the triangles it added or changed against the whole mesh:
+        /// returns the number of intersecting pairs that involve one of them (0: the fill added none).
+        /// </summary>
+        public static int FillSmallHolesChecked(DMesh3 mesh)
+        {
+            var before = new Dictionary<int, Index3i>();
+            foreach (int t in mesh.TriangleIndices())
+                before[t] = mesh.GetTriangle(t);
+            FillSmallHoles(mesh);
+            var changed = new HashSet<int>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i old;
+                if (before.TryGetValue(t, out old) == false || old != mesh.GetTriangle(t))
+                    changed.Add(t);
+            }
+            if (changed.Count == 0)
+                return 0;
+            var tree = new DMeshAABBTree3(mesh, true);
+            int pairs = 0;
+            var order = new List<int>(changed);
+            order.Sort();
+            foreach (int ta in order) {
+                Index3i ia = mesh.GetTriangle(ta);
+                Triangle3d A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+                if (ExactTriangleIntersection.IsDegenerate(ref A))
+                    continue;
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (b, depth) => b.Intersects(box),
+                    NextTriangleF = (tb) => {
+                        // a pair of two changed triangles is counted once
+                        if (tb == ta || (tb < ta && changed.Contains(tb))) return;
+                        Index3i ib = mesh.GetTriangle(tb);
+                        Triangle3d B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c));
+                        if (ExactTriangleIntersection.IsDegenerate(ref B) == false && ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
+                            pairs++;
+                    }
+                });
+            }
+            return pairs;
+        }
+
         public static void FillSmallHoles(DMesh3 mesh)
         {
             // the holes' borders often run through bowtie vertices
