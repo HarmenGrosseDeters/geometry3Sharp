@@ -1,6 +1,7 @@
 # Intersection-free dual contouring (Phase 5 item 4, hard open problem 13)
 
-Status: design note for the owner's decision (2026-11-10). Nothing here is implemented except a measurement hook
+Status: **decided (owner 2026-11-10): option A, then option B, one PR each** (section 4). Nothing here is implemented
+yet except a measurement hook
 (`DualContouring.CollectDiagnostics`, internal, off by default) and the benchmark
 [`benchmarks/DualContouringIntersections`](../../benchmarks/DualContouringIntersections/README.md).
 
@@ -88,6 +89,20 @@ faces, no unchecked hole fill, and the time of the global check (an upper bound 
 The count of self-intersecting final results is small today (1 of 52 winding runs, 0 of 360 implicit runs), so the
 case for building rests on the guarantee, the holes and the time, not on the count.
 
+### 2.1 Separate finding: the hole fill after dual contouring is unchecked
+
+`WindingContouring.finish` (adaptive path) and `MeshWindingNumberSolidify` (non-adaptive DC path) call
+`WindingContouring.FillSmallHoles` when DC left out non-manifold quads (`NonManifoldTriangles > 0`). The fill
+(`MinimalHoleFill`, then `SimpleHoleFiller`, then a fan) is not checked for self-intersections. On 116871 at
+diagonal / 128 the last DC pass was intersection-free, 12 triangles were left out, and the filled contour had 63
+intersecting pairs, which cleanup and reduction kept (`stage_si_contour` = `stage_si_cleanup` = 63). The flag is
+honest (`WindingContouring.SelfIntersectionFree` is false whenever holes were filled), but `Compute()` returns true
+and only callers with `StopIfSelfIntersecting` check the result. Option B removes the cause (no left-out quads). If A
+ships first, the fill must not pass as clean: A checks the fill triangles exactly against the mesh and reports the
+count (or keeps the hole and reports it), so a filled contour with new self-intersections is visible in the outputs.
+The non-adaptive call in `MeshWindingNumberSolidify` belongs to another session's file; it gets the same check through
+a shared helper in `WindingContouring` or a note to that session.
+
 ## 3. How others solve it (prior art, papers only)
 
 ### 3.1 Ju & Udeshi 2006 (octree, hybrid primal/dual)
@@ -140,7 +155,7 @@ Cover = a triangle that lies, by an exact argument, in a region disjoint from ev
 | D. Primal fallback | multi-patch cells contoured by marching tetrahedra inside the cell | covers multi-patch cells too, but the face polylines must match the neighbours (needs B's face vertices) and positions on interior simplex edges round off them | QEF lost in those cells | L | small |
 | E. Keep today, document | no change | none (heuristic, never failed in 412 runs here) | as today | 0 | as today |
 
-Recommendation: **A, then B** (two PRs, one feature each). A is small, exact and pays for itself (the check becomes
+Decision (owner 2026-11-10): **A, then B**, as recommended. Recommendation: **A, then B** (two PRs, one feature each). A is small, exact and pays for itself (the check becomes
 local, so the guarantee costs less than today's after-the-fact check) and gives the per-polygon classification B needs.
 B removes the holes (the source of the one bad #498 result) and the transition cases. The multi-patch interior stays
 "checked exactly, repaired heuristically, reported" (`UncoveredTriangles`, `SelfIntersectionsLeft`): option D or a
@@ -152,4 +167,5 @@ Acceptance for A (proposed): bit-identical output where today's DC already choos
 nothing intersects; 0 self-intersections and `SelfIntersectionFree` on all benchmark runs; covered + uncovered
 counts reported; check time down by at least the uncovered share; invariance over `Similarity.All()` (2^k bit for
 bit), reuse, parallel = serial; tests that fail on the old code (eg a quad whose normal-based diagonal leaves the
-envelope and intersects a neighbour, built by hand).
+envelope and intersects a neighbour, built by hand); the hole fill of section 2.1 checked and reported; benchmark
+before / after with this benchmark.
