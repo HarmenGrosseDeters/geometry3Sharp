@@ -305,14 +305,17 @@ Ordered by expected value for the library.
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
    - Needed: a tighter drift accounting, stated as a lemma and checked with Z3 before it is built.
-   - Status (2026-11-09, research session session_01AaGT5BXr9voD6SYy7KhQDs): cause 1 (the apex rule) is merged. For what is left, the design note
-     [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md) proposes the reference rule (per triangle the
-     corners at its last certification and a carried bound; moves and contractions are measured from there instead
-     of summed). Lemma checked with Z3 (`tools/Z3Pilot/drift_reference.py`: 7038 scripts on tiny configurations
-     UNSAT, 16 mutants SAT, 7 pinned counterexamples). Prototype (a patch, not merged) on the 14 D1 models and
-     119829 / 119830: 13 of 48 operations not clean on master, 0 with the rule, none newly unclean, times unchanged.
-     Never rejects what today's rule accepts. Open: the owner's decision to build it (tier L, about 2-3 days), with
-     the cohort run of the 16 239 operations as the gate.
+   - Status: started 2026-11-09 (owner) as a Fable research session (session_01AaGT5BXr9voD6SYy7KhQDs): design note
+     docs/design/SAFE_ROUNDING_D1_DRIFT.md, the lemma checked with Z3, an upper bound on the D1 cases; no library code
+     ([exact-boolean.md](exact-boolean.md), D1 order).
+   - Result (#503, 2026-11-09): the reference rule (per-triangle anchors and carried bounds, ghosts for collapsed
+     triangles; never stricter than the apex rule) checked with Z3 (`tools/Z3Pilot/drift_reference.py`: 7038 scripts on
+     tiny configurations UNSAT, 16 mutants SAT, 7 pinned counterexamples; note
+     [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md)); prototype on 75 ops of 25 models: 23 with
+     degenerate triangles left on master, 5 with the rule, 0 newly unclean; 7 of the 12 FINAL-1 regressions cleared,
+     the other 5 are not budget cases (single edits above the bound or no edit). **Owner 2026-11-10: build it** (the
+     research session builds, tier L; the Boolean session reviews), gate: the 16 239-op cohort run on the runner after
+     the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
