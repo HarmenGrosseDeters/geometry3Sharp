@@ -144,3 +144,39 @@ as the paper's O(h) says, and of the order that a first-order method with t = h^
 be clearly worse than, so **this is not a defect by the roadmap's criterion**; no report to the coordinator as a defect, and
 nothing is changed. The affine construction shows that the leading error can be removed (exact on the plane), which is
 the improvement the roadmap item "Near-field log map" would have delivered.
+
+## Follow-up 2: estimated normals and the far field (brief 4, 2026-11-10)
+
+Owner scope 2026-11-10: measure `AffineLocal` against the same competitors when `MeshLocalParam` gets normals *estimated
+from the mesh* (what a user has), and in the far field up to just before the cut locus. Ship `AffineLocal` only if it
+wins clearly for the stated use **"robust local parameterization without good normals"**; otherwise this note takes the
+result and the work stops (docs-only). The gate is fixed here before the run.
+
+### Gate 2 (fixed before the run)
+
+- **Methods and oracle:** as in the near-field gate (AffineLocal TimeFactor 1; Legacy; `MeshLocalParam` upwind and
+  exponential-map modes; the closed-form smooth log map as oracle; the same 7 fixtures, sources and seed).
+- **Estimated normals** for `MeshLocalParam`: angle-weighted vertex normals computed from the mesh alone (Thürmer &
+  Wüthrich 1998; Max 1999), oriented outward by the mesh orientation. No smooth normal is used by any method.
+- **Frame, same for all methods:** the source's tangent frame is built from the *estimated* normal `n0'` at the source:
+  `e1'` = the intrinsic signpost-zero direction projected onto the plane of `n0'`, `e2' = n0' x e1'`. The 2D result of
+  each method is mapped to 3D by this frame, `u e1' + v e2'`, and compared with the oracle's 3D tangent vector in the
+  tangent plane of the smooth surface (error = 3D distance / mean edge length). So a normal error of the source frame
+  costs every method alike, and the gauge of the oracle no longer matters.
+- **Radii.** Near field: patch radius 0.3, 0.6, 1.2 (as before). Far field, sphere fixtures only (the cylinder's boundary
+  is closer than the far radii; the planes have no cut locus and no far field inside the grid): bands
+  (1.2, 1.8], (1.8, 2.4], (2.4, 2.85] of geodesic distance from the source; the antipode (cut locus) is at pi = 3.14,
+  so 2.85 is 0.9 pi. `MeshLocalParam` runs to distance 3.0 (twice the largest radius would reach the cut locus).
+- **Cells:** fixture x radius or band. The planes and the noisy plane have exactly planar normals, estimated or not, so
+  the estimated-normal measurement adds nothing there; they are reported but excluded from the gate. The gate cells are
+  the four curved fixtures at the three near radii (12) plus the three spheres at the three far bands (9): **21 cells**.
+- **Floor:** an error mean below 1e-4 edge lengths counts as 1e-4 in the ratios (ties are not wins; the roundoff of
+  `MeshLocalParam`'s `float` arithmetic is not a defect of it).
+- **AffineLocal wins clearly if all hold** (the criteria of the first gate, unchanged, on these cells):
+  1. G1: its mean error is at most 0.5 x the best competitor's mean in at least 16 of the 21 cells;
+  2. G2: in no cell its mean exceeds 1.25 x the best competitor's mean;
+  3. G3: in no cell its max exceeds 1.5 x the best competitor's max;
+  4. G4: every vertex is finite, and the source maps to zero.
+- **Informational:** the same table with the exact normals of the first gate for the far bands (so the effect of
+  estimated against exact normals is visible); the worst cell per method; warm times.
+- **If it does not win clearly:** no API; the result goes below and into the roadmap status of the PR; docs-only PR.

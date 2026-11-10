@@ -1,10 +1,42 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+// Affine strategies adapted from geometry-central, revision 019669ddabda05e0f71fa3587cfb3c1dadf19cb8.
+// MIT License
+// Copyright (c) 2017-2019 Nicholas Sharp and the geometry-central contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 using System;
 using System.Collections.Generic;
 using g3;
 
 namespace gs
 {
+    /// <summary>Construction used for the vector heat logarithmic map.</summary>
+    public enum LogMapStrategy
+    {
+        /// <summary>The default construction of <see cref="VectorHeatMethod.ComputeLogMap(int)"/>.</summary>
+        Legacy,
+        /// <summary>
+        /// Affine heat (Soliman and Sharp 2025): accurate near the source, not for distances up to the cut locus.
+        /// </summary>
+        AffineLocal
+    }
+
     /// <summary>
     /// The Vector Heat Method (Sharp, Soliman and Crane, "The Vector Heat Method", ACM TOG 2019): parallel
     /// transport of tangent vectors along shortest geodesics, extension of scalar values to the nearest
@@ -485,6 +517,70 @@ namespace gs
                 hh = next;
             } while (hh >= 0 && hh != h0 && ++guard < T.HalfedgeCount);
             return per_vertex(i => log[i], nan, has);
+        }
+
+
+        /// <summary>
+        /// Logarithmic map around a vertex by the selected construction. <see cref="LogMapStrategy.Legacy"/> is
+        /// <see cref="ComputeLogMap(int)"/>. <see cref="LogMapStrategy.AffineLocal"/> solves the affine heat
+        /// system of Soliman and Sharp (2025): the heat-weighted mean of the edge translations, divided by the
+        /// scalar heat and transported to the source frame. Its range is documented as accurate near the source (in
+        /// a patch of some ten edge lengths, on the smooth fixtures far more than the legacy map and the discrete
+        /// exponential map of <see cref="MeshLocalParam"/>), not for distances up to the cut locus, where it is less
+        /// accurate than the legacy map. It does not guarantee pointwise improvement. Negative cotangent weights are
+        /// clamped, as in the other heat operators. The same gauge as <see cref="ComputeLogMap(int)"/>.
+        /// </summary>
+        public Vector2d[] ComputeLogMap(int sourceVid, LogMapStrategy strategy)
+        {
+            if (strategy == LogMapStrategy.Legacy) return ComputeLogMap(sourceVid);
+            if (strategy != LogMapStrategy.AffineLocal) throw new ArgumentOutOfRangeException(nameof(strategy));
+            check();
+            IntrinsicTriangulation T = triangulation;
+            int x = index_of(sourceVid);
+            if (x < 0) throw new ArgumentException("VectorHeatMethod.ComputeLogMap: the source vertex has no triangles");
+            var src = new List<int>() { x };
+            bool[] has = source_components(src);
+            double[] z = indicator_heat(src, has);
+
+            double[] rhs = new double[2 * N], reference = new double[2 * N];
+            rhs[2 * x] = 1;
+            ops.Vector.Solve(rhs, reference);
+            Vector2d nan = new Vector2d(double.NaN, double.NaN);
+            Vector2d[] frame = new Vector2d[N];
+            for (int i = 0; i < N; ++i) {
+                double scale = Math.Max(Math.Abs(reference[2 * i]), Math.Abs(reference[2 * i + 1]));
+                frame[i] = scale > 0 ? new Vector2d(reference[2 * i] / scale, reference[2 * i + 1] / scale) : nan;
+                frame[i] /= frame[i].Length;
+            }
+            Array.Clear(rhs, 0, rhs.Length);
+            // [A_vector B; 0 A_scalar] [u; z] = [0; delta]: the block B couples the vector heat to the scalar heat z
+            for (int h = 0; h < T.HalfedgeCount; ++h) {
+                if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;
+                int i = T.Tail(h), j = T.Head(h);
+                if (!has[component[i]]) continue;
+                double c = -DiffusionTime * heatWeight[h] * T.Length(h);
+                double ai = T.Signpost(h), aj = T.ReverseSignpost(h);
+                Vector2d ei = new Vector2d(Math.Cos(ai), Math.Sin(ai)), ej = new Vector2d(Math.Cos(aj), Math.Sin(aj));
+                rhs[2 * i] += c * z[j] * ei.x;
+                rhs[2 * i + 1] += c * z[j] * ei.y;
+                rhs[2 * j] += c * z[i] * ej.x;
+                rhs[2 * j + 1] += c * z[i] * ej.y;
+            }
+            double[] u = new double[2 * N];
+            ops.Vector.Solve(rhs, u);
+            return per_vertex(i => {
+                if (i == x) return Vector2d.Zero;
+                if (!(z[i] > 0)) return nan;
+                Vector2d p = new Vector2d(u[2 * i] / z[i], u[2 * i + 1] / z[i]);
+                return source_frame(p, frame[i]);
+            }, nan, has);
+        }
+
+
+        // p (in the vertex frame) rotated into the frame of the transported source reference
+        static Vector2d source_frame(Vector2d p, Vector2d unitReference)
+        {
+            return new Vector2d(p.Dot(unitReference), p.y * unitReference.x - p.x * unitReference.y);
         }
 
 
