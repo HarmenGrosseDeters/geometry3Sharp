@@ -352,6 +352,7 @@ Implemented from the papers and definitions (no code ported):
 | Dual contouring with QEF vertices from Hermite data | T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual Contouring of Hermite Data*, ACM TOG (SIGGRAPH) 2002 |
 | One vertex per surface patch of a cell (manifold dual contouring) | S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
 | Refinement at ambiguous faces | R. Zint, R. Grosso, P. Guertler, *Resolving non-manifoldness on meshes from dual marching cubes*, 2022 |
+| Envelope criterion of the measurement hook (`DualContouring.CollectDiagnostics`, `benchmarks/DualContouringIntersections`) and the options of `docs/design/DC_INTERSECTION_FREE.md` | C. C. L. Wang, *Intersection-free dual contouring on uniform grids: an approach based on convex/concave analysis*, technical report, The Chinese University of Hong Kong (read in full); T. Ju, T. Udeshi, *Intersection-free contouring on an octree grid*, Pacific Graphics 2006 (through Wang's summary); J. Manson, S. Schaefer, *Isosurfaces over simplicial partitions of multiresolution grids*, CGF 2010 [abstract]. No code read |
 | Fast winding numbers of the input (inside test of the solids) | G. Barill, N. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG (SIGGRAPH) 2018 (existing `FastWindingNumber`) |
 
 ## Terrain (`TerrainDualContouring`, `TerrainGreedyTIN`, `ClothSimulationFilter`, `TerrainOffset`, `TerrainSafetyLines`, `TerrainBreakLines`, `TerrainVolumeDifference`)
