@@ -67,6 +67,15 @@ squared diagonal of the largest component, or exactly collinear corners.
   `InvalidInput` only for input that is not finite or whose box does not fit; a `Success` or `PointLimitReached`
   result is finite, valid, closed, without bowties, and every input vertex is inside it.
 
+**Range domains (QA.md 2.5a, 2026-11-10).** The decoder takes the scale 2^e and the offset exponent 2^f three times in four inside
++-150 (one in eight of those at the edges, +-100 .. +-150) and one time in four anywhere in [-1022, 1023]. Inside a module's
+supported range every claim applies. Outside it only the second property is judged, by the operation's own range (the table
+in QA.md 2.5a): `robust-repair` (outside [2^-200, 2^400] or an extent below 2^-40 of the largest magnitude) must return false,
+`rounding-repair` (outside [2^-200, 2^200]) must report not clean, `alpha-wrap` (outside [2^-128, 2^128], or an extent below
+2^-40 of the largest magnitude) must return `InvalidInput`; the Boolean operations are judged as always (the exact arrangement has
+no range; `RoundingClean` must not be claimed where the rounding result is not clean). Inputs recorded before this change decode
+to other cases: the hex reproducers of FINDINGS.md belong to the earlier decoder (`dump` of an old file shows what it was).
+
 `tree-ray` at a raw diagonal beyond about 2^110 needs DMeshAABBTree3 to take double.MaxValue as no limit (it took float.MaxValue until the fix of the ray-queries PR). The query targets judge a power-of-two normalized copy of the whole mesh (their domain: coordinates up to 2^1000,
 an exact copy, no triangle below 2^-50 of the mesh, queries within 2^20 diagonals of the mesh; for `tree-ray` also no
 sliver below 2^-30 of the longest edge squared: its ray parameter is not comparable with the boxes). The raw tree is

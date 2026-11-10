@@ -90,13 +90,29 @@ public static partial class Program
         return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
     }
 
+    // two bytes to an exponent (see DecodeMesh)
+    static int Exponent16(byte hi, byte lo)
+    {
+        int x = (hi << 8) | lo;
+        if ((x & 3) == 0)
+            return (x >> 2) % 2046 - 1022;
+        x >>= 2;
+        if (x % 8 == 0) {
+            int sign = ((x >> 3) & 1) == 0 ? -1 : 1;
+            return sign * (100 + (x >> 4) % 51);
+        }
+        return (x >> 3) % 301 - 150;
+    }
+
     static DMesh3 DecodeMesh(Reader r)
     {
         int shape = r.Byte() % ShapeVertices.Length;
-        // scale 2^e, e in [-1022, 1023], and an offset of k * 2^f
-        int e = ((r.Byte() << 8) | r.Byte()) % 2046 - 1022;
+        // scale 2^e and an offset of k * 2^f: three cases in four inside the supported range (QA.md 2.5a: exponents
+        // within +-150, one in eight of them at its edges, +-100 .. +-150), one in four anywhere in [-1022, 1023] (the small
+        // out-of-range sample, judged only for no crash, no hang, no false success)
+        int e = Exponent16(r.Byte(), r.Byte());
         double scale = Pow2(e);
-        int f = ((r.Byte() << 8) | r.Byte()) % 2046 - 1022;
+        int f = Exponent16(r.Byte(), r.Byte());
         var offset = new Vector3d((sbyte)r.Byte(), (sbyte)r.Byte(), (sbyte)r.Byte()) * Pow2(f);
         double[] v = ShapeVertices[shape];
         var m = new DMesh3();
@@ -350,6 +366,28 @@ public static partial class Program
             throw new Finding($"{what}: IsClean but MaxDrift {maxDrift} above the bound {maxLength}");
     }
 
+    /// <summary> every nonzero coordinate of the used vertices has a magnitude in [min, max]; with extentRule also the extent is zero or at least 2^-40 of the largest magnitude </summary>
+    static bool CoordinatesInRange(DMesh3 m, double min, double max, bool extentRule = false)
+    {
+        double biggest = 0;
+        Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+        foreach (int tid in m.TriangleIndices()) {
+            Index3i t = m.GetTriangle(tid);
+            for (int k = 0; k < 3; ++k) {
+                Vector3d p = m.GetVertex(t[k]);
+                for (int c = 0; c < 3; ++c) {
+                    double a = Math.Abs(p[c]);
+                    if (!(a == 0 || (a >= min && a <= max))) return false;
+                    biggest = Math.Max(biggest, a);
+                    lo[c] = Math.Min(lo[c], p[c]); hi[c] = Math.Max(hi[c], p[c]);
+                }
+            }
+        }
+        if (!extentRule) return true;
+        double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+        return extent == 0 || extent >= biggest * Pow2(-40);
+    }
+
     static bool CombinesMeshes(int op) => op <= 2 || op == 4 || op == 5 || op == 10;
 
     /// <summary> runs the case and checks the result's claims; throws on a finding (or lets an exception through) </summary>
@@ -363,6 +401,29 @@ public static partial class Program
             double da = Diagonal(c.A.GetBounds()), db = Diagonal(c.B.GetBounds());
             if (da > 0 && db > 0 && !(da / db <= Pow2(60) && db / da <= Pow2(60)))
                 return;
+        }
+        // outside the supported ranges (QA.md 2.5a) only the second property is judged: no crash, no hang, no false success
+        // (the Boolean operations are judged as always: the exact arrangement has no range, and the rounding says RoundingClean false where its range ends)
+        if (c.Op == 3 || c.Op == 4) {
+            DMesh3 all = new DMesh3(c.A);
+            if (c.Op == 4)
+                new MeshEditor(all).AppendMesh(c.B);
+            if (!CoordinatesInRange(all, Pow2(-200), Pow2(400), extentRule: true)) {
+                var outside = new MeshRobustRepair(all);
+                if (outside.Apply())
+                    throw new Finding($"{what}: outside the supported range, Apply() is true");
+                return;
+            }
+        }
+        if (c.Op == 5) {
+            DMesh3 all = new DMesh3(c.A);
+            new MeshEditor(all).AppendMesh(c.B);
+            if (!CoordinatesInRange(all, Pow2(-200), Pow2(200))) {
+                var outside = new MeshRoundingRepair(all);
+                if (outside.Apply() || outside.IsClean)
+                    throw new Finding($"{what}: outside the supported range, the rounding repair reports clean");
+                return;
+            }
         }
         if (c.Op <= 2) {
             var op = c.Op == 0 ? ExactMeshBoolean.Operations.Union : c.Op == 1 ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;

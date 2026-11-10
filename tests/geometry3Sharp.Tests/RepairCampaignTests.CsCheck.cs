@@ -181,7 +181,18 @@ namespace geometry3Sharp.Tests
         /// 6e-6, the ray window 1e-8) is no longer small against the geometry, and the solidify fallback differs in the
         /// last bits between scales (F3 in RepairCampaignFindings). The rounding repair is scale relative: 2^-10 .. 2^10.
         /// </summary>
-        static readonly Gen<int> RobustShift = Gen.Int[-4, 10];
+        static readonly Gen<int> RobustShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(24, 32, 40) : Gen.Int[-4, 10]);
+
+        /// <summary>
+        /// the edges of the supported range (docs/QA.md 2.5a) are part of the sample: one case in eight uses a shift near its
+        /// upper end (the scenes reach 2^33 before the shift, the alpha wrap fallback ends at 2^128; the robust repair's own
+        /// range is wider, 2^400). Not above 2^40 (coordinates beyond about 2^72): F4 in RepairCampaignFindings. Its lower end is held by the absolute tolerances of F3 (above). The rounding repair is
+        /// scale relative (2^-200 .. 2^200): its edges are +-100 (the scenes' coordinates reach 2^-52 .. 2^33 before the shift)
+        /// </summary>
+        static readonly Gen<int> RoundingShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(-100, 100, -90, 90) : Gen.Int[-10, 10]);
+
+        /// <summary> outside the supported range (small sample, property 2 of QA.md 2.5a): below 2^-200 and above 2^400 for the robust repair, a subnormal scene included </summary>
+        static readonly Gen<int> OutsideShift = Gen.OneOfConst(-1060, -700, -400, 450, 700, 1000);
 
         // ---------------------------------------------------------------- helpers
 
@@ -256,7 +267,10 @@ namespace geometry3Sharp.Tests
         /// </summary>
         internal static string RobustProperties(Scene scene, int shift)
         {
-            DMesh3 input = scene.Build();
+            // (the edge shifts compare two large scales: the base scene at 2^20 has no feature near the absolute tolerances of the spatial
+            // queries, which the scene at scale 1 can have, F3; the scaled run is then 2^(shift - 20) times it)
+            int pre = shift > 10 ? 20 : 0;
+            DMesh3 input = scene.Build(pre);
             RobustRun a = Robust(input);
             DMesh3 m = a.Result;
             string kind = scene.Chain ? "clean" : "any";
@@ -267,7 +281,7 @@ namespace geometry3Sharp.Tests
                 () => a.Ok == false ? "" : Prefix("Apply() true but " + a.Path, NotCleanButTrue(a)),
                 // (a repeat on the expensive paths is left to the scaled run: a nondeterminism shows there as well)
                 () => a.Repair.Solidify != null || a.Repair.UsedAlphaWrap ? "" : Prefix("repeat", Same(a, Robust(input))),
-                () => Prefix($"scale 2^{shift}", SameScaled(a, Robust(Scaled(input, shift)), shift)));
+                () => Prefix($"scale 2^{shift}", SameScaled(a, Robust(Scaled(input, shift - pre)), shift - pre)));
         }
 
         static string NotCleanButTrue(RobustRun a)
@@ -510,6 +524,30 @@ namespace geometry3Sharp.Tests
                 () => Invariance.Difference(before, a.Result));
         }
 
+        /// <summary>
+        /// Property 2 of docs/QA.md 2.5a, for a scene scaled out of the supported range: the robust repair and the alpha wrap
+        /// finish (no hang), the result is finite, and there is no false success (true implies clean; the wrap's Success implies a
+        /// closed result). The expected answer is the documented status (false / InvalidInput), but only the three properties
+        /// are the claim: a module may also repair such a scene.
+        /// </summary>
+        internal static string OutsideRangeProperties(Scene scene, int shift)
+        {
+            DMesh3 input = Scaled(scene.Build(), shift);
+            RobustRun a = Robust(input);
+            string wrapResult = "";
+            var wrap = new MeshAlphaWrap(new DMesh3(input)) { RelativeAlpha = 16, RelativeOffset = 160 };
+            bool wrapOk = false;
+            WithTimeout(() => wrapOk = wrap.Compute(), "MeshAlphaWrap.Compute");
+            if (wrapOk) {
+                if (wrap.Result == null || !wrap.Result.IsClosed() || !Invariance.AllFinite(wrap.Result)) wrapResult = "wrap Success with a result that is not closed and finite";
+            } else if (wrap.Status == MeshAlphaWrap.WrapStatus.Success) wrapResult = "wrap returned false with Status Success";
+            return First(
+                // (a scene scaled past the doubles has infinite coordinates itself: Apply() must report it and keep the mesh)
+                () => Invariance.AllFinite(a.Result) || Invariance.AllFinite(input) == false ? "" : "result not finite",
+                () => a.Ok == false ? "" : Prefix("Apply() true outside the range, " + a.Path, NotCleanButTrue(a)),
+                () => wrapResult);
+        }
+
         // ---------------------------------------------------------------- campaigns
 
         [Fact]
@@ -540,10 +578,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Range_OutsideTheSupportedRange()
+        {
+            CampaignRunner.Run(log, nameof(RepairCampaignTests), "Range(outside)",
+                GenDirty.SelectMany(s => OutsideShift.Select(k => (s, k))), c => OutsideRangeProperties(c.s, c.k), 6, 104u, 40);
+        }
+
+        [Fact]
         public void Rounding_Scenes()
         {
             CampaignRunner.Run(log, nameof(RepairCampaignTests), "Rounding",
-                GenRounding.SelectMany(s => Gen.Int[-10, 10].Select(k => (s, k))), c => RoundingProperties(c.s, c.k), 25, 103u, 40);
+                GenRounding.SelectMany(s => RoundingShift.Select(k => (s, k))), c => RoundingProperties(c.s, c.k), 25, 103u, 40);
             LogCoverage("rounding");
         }
 

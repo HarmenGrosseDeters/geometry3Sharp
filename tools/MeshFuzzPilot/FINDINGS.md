@@ -36,3 +36,8 @@ PR #493 and #495 where noted.
 "six ops" = `MESH_FUZZ_OPS=union,intersection,difference,robust-repair,robust-repair-soup,rounding-repair`; items 1 and 2 use
 `partitioned-reducer`, items 4, 7 and 8 `alpha-wrap`. The harness keeps the out-of-range classes out of its fuzz domain
 (README, "domains"); once the per-module ranges exist, the domains follow them.
+
+Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
+judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
+cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
+return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`, 5a, 5b not `RoundingClean`, 6 not clean.

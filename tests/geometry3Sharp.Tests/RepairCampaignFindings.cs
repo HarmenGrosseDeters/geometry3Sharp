@@ -37,6 +37,15 @@ namespace geometry3Sharp.Tests
     /// contour of the solidify fallback (adaptive, ray queries) differed in the last bits. The test is in
     /// DMeshAABBTreeScaleTests (in the bugfix PR of F2).
     ///
+    /// F4 (open, found by the edge shifts of the campaign, 2026-11-10): the robust repair is not scale invariant for coordinates of about 2^74
+    /// to 2^96: [sliver(2^-4, touch, axis 1, thin 2^-13, defect 28, seed 39); box(2^-7, overlap, axis 3, defect 15, seed 28)] built with
+    /// scene.Build(shift) and SolidifyResolution 24, WrapRelativeAlpha 16, WrapRelativeOffset 160: at shifts 0 .. 76, 79 and 96 .. 130 the result
+    /// has 13 vertices and 22 triangles (fallback "volume differs from the input"), at 77, 78 and 80 .. 95 it has 12 and 20. Both are valid
+    /// and clean; the decision differs. MeshAutoRepair and ExactMeshBoolean.Resolve (with and without SafeRounding) alone are invariant on the same
+    /// inputs, so the difference is in a later stage (a window of magnitudes is the sign of a squared length or a float on the way); the
+    /// cause is not found. The campaign's edge shifts stay at 2^40 and below (the supported range of the robust repair is not narrowed by it:
+    /// the result is clean there, only not the scaled copy of the result at the other scales).
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in
