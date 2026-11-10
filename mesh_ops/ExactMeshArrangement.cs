@@ -2784,6 +2784,45 @@ namespace g3
             }
         }
 
+        /// <summary>
+        /// SelfPairs, handing each pair (i, j) to visit instead of collecting it (no list of all overlapping pairs of a
+        /// work item); the order is the same. visit returns false to stop the work item.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public void SelfPairs(Index2i t, Func<int, int, bool> visit)
+        {
+            var stack = new List<Index2i> { t };
+            while (stack.Count > 0) {
+                Index2i top = stack[stack.Count - 1];
+                stack.RemoveAt(stack.Count - 1);
+                int a = top.a, b = top.b;
+                if (a == b) {
+                    if (nodeLeft[a] < 0) {
+                        for (int i = nodeStart[a], e = nodeStart[a] + nodeSize[a]; i < e; ++i)
+                            for (int j = i + 1; j < e; ++j)
+                                if (leaves_overlap(i, j) && visit(order[i], order[j]) == false)
+                                    return;
+                    } else {
+                        int l = nodeLeft[a], r = nodeRight[a];
+                        stack.Add(new Index2i(r, r)); stack.Add(new Index2i(l, r)); stack.Add(new Index2i(l, l));
+                    }
+                    continue;
+                }
+                if (nodes_overlap(a, b) == false)
+                    continue;
+                if (nodeLeft[a] < 0 && nodeLeft[b] < 0) {
+                    for (int i = nodeStart[a], ei = nodeStart[a] + nodeSize[a]; i < ei; ++i)
+                        for (int j = nodeStart[b], ej = nodeStart[b] + nodeSize[b]; j < ej; ++j)
+                            if (leaves_overlap(i, j) && visit(order[i], order[j]) == false)
+                                return;
+                } else if (split_first(a, b)) {
+                    stack.Add(new Index2i(nodeRight[a], b)); stack.Add(new Index2i(nodeLeft[a], b));
+                } else {
+                    stack.Add(new Index2i(a, nodeRight[b])); stack.Add(new Index2i(a, nodeLeft[b]));
+                }
+            }
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         bool leaves_overlap(int i, int j)
         {

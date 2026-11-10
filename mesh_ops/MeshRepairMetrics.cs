@@ -78,17 +78,17 @@ namespace gs
             int count = 0;
             gParallel.ForRange(tasks.Count, () => 0, (k, unused) => {
                 if (System.Threading.Volatile.Read(ref count) >= maxPairs) return;
-                var boxPairs = new List<Index2i>();
-                tree.SelfPairs(tasks[k], boxPairs);
                 List<Index2i> local = null;
-                foreach (Index2i bp in boxPairs) {
-                    int ta = Math.Min(tids[bp.a], tids[bp.b]), tb = Math.Max(tids[bp.a], tids[bp.b]);
+                tree.SelfPairs(tasks[k], (i, j) => {
+                    int ta = Math.Min(tids[i], tids[j]), tb = Math.Max(tids[i], tids[j]);
                     Triangle3d A = triangle(mesh, ta), B = triangle(mesh, tb);
                     if (Remesher.pair_intersects(mesh.GetTriangle(ta), ref A, mesh.GetTriangle(tb), ref B)) {
                         (local ?? (local = new List<Index2i>())).Add(new Index2i(ta, tb));
-                        if (maxPairs != int.MaxValue && System.Threading.Interlocked.Increment(ref count) >= maxPairs) break;
+                        // (stop this work item once the limit is reached anywhere)
+                        if (maxPairs != int.MaxValue && System.Threading.Interlocked.Increment(ref count) >= maxPairs) return false;
                     }
-                }
+                    return true;
+                });
                 found[k] = local;
             });
             foreach (var local in found)
