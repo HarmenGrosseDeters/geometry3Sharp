@@ -55,6 +55,7 @@ namespace geometry3Sharp.Tests
             return r;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Needles_SharingOppositeVertices_AllRepairedWithinTheBound()
         {

@@ -212,6 +212,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, r.Mesh.TriangleCount);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Timeouts_CountAsDifferentError()
         {
@@ -232,6 +233,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Mesh.TriangleCount >= 3);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void TimeBudget_StopsWithAFailingResult()
         {

@@ -58,6 +58,7 @@ namespace geometry3Sharp.Tests
         // far below MinFeatureSize (2.3e-6 m). One failed the slope, one the support (by 2.84 m), δ was raised, and every
         // attempt failed again (SlopeViolation after 3). At UTM the triple points round to one position: no needles.
         // The band merge makes them one vertex near the origin too (its diagnostics: TerrainSlopeBandMergeTests)
+        [Trait("Category", "Slow")]
         [Fact]
         public void WavyToeNearTheOrigin_SucceedsAsAtUtm()
         {
@@ -83,6 +84,7 @@ namespace geometry3Sharp.Tests
         // as at UTM (TERRAIN.md 5.4; found on the Hambach DGM in a local frame, 5.8.1)
         // (first with the 48-gon of r 150 m; since the composite's snap reserves Tolerance / 4, its finer facets give
         // that one a clipped sliver near the origin, a second attempt for another reason: TerrainSlopeClippedRegionTests)
+        [Trait("Category", "Slow")]
         [Fact]
         public void WavyToeOnHighWavesNearTheOrigin_OneAttemptAsAtUtm()
         {
@@ -112,6 +114,7 @@ namespace geometry3Sharp.Tests
         // master three attempts); at 1e-3 and UTM the toe (10 cm) is near the frame's MinFeatureSize (1.9 mm), so the
         // band radius is r and there is no band; there the composite fails (CompositeFailed, non-manifold), honestly,
         // and the local frame succeeds in one attempt (TERRAIN.md 5.8.1)
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void WavyToeOnHighWaves_Similarities(string name)
@@ -143,6 +146,7 @@ namespace geometry3Sharp.Tests
 
         // the 48-gon (r 150 m) these tests had first (now with a clipped sliver near the origin, see above): success with
         // valid catch lines and composite in every frame
+        [Trait("Category", "Slow")]
         [Theory]
         // (near the origin and at UTM only, to keep the suite's time: the other frames are the retuned tests')
         [InlineData("identity")]
@@ -165,6 +169,7 @@ namespace geometry3Sharp.Tests
 
         // the same status in every frame (near the origin, scaled, rotated, at UTM: band merges in all but UTM), the 2^k
         // frames bit for bit
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void WavyToe_Similarities(string name)
@@ -186,6 +191,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reuse()
         {
