@@ -141,22 +141,6 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
-        /// <summary>
-        /// Open findings of the campaign (reported to the coordinator, not fixed here): the class that Property counts and lets pass,
-        /// G3_PROPERTY_STRICT=1 makes it fail. Failed ('result box corners on the result') for flat points at relative alpha 5 to 8
-        /// (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at 10 and at the default 20)
-        /// </summary>
-        const string OpenClassName = "flat input at a coarse alpha";
-        static int openClassHits;
-
-        /// <summary> the class of the open finding, whatever the environment (only the box corner failure of the status Failed) </summary>
-        static bool InOpenClass(Scene s, MeshAlphaWrap w) =>
-            w.Status == MeshAlphaWrap.WrapStatus.Failed && w.Error == "result box corners on the result" && s.Kind == 5 && s.RelAlpha <= 8;
-
-        /// <summary> the open class as the campaign treats it: counted and let pass, unless G3_PROPERTY_STRICT=1 </summary>
-        static string OpenClass(Scene s, MeshAlphaWrap w) =>
-            Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1" && InOpenClass(s, w) ? OpenClassName : null;
-
         static string FirstFrame(Exception e)
         {
             string line = (e.StackTrace ?? "").Split('\n').FirstOrDefault(l => l.Contains("CheckWrap") || l.Contains("AlphaWrapTests")) ?? (e.StackTrace ?? "").Split('\n').FirstOrDefault() ?? "";
@@ -167,11 +151,8 @@ namespace geometry3Sharp.Tests
         static string Property(Scene s, int[] shifts)
         {
             MeshAlphaWrap w = s.Wrap();
-            if (!w.Compute()) {
-                // (the repeat and scale checks are skipped for such a scene; the campaign logs how many)
-                if (OpenClass(s, w) != null) { System.Threading.Interlocked.Increment(ref openClassHits); return ""; }
+            if (!w.Compute())
                 return "Compute failed: " + w.Status + " " + w.Error;
-            }
             try { AlphaWrapTests.CheckWrap(w, Samples(w)); }
             catch (Xunit.Sdk.XunitException e) { return "guarantee: " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
             catch (Exception e) { return "exception in the check: " + e.GetType().Name + " " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
@@ -199,33 +180,43 @@ namespace geometry3Sharp.Tests
 
         static readonly int[] Shifts = { -9, 11 };
 
-        /// <summary> the flat input of the open finding: 32 random points z = 0 in [-1, 1]^2 at relative alpha 5 fail with Status Failed, Error 'result box corners on the result'; skipped until MeshAlphaWrap is fixed </summary>
-        [Fact(Skip = "open finding of the T5/T6 campaigns: MeshAlphaWrap Failed ('result box corners on the result') for flat input at relative alpha 5 to 8")]
-        public void FlatInput_AtACoarseAlpha_Wraps()
+        /// <summary>
+        /// Flat input at a coarse alpha (found by this campaign): the manifold step moved the huge cells with box corners above
+        /// and below a plane of Steiner points inside (box corners on the result, Failed). Seeds 77, 104 and 129 of 30 coplanar
+        /// points at relative alpha 5, and seed 1 of 32, with and without the refinement at non-manifold spots
+        /// </summary>
+        [Theory]
+        [InlineData(1, 32, 5, true)]
+        [InlineData(1, 32, 5, false)]
+        [InlineData(77, 30, 5, true)]
+        [InlineData(104, 30, 5, true)]
+        [InlineData(129, 30, 5, true)]
+        [InlineData(129, 30, 5, false)]
+        [InlineData(100, 30, 8, false)]
+        public void FlatInput_AtACoarseAlpha_Wraps(int seed, int n, int relAlpha, bool refine)
         {
-            var s = new Scene { Kind = 5, Exp = 0, N = 32, Far = -1, RelAlpha = 5, RelOffset = 600, Refine = false, Seed = 1 };
+            var s = new Scene { Kind = 5, Exp = 0, N = n, Far = -1, RelAlpha = relAlpha, RelOffset = 600, Refine = refine, Seed = seed };
             MeshAlphaWrap w = s.Wrap();
             Assert.True(w.Compute(), w.Status + " " + w.Error);
             AlphaWrapTests.CheckWrap(w, Samples(w));
+            Assert.Equal(0, w.Counts["result_box_corners"]);
         }
 
-        /// <summary> the open class is classified, not hidden: the example's input is in it </summary>
-        [Fact]
-        public void OpenFinding_IsClassified()
+        /// <summary> the retry path of the flat input (box corners on the first result) is also repeatable and scale invariant: 2^k scaled input, a second Compute and a new instance give the same bits </summary>
+        [Theory]
+        [InlineData(129, false)]
+        [InlineData(129, true)]
+        public void FlatInput_AtACoarseAlpha_IsRepeatableAndScaleInvariant(int seed, bool refine)
         {
-            var s = new Scene { Kind = 5, Exp = 0, N = 32, Far = -1, RelAlpha = 5, RelOffset = 600, Refine = false, Seed = 1 };
-            MeshAlphaWrap w = s.Wrap();
-            Assert.False(w.Compute());
-            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
-            Assert.True(InOpenClass(s, w));
+            var s = new Scene { Kind = 5, Exp = 0, N = 30, Far = -1, RelAlpha = 5, RelOffset = 600, Refine = refine, Seed = seed };
+            string d = Property(s, Shifts);
+            Assert.Equal("", d);
         }
 
         [Fact]
         public void Wrap()
         {
-            openClassHits = 0;
             CampaignRunner.Run(log, nameof(AlphaWrapCampaignTests), "alphawrap", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(20), 201u);
-            log.WriteLine($"alphawrap: {openClassHits} cases in the open class '{OpenClassName}' (their repeat and scale checks skipped)");
         }
     }
 }

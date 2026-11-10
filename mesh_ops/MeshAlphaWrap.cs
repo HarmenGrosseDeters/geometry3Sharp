@@ -160,6 +160,9 @@ namespace gs
         /// <summary> for tests: rule 2 always projects the clamped end of the dual edge (the fallback path) </summary>
         internal bool ForceProjectionFallback = false;
         bool asymmetricBox;
+        // the retry after a result with box corners: the refinement at non-manifold spots runs even if RefineNonManifold is off
+        // (without it the manifold step moves the cells with box corners inside, which is what failed)
+        bool forceRefineNonManifold;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
         public Func<bool> CancelF = () => { return false; };
@@ -216,6 +219,7 @@ namespace gs
         public bool Compute()
         {
             asymmetricBox = StartWithOtherBox;
+            forceRefineNonManifold = false;
             bool ok = compute_once();
             // a result that misses the guarantees (box corners on it, from cells that stayed inside up to the box,
             // or a non-manifold remainder): once more with a slightly different margin on each side of the box. With
@@ -223,6 +227,7 @@ namespace gs
             // cells of box corners and Steiner points; their Steiner points can be rejected, and the cells stay inside.
             if (Status == WrapStatus.Failed && Result != null && RetryWithOtherBox && !StartWithOtherBox) {
                 asymmetricBox = true;
+                forceRefineNonManifold = true;
                 ok = compute_once();
                 Counts["box_retries"] = 1;
             }
@@ -255,7 +260,7 @@ namespace gs
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
-            if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success) {
+            if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success) {
                 Status = refine_non_manifold();
                 end_phase("wrap.pinches");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -270,7 +275,7 @@ namespace gs
                 end_phase("wrap.quality");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                     return false;
-                if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
+                if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
                     Status = refine_non_manifold();
                     end_phase("wrap.pinches2");
                     if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -1084,6 +1089,13 @@ namespace gs
                 if (rule_intersection(from, to, out p))
                     return true;
             }
+            // a cell with a box corner (flat input: the huge cells above and below a plane of Steiner points) that neither
+            // candidate qualifies for: the projected center only has to lie strictly inside the circumsphere (exactly), without
+            // the depth. The point can be closer to a vertex than the separation, but the manifold step would move the
+            // cell inside and put the box corner on the result, which fails the wrap
+            if (has_corner(c) && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
+                && project_to_offset(c, 0, cc, out p) && dt.InCircumsphere(c, p) > 0)
+                return true;
             p = Vector3d.Zero;
             return false;
         }
