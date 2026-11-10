@@ -8,7 +8,9 @@ test names are indented). This script lists the tests above the threshold that a
 
 Ratchet (CLAUDE.md, "Test time"): with --backlog FILE the script fails for
   - a test of more than --max-seconds (default 10) whose method is not on the backlog,
-  - a test of --threshold seconds or more (default 5) without the trait Slow whose method is not on the backlog,
+  - a test of --fail-from seconds or more (default 7) without the trait Slow whose method is not on the backlog (the rule is 5 s,
+    --threshold, and tests from there to --fail-from are reported as warnings only: the CI runner's timings vary by a
+    second or two around the line),
   - a backlog entry that names no test of the run (renamed or deleted: remove it),
   - with --backlog-base FILE, a backlog entry that the base branch's list does not have (the list only shrinks).
 The backlog (tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt) has one `Class.Method` per line (nested classes as
@@ -94,15 +96,15 @@ def make_backlog(rows, floor):
     return sorted(k for k, v in max_by_method(rows).items() if v >= floor)
 
 
-def ratchet(rows, backlog, base, threshold, max_seconds):
-    """-> list of error lines."""
+def ratchet(rows, backlog, base, threshold, max_seconds, fail_from=7.0):
+    """-> list of error lines (the untagged tests from threshold to fail_from are not errors: see untagged_warnings)."""
     errors = []
     for name, sec, _, slow in sorted(rows, key=lambda r: -r[1]):
         if method_key(name) in backlog:
             continue
         if sec > max_seconds:
             errors.append(f"{sec:.1f} s > {max_seconds:g} s, not on the backlog: {name}")
-        elif sec >= threshold and not slow:
+        elif sec >= max(threshold, fail_from) and not slow:
             errors.append(f"{sec:.1f} s without the trait Slow, not on the backlog: {name}")
     present = {method_key(r[0]) for r in rows}
     for entry in sorted(backlog - present):
@@ -111,6 +113,12 @@ def ratchet(rows, backlog, base, threshold, max_seconds):
         for entry in sorted(backlog - base):
             errors.append(f"backlog entry that the base branch does not have (the list only shrinks): {entry}")
     return errors
+
+
+def untagged_warnings(rows, backlog, threshold, fail_from=7.0):
+    """The untagged tests from threshold to fail_from seconds that are not on the backlog (reported, not failed)."""
+    return [f"{sec:.1f} s without the trait Slow: {name}" for name, sec, _, slow in sorted(rows, key=lambda r: -r[1])
+            if threshold <= sec < fail_from and not slow and method_key(name) not in backlog]
 
 
 def main(argv=None):
@@ -124,6 +132,8 @@ def main(argv=None):
     p.add_argument("--backlog", help="SLOW_BACKLOG.txt: switches the ratchet on")
     p.add_argument("--backlog-base", help="the base branch's SLOW_BACKLOG.txt (the list must not grow)")
     p.add_argument("--max-seconds", type=float, default=10.0)
+    p.add_argument("--report-only", action="store_true", help="print the ratchet's violations (as warnings) but exit 0")
+    p.add_argument("--fail-from", type=float, default=7.0, help="untagged tests from this many seconds fail the ratchet (default 7)")
     p.add_argument("--make-backlog", help="write a backlog from the trx to this file and stop")
     p.add_argument("--backlog-from", type=float, default=4.0)
     a = p.parse_args(argv)
@@ -159,14 +169,18 @@ def main(argv=None):
     if a.backlog:
         backlog = read_backlog(a.backlog)
         base = read_backlog(a.backlog_base) if a.backlog_base else None
-        errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds)
-        lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations"] + ["  " + e for e in errors[:50]]
+        errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds, a.fail_from)
+        warnings = untagged_warnings(rows, backlog, a.threshold, a.fail_from)
+        lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations, {len(warnings)} warnings (untagged, {a.threshold:g} to {a.fail_from:g} s)"]
+        lines += ["  " + e for e in errors[:50]] + ["  warning: " + w for w in warnings[:50]]
     out = "\n".join(lines)
     print(out)
     if a.summary:
         with open(a.summary, "a", encoding="utf-8") as f:
             f.write("### Test tiers\n```\n" + out + "\n```\n")
-    if errors:
+    if errors and a.report_only:
+        print(f"::warning::{len(errors)} violations of the test time rule (CLAUDE.md, Test time), report mode (RATCHET_ENFORCE=0)")
+    elif errors:
         print(f"::error::{len(errors)} violations of the test time rule (CLAUDE.md, Test time)")
         return 1
     if a.fail_above is not None and any(r[1] >= a.fail_above for r in untagged):

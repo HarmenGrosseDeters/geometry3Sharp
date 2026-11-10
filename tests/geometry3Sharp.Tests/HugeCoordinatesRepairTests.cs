@@ -165,13 +165,13 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AlphaWrap_MarginAboveTheUlp_NotRejected()
         {
-            // the same triangle with alpha and offset 1e105, a margin above the unit in the last place of z: the guard
-            // does not reject it (it only rejects boxes that do not fit doubles)
+            // the same shape in the supported range (a triangle of size 1e3 at z = 1e6, alpha and offset 1e2: a margin above the unit
+            // in the last place of z): the guard does not reject it (it only rejects boxes that do not fit doubles)
             var m = new DMesh3();
-            int a = m.AppendVertex(new Vector3d(0, 0, 1e120)), b = m.AppendVertex(new Vector3d(1e100, 0, 1e120));
-            int c = m.AppendVertex(new Vector3d(0, 1e100, 1e120));
+            int a = m.AppendVertex(new Vector3d(0, 0, 1e6)), b = m.AppendVertex(new Vector3d(1e3, 0, 1e6));
+            int c = m.AppendVertex(new Vector3d(0, 1e3, 1e6));
             m.AppendTriangle(a, b, c);
-            var w = new MeshAlphaWrap(m) { Alpha = 1e105, Offset = 1e105 };
+            var w = new MeshAlphaWrap(m) { Alpha = 1e2, Offset = 1e2 };
             w.Compute();
             Assert.NotEqual(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
         }

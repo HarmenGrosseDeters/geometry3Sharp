@@ -64,6 +64,8 @@ namespace g3
         /// centres when inserted; a triangle whose shortest edge is at most two pixels is not refined; a triangle whose rounded point is
         /// taken or within half a pixel of a constraint stays, and a subsegment without a valid split point on the grid stays; both are
         /// counted in the diagnostics.
+        /// The input's own rounding moves a point by at most half a pixel per axis; refinement vertices are hot pixels too and may reroute other
+        /// chains, so at a sub-pixel wedge a chain can end up to about 2 pixels from its input edge (MESHING2D_SNAP.md, D14, amended 2026-11-10).
         /// </summary>
         public double SnapTolerance;
 
