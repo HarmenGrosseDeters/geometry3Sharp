@@ -180,3 +180,48 @@ result and the work stops (docs-only). The gate is fixed here before the run.
 - **Informational:** the same table with the exact normals of the first gate for the far bands (so the effect of
   estimated against exact normals is visible); the worst cell per method; warm times.
 - **If it does not win clearly:** no API; the result goes below and into the roadmap status of the PR; docs-only PR.
+
+### Result of gate 2: does not win clearly (2026-11-10)
+
+Command (harness and raw output on the reference branch `claude/param-affine-gate2-ref` at `979a00b`, not for merge; the
+output is `benchmarks/IntrinsicBenchmark/local-logmap-gate/gate2-output.txt` there, 2 s run):
+`dotnet run -c Release --project benchmarks/IntrinsicBenchmark -- --local-logmap-est points.csv`. The criteria above
+were committed before the run and not changed. Mean / max error in mean edge lengths, the 21 gate cells (the planes
+and the noisy plane are in the full table; their estimated normals are exactly the plane normal, and affine is at
+roundoff there, 1e-14):
+
+| fixture | band | AffineLocal | Legacy | MLP upwind (est. normals) | MLP exp (est.) | affine / best (mean) | affine / best (max) |
+|---|---|---|---|---|---|---:|---:|
+| sphere | <= 0.3 / 0.6 / 1.2 | 0.0051 / 0.016 / 0.054 | 0.12 / 0.21 / 0.28 | 0.0043 / 0.013 / 0.069 | 0.0066 / 0.022 / 0.10 | 1.18 / **1.29** / 0.78 | 0.98 / 0.67 / 0.24 |
+| sphere | (1.2,1.8] / (1.8,2.4] / (2.4,2.85] | 0.13 / 0.30 / 1.63 | 0.37 / 0.45 / 0.86 | 0.35 / 1.06 / 2.2 | 0.40 / 1.06 / 3.0 | 0.38 / 0.66 / **1.90** | 0.30 / 0.79 / 1.41 |
+| sphere noisy | <= 0.3 / 0.6 / 1.2 | 0.0145 / 0.033 / 0.079 | 0.12 / 0.18 / 0.24 | 0.0144 / 0.032 / 0.090 | 0.016 / 0.036 / 0.096 | 1.01 / 1.04 / 0.88 | 1.01 / 0.99 / 0.74 |
+| sphere noisy | (1.2,1.8] / (1.8,2.4] / (2.4,2.85] | 0.17 / 0.31 / 1.64 | 0.33 / 0.43 / 0.72 | 0.34 / 0.95 / 1.9 | 0.33 / 0.81 / 2.7 | 0.52 / 0.74 / **2.29** | 0.52 / 0.78 / **1.85** |
+| sphere lat-long | <= 0.3 / 0.6 / 1.2 | 0.0037 / 0.0145 / 0.051 | 0.10 / 0.25 / 0.37 | 0.0037 / 0.0142 / 0.084 | 0.0060 / 0.026 / 0.135 | 1.00 / 1.02 / 0.61 | 1.19 / 0.55 / 0.19 |
+| sphere lat-long | (1.2,1.8] / (1.8,2.4] / (2.4,2.85] | 0.12 / 0.30 / 2.04 | 0.56 / 0.74 / 1.30 | 0.46 / 1.62 / 5.3 | 0.65 / 1.97 / 5.8 | 0.25 / 0.40 / **1.57** | 0.18 / 0.63 / 1.27 |
+| cylinder | <= 0.3 / 0.6 / 1.2 | 0.0009 / 0.0018 / 0.0036 | 0.14 / 0.23 / 0.34 | 0.0016 / 0.0032 / 0.0065 | same | 0.59 / 0.56 / 0.56 | 0.44 / 0.47 / 0.51 |
+
+**G1 fails** (mean at most half the best competitor in 3 of 21 cells, 16 needed: the two lowest sphere and lat-long bands
+below the cut locus); **G2 fails** (affine's mean is 1.29 times the best on the sphere at 0.6 and 1.6 to 2.3 times in the
+band (2.4, 2.85]); **G3 fails** (1.85 times on the noisy sphere in that band); G4 holds. No API.
+
+What the numbers say, beyond the verdict:
+- **Estimated normals hardly hurt `MeshLocalParam`.** Angle-weighted vertex normals deviate from the smooth normal by 0.19
+  degrees (mean) on the sphere, 0.07 on the lat-long sphere, and are exact on the plane and the cylinder; only the noisy
+  sphere (mean 0.58, max 37 degrees) shows a difference: MeshLocalParam's mean error at 0.3 is 0.014 with estimated and
+  0.003 with exact normals, a factor 4. AffineLocal needs no normals, but on that fixture it only equals the estimated-normal
+  MeshLocalParam (ratio 1.0 to 1.04 up to radius 0.6, 0.88 at 1.2): its own error rises from 0.004 to 0.015 because the
+  3D frame of the comparison now comes from the estimated source normal, which costs every method alike. So the stated use
+  ("without good normals") gives no clear win: the competitor degrades only where the normals are really bad, and then
+  the affine method does not pull ahead near the source.
+- **Mid field, away from the cut locus, AffineLocal is clearly better**: in (1.2, 1.8] and (1.8, 2.4] its mean error
+  is 0.25 to 0.75 of the best competitor on the three spheres (about 12 to 24 edge lengths; `MeshLocalParam` reaches 1 to 2
+  edge lengths of error there, Legacy 0.4 to 0.7, affine 0.12 to 0.30).
+- **Close to the cut locus (2.4 to 2.85, up to 0.9 pi) Legacy is better** than AffineLocal by 1.6 to 2.3 times in the
+  mean (and 1.3 to 1.9 in the max), as the first gate found with the other fixtures and the paper (section 5) warns.
+  `MeshLocalParam` is worse than both there (mean 1.9 to 5.8 edge lengths).
+- `MeshLocalParam` left vertices unreached (infinite error) in the far bands of the plane-aniso and the cylinder
+  fixtures (distance cut at 3.0 there, boundary of the grid); these cells are outside the gate, and the 21 gate cells
+  have no infinite value.
+- Reopen only with a brief that names a workload in the mid field of a closed or large surface (patch radius of 12 to 24
+  edge lengths, well away from the cut locus), with its own pre-registered gate; a gate over the whole range up to the cut
+  locus fails by construction.
