@@ -12,15 +12,20 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class AlphaWrapCornerPinchPointsTests
     {
+        static double Unit(ref uint s) { s = s * 1664525u + 1013904223u; return ((s >> 8) & 0xFFFFFF) / (double)0x1000000; }
+
+        /// <summary> 30 random points of the square z = 0 in [-1, 1]^2 (the flat scene of the alpha wrap campaign, kind 5), relative alpha 5 </summary>
         static MeshAlphaWrap Flat(int seed, bool refine)
         {
-            var s = new AlphaWrapCampaignTests.Scene { Kind = 5, Exp = 0, N = 30, Far = -1, RelAlpha = 5, RelOffset = 600, Refine = refine, Seed = seed };
-            return s.Wrap();
+            uint state = (uint)seed * 2654435761u + 977u;
+            var pts = new System.Collections.Generic.List<Vector3d>();
+            for (int i = 0; i < 30; ++i) pts.Add(new Vector3d(2 * Unit(ref state) - 1, 2 * Unit(ref state) - 1, 0));
+            return new MeshAlphaWrap(pts) { RelativeAlpha = 5, RelativeOffset = 600, RefineNonManifold = refine };
         }
 
         [Theory]
         [InlineData(129, false)]
-        [InlineData(1, false)]
+        [InlineData(104, true)]
         public void FlatInput_RetryPlacesThePoints(int seed, bool refine)
         {
             MeshAlphaWrap w = Flat(seed, refine);
