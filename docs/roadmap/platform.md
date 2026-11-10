@@ -161,6 +161,13 @@ Tier: S, M. Parallel: up to 2 sessions
        on terrain, repeated run and 2^-9 / 2^11 scaled input bit-identical; Remesher: the same topology checks, parallel smoothing equals
        serial, repeated and scaled bit-identical; 12 (Reducer) and 20 (Remesher) samples in CI; scaling by 2^k only, the other similarities are covered by the invariance tests). Known deferred item R13 (`MeshIterativeSmooth`, non-finite input) is out of scope by construction (finite meshes); R14 (Reducer below scale 2^-25) was fixed by #549, so the sizes reach 2^-30 (and 2^-39 scaled). 1 500 Reducer (terrain noise as above) and 4 000 Remesher samples: Remesher
        no finding; Reducer one open finding (partial effect known from S1): on a noisy terrain (input a height field) `PreventFoldOver` still leaves a triangle slightly past vertical (normal z -0.01 .. -0.13). 200 seeds, 17 x 17 cells, 35 % kept, with the guard (without): vertical noise step 0: 0 (0), 1: 7 (46), 2: 6 (66), 3: 6 (71), 4: 29 (104); the guard needs only a positive dot with the absorbed reference normal. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it.
+    7. Clipper2 addon (QA 2.0 T10, done 2026-11-10): `Clipper2CampaignTests.CsCheck.cs` in `tests/geometry3Sharp.Clipper2.Tests` (CsCheck added
+       there for net10.0, with its own small runner and the same environment variables): random sets of stars, rectangles, stars with holes,
+       disjoint pairs and finely sampled circles, overlapping, touching, nested or apart, at scales 2^-10 .. 2^10 and far from the origin,
+       against `Oracle.cs`: union, intersection, difference and xor well formed and equal to the Boolean operation on the memberships of the
+       inputs away from the boundaries, the area identities, round offsets both ways by the distance to the input, `Simplify` within epsilon,
+       a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 7 000 samples: no finding. (Minkowski sums,
+       polyline clipping and offsets are not covered yet.)
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
