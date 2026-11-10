@@ -64,8 +64,8 @@ stages of 116871.stl at 128: final SI 63, contour (with hole fill) 63, after cle
 
 | input | res | runs | total s | DC phases s | check + repair s | share of DC | share of total |
 |---|---|---|---|---|---|---|---|
-| T1 | 64 | 20 | 10.2 | 5.1 | 1.4 | 28 % | 14 % |
-| T1 | 128 | 20 | 26.9 | 13.9 | 3.5 | 25 % | 13 % |
+| T1 | 64 | 20 | 9.1 | 4.5 | 1.4 | 30 % | 15 % |
+| T1 | 128 | 20 | 24.4 | 13.1 | 4.0 | 30 % | 16 % |
 | imp:boxminussphere | 24 | 20 | 0.3 | 0.2 | 0.1 | 46 % | 40 % |
 | imp:boxminussphere | 48 | 20 | 1.0 | 1.0 | 0.4 | 36 % | 34 % |
 | imp:boxminussphere | 96 | 20 | 4.1 | 4.0 | 1.8 | 43 % | 43 % |
@@ -84,8 +84,8 @@ stages of 116871.stl at 128: final SI 63, contour (with hole fill) 63, after cle
 | imp:twoboxes | 24 | 20 | 0.2 | 0.2 | 0.1 | 30 % | 26 % |
 | imp:twoboxes | 48 | 20 | 0.5 | 0.5 | 0.2 | 51 % | 45 % |
 | imp:twoboxes | 96 | 20 | 2.7 | 2.7 | 0.9 | 35 % | 35 % |
-| mesh:procedural | 64 | 6 | 2.9 | 1.7 | 0.6 | 37 % | 21 % |
-| mesh:procedural | 128 | 6 | 9.5 | 6.0 | 2.3 | 37 % | 24 % |
+| mesh:procedural | 64 | 6 | 2.4 | 1.3 | 0.6 | 47 % | 25 % |
+| mesh:procedural | 128 | 6 | 7.8 | 4.6 | 1.7 | 36 % | 21 % |
 
 Findings:
 
@@ -102,8 +102,8 @@ Findings:
    outside it; a polygon touching a multi-patch cell; a refinement-transition polygon. Over all runs the intersecting triangles are 95 in-envelope, 72 out-of-envelope, 6780 multi-patch and 60 transition triangles (T1: 34 / 2 / 151 / 60).
    **No intersecting pair had both triangles inside their envelopes** (0 of 8159 pairs), as the criterion predicts.
    Every intersection involves a multi-patch or transition polygon or a quad split against the criterion.
-4. **Cost.** With the hook off, the exact check plus repair (`ResolveMilliseconds`) is 25-28 % of the dual
-   contouring time on T1 (13-14 % of the whole `MeshWindingNumberSolidify`, where the octree and the winding numbers
+4. **Cost.** With the hook off, the exact check plus repair (`ResolveMilliseconds`) is 30 % of the dual
+   contouring time on T1 (15-16 % of the whole `MeshWindingNumberSolidify`, where the octree and the winding numbers
    dominate) and 30-64 % of dense `DualContouring` (median about 44 %). It checks every triangle, although only the
    triangles not covered by the criterion (multi-patch, transition, against-criterion: 1-5 % on CAD-like inputs, up to
    80 % on thin sheets at low resolution) can intersect.
@@ -115,7 +115,7 @@ Findings:
 
 So the measurable gains on this set are: a guarantee instead of a heuristic, closed (hole-free) results at ambiguous
 faces, no unchecked hole fill, and part of the check time: if the check shrinks to the uncovered triangles, at most
-about 1.15x for `MeshWindingNumberSolidify` and 1.3-2x for dense `DualContouring` (Amdahl on the shares above). The
+about 1.2x for `MeshWindingNumberSolidify` and 1.3-2x for dense `DualContouring` (Amdahl on the shares above). The
 count of self-intersecting final results is small today (1 of 52 winding runs, 0 of 360 implicit runs), so the case
 for building rests on the guarantee and the holes; the speed is a side gain, not the reason.
 
@@ -179,7 +179,7 @@ Cover = a triangle that lies, by an exact argument, in a region disjoint from ev
 
 | | what | guarantee | sharpness | cost to build | runtime |
 |---|---|---|---|---|---|
-| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 0.04-8 % of quads (up to 18 % on coarse grids and thin sheets; may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: at most ~1.15x faster solidify, 1.3-2x dense DC |
+| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 0.04-8 % of quads (up to 18 % on coarse grids and thin sheets; may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: at most ~1.2x faster solidify, 1.3-2x dense DC |
 | **B. A + Ju-Udeshi faces** | as A, and faces next to multi-patch cells or refinement transitions get face vertices (one per face segment), so each such cell's triangles are fans from its vertices inside the cell; ambiguous faces then give two separate face vertices and no non-manifold edge (no holes, no unchecked fill) | everything covered except fans of different patches inside one multi-patch cell, which are checked exactly within the cell (a few triangles) | QEF vertices kept; extra face vertices only at those faces (a few % of triangles) | M | as A; closes the `NonManifoldTriangles` holes |
 | C. Full hybrid everywhere | Ju & Udeshi on every edge, then drop vertices by the criterion | as B | as B | M-L | 1-4x triangles before dropping |
 | D. Primal fallback | multi-patch cells contoured by marching tetrahedra inside the cell | covers multi-patch cells too, but the face polylines must match the neighbours (needs B's face vertices) and positions on interior simplex edges round off them | QEF lost in those cells | L | small |

@@ -7,7 +7,8 @@ triangles, the time of the exact check, and per dual polygon Wang's envelope cri
 computed with `ExactPredicates.Orient3d`), with the class of every triangle in an intersecting pair. Uses the internal
 hook `DualContouring.CollectDiagnostics` (off by default, no effect on the result). The hook itself costs time
 (a second, serial check of all pairs), so times come from separate `--timing` runs with the hook off; the check and
-repair time is `DualContouring.ResolveMilliseconds` (its own timer, without the diagnostics).
+repair time is `DualContouring.ResolveMilliseconds` (its own timer, without the diagnostics), summed over all `Generate`
+passes of a run (the adaptive path runs several on one instance).
 
 ```
 dotnet run -c Release --project benchmarks/DualContouringIntersections -- wind.jsonl mesh:all <T1 meshes>... -- 64,128
@@ -55,8 +56,8 @@ stages of 116871.stl at 128: final SI 63, contour (with hole fill) 63, after cle
 
 | input | res | runs | total s | DC phases s | check + repair s | share of DC | share of total |
 |---|---|---|---|---|---|---|---|
-| T1 | 64 | 20 | 10.2 | 5.1 | 1.4 | 28 % | 14 % |
-| T1 | 128 | 20 | 26.9 | 13.9 | 3.5 | 25 % | 13 % |
+| T1 | 64 | 20 | 9.1 | 4.5 | 1.4 | 30 % | 15 % |
+| T1 | 128 | 20 | 24.4 | 13.1 | 4.0 | 30 % | 16 % |
 | imp:boxminussphere | 24 | 20 | 0.3 | 0.2 | 0.1 | 46 % | 40 % |
 | imp:boxminussphere | 48 | 20 | 1.0 | 1.0 | 0.4 | 36 % | 34 % |
 | imp:boxminussphere | 96 | 20 | 4.1 | 4.0 | 1.8 | 43 % | 43 % |
@@ -75,8 +76,8 @@ stages of 116871.stl at 128: final SI 63, contour (with hole fill) 63, after cle
 | imp:twoboxes | 24 | 20 | 0.2 | 0.2 | 0.1 | 30 % | 26 % |
 | imp:twoboxes | 48 | 20 | 0.5 | 0.5 | 0.2 | 51 % | 45 % |
 | imp:twoboxes | 96 | 20 | 2.7 | 2.7 | 0.9 | 35 % | 35 % |
-| mesh:procedural | 64 | 6 | 2.9 | 1.7 | 0.6 | 37 % | 21 % |
-| mesh:procedural | 128 | 6 | 9.5 | 6.0 | 2.3 | 37 % | 24 % |
+| mesh:procedural | 64 | 6 | 2.4 | 1.3 | 0.6 | 47 % | 25 % |
+| mesh:procedural | 128 | 6 | 7.8 | 4.6 | 1.7 | 36 % | 21 % |
 
 Columns: raw SI = intersecting triangle pairs of the last `Generate` before the repair (`SelfIntersectionsFound`); final
 SI = `MeshRepairMetrics.SelfIntersections` of the returned mesh; moved = vertices the repair moved off their QEF
@@ -85,8 +86,8 @@ of the same size, one patch each); covered / all pairs = intersecting pairs with
 (the criterion says none can exist) / all pairs, each counted once. Timing table: hook off, total = the whole
 `MeshWindingNumberSolidify` or dense `Generate`.
 
-Findings (details in the design note): the repair never failed (412 runs); it is 25-28 % of the dual contouring time on
-T1 (13-14 % of the whole solidify) and 30-64 % of dense DC; the one bad final result (116871 at 128) comes from 12
+Findings (details in the design note): the repair never failed (412 runs); it is 30 % of the dual contouring time on
+T1 (15-16 % of the whole solidify) and 30-64 % of dense DC; the one bad final result (116871 at 128) comes from 12
 left-out non-manifold triangles whose holes `FillSmallHoles` closes with 63 intersecting pairs; thin sheets leave up
 to 10104 non-manifold triangles out (open results); every intersection involves a multi-patch, transition or
 against-criterion polygon (0 covered of 8159 pairs).
