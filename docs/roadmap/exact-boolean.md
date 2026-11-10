@@ -60,6 +60,13 @@ over core counts (deterministic by construction: fixed partitions, ordered merge
 across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
 exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
 upper bound per lever on the 2.0 benchmark set.
+**3.0 n-ary use case (owner 2026-11-10):** n-ary booleans are a real use case in two forms: T3a, A − (B1 ∪ … ∪ Bn)
+in one pass (subtract many bodies from one, with operation-aware pruning and one rounding), and T3b, A ∩ Bi for many i at
+once with separate results (shared preprocessing of A, parallel over i). Primary workload: terrain volume bodies (a TIN
+sub-area of ~1 km, extruded to a solid, typically <= 10k triangles, out of a 10 x 10 km TIN of 500-800k triangles) against
+construction bodies (pits, trenches, foundations, roads; 100-2k triangles, n = 5..200); secondary: CAD / machining (a part
+of 10k-100k triangles minus up to 500 tools). Measured as topic 7 of the pre-study.
+
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
 Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per lever; (2) memory of exact points and the
