@@ -175,6 +175,12 @@ namespace gs
         /// and inside-out components it introduces (mostly during hole filling).
         /// </summary>
         public bool PostRepairCleanup = false;
+        /// <summary>
+        /// PostRepairCleanup: the diagonal of its degenerate area (MeshPostRepairCleanup.ReferenceDiagonal) instead of that of
+        /// all triangles, if finite and positive; NaN (default): all triangles. For meshes with parts far apart compared to
+        /// their size (MeshRobustRepair passes the diagonal of the largest component)
+        /// </summary>
+        public double CleanupReferenceDiagonal = double.NaN;
 
         /// <summary>
         /// Non-orientable regions: if true (default), the orientation keeps a short seam
@@ -425,7 +431,7 @@ namespace gs
                 if (Cancelled()) return false;
 
             if (PostRepairCleanup) {
-                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Mesh);
+                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Mesh) { ReferenceDiagonal = CleanupReferenceDiagonal };
                 cleanup.Apply(); stage("cleanup");
             }
                 if (Cancelled()) return false;

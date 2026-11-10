@@ -150,6 +150,9 @@ namespace gs
             missing = extra = 0;
             if (input.TriangleCount == 0)
                 return 0;
+            double scale = normalizing_scale(input, result);
+            if (scale != 1)
+                return VolumeIoU(scaled(input, scale), scaled(result, scale), out missing, out extra, samples, seed);
             // the solid the solidify fallback sees: inside-out inputs (winding number -1 inside) count as
             // their solid, not as none
             input = WindingContouring.OrientedCopy(input);
@@ -269,6 +272,136 @@ namespace gs
         }
 
         /// <summary>
+        /// The power of two that brings the extent of the triangles of a and b into [2^-300, 2^300] when it lies outside,
+        /// otherwise 1. The volume checks compute volumes (the cube of the extent overflows above about 5e102 and
+        /// underflows below about 1e-103) and far points at a few times the extent. Outside that range their IoU was
+        /// NaN, which passed as "no solid" (a result that lost most of a solid of size 1e160 was accepted), and near
+        /// 1e308 the far points were infinite and the exact predicates threw. Scaling by a power of two is exact (the
+        /// same inside decisions, the same IoU as at the scaled size; the checks give the same IoU for 2^k scales),
+        /// except for coordinates that become subnormal (below about 2^-1322 times the extent). 1 if a bound is not
+        /// finite (a NaN coordinate may not show in the bounds; it stays NaN), or if scaling up would make the
+        /// coordinates not finite (a tiny extent far from the origin).
+        /// </summary>
+        internal static double normalizing_scale(DMesh3 a, DMesh3 b)
+        {
+            AxisAlignedBox3d box = TriangleBounds(a);
+            if (b != null && b.TriangleCount > 0)
+                box.Contain(TriangleBounds(b));
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            double low = BitConverter.Int64BitsToDouble((long)(1023 - 300) << 52), high = BitConverter.Int64BitsToDouble((long)(1023 + 300) << 52);
+            if (ext >= low && ext <= high)
+                return 1;
+            // (an extent that overflows: the largest coordinate's exponent)
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // as little as needed: the extent into [2^299, 2^300) or [2^-300, 2^-299), so small parts far from the large
+            // ones keep their coordinates normal (scaled to [1, 2), a unit sphere next to a part of size 1e308 became
+            // subnormal and lost its shape)
+            int k = exponent(r);
+            int e = k > 0 ? 299 - k : -300 - k;
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+            // (scaling up a tiny extent far from the origin, eg x = 2^1000 with an extent of 2^-400 in y, would overflow the
+            // coordinates; scaling down never does, also for a mesh far from the origin; the margin of 2^6 keeps the far
+            // points of the exact winding finite)
+            if (s > 1 && !(largest * s <= double.MaxValue / 64))
+                return 1;
+            return s;
+        }
+
+        /// <summary>
+        /// The power of two (a normal double) that brings the largest extent of box (or, if that is not finite, its
+        /// largest coordinate) to about 1 (into [1, 4), or below 1 for an extent below 2^-1022) when the extent lies
+        /// outside [2^lowExp, 2^highExp], otherwise 1 (also for an empty box or one with a coordinate that is not
+        /// finite). Exact scaling (see normalizing_scale). The scaled coordinates themselves can overflow (a tiny
+        /// extent far from the origin): scale differences of coordinates, not coordinates
+        /// </summary>
+        internal static double unit_scale(AxisAlignedBox3d box, int lowExp, int highExp)
+        {
+            if (!(box.Max.x >= box.Min.x && box.Max.y >= box.Min.y && box.Max.z >= box.Min.z))
+                return 1;
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest <= double.MaxValue))
+                return 1;
+            double ext = box.MaxDim;
+            if (ext >= BitConverter.Int64BitsToDouble((long)(1023 + lowExp) << 52) && ext <= BitConverter.Int64BitsToDouble((long)(1023 + highExp) << 52))
+                return 1;
+            double r = ext > 0 && ext <= double.MaxValue ? ext : largest;
+            if (!(r > 0))
+                return 1;
+            // (2^e normal: e in [-1022, 1023]; an extent of 2^1023 or more is scaled into [2, 4))
+            int e = Math.Max(-1022, Math.Min(1023, -exponent(r)));
+            return BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
+        }
+
+        /// <summary>
+        /// The power of two that brings the extent of the triangles of mesh into [1, 4) when it lies outside
+        /// [2^lowExp, 2^highExp] (default [2^-100, 2^100]: where the squares of lengths and the products of areas overflow or underflow, and an
+        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. With (0, 0) every extent but 1 is scaled, into [1, 2):
+        /// the canonical scale (MeshWindingNumberSolidify). Also 1 if scaling the coordinates would
+        /// overflow or leave the normal range (a tiny extent far from the origin, subnormal coordinates): then the
+        /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
+        /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
+        /// </summary>
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false, int lowExp = -100, int highExp = 100)
+        {
+            AxisAlignedBox3d box = TriangleBounds(mesh);
+            double s = unit_scale(box, lowExp, highExp);
+            if (s == 1)
+                return 1;
+            double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            if (!(largest * s <= 1e300))
+                return 1;
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                bool used = !readOnly || mesh.GetVtxEdgeCount(v) > 0;
+                for (int k = 0; k < 3; ++k) {
+                    double x = Math.Abs(p[k]);
+                    // (an unused vertex far away is scaled with the others: it must not overflow)
+                    if (!(x * s <= 1e300))
+                        return 1;
+                    // (exact both ways only if no non-zero coordinate of a used vertex is subnormal before or after scaling; readOnly: the
+                    // caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
+                    if (used && x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
+                        return 1;
+                }
+            }
+            return s;
+        }
+
+        /// <summary> the vertices of mesh times s (a power of two from unit_scale_for_mesh: exact) </summary>
+        internal static void ScaleVertices(DMesh3 mesh, double s)
+        {
+            foreach (int v in mesh.VertexIndices())
+                mesh.SetVertex(v, s * mesh.GetVertex(v));
+        }
+
+        // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
+        static int exponent(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0)
+                return e - 1023;
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);    // 2^64 (subnormal: exact)
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        // a copy with every coordinate times s (a power of two)
+        static DMesh3 scaled(DMesh3 mesh, double s)
+        {
+            if (mesh == null)
+                return null;
+            var m = new DMesh3(mesh);
+            foreach (int v in m.VertexIndices())
+                m.SetVertex(v, s * m.GetVertex(v));
+            return m;
+        }
+
+        /// <summary>
         /// VolumeIoUAtLeast of the solids of input and result (result: SolidReference.Unoriented, as SolidInside). If
         /// both meshes are winding-closed, the samples are drawn only from the cells near the surfaces
         /// (VolumeSampleCells), and the cells known to be inside a solid count with their exact volume; otherwise
@@ -280,6 +413,10 @@ namespace gs
             iou = 0;
             if (input.Mesh.TriangleCount == 0)
                 return iou >= minIoU;
+            double scale = normalizing_scale(input.Mesh, result.Mesh);
+            if (scale != 1)
+                return VolumeIoUAtLeast(SolidReference.Unoriented(scaled(input.Mesh, scale)), SolidReference.Unoriented(scaled(result.Mesh, scale)),
+                    minIoU, out iou, samples, seed, z, stats, useCells, childBudget);
             var timer = System.Diagnostics.Stopwatch.StartNew();
             bool atLeast;
             if (useCells && result.Mesh.TriangleCount > 0 && input.WindingClosed && result.WindingClosed) {
@@ -562,14 +699,18 @@ namespace gs
             return LostComponents(new SolidReference(input), SolidInside(result), minCoverage, maxComponents, seed);
         }
 
-        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
+        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1,
+            bool relativeToLargest = false)
         {
             DMesh3 input = reference.Mesh;
             if (input.TriangleCount == 0)
                 return 0;
             Func<Vector3d, bool> inInput = reference.Inside;
-            double minDiagonal = MinComponentDiagonal * TriangleBounds(input).DiagonalLength;
-            var boxes = reference.ComponentBoxes().Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
+            // (relativeToLargest: relative to the largest connected component (open ones too), not to all triangles, whose diagonal grows with the
+            // distance between components: a part far from the rest would make every near part too small to be judged)
+            List<AxisAlignedBox3d> all = reference.ComponentBoxes();
+            double minDiagonal = MinComponentDiagonal * (relativeToLargest ? LargestComponentDiagonal(input) : TriangleBounds(input).DiagonalLength);
+            var boxes = all.Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
                 .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
             int[] lost = new int[boxes.Count];
             gParallel.ForEach(Interval1i.Range(boxes.Count), (k) => {
@@ -659,6 +800,63 @@ namespace gs
             foreach (int tid in mesh.TriangleIndices())
                 box.Contain(mesh.GetTriBounds(tid));
             return box;
+        }
+
+        // the connected components (vertices joined by triangles, union-find; the smaller root wins, so the same mesh
+        // gives the same components) and the bounds of each one's triangles, in the order of their first triangle;
+        // componentOf (if not null) per vertex id its component, 0 for a vertex in no triangle
+        internal static List<AxisAlignedBox3d> ComponentBoxes(DMesh3 mesh, out int[] componentOf)
+        {
+            int nv = mesh.MaxVertexID;
+            var parent = new int[nv];
+            for (int v = 0; v < nv; ++v) parent[v] = v;
+            Func<int, int> find = (v) => { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int ra = find(tv.a), rb = find(tv.b), rc = find(tv.c);
+                int r = Math.Min(ra, Math.Min(rb, rc));
+                parent[ra] = r; parent[rb] = r; parent[rc] = r;
+            }
+            componentOf = new int[nv];
+            var index = new Dictionary<int, int>();
+            var boxes = new List<AxisAlignedBox3d>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                int r = find(tv.a), c;
+                if (index.TryGetValue(r, out c) == false) {
+                    index[r] = c = boxes.Count;
+                    boxes.Add(AxisAlignedBox3d.Empty);
+                }
+                AxisAlignedBox3d b = boxes[c];
+                b.Contain(mesh.GetVertex(tv.a)); b.Contain(mesh.GetVertex(tv.b)); b.Contain(mesh.GetVertex(tv.c));
+                boxes[c] = b;
+            }
+            for (int v = 0; v < nv; ++v) {
+                int c;
+                componentOf[v] = index.TryGetValue(find(v), out c) ? c : 0;
+            }
+            return boxes;
+        }
+
+        // the largest diagonal of the boxes (0 for none); NaN if one is not finite (coordinates that are not, or an
+        // extent that overflows), whatever the order: tolerances relative to it are then NaN
+        internal static double LargestDiagonal(List<AxisAlignedBox3d> boxes)
+        {
+            double size = 0;
+            foreach (AxisAlignedBox3d bx in boxes) {
+                double d = bx.DiagonalLength;
+                if (!(d < double.PositiveInfinity)) size = double.NaN;
+                else if (d > size) size = d;
+            }
+            return size;
+        }
+
+        // the diagonal of the largest connected component (see ComponentBoxes, LargestDiagonal): the scale of tolerances
+        // that a small part far from the rest must not widen (SafeRounding, the cleanups of MeshRobustRepair)
+        internal static double LargestComponentDiagonal(DMesh3 mesh)
+        {
+            int[] componentOf;
+            return LargestDiagonal(ComponentBoxes(mesh, out componentOf));
         }
 
         // uniform random points in a union of boxes: a box picked by volume, a point in it, kept if no earlier box

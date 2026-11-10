@@ -21,7 +21,7 @@ namespace geometry3Sharp.Tests
     /// are not run (not strict), and on .NET Framework the list is not strict (it is taken on net10). Set
     /// G3_SWEEP_REPORT=1 to print the outcome of every case instead of asserting.
     /// </summary>
-    public class RobustnessSweepTests
+    public partial class RobustnessSweepTests
     {
         readonly ITestOutputHelper output;
         public RobustnessSweepTests(ITestOutputHelper output) { this.output = output; }
@@ -37,6 +37,8 @@ namespace geometry3Sharp.Tests
             public DMesh3 Output;
             /// <summary> per-vertex values the operation produced without an output mesh (normals, UVs, distances), checked for spreading like Output </summary>
             public int NonFiniteValues = -1;
+            /// <summary> the operation's own claim (clean, valid, Delaunay) that an independent check contradicts; "" if none </summary>
+            public string Contradiction = "";
             public Sig PerVertex(IEnumerable<double> values) { NonFiniteValues = values.Count(x => double.IsNaN(x) || double.IsInfinity(x)); return this; }
             readonly Similarity s;
             public Sig(Similarity s) { this.s = s; }
@@ -44,8 +46,8 @@ namespace geometry3Sharp.Tests
             public Sig Count(string name, double n) { Values.Add((name, n, 0, true)); return this; }
             public Sig Scalar(string name, double v) { Values.Add((name, v, 0, false)); return this; }
             public Sig Length(string name, double v) { Values.Add((name, v / s.Scale, 1, false)); return this; }
-            public Sig Area(string name, double v) { Values.Add((name, v / (s.Scale * s.Scale), 2, false)); return this; }
-            public Sig Volume(string name, double v) { Values.Add((name, v / (s.Scale * s.Scale * s.Scale), 3, false)); return this; }
+            public Sig Area(string name, double v) { Values.Add((name, v / s.Scale / s.Scale, 2, false)); return this; }
+            public Sig Volume(string name, double v) { Values.Add((name, v / s.Scale / s.Scale / s.Scale, 3, false)); return this; }
             public Sig Point(string name, Vector3d p)
             {
                 Vector3d q = s.Inverse(p);
@@ -87,6 +89,10 @@ namespace geometry3Sharp.Tests
             public double CountTol = 0;
             /// <summary> false: power-of-two scales are compared with Tol too (the result varies in the last bits from run to run) </summary>
             public bool BitExact = true;
+            /// <summary> the operation assumes its mesh lies in the plane z = 0 (a documented precondition): only scales and xy translations are run </summary>
+            public bool PlanarInput;
+            /// <summary> an internal building block whose callers check finiteness (a documented precondition): no NaN / Inf cases </summary>
+            public bool SkipNonFinite;
             /// <summary> the operation's own type: an ArgumentException thrown by its members is a documented rejection </summary>
             public Type Type;
             public override string ToString() => Name;
@@ -117,7 +123,7 @@ namespace geometry3Sharp.Tests
         static readonly Vector3d Query = new Vector3d(0.3, 0.2, 2);
         static readonly Vector3d CutNormal = new Vector3d(1, 2, 3).Normalized;
 
-        public static readonly Op[] Ops = new Op[] {
+        static readonly Op[] CoreOps = new Op[] {
             new Op { Name = "MeshNormals", Type = typeof(MeshNormals), Input = () => Sphere(), Tol = 1e-6,
                 Run = (m, s, p) => {
                     var n = new MeshNormals(m); n.Compute();
@@ -266,6 +272,9 @@ namespace geometry3Sharp.Tests
                 } },
         };
 
+        /// <summary> the operations of the first sweep, then the gap-list operations of QA 2.0 T1 (RobustnessSweepTests.GapOps.cs) </summary>
+        public static readonly Op[] Ops = CoreOps.Concat(GapOps()).ToArray();
+
         public static IEnumerable<object[]> OpNames() => Ops.Select(o => new object[] { o.Name });
         static Op ByName(string name) => Ops.First(o => o.Name == name);
 
@@ -282,7 +291,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> NonFiniteCases()
         {
-            foreach (Op o in Ops) {
+            foreach (Op o in Ops.Where(o => o.SkipNonFinite == false)) {
                 foreach (string c in new[] { "NaN vertex", "+Inf vertex" })
                     yield return new object[] { o.Name, c };
                 if (double.IsNaN(o.Param) == false)
@@ -294,7 +303,6 @@ namespace geometry3Sharp.Tests
         // ---- expected failures: "operation|case" -> finding id in docs/ROBUSTNESS_SWEEP.md ("hang R..": not run) ----
 
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            { "DMeshAABBTree3|scale 2^-24", "R17" },
             { "LaplacianMeshSmoother|rotated", "R21" },
             { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R21" },
             { "MeshBoolean|rotated", "R6" },
@@ -303,7 +311,6 @@ namespace geometry3Sharp.Tests
             { "MeshBoolean|scale 2^-10", "R6" },
             { "MeshBoolean|scale 2^-24", "R6" },
             { "MeshGeodesicDistance|rotated, scale 1e-3, utm", "R16" },
-            { "MeshICP|scale 2^-24", "R8" },
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
@@ -311,6 +318,30 @@ namespace geometry3Sharp.Tests
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|utm", "R7" },
+            // QA 2.0 T1 (RobustnessSweepTests.GapOps.cs, .Families.cs)
+            { "PointAABBTree3|extreme scale 1E-160", "R25" },
+            { "MeshInsertPolygon|scale 1e-3", "R28" },
+            { "MeshInsertPolygon|scale 2^-10", "R28" },
+            { "MeshInsertPolygon|scale 2^-24", "R28" },
+            { "MeshWindingNumberBoolean.Difference|scale 2^-24", "R29" },
+            { "MeshWindingNumberBoolean.Union|scale 2^-24", "R29" },
+            { "MarchingCubesPro.SingleLerp|extreme scale 1E+160", "R31" },
+            { "MarchingCubesPro.SingleLerp|extreme scale 1E+300", "R31" },
+            { "MeshWindingNumberBoolean.Difference|extreme scale 1E+160", "R33" },
+            { "MeshWindingNumberBoolean.Difference|extreme scale 1E+300", "R33" },
+            { "MeshWindingNumberBoolean.Union|extreme scale 1E+160", "R33" },
+            { "MeshWindingNumberBoolean.Union|extreme scale 1E+300", "R33" },
+            { "MeshDeviation|extreme scale 1E+160", "R35" },
+            { "MeshDeviation|extreme scale 1E+300", "R35" },
+            { "MeshDeviation|extreme scale 1E-160", "R35" },
+            { "MeshDeviation|extreme scale 1E-310", "R35" },
+        };
+
+        static readonly object ReportLock = new object();
+        /// <summary> expected failures on .NET Framework only (net48 CI job): "operation|case" -> finding id </summary>
+        public static readonly Dictionary<string, string> KnownFailuresNet48 = new Dictionary<string, string> {
+            { "MeshInsertPolygon|NaN vertex", "R36" },
+            { "MeshInsertPolygon|+Inf vertex", "R36" },
         };
 
         static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
@@ -342,12 +373,22 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        static bool IsIdentity(Matrix3d r)
+        {
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (r[i, j] != (i == j ? 1.0 : 0.0)) return false;
+            return true;
+        }
+
         string SimilarityOutcome(Op op, Similarity s)
         {
+            if (op.PlanarInput && (s.Translation.z != 0 || IsIdentity(s.Rotation) == false)) return "";
             try {
                 Sig a = RunOp(op, op.Input(), Similarity.Identity, op.Param);
                 double param = double.IsNaN(op.Param) ? double.NaN : s.ApplyLength(op.Param);
                 Sig b = RunOp(op, Invariance.Transformed(op.Input(), s), s, param);
+                if (b.Contradiction != "") return "claim contradicted: " + b.Contradiction;
                 return Compare(op, s, a, b);
             } catch (Exception e) {
                 return Describe(e);
@@ -393,6 +434,7 @@ namespace geometry3Sharp.Tests
                 bool rejection = e is ArgumentException && IsOwnType(op.Type, e.TargetSite?.DeclaringType);
                 return rejection ? "" : Describe(e);
             }
+            if (sig.Contradiction != "") return "claim contradicted: " + sig.Contradiction;
             // (an output mesh may keep the bad input vertex; more is spreading)
             if (sig.Output != null) {
                 int after = NonFiniteVertices(sig.Output);
@@ -419,8 +461,19 @@ namespace geometry3Sharp.Tests
             if (Environment.GetEnvironmentVariable("G3_SWEEP_REPORT") == "1") {
                 output.WriteLine($"SWEEP {key} => {(outcome == "" ? "ok" : outcome)}");
                 Console.WriteLine($"SWEEP {key} => {(outcome == "" ? "ok" : outcome)}");
+                // (G3_SWEEP_REPORT_FILE: the same lines appended to a file, which parallel test output cannot interleave or lose)
+                string file = Environment.GetEnvironmentVariable("G3_SWEEP_REPORT_FILE");
+                if (string.IsNullOrEmpty(file) == false)
+                    lock (ReportLock) System.IO.File.AppendAllText(file, $"SWEEP {key} => {(outcome == "" ? "ok" : outcome.Replace('\n', ' '))}\n");
                 return;
             }
+#if NETFRAMEWORK
+            // (cases that fail on .NET Framework only, where a double -> int cast of NaN gives int.MinValue; strict)
+            if (KnownFailuresNet48.TryGetValue(key, out string finding48)) {
+                Assert.True(outcome != "", $"{key} passes now: remove its entry ({finding48}) from KnownFailuresNet48 and update docs/ROBUSTNESS_SWEEP.md");
+                return;
+            }
+#endif
             if (KnownFailures.TryGetValue(key, out string finding)) {
 #if NETFRAMEWORK
                 // (the list is taken on net10, where double -> int casts saturate; .NET Framework casts NaN and out of
@@ -452,8 +505,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Sweep_KnownFailuresNameExistingCases()
         {
-            var keys = new HashSet<string>(SimilarityCases().Concat(NonFiniteCases()).Select(x => x[0] + "|" + x[1]));
-            foreach (string key in KnownFailures.Keys)
+            var keys = new HashSet<string>(SimilarityCases().Concat(NonFiniteCases()).Concat(DefectCases()).Concat(ExtremeScaleCases()).Select(x => x[0] + "|" + x[1]));
+            foreach (string key in KnownFailures.Keys.Concat(KnownFailuresNet48.Keys))
                 Assert.True(keys.Contains(key), "unknown case " + key);
             // every finding id has a row in docs/ROBUSTNESS_SWEEP.md (found from the test directory upwards)
             string dir = AppContext.BaseDirectory, doc = null;
@@ -462,7 +515,7 @@ namespace geometry3Sharp.Tests
                 if (System.IO.File.Exists(f)) doc = System.IO.File.ReadAllText(f);
             }
             Assert.True(doc != null, "docs/ROBUSTNESS_SWEEP.md not found");
-            foreach (string id in KnownFailures.Values.Select(f => f.Split(' ').Last()).Distinct())
+            foreach (string id in KnownFailures.Values.Concat(KnownFailuresNet48.Values).Select(f => f.Split(' ').Last()).Distinct())
                 Assert.True(doc.Contains("| " + id + " |"), $"finding {id} has no row in docs/ROBUSTNESS_SWEEP.md");
         }
 
@@ -506,6 +559,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Harness_ClaimsAndFamilies_AreClassified()
+        {
+            // a contradicted claim fails every case kind
+            Op claim = SelfTestOp("claim", (m, s) => new Sig(s) { Contradiction = "bowties" }.Mesh("mesh", m));
+            Assert.StartsWith("claim contradicted", SimilarityOutcome(claim, Similarity.Pow2Large));
+            Assert.StartsWith("claim contradicted", NonFiniteOutcome(claim, "NaN vertex"));
+            Assert.StartsWith("claim contradicted", FamilyOutcome(claim, Sphere(), Similarity.Identity, double.NaN, true));
+            // a deep exception, non-finite output and non-finite values with success are not documented outcomes of a family
+            Op deep = SelfTestOp("deep", (m, s) => { int[] a = new int[1]; return new Sig(s).Count("x", a[m.VertexCount]); });
+            Assert.StartsWith("IndexOutOfRangeException", FamilyOutcome(deep, Sphere(), Similarity.Identity, double.NaN, true));
+            Op garbage = SelfTestOp("garbage", (m, s) => { m.SetVertex(0, new Vector3d(double.NaN, 0, 0)); return new Sig(s).Mesh("mesh", m); });
+            Assert.StartsWith("silent garbage", FamilyOutcome(garbage, Sphere(), Similarity.Identity, double.NaN, true));
+            Op nan = SelfTestOp("nan", (m, s) => new Sig(s).Scalar("winding", double.NaN));
+            Assert.StartsWith("silent garbage", FamilyOutcome(nan, Sphere(), Similarity.Identity, double.NaN, true));
+            // ... but a reported failure is a documented outcome, and so is an invalid result of an input that was invalid
+            Op failed = SelfTestOp("failed", (m, s) => new Sig(s) { Failed = true }.Scalar("winding", double.NaN));
+            Assert.Equal("", FamilyOutcome(failed, Sphere(), Similarity.Identity, double.NaN, true));
+        }
+
+        [Fact]
         public void Harness_NonFiniteOutcomes_AreClassified()
         {
             // spreading to a neighbour, a deep exception, a hang-free rejection, and passing the bad vertex through
@@ -533,6 +606,7 @@ namespace geometry3Sharp.Tests
             // the baseline: on the original input every operation reports success with finite values
             Sig sig = RunOp(ByName(op), ByName(op).Input(), Similarity.Identity, ByName(op).Param);
             Assert.False(sig.Failed, op + " failed on the original input");
+            Assert.True(sig.Contradiction == "", op + ": claim contradicted: " + sig.Contradiction);
             foreach (var v in sig.Values) Assert.True(double.IsNaN(v.value) == false && double.IsInfinity(v.value) == false, $"{op}: {v.name} = {v.value}");
             if (sig.Output != null) ResultChecks.AssertValid(sig.Output, op);
         }

@@ -27,6 +27,9 @@ namespace g3 {
 	/// See <see cref="gs.RemesherPro"/> for a faster variant (queue-based passes and a FastestRemesh/SharpEdgeReprojectionRemesh
 	/// driver), <see cref="RegionRemesher"/> to remesh only part of a mesh, and <see cref="Reducer"/> for
 	/// simplification to a triangle count or error (Remesher only targets edge lengths).
+	///
+	/// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200]. Measured (sphere):
+	/// works from 2^-250 to 2^500, the mesh turns invalid at 2^700.
 	/// </summary>
 	public class Remesher : MeshRefinerBase
     {
@@ -289,13 +292,19 @@ namespace g3 {
         /// You need to re-run this if you are changing the mesh externally
         /// between remesh passes, otherwise you will get weird results.
         /// But you will probably still come out ahead, computation-time-wise.
-        /// Optional: BasicRemeshPass() does not call it. Currently it only detects a closed mesh (no boundary
-        /// edges), which skips boundary-vertex checks in the flip test.
+        /// Optional: BasicRemeshPass() detects a closed mesh (no boundary edges, which skips boundary-vertex checks in
+        /// the flip test) at the start of each pass by itself, so calling this changes no result.
         /// </summary>
         public virtual void Precompute()
         {
-            // if we know mesh is closed, we can skip is-boundary checks, which makes
-            // the flip-valence tests much faster!
+            detect_closed_mesh();
+        }
+
+        // if we know mesh is closed, we can skip is-boundary checks, which makes
+        // the flip-valence tests much faster! (The result is the same either way: no vertex of a closed mesh is a
+        // boundary vertex, and splits, flips and collapses keep it closed.)
+        protected void detect_closed_mesh()
+        {
             MeshIsClosed = true;
             foreach (int eid in mesh.EdgeIndices()) {
                 if (mesh.IsBoundaryEdge(eid)) {
@@ -333,6 +342,7 @@ namespace g3 {
                 return;
 
             begin_pass();
+            detect_closed_mesh();       // (the mesh may have been changed since the last pass)
             object inversionGuard = begin_inversion_guard();
 
             // Iterate over all edges in the mesh at start of pass.

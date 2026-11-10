@@ -5,7 +5,9 @@ Linux test projects, collector settings, a standard-library Python gate and its 
 library/mesher/oracle logic, API changes, whole-library thresholds, assertion-quality claims, mutation tooling,
 FPTaylor and SharpFuzz. No clean-room restricted code was consulted.
 
-Interface: `python3 tools/changed_line_coverage.py --base <commit> --coverage-dir <results> --json <output>`.
+Interface: `python3 tools/changed_line_coverage.py --base <commit> --coverage-dir <results> --json <output>`
+[`--slow-coverage-dir <dir>`: the core report of the Category=Slow run; a changed line only it hits is reported as
+`covered_only_by_slow` and does not fail; CI collects the fast tier first and the Slow tier only when lines are left].
 The tested HEAD and its merge base are recorded. Exactly one collector attachment at
 `<suite>/<attachment-id>/coverage.cobertura.xml` in each of `core/`, `cli/` and `clipper2/` is mandatory. TRX's
 nested `In/<host>/` copy is ignored. Hit counts merge by maximum: a hit in any suite covers the line. Filenames are resolved

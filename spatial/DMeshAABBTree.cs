@@ -36,6 +36,11 @@ namespace g3
     ///   - FastWindingNumber(point)
     ///   - DoTraversal(generic_traversal_object)
     /// 
+    /// Supported input range (docs/QA.md 2.5a): coordinate magnitudes up to 2^1000 (about 1e301) for the ray queries,
+    /// IsInside and the winding numbers (fuzzed to there, MeshFuzzPilot); the squared distances of the nearest queries
+    /// are representable for a mesh extent between 2^-450 and 2^450. Subnormal coordinates are fine for the queries, but
+    /// a scaling by 2^k is exact only for normal numbers. Non-finite coordinates are outside.
+    /// 
     /// </summary>
     public class DMeshAABBTree3 : ISpatial
     {
@@ -131,6 +136,8 @@ namespace g3
             else if (eStrategy == BuildStrategy.Default)
                 build_top_down(false);
             mesh_timestamp = mesh.ShapeTimestamp;
+            box_eps = ComputeBoxPadding(mesh.TriangleCount == 0 ? Vector3d.Zero : box_centers[root_index],
+                                        mesh.TriangleCount == 0 ? Vector3d.Zero : box_extents[root_index]);
         }
 
 
@@ -314,10 +321,9 @@ namespace g3
             if (ray.Direction.IsNormalized == false)
                 throw new Exception("DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized");
 
-            // [RMS] note: using float.MaxValue here because we need to use <= to compare box hit
-            //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
-            //   nearestT to double.MaxValue, then we will test all boxes (!)
-            double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
+            // (no limit is double.MaxValue: a missed box is +infinity (box_ray_intersect_t), so it is skipped by the <=
+            // test; a float.MaxValue limit lost every hit farther than 3.4e38, ie any mesh of that size)
+            double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             int tNearID = DMesh3.InvalidID;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             find_hit_triangle(root_index, ref ray, ref p, ref fNearestT, ref tNearID);
@@ -418,10 +424,8 @@ namespace g3
             if (ray.Direction.IsNormalized == false)
                 throw new Exception("DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized");
 
-            // [RMS] note: using float.MaxValue here because we need to use <= to compare box hit
-            //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
-            //   nearestT to double.MaxValue, then we will test all boxes (!)
-            double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
+            // (no limit is double.MaxValue, see FindNearestHitTriangle)
+            double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, ref p, fUseMaxDist, false);
             return nCount;
@@ -1107,7 +1111,7 @@ namespace g3
                 throw new Exception("DMeshAABBTree3.IsInside: mesh has been modified since tree construction");
             Ray3d ray = new Ray3d(origin, direction, true);
             Vector3d secondPoint = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
-            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, float.MaxValue, true);
+            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, double.MaxValue, true);
         }
 
 
@@ -1567,6 +1571,12 @@ namespace g3
             HashSet<int> root_hash;
             build_fast_winding_cache(root_index, 0, WINDING_CACHE_THRESH, out root_hash, triCache);
         }
+        // the levels of the tree whose two subtrees build their caches concurrently (2^3 = 8 tasks at most): each
+        // subtree writes only the cache entries of its own boxes, its triangle set is its own, and the work per box and
+        // the order of its sums are those of the serial build, so the cache is the same bit for bit (0: the plain
+        // recursion, the reference of FastWindingParallelBuildTests; any value gives the same cache)
+        internal static int FastWindingParallelDepth = 3;
+
         protected int build_fast_winding_cache(int iBox, int depth, int tri_count_thresh, out HashSet<int> tri_hash, MeshTriInfoCache triCache)
         {
             tri_hash = null;
@@ -1592,8 +1602,17 @@ namespace g3
                     // let each child build its own cache if it wants. If so, it will return the
                     // list of its child tris
                     HashSet<int> child2_hash;
-                    int num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
-                    int num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
+                    int num_tris_1, num_tris_2;
+                    if (depth < FastWindingParallelDepth) {
+                        var hashes = new HashSet<int>[2];
+                        var counts = new int[2];
+                        gParallel.ForRange(2, (k) => counts[k] = build_fast_winding_cache(k == 0 ? iChild1 : iChild2, depth + 1, tri_count_thresh, out hashes[k], triCache));
+                        num_tris_1 = counts[0]; num_tris_2 = counts[1];
+                        tri_hash = hashes[0]; child2_hash = hashes[1];
+                    } else {
+                        num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
+                        num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
+                    }
                     bool build_cache = (num_tris_1 + num_tris_2 > tri_count_thresh);
 
                     if (depth == 0)
@@ -1762,23 +1781,37 @@ namespace g3
             Vector3d[] centers = new Vector3d[mesh.TriangleCount];
             foreach ( int ti in mesh.TriangleIndices()) {
                 Vector3d centroid = mesh.GetTriCentroid(ti);
-                double d2 = centroid.LengthSquared;
-                bool bInvalid = double.IsNaN(d2) || double.IsInfinity(d2);
-                Debug.Assert(bInvalid == false);
+                // (each coordinate: the squared length overflowed for finite centroids above about 1e154, and every
+                // triangle of such a mesh was skipped)
+                bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                    && Math.Abs(centroid.z) <= double.MaxValue);
+                if (bInvalid) {
+                    // (the sum of three finite corners above about 6e307 overflows: a third of each corner first, which
+                    // is not the same double as the sum's third, so only here; before, such triangles were skipped)
+                    Index3i f = mesh.GetTriangle(ti);
+                    Vector3d a = mesh.GetVertex(f.a), b = mesh.GetVertex(f.b), c = mesh.GetVertex(f.c);
+                    double third = 1.0 / 3.0;
+                    centroid = new Vector3d(a.x * third + b.x * third + c.x * third, a.y * third + b.y * third + c.y * third,
+                        a.z * third + b.z * third + c.z * third);
+                    bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                        && Math.Abs(centroid.z) <= double.MaxValue);
+                }
                 if (bInvalid == false) {
                     triangles[i] = ti;
-                    centers[i] = mesh.GetTriCentroid(ti);
+                    centers[i] = centroid;
                     i++;
                 } // otherwise skip this tri
             }
+            // (the triangles kept: before, the skipped ones' slots were split too, as triangle 0 at the origin)
+            int count = i;
 
             boxes_set tris = new boxes_set();
             boxes_set nodes = new boxes_set();
             AxisAlignedBox3d rootBox;
             int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);    // a set is a leaf if its count is below this; below 2 the split never ends
             int rootnode = (bSorted) ?
-                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox)
-                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox);
+                split_tri_set_sorted(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox)
+                : split_tri_set_midpoint(triangles, centers, 0, count, 0, leafLimit, tris, nodes, out rootBox);
 
             box_to_index = tris.box_to_index;
             box_centers = tris.box_centers;
@@ -1920,7 +1953,9 @@ namespace g3
             double midpoint = interval.Center;
 
             int n0, n1;
-            if (Math.Abs(interval.a - interval.b) > MathUtil.ZeroTolerance) {
+            // (any spread splits: a spread below an absolute 1e-8 (small meshes, thin sets) made another tree than the same
+            // mesh scaled up, and so other tie-breaks in the queries; a midpoint that rounds onto an end is handled below)
+            if (interval.a < interval.b) {
                 // we have to re-sort the centers & triangles lists so that centers < midpoint
                 // are first, so that we can recurse on the two subsets. We walk in from each side,
                 // until we find two out-of-order locations, then we swap them.
@@ -1930,9 +1965,13 @@ namespace g3
                     // [RMS] is <= right here? if v.axis == midpoint, then this loop
                     //   can get stuck unless one of these has an equality test. But
                     //   I did not think enough about if this is the right thing to do...
-                    while (centers[iStart + l][axis] <= midpoint)
+                    // (bounded: when the extremes are adjacent doubles, the midpoint can round to the larger one, so
+                    // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
+                    while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
-                    while (centers[iStart + r][axis] > midpoint)
+                    // (r >= 0 is a guard only: every center above the midpoint would need a midpoint of -infinity, and
+                    // finite centroids, a third of a finite sum, cannot overflow a + b)
+                    while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)
                         break;      //done!
@@ -1943,7 +1982,13 @@ namespace g3
 
                 n0 = l;
                 n1 = iCount - n0;
-                Debug.Assert(n0 >= 1 && n1 >= 1);
+                // a side left empty (every center on one side of the rounded midpoint): half and half, as for a
+                // near-empty interval (before, the same set recursed with the next axis, without end on all three:
+                // a stack overflow)
+                if (n0 < 1 || n1 < 1) {
+                    n0 = iCount / 2;
+                    n1 = iCount - n0;
+                }
             } else {
                 // interval is near-empty, so no point trying to do sorting, just split half and half
                 n0 = iCount / 2;
@@ -2387,7 +2432,26 @@ namespace g3
         // Boxes are stored in double precision: with float boxes, meshes far from the origin (eg UTM
         // coordinates, where float resolution is ~0.5m) had boxes that did not contain their triangles,
         // so ray casts and nearest-point queries missed them.
-        const double box_eps = 50.0 * MathUtil.Epsilonf;
+        // The padding of every box (stored boxes are tight; queries use them padded by this, so the rounding of c +- e
+        // can never make a box miss a triangle). It is proportional to the larger of the size of the mesh and its
+        // distance from the origin, 2^-40 of it (thousands of units in the last place), so that scaling a mesh by a
+        // power of two scales the padding exactly and a query gives the same answer bit for bit: a fixed padding
+        // (50 * Epsilonf) changed the order in which the boxes of a nearest-point query are visited, and with it the
+        // triangle that wins a tie. It also stays far below the detail of the mesh (a padding of a fraction of the
+        // size would make the boxes of a fine part of a large scene overlap, and the queries slow). Coordinates so
+        // large that their sum overflows get the fixed padding (too small there, as before).
+        double box_eps = 50.0 * MathUtil.Epsilonf;
+
+        // the padding for a root box with this center and half extents (see box_eps)
+        internal static double ComputeBoxPadding(Vector3d rootCenter, Vector3d rootExtent)
+        {
+            double size = 2 * Math.Max(rootExtent.x, Math.Max(rootExtent.y, rootExtent.z));
+            double far = Math.Max(Math.Abs(rootCenter.x) + rootExtent.x, Math.Max(Math.Abs(rootCenter.y) + rootExtent.y, Math.Abs(rootCenter.z) + rootExtent.z));
+            double m = Math.Max(size, far);
+            if (!(m < double.MaxValue) || !(m > 0))
+                return 50.0 * MathUtil.Epsilonf;
+            return m * 9.0949470177292824e-13;      // 2^-40
+        }
 
         // float box for the public TreeTraversal.NextBoxF; rounded outwards so it contains the double box
         AxisAlignedBox3f get_box(int iBox)
@@ -2429,11 +2493,11 @@ namespace g3
             Vector3d e = box_extents[iBox];
             AxisAlignedBox3d box = new AxisAlignedBox3d(ref c, e.x + box_eps, e.y + box_eps, e.z + box_eps);
 
-            double ray_t = double.MaxValue;
+            double ray_t;
             if (IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out ray_t)) {
                 return ray_t;
             } else {
-                return double.MaxValue;
+                return double.PositiveInfinity;     // (a miss: farther than any limit, double.MaxValue included)
             }
         }
 

@@ -20,6 +20,72 @@ Part of the [roadmap](../ROADMAP.md).
 
 #### Alpha Wrap 2.0 (milestone)
 
+**Result and close (owner 2026-11-09): Alpha Wrap 2.0 is done.** Final 800 run (master dfc93fdb, seed 2611, 300/3000,
+library defaults, quality pass off, one process at a time on a 4-core machine; raw rows on runs/alpha-wrap-2 f800/,
+000ae12e) against the pre-2.0 800 run: guarantees 800/800, no timeouts or crashes; contract 1 proven exceedance
+(111959, 1.093, #317 stop rule); 0 triangles < 0.5° and 0 > 170° on every mesh (before 7 and 14676); p01 median 11.34°,
+min 10.62° (before 7.62° / 3.49°); raw p01 median 20.11° (before 17.41°), raw >= CGAL on the T1 100; F-score 0.1 %
+median 0.9914 (before 0.9911), IoU median 0.9805 (0.9803); final triangles +17 % (paired median). Speed: 611 of 800
+within max(5 s, 50 µs × raw triangles), 92 of the 189 others within 10 %, 168 within 25 %; pipeline median 5.83 s, p90
+11.88 s, max 97.5 s. Owner decision: close 2.0 with this documented; the speed levers go to **Alpha Wrap 3.0**: in the
+189 over budget ~60 % of the time is the wrap itself (intersection oracle 14 %, Delaunay insertion 13 %, touch 12 %,
+the two pinch passes 18 %), reduction 17 %, certification 7 %; together with parallelism. The Reducer / Remesher 2.0
+hand-over is docs/design/PARTITIONED_REDUCTION_HANDOVER.md (#454).
+**Reducer / Remesher 2.0 (owner 2026-11-09):** baseline in #457 (benchmarks/ReducerRemesherBaseline,
+docs/design/REDUCER_REMESHER_20.md): topology kept and deterministic everywhere; Reducer 3.2 µs/tri, p01 0.6° on real
+meshes, self-intersections created in 9 of 19 clean inputs; Remesher 11-23 µs/tri, degenerate triangles in 17 of 20,
+self-intersections in 14 of 19, not bit-identical under 2^k in 4 cases. Targets: T1 Reducer quality / target within the
+genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by default at <= 4x / <= 8x (via #432's
+slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
+flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
+until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
+**Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed):** speed and parallelism on top of 2.0.
+Starting point (final 800 run, the 189 meshes over budget): pinch passes 18 %, reduction 17 %, intersection oracle 14 %,
+Delaunay insertion 13 %, touch test 12 %, certification 7 %. Levers: (1) intersection oracle and touch test through
+batched queries on the input tree (#448), cheap prefilters, per-facet caching; (2) Delaunay insertion in spatial
+(BRIO / Hilbert) order with a compact tetrahedron layout and fewer allocations; (3) parallelism: evaluate the carving
+candidates' gate tests in parallel batches and apply them serially in a fixed order (deterministic), certification in
+parallel batches; (4) pinch passes more local (on #429); (5) reduction via PartitionedReducer (#470) and an incremental
+tree (shared with Reducer / Remesher 2.x); (6) sharp features via dual contouring (owner question 2026-11-09): the
+library already has manifold DC (mesh_generators/DualContouring.cs, Schaefer et al. 2007, QEF vertex per patch, Hermite
+data projected onto the input) and WindingContouring (DC on the winding number, robust to soups, with a
+self-intersection check); measure sharp-edge Chamfer and edge F-score (the option-1 metrics) on the 20 T1 meshes for
+the wrap, WindingContouring, and a wrap post-pass that moves boundary vertices toward the DC QEF points under exact
+validity checks (closed, manifold, no self-intersection, angle bounds). Process: a Sonnet session measures a per-phase profile, an upper bound per
+lever, a short literature check (papers only, never CGAL code) and proposes targets (e.g. 95 % of the 800 within budget,
+guarantees and angles unchanged, deterministic); the owner sets them; one PR per lever, measured with the 800 harness on
+the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
+and memory): both use "evaluate in parallel, apply serially".
+
+**Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
+(B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
+(C) vertex post-pass toward the QEF points, all exact checks kept (C1 offset miter, C2 input crease, C3 = C1 before the simplification): Chamfer 0.87x / 0.68x / 0.86x, edge F 0.1 % 0.75-0.76, crease normal 0.58x, 20/20 clean, angle floors and offset band unchanged, +15-35 % time: recovers 17-42 % of B's Chamfer gain, about 40 % of its edge F; (D1) alpha / 2 as the bound of a locally smaller alpha (option 4): Chamfer 0.75x at 1.7x triangles and 2.5x time (9 meshes); the QEF-guided Steiner idea (D2) was not built (needs library changes; C3 is its cheap proxy). Side finding: the simplified wrap grazes the input on 20/20 meshes (the raw wrap never does).
+How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Kobbelt et al. 2001 (feature-sensitive extraction: feature vertex + edge flips), recent mitered offset meshing (arXiv 2412.15564, Feature-Preserving Offset Mesh Generation from Topology-Adapted Octrees, CGF 2023) which keep sharp features by DC / point-to-plane offsets, not by an alpha wrap; the alpha wrap paper itself names sharp features as a limit. Recommendation in the PR / report.
+
+**Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`.
+
+**Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
+PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
+60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
+rest in smoothing / projection (12.6x plain at the median). Levers by expected gain: (1) a local check against an
+incrementally updated tree instead of rebuilds (both, core-count independent); (2) the orientation prefilter of #419
+(Devillers-Guigue) in front of the triangle-triangle test; (3) the Remesher projection through NearestPointBatch (#448,
+3.7-7.2x, bit-identical; the caller switch after Lévy phase 2); (4) slabs for the Remesher's edge operations (<= 2.1x on
+4 cores, large meshes only, a big build). First step: a per-operation profile of the plain Remesher (T4). Synergy with
+Alpha Wrap 3.0 (an incremental tree helps all three).
+**Status 2026-11-09 (T4, [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 12):** profiled; the flip test of the plain Remesher was the hotspot (40 % of the run, 256 bytes
+allocated per edge, because the closed-mesh hint was never set): fixed in PR 1, plain Remesher 1.49x (x1) / 1.29x (x2), bit-identical, `si` +3-5 %. Levers (1)-(3) measured and not built: the grid for the edge checks was incremental
+already, the move check rebuilds because every vertex moves, #419's filter is in place, and `NearestPointBatch` is slower than the parallel loop on coherent vertex order. (4), slabs, not started: the plain profile has no serial share above 25 % left.
+**T4 closed 2026-11-09:** the remaining levers were measured and none pays (section 12.4: warm-started projection
+1-5 % overall, pair-test order, flip pre-test, guard arrays, `NearestPointBatch`, tree refit <= 2.5 % of `si`); only
+PR 1 (#484) is built. Left open: the `RejectInvertingPasses` snapshot (6-19 % of the run) needs component labels that
+survive the edge operations, i.e. a correctness argument (research). Crease-sliver probe (#492, docs and harness
+only): 87 % of the slivers have two or more pinned vertices at the span ends and junctions of noisy crease networks;
+unpinning free ends gives p01 2.54° -> 3.41° (slivers -3 %, fidelity equal); dropping crease fragments shorter than
+4-16 edges removes 58 % of the slivers but drops F 0.67 -> 0.5 and doubles the outward Hausdorff (outside the T6 gate).
+**Parked (owner 2026-11-09):** feature-curve operators (Wang-style) and merging noisy crease fragments, a research
+item; not built until a variant is shown to keep the T6 fidelity gate.
+
 **Owner decision 2026-11-08: quality and speed.** On the 800-mesh Thingi10K sample of MeshRepairBenchmark
 (`BENCH_REPAIR=wrap`, 300/3000), the full pipeline (raw `MeshAlphaWrap`, `SimplifyAlphaWrap`, `AlphaWrapQualityPass`):
 - guarantees (closed, manifold, free of self-intersections, offset band) and fidelity (F-score, Hausdorff, band) not
@@ -114,7 +180,8 @@ better; 0.75 is 1.09-1.22x.
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
   pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
-- **Reducer / Remesher 2.0 (milestone idea, owner 2026-11-08; after Alpha Wrap 2.0, upper bounds first):**
+- **Reducer / Remesher 2.0: done 2026-11-09** (baseline, T5, T2, T1, T3, T6; results, measured limits and open items T4 / feature-curve operators in
+  [design/REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) sections 6 to 11; no default changed). The milestone idea as first written (owner 2026-11-08, upper bounds first):
   (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
   quality guard (compare with the worst triangle around the edge) to the general `Reducer` as options, since today
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with

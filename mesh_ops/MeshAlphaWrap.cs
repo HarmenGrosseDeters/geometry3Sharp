@@ -29,6 +29,10 @@ namespace gs
     ///   - closed, consistently oriented (outwards), 2-manifold, no self-intersections;
     ///   - the input is strictly inside: no outside cell comes closer than 1e-6 * Offset to it (the margin of
     ///     the floating-point distance tests);
+    ///   - no triangle of the result touches or crosses a triangle of the input (exact tests; measured: 0 of 2.67M triangles
+    ///     on 20 Thingi10K meshes), and the vertices keep the Offset from it (minimum 1.000 Offset measured);
+    ///     MeshRobustRepair's simplification (SimplifyAlphaWrap) and quality pass keep the first part (they skip an operation
+    ///     whose new triangles touch the input), their vertices stay at least about 0.35 Offset away (measured);
     ///   - the vertices lie on the offset surface (up to rounding), so between them the result can come closer
     ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
     ///     where the facets come from carving. Where the manifold step moved cells inside it can reach farther (measured
@@ -54,6 +58,11 @@ namespace gs
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
     ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-128, 2^128] (about 3e-39
+    /// to 3e38) and the extent of the input is zero (a single point) or at least 2^-40 of the largest magnitude; otherwise Compute() returns false
+    /// with InvalidInput. Measured (sphere, relative alpha 5, relative offset 100): usable between 2^-160 and 2^160; at
+    /// 2^+-180 and 2^+-200 the wrap degrades or runs for minutes.
+    ///
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class MeshAlphaWrap
@@ -63,7 +72,7 @@ namespace gs
             Success = 0,
             /// <summary> no triangles and no points </summary>
             EmptyInput = 1,
-            /// <summary> non-finite coordinates </summary>
+            /// <summary> non-finite coordinates, finite ones whose box (with its margin) does not fit doubles, or coordinates outside the supported range (class comment) </summary>
             InvalidInput = 2,
             /// <summary> Alpha / Offset not positive (eg relative values for an input of zero size) </summary>
             InvalidParameters = 3,
@@ -220,6 +229,11 @@ namespace gs
             return ok;
         }
 
+        static bool finite(Vector3d v)
+        {
+            return Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue;
+        }
+
         bool compute_once()
         {
             Result = null;
@@ -313,6 +327,29 @@ namespace gs
         }
 
 
+        const double RangeMin = 2.9387358770557188e-39, RangeMax = 3.402823669209385e38;   // 2^-128, 2^128
+
+        /// <summary> null if every nonzero coordinate has a magnitude in [2^-128, 2^128] and the extent is zero or at least 2^-40 of the largest one, otherwise why not </summary>
+        static string outside_range(List<Vector3d> tris, List<Vector3d> pts)
+        {
+            Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+            double biggest = 0;
+            foreach (var list in new[] { tris, pts })
+                foreach (Vector3d p in list)
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (!(a == 0 || (a >= RangeMin && a <= RangeMax)))
+                            return "outside the supported range: a nonzero coordinate has a magnitude outside [2^-128, 2^128]";
+                        biggest = Math.Max(biggest, a);
+                        lo[c] = Math.Min(lo[c], p[c]);
+                        hi[c] = Math.Max(hi[c], p[c]);
+                    }
+            double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+            if (extent > 0 && extent < biggest * 9.094947017729282e-13)
+                return "outside the supported range: the extent of the input is below 2^-40 of the largest coordinate magnitude";
+            return null;
+        }
+
         WrapStatus setup()
         {
             var tris = new List<Vector3d>();
@@ -337,6 +374,13 @@ namespace gs
                         Error = "input has non-finite coordinates";
                         return WrapStatus.InvalidInput;
                     }
+            // the supported range (class comment, docs/QA.md 2.5a): outside it the wrap ran for minutes (beyond 2^+-180) or
+            // reported a success with an input vertex outside (coordinates of 1e-276 next to an extent of 1e17)
+            string outside = outside_range(tris, pts);
+            if (outside != null) {
+                Error = outside;
+                return WrapStatus.InvalidInput;
+            }
             oracle = new AlphaWrapOracle(tris, pts);
             Counts["input_triangles"] = oracle.Triangles;
             Counts["input_segments"] = oracle.Segments;
@@ -362,6 +406,13 @@ namespace gs
                 box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
             } else {
                 box.Expand(margin);
+            }
+            // a margin below the units in the last place of the coordinates is lost (a flat input far from the origin gives
+            // a box of no extent), and a box that overflows has corners that are not finite
+            // (each coordinate: Vector3d.IsFinite tests their sum, which can overflow)
+            if (!(finite(box.Min) && finite(box.Max) && box.Max.x > box.Min.x && box.Max.y > box.Min.y && box.Max.z > box.Min.z)) {
+                Error = "the extent of the input (with the margin of the box) does not fit double coordinates";
+                return WrapStatus.InvalidInput;
             }
             dt = new Delaunay3(box);
             // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match
@@ -1346,6 +1397,35 @@ namespace gs
             return mesh;
         }
 
+
+        /// <summary>
+        /// The inside cells of the last successful Compute() as a tetrahedral mesh (docs/design/TET_MESHING.md, stage 0).
+        /// The wrap surface is a union of facets of the triangulation, so the inside cells are a valid tetrahedral mesh of the
+        /// wrapped volume whose boundary is exactly Result (same vertex positions, no rounding). Delaunay, positive
+        /// volumes exactly, but without any quality bound in the interior. Null if there is no successful Result.
+        /// </summary>
+        public TetMesh3 ExtractTetMesh()
+        {
+            if (Result == null || Status != WrapStatus.Success || dt == null)
+                return null;
+            var tm = new TetMesh3();
+            var map = new Dictionary<int, int>();
+            Func<int, int> vid = (v) => {
+                if (!map.TryGetValue(v, out int id)) { id = tm.Vertices.Count; tm.Vertices.Add(dt.GetVertex(v)); map[v] = id; }
+                return id;
+            };
+            foreach (int c in dt.CellIndices()) {
+                if (label[c] != Inside) continue;
+                Index4i cv = dt.GetCell(c);
+                tm.Tets.Add(new Index4i(vid(cv.a), vid(cv.b), vid(cv.c), vid(cv.d)));
+                for (int i = 0; i < 4; ++i) {
+                    if (label_of(dt.Neighbour(c, i)) != Outside) continue;
+                    Index3i f = dt.FacetVertices(c, i);
+                    tm.BoundaryTriangles.Add(new Index3i(vid(f.a), vid(f.b), vid(f.c)));
+                }
+            }
+            return tm;
+        }
 
         /// <summary> max-heap of gates (facet i of inside cell c, with the cell's stamp), by facet radius </summary>
         class GateQueue

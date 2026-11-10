@@ -192,6 +192,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 
 ## 12. Test oracles and generators (#229)
 
+- Tool-result validation: parse decimal bounds without binary floating-point underflow masking a negative value;
+  reject malformed, non-finite or missing results.
+
 - Fuzz harnesses: does seed validation propagate parse errors, and does a reader wrap internal exceptions in
   error results that the harness must surface? Verify a stored artificial crash can be replayed without instrumentation.
 

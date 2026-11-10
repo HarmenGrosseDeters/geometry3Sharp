@@ -8,7 +8,9 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
+  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow)
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   workflow_dispatch:
 
@@ -21,38 +23,76 @@ concurrency:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Two tiers (docs/QA.md, "Test tiers"): the library tests of a draft PR skip the tests tagged [Trait("Category", "Slow")]
+  # (5 s and more); a PR that is ready for review, master and manual runs run all of them.
+  FULL_TIER: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
 
 jobs:
+  # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
+  # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
+  # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      library: ${{ steps.scope.outputs.library }}
+      g3cli: ${{ steps.scope.outputs.g3cli }}
+      ps1: ${{ steps.scope.outputs.ps1 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            # the checkout is the merge commit of the PR into the base: its first parent is the base
+            git diff --name-only --no-renames HEAD^1 HEAD | tee changed.txt
+            python3 tools/ci_scope.py < changed.txt | tee -a "$GITHUB_OUTPUT"
+          else
+            python3 tools/ci_scope.py --all | tee -a "$GITHUB_OUTPUT"
+          fi
+
   # net10.0 build of the library, all tests, NuGet package and package smoke test
   linux:
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The gate compares the tested merge commit with its merge base.
-          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - name: Build
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=net10.trx" --results-directory test-results/core
-      - name: Test CLI / MCP server (tools/g3cli)
-        run: dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=g3cli.trx" --results-directory test-results/cli
-      - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
-        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --logger "trx;LogFileName=clipper2.trx" --results-directory test-results/clipper2
-      - name: Test the changed-line coverage gate
-        run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
-      - name: Changed-line coverage (all changed executable lines must be hit)
-        if: github.event_name == 'pull_request'
+        if: needs.scope.outputs.library == 'true'
+        run: |
+          # (Category=Nightly runs in .github/workflows/nightly.yml only)
+          filter=(--filter "Category!=Nightly")
+          if [ "$FULL_TIER" != true ]; then filter=(--filter "Category!=Slow&Category!=Nightly"); fi
+          dotnet test tests/geometry3Sharp.Tests -c Release "${filter[@]}" --logger "trx;LogFileName=net10.trx" --results-directory test-results
+      - name: Test time rule (CLAUDE.md, "Test time"; report, ratchet over SLOW_BACKLOG.txt)
+        if: needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
+        # fails for a test of more than 10 s, and for one of 5 s or more without the trait Slow, unless its method is on
+        # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
+        # RATCHET_ENFORCE=0: report mode (violations go to the step summary and as warnings, the step passes) while the backlog
+        # is filled from the runner timings of master's full runs; then a PR sets it to 1.
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: >
-          python3 tools/changed_line_coverage.py --base "$BASE_SHA"
-          --coverage-dir test-results --json test-results/changed-line-coverage.json
-          --summary "$GITHUB_STEP_SUMMARY"
+          RATCHET_ENFORCE: '0'
+        run: |
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
+          base=()
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
+            if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
+          fi
+          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
+      - name: Test CLI / MCP server (tools/g3cli)
+        if: needs.scope.outputs.g3cli == 'true'
+        run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
+      - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
+        if: needs.scope.outputs.library == 'true'
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --logger "trx;LogFileName=clipper2.trx" --results-directory test-results
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
       - name: Pack the Clipper2 package
@@ -71,6 +111,10 @@ jobs:
         run: |
           dotnet build tools/ReaderFuzzPilot -c Release
           READER_FUZZ_DLL="$PWD/tools/ReaderFuzzPilot/bin/Release/net10.0/ReaderFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/ReaderFuzzPilot -p 'test_*.py' -v
+      - name: Test the mesh-operation fuzz harness (without a fuzz campaign)
+        run: |
+          dotnet build tools/MeshFuzzPilot -c Release
+          MESH_FUZZ_DLL="$PWD/tools/MeshFuzzPilot/bin/Release/net10.0/MeshFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/MeshFuzzPilot -p 'test_*.py' -v
       - name: Build the benchmarks and the predicate compiler
         run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
@@ -86,9 +130,15 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
+      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py)
+        run: |
+          python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
+          python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
+          python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
+          python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
           TERRAIN_BENCHMARK_DLL="$PWD/benchmarks/TerrainBenchmark/bin/Release/net10.0/TerrainBenchmark.dll" python3 -m unittest discover -s benchmarks/TerrainBenchmark -p 'test_*.py' -v
       - uses: actions/upload-artifact@v4
@@ -99,6 +149,62 @@ jobs:
             artifacts/
             test-results/
 
+  # Changed-line coverage gate (docs/QA.md 2.6, tools/changed_line_coverage.py) in a job of its own, parallel to linux: coverlet
+  # makes the suite about 3x slower (the first version in the linux job hit the 60 min limit). The fast tier (without Slow and
+  # Nightly) runs under coverage; when it leaves changed lines uncovered, the Slow tier of the core suite runs under coverage too,
+  # and a line only it hits is reported as covered_only_by_slow, not a failure. PRs only (the gate compares with the merge base).
+  coverage:
+    needs: scope
+    if: github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the gate compares the tested merge commit with its merge base
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test the gate
+        run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+      - name: Build
+        run: dotnet build tests/geometry3Sharp.Tests -c Release
+      - name: Fast tier under coverage (core, CLI, Clipper2 package)
+        run: |
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category!=Slow&Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
+          dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
+          dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
+      - name: Changed-line coverage (fast tier)
+        id: gate
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set +e
+          python3 tools/changed_line_coverage.py --base "$BASE_SHA" --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+      - name: Slow tier under coverage (the fast tier left changed lines uncovered)
+        if: steps.gate.outputs.code == '1'
+        run: dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category=Slow" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results-slow/core
+      - name: Changed-line coverage (fast and Slow tier)
+        if: steps.gate.outputs.code == '1'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/changed_line_coverage.py --base "$BASE_SHA" --coverage-dir test-results --slow-coverage-dir test-results-slow --json test-results/changed-line-coverage-with-slow.json --summary "$GITHUB_STEP_SUMMARY"
+      - name: Incomplete coverage evidence
+        if: steps.gate.outputs.code != '' && steps.gate.outputs.code != '0' && steps.gate.outputs.code != '1'
+        run: exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-results
+          path: |
+            test-results/
+            test-results-slow/
+
   # net48 test run, which uses the netstandard2.0 build of the library. It runs in two shards with complementary
   # filters (every test exactly once): the net48 run took 40-60 min in one job and hit timeout-minutes; the 2D mesher
   # and envelope tests are about half of its time (net10.0 timings, 2026-11-04). The first shard keeps the check name
@@ -106,6 +212,7 @@ jobs:
   # (shard a had grown to 40 min with the mesher tests, shard b was at 20-26 min).
   netstandard:
     name: ${{ matrix.name }}
+    needs: scope
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -114,22 +221,30 @@ jobs:
         include:
           - name: netstandard
             shard: a
-            filter: FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2
+            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain)
           - name: netstandard-b
             shard: b
-            filter: FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2
+            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain)
+    # (2026-11-09: the terrain tests moved to shard a; the mesher tests got cheaper (sparse tag check), shard a was at 14 min and
+    # shard b at 32. Summed net10.0 durations of the full run: a 2050 s, b 2113 s.)
+    # (the draft tier adds &Category!=Slow to the shard's filter: the shards stay complementary. A PR that changes only
+    # tools, benchmarks or docs the tests do not read skips the library tests; the job still starts, as the check names
+    # are fixed, and runs the PowerShell regression of shard a when benchmarks/MeshRepairBenchmark changed.)
     steps:
       - uses: actions/checkout@v4
+        if: needs.scope.outputs.library == 'true' || (matrix.shard == 'a' && needs.scope.outputs.ps1 == 'true')
       - uses: actions/setup-dotnet@v4
+        if: needs.scope.outputs.library == 'true' || (matrix.shard == 'a' && needs.scope.outputs.ps1 == 'true')
         with:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
-        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
+        if: needs.scope.outputs.library == 'true'
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}&Category!=Nightly${{ env.FULL_TIER != 'true' && '&Category!=Slow' || '' }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
       - name: Test the Clipper2 package (net48 / netstandard2.0)
-        if: matrix.shard == 'a'
+        if: needs.scope.outputs.library == 'true' && matrix.shard == 'a'
         run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results
       - name: Benchmark reporting regression (MeshRepairBenchmark)
-        if: matrix.shard == 'a'
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1
       - uses: actions/upload-artifact@v4

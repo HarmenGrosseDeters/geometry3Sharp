@@ -78,6 +78,7 @@ namespace geometry3Sharp.Tests
         // ImproveWrapQuality returns its result without a second Hausdorff check: certified by construction (every new
         // triangle by IsWithin, the others by the simplification's certificate). Checked here with the bounds without the
         // patch bound, over inputs and every kind of operation (default, collapses, splits of more caps, moves only)
+        [Trait("Category", "Slow")]
         [Fact]
         public void ImproveWrapQuality_CertifiedByConstruction()
         {
@@ -384,6 +385,7 @@ namespace geometry3Sharp.Tests
             return (double)n / m.TriangleCount;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SplitCaps_FewerCaps_WithinTheBudget_SameSurface()
         {
@@ -804,6 +806,7 @@ namespace geometry3Sharp.Tests
             Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => true));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RobustRepair_QualityPass_OffByDefault_ImprovesTheWrapWhenOn()
         {
@@ -865,8 +868,9 @@ namespace geometry3Sharp.Tests
             Assert.True(plain.Apply());
             Assert.False(plain.UsedAlphaWrap);
             Assert.True(double.IsNaN(plain.AlphaWrapMinAngleDegrees) && double.IsNaN(plain.AlphaWrapMaxAngleDegrees) && double.IsNaN(plain.AlphaWrapShareAbove170));
-            // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap
-            DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false, MeshRobustRepair.DefaultWrapQuality);
+            // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap (and, as in Apply, no new triangle touches the input)
+            DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false,
+                (p) => { MeshRobustRepair.DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(MeshRobustRepairTests.ThinPlates(6), true); });
             Assert.Equal("", Invariance.Difference(direct, on.Mesh));
         }
     }

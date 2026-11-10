@@ -123,21 +123,41 @@ namespace geometry3Sharp.Tests
             Assert.True(on.Triangles.Length * 4 < offOutput.Triangles.Length, on.Triangles.Length + " against " + offOutput.Triangles.Length);
         }
 
-        /// <summary> input angles at or above the bound (also between it and 60 degrees, where Shewchuk's clusters reach), and in the
-        /// oracle's window below it (30 degrees - 6e-10 rad): no exemption, and the mesh is the one without the rule, bit for bit </summary>
+        /// <summary> input angles at or above 60 degrees (owner decision 2026-11-09: below it Ruppert's and Chew's termination proofs fail,
+        /// Shewchuk 2002 section 6.2), and in the window just below it (60 degrees - 6e-10 rad): no exemption, and the mesh is the one
+        /// without the rule, bit for bit </summary>
         [Theory]
-        [InlineData(30.0)]
-        [InlineData(31.0)]
-        [InlineData(30 - 6e-10 * 180 / Math.PI)]
-        [InlineData(40.0)]
-        public void AngleAtTheBound_IsNotSmall(double degrees)
+        [InlineData(60.0)]
+        [InlineData(61.0)]
+        [InlineData(60 - 6e-10 * 180 / Math.PI)]
+        [InlineData(75.0)]
+        public void AngleAtOrAbove60_IsNotSmall(double degrees)
         {
-            var log = Log(QualityMesh2SmallAngleRuleTests.HullWedge(30, degrees), out var on);
+            var log = Log(Wedge135(degrees), out var on);
             Assert.DoesNotContain(log, l => l.Exempt);
-            Log(QualityMesh2SmallAngleRuleTests.HullWedge(30, degrees), out var off, exemption: false);
+            Log(Wedge135(degrees), out var off, exemption: false);
             Assert.Equal(off.VX, on.VX);
             Assert.Equal(off.VY, on.VY);
             Assert.Equal(off.Triangles.SelectMany(t => t), on.Triangles.SelectMany(t => t));
+        }
+
+        /// <summary>
+        /// A regular octagon (corner angles 135 degrees) with a segment from the corner A = (10, 0) into it, at the given angle to the
+        /// hull edge A-B and ending inside at P, 4 from A: the only pair at an angle below 135 degrees is the segment with the hull edge A-B
+        /// (the other is 135 - degrees, below 60 only above 75 degrees), and no hull corner or segment end makes another
+        /// </summary>
+        static Mesh2Input Wedge135(double degrees, double angle = 30)
+        {
+            var xy = new List<double>();
+            for (int k = 0; k < 8; ++k) { xy.Add(Math.Round(10 * Math.Cos(k * Math.PI / 4), 12)); xy.Add(Math.Round(10 * Math.Sin(k * Math.PI / 4), 12)); }
+            // the hull edge A-B runs from (10, 0) to (7.07, 7.07), in direction 112.5 degrees; the interior is on its left
+            double dir = (112.5 + degrees) * Math.PI / 180;
+            xy.Add(Math.Round(10 + 4 * Math.Cos(dir), 12)); xy.Add(Math.Round(4 * Math.Sin(dir), 12));
+            var input = Generators.Literal(xy.ToArray());
+            input.Segments.Add(new SegmentInput(0, 8));
+            input.MinAngleDeg = angle;
+            input.ConstrainedQuality = true;
+            return input;
         }
 
         /// <summary> in the shell cascade the encroaching partner vertex lies at about half the radius of the shell subsegment's far end:
@@ -168,19 +188,18 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// the conforming mode on the snap grid is unchanged: no exemption, the same mesh as without the rule (off the grid the conforming mode
-        /// has rule C, MESHING2D_SMALL_ANGLES_CONFORMING.md; QualityMesh2ConformingSmallAngleTests)
+        /// the conforming mode on the snap grid has rule C too (MESHING2D_SMALL_ANGLES_CONFORMING.md section 8; it was off there until the
+        /// oracle's pinch rule judged chain identity): exemptions are logged, and the mesh is another one than without the rule, with fewer triangles
         /// </summary>
         [Fact]
-        public void ConformingModeOnTheGrid_IsUnchanged()
+        public void ConformingModeOnTheGrid_HasTheRule()
         {
             var input = QualityMesh2SmallAngleRuleTests.HullWedge(25, 5.0, 1.0 / 256);
             input.ConstrainedQuality = false;
             var log = Log(input, out var on);
-            Assert.DoesNotContain(log, l => l.Exempt);
+            Assert.Contains(log, l => l.Exempt);
             Log(input, out var off, exemption: false);
-            Assert.Equal(off.VX, on.VX);
-            Assert.Equal(off.Triangles.SelectMany(t => t), on.Triangles.SelectMany(t => t));
+            Assert.True(on.Triangles.Length < off.Triangles.Length, on.Triangles.Length + " against " + off.Triangles.Length);
         }
 
         /// <summary> how two closed segments meet, exactly: a shared endpoint, a T-junction, a crossing, and three that do not meet </summary>

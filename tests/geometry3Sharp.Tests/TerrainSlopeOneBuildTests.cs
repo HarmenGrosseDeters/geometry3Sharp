@@ -59,6 +59,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void OneBuild_EqualsARebuildAtTheFinalLowering()
         {
@@ -101,6 +102,10 @@ namespace geometry3Sharp.Tests
             Assert.True(raised >= 3, $"{raised}");
         }
 
+        // Two sizes of one check. The full stress set (14 cases x 5 orders, about 80 Computes: 29 s) is Nightly: the run is the check.
+        // The PR tier keeps a reduced set that checks the same properties on the cases that carry them (ray components, undercut
+        // causes) with two orders: InsertionOrder_Reduced_DoesNotChangeTheResult.
+        [Trait("Category", "Nightly")]
         [Fact]
         public void InsertionOrder_DoesNotChangeTheResult()
         {
@@ -113,8 +118,23 @@ namespace geometry3Sharp.Tests
                 n => TerrainSlopeDesign.shuffled(n, 2),
                 n => TerrainSlopeDesign.shuffled(n, 0xC0FFEE),
             };
+            InsertionOrderCheck(Cases().Concat(UndercutCases()), orders, 3, 2);
+        }
+
+        [Fact]
+        public void InsertionOrder_Reduced_DoesNotChangeTheResult()
+        {
+            var orders = new List<Func<int, int[]>>() {
+                n => Enumerable.Range(0, n).Reverse().ToArray(),
+                n => TerrainSlopeDesign.shuffled(n, 1),
+            };
+            InsertionOrderCheck(Cases().Take(1).Concat(UndercutCases().Take(1)), orders, 1, 1);
+        }
+
+        void InsertionOrderCheck(IEnumerable<Func<TerrainSlopeDesign>> allCases, List<Func<int, int[]>> orders, int minRays, int minUndercuts)
+        {
             int cases = 0, withRays = 0, withUndercuts = 0;
-            foreach (var make in Cases().Concat(UndercutCases())) {
+            foreach (var make in allCases) {
                 var a = make();
                 a.CheckCanonical = true;
                 bool ra = a.Compute();
@@ -154,9 +174,9 @@ namespace geometry3Sharp.Tests
                 output.WriteLine($"{cases}: {a.Status}, rays {a.RayCount}, triangles {(a.SlopeSurface == null ? 0 : a.SlopeSurface.TriangleCount)}");
             }
             // (the rays have to be exercised: components that are not convex)
-            Assert.True(withRays >= 3, $"{withRays}");
+            Assert.True(withRays >= minRays, $"{withRays}");
             // (and the undercut causes, which decide the StatusKind)
-            Assert.True(withUndercuts >= 2, $"{withUndercuts}");
+            Assert.True(withUndercuts >= minUndercuts, $"{withUndercuts}");
         }
 
         // toes that undercut themselves (TerrainSlopeDesignTests.TwoLevelToe_IsUndercut): a U-shaped open toe, and a closed

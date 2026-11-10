@@ -12,7 +12,39 @@ Part of the [roadmap](../ROADMAP.md).
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
   so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
   when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker).
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (draft, measured 8 November 2026): (1) `--verbosity debug` / `trace` log no line per test during capture
+  (a 51-test filter: the capture test host logs `InProgressTests is null` / `Sending test run statistics` lines in batches,
+  20 and 6 of them after 10 min), so the ticker shows elapsed time only; (2) the Stryker logs are uploaded with `if: always()`
+  (`mutation-logs-mesh-<shard>`, 7 days); (3) `run_stryker.sh` stops a shard early when the projection after the capture
+  exceeds the limit by 15 % on two ticks in a row (exit 3, `StrykerOutput/stopped-early`, step summary); (4) `dots` prints
+  nothing without a terminal. Open from the analysis: per-part reduced test filters (`exclusive_kills.py`), a `gate` mode
+  that fingerprints without thresholds, a two-tier test split, a timeout A/B (`timeout-ratio`), tests for the envelope
+  survivors that look real, baseline import through a data branch.
+- **#403 merged (2026-11-09, 1fad195d):** its last run was green on all 14 shards within 350 min (rounding parts
+  145-294 min, margin >= 56 min). Master baselines dispatched for the 14 non-rounding shards; the rounding baselines are
+  seeded after the integration PR (it changes the rounding code, so earlier baselines would be stale at once).
+- **JOB-1 on the owner's machine (2026-11-09, runs/mutation-local e4137017):** label A (part 4, 174 tests) is not a kill
+  measurement: all 282 mutants Timeout in about 5 s of mutant phase (the Windows test runner most likely failed; the log
+  was overwritten). Its capture took 6 h 34 min, about 2x CI. F1 has 171 tests, so a reduced filter barely shortens
+  capture; B2 dropped. Decision: no kill measurements on the owner's machine; kills only in CI.
+- **CI speed (owner 2026-11-09; Sonnet session, branch claude/ci-test-tiers):** master suite 8133 tests, 23 min wall,
+  5296 s summed; tests >= 5 s are 171 tests and 67 % of the time; xunit runs one class serially, so the 753 s
+  `TagCheck_HoldsOnTheCoveredCatalogueRows` was the critical path. Plan: split the long tests into classes (same checks,
+  a test proves the partition), remove a duplicated oracle run in `ExtremeScales` (-48 %), a `Slow` trait with a fast
+  draft tier (~6-8 min) and the full suite on ready-for-review and master, path-based CI for tools/benchmark/docs PRs;
+  then #434 (coverage gate) as its own job over the fast tier. Follow-up candidate: catalogue row F-37 takes ~300 s in
+  the tag check alone (a test-oracle cost, like the conformity sweep in #392); profile before deciding.
+- **Test time limit (owner 2026-11-09, CLAUDE.md):** <= 5 s per test, exceptions up to 10 s with Slow and a reason,
+  nothing above. Backlog on master before #447: 113 tests at 5-10 s, 44 at 10-30 s, 14 above 30 s (68 classes).
+  Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
+  area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
+  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours.
+- **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
+  8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
+  #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
+  7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
+  touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
+  decision, not needed for the gate).
 - **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
@@ -100,13 +132,18 @@ Tier: S, M. Parallel: up to 2 sessions
     (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
   - [ ] CsCheck property campaigns beyond the boolean (owner 2026-11-08; after the exact-boolean merge queue; one
     bounded Sonnet task per area, test-only, findings go as bugfixes to the owning session), in this order:
-    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`): a generator of multi-component inputs with
+    1. Repair and rounding (`MeshRobustRepair`, `MeshRoundingRepair`; done 2026-11-09 as QA 2.0 T3:
+       `RepairCampaignTests`, findings F1-F3 in `RepairCampaignFindings`): a generator of multi-component inputs with
        very different sizes and distances (it would have found #420 and #425); properties: no defect the input does
        not have, `Apply() == true` implies clean by `NotCleanReason`, every vertex displacement <= MaxDrift, 2^k
        scale invariance.
     2. 2D mesher (`QualityMesh2`) against the independent oracle (fast since #411 / #427): random polygons with
        holes, near-parallel and near-touching segments; properties: input segments are unions of output edges,
-       angle bounds, conformity.
+       angle bounds, conformity. **Done 2026-11-10 (QA 2.0 T5):** `QualityMesh2PropertyCampaign.CsCheck.cs` (seven families: polygon with
+       holes, touching, wedge, soup, near contact, grid, extreme scales; 8 to 50 seeded samples each in CI, category `Campaign`), cases and
+       properties in `QualityMesh2PropertyCase.cs`, fixed examples in `QualityMesh2PropertyExamplesTests.cs`. Large runs:
+       `G3_PROPERTY_SAMPLES=10000` (about 60 000 samples). Findings: #496 (input angles below 60 degrees are small pairs), #499
+       (oracle rule O-G, the grid tube); `TrianglesOnDegenerate` was fixed by #512; fine-grid `AngleBelowBound` was an oracle gap (hull edges taken whole on the grid, #534); the spike case (`VertexUnused` / `SegmentMissing`, a lobe of 5.5 px²) was settled by owner decision B (the reference is the rounded input, the oracle's lobe bounds are gone). The 10k strict grid run has no finding left; the filter for open grid classes (`G3_PROPERTY_STRICT=1` turns it off) stays for new ones.
     3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
        deterministic; shrinking to minimal pinch / cap cases.
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
@@ -123,6 +160,50 @@ Tier: S, M. Parallel: up to 2 sessions
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
       long runs on a runner or the owner's machine, not in CI; every crash becomes a fixed example test. An initial
       STL pilot and replay workflow are in [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md); other readers remain open.
+    - Coverage-guided fuzzing of the mesh operations (owner 2026-11-09): [MeshFuzzPilot](../../tools/MeshFuzzPilot/README.md)
+      decodes bytes into small closed meshes at every binary scale and runs ExactMeshBoolean, MeshRobustRepair and
+      MeshRoundingRepair; a finding is an exception, a timeout or a result that contradicts its own claim, and becomes
+      a procedural regression test in its own bugfix PR.
+
+#### QA 2.0 milestone
+
+**QA 2.0 (owner 2026-11-09):** the new test tools go from pilots to broad use across the library. They are:
+SharpFuzz + libFuzzer (STL reader pilot #442; mesh-ops pilot after #449), FPTaylor (#436), Z3 (#400, #407, #443),
+CsCheck property campaigns (the list above), changed-line coverage with coverlet (#434), mutation shards (#403, #445)
+and the test tiers and time limit (#447, the backlog program).
+- **Step 1, inventory (Sonnet session started 2026-11-09):** a matrix tool x area (readers, repair / rounding, exact boolean, alpha wrap, 2D mesher and
+  oracle, Clipper2 addon, MarchingCubes / contouring, terrain, remesher / reducer, spatial queries), each cell with
+  what exists, what the tool would check there, the expected finds and the cost. Then a rollout order by ROI for the
+  owner.
+- **Rollout:** one bounded Sonnet task per (tool, area), test-only. Findings become procedural regression tests in
+  bugfix PRs of the owning area. Long campaigns run on a runner or the owner's machine, CI runs small seeded ones.
+  Every addition respects the test time limit and the test tiers.
+- **Done when:**
+  - every reader and every public operation that takes untrusted geometry has a coverage-guided fuzz harness with
+    a replay corpus;
+  - every floating-point filter has a tool-checked bound (FPTaylor) and every filter or termination rule a Z3 lemma;
+  - every robustness-critical module has a property campaign and a mutation shard;
+  - the changed-line coverage gate is active.
+- **First results (mesh-ops fuzz pilot, Boolean session, 2026-11-09, 45 min, 3 workers):** two real defects, each
+  in a bugfix PR: #451 (`DMeshAABBTree3` top-down build: stack overflow / IndexOutOfRange when extreme centroids are
+  adjacent doubles, and every triangle dropped above ~1e154 by an overflowing `LengthSquared`), #452
+  (`MeshRoundingRepair.fix_degenerate` hang for components below ~1e-154). Sweep list, not fixed yet:
+  `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
+  `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
+  triangle inputs through the wrap / solidify fallbacks (performance, not a hang).
+- **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
+  tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
+  (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
+- **Supported input range (owner 2026-11-09, [QA.md 2.5a](../QA.md#25a-supported-input-range-correct-inside-fail-gracefully-outside-owner-2026-11-09)):**
+  findings are judged against a documented range per module: inside, a wrong result is a bug; outside, only a crash,
+  a hang or a false success is fixed (cheaply, by a range check), anything else is a documented limit. Task (Sonnet,
+  docs and tests): set the range per module (coordinate magnitude, scale disparity, size), write it in the class docs
+  and the QA.md table, move the generators to sample inside it plus a small out-of-range sample, and re-classify the
+  open sweep / fuzz findings (radius-1e100 ray queries, the 4-12 triangle repair times) under the two properties.
+  **Ranges set (2026-11-10):** QA.md 2.5a has the table (per module magnitude, disparity, measured limits) and the class docs the
+  "Supported input range" paragraphs; range-check bugfix PRs per module and the generator / fuzz domain changes follow.
+- **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
+  CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 
 #### Test suite on German Windows
 

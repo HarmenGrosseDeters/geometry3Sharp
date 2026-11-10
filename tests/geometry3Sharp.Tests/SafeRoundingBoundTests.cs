@@ -239,10 +239,12 @@ namespace geometry3Sharp.Tests
 
         static double Ulp(DMesh3 m) => Math.Pow(2, Math.Floor(Math.Log(m.Vertices().Max(v => v.MaxAbs), 2)) - 52);
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Utm_CleanWithTheUlpTolerance_WithinIt()
         {
-            // 108 of 114 clean with the default (UlpFactor 256); 92 with the relative bound only (UlpFactor 0, before).
+            // 108 of 114 clean with the default (UlpFactor 256); 95 with the relative bound only (UlpFactor 0, before; 92
+            // before the drift was charged to the apex of an edit).
             // Every result within its bound, MaxDrift <= MaxLength = 256 ulps (0.24 micrometres here)
             int clean = 0, cleanRelative = 0, removals = 0, n = 0;
             foreach (var (name, mesh) in UtmCases()) {
@@ -263,7 +265,7 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(114, n);
             Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
-            Assert.True(cleanRelative <= 92, $"relative bound only: {cleanRelative}");
+            Assert.True(cleanRelative <= 95, $"relative bound only: {cleanRelative}");
             Assert.True(removals > 0, "vertex removals");
         }
 
@@ -272,6 +274,7 @@ namespace geometry3Sharp.Tests
         // fix_degenerate moved the apex of a cap along Normalized, fix_intersection along GetTriNormal and Normalized, and
         // those return 0 below the absolute MathUtil.Epsilon, so an offset of 1e-17 gave no move at scale 1 but one at
         // 2^10 (docs/design/SAFE_ROUNDING.md, the snap-rounding experiment)
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 4, 5)]
         [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 8, 4)]
@@ -540,8 +543,11 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(far, a, b);
             int before = m.TriangleCount;
             var r = new MeshRoundingRepair(m);
-            r.Apply();
+            // (not clean: the needles stay, and the area test cannot see them; before, the sphere was removed as tiny)
+            Assert.False(r.Apply());
             Assert.Equal(0, r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(before, m.TriangleCount);
             Assert.True(double.IsNaN(r.MaxLength));
         }
     }

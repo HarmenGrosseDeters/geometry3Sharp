@@ -442,8 +442,23 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // The cancel points 1 to 60 of the run (all of them cancel: there are more than 60 calls of CancelF), in four classes that
+        // xUnit runs in parallel (9 s in one test): CancelRanges_PartitionTheCancelPoints
+        internal static readonly (int From, int To)[] CancelRanges = { (1, 15), (16, 30), (31, 45), (46, 60) };
+
         [Fact]
-        public void Reuse_AfterACancelledLocalLimitRun()
+        public void CancelRanges_PartitionTheCancelPoints()
+        {
+            var ks = CancelRanges.SelectMany(r => Enumerable.Range(r.From, r.To - r.From + 1)).ToList();
+            Assert.Equal(Enumerable.Range(1, 60), ks);
+        }
+
+        public class ReuseAfterCancelPoints1To15 { [Fact] public void Reuse_AfterACancelledLocalLimitRun() => CancelledLocalLimitRun(0); }
+        public class ReuseAfterCancelPoints16To30 { [Fact] public void Reuse_AfterACancelledLocalLimitRun() => CancelledLocalLimitRun(1); }
+        public class ReuseAfterCancelPoints31To45 { [Fact] public void Reuse_AfterACancelledLocalLimitRun() => CancelledLocalLimitRun(2); }
+        public class ReuseAfterCancelPoints46To60 { [Fact] public void Reuse_AfterACancelledLocalLimitRun() => CancelledLocalLimitRun(3); }
+
+        static void CancelledLocalLimitRun(int range)
         {
             // a run with the local height limit, cancelled at any point, then the same instance with a given limit: the
             // result is that of a new instance (a cancel inside the local limit loop left 'the cap may grow' set, and the
@@ -454,7 +469,7 @@ namespace geometry3Sharp.Tests
             fresh.Compute();
             Assert.NotNull(fresh.Composite);
             int cancelled = 0;
-            for (int k = 1; k <= 60; ++k) {
+            for (int k = CancelRanges[range].From; k <= CancelRanges[range].To; ++k) {
                 var d = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
                 int calls = 0;
                 d.CancelF = () => ++calls >= k;
@@ -471,7 +486,8 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < fresh.CatchLines.Count; ++i)
                     Assert.Equal(fresh.CatchLines[i].Points, d.CatchLines[i].Points);
             }
-            Assert.True(cancelled > 0);
+            // (the run has more than 60 cancel points: every one of the range cancels)
+            Assert.Equal(CancelRanges[range].To - CancelRanges[range].From + 1, cancelled);
         }
 
         [Theory]

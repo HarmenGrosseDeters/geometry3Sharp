@@ -26,11 +26,27 @@ class Decisions(unittest.TestCase):
 
     def test_only_changed_executable_lines_and_union_of_hits(self):
         self.assertEqual(c.evaluate({"math/A.cs": {2, 3, 4}}, {"math/A.cs": {1: 0, 2: 1, 4: 0}}),
-                         {"changed_executable_lines": 2, "covered_lines": 1,
+                         {"changed_executable_lines": 2, "covered_lines": 1, "covered_only_by_slow": {},
                           "uncovered": {"math/A.cs": [4]}, "missing_files": [], "ok": False})
         self.assertTrue(c.evaluate({"math/A.cs": {3}}, {"math/A.cs": {1: 0}})["ok"])
         self.assertEqual(c.evaluate({"math/New.cs": {1}}, {})["missing_files"], ["math/New.cs"])
         self.assertTrue(c.evaluate({}, {})["ok"])
+
+
+    def test_lines_hit_only_by_slow_tests_are_reported_not_failed(self):
+        changes = {"math/A.cs": {2, 3, 4}}
+        fast = {"math/A.cs": {2: 1, 3: 0, 4: 0}}
+        slow = {"math/A.cs": {2: 0, 3: 5, 4: 0}}
+        r = c.evaluate(changes, fast, slow)
+        self.assertEqual(r["covered_only_by_slow"], {"math/A.cs": [3]})
+        self.assertEqual(r["uncovered"], {"math/A.cs": [4]})       # neither tier hits line 4
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["covered_lines"], 2)                    # line 2 (fast) and line 3 (slow)
+        r = c.evaluate(changes, {"math/A.cs": {2: 1, 3: 0, 4: 0}}, {"math/A.cs": {3: 1, 4: 2}})
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["covered_only_by_slow"], {"math/A.cs": [3, 4]})
+        self.assertEqual(c.evaluate(changes, fast, {})["uncovered"], {"math/A.cs": [3, 4]})   # slow run without the file
+        self.assertEqual(c.evaluate(changes, fast)["covered_only_by_slow"], {})               # no slow run: nothing excused
 
 
 class Repository(unittest.TestCase):

@@ -1,0 +1,16 @@
+Variables
+ float64 sy in [1, 2], float64 sz in [1, 2],
+ float64 ty in [1, 2], float64 tz in [1, 2],
+ float64 ry in [0, 0.5], float64 rz in [0, 0.5]
+;
+Definitions
+ uy rnd64= sy - ry,
+ uz rnd64= sz - rz,
+ wy rnd64= ty - ry,
+ wz rnd64= tz - rz,
+ p rnd64= uy * wz,
+ q rnd64= uz * wy
+;
+Expressions
+ rnd64(p - q)
+;

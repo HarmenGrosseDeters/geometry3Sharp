@@ -19,8 +19,8 @@ namespace geometry3Sharp.Tests
 
         static int Pinches(OracleReport r) => r.Violations.Count(v => v.Kind == Violation.RefinementPinch);
 
-        /// <summary> the inputs of the star polygon fuzz that pinched: no pinch now, and the verdict of their class (2858 drops an input
-        /// point, as it did before; QualityMesh2KeepsChainsApartTests) </summary>
+        /// <summary> the inputs of the star polygon fuzz that pinched: no pinch now, and valid (2858 drops an input point whose pixel the input's own
+        /// rounding collapses: excused since owner decision B, 2026-11-10; QualityMesh2KeepsChainsApartTests) </summary>
         [Theory]
         [InlineData(527)]
         [InlineData(533)]
@@ -40,10 +40,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Mesh2Status.Success, o.Status);
             var r = Judge(input, o);
             Assert.Equal(0, Pinches(r));
-            Assert.True(r.Ok || seed == 2858, r.ToString());
+            Assert.True(r.Ok, r.ToString());
         }
 
         /// <summary> the same inputs in the constrained quality mode, at 20 and 25 degrees (lenses) </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void StarFuzz_ConstrainedQuality_NoPinch()
         {

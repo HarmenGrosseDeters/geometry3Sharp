@@ -16,6 +16,7 @@ MUTANTS = {
     "compare_head_to_itself": ('git(root, "merge-base", base, head)', 'git(root, "rev-parse", head)'),
     "accept_duplicate_reports": ("if len(files) != 1:", "if not files:"),
     "ignore_method_only_records": ('raise ValueError("incomplete class-level line evidence")', "pass"),
+    "slow_hit_excuses_everything": ("slow_hits.get(n, 0) > 0", "slow_hits.get(n, 0) >= 0"),
     "always_exit_zero": ('code = 2 if result["missing_files"] else (0 if result["ok"] else 1)', "code = 0"),
 }
 

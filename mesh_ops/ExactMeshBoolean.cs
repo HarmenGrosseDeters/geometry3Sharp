@@ -24,14 +24,18 @@ namespace g3
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
     /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
-    /// solid where it is above 0.5; then the result is generally not closed, also along edges where an open boundary
+    /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
+    /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
     /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
     /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
     /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
     /// cannot be oriented are left as they are. Where solids touch along an edge, the result is
     /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
-    /// into manifold pairs with copies of its vertices (NonManifoldEdges). Degenerate (zero-area) input
+    /// into manifold pairs with copies of its vertices (NonManifoldEdges); Contacts counts the positions with two or more
+    /// vertices, so that a caller that welds (eg writes STL) knows. Two different exact points that round to one double
+    /// would be such a contact as well, one the exact solid does not have: SafeRounding separates them (see
+    /// MeshRoundingRepair.InitialFalseContacts) and RoundingClean requires that none is left. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
     /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
     /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the
@@ -49,6 +53,12 @@ namespace g3
     ///
     /// Cost: exact predicates behind floating-point filters (BigInteger only where the filters cannot decide);
     /// slower than floating-point methods, the phases run in parallel.
+    ///
+    /// Performance of open inputs: an open mesh's generalized winding number is evaluated at every output piece (one
+    /// fast-winding query per piece and open mesh), not once per patch as the exact winding numbers of closed meshes;
+    /// on the open Thingi10K cohort of docs/design/LEVY_CLASSIFICATION.md (21 models, 63 operations) that costs 4.3
+    /// times the total time of the per-patch evaluation (classification 18 times; up to 10 times on single
+    /// operations, about 100 s). Closed inputs are not affected.
     /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
     /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
     /// acceptable and very broken input (triangle soups) must give a closed mesh.
@@ -155,10 +165,15 @@ namespace g3
         public bool AllowOpenMeshes = true;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
-        /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
+        /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
+        /// rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
-        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
-        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
+        /// keep a sliver and are tiny or thinner than RoundingMaxDisplacement (1e-5) of the diagonal, counted in Rounding.RemovedComponents;
+        /// a thin one that holds real volume for its area is kept and counted in Rounding.ScaleDisparity, not clean). Input vertices are kept
+        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points; vertices of
+        /// different exact points that rounded to one double (a contact the rounding made, not one of the exact solid)
+        /// are moved apart by a few units in the last place where that adds no defect (Rounding.InitialFalseContacts,
+        /// RemainingFalseContacts; Contacts counts the positions with several vertices left). Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain (unless StrictRounding); RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
         /// on the Thingi10K benchmark it makes about 1.6 times as many results clean, for about 1.2 to 1.9 times the time
@@ -174,7 +189,8 @@ namespace g3
         public double RoundingUlpFactor = 256, RoundingAbsoluteTolerance = 0;
         /// <summary>
         /// SafeRounding's relative bound (MeshRoundingRepair.MaxDisplacement): the longest edge contracted and the
-        /// farthest the surface moves, relative to the bounding box diagonal. (A larger value also switches off sooner
+        /// farthest the surface moves, relative to the diagonal of the largest connected component (not of the
+        /// bounding box of all: a small part far away does not widen it). (A larger value also switches off sooner
         /// what applies where the coordinates are coarse: there the ulp term must exceed this one)
         /// </summary>
         public double RoundingMaxDisplacement = 1e-5;
@@ -194,11 +210,21 @@ namespace g3
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary>
-        /// SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check; contacts
-        /// at duplicated vertices, where solids touch, are not intersections). False with Status Success means that
-        /// defects remain (Rounding.RemainingIntersections, RemainingDegenerate).
+        /// SafeRounding ran and its result has no self-intersections, no degenerate triangles and no contacts made by the
+        /// rounding (exact check; contacts at duplicated vertices of one exact point, where solids touch, are not
+        /// intersections; vertices of different exact points that the rounding put at one position are, until the repair
+        /// separates them). False with Status Success means that defects remain (Rounding.RemainingIntersections,
+        /// RemainingDegenerate, RemainingFalseContacts).
         /// </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
+
+        /// <summary>
+        /// positions in Result where two or more vertices lie: where the solid touches itself (at a point, or along an edge
+        /// split into manifold pairs, see the class comment), plus contacts the rounding made and SafeRounding left
+        /// (Rounding.RemainingFalseContacts). Result is manifold with its duplicated vertices; welded by position (eg
+        /// written to STL and read back) it is not manifold there. 0 for a result without contacts
+        /// </summary>
+        public int Contacts;
         /// <summary>
         /// compute ResultExactVertices: the exact coordinates of the result's vertices, before they are rounded
         /// </summary>
@@ -315,7 +341,8 @@ namespace g3
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
-            ReorientedTriangles = 0;
+            SplitBowtieVertices = 0;
+            ReorientedTriangles = Contacts = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
@@ -388,8 +415,13 @@ namespace g3
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
+                int[] pointId = resultPointId;
                 Rounding = new MeshRoundingRepair(Result) {
                     SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], FixedWhereCoarse = false,
+                    PointIdF = (v) => v < pointId.Length ? pointId[v] : -1,
+                    // (the input points are doubles, so the rounding leaves them where they are: the triangles with three
+                    // of them are exact triangles of the arrangement)
+                    ExactVertexF = (v) => v < fixedV.Length && fixedV[v],
                     UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
                     MaxDisplacement = RoundingMaxDisplacement, MaxPairTests = RoundingMaxPairTests
                 };
@@ -401,16 +433,23 @@ namespace g3
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
                 Counts["rounding_removed_components"] = Rounding.RemovedComponents;
                 Counts["rounding_vertex_removals"] = Rounding.VertexRemovals;
+                Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
+                Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
+                Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}",
+                        "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity){9}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
-                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift);
+                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
+                        Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
+                        Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "");
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
                 }
             }
+            Contacts = count_contacts(Result);
+            Counts["contacts"] = Contacts;
             Status = BooleanStatus.Success;
             return true;
         }
@@ -639,7 +678,7 @@ namespace g3
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
-            // closed); the winding numbers are the same on the front sides of all pieces of a patch
+            // closed); the winding numbers of the closed meshes are the same on the front sides of all pieces of a patch
             long[] edgeKeys; int[] edgeTri;
             group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
             int[] parent = new int[n];
@@ -693,9 +732,17 @@ namespace g3
                 BigInteger[] bmin, bmax;
                 if (ExactWinding[m])
                     mesh_bounds(m, out bmin, out bmax);
-                else
-                    winding_tree(m);
             }
+            // the fast-winding trees of the open meshes, concurrently (each is independent, built from its own mesh;
+            // the dictionary is filled serially afterwards, in mesh order)
+            var built = new DMeshAABBTree3[openMeshes.Count];
+            gParallel.ForRange(openMeshes.Count, (k) => {
+                if (windingTrees.ContainsKey(openMeshes[k]) == false)
+                    built[k] = new_winding_tree(openMeshes[k]);
+            });
+            for (int k = 0; k < openMeshes.Count; ++k)
+                if (built[k] != null)
+                    windingTrees[openMeshes[k]] = built[k];
             var closedTree = new TriangleBoxTree(closedBoxes);
             var patchWinding = new int[n][];
             var firsts = new List<int>();
@@ -709,10 +756,24 @@ namespace g3
                 }
             }
             Patches = firsts.Count;
+            // (the closed meshes per patch: their winding numbers are integers, the same in front of every piece of a
+            // patch)
+            var noOpen = new List<int>();
             gParallel.ForRange(firsts.Count, () => new List<int>(), (k, candidates) => {
                 int i = firsts[k];
-                patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, openMeshes, candidates);
+                patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, noOpen, candidates);
             });
+            // the open meshes per piece: their generalized winding numbers vary continuously, also within a patch (a
+            // patch of one mesh can reach from inside an open mesh to outside it through a hole of that mesh, around the
+            // end of an intersection curve that the hole cuts off), so the threshold at 1/2 is taken at every piece
+            int[][] openWinding = null;
+            if (openMeshes.Count > 0) {
+                openWinding = new int[n][];
+                gParallel.ForRange(n, (i) => {
+                    if (representative[i])
+                        openWinding[i] = open_winding(i, stack[i], openMeshes);
+                });
+            }
 
             int[] winding = new int[nm];
             bool[] isTouched = new bool[nm];
@@ -731,6 +792,11 @@ namespace g3
                 int[] w = patchWinding[find(i)];
                 for (int k = 0; k < w.Length; k += 2)
                     add(w[k], w[k + 1]);
+                if (openWinding != null) {
+                    w = openWinding[i];
+                    for (int k = 0; k < w.Length; k += 2)
+                        add(w[k], w[k + 1]);
+                }
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
@@ -816,11 +882,7 @@ namespace g3
                 if (ExactWinding[m]) {
                     wm = front_winding(i, m, arr.Trees[m], rng, stack, center);
                 } else {
-                    // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
-                    // and it commutes with adding the integer changes across the patch
-                    // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
-                    double g = Math.Ceiling(front_generalized_winding(i, m, stack) - 0.5);
-                    wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
+                    wm = threshold_generalized(front_generalized_winding(i, m, stack));
                 }
                 if (wm != 0) {
                     sparse.Add(m);
@@ -828,6 +890,32 @@ namespace g3
                 }
             }
             return sparse.ToArray();
+        }
+
+        // the nonzero thresholded generalized winding numbers of the open meshes in front of piece i (pairs mesh,
+        // winding number), as patch_winding takes them
+        [MethodImpl(JitHints.Optimize)]
+        int[] open_winding(int i, List<int> stack, List<int> openMeshes)
+        {
+            List<int> sparse = null;
+            foreach (int m in openMeshes) {
+                int wm = threshold_generalized(front_generalized_winding(i, m, stack));
+                if (wm != 0) {
+                    if (sparse == null)
+                        sparse = new List<int>();
+                    sparse.Add(m);
+                    sparse.Add(wm);
+                }
+            }
+            return sparse == null ? noWinding : sparse.ToArray();
+        }
+
+        // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2, and it commutes with adding
+        // the integer changes across a piece (clamped, so that adding the changes cannot overflow; NaN gives 0)
+        static int threshold_generalized(double w)
+        {
+            double g = Math.Ceiling(w - 0.5);
+            return (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
         }
 
         // the undirected edges of n triangles, sorted: edgeKeys[k] is the edge, edgeTri[k] the triangle; equal
@@ -1101,10 +1189,22 @@ namespace g3
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
-            if (windingTrees.TryGetValue(mesh, out tree) == false) {
-                windingTrees[mesh] = tree = new DMeshAABBTree3(arr.Meshes[mesh], true);
-                tree.FastWindingNumber(Vector3d.Zero);
-            }
+            if (windingTrees.TryGetValue(mesh, out tree) == false)
+                windingTrees[mesh] = tree = new_winding_tree(mesh);
+            return tree;
+        }
+
+        // the stored winding tree of an open mesh after Compute, null if none (FastWindingParallelBuildTests)
+        internal DMeshAABBTree3 StoredWindingTree(int mesh)
+        {
+            return windingTrees.TryGetValue(mesh, out DMeshAABBTree3 tree) ? tree : null;
+        }
+
+        // a tree with its fast-winding cache built (reads only the mesh: safe to call concurrently for different meshes)
+        DMeshAABBTree3 new_winding_tree(int mesh)
+        {
+            var tree = new DMeshAABBTree3(arr.Meshes[mesh], true);
+            tree.FastWindingNumber(Vector3d.Zero);
             return tree;
         }
 
@@ -1487,10 +1587,33 @@ namespace g3
                     append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
             }
 
+            // with an open input, the per-piece classification (front_generalized_winding) can keep pieces whose fans
+            // around a vertex meet only at the vertex (the kept region's boundary, {w = 1/2}, does not run along mesh
+            // edges): each such vertex gets one copy per fan, so that the result is a valid mesh without bowties
+            if (Array.IndexOf(ExactWinding, false) >= 0)
+                SplitBowtieVertices = split_bowties(result, vertexPoint);
+
             // input vertices (kept by SafeRounding where possible) and exact coordinates
             resultFixed = new bool[vertexPoint.Count];
             for (int vid = 0; vid < vertexPoint.Count; ++vid)
                 resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints[vertexPoint[vid]];
+            // the exact point of each vertex, as an id: the arrangement's point id (equal exact points have one id), and
+            // for a split vertex the midpoint of its edge, one id per edge beyond the point ids (copies at one edge share
+            // it). Vertices at one double position with different ids are a contact the rounding made (SafeRounding)
+            resultPointId = new int[vertexPoint.Count];
+            var midpointId = new Dictionary<Index2i, int>();
+            for (int vid = 0; vid < vertexPoint.Count; ++vid) {
+                if (vertexPoint[vid] >= 0) {
+                    resultPointId[vid] = vertexPoint[vid];
+                } else {
+                    Index2i uv = splitPoints[-2 - vertexPoint[vid]];
+                    var key = new Index2i(Math.Min(uv.a, uv.b), Math.Max(uv.a, uv.b));
+                    int id;
+                    if (midpointId.TryGetValue(key, out id) == false)
+                        midpointId[key] = id = arr.PointCount + midpointId.Count;
+                    resultPointId[vid] = id;
+                }
+            }
             ResultExactVertices = null;
             if (ComputeExactVertices) {
                 var exact = new ExactPoint3[vertexPoint.Count];
@@ -1508,8 +1631,93 @@ namespace g3
             return result;
         }
 
-        // per vertex of the last assembled result: is it an input vertex
+        // vertices with an open input whose fans were split (assemble): for tests
+        internal int SplitBowtieVertices;
+
+        // every bowtie vertex of mesh (in vertex order) keeps the fan with its smallest triangle id; each other fan, in
+        // the order of its smallest triangle id, gets a new vertex at the same position (vertexPoint extended): the same
+        // result on every run. Splitting the fans at one vertex makes no new bowtie at another. Returns the vertices split
+        [MethodImpl(JitHints.Optimize)]
+        internal static int split_bowties(DMesh3 mesh, List<int> vertexPoint)
+        {
+            int split = 0, nv = mesh.MaxVertexID;
+            var parent = new Dictionary<int, int>();
+            var fans = new SortedDictionary<int, List<int>>();
+            for (int vid = 0; vid < nv; ++vid) {
+                if (mesh.IsVertex(vid) == false || mesh.IsBowtieVertex(vid) == false)
+                    continue;
+                // the fans: the triangles at vid joined across the edges at vid with two triangles
+                parent.Clear();
+                foreach (int tid in mesh.VtxTrianglesItr(vid))
+                    parent[tid] = tid;
+                foreach (int eid in mesh.VtxEdgesItr(vid)) {
+                    Index2i et = mesh.GetEdgeT(eid);
+                    if (et.b != DMesh3.InvalidID) {
+                        int ra = root_of(parent, et.a), rb = root_of(parent, et.b);
+                        if (ra != rb)
+                            parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+                    }
+                }
+                // (each root is the smallest triangle id of its fan: roots only ever point to smaller ids)
+                fans.Clear();
+                foreach (int tid in new List<int>(parent.Keys)) {
+                    int r = root_of(parent, tid);
+                    if (fans.TryGetValue(r, out List<int> fan) == false)
+                        fans[r] = fan = new List<int>();
+                    fan.Add(tid);
+                }
+                if (fans.Count < 2)
+                    continue;
+                split++;
+                bool first = true;
+                foreach (List<int> fan in fans.Values) {
+                    if (first) {
+                        first = false;
+                        continue;
+                    }
+                    int copy = mesh.AppendVertex(mesh.GetVertex(vid));
+                    vertexPoint.Add(vertexPoint[vid]);
+                    fan.Sort();
+                    foreach (int tid in fan) {
+                        Index3i t = mesh.GetTriangle(tid);
+                        if (t.a == vid) t.a = copy;
+                        else if (t.b == vid) t.b = copy;
+                        else t.c = copy;
+                        mesh.SetTriangle(tid, t, false);
+                    }
+                }
+            }
+            return split;
+        }
+
+        static int root_of(Dictionary<int, int> parent, int x)
+        {
+            while (parent[x] != x)
+                x = parent[x];
+            return x;
+        }
+
+        // positions with two or more vertices (Contacts)
+        static int count_contacts(DMesh3 mesh)
+        {
+            var seen = new Dictionary<Vector3d, int>();
+            int contacts = 0;
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                // (-0.0 and 0.0 are one position: Vector3d's equality compares with ==, and double's hash is the same
+                // for both, on .NET Framework as on .NET)
+                int n;
+                seen.TryGetValue(p, out n);
+                if (n == 1)
+                    contacts++;
+                seen[p] = n + 1;
+            }
+            return contacts;
+        }
+
+        // per vertex of the last assembled result: is it an input vertex; the id of its exact point
         bool[] resultFixed;
+        int[] resultPointId;
 
         [MethodImpl(JitHints.Optimize)]
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)

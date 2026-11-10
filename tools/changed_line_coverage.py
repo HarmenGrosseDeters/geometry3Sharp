@@ -4,6 +4,11 @@
 Run from the checkout used to collect coverage. Compare committed HEAD with its
 merge base, never with the tip of a moving target branch. Exit 1 for uncovered
 lines, 2 for missing/invalid evidence. See docs/QA.md section 2.6.
+
+The coverage of CI is collected over the fast tier (Category!=Slow and !=Nightly). With
+--slow-coverage-dir (the core suite run over Category=Slow, collected only when the fast tier
+left changed lines uncovered) a changed line that only the Slow tests hit is reported as
+"covered_only_by_slow" and does not fail the gate.
 """
 
 import argparse
@@ -68,10 +73,10 @@ def coverage_path(filename, sources, root):
     return matches.pop()
 
 
-def read_coverage(directory, root):
+def read_coverage(directory, root, suites=SUITES):
     merged = {}
     reports = []
-    for suite, assembly in SUITES.items():
+    for suite, assembly in suites.items():
         # VSTest writes <suite>/<attachment-id>/coverage.cobertura.xml. A TRX
         # logger additionally copies it below <suite>/<run>/In/<host>/; that
         # copy is not a second collection and must not be merged as evidence.
@@ -87,7 +92,7 @@ def read_coverage(directory, root):
             raise ValueError(f"{suite}: no executable lines for expected assembly {assembly}")
         reports.append(str(files[0].relative_to(directory)))
         for package in packages:
-            if package.get("name") not in SUITES.values():
+            if package.get("name") not in suites.values():
                 raise ValueError(f"unexpected instrumented assembly: {package.get('name')}")
             for cls in package.findall("./classes/class"):
                 class_lines = cls.findall("./lines/line")
@@ -107,8 +112,8 @@ def read_coverage(directory, root):
     return merged, reports
 
 
-def evaluate(changes, coverage):
-    uncovered, missing = {}, []
+def evaluate(changes, coverage, slow=None):
+    uncovered, missing, only_slow = {}, [], {}
     executable = covered = 0
     for path, changed in sorted(changes.items()):
         if path not in coverage:
@@ -117,10 +122,18 @@ def evaluate(changes, coverage):
         measured = changed & coverage[path].keys()
         missed = sorted(n for n in measured if coverage[path][n] == 0)
         executable += len(measured)
+        if slow is not None and missed:
+            # (hit by the Slow tests only: reported, not a failure)
+            slow_hits = slow.get(path, {})
+            slow_only = [n for n in missed if slow_hits.get(n, 0) > 0]
+            if slow_only:
+                only_slow[path] = slow_only
+            missed = [n for n in missed if n not in slow_only]
         covered += len(measured) - len(missed)
         if missed:
             uncovered[path] = missed
     return {"changed_executable_lines": executable, "covered_lines": covered,
+            "covered_only_by_slow": only_slow,
             "uncovered": uncovered, "missing_files": missing,
             "ok": not uncovered and not missing}
 
@@ -130,6 +143,8 @@ def main(argv=None):
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--coverage-dir", type=Path, required=True)
+    parser.add_argument("--slow-coverage-dir", type=Path,
+                        help="core/ below it holds the coverlet report of the Category=Slow run")
     parser.add_argument("--json", type=Path, required=True, help="machine-readable result")
     parser.add_argument("--summary", type=Path, help="append a Markdown CI summary")
     args = parser.parse_args(argv)
@@ -144,7 +159,11 @@ def main(argv=None):
             raise ValueError("tracked worktree changes: coverage must describe committed HEAD")
         ancestor, changes = changed_lines(root, args.base, head)
         coverage, reports = read_coverage(args.coverage_dir.resolve(), root)
-        result = dict(evaluate(changes, coverage), head=head, merge_base=ancestor, reports=reports)
+        slow = None
+        if args.slow_coverage_dir:
+            slow, slow_reports = read_coverage(args.slow_coverage_dir.resolve(), root, {"core": SUITES["core"]})
+            reports += ["slow: " + r for r in slow_reports]
+        result = dict(evaluate(changes, coverage, slow), head=head, merge_base=ancestor, reports=reports)
         code = 2 if result["missing_files"] else (0 if result["ok"] else 1)
     except (ValueError, KeyError, OSError, ET.ParseError, subprocess.CalledProcessError) as error:
         result = {"ok": False, "error": str(error)}

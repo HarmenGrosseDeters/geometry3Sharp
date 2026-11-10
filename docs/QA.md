@@ -17,9 +17,46 @@ done since and what is open.
 - `tests/g3cli.Tests` covers the CLI and the MCP server.
 - CI runs both suites on Linux (net10.0), runs the library tests on Windows (net48 against the
   netstandard2.0 build), packs the package with API validation against 1.0.324, and runs a smoke test
-  of the package.
+  of the package. The library tests run in two tiers, see "Test tiers" below.
 - Before the harness of 2.1 there were no skipped tests; it adds two that document reported bugs. No flaky
   test showed up in repeated runs, after the `BitArray` races were fixed (ThreadingFixesTests).
+
+**Test tiers (2026-11-09).** A full run of the suite (8133 tests) took 21-23 min on 4 cores, and PR CI 25-35 min.
+- A test that takes 5 s or more (measured in a full run) carries `[Trait("Category", "Slow")]`. A long test is split into
+  test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
+  another), each class checking a share of the rows, with a test that the shares are exactly the old set
+  (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
+- Draft PRs run the library tests with `--filter "Category!=Slow"` (Linux, and both net48 shards with `&Category!=Slow`
+  added to their complementary filters). A PR that is ready for review (`ready_for_review` starts the run), every push
+  to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
+- The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
+  (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
+  "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
+  runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+- The scheduled tier: `[Trait("Category", "Nightly")]` tests run only in `.github/workflows/nightly.yml` (daily on master, and
+  `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
+  exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:
+  the exact reference path of the 2D mesher oracle on its largest catalogue rows (`CatalogueRowsNightly`, `CorruptedRowsNightly`,
+  and F-38/d of `ExtremeScales`). Also three K checks that are runs by nature, each with a reduced variant in the PR tier
+  (`Solidify_IsDeterministic_Reduced`, `InsertionOrder_Reduced_DoesNotChangeTheResult`, `RemesherPro_FullRemesh_Reduced_...`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
+  contain these; a class that gets Nightly tests and is in a filter needs `&Category!=Nightly` there.
+- The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet in the full run:
+  `tools/trx_durations.py --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt` fails for a test above 10 s, and for one of
+  5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with
+  every method that has a row of 4 s or more (a margin: the CI runner is not that machine) and may only shrink: the run
+  fails for an entry that the base branch's list does not have, and for an entry that names no test (renamed or deleted).
+  The run fails for an untagged test only from 7 s (`--fail-from`): the CI runner's timings vary by a second or two around the
+  5 s line, so 5 to 7 s untagged is reported as a warning in the step summary, 10 s is a failure always (except Nightly).
+  While the backlog is filled from the runner timings of master's full runs, the ratchet runs in report mode
+  (`RATCHET_ENFORCE: '0'` in `ci.yml`: violations are printed as warnings and the step passes); a PR sets it to 1.
+  Splitting a CPU-bound test into parallel classes does not reduce its duration in the saturated full run (four classes
+  of 9 s instead of one of 9 s, #521): only less work does.
+  Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
+- A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
+  (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)
+  skips the library suites (net10.0, net48, Clipper2). The library build, the API validation (pack), the smoke tests,
+  the benchmark builds, the tool tests and the acceptance gates run as before; the g3cli tests run when `tools/g3cli`
+  changed. The `netstandard` jobs still start (the check names are fixed) and skip their steps.
 
 **Kinds of tests.**
 - Almost all tests are example-based regression tests: one hand-built input per bug, with the expected
@@ -219,7 +256,7 @@ whether a hard limit can end in a success status.
 - A failing seed becomes an example test.
 - Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
   `ExactPoint3ConversionTests`). Boolean identities are covered by `ExactBooleanMetamorphicTests` and the seeded
-  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs`; the directed-family follow-up gives each
+  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs` (2D mesher: `QualityMesh2PropertyCampaign.CsCheck.cs`, `G3_PROPERTY_SAMPLES`, `G3_PROPERTY_CAMPAIGN` / `G3_PROPERTY_REPLAY`, `G3_PROPERTY_STRICT`); the directed-family follow-up gives each
   box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
@@ -238,16 +275,74 @@ Mesh inputs to the operations are fuzzed the same way:
 - random edits of clean meshes (flips, removed or duplicated triangles, welded vertices).
 
 Each operation must return a documented status, never throw, and never report success on an output that
-fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT) can follow for the binary readers if the seeded fuzzing
-finds bugs.
+fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): the STL reader in
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), the mesh operations in
+[MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (campaigns on a runner, not in CI).
+
+### 2.5a Supported input range: correct inside, fail gracefully outside (owner 2026-11-09)
+
+Fuzzers and random generators reach magnitudes no real input has (coordinates near 1e154, components below 1e-154,
+a sphere of radius 1e100). Findings there are real robustness gaps, but they are not correctness bugs of the same
+weight as a wrong result on a CAD assembly. So every operation is tested against two properties, split by a
+documented **supported range**:
+
+1. **Inside the supported range: correct.** The full checks apply (2.3, `NotCleanReason`, the operation's own
+   guarantees, invariance under `Similarity.All()`). A failure is a bug of the owning area, fixed with a test that
+   fails on the old code.
+2. **Outside the supported range: fail gracefully.** No crash, no hang (time budget), no non-finite output spread to
+   finite vertices, no false success: the operation returns a documented status or a documented
+   `ArgumentException`. A crash or hang there is fixed if the fix is cheap (an early range check is usually enough);
+   any other deviation is documented as a limit, not built for.
+
+The range is set per module by the QA 2.0 range task (see the roadmap) and written in the module's class doc and in
+one table here. It covers at least: the absolute coordinate magnitude, the ratio of the largest to the smallest
+feature or component (scale disparity, the F1 class of the repair campaign), the triangle / vertex count, and
+non-finite values (always outside). The default is derived from what the exact kernels and their bound tables allow
+([design/FIXED_WIDTH_EXACT_POINTS.md](design/FIXED_WIDTH_EXACT_POINTS.md)) and from overflow of squared lengths
+(about 1e154), with margin; a module may support less and says so. Generators of property campaigns sample inside
+the range (with a bias toward its edges, where the scale-disparity bugs were found), and add a separate small
+out-of-range sample for property 2. Fuzz harnesses report out-of-range findings in their own class.
+
+**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine);
+"disparity" is the ratio of the largest to the smallest part or component of one input. Measured with a scale sweep
+(a standard input scaled by 2^e, e from -1000 to 1000, 20 s budget per run; see the table notes), then set inside the
+measured range with margin. Subnormal coordinates (below 2.2e-308) are outside for every module, and out of the 2^k
+scale checks of the campaigns (the scaling is not exact there).
+
+| Module | Magnitude (nonzero) | Disparity | Measured | Outside: status |
+|---|---|---|---|---|
+| `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
+| `MeshRoundingRepair` | 2^-200 .. 2^200 | 2^60 | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
+| `Reducer`, `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 | -- | sphere: ok 2^-250 .. 2^500; no reduction below 2^-300; invalid mesh above 2^700 | not guaranteed (documented limit) |
+| `DMeshAABBTree3` ray, `IsInside`, winding numbers | up to 2^1000 | -- | fuzzed to 2^1000 | not guaranteed above |
+| `DMeshAABBTree3` nearest (squared distance) | extent 2^-450 .. 2^450 | -- | squared distance representable | not guaranteed outside |
+| 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude | -- | exact predicates | `ArgumentException` |
+| `TerrainVolumeDifference`, `TerrainOffset` | <= 2^200, extent 2^-8 .. 2^200 | -- | bumpy 8 x 8 terrain: correct 2^-20 .. 2^250; zero volumes with `true` below 2^-25 and above 2^260; offset wrong with `true` above 2^260, `false` below 2^-30 | `Compute()` false (PR per module) |
+| Other terrain modules (grid TIN, greedy TIN, slope map / design / overlay, dual contouring, safety) | not swept: the slope classes decide with the exact kernel (`ExactSlopeKernel`) | -- | -- | open |
+
+The ranges are class-doc statements ("Supported input range") of the classes above (those of `ExactMeshBoolean` and
+`MeshRoundingRepair` come with their range-check PRs: the mutation shards address these files by character offset). The checks that turn the
+"Outside" column into a status land per module (bugfix PRs); until then the column is the documented behaviour of
+the module outside the range, or "not guaranteed".
 
 ### 2.6 Coverage in CI
 
-- coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage during the existing three Linux test runs.
-  The existing Microsoft.NET.Test.Sdk 17.8.0 supplies the integration; Windows/net48 runs do not collect coverage.
+- coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in the `coverage` job of `ci.yml`, a job of its own
+  that runs parallel to `linux` on pull requests (coverlet makes the suite about 3x slower: the first version, inside
+  the `linux` job, hit the 60 min limit; `linux` runs without it). The existing Microsoft.NET.Test.Sdk 17.8.0 supplies
+  the integration; Windows/net48 runs do not collect coverage. The job collects the **fast tier** of the core suite
+  (`Category!=Slow&Category!=Nightly`) plus the CLI and Clipper2 package suites.
 - On pull requests, `tools/changed_line_coverage.py` requires **100% of changed executable lines** in the core
   library, `addons/geometry3Sharp.Clipper2` and `tools/g3cli` to have at least one hit across those runs. Existing
   unmodified gaps do not fail the gate. There is no whole-library or branch-coverage threshold.
+- A line that the fast tier does not hit may still be hit by a `Slow` test. When the gate finds uncovered changed lines,
+  the job runs the Slow tier of the core suite under coverage as well (`--slow-coverage-dir`; only then: the cost is paid
+  by the PRs that need it) and reports the lines only that tier hits as `covered_only_by_slow`; they do not fail the
+  gate. A line neither tier hits fails. Nightly tests are not counted: a changed line only a Nightly test hits needs a
+  test in the PR tiers. Exemptions: none beyond the scope below; a line that cannot be hit by a test (defensive code) is
+  discussed in the PR, not excluded by a marker.
 - Compare the tested checkout (GitHub's PR merge commit) with its merge base against the event's pinned base SHA.
   Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line
   records define executable lines, so comments and whitespace within a measured file need no hits.
@@ -261,11 +356,13 @@ finds bugs.
 
   ```sh
   rm -rf test-results
-  dotnet test tests/geometry3Sharp.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
+  dotnet test tests/geometry3Sharp.Tests -c Release --filter "Category!=Slow&Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
   dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
   dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
   python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
   python3 tools/changed_line_coverage.py --base origin/master --coverage-dir test-results --json test-results/changed-line-coverage.json
+  # if lines are left uncovered: the Slow tier of the core suite (test-results-slow/core), then the same command with
+  #   --slow-coverage-dir test-results-slow
   ```
 
   Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a
@@ -625,7 +722,16 @@ not depend on the implementer's own tests. Order of priority:
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
    replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
-   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`).
+   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`) and for `MeshRobustRepair` /
+   `MeshRoundingRepair` (`RepairCampaignTests`, QA 2.0 T3: scenes of 1-4 pieces of very different sizes and
+   distances, touching, nearly touching, overlapping, flipped / duplicated / dropped faces, jitter; properties: Apply()
+   true implies clean by `NotCleanReason`, no defect the input lacks, displacement <= MaxDrift, 2^k scale invariance
+   bit for bit, determinism, parallel = serial, reuse; findings in `RepairCampaignFindings`). Campaign classes carry
+   `[Trait("Category", "Campaign")]` and have "Campaign" in their name; the Stryker `test-case-filter` terms are name
+   parts and must not select them (`CampaignConventionTests` checks it). CI runs the default sample counts; a large
+   local campaign: `G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter
+   "Category=Campaign"` (add `G3_PROPERTY_ALL=1` to list every failing seed instead of stopping at the first,
+   `G3_CAMPAIGN_DEFAULTS=1` for the default solidify / wrap resolution).
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,

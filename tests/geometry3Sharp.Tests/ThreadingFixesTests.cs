@@ -166,15 +166,23 @@ namespace geometry3Sharp.Tests
             Assert.True(MaxVertexDistance(serial, parallel) < 1e-9, $"parallel passes differ by {MaxVertexDistance(serial, parallel)}");
         }
 
+        // Nightly: NoisySphere(40) remeshed to 0.6 of its edge length, five times (30 s): the run is the check. The PR tier has the same
+        // check on NoisySphere(20) with two parallel repeats: RemesherPro_FullRemesh_Reduced_ParallelEqualsSerialAndRepeats.
+        [Trait("Category", "Nightly")]
         [Fact]
-        public void RemesherPro_FullRemesh_ParallelEqualsSerialAndRepeats()
+        public void RemesherPro_FullRemesh_ParallelEqualsSerialAndRepeats() => FullRemeshParallelEqualsSerial(40, 4);
+
+        [Fact]
+        public void RemesherPro_FullRemesh_Reduced_ParallelEqualsSerialAndRepeats() => FullRemeshParallelEqualsSerial(20, 2);
+
+        static void FullRemeshParallelEqualsSerial(int n, int repeats)
         {
             // with splits, collapses and flips: the parallel smooth / projection passes queue the edges to
             // process next in thread order, and the queue (a hash set) enumerates in insertion order, so the
             // edges were processed in a different order from run to run (MinimalHoleFill, and with it
             // MeshAutoRepair, gave different triangulations now and then)
-            DMesh3 input = NoisySphere(40, 4);
-            DMesh3 target = Sphere(40);
+            DMesh3 input = NoisySphere(n, 4);
+            DMesh3 target = Sphere(n);
             double edge = input.EdgeIndices().Average(e => { Index2i ev = input.GetEdgeV(e); return input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); });
             DMesh3 Run(bool parallel)
             {
@@ -189,7 +197,7 @@ namespace geometry3Sharp.Tests
             Assert.True(serial.TriangleCount > input.TriangleCount);
             Assert.True(serial.CheckValidity(false, FailMode.ReturnOnly));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(serial, false));
-            for (int k = 0; k < 4; ++k)
+            for (int k = 0; k < repeats; ++k)
                 Assert.Equal("", Invariance.Difference(serial, Run(true)));
         }
 
@@ -251,6 +259,7 @@ namespace geometry3Sharp.Tests
 
         // --- RemoveOccludedTriangles.PerVertex: occlusion flags were a BitArray written in parallel ---
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RemoveOccludedTriangles_PerVertex_RemovesEveryOccludedTriangle()
         {

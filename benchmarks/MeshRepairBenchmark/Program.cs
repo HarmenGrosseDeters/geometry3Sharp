@@ -75,8 +75,8 @@ class Program
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
             // wrappipe = the wrap fallback's pipeline as MeshRobustRepair runs it: MeshAlphaWrap (BENCH_WRAP_ALPHA / _OFFSET,
             // default 300 / 3000 as the fallback), SimplifyAlphaWrap and AlphaWrapQualityPass, with the time per phase and
-            // the quality of the raw wrap (raw_*), after a warm-up (BENCH_WRAP_WARMUP); BENCH_WRAP_SIMPLIFY=0 /
-            // BENCH_WRAP_QUALITY=0 leave a step out,
+            // the quality of the raw wrap (raw_*), after a warm-up (BENCH_WRAP_WARMUP); BENCH_WRAP_SIMPLIFY=0 leaves the
+            // simplification out, BENCH_WRAP_QUALITY=1 adds the quality pass (off by default, as in the library),
             // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
             // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
@@ -253,6 +253,11 @@ class Program
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
+                // (the exact resolve once more relative to the largest component, after the others failed, and the
+                // largest share of a component below the degenerate area of all triangles that triggered it)
+                r["robust_scale_retry"] = robust.ScaleRetry;
+                r["robust_scale_erosion_share"] = robust.MaxScaleErosionShare;
+                r["robust_result_reason"] = robust.ResultReason;
                 r["robust_phases"] = robust.PhaseMilliseconds;
                 // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
                 // sampled and the known volume (relative to the estimated union), the cells, and the times
@@ -579,7 +584,8 @@ class Program
             foreach (var kv in sp) phases["simplify." + kv.Key] = kv.Value;
             r["pipe_simplified"] = result != raw;
         }
-        if (result != raw && Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") != "0") {
+        // (the quality pass only with BENCH_WRAP_QUALITY=1, as in the library since Alpha Wrap 2.0, #413)
+        if (result != raw && Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") == "1") {
             var qp = new System.Collections.Generic.Dictionary<string, long>();
             long t0 = sw.ElapsedMilliseconds;
             DMesh3 improved = MeshRobustRepair.ImproveWrapQuality(result, raw, 0.5 * wrap.UsedOffset, true, never, MeshRobustRepair.DefaultWrapQuality, qp);

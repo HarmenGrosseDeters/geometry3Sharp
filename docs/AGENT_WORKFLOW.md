@@ -133,6 +133,12 @@ from secret tests, which a public repository cannot keep.
 
 - Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
   only go up (a ratchet).
+- Full runs after the merge (owner 2026-11-09): only the incremental run (changed lines against the master baseline)
+  gates a PR. A PR that would need full shard runs (no master baseline, a changed config or mutation tooling, an
+  integration PR) merges on green CI and review; the coordinator cancels its PR mutation run and dispatches the full
+  run of the same shards on master, which seeds the baselines and is the gate (below a threshold: a follow-up PR with
+  tests; a revert only for a real defect). Reason: a full rounding part takes up to 5 h, and the PR run and the master
+  baseline would test nearly the same tree twice.
 - Stryker runs locally once per shard, to set its threshold; after that the CI mutation run on the PR is the gate.
   Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the baseline of the last
   full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline still runs in
@@ -217,4 +223,7 @@ from secret tests, which a public repository cannot keep.
       follow the length of the run they wait for; the coordinator ignores events about superseded PR heads.
     - Before building: an upper bound or a small probe decides whether the work is worth it ("not worth it now" is a
       valid result for the owner).
+    - Targets are a floor, not a stop (owner 2026-11-09): when a target is met, the remaining levers are still
+      measured (upper bound) and every one with a noticeable gain at reasonable effort is built, in order of gain per
+      effort, until the bounds show nothing worth building. The stop rule only drops levers without a measurable gain.
 

@@ -270,6 +270,81 @@ namespace Meshing2Acceptance
                 Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
             }
 
+            // ---- rule O-G, the grid tube (MESHING2D_HULL_GRID.md): with a snap tolerance the output boundary may run off the input's boundary
+            // by one pixel and the area changes by that much (Guibas and Marimont 1998: the image lies in the Minkowski sum of the input with a
+            // pixel). The hull domain of (5, 5), (3, 4), (6, 4), (1, 4) at pixel 1 and a bound of 20 degrees (refinement rounds the hull, option C): the hull edge (1, 4)-(5, 5) passes the pixel of (3, 4), snap
+            // rounding routes it through (3, 4) onto the bottom edge, and the mesh is the triangle (3, 4), (6, 4), (5, 5), 3 of the hull's 5
+            // (found by the CsCheck campaign of QualityMesh2, T5). A boundary vertex 4 pixels off the hull is another matter
+            {
+                var ogIn = new Mesh2Input { X = new double[] { 5, 3, 6, 1 }, Y = new double[] { 5, 4, 4, 4 }, SnapTolerance = 1, MinAngleDeg = 20, Segments = { new SegmentInput(0, 1), new SegmentInput(2, 3) } };
+                var ogTri = new[] { new[] { 1, 2, 0 } };
+                Mesh2Output OgMesh(double[] vx, double[] vy) => new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = ogTri, Neighbours = NeighboursOf(ogTri), TriangleLabels = new[] { 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] };
+                var ogRerouted = Oracle.Check(ogIn, OgMesh(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: a hull edge rerouted through a hot pixel, the mesh smaller by the collapsed triangle", !ogRerouted.Has(Violation.AreaMismatch) && !ogRerouted.Has(Violation.BoundaryOutsideTube), "report: " + ogRerouted);
+                var ogNo = new Mesh2Input { X = ogIn.X, Y = ogIn.Y, MinAngleDeg = 20, Segments = { new SegmentInput(0, 1), new SegmentInput(2, 3) } };
+                var ogExact = Oracle.Check(ogNo, OgMesh(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same mesh without a snap tolerance as AreaMismatch (the exact comparison stays)", ogExact.Has(Violation.AreaMismatch), "report: " + ogExact);
+                var awayTri = new[] { new[] { 1, 2, 4 } };
+                var ogAway = Oracle.Check(ogIn, new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 5, 3, 6, 1, 4 }, VY = new double[] { 5, 4, 4, 4, 9 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = awayTri, Neighbours = NeighboursOf(awayTri), TriangleLabels = new[] { 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: a boundary vertex 4 pixels off the hull as BoundaryOutsideTube", ogAway.Has(Violation.BoundaryOutsideTube), "report: " + ogAway);
+            }
+
+            // ---- rule O-G, the other direction: a hole of 10 x 10 in a square of 20 x 20 at pixel 1 left out of the mesh (its boundary has no
+            // output boundary near it, and no other input edge within two pixels that could have collapsed it)
+            {
+                var holeIn = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 5, 15, 15, 5 }, Y = new double[] { 0, 0, 20, 20, 5, 5, 15, 15 }, SnapTolerance = 1 };
+                holeIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); holeIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+                var solid = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                var noHole = Oracle.Check(holeIn, new Mesh2Output { Status = Mesh2Status.Success, VX = holeIn.X, VY = holeIn.Y, InputToVertex = Enumerable.Range(0, 8).ToArray(),
+                    Triangles = solid, Neighbours = NeighboursOf(solid), TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: a hole left out of the mesh, on the grid, as BoundaryOutsideTube", noHole.Has(Violation.BoundaryOutsideTube), "report: " + noHole);
+            }
+
+            // ---- the shortest edge of a triangle spans an input angle below 60 degrees (owner decision 2026-11-09, Shewchuk 2002 section
+            // 6.2: refinement towards the apex of such an angle may not terminate). A hull domain of A = (0, 0), E1 = (30, 0) and E2, a bound
+            // of 20 degrees, and the triangle p E1 q with p = (1, 0) and q on A-E2 at a distance within 1.5 of p's: its shortest edge p-q
+            // spans the hull angle at A, and its angle at E1 is 1.5 degrees. Excused at the input angle of 36.87 degrees (E2 = (24, 18)),
+            // reported at 63.43 degrees (E2 = (12, 24)), where the old threshold (the bound, 20 degrees) excused neither
+            {
+                Mesh2Input SpanIn(double ex, double ey) => new Mesh2Input { X = new[] { 0, 30, ex }, Y = new[] { 0, 0, ey }, MinAngleDeg = 20 };
+                Mesh2Output SpanOut(double ex, double ey, double qx, double qy) {
+                    var tris = new[] { new[] { 0, 3, 4 }, new[] { 3, 1, 4 }, new[] { 4, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 30, ex, 1, qx }, VY = new[] { 0, 0, ey, 0, qy },
+                        InputToVertex = new[] { 0, 1, 2 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 1 } };
+                }
+                var small = Oracle.Check(SpanIn(24, 18), SpanOut(24, 18, 1, 0.75), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the shortest edge spans an input angle of 36.87 degrees, above the bound of 20 and below 60", !small.Has(Violation.AngleBelowBound), "report: " + small);
+                var nearly = Oracle.Check(SpanIn(16, 27), SpanOut(16, 27, 0.64, 1.08), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the same at an input angle of 59.34 degrees, just below 60", !nearly.Has(Violation.AngleBelowBound), "report: " + nearly);
+                var wide = Oracle.Check(SpanIn(12, 24), SpanOut(12, 24, 0.5, 1), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
+            }
+
+            // ---- the same on a snap grid, with a hull edge through a collinear input point (T5, found by the CsCheck campaign). The hull
+            // domain A = (0, 0), E1 = (120, 0), E2 = (96, 72) (the hull angle at A is 36.87 degrees) with the input point P = (2, 0) on the bottom
+            // edge, at pixel 1, a bound of 20 degrees and the triangle p E1 q with p = (4, 0) on the piece P-E1 and q on A-E2: its shortest
+            // edge p-q spans the hull angle at A, whose apex lies on the other piece A-P. On the grid the hull edge is taken whole (as the
+            // mesher's OriginOf does), so the triangle is excused; without the grid the pieces are separate sources. (The meshes are not
+            // otherwise valid outputs: only AngleBelowBound is asserted)
+            {
+                Mesh2Input GridIn(double ex, double ey) => new Mesh2Input { SnapTolerance = 1, X = new[] { 0, 120, ex, 2 }, Y = new[] { 0, 0, ey, 0 }, MinAngleDeg = 20 };
+                Mesh2Output GridOut(double ex, double ey, double qx, double qy) {
+                    var tris = new[] { new[] { 0, 3, 5 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 120, ex, 2, 4, qx }, VY = new[] { 0, 0, ey, 0, 0, qy },
+                        InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 2 } };
+                }
+                var onGrid = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 4, 3), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: on the grid the shortest edge spans the hull angle whose apex is on another piece of the split hull edge", !onGrid.Has(Violation.AngleBelowBound), "report: " + onGrid);
+                var farQ = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 12, 9), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same with q 3.75 times as far from the apex as p, as AngleBelowBound", farQ.Has(Violation.AngleBelowBound), "report: " + farQ);
+                var wideGrid = Oracle.Check(GridIn(32, 64), GridOut(32, 64, 2, 4), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same at a hull angle of 63.43 degrees as AngleBelowBound", wideGrid.Has(Violation.AngleBelowBound), "report: " + wideGrid);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed
@@ -622,8 +697,8 @@ namespace Meshing2Acceptance
                             rw2.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw2.CollapsedSegments == 0, "report: " + rw2 + " / " + rw2.ExcusedSummary());
                         // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
                         // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
-                        // row 4 there), opens 7.5 px², and
-                        // the mesh of that triangle without the upper edge's chain is rejected: a link must be collapsed in both roundings
+                        // row 4 there), opens 7.5 px²: the mesh of that
+                        // triangle has no chain of the upper edge.
                         var sliver = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { 0, 4.55, 5.45 } };
                         sliver.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
                         var tsl = new[] { new[] { 0, 3, 1 } };
@@ -631,8 +706,10 @@ namespace Meshing2Acceptance
                             Triangles = tsl, Neighbours = NeighboursOf(tsl), TriangleLabels = new int[1], BadTriangles = new int[0],
                             Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 3), new SubsegmentOutput(3, 1) } };
                         var rsl = Oracle.Check(sliver, osl, m3);
-                        Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
-                            rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
+                        // (since the owner decision B of 2026-11-10 the reference is the rounded input, which collapses this sliver: the missing chain is
+                        // excused, and the mesh is still rejected, for the triangle's edge that is no constraint)
+                        Must("reject: the triangle an output vertex opens in a sliver the input's rounding collapses (rule (ii'), B), as BoundaryNotConstrained, no chain missing",
+                            rsl.Has(Violation.BoundaryNotConstrained) && !rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
                         // SRR's known discrepancy (Belussi et al. 2016): Listing 2 against Proposition 4.14. The segment (0, 0) - (10, 1.4)
                         // with the point (5, 0.4) gets the restore pixels (4, 1) and (3, 0); the segment (5.4, 3.4) - (3.4, 1.2) crosses the
                         // interior of (4, 1), but its link (3, 1) - (5, 3) only touches its corner. Listing 2 restores critical edges only,
@@ -1224,23 +1301,74 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 must(what, report.Has(Violation.AngleBelowBound) != excused, "report: " + report);
             }
-            // 5d. the piece's own chain at the candidate: the input segment (2, 10.3)-(9, 12.7) snaps to (2, 10)-(9, 13); a vertex at (3, 10)
-            //     in its envelope ends a subsegment to (3, 11), also in the envelope (its own chain by the oracle's attribution). The
-            //     candidate stays demanded, so the skinny triangle (2, 10), (9, 13), (5, 12) is judged; counting that subsegment as another
-            //     chain's would excuse it (found by a search over such layouts, against the oracle with the attribution dropped)
-            {
-                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 2, 10.3, 9, 12.7, 5, 12 };
+            // 5d. the piece's own chain is the stretch of the output's subsegment graph through non-hot degree-2 vertices (OwnStretch),
+            //     not the subsegments in the input segment's envelope. The piece (3, 13)-(9, 13) of an input segment along y = 13 has one
+            //     candidate, (6, 13) (a vertex there blocks the others, as in 5c); the skinny triangle (3, 13), (9, 13), (5, 14) is judged
+            //     when the candidate stays demanded. Chain layouts (hot ends (0, 13) / (15, 13) or a second input segment):
+            //       own-b     the chain runs on from the piece's end (9, 13) through (10, 13) and back through (6, 13): the subsegment at
+            //                 the candidate is the piece's own, the candidate stays demanded
+            //       other     the chain ends at the hot pixel (12, 13); a second input segment (12, 13)-(0, 13.3), also within a pixel
+            //                 along the piece, runs on through a vertex at (6, 13): another chain's (the envelope approximation counted it
+            //                 as the piece's own), the candidate is excluded, the angle excused
+            //       branch    as own-b with a third subsegment at (10, 13): the stretch ends at the branching vertex, so what lies beyond
+            //                 is another chain's, excused
+            //     Each of the dropped pieces of OwnStretch (the walk from either end, the hot-pixel stop, the degree test) flips one
+            foreach (var (kind, excused, what) in new[] {
+                ("own-b", false, "grid split: a candidate where only the piece's own chain (its stretch of the graph) ends stays demanded"),
+                ("other", true, "grid split: a candidate where a chain beyond a hot pixel ends, within the envelope of the piece, is another chain's: excused"),
+                ("branch", true, "grid split: a candidate beyond a branching vertex of the graph is another chain's: excused") }) {
+                bool second = kind == "other";
+                var xy = new List<double> { 0, 0, 24, 0, 24, 24, 0, 24, 3, 13, 12, 13, 5, 14 };
+                if (second) xy.AddRange(new[] { 0.0, 13.3 });
                 var input = Points(xy.ToArray());
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
                 input.Segments.Add(new SegmentInput(4, 5));
+                if (second) input.Segments.Add(new SegmentInput(5, 7));
                 input.SnapTolerance = 1; input.MinAngleDeg = 20;
-                var vx = new[] { 0.0, 24, 24, 0, 2, 9, 5, 3, 3 }; var vy = new[] { 0.0, 0, 24, 24, 10, 13, 12, 10, 11 };
-                var tri = new[] { new[] { 4, 5, 6 } };
-                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
-                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 },
-                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, 5), new SubsegmentOutput(7, 8) } };
+                var vx = xy.Where((_, i) => i % 2 == 0).ToList(); var vy = xy.Where((_, i) => i % 2 == 1).ToList();
+                if (second) vy[7] = 13;
+                // 4 and 5: the input segment's ends, 6: the apex, then the vertices of refinement on y = 13
+                int Add(double x, double y) { vx.Add(x); vy.Add(y); return vx.Count - 1; }
+                int a = 4, m = Add(9, 13), c = Add(6, 13), x2 = Add(10, 13);
+                var subs = new List<SubsegmentOutput>();
+                switch (kind) {
+                    case "own-b": case "branch": subs.AddRange(new[] { new SubsegmentOutput(a, m), new SubsegmentOutput(m, x2), new SubsegmentOutput(x2, c), new SubsegmentOutput(c, 5) }); break;
+                    default: subs.AddRange(new[] { new SubsegmentOutput(a, m), new SubsegmentOutput(m, 5), new SubsegmentOutput(5, c), new SubsegmentOutput(c, 7) }); break;
+                }
+                if (kind == "branch") { int y2 = Add(10, 20); subs.Add(new SubsegmentOutput(x2, y2)); }
+                var tri = new[] { new[] { a, m, 6 } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx.ToArray(), VY = vy.ToArray(), InputToVertex = Enumerable.Range(0, input.Count).ToArray(),
+                    Triangles = tri, Neighbours = NeighboursOf(tri), BadTriangles = new[] { 0 }, Subsegments = subs };
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-                must("grid split: a candidate where only the piece's own chain ends stays demanded", report.Has(Violation.AngleBelowBound), "report: " + report);
+                must(what, report.Has(Violation.AngleBelowBound) != excused, kind + " report: " + report);
+            }
+            // 5d'. OwnStretch on a graph, from either end of the piece (the orientation in which the call site passes it is not under the
+            //      check's control): a path 10 - 11 - 12 - 13 - 14 - 15 with the piece 12-13; 10 and 15 hot: the stretch is the whole path;
+            //      a hot 11 cuts it at 11 (11-12 stays: the stretch reaches the hot vertex, not beyond); a branch at 14 (14-20) cuts at 14;
+            //      the same with the roles of the piece's ends swapped
+            {
+                Dictionary<int, List<int>> Graph(params (int, int)[] edges)
+                {
+                    var g = new Dictionary<int, List<int>>();
+                    foreach (var (a, b) in edges) {
+                        if (!g.TryGetValue(a, out var la)) g[a] = la = new List<int>(); la.Add(b);
+                        if (!g.TryGetValue(b, out var lb)) g[b] = lb = new List<int>(); lb.Add(a);
+                    }
+                    return g;
+                }
+                long K(int a, int b) => Oracle.SubsegmentKey(a, b);
+                var path = Graph((10, 11), (11, 12), (12, 13), (13, 14), (14, 15));
+                var branch = Graph((10, 11), (11, 12), (12, 13), (13, 14), (14, 15), (14, 20));
+                foreach (var (ia, ib) in new[] { (12, 13), (13, 12) }) {
+                    var all = Oracle.StretchOfForSelfCheck(ia, ib, path, x => x == 10 || x == 15);
+                    must("stretch: the whole path between two hot vertices, from either end, piece " + ia + "-" + ib, all.SetEquals(new[] { K(10, 11), K(11, 12), K(12, 13), K(13, 14), K(14, 15) }), "stretch " + all.Count);
+                    var cut = Oracle.StretchOfForSelfCheck(ia, ib, path, x => x == 11);
+                    must("stretch: a hot vertex ends the walk (its subsegment stays in), from either end, piece " + ia + "-" + ib, cut.SetEquals(new[] { K(11, 12), K(12, 13), K(13, 14), K(14, 15) }), "stretch " + cut.Count);
+                    var br = Oracle.StretchOfForSelfCheck(ia, ib, branch, x => x == 10 || x == 15);
+                    must("stretch: a branching vertex ends the walk (its two path subsegments stay in), from either end, piece " + ia + "-" + ib, br.SetEquals(new[] { K(10, 11), K(11, 12), K(12, 13), K(13, 14) }), "stretch " + br.Count);
+                }
+                var ring = Graph((1, 2), (2, 3), (3, 4), (4, 1));
+                must("stretch: a closed cycle of degree-2 vertices ends (no endless walk)", Oracle.StretchOfForSelfCheck(1, 2, ring, x => false).Count == 4, "ring");
             }
             // 7. a subsegment with no split point on the grid excuses only itself and what it hides, never an unconstrained edge of a
             //    triangle next to it (review of #277: the exemption had covered every edge of such a triangle). Here (5, 5)-(6, 6) at pixel
@@ -1529,6 +1657,30 @@ namespace Meshing2Acceptance
                 var o = Out(input, new[] { new[] { 3, 4, 5 } }); o.BadTriangles = new[] { 0 };
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 must("merge zone: a skinny triangle at an apex of 179 degrees is judged", report.Has(Violation.AngleBelowBound), "report: " + report);
+            }
+
+            // 6a'. a vertex computed from two segments 1e-5 radian apart in doubles lies along the segments up to a few ulps / sin from
+            //      the exact apex (8 ulps of the largest coordinate: 1.8e-7 at 1000, 1.8e-8 at 100), far more than 3 tube (3.3e-9 resp. 1.6e-9: tube
+            //      2^-40 of the extent), and may lie on the wrong side of it, while the rest of the triangle lies on the far side (found with the
+            //      near-contact fan of the QualityMesh2 campaign, T5). Accepted within the reach and within the tube of both segments; judged
+            //      beyond the reach (still within the zone), or off the segments by 3e-9 (outside both tubes; room to improve). The apex at
+            //      (1000, 0) and at the origin with the ends of the segments at 100 (the magnitude of the ends counts, not only the apex's)
+            {
+                foreach (var (cx, half, dx, y0, ok, what) in new[] {
+                    (1000.0, 100.0, 1e-7, 0.0, true, "a crossing vertex rounded along the segments (1e-7 from the apex) is on either side"),
+                    (1000.0, 100.0, 3e-7, 0.0, false, "a vertex 3e-7 from the apex, beyond the rounding, is judged on its side"),
+                    (1000.0, 100.0, 1e-7, 3e-9, false, "a vertex 3e-9 off the segments, outside both tubes, is judged on its side"),
+                    (0.0, 100.0, 1e-8, 0.0, true, "at the origin the magnitude of the segments' ends sets the reach (1e-8 from the apex)"),
+                    (0.0, 100.0, 5e-8, 0.0, false, "at the origin a vertex 5e-8 from the apex, beyond the reach of 1.8e-8, is judged") }) {
+                    var input = Points(cx - half, 0, cx + half, 0, cx - half, -half * 1e-5, cx + half, half * 1e-5, cx - dx, y0, cx + 2e-5, 0, cx + 1e-5, 5e-9,
+                        cx - 300, -300, cx + 300, -300, cx + 300, 300, cx - 300, 300);
+                    input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(2, 3));
+                    input.Rings.Add(new RingInput(new[] { 7, 8, 9, 10 }, false));
+                    input.MinAngleDeg = 20;
+                    var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    must("merge zone: " + what, ok ? !report.Has(Violation.AngleBelowBound) && report.MergeZoneExcused == 1 : report.Has(Violation.AngleBelowBound), "report: " + report);
+                }
             }
 
             // 6b. the merge zone where a segment meets a hull edge (hull domain, D13): the mesher refuses a split point of the hull edge

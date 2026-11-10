@@ -597,6 +597,50 @@ About 3 s of solver time locally (7 s for the run, report `results/drift_apex_20
   still charges every vertex and is deliberately not pinned here.
 - `ε` itself (a few ulps of the largest coordinate per distance computation): stated, not derived.
 
+## Pilot 2, step 1b: the reference rule for SafeRounding's drift (D1, a proposal)
+
+`drift_reference.py`, `test_drift_reference.py`; the note is `docs/design/SAFE_ROUNDING_D1_DRIFT.md` (the rule in
+section 3, this check in section 4). No library code implements the rule yet: the pilot checks the lemma before it
+is built, and searches tiny configurations for counterexamples.
+
+```sh
+python tools/Z3Pilot/drift_reference.py --out /tmp/z3-drift-reference.json      # about 2.5 minutes
+python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
+```
+
+- **A, convexity** (nonlinear real arithmetic): a point of a triangle moves by at most the largest move of a corner,
+  in R^3, as two queries (the dot bound in coordinates, the claim over the Gram entries). The claim on the
+  coordinates directly returned unknown and is not counted.
+- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`.
+- **C, the bounded search** (linear real arithmetic, complete for its configurations): chains of 3 to 5 vertices on
+  the real line, every script of up to three edits (two for five vertices), 7038 scripts, each with one query for
+  "a segment has a point beyond its bound, or the start has a point beyond the largest bound, or a bound exceeds
+  the apex rule's drift, or a bound at the end exceeds the reported drift". `Chain` is written once over a backend, so the same code replays a witness with fractions.
+- **D, the rounding**: `Vector3d.Distance` in three steps (Higham (2.4) per operation), and the induction step of
+  the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
+- **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
+  regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
+  ghosts and why one anchor per vertex is not enough.
+- **Source contract**: not of the rule (there is no code), but of the facts about `MeshRoundingRepair.cs` and
+  `Vector3d.Distance` that the lemma assumes (one writer of positions; only `try_move` and `try_collapse` propose a
+  moved vertex and list its triangles corner for corner).
+
+Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
+which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:
+`results/drift_reference_2026-11-09.json` (19 obligation rows UNSAT with satisfiable assumptions, 8 of them the
+7038 scripts of the search; 16 mutants SAT; 137 s of solver time).
+
+## Pilot 4: the Devillers-Guigue prefilter of the arrangement
+
+`tritri_prefilter.py` checks the lemma of docs/design/TRITRI_PREFILTER.md over the reals (the code's predicates,
+`ExactPredicates.Orient3d` on doubles, are exact, so no rounding is modelled). `U` is normalized to
+`(0,0,0), (1,0,0), (0,1,0)` by an affine map with positive determinant (the bridge in the note), `T`'s nine
+coordinates are free. The segments `T n plane(U)` and `U n plane(T)` are built from their definitions, not from the
+predicates. UNSAT: the order of each segment's ends along `d = nT x nU`, each predicate's equivalence with one
+comparison of ends, and the lemma both ways. SAT: the assumptions, both decisions, touching (no vacuous proof), and
+four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
+that the model describes). All 14 queries take well under a second.
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and

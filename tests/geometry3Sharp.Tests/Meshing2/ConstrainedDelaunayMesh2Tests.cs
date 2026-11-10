@@ -395,6 +395,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(-560)]
         [InlineData(-1000)]

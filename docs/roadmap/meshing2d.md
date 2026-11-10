@@ -19,10 +19,20 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Drift promise on the snap grid (owner 2026-11-10, option A):** the QA 2.0 T5 campaign found chains at sub-pixel
+  wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources; 2 above 1 px), caused by Q17 (refinement
+  vertices of one chain reroute another through hot pixels), against the documented O11 / D14 promise of half a pixel.
+  A bounded-drift variant (Packer, ISRBD, 2006/2008) needs a bound of ~2.1 px and collapses such wedges (Belussi et al.
+  2016), so it cannot restore 1 px. Decision: the oracle judges against its own iterated image (with an explicit drift
+  guard), and O11 / D14 and the class docs state the real bound (input rounding <= half a pixel per axis; chains at
+  sub-pixel wedges up to ~2 px). PR by the T5 session.
+- **Collapsed stretches on the snap grid (owner 2026-11-10, option B):** for a stretch that the input-only image
+  collapses (a spike the input's own rounding removes), the input-only image is the only reference; the mesher need not
+  rebuild it around refinement vertices of other chains, whatever the spike's length. Stretches with area in the input-only
+  image stay judged by the full image (self-check B1 kept). Replaces the 1 px² lobe bound of #530 for such stretches.
+
 Small input angles and triangle count:
 
-- **Corner choice** (follow-up of #394): the corner choice in doubles (MinSin2) against the oracle's exact shortest
-  edge at near-180° triangles.
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).
 - **Z3 checks for the mesher (owner 2026-11-08, item 5 of the Meshing2D bundle, after rule C; pilot 3 merged in #443):** in tools/Z3Pilot,
   (a) the `ShortestEdgeCorner` double filter of #437 (relative error ≤ 2^-51 per squared length, the 2^-40 margin
@@ -35,28 +45,48 @@ Small input angles and triangle count:
   change, earcut/water-huge3 M3@30 unjudged → ok), no new failure; triangles of the 234 both-ok runs 550238 → 451893 (−18 %;
   per-run ratio 5 % 0.647, median 1.000, no increase), meshing time 7020 → 6036 ms; Steiner-limit list unchanged (poly2tri/debug2
   at 20° and 30°). The corpus command does not print counters 13-15 (refused forced splits), but no run shows a new failure, so none reached a verdict. Herne not run (no tiles on the runner); rule C is off on the grid, so no change is expected there.
-- **Rule C on the snap grid** (own grid item): a split that rule C forces late can be refused where the oracle's
-  `GridUnsplittable` still demands it (the pinch rule differs between mesher and oracle, documented in the oracle); the Q17 zigzag
-  ends INVALID with rule C on. Fix the pinch-rule difference on one side, then enable rule C on the grid.
+- **Rule C on the snap grid** (done, #462; owner decision 2026-11-09: option A, the oracle computes chain identity exactly from the output subsegment graph, as snap-rounding papers do by hot-pixel sequence; spec text unchanged, oracle stays independent): the pinch-rule difference was the oracle's envelope
+  approximation of "another chain" (mesher: by input source). The oracle now computes chain identity from the output's subsegment graph
+  (`Oracle.OwnStretch`, MESHING2D_HULL_GRID.md section 7; MESHING2D_SMALL_ANGLES_CONFORMING.md section 9), self-checks and mutants
+  kill every part of it, a differential over 1444 meshes shows no accepted mesh rejected; rule C is on the grid. Procedural grid inputs
+  (722 runs, base vs candidate in one build): star fuzz -5.2 % triangles, segment fuzz -2.7 %, wedges -83 %, pairs -74 %, Q17 zigzags
+  -59 % (z0 was INVALID before the oracle change, now ok), Herne-style parcels unchanged, no verdict regression, no Steiner-limit run, golden
+  rows unchanged. Herne tiles not in the repository: not run. Pinned-mechanism tests that search the old refinement run it with the
+  exemption off (reason in each test).
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
-  off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
-  measured. After #394: stmlf/1461 q30 325 662 triangles.
+  off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. After #394: stmlf/1461 q30 325 662
+  triangles. **Measured 2026-11-10 (QA 2.0 T5, procedural generators, no mesh files)**: near misses (points 2^-k beside a segment) and close
+  ends grow linearly in k (about 250 triangles per octave) in both modes, oracle ok; a T-junction wedge of angle θ ≈ 2^-k·2 is constant (38
+  triangles) in the constrained quality mode and doubles per octave in the default mode (255 / 5 878 / 178 918 at k = 5 / 10 / 15, the Steiner
+  limit from k = 20), driven by rule C revocations on unmatched A and B vertices, not by O2 itself. **Owner decision D (2026-11-10):** documented as today's
+  behaviour, the constrained quality mode is the answer for such inputs; matched shells (O(log 1/θ), option B) stay a reopenable research item: design note
+  [MESHING2D_WEDGE_COST.md](../design/MESHING2D_WEDGE_COST.md). The CsCheck
+  campaign has a `nearcontact` family (frames of 2^10..2^15 lattice units, T-junctions exactly on a long segment, ends 1 or 2 units beside its line,
+  free points 3 steps beside it): 2 500 strict samples, no failing seed (in the default mode nearly every sample reaches its Steiner limit of 1 500, so
+  its angle and conformity checks run effectively in the constrained and angle-free samples only). The oracle gap found with the same generator at angles of 1e-7 and below
+  (crossing vertices rounded to doubles) is #542; two ties and three single triangles at 1e-7..1e-9 radian are open and documented in
+  [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md).
 - **Grading:** f-11 1.8-2.0x the reference stays open (owner decision 2026-11-04: stop, #380 is the grading result;
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
   quadtree meshing, smoothing) are recorded below, not scheduled.
   (Off-centres, Üngör 2004, are already the default split point, and Erten / Üngör 2007's locally optimal candidates
   are grading step 2; neither is a new lever.)
-- **Coarsening** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
+- **Coarsening (closed 2026-11-09)** (owner 2026-11-08: no project now; after the Meshing2D bundle has merged, a runner re-measures the
   170 run-A outputs above 1.5x the reference, then the owner decides; earlier: owner 2026-11-04, week of 2026-11-09): the probe (draft #391) gave small
   gains and was not built; the triangle-count diagnosis then led to the small-angle rule (#394). **Re-measurement
   2026-11-08** (the #391 probe ported onto master with #394 and rule C, branch claude/coarsening-remeasure, not for merge;
   public corpus, 252 runs per side, 20° and 30°): default mode −4.5 % (mode 1) / −4.8 % (mode 2) triangles over 235 both-ok
   runs, none grew, 5 % ratio 0.91, mesher time +54 % / +64 %; constrained mode −3.9 % / −4.1 %, time +52 %; no verdict
   changed, Steiner-limit runs unchanged. #394 and rule C took the large cases; the gain is the same small slice as before
-  (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. Owner decision
-  open. Inputs: the 170 run-A outputs above 1.5x the
+  (−3 %). The 170 run-A outliers and stmlf/850, 1326, 1461 are not in the repository and were not re-measured. **Closed
+  (owner 2026-11-09):** about 4 % fewer triangles do not pay for over 50 % more mesher time; not built. Inputs: the 170 run-A outputs above 1.5x the
   reference; stmlf/850 q30 default and stmlf/1326 q25 cq, where only the reference is valid.
+- **Small-angle exemption up to 60° (owner 2026-11-09, from the QA 2.0 T5 campaign):** input angles between the
+  bound and 60° can make the refinement cascade (smallest case: two segments at 26.6°, refined to ~1e-12, one
+  triangle left below 20°). Decision: the documented exemption covers input angles below 60° (Ruppert / Shewchuk
+  terminate only from 60°); such triangles are reported and the oracle excuses them by the same rule (T5 session).
+  The grid findings of the campaign (AreaMismatch, missing chains, also in plain M2) are handled as a bug.
 - **Research item, not scheduled:** Shewchuk's Terminator together with a region-based oracle excuse; a spec change
   that lowers the guarantee near small input angles.
 

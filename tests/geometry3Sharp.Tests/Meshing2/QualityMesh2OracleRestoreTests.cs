@@ -57,21 +57,23 @@ namespace geometry3Sharp.Tests
         /// on seeds 0 to 2999 of <see cref="StarPolygonFuzz"/>, the hot pixels the library's snap rounding adds beyond the input points'
         /// are exactly the crossings' and the oracle's restore pixels; at least the 10 seeds that need them have some
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void RestorePixels_MatchTheLibrarys_OnTheFuzz()
         {
             var wrong = new List<string>();
             int withRestore = 0;
+            StarFuzzCache.Prime(3000);
             for (int seed = 0; seed < 3000; ++seed) {
                 var input = StarPolygonFuzz.Make(seed);
                 var library = LibraryExtraPixels(input);
-                var o = new QualityMesh2Candidate().Run(input);
+                var cached = StarFuzzCache.Get(seed);
                 // (an input whose ring collapses entirely has an empty domain, and the oracle computes no snapped domain for an empty
                 // output: those seeds are skipped here)
                 bool empty = QualityMesh2KeepsChainsApartTests.EmptyDomain.Contains(seed);
-                Assert.Equal(empty ? Mesh2Status.Empty : Mesh2Status.Success, o.Status);
+                Assert.Equal(empty ? Mesh2Status.Empty : Mesh2Status.Success, cached.Status);
                 if (empty) continue;
-                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                var report = cached.Report;
                 Assert.NotNull(report.RestorePixels);
                 var expected = OracleExtraPixels(input, report);
                 if (report.RestorePixels.Count > 0) ++withRestore;

@@ -35,6 +35,7 @@ namespace geometry3Sharp.Tests
         // MinFeatureSize (2.3 mm at the first margin): triangles of the clipped region fail the first two attempts, with
         // no room for the band merge (its radius is r), another cause (TERRAIN.md 5.8.1). Every frame succeeds with a
         // valid composite; the 2^k frames are bit for bit
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void WavyToeNearTheOrigin_ClippedSliverRaisesTheMargin(string name)

@@ -38,6 +38,11 @@ rather than an app. That puts some things first:
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
+**Depth over breadth (owner 2026-11-10):** round off the existing features first; a new topic only with a synergy
+with an existing one. Must-win hard problems (stronger-model investigations): scale-free robust repair, rounding cost
+on large results (with the 3D snap-rounding leads), a proof method for determinism
+([research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)).
+
 Relation to upstream: stay API compatible with 1.0.324, which existing users depend on. Upstream's
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
 selectively.
@@ -46,23 +51,27 @@ selectively.
 Status on 2026-11-08 (evening, Berlin).
 - **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
-  documented exceptions). Ten PRs are ready or nearly (#397, #398, #406, #409, #412, #419, #420, #424, #425, #426:
-  levers −41 % total / −68 % rounding bit-identical, D1 apex rule, scale disparity, empty-union fix, edge-key hash);
-  they merge through one combined mutation gate on an integration branch once #403 (shard split) has merged and the
-  master baselines are seeded. Then: the ±1e308 predicate throw (L3 dropped, owner 2026-11-08: 119829/119830 now run in 0.8-3.7 s and already
-  report RoundingClean false honestly), the final Thingi10K run, the
-  control run and the thingi-pairs runs (#418). Lévy classification: phase 1 done (#428, no propagation now); phase 2
-  (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): merged #405 (simplification guard), #413
-  (quality pass off by default), #422 (Reducer speedups); next #404, #408, #410, #417, #429, then #432 (parallel slab
-  reduction), then the final 800 run. Met so far: 0 triangles < 0.5° / > 170°, final p01 median 11.5°, raw p01 above
-  CGAL's on the T1 100. Open: the per-mesh speed budget (72 of 100 with (A) on a 4-core machine) goes to the owner with
-  the final numbers. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- **Mutation tooling:** #403 (rounding in 7 parts, envelope thresholds from the first CI run) is running its CI;
-  the owner's machine runs JOB-1 (rounding part timing, reduced test filters) as a local runner, jobs via the
-  `runs/mutation-local` branch. [platform.md](roadmap/platform.md)
+  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
+  one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
+  runs on master after the merge (owner decision) and seeds the rounding baselines. L3 dropped (owner 2026-11-08:
+  119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The ±1e308 throw is fixed in
+  #449 (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with ScaleNotFinite
+  above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418).
+  Lévy classification: phase 1 done (#428, no propagation now); phase 2 done
+  (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+- **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
+  p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
+  Next: **Alpha Wrap 3.0** (starts after Exact Boolean 2.0 closes: profile and bounds first, owner sets targets; speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallel evaluate / serial apply)
+  and Reducer / Remesher 2.0 (#454 hand-over). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
+  mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
+  a rollout by ROI. [platform.md](roadmap/platform.md#qa-20-milestone)
+- **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
+  2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
+  machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the
+  exclusive kills, full runs weekly. [platform.md](roadmap/platform.md)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
-  no verdict worse; Z3 pilot 3 #443). Coarsening re-measured (−4.5 % triangles for +50 % mesher time): owner decision open.
+  no verdict worse; Z3 pilot 3 #443). Coarsening closed (re-measured: −4.5 % triangles for +50 % mesher time).
   Rule C on the snap grid is open.
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
@@ -123,6 +132,10 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
+- Intersection-free dual contouring (owner 2026-11-10: moved up, next Phase 5 item, ahead of collision detection and tet meshing):
+  [research.md](roadmap/research.md#open)
+- Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
+  [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 started, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)
