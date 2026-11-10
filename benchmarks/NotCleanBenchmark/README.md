@@ -29,3 +29,28 @@ touching and shared-edge pairs, lattice soups with zero-area triangles, similari
 
 The other checks of `NotCleanReason` (closed, bowties, degenerate triangles, orientation, inside-out components) take
 130-340 ms on the wrap meshes, about a quarter of the total.
+
+## Lever 2: the box-tree self-join instead of one tree traversal per triangle (2026-11-10)
+
+The candidate pairs now come from the self-join of the box tree of the exact boolean (`TriangleBoxTree.SelfPairTasks` /
+`SelfPairs`, closed box overlap, 256 work items in parallel) over the non-degenerate triangles, instead of one traversal of
+a `DMeshAABBTree3` per triangle. Every intersecting pair has overlapping closed boxes, so none is missed; the exact test
+(lever 1) decides. Each work item fills its own list and the pairs are sorted at the end, so the result does not depend on
+the number of threads (`Pairs_ParallelEqualsSerial_AndRepeatedRunsAreIdentical`: repeated runs, `gParallel.SerialOnThisThread`,
+and the brute force). With `HasSelfIntersections` (stop at the first pair) the pair found first depends on the thread
+timing, as before; only its existence is used. The pair counts and hashes are the same as before and after lever 1. The candidates are streamed to the exact test (`TriangleBoxTree.SelfPairs` with a visit callback), not listed per work item: a fan of 2000 triangles, where every box overlaps every other, needs no list of box pairs, and `HasSelfIntersections` stops its work item at the first pair (`DenseFan_...` test; found by review).
+
+| mesh | all-pairs search ms: master / lever 1 / lever 2 | HasSelfIntersections ms: master / lever 1 / lever 2 | NotCleanReason ms: master / lever 1 / lever 2 |
+|---|---|---|---|
+| sphere, 200k triangles | 267 / 204 / 135 | 297 / 166 / 119 | 319 / 221 / 148 |
+| alpha wrap, 185k triangles | 420 / 287 / 170 | 439 / 295 / 152 | 541 / 417 / 319 |
+| two shifted wraps (20 293 pairs) | 1080 / 849 / 438 | 183 / 186 / 200 | 481 / 488 / 512 |
+
+(Median of 9 runs on a quiet machine, 4 cores; on the last row `NotCleanReason` stops at the first pair, and the time is dominated by the other checks.)
+
+Cost to the exact boolean's use of the same traversal (`TriangleBoxTree.SelfPairs` into a list, the candidate search of
+`ExactMeshArrangement.self_pairs`): the list and the callback version share one generic traversal over a struct visitor, which
+the JIT specialises, so the list path calls its collector directly. Self-join of the boxes of a 200k-triangle sphere (256 work
+items, 1.2 M pairs, serial, list version; min / median of 25 runs, two alternating rounds): master code 67.6 / 78.9 and
+64.7 / 71.2 ms, shared generic traversal 63.1 / 72.3 and 64.2 / 71.9 ms: within noise. (A wrapper over a delegate cost
+about 10 %.)
