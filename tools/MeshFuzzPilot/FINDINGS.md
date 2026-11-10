@@ -53,3 +53,47 @@ Since 2026-11-10 the decoder samples the scale exponents inside the supported ra
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
 cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
 return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
+
+## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
+
+`MeshFuzzPilot random <n> <seed>` (no coverage guidance, not libFuzzer; the libFuzzer campaigns of the new targets are still to run) on the
+uninstrumented build, one operation selected with `MESH_FUZZ_OPS`. The first smoke runs (about 1 800 inputs per target) took their options from the
+queries' directions, which are constants for most inputs: their "no finding" meant little (the independent review found it); the options are four raw
+bytes now and the numbers below are from the second round.
+
+| Target | Inputs | Result |
+|---|---|---|
+| remesher | 2 000 + 1 250 | no finding |
+| reducer | 2 000 + 1 250 | no finding |
+| clipper2 | 2 000 + 4 000 | no finding; coordinates more than 2^16 extents from the origin (1e14 against an extent of 1) gave rings of zero area (the grid, 2^-40 of the extent, is finer than a double there): a limit of the representation, judged there only for no crash, Success and finite vertices |
+| quality-mesh2 | 2 000 + 2 500 | the open classes below |
+
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; both are gated in the target, `MESH_FUZZ_STRICT=1`
+judges them):
+
+1. `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, **in every quality mode** (constrained,
+   conforming and neither) with a minimum angle of 20 or 25 degrees, on a projected polyhedron with 17 to 36 crossing segments over 8 to 16 points (the
+   Steiner limit is not reached). The first guess "constrained mode only" was wrong (the options were constants then). Whether the mesher or the oracle's notion of a
+   forced small angle at crossings is at fault is not known: the shortest first-round input had points about 1e-25 from zero next to coincident points,
+   so a snap or tube interplay is as likely as the crossings. Replay with `MESH_FUZZ_OPS=quality-mesh2` (the options are the last four bytes of an input; the
+   hex of the first-round input, whose options are the old constants, is no longer a valid reproducer; `random 2500 22` with that filter finds it again).
+2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
+   success inside the documented range (up to 1e70).
+3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
+4. (clipper2) `BooleanPaths` of a self-intersecting raw ring (NonZero) returned an outer ring of negative area (clockwise: a 3-vertex lobe of area 3e-5),
+   against the documented orientation of results ("outer rings counterclockwise, holes clockwise"); a plain bowtie is fine (both lobes counterclockwise), so the
+   cause is a more complex winding structure (a lobe of negative winding next to or inside one of positive winding); the target gates it for self-intersecting
+   input rings. Input: the 16 corners of a projected polyhedron, e.g. `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24`.
+`ArgumentException` for coordinates above 1e70 is the documented contract: the target judges it (the normalized copy keeps the case's offset, so it is reached; accepted
+input beyond 1e70 would be a finding).
+The reducer's 2^40 scale check is judged only inside the Reducer's range (nonzero coordinates 2^-200 .. 2^150, QA.md 2.5a); two inputs with a vertex of magnitude 1e-235
+beside others of 1 (the case's offset against its extent) gave a mesh that is not the scaled one: outside the range, no finding.
+
+### Independent review of the second wave (2026-11-10) and what was done
+
+Done in this PR: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
+judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
+every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
+`ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
+of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
+no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).
