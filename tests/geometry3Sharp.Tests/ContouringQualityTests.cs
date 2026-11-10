@@ -135,13 +135,15 @@ namespace geometry3Sharp.Tests
         [InlineData(1)]
         [InlineData(3)]
         [InlineData(8)]
-        public void AmbiguousFaces_RefinedInsteadOfLeftOut(int seed)
+        public void AmbiguousFaces_FaceVerticesInsteadOfLeftOut(int seed)
         {
             // the polygons that would create non-manifold edges were left out and the holes filled (4-8
-            // non-manifold triangles, up to 36 self-intersections); refining around them separates the surfaces
+            // non-manifold triangles, up to 36 self-intersections), then refined around them. With a face vertex per
+            // segment of an ambiguous face (docs/design/DC_INTERSECTION_FREE.md option B) nothing is left out and no
+            // refinement is needed
             var solid = new MeshWindingNumberSolidify(RandomPlates(seed)) { GridResolution = 64, Adaptive = true, ReduceTolerance = 0 };
             Assert.True(solid.Compute());
-            Assert.True(solid.NonManifoldRefinements > 0);
+            Assert.Equal(0, solid.NonManifoldRefinements);
             Assert.Equal(0, solid.NonManifoldTriangles);
             Assert.True(solid.Result.IsClosed());
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid.Result));

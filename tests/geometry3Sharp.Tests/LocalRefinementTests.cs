@@ -149,7 +149,7 @@ namespace geometry3Sharp.Tests
 
         // sparse dual contouring of the SDF f (negative inside) with the coarse cells for which refine() is
         // true refined by factor
-        static DualContouring ContourMixed(Func<Vector3d, double> f, double cell, double extent, int factor, Func<Vector3i, bool> refine)
+        internal static DualContouring ContourMixed(Func<Vector3d, double> f, double cell, double extent, int factor, Func<Vector3i, bool> refine)
         {
             var bounds = new AxisAlignedBox3d(-extent * Vector3d.One, extent * Vector3d.One);
             int n = (int)Math.Ceiling(2 * extent / cell);
@@ -189,7 +189,7 @@ namespace geometry3Sharp.Tests
 
         static int EulerCharacteristic(DMesh3 m) { return m.VertexCount - m.EdgeCount + m.TriangleCount; }
 
-        static Func<Vector3i, bool> RandomRegion(int seed, double p)
+        internal static Func<Vector3i, bool> RandomRegion(int seed, double p)
         {
             return (c) => {
                 // deterministic per cell
