@@ -1436,8 +1436,8 @@ namespace g3
         /// then decided by its rule, not by the rounding of the sum, so the same with every ray). A true value within the
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
         /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at the switch's 1000), more for a
-        /// centroid next to a segment, at most 1e-9 per segment (a ray with a larger term error is replaced; on or next to
-        /// a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
+        /// centroid next to a segment, at most 1e-6 in all (a ray with a larger bound, or with an ill-conditioned term, is
+        /// replaced; on or next to a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
         /// ray, a value within the bound of a tie but not on it can be snapped with one ray and not with another (one Seed
         /// gives one result). The sum uses portable_atan2, so the value is the same bits on CoreCLR and .NET Framework.
         /// </summary>
@@ -1487,16 +1487,11 @@ namespace g3
                     }
                     // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
                     // next to the edge of the snap below could then be decided differently)
-                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order:
-                    // valid while it is small, so a term whose error exceeds 1e-9 takes another ray: num and den both small
-                    // means the ray nearly passes through an end of the segment, where the term is ill-conditioned and the
-                    // snap below would otherwise widen to the whole interval); den > tol or |num| > tol here, so the hypot
-                    // is above tol
+                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order,
+                    // valid while tol is small against the hypot: the bound of 1e-6 below on the whole sum keeps every
+                    // tol / hypot below 3e-6; num and den both small, the ray nearly through an end of the segment, makes
+                    // the term ill-conditioned and the bound large, so another ray is taken there)
                     double termError = 4 * tol / Math.Sqrt(num * num + den * den);
-                    if (!(termError <= 1e-9)) {
-                        degenerate = true;
-                        break;
-                    }
                     double theta = 2 * portable_atan2(num, den);
                     sum += theta;
                     abs += Math.Abs(theta);
@@ -1509,6 +1504,10 @@ namespace g3
                     double w = chi + sum / MathUtil.FourPI;
                     // (and the roundings of the division by 4 pi (also of 4 pi itself) and of the addition of chi)
                     double bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
+                    // (a bound above 1e-6 would make the snap below a guess: another ray; the bound is about 1e-13 per
+                    // segment for a centroid not next to one)
+                    if (!(bound <= 1e-6))
+                        continue;
                     // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
                     // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
                     // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
