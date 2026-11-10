@@ -219,6 +219,58 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Switch_ThresholdIsStrict()
+        {
+            // a mesh with exactly as many boundary segments as the limit goes to fast winding numbers, one fewer to Antipodal
+            DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
+            int count = ExactMeshBoolean.BoundarySegments(a).Length / 2;
+            Assert.Equal(0, Run(a, b, Ops.Intersection, count).Counts["antipodal_meshes"]);
+            ExactMeshBoolean ant = Run(a, b, Ops.Intersection, count + 1);
+            Assert.Equal(1, ant.Counts["antipodal_meshes"]);
+            Assert.Equal(count, ant.OpenBoundarySegments[0]);
+            Assert.Equal(-1, ant.OpenBoundarySegments[1]);
+            Assert.Equal(0, ant.Counts["antipodal_undecided"]);
+        }
+
+        [Fact]
+        public void CoplanarOpenBoxes_StacksOnTheAntipodalPath()
+        {
+            // two open boxes whose bottoms overlap in one plane (coplanar stacks of both meshes), and the same shifted so
+            // that they overlap in their side walls
+            DMesh3 a = OpenBox(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)), b = OpenBox(new Vector3d(0.5, 0.25, 0), new Vector3d(1.5, 0.75, 0.7));
+            DMesh3 c = OpenBox(new Vector3d(0.5, 0, 0.2), new Vector3d(1.5, 1, 0.8));
+            foreach (DMesh3 other in new[] { b, c })
+                foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                    ExactMeshBoolean ant = Run(a, other, op, Antipodal), fwn = Run(a, other, op, Fwn);
+                    Assert.Equal(2, ant.Counts["antipodal_meshes"]);
+                    Assert.Equal(0, ant.Counts["antipodal_undecided"]);
+                    AssertDifferencesDecidedAsDirectSum(a, other, ant, fwn, op, $"coplanar {op}");
+                    // (AssertPieces is not used here: on these coplanar open boxes it flags 5 of 154 union triangles for both
+                    // paths alike, the fast winding numbers included, so it is not a property of this path; reported)
+                }
+        }
+
+        [Fact]
+        public void SmallOpenMeshFarFromALargeOne()
+        {
+            // a small open hemisphere and a large closed box far away (thousands of the hemisphere's sizes): the box's
+            // pieces are far outside the open mesh (winding number about 0), so the union keeps all of the box
+            DMesh3 a = Sphere(Vector3d.Zero, 0.0, 12);
+            MeshTransforms.Scale(a, 1e-3);
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(20, 7, 3), new Vector3d(10, 6, 5)) }.Generate().MakeDMesh();
+            DMesh3 b = new DMesh3(box);
+            // (a second, small closed part of b next to a, so that the arrangement has pieces near both)
+            DMesh3 near = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0, 0, -5e-4), new Vector3d(2e-4, 2e-4, 2e-4)) }.Generate().MakeDMesh();
+            MeshEditor.Append(b, near);
+            ExactMeshBoolean ant = Run(a, b, Ops.Union, Antipodal), fwn = Run(a, b, Ops.Union, Fwn);
+            Assert.Equal(1, ant.Counts["antipodal_meshes"]);
+            AssertDifferencesDecidedAsDirectSum(a, b, ant, fwn, Ops.Union, "far");
+            ExactBooleanOpenPerPieceTests.AssertPieces(a, b, ant, Ops.Union, "far");
+            double vol = MeshMeasurements.VolumeArea(ant.Result, ant.Result.TriangleIndices(), ant.Result.GetVertex).x;
+            Assert.True(vol >= 0.999999 * 20 * 12 * 10, $"volume {vol}");
+        }
+
         // ---------------------------------------------------------------- equivalence with fast winding numbers
 
         public static IEnumerable<object[]> Cases()

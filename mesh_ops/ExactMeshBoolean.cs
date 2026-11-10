@@ -361,6 +361,7 @@ namespace g3
             windingTrees.Clear();
             antipodalSegments.Clear();
             antipodalFar.Clear();
+            antipodalUndecided = 0;
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
@@ -421,6 +422,7 @@ namespace g3
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
+            Counts["antipodal_undecided"] = antipodalUndecided;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
             Counts["removed_vertices"] = RemovedVertices;
@@ -754,7 +756,7 @@ namespace g3
                 Vector3d[] segments = BoundarySegments(arr.Meshes[m]);
                 OpenBoundarySegments[m] = segments.Length / 2;
                 if (segments.Length / 2 < AntipodalMaxBoundarySegments) {
-                    antipodalSegments[m] = segments;
+                    antipodalSegments[m] = antipodal_grid(segments);
                     antipodalFar[m] = far_points(m, 64);
                 }
             }
@@ -1092,20 +1094,20 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center)
         {
-            Vector3d direction;
-            return front_crossings(i, mesh, tree, rng, stack, center, true, null, out direction);
+            int farIndex;
+            return front_crossings(i, mesh, tree, rng, stack, center, true, null, out farIndex);
         }
 
         /// <summary>
-        /// front_winding's signed crossings of the segment from the piece's centroid to the far point in front, and the
-        /// segment's direction (in input coordinates, normalized). outsideBoxIsZero: a point outside the mesh's box has
+        /// front_winding's signed crossings of the segment from the piece's centroid to the far point in front, and the far
+        /// point used (its index in far, -1 without far). outsideBoxIsZero: a point outside the mesh's box has
         /// winding number 0 (true for a closed mesh; an open mesh's crossings are counted wherever the point is)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         int front_crossings(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center, bool outsideBoxIsZero,
-            FarPoints far, out Vector3d direction, int firstAttempt = 0)
+            FarPoints far, out int farIndex, int firstAttempt = 0)
         {
-            direction = Vector3d.Zero;
+            farIndex = -1;
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
             List<int> tris = arr.MeshTriangles[mesh];
@@ -1131,13 +1133,14 @@ namespace g3
                 ExactPoint3 Rp;
                 double rx, ry, rz;
                 Vector3d rv;
+                int j = -1;
                 if (far != null) {
                     // (one of the mesh's precomputed far points, FarPoints, chosen by a hash of the seed, the piece and the
                     // attempt: deterministic in any thread order, no generator per piece)
                     ulong h = unchecked((ulong)(uint)Seed * 0x9E3779B97F4A7C15UL ^ (ulong)(uint)i * 0xBF58476D1CE4E5B9UL ^ (ulong)(uint)attempt * 0x94D049BB133111EBUL);
                     h = (h ^ (h >> 31)) * 0xD6E8FEB86659FD93UL;
                     h ^= h >> 32;
-                    int j = (int)(h % (ulong)far.R.Length);
+                    j = (int)(h % (ulong)far.R.Length);
                     Rp = far.R[j];
                     rx = far.Grid[j].x; ry = far.Grid[j].y; rz = far.Grid[j].z;
                     rv = far.Input[j];
@@ -1210,7 +1213,7 @@ namespace g3
                 System.Threading.Interlocked.Add(ref windingSides, sides);
                 System.Threading.Interlocked.Add(ref windingExactSides, exactSides);
                 if (degenerate == false) {
-                    direction = (rv - pv).Normalized;
+                    farIndex = j;
                     return winding;
                 }
             }
@@ -1225,6 +1228,11 @@ namespace g3
             Vector3d grid;
             bool hasGrid;
             public Center(ExactPoint3 p) { P = p; }
+            // the grid coordinates as doubles, without the tiny-coordinate check of Grid (for the Antipodal boundary sum)
+            public Vector3d GridDouble()
+            {
+                return new Vector3d(ExactPoint3.ToDouble(P.X, P.W, 0), ExactPoint3.ToDouble(P.Y, P.W, 0), ExactPoint3.ToDouble(P.Z, P.W, 0));
+            }
             // the grid coordinates as doubles (grid_coord), when first needed
             public Vector3d Grid()
             {
@@ -1263,9 +1271,16 @@ namespace g3
         {
             BigInteger[] min, max;
             mesh_bounds(mesh, out min, out max);
+            // (the extent of the box of all meshes: every centroid lies within it, so the segment to a far point leaves the
+            // mesh's box for good, whatever the direction; with the mesh's own extent, a piece of a much larger mesh far away
+            // could see the line come back into the box beyond the far point)
             BigInteger ext = BigInteger.One;
-            for (int k = 0; k < 3; ++k)
-                ext = BigInteger.Max(ext, max[k] - min[k] + 1);
+            for (int m = 0; m < arr.Meshes.Count; ++m) {
+                BigInteger[] mmin, mmax;
+                mesh_bounds(m, out mmin, out mmax);
+                for (int k = 0; k < 3; ++k)
+                    ext = BigInteger.Max(ext, BigInteger.Max(mmax[k], max[k]) - BigInteger.Min(mmin[k], min[k]) + 1);
+            }
             var rng = new Random(unchecked(Seed + 7919 * (mesh + 1)));
             var f = new FarPoints() { R = new ExactPoint3[count], Grid = new Vector3d[count], Input = new Vector3d[count] };
             for (int j = 0; j < count; ++j) {
@@ -1402,26 +1417,44 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
         {
-            Vector3d p = center.Input;
+            // (in grid coordinates, relative to the arrangement's centre: their rounding is relative to the model's size,
+            // not to its distance from the origin, eg UTM coordinates; the segments are converted once, antipodal_grid)
+            Vector3d p = center.GridDouble();
+            double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+            FarPoints far = antipodalFar[mesh];
             for (int attempt = 0; attempt < 20; ++attempt) {
-                Vector3d x0;
+                int j;
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
-                int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, antipodalFar[mesh], out x0, 200 * attempt);
-                Vector3d x1 = -x0;
+                int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, far, out j, 200 * attempt);
+                Vector3d x1 = -(far.Grid[j] - p).Normalized;
                 double sum = 0;
                 bool degenerate = false;
                 for (int k = 0; k < segments.Length; k += 2) {
                     Vector3d a = segments[k] - p, b = segments[k + 1] - p;
                     double la = a.Length, lb = b.Length;
-                    if (la == 0 || lb == 0) {
-                        degenerate = true;
-                        break;
+                    // the error of the unit vectors: the rounding of p and of the ends (relative 2^-52 of their L1 size, as
+                    // a distance), divided by the distance, plus the normalization; num and den are sums of a few products
+                    // of unit vectors, so their errors are a small multiple of it (taken generously: 16 times)
+                    double ea = 2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la;
+                    double eb = 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb;
+                    double tol = 16 * (ea + eb + 1e-15);
+                    if (!(tol < 0.01)) {
+                        // (the centroid on or next to an end of the segment: undecided whatever the ray)
+                        System.Threading.Interlocked.Increment(ref antipodalUndecided);
+                        return 0.5;
                     }
                     a /= la;
                     b /= lb;
+                    if (1 + a.Dot(b) <= tol) {
+                        // (a and b opposite: the centroid on or next to the segment, undecided whatever the ray)
+                        System.Threading.Interlocked.Increment(ref antipodalUndecided);
+                        return 0.5;
+                    }
                     double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
-                    // (x1 on the great circle arc through a and b, or a and b opposite: the area is not defined)
-                    if (Math.Abs(num) < 1e-12 && Math.Abs(den) < 1e-12) {
+                    // the branch cut of 2 atan2(num, den) is num = 0, den < 0 (the ray passes through the segment, where the
+                    // exact crossing count and the rounded sum could disagree by 1), and both near 0 is the singular point:
+                    // within the error, another ray
+                    if (Math.Abs(num) <= tol && den <= tol) {
                         degenerate = true;
                         break;
                     }
@@ -1431,7 +1464,20 @@ namespace g3
                     return chi + sum / MathUtil.FourPI;
             }
             // (no usable ray: undecided, which the threshold reads as outside)
+            System.Threading.Interlocked.Increment(ref antipodalUndecided);
             return 0.5;
+        }
+
+        // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
+        long antipodalUndecided;
+
+        // the boundary segments of a mesh in grid coordinates (relative to the arrangement's centre, as doubles)
+        Vector3d[] antipodal_grid(Vector3d[] segments)
+        {
+            var g = new Vector3d[segments.Length];
+            for (int k = 0; k < segments.Length; ++k)
+                g[k] = new Vector3d((double)arr.GridValue(segments[k].x, 0), (double)arr.GridValue(segments[k].y, 1), (double)arr.GridValue(segments[k].z, 2));
+            return g;
         }
 
         /// <summary>

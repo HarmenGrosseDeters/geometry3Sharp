@@ -511,11 +511,18 @@ namespace geometry3Sharp.Tests
             foreach (var c in cases) {
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
                     var exact = new ExactMeshBoolean(c.Item1, c.Item2, op);
-                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true };
-                    Assert.True(exact.Compute() && gen.Compute());
+                    // (both paths for meshes without exact winding numbers: fast winding numbers, and the Antipodal Method,
+                    // which a mesh with no boundary segments takes by default; the coplanar case has stacks)
+                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true };
+                    Assert.True(exact.Compute() && gen.Compute() && ant.Compute());
                     Assert.False(gen.ExactWindingA || gen.ExactWindingB);
-                    Assert.Equal(exact.Result.TriangleCount, gen.Result.TriangleCount);
-                    Assert.Equal(Volume(exact.Result), Volume(gen.Result), 12);
+                    Assert.Equal(0, gen.Counts["antipodal_meshes"]);
+                    Assert.Equal(2, ant.Counts["antipodal_meshes"]);
+                    foreach (var g in new[] { gen, ant }) {
+                        Assert.Equal(exact.Result.TriangleCount, g.Result.TriangleCount);
+                        Assert.Equal(Volume(exact.Result), Volume(g.Result), 12);
+                    }
                 }
             }
         }
