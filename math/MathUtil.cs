@@ -600,6 +600,21 @@ namespace g3
         public static double TriSolidAngle(Vector3d a, Vector3d b, Vector3d c, ref Vector3d p)
         {
             a -= p; b -= p; c -= p;
+            // (every term is cubic in the coordinates: la lb lc and the triple product underflow to 0 below about 1e-103
+            // and overflow above about 1e102, which gave 0 or NaN. atan2 takes the ratio, so a power of two brings the
+            // largest component to [1, 2) exactly; inside [2^-100, 2^100] nothing changes)
+            double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(a.z), Math.Abs(b.x))),
+                Math.Max(Math.Max(Math.Abs(b.y), Math.Abs(b.z)), Math.Max(Math.Max(Math.Abs(c.x), Math.Abs(c.y)), Math.Abs(c.z))));
+            if (m > 0 && m <= double.MaxValue && (m < 7.8886090522101181e-31 || m > 1.2676506002282294e30)) {
+                int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
+                if (e == 0)
+                    e = (int)((BitConverter.DoubleToInt64Bits(m * 18446744073709551616.0) >> 52) & 0x7FF) - 64;      // subnormal
+                int shift = -(e - 1023);
+                double half = BitConverter.Int64BitsToDouble((long)(shift / 2 + 1023) << 52), rest = BitConverter.Int64BitsToDouble((long)(shift - shift / 2 + 1023) << 52);   // (exact powers of two)
+                a = new Vector3d(a.x * half * rest, a.y * half * rest, a.z * half * rest);
+                b = new Vector3d(b.x * half * rest, b.y * half * rest, b.z * half * rest);
+                c = new Vector3d(c.x * half * rest, c.y * half * rest, c.z * half * rest);
+            }
             double la = a.Length, lb = b.Length, lc = c.Length;
             double bottom = (la * lb * lc) + a.Dot(ref b) * lc + b.Dot(ref c) * la + c.Dot(ref a) * lb;
             double top = a.x * (b.y * c.z - c.y * b.z) - a.y * (b.x * c.z - c.x * b.z) + a.z * (b.x * c.y - c.x * b.y);

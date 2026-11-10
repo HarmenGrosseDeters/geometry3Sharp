@@ -694,14 +694,18 @@ namespace gs
             return LostComponents(new SolidReference(input), SolidInside(result), minCoverage, maxComponents, seed);
         }
 
-        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
+        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1,
+            bool relativeToLargest = false)
         {
             DMesh3 input = reference.Mesh;
             if (input.TriangleCount == 0)
                 return 0;
             Func<Vector3d, bool> inInput = reference.Inside;
-            double minDiagonal = MinComponentDiagonal * TriangleBounds(input).DiagonalLength;
-            var boxes = reference.ComponentBoxes().Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
+            // (relativeToLargest: relative to the largest connected component (open ones too), not to all triangles, whose diagonal grows with the
+            // distance between components: a part far from the rest would make every near part too small to be judged)
+            List<AxisAlignedBox3d> all = reference.ComponentBoxes();
+            double minDiagonal = MinComponentDiagonal * (relativeToLargest ? LargestComponentDiagonal(input) : TriangleBounds(input).DiagonalLength);
+            var boxes = all.Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
                 .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
             int[] lost = new int[boxes.Count];
             gParallel.ForEach(Interval1i.Range(boxes.Count), (k) => {
