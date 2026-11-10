@@ -241,7 +241,7 @@ namespace geometry3Sharp.Tests
             DMesh3 other = new DMesh3(sphere);
             MeshTransforms.Translate(other, new Vector3d(0.5, 0, 0));
             new MeshEditor(crossing).AppendMesh(other);
-            Assert.EndsWith("self-intersections", PointCloudNormals.WrapProblem(crossing));
+            Assert.Equal("self-intersections", PointCloudNormals.WrapProblem(crossing));
         }
 
         [Fact]
@@ -260,6 +260,15 @@ namespace geometry3Sharp.Tests
             Assert.Null(pn.Wrap);
             Assert.Equal(0, pn.ConfidentCount);
             Assert.Equal(pts.Count, pn.Normals.Length);
+            // a first wrap that is used (clean, but too few confident points) and a later one that fails: no stale wrap of the first attempt
+            var late = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 2 };
+            int lateCalls = 0;
+            late.WrapProblemF = (w) => ++lateCalls == 1 ? "" : "simulated defect";
+            Assert.False(late.Compute());
+            Assert.Equal(PointCloudNormals.NormalsStatus.WrapFailed, late.Status);
+            Assert.True(lateCalls >= 2, "the first wrap was not enough: " + lateCalls);
+            Assert.Null(late.Wrap);
+            Assert.Equal(0, late.ConfidentCount);
             // a given Alpha is never changed: fails at once
             var given = new PointCloudNormals(pts) { MaxSteinerPoints = 30, Alpha = 0.3 };
             given.WrapProblemF = (w) => "simulated defect";

@@ -266,6 +266,7 @@ namespace gs
                     expand(sign);
                     Array.Clear(Confident, 0, n);
                     ConfidentCount = 0;
+                    Wrap = null;             // (an earlier attempt of the escalation may have set it)
                     Status = NormalsStatus.WrapFailed;
                     return false;
                 }
@@ -306,8 +307,7 @@ namespace gs
             if (!wrap.IsClosed()) return "not closed";
             if (!wrap.CheckValidity(false, FailMode.ReturnOnly)) return "invalid mesh";
             if (MeshIterators.BowtieVertices(wrap).Any()) return "bowtie vertices";
-            int si = MeshRepairMetrics.SelfIntersections(wrap);
-            if (si != 0) return si + " self-intersections";
+            if (MeshRepairMetrics.HasSelfIntersections(wrap)) return "self-intersections";       // (stops at the first pair)
             return "";
         }
 
