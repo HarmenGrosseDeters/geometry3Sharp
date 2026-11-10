@@ -1,6 +1,7 @@
 # Intersection-free dual contouring (Phase 5 item 4, hard open problem 13)
 
-Status: **decided (owner 2026-11-10): option A, then option B, one PR each** (section 4). Nothing here is implemented
+Status: **decided (owner 2026-11-10): option A, then option B, one PR each** (section 4). **Option A is implemented**
+(section 5); option B is next. Before A, nothing here was implemented
 yet except a measurement hook
 (`DualContouring.CollectDiagnostics`, internal, off by default) and the benchmark
 [`benchmarks/DualContouringIntersections`](../../benchmarks/DualContouringIntersections/README.md).
@@ -199,3 +200,65 @@ counts reported; check time down by at least the uncovered share; invariance ove
 bit), reuse, parallel = serial; tests that fail on the old code (eg a quad whose normal-based diagonal leaves the
 envelope and intersects a neighbour, built by hand); the hole fill of section 2.1 checked and reported; benchmark
 before / after with this benchmark.
+
+## 5. Option A, implemented
+
+`DualContouring.Generate` classifies every dual quad: four single-patch cells of one size whose vertices are strictly
+inside their cells (exact comparisons with the cell corners as computed for the grid). For those it decides Wang's
+criterion with `ExactPredicates.Orient3d` (`ConcaveEnvelopeVertices`):
+- no concave vertex: today's normal-based diagonal (both are covered), so the output is unchanged there;
+- one: the diagonal through it (`ForcedDiagonals`);
+- two, or an exactly coplanar test: an edge vertex on the grid edge (`EdgeVertices`), at the edge's surface point
+  along it (the coordinates across the edge are the nodes', so it lies exactly on the segment; strictly between the
+  end nodes, else the midpoint), and four triangles (v_i, v_i+1, v_e), each inside its tetrahedron
+  (v_i, v_i+1, e+, e-).
+
+These triangles are covered (`CoveredTriangles`). The exact self-intersection check starts from the others only
+(`CheckedTriangles`: multi-patch, transition and degenerate polygons, vertices not strictly in their cells), each
+against the whole mesh; after a repair move, the triangles around the moved vertices are checked again, as before, so
+every triangle that is not checked is covered at its current position. `SelfIntersectionFree` keeps its meaning.
+
+`WindingContouring` checks the hole fill exactly (`FinishHoles` / `FillSmallHolesChecked`: the triangles the fill
+added or changed, including those at the bowtie vertices it splits, whose coincident copies touch, are checked against
+the whole mesh, so the count agrees with `MeshRepairMetrics.SelfIntersections`; `HoleFillIntersections`), and its `SelfIntersectionFree` is true only if the fill added none
+(holes the fill could not close may remain). Not in this PR: the non-adaptive call in `MeshWindingNumberSolidify`
+still calls the unchecked `FillSmallHoles` (its `knownFree` stays false there, so nothing is reported wrongly), and
+`Compute()` still returns true after a fill with intersections; both belong to another session's file and switch to
+`FinishHoles` there.
+
+Result on the same 412 runs (`benchmarks/DualContouringIntersections`, A/B with the #541 head as baseline, two
+repetitions each, alternating, hook off; medians per input):
+
+| input | res | runs | total s base / cand | ratio | DC s base / cand | ratio | check + repair s base / cand | ratio |
+|---|---|---|---|---|---|---|---|---|
+| T1 | 64 | 20 | 8.8 / 8.2 | 0.92 | 4.5 / 3.6 | 0.79 | 1.25 / 0.20 | 0.16 |
+| T1 | 128 | 20 | 23.9 / 21.9 | 0.92 | 12.7 / 10.5 | 0.82 | 4.14 / 0.87 | 0.21 |
+| imp:boxminussphere | 24 | 20 | 0.2 / 0.1 | 0.50 | 0.2 / 0.1 | 0.42 | 0.11 / 0.01 | 0.14 |
+| imp:boxminussphere | 48 | 20 | 0.9 / 0.7 | 0.74 | 0.9 / 0.6 | 0.73 | 0.35 / 0.07 | 0.22 |
+| imp:boxminussphere | 96 | 20 | 3.9 / 3.1 | 0.79 | 3.8 / 3.0 | 0.79 | 1.67 / 0.39 | 0.23 |
+| imp:cone | 24 | 20 | 0.1 / 0.1 | 0.59 | 0.1 / 0.0 | 0.41 | 0.04 / 0.00 | 0.06 |
+| imp:cone | 48 | 20 | 0.4 / 0.3 | 0.86 | 0.3 / 0.3 | 0.82 | 0.15 / 0.03 | 0.20 |
+| imp:cone | 96 | 20 | 1.6 / 1.3 | 0.80 | 1.5 / 1.2 | 0.79 | 0.71 / 0.17 | 0.24 |
+| imp:gyroid | 24 | 20 | 0.7 / 0.4 | 0.68 | 0.6 / 0.4 | 0.66 | 0.23 / 0.22 | 0.93 |
+| imp:gyroid | 48 | 20 | 2.9 / 3.4 | 1.19 | 2.8 / 3.4 | 1.19 | 1.39 / 1.39 | 0.99 |
+| imp:gyroid | 96 | 20 | 14.1 / 11.4 | 0.81 | 14.0 / 11.3 | 0.81 | 6.30 / 2.73 | 0.43 |
+| imp:rotbox | 24 | 20 | 0.2 / 0.2 | 0.87 | 0.2 / 0.1 | 0.85 | 0.08 / 0.02 | 0.23 |
+| imp:rotbox | 48 | 20 | 0.7 / 0.6 | 0.80 | 0.7 / 0.6 | 0.79 | 0.30 / 0.07 | 0.23 |
+| imp:rotbox | 96 | 20 | 2.8 / 2.4 | 0.88 | 2.7 / 2.4 | 0.88 | 1.14 / 0.36 | 0.31 |
+| imp:slab | 24 | 20 | 0.1 / 0.2 | 1.12 | 0.1 / 0.1 | 1.15 | 0.07 / 0.04 | 0.63 |
+| imp:slab | 48 | 20 | 1.1 / 0.9 | 0.90 | 1.0 / 0.9 | 0.89 | 0.51 / 0.38 | 0.76 |
+| imp:slab | 96 | 20 | 3.9 / 3.3 | 0.84 | 3.9 / 3.3 | 0.84 | 1.72 / 0.70 | 0.41 |
+| imp:twoboxes | 24 | 20 | 0.1 / 0.1 | 0.75 | 0.1 / 0.1 | 0.66 | 0.06 / 0.00 | 0.07 |
+| imp:twoboxes | 48 | 20 | 0.7 / 0.4 | 0.66 | 0.6 / 0.4 | 0.65 | 0.21 / 0.05 | 0.23 |
+| imp:twoboxes | 96 | 20 | 2.5 / 2.2 | 0.87 | 2.4 / 2.1 | 0.87 | 1.07 / 0.24 | 0.23 |
+| mesh:procedural | 64 | 6 | 2.4 / 2.1 | 0.87 | 1.2 / 0.9 | 0.74 | 0.55 / 0.08 | 0.15 |
+| mesh:procedural | 128 | 6 | 8.2 / 6.3 | 0.77 | 4.9 / 3.4 | 0.69 | 1.74 / 0.14 | 0.08 |
+
+- 7.59 M of 8.45 M triangles (90 %) are covered; 135887 diagonals forced, 1278 edge vertices. 0 intersecting pairs
+  between two covered triangles (8053 pairs, all triangles checked with the hook on, covered ones included).
+- The check and repair take 6-31 % of their former time on CAD-like and smooth inputs (3-16x faster) and 41-99 % on
+  thin sheets (gyroid, slab), where most triangles stay uncovered (multi-patch). Dual contouring as a whole takes
+  0.41-0.88 of its former time; the T1 solidify 0.92 (the bound was about 1.2x). The two rows above 1 (gyroid 48,
+  slab 24) are within the noise of their 0.1-3 s totals (their check time did not change).
+- Unchanged: 0 self-intersections left after the repair in all 412 runs; the one bad final result (116871 at 128) is
+  the hole fill, now reported (`HoleFillIntersections`, `SelfIntersectionFree` false); option B removes its cause.
