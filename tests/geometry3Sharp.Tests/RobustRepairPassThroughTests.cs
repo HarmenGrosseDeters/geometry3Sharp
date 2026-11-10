@@ -153,6 +153,30 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
 
+        // a clean part between two open sheets: the box of the repaired sheets together contains it, but no sheet meets it, so it still passes through
+        [Fact]
+        public void PartBetweenTwoOthers_StillPassesThrough()
+        {
+            DMesh3 clean = Sphere(0, 1);
+            var r = Run(Union(WithHole(Sphere(-10, 1, 5)), clean, WithHole(Sphere(10, 1, 5))));
+            Assert.Equal(clean.TriangleCount, r.PassedThroughTriangles);
+            Assert.False(r.PassThroughFellBack);
+        }
+
+        // reuse after a refused input: the counters describe the last Apply()
+        [Fact]
+        public void Counters_ResetByEveryApply()
+        {
+            var r = new MeshRobustRepair(Union(WithHole(Sphere(0, 1, 5)), Sphere(5, 1, 5))) { SolidifyResolution = 32 };
+            r.Apply();
+            Assert.True(r.PassedThroughTriangles > 0);
+            DMesh3 bad = Sphere(0, 1);
+            bad.SetVertex(0, new Vector3d(double.PositiveInfinity, 0, 0));
+            r.Mesh = bad;
+            Assert.False(r.Apply());
+            Assert.Equal(0, r.PassedThroughTriangles);
+        }
+
         // 2^k scaling and the similarities: the same result up to the scale
         [Fact]
         public void ShiftSweep_SameResult()

@@ -67,15 +67,16 @@ namespace gs
             return a.Max.x >= b.Min.x && b.Max.x >= a.Min.x && a.Max.y >= b.Min.y && b.Max.y >= a.Min.y && a.Max.z >= b.Min.z && b.Max.z >= a.Min.z;
         }
 
-        /// <summary> true if the box of any triangle-bearing part of mesh meets one of the boxes </summary>
+        /// <summary> true if the box of any connected component of mesh meets one of the boxes (a part between two sheets is not met by their common box) </summary>
         public static bool MeetsAny(DMesh3 mesh, List<AxisAlignedBox3d> boxes)
         {
             if (mesh.TriangleCount == 0)
                 return false;
-            AxisAlignedBox3d b = MeshRepairMetrics.TriangleBounds(mesh);
-            foreach (var p in boxes)
-                if (Meets(b, p))
-                    return true;
+            int[] componentOf;
+            foreach (var b in MeshRepairMetrics.ComponentBoxes(mesh, out componentOf))
+                foreach (var p in boxes)
+                    if (Meets(b, p))
+                        return true;
             return false;
         }
     }

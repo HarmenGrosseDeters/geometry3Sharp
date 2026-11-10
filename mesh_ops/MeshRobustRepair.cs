@@ -320,6 +320,8 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            PassedThroughTriangles = 0;
+            PassThroughFellBack = false;
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
@@ -452,7 +454,14 @@ namespace gs
                 ResultReason = "";
             } else {
                 Mesh = rest;
-                ok = apply_checked_whole();
+                bool done = false;
+                try {
+                    ok = apply_checked_whole();
+                    done = true;
+                } finally {
+                    if (done == false)
+                        Mesh = original;        // (an exception: the instance keeps the mesh it was given)
+                }
                 if (ok && PassThroughTestHook != null)
                     PassThroughTestHook(Mesh);
                 if (MeshRobustRepairPassThrough.MeetsAny(Mesh, passedBoxes) && ok) {
@@ -465,8 +474,12 @@ namespace gs
                 }
                 if (ok == false && Mesh == rest)
                     Mesh = original;        // (not repaired: Mesh is not replaced)
-                else
-                    MeshEditor.Append(Mesh, passed);
+                else {
+                    // (a new mesh: the result of the others may be the Result of the solidify or the wrap, which stay as they were)
+                    var union = new DMesh3(Mesh);
+                    MeshEditor.Append(union, passed);
+                    Mesh = union;
+                }
             }
             if (rest.TriangleCount == 0 || Mesh != original) {
                 PassedThroughTriangles = passedTriangles;
@@ -486,8 +499,7 @@ namespace gs
                             PassedThroughTriangles = 0;
                             return true;
                         }
-                        reset_outputs();
-                        Mesh = union;
+                        Mesh = union;       // (the diagnostics are those of the failed repair as a whole)
                         PassedThroughTriangles = passedTriangles;
                         ResultReason = ScaleDisparity;
                         return false;
