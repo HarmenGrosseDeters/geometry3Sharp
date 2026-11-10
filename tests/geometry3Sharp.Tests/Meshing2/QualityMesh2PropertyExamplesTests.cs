@@ -4,7 +4,7 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Fixed examples of the QualityMesh2 property campaign (QualityMesh2PropertyTests.CsCheck.cs; QA.md 2.4): every failing seed of a
+    /// Fixed examples of the QualityMesh2 property campaign (QualityMesh2PropertyCampaign.CsCheck.cs; QA.md 2.4): every failing seed of a
     /// campaign becomes a case here, shrunk, and runs all properties of <see cref="QualityMesh2Properties.Check"/> on every target.
     /// </summary>
     public class QualityMesh2PropertyExamplesTests
@@ -33,6 +33,8 @@ namespace geometry3Sharp.Tests
                 Denominator = denominator, Exponent = exponent, SnapLog2 = snap, Angle = angle, Constrained = constrained, Conforming = conforming };
 
         public static IEnumerable<object[]> GridRerouting() => new[] {
+            // TrianglesOnDegenerate, fixed by #512: three collinear input points (2,4), (3,3), (0,6) at pixel 2; snapping used to give a triangle
+            new object[] { "zero-area input is empty after snapping", Grid("soup", new[] { 2, 3, 0 }, new[] { 4, 3, 6 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 0, 2 } }, 2, -6, 1, 0, true, false) },
             // finding 2 (grid), fixed by oracle rule O-G (#499): the oracle's AreaMismatch on inputs whose hull or ring edge is rerouted
             // through a hot pixel; M2 (no refinement) showed the same, so it was the oracle's tolerance, not the mesher
             new object[] { "soup: the hull edge (1,4)-(5,5) passes the pixel of the input point (3,4)", Grid("soup", new[] { 5, 3, 6, 1 }, new[] { 5, 4, 4, 4 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 } }, 1, -2, 0, 30, false, true) },
@@ -47,10 +49,6 @@ namespace geometry3Sharp.Tests
             => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
 
         public static IEnumerable<object[]> OpenGridFindings() => new[] {
-            // TrianglesOnDegenerate: three collinear input points (2,4), (3,3), (0,6) at pixel 2: snapping moves (3,3) to the pixel centre
-            // (4,4) and gives the hull area, the oracle judges the input (no area) and the mesher emits a triangle. A spec gap (is
-            // degeneracy judged before or after snapping?), decision pending
-            new object[] { "degenerate before snapping, area after", Grid("soup", new[] { 2, 3, 0 }, new[] { 4, 3, 6 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 0, 2 } }, 2, -6, 1, 0, true, false) },
             // SegmentMissing: conforming mode on a sliver polygon at pixel 1 lattice unit: the chain of the segment (0,0)-(95,-3) is not
             // found by the oracle (the constrained mode of the same input is valid, and so is pixel 2)
             new object[] { "wedge, conforming, chain of a ring edge", Grid("wedge", new[] { 0, 95, 34, 250, 180 }, new[] { 0, -3, -1, 0, 2 }, new[] { new[] { 0, 1, 2, 3, 4 } }, new int[0][], 2, 1, 0, 30, false, true) },

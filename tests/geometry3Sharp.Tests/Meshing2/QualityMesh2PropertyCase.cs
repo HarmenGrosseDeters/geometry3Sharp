@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// A printable case of the QualityMesh2 property campaign (QA 2.0 T5; the generators and the campaign are in
-    /// QualityMesh2PropertyTests.CsCheck.cs): lattice points with integer coordinates, rings and segments over them, a lattice unit
+    /// QualityMesh2PropertyCampaign.CsCheck.cs): lattice points with integer coordinates, rings and segments over them, a lattice unit
     /// 2^-Denominator, a scale 2^Exponent, an optional snap grid and the options. It builds a <see cref="Mesh2Input"/> exactly (every
     /// coordinate is an integer times a power of two), and <see cref="ToCode"/> prints it as the C# literal a fixed example test pastes.
     /// </summary>
@@ -81,9 +81,9 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// The open grid class of the last <see cref="Check"/> on this thread (null: none). Open grid findings of the T5 campaign, after
-        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in four classes, each only in its documented setting:
+        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in two classes, each only in its documented setting:
         /// AngleBelowBound on a grid finer than the lattice unit; SegmentMissing / VertexUnused (with ChainSkipsHotPixel) with
-        /// conforming refinement; TrianglesOnDegenerate. Not a failure of the campaign until decided or fixed (the other properties still
+        /// conforming refinement. Not a failure of the campaign until decided or fixed (the other properties still
         /// run); G3_PROPERTY_STRICT=1 makes them fail. Any other kind of violation stays a failure.
         /// </summary>
         [ThreadStatic] public static string LastOpenClass;
@@ -94,7 +94,6 @@ namespace geometry3Sharp.Tests
             if (kinds.SetEquals(new[] { Violation.AngleBelowBound }) && c.SnapLog2 < 0 && c.Angle != null) return "AngleBelowBound";
             if (kinds.IsSubsetOf(new[] { Violation.SegmentMissing, Violation.VertexUnused, Violation.ChainSkipsHotPixel }) && !c.Constrained && c.Angle != null)
                 return "SegmentMissing/VertexUnused";
-            if (kinds.SetEquals(new[] { Violation.TrianglesOnDegenerate })) return "TrianglesOnDegenerate";
             return null;
         }
 

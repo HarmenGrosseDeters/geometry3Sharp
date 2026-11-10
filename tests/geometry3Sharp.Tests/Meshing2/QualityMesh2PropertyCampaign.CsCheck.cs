@@ -22,15 +22,15 @@ namespace geometry3Sharp.Tests
     ///
     /// The class carries the trait Category=Campaign, which no Stryker test filter selects (they all list test classes by name). CI runs
     /// a small seeded campaign per family. Opt-in, as for the boolean:
-    ///   G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~QualityMesh2PropertyTests
-    ///   G3_PROPERTY_CAMPAIGN="polygon" G3_PROPERTY_REPLAY=&lt;seed&gt; dotnet test ... --filter FullyQualifiedName~QualityMesh2PropertyTests
+    ///   G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~QualityMesh2PropertyCampaign
+    ///   G3_PROPERTY_CAMPAIGN="polygon" G3_PROPERTY_REPLAY=&lt;seed&gt; dotnet test ... --filter FullyQualifiedName~QualityMesh2PropertyCampaign
     /// A failing seed becomes a fixed example (QualityMesh2PropertyExamplesTests, QA.md 2.4).
     /// </summary>
     [Trait("Category", "Campaign")]
-    public class QualityMesh2PropertyTests
+    public class QualityMesh2PropertyCampaign
     {
         readonly ITestOutputHelper log;
-        public QualityMesh2PropertyTests(ITestOutputHelper log) { this.log = log; }
+        public QualityMesh2PropertyCampaign(ITestOutputHelper log) { this.log = log; }
 
         const int ShrinkIterations = 200;
 
@@ -233,7 +233,7 @@ namespace geometry3Sharp.Tests
                 string shrunk = ExactBooleanPropertyTests.Shrink(gen, property, seed, ShrinkIterations).Report;
                 string message = $"{name} fails for seed {seed} (campaign {campaign}):\n  {original}\n  {failure}\n" +
                     $"Shrunk ({ShrinkIterations} tries, not necessarily minimal): {shrunk}\n" +
-                    $"Replay: G3_PROPERTY_CAMPAIGN=\"{name}\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~QualityMesh2PropertyTests.{name}\"";
+                    $"Replay: G3_PROPERTY_CAMPAIGN=\"{name}\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~QualityMesh2PropertyCampaign.{name}\"";
                 // a large campaign reports every failing seed, a small one stops at the first
                 if (seeds.Length <= samples) throw new Xunit.Sdk.XunitException(message);
                 log.WriteLine(message);
