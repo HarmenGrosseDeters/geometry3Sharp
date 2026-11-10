@@ -1,16 +1,23 @@
-# Coverage-guided STL reader pilot
+# Coverage-guided reader fuzzing (SharpFuzz + libFuzzer)
 
-This test-only pilot runs the STL format reader directly under SharpFuzz and libFuzzer. It starts from one
-procedurally generated binary STL triangle and retains mutated corpus files and crash/timeout artifacts in a
-new, user-specified work directory. STL format detection can also send mutated data down the ASCII path.
-No mesh files or instrumented binaries are committed. The other readers are future work.
+Test-only harness for every reader, run directly under SharpFuzz and libFuzzer. Targets (`ReaderFuzzPilot targets`):
+`stl` (binary and ascii), `obj`, `off`, `ply` (ascii and binary), `3mf`, `glb`, `g3mesh`, `minijson` (the JSON parser of glTF
+and 3MF data), `esri` and `xyz` (height grids), `poly`, `node`, `ele` (Triangle files, `g3cli.TrianglePolyFormat`) and `mcp`
+(the MCP request layer of `g3cli`, `McpServer.Handle`; tool calls are not passed on because they read and write files).
+Seeds are written by the harness itself with our writers (`ReaderFuzzPilot seeds <target> <new-dir>`; small meshes with
+normals, colors and uvs); no mesh files and no instrumented binaries are committed.
 
-The harness deliberately calls `STLFormatReader.ReadFile(Stream, ...)` rather than `StandardMeshReader`, which
-catches every exception. It accepts only the exact parse-exception types already allowed by `ReaderFuzzTests`.
-The binary STL reader itself converts caught loop exceptions to `GenericReaderError` with an `exception: `
-prefix; the harness promotes that result to a crash candidate. Such candidates need triage because the reader
-has discarded the exception type. A valid input used as the seed must read successfully as one triangle.
-The harness does not yet enforce all structural or allocation invariants in `ReaderFuzzTests`.
+The harness calls the format readers' `ReadFile(Stream, ...)` rather than `StandardMeshReader`, which catches every
+exception. The checks of one input are the ones of `ReaderFuzzTests`: only the documented parse-exception types, no caught
+and hidden exception (`exception: ` results), a mesh that is Ok has valid structure, finite coordinates (not `.g3mesh`, which
+stores raw doubles) and a size bounded by the input, bounded allocation; height grids never throw and an Ok grid is
+consistent; Triangle files are bounded by the input; MCP `Handle` never throws. A seed must itself be read successfully.
+
+The same targets run in CI without a campaign: `ReaderFuzzReplayTests` (geometry3Sharp.Tests, also on net48) and
+`McpFuzzReplayTests` (g3cli.Tests) feed every seed and the inputs that follow from it deterministically (every truncation,
+replaced bytes at every position, extreme counts in aligned words, and for text each number replaced by extreme tokens)
+through the same checks (`ReplayMutations.cs`). A finding of a campaign is replayed, fixed in its own bugfix PR, and added
+as a procedural example test; corpus and crash files are not committed.
 
 ## Setup and bounded run
 
@@ -26,11 +33,11 @@ curl -fL https://github.com/Metalnem/libfuzzer-dotnet/releases/download/v2025.05
 # Expected SHA-256 of the pinned Ubuntu binary:
 echo 'c2c2a90d94c409a4af339a0d4f244e0442c5a5d249be0f1252ba07871f285958  /path/to/libfuzzer-dotnet' | sha256sum -c -
 chmod +x /path/to/libfuzzer-dotnet
-bash tools/ReaderFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet /path/to/sharpfuzz-tools/sharpfuzz /path/to/dotnet 1000
+bash tools/ReaderFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet /path/to/sharpfuzz-tools/sharpfuzz /path/to/dotnet 1000 obj   # runs, target (default stl)
 ```
 
-`run.sh` refuses an existing work directory. It publishes a clean `replay/` build, checks its generated seed,
-copies it into `bin/` and instruments only that copy. The run uses a fixed random seed, 4 KiB maximum input,
+`run.sh` refuses an existing work directory. It publishes a clean `replay/` build, writes and checks the seeds of the target,
+copies the build into `bin/` and instruments only that copy (`geometry3Sharp.dll`, and `g3cli.dll` for `poly`, `node`, `ele`, `mcp`). The run uses a fixed random seed, 16 KiB maximum input,
 5-second per-input timeout, a libFuzzer-side 2 GiB RSS limit and the requested number of iterations. Corpus,
 `build.log`, `fuzz.log`, the instrumented build and `artifacts/` are kept. The managed child may require an
 external memory limit as well; the libFuzzer-side RSS limit alone is not a process-tree budget. Large campaigns
@@ -40,7 +47,7 @@ use a fresh work directory so evidence is not overwritten.
 Replay an artifact with the **unmodified** build, under the same runtime environment:
 
 ```sh
-/path/to/dotnet /path/to/new-work-dir/replay/ReaderFuzzPilot.dll replay /path/to/new-work-dir/artifacts/crash-...
+/path/to/dotnet /path/to/new-work-dir/replay/ReaderFuzzPilot.dll replay <target> /path/to/new-work-dir/artifacts/crash-...
 ```
 
 The instrumented build needs libFuzzer's shared memory and cannot be run as a standalone replay. Standalone

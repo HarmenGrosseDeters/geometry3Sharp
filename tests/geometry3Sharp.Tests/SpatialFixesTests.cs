@@ -341,6 +341,57 @@ namespace geometry3Sharp.Tests
             Assert.Equal(5.0, new DistPoint2Circle2(new Vector2d(6, 8), circle).Get(), 9);
         }
 
+        // ---- upstream issue guards (#211, #181): both already behave correctly here ----
+
+        [Fact]
+        public void ContOrientedBox3_Issue211_Guard_BothConstructorsSetResultValid()
+        {
+            // guard: upstream #211 (ResultValid always false) is already fixed here
+            var rand = new Random(211);
+            var points = Enumerable.Range(0, 100).Select(i => new Vector3d(3 * rand.NextDouble(), rand.NextDouble(), 2 * rand.NextDouble())).ToList();
+            var weights = points.Select(p => 1.0 + rand.NextDouble()).ToList();
+            foreach (ContOrientedBox3 cont in new[] { new ContOrientedBox3(points), new ContOrientedBox3(points, weights) }) {
+                Assert.True(cont.ResultValid);
+                Box3d box = cont.Box;
+                box.Expand(1e-9);
+                foreach (Vector3d p in points)
+                    Assert.True(box.Contains(p));
+            }
+        }
+
+        public static IEnumerable<object[]> SimilarityNames() => Similarity.Names();
+
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void FindNearestTriangle_Issue181_Guard_ReturnsTriangleOfNearestFace(string name)
+        {
+            // guard: upstream #181 (a triangle of the opposite face) does not reproduce: a point close to a face
+            // of a thin slab (top, bottom, side; inside or outside) gets a triangle of that face, and the brute-force minimum
+            Similarity s = Similarity.ByName(name);
+            DMesh3 slab = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.5)) }.Generate().MakeDMesh();
+            DMesh3 mesh = Invariance.Transformed(slab, s);
+            var tree = new DMeshAABBTree3(mesh, true);
+            // query, axis and value of the face plane that is nearest (known from the slab, not from the tree)
+            var cases = new (Vector3d q, int axis, double plane)[] {
+                (new Vector3d(1.3, 0.7, 0.3), 2, 0.5), (new Vector3d(-2.2, 3.1, 0.9), 2, 0.5), (new Vector3d(4.1, -3.3, 0.45), 2, 0.5),
+                (new Vector3d(0.7, -1.1, -0.3), 2, -0.5), (new Vector3d(-3.5, 2.2, -0.8), 2, -0.5),
+                (new Vector3d(7.0, 0.4, 0.1), 0, 5.0), (new Vector3d(-0.6, -6.5, -0.2), 1, -5.0) };
+            foreach (var c in cases) {
+                Vector3d q = c.q;
+                int tid = tree.FindNearestTriangle(s.Apply(q), out double sqr);
+                Assert.NotEqual(DMesh3.InvalidID, tid);
+                Index3i tv = mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k)
+                    Assert.True(Math.Abs(s.Inverse(mesh.GetVertex(tv[k]))[c.axis] - c.plane) < 1e-6 * s.Scale + 1e-6, $"{name}: triangle {tid} for {q} is not on the face {c.axis}={c.plane}");
+                double best = double.MaxValue;
+                foreach (int t in mesh.TriangleIndices()) {
+                    Triangle3d tri = new Triangle3d(); mesh.GetTriVertices(t, ref tri.V0, ref tri.V1, ref tri.V2);
+                    best = Math.Min(best, new DistPoint3Triangle3(s.Apply(q), tri).GetSquared());
+                }
+                Assert.True(Math.Abs(sqr - best) <= 1e-9 * Math.Max(best, s.Scale * s.Scale * 1e-6), $"{name}: {sqr} vs brute force {best}");
+            }
+        }
+
         [Fact]
         public void DistPoint3Cylinder3_PointOnAxis_NoNaN()
         {

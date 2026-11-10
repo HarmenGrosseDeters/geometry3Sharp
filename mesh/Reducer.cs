@@ -236,7 +236,7 @@ namespace g3
                         break;
                 } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
                     // Inspect the whole rounded bucket; the final position is checked in double below.
-                    if (EdgeQueue.FirstPriority > (float)MaxQuadricError)
+                    if (EdgeQueue.FirstPriority > priority(MaxQuadricError))
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -945,6 +945,87 @@ namespace g3
             return q.Evaluate(ref local);
         }
 
+        // The unit normal and the area of a triangle, without the absolute thresholds of DMesh3.GetTriInfo / GetTriNormal / Vector3d.Normalize
+        // (a length of 2.2e-16 or less counts as zero there): those give a zero normal and a zero area for a triangle of edge length below
+        // about 1.5e-8, so the quadrics of a small mesh were empty (R14). The threshold is relative: a cross product of at most 2.2e-16 times the
+        // squared longest edge is rounding noise (a collinear triangle), and has no normal and no area, as before at a unit size.
+        void tri_info(int tid, out Vector3d normal, out double area, out Vector3d centroid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            centroid = (1.0 / 3.0) * (a + b + c);
+            Vector3d e1 = b - a, e2 = c - a;
+            normal = e1.Cross(e2);
+            double longest = Math.Max(e1.LengthSquared, Math.Max(e2.LengthSquared, (c - b).LengthSquared));
+            double len = unit_direction(ref normal, MathUtil.Epsilon * longest);
+            area = 0.5 * len;
+        }
+
+        // as MathUtil.Normal (DMesh3.GetTriNormal), the same arithmetic where it is defined, without its absolute thresholds
+        // (the edges are normalized first, so the threshold on the cross product of two unit vectors is relative)
+        Vector3d tri_normal(int tid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            Vector3d edge1 = b - a;
+            Vector3d edge2 = c - b;
+            unit_direction(ref edge1, 0);
+            unit_direction(ref edge2, 0);
+            Vector3d cross = edge1.Cross(edge2);
+            unit_direction(ref cross, MathUtil.Epsilon);
+            return cross;
+        }
+
+        // Normalizes v in place and returns its length; (0, v zero) for a vector of length 0 or at most minLength, or one that is not finite.
+        // The same arithmetic as Vector3d.Normalize for lengths in [1e-150, 1e150]; beyond, the vector is scaled by a power of two first
+        // (the squares of its components under- or overflow in Length, and 1/length is infinite for a subnormal length).
+        static double unit_direction(ref Vector3d v, double minLength)
+        {
+            double len = v.Length;
+            if (len >= 1e-150 && len <= 1e150) {
+                if (!(len > minLength)) {
+                    v = Vector3d.Zero;
+                    return 0;
+                }
+                v *= 1.0 / len;
+                return len;
+            }
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0 && m <= double.MaxValue)) {
+                v = Vector3d.Zero;
+                return 0;
+            }
+            int e = exponent_of(m);
+            Vector3d w = v * pow2(-e);          // (exact, unless a subnormal component is shifted: then it is only more exact)
+            double l = w.Length;
+            double result = l * pow2(e);        // (may underflow to 0 or overflow, for a vector at the bottom or top of the double range)
+            if (!(result > minLength) || !(result <= double.MaxValue)) {
+                v = Vector3d.Zero;
+                return 0;
+            }
+            v = w * (1.0 / l);
+            return result;
+        }
+
+        // exponent of x > 0 (finite): x in [2^e, 2^(e+1))
+        internal static int exponent_of(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0)
+                return e - 1023;
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);      // 2^64 (exact)
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        // 2^e exactly for e in [-1022, 1023], else 0 or infinity
+        internal static double pow2(int e)
+        {
+            if (e < -1022) return 0;
+            if (e > 1023) return double.PositiveInfinity;
+            return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+        }
+
 		protected virtual void InitializeVertexQuadrics()
 		{
             quadricOrigin = mesh.CachedBounds.Center;
@@ -956,7 +1037,7 @@ namespace g3
                 Vector3d c, n;
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
-                        mesh.GetTriInfo(tid, out n, out triAreas[tid], out c);
+                        tri_info(tid, out n, out triAreas[tid], out c);
                         triQuadrics[tid] = plane_quadric(n, c);
                     }
                 }
@@ -999,15 +1080,15 @@ namespace g3
                 if (et.b == DMesh3.InvalidID) {
                     if (doBoundary == false)
                         continue;
-                    Vector3d n = mesh.GetTriNormal(et.a);
+                    Vector3d n = tri_normal(et.a);
                     Vector3d m = (b - a).Cross(n);
-                    if (m.Normalize() < MathUtil.Epsilon)
+                    if (unit_direction(ref m, MathUtil.Epsilon * (b - a).Length) == 0)
                         continue;
                     QuadricError q = plane_quadric(m, a);
                     vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
                     vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
                 } else if (doFeatures) {
-                    Vector3d n0 = mesh.GetTriNormal(et.a), n1 = mesh.GetTriNormal(et.b);
+                    Vector3d n0 = tri_normal(et.a), n1 = tri_normal(et.b);
                     if (n0.Dot(n1) >= featureDot)
                         continue;
                     QuadricError q0 = plane_quadric(n0, a);
@@ -1037,6 +1118,34 @@ namespace g3
         protected QEdge[] EdgeQuadrics;
         protected IndexPriorityQueue EdgeQueue;
 
+        // The queue's priorities are floats, and a quadric error is a squared length (times an area with AreaWeightedQuadrics): it overflows to
+        // +infinity above a mesh extent of about 2^32 (area weighted; 2^64 otherwise), where every edge then has the same priority and the
+        // order is that of the ids, and it underflows below about 2^-32 (R14, F5). The errors are multiplied by a power of two for the queue, chosen
+        // from the median of the initial errors (so that a 2^k scale of the mesh gives the same priorities bit for bit); the cast of a float moves
+        // exactly by a power of two, so the order is the old one wherever the floats did not overflow or underflow. Set by InitializeQueue, fixed for a run.
+        protected double PriorityScale = 1;
+
+        float priority(double err)
+        {
+            return (float)(err * PriorityScale);
+        }
+
+        // 2^-e for the median of the positive finite errors in [2^e, 2^(e+1)); 1 if there is none
+        static double priority_scale_for(double[] errors)
+        {
+            var positive = new List<double>(errors.Length);
+            foreach (double e in errors)
+                if (e > 0 && e <= double.MaxValue)
+                    positive.Add(e);
+            if (positive.Count == 0)
+                return 1;
+            positive.Sort();
+            double median = positive[positive.Count / 2];
+            if (median < 1e-290 || median > 1e290)
+                return 1;
+            return pow2(-exponent_of(median));
+        }
+
 		protected virtual void InitializeQueue()
 		{
 			int NE = mesh.EdgeCount;
@@ -1044,7 +1153,7 @@ namespace g3
 
             EdgeQuadrics = new QEdge[MaxEID];
             EdgeQueue = new IndexPriorityQueue(MaxEID);
-            float[] edgeErrors = new float[MaxEID];
+            double[] errors = new double[MaxEID];
 
             // vertex quadrics can be computed in parallel
             gParallel.BlockStartEnd(0, MaxEID-1, (start_eid, end_eid) => {
@@ -1053,11 +1162,16 @@ namespace g3
                         Index2i ev = mesh.GetEdgeV(eid);
                         QuadricError Q = new QuadricError(ref vertQuadrics[ev.a], ref vertQuadrics[ev.b]);
                         Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
-                        edgeErrors[eid] = (float)evaluate(ref Q, opt);
+                        errors[eid] = evaluate(ref Q, opt);
                         EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
                     }
                 }
             });
+
+            PriorityScale = priority_scale_for(errors);
+            float[] edgeErrors = new float[MaxEID];
+            for (int i = 0; i < MaxEID; ++i)
+                edgeErrors[i] = priority(errors[i]);
 
             // sorted pq insert is faster, so sort edge errors array and index map
             int[] indices = new int[MaxEID];
@@ -1156,9 +1270,9 @@ namespace g3
 				double err = evaluate(ref Q, opt);
                 EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
 				if ( EdgeQueue.Contains(eid) ) {
-					EdgeQueue.Update(eid, (float)err);
+					EdgeQueue.Update(eid, priority(err));
 				} else {
-					EdgeQueue.Insert(eid, (float)err);
+					EdgeQueue.Insert(eid, priority(err));
 				}
 			}			
 		}
@@ -1702,10 +1816,20 @@ skip_to_end:
 		/// </summary>
 		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
 			double scale = (Axx + Ayy + Azz) / 3;
-			if (!(scale > 0))
+			if (!(scale > 0 && scale <= double.MaxValue))
 				return false;
-			double lambda = lambdaRel * scale;
+			// The solution x = -(A + lambda I)^-1 (b - lambda c) does not change if A, b and lambda are multiplied by the same factor: by a power
+			// of two (exact) that brings trace(A)/3 into [1, 2), so that the products and the determinant below stay in the double range
+			// whatever the size of the mesh (with area weights A is the squared extent, det its sixth power: they overflowed from an extent of 2^150
+			// and underflowed below 2^-150, where the old code returned the origin of the quadric or refused)
+			double norm = Reducer.pow2(-Reducer.exponent_of(scale));
 			QuadricError r = this;
+			if (norm != 1) {
+				r.Axx *= norm; r.Axy *= norm; r.Axz *= norm; r.Ayy *= norm; r.Ayz *= norm; r.Azz *= norm;
+				r.bx *= norm; r.by *= norm; r.bz *= norm;
+				scale *= norm;
+			}
+			double lambda = lambdaRel * scale;
 			r.Axx += lambda; r.Ayy += lambda; r.Azz += lambda;
 			double a11 = r.Azz * r.Ayy - r.Ayz * r.Ayz;
 			double a12 = r.Axz * r.Ayz - r.Azz * r.Axy;
@@ -1725,7 +1849,7 @@ skip_to_end:
 			// and keep the others at center
 			Vector3d cur = center;
 			for (int k = 0; k < 3; ++k) {
-				double rx = bx - lambda * cur.x, ry = by - lambda * cur.y, rz = bz - lambda * cur.z;
+				double rx = r.bx - lambda * cur.x, ry = r.by - lambda * cur.y, rz = r.bz - lambda * cur.z;
 				cur = new Vector3d(
 					-(a11 * rx + a12 * ry + a13 * rz) * det,
 					-(a12 * rx + a22 * ry + a23 * rz) * det,

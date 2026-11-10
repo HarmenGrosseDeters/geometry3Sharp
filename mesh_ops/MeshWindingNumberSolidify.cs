@@ -173,12 +173,16 @@ namespace gs
                 Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
-                CancelF = CancelF
+                CancelF = CancelF, KeepRawContour = KeepRawContour
             };
             bool ok = inner.compute_unit();
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
+            RawContour = inner.RawContour;
+            if (RawContour != null)
+                MeshRepairMetrics.ScaleVertices(RawContour, 1 / s);
+            gridFillIntersections = inner.gridFillIntersections;
             NonManifoldTriangles = inner.NonManifoldTriangles; NonManifoldRefinements = inner.NonManifoldRefinements;
             WindingEvaluations = inner.WindingEvaluations; HiddenGapEdges = inner.HiddenGapEdges; HiddenWallEdges = inner.HiddenWallEdges;
             GapEdgesPerLevel = inner.GapEdgesPerLevel; UsedCellSize = inner.UsedCellSize / s;
@@ -190,6 +194,8 @@ namespace gs
 
         bool compute_unit()
         {
+            gridFillIntersections = 0;
+            RawContour = null;
             StoppedOnSelfIntersections = false;
             Result = null;      // set only on success, below
             UsedCellSize = 0;
@@ -238,14 +244,17 @@ namespace gs
                 foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
                 end_phase("contour");
             } else {
+                gridFillIntersections = 0;
                 contour = compute_grid(cellSize);
             }
             UsedCellSize = cellSize;
             if (CancelF() || contour == null)
                 return false;
 
+            RawContour = KeepRawContour ? new DMesh3(contour) : null;
             if (StopIfSelfIntersecting && knownFree == false) {
-                bool intersects = MeshRepairMetrics.HasSelfIntersections(contour);
+                // (intersections the hole fill added are known: the check would find them, and they stay in the frame shift of the grid path)
+                bool intersects = gridFillIntersections > 0 || MeshRepairMetrics.HasSelfIntersections(contour);
                 end_phase("selfint");
                 if (intersects) {
                     Result = contour;
@@ -283,6 +292,15 @@ namespace gs
         /// <summary> (tests) the power of two the last Compute() scaled the mesh by (1: it ran on the mesh as it was) </summary>
         internal double NormalizationScale { get { return finishScale; } }
 
+
+        // the number of intersecting pairs the hole fill added to the contour of the last compute_grid (checked exactly, in the shifted frame; the
+        // dual contouring there does not check the contour itself, so there is no 'known free' verdict to carry over)
+        int gridFillIntersections;
+        /// <summary> (tests) the intersecting pairs the exactly checked hole fill of the last Compute() added to the contour (grid path) </summary>
+        internal int FillIntersections { get { return gridFillIntersections; } }
+        /// <summary> (tests) keep a copy of the contour before the cleanup and the reduction in RawContour </summary>
+        internal bool KeepRawContour;
+        internal DMesh3 RawContour;
 
         // winding number on a full grid (narrow band + propagation), then dual contouring or marching cubes
         DMesh3 compute_grid(double cellSize)
@@ -328,8 +346,9 @@ namespace gs
                 if (result == null)
                     return null;    // cancelled
                 NonManifoldTriangles = dc.NonManifoldTriangles;
-                if (NonManifoldTriangles > 0)
-                    WindingContouring.FillSmallHoles(result);
+                // the holes the contouring left are filled with the fill checked exactly (the dual contouring here does not resolve or check
+                // self-intersections itself, so only the fill's own verdict is used): intersections added by the fill are known without a second check
+                WindingContouring.FinishHoles(result, dc.NonManifoldTriangles, dc.SelfIntersectionFree, out gridFillIntersections);
             } else {
                 MarchingCubes mc = new MarchingCubes() {
                     Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CubeSize = cellSize,
@@ -340,6 +359,7 @@ namespace gs
                 // MarchingCubes orients for "inside = less than iso" (distance fields), winding number is the opposite
                 result.ReverseOrientation(false);
                 NonManifoldTriangles = 0;
+                gridFillIntersections = 0;
             }
             MeshTransforms.Translate(result, center);
             end_phase("contour");

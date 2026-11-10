@@ -37,6 +37,9 @@ SHARED = (
     "tools/changed_line_coverage.py",       # the coverage job of ci.yml runs the gate and its tests
     "tools/test_changed_line_coverage.py",
     "tools/coverage/",
+    "tools/ReaderFuzzPilot/FuzzTarget.cs",        # ReaderFuzzReplayTests
+    "tools/ReaderFuzzPilot/ReaderTargets.cs",
+    "tools/ReaderFuzzPilot/ReplayMutations.cs",
     "docs/examples/",
     "docs/OPERATIONS.md",             # DocExamplesTests
     "docs/ROBUSTNESS_SWEEP.md",      # RobustnessSweepTests

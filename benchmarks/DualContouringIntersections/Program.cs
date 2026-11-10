@@ -80,6 +80,9 @@ class Program
         r["si_free"] = dc.SelfIntersectionFree;
         r["nonmanifold_tris"] = dc.NonManifoldTriangles;
         r["resolve_ms_last"] = dc.ResolveMilliseconds;
+        r["covered_tris"] = dc.CoveredTriangles; r["checked_tris"] = dc.CheckedTriangles;
+        r["forced_diagonals"] = dc.ForcedDiagonals; r["edge_vertices"] = dc.EdgeVertices;
+        r["face_vertices"] = dc.FaceVertices; r["clamped_face_vertices"] = dc.ClampedFaceVertices;
         foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
         var d = dc.Diagnostics;
         if (d == null) return;
@@ -97,10 +100,11 @@ class Program
 
     static void RunWinding(string input, int res, Dictionary<string, object> r)
     {
-        DMesh3 mesh = input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
+        // mesh:rotbox is the box of ContouringQualityTests.RotatedBox_SharpCornersAndExactVolume at its cell 0.25
+        DMesh3 mesh = input == "mesh:rotbox" ? RotatedBox() : input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
         if (mesh == null || mesh.TriangleCount == 0) { r["status"] = "load_failed"; return; }
         r["in_tris"] = mesh.TriangleCount;
-        double cell = mesh.CachedBounds.DiagonalLength / res;
+        double cell = input == "mesh:rotbox" ? 0.25 : mesh.CachedBounds.DiagonalLength / res;
         var sw = Stopwatch.StartNew();
         var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cell };
         bool ok = s.Compute();
@@ -111,6 +115,17 @@ class Program
             r["tris"] = s.Result.TriangleCount;
             r["final_si"] = MeshRepairMetrics.SelfIntersections(s.Result);
             r["final_clean"] = s.Result.IsClosed() && MeshRepairMetrics.SelfIntersections(s.Result) == 0;
+            // distance of the result's vertices to the input, in cells (the sharpness kept)
+            var tree = new DMeshAABBTree3(mesh, true);
+            double max = 0; int n002 = 0, n01 = 0, n02 = 0, nv = 0;
+            foreach (int v in s.Result.VertexIndices()) {
+                Vector3d p = s.Result.GetVertex(v);
+                double d = Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, tree.FindNearestTriangle(p), p)) / cell;
+                max = Math.Max(max, d); nv++;
+                if (d > 0.02) n002++; if (d > 0.1) n01++; if (d > 0.2) n02++;
+            }
+            r["dev_max_cells"] = max; r["dev_gt002"] = n002; r["dev_gt01"] = n01; r["dev_gt02"] = n02; r["result_verts"] = nv;
+            r["refined_cells_total"] = s.RefinedCells; r["nm_refinements"] = s.NonManifoldRefinements;
         }
         if (s.Result != null && (int)r["final_si"] > 0) {
             // which stage: the contour itself (hole fills included), after the cleanup, after the reduction
@@ -123,6 +138,13 @@ class Program
             r["stage_si_cleanup"] = cl.Result == null ? -1 : MeshRepairMetrics.SelfIntersections(cl.Result);
         }
         r["refined_cells"] = s.RefinedCells; r["hidden_gaps"] = s.HiddenGapEdges; r["hidden_walls"] = s.HiddenWallEdges;
+    }
+
+    static DMesh3 RotatedBox()
+    {
+        DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(5, 3, 2), new Vector3d(5, 3, 2)) }.Generate().MakeDMesh();
+        MeshTransforms.Rotate(box, new Vector3d(5, 3, 2), Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 27));
+        return box;
     }
 
     class Fn : ImplicitFunction3d

@@ -527,12 +527,20 @@ namespace g3
                 check(va >= 0 && va < nV && vb >= 0 && vb < nV && va < vb, "edge vertices");
                 check(t0 >= 0 && t0 < nT && (t1 == DMesh3.InvalidID || (t1 >= 0 && t1 < nT && t1 != t0)), "edge triangles");
                 Index3i tri0 = new Index3i(triangles[3 * t0], triangles[3 * t0 + 1], triangles[3 * t0 + 2]);
+                check_triangle_vertices(tri0, nV);
                 check(IndexUtil.find_edge_index_in_tri(va, vb, ref tri0) != DMesh3.InvalidID, "edge not in its triangle");
                 if (t1 != DMesh3.InvalidID) {
                     Index3i tri1 = new Index3i(triangles[3 * t1], triangles[3 * t1 + 1], triangles[3 * t1 + 2]);
+                    check_triangle_vertices(tri1, nV);
                     check(IndexUtil.find_edge_index_in_tri(va, vb, ref tri1) != DMesh3.InvalidID, "edge not in its triangle");
                 }
             }
+        }
+
+        // the third vertex of a triangle is not covered by the edge check; the rebuild counts all three
+        static void check_triangle_vertices(Index3i tri, int nV)
+        {
+            check(tri.a >= 0 && tri.a < nV && tri.b >= 0 && tri.b < nV && tri.c >= 0 && tri.c < nV, "triangle vertices");
         }
 
         // after the rebuild: every triangle has three distinct vertices and the three edges that reference it, and

@@ -18,4 +18,11 @@
     <ProjectReference Include="..\..\tools\g3cli\g3cli.csproj" />
   </ItemGroup>
 
+  <!-- the MCP request parser as a fuzz target, replayed on the seeds and their systematic mutations (tools/ReaderFuzzPilot) -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\ReaderFuzzPilot\FuzzTarget.cs" Link="ReaderFuzz\FuzzTarget.cs" />
+    <Compile Include="..\..\tools\ReaderFuzzPilot\ReaderTargetsMcp.cs" Link="ReaderFuzz\ReaderTargetsMcp.cs" />
+    <Compile Include="..\..\tools\ReaderFuzzPilot\ReplayMutations.cs" Link="ReaderFuzz\ReplayMutations.cs" />
+  </ItemGroup>
+
 </Project>
