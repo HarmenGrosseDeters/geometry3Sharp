@@ -54,6 +54,40 @@ static class Program
     }
 
     // FNV-1a over the vertex coordinates (bits, in vertex id order) and the triangles: equal results, equal hashes
+    // the evaluator's self-intersecting pairs (by vertex index) and how many of them still cross with the vertices
+    // welded by position: pairs that only touch where a position has several vertices (Contacts, where solids touch)
+    // do not. verdict "contacts": every pair is such a touch (owner 2026-11-10: counted apart from unclean;
+    // NotCleanReason unchanged)
+    static void contact_check(DMesh3 m, Dictionary<string, object> row)
+    {
+        var first = new Dictionary<Vector3d, int>();
+        var weld = new int[m.MaxVertexID];
+        var shared = new HashSet<int>();
+        foreach (int v in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(v);
+            if (first.TryGetValue(p, out int w) == false)
+                first[p] = w = v;
+            else
+                shared.Add(w);
+            weld[v] = w;
+        }
+        List<Index2i> pairs = MeshRepairMetrics.SelfIntersectionPairs(m);
+        int crossing = 0;
+        foreach (Index2i pr in pairs) {
+            Index3i ta = m.GetTriangle(pr.a), tb = m.GetTriangle(pr.b);
+            var A = new Triangle3d(m.GetVertex(ta.a), m.GetVertex(ta.b), m.GetVertex(ta.c));
+            var B = new Triangle3d(m.GetVertex(tb.a), m.GetVertex(tb.b), m.GetVertex(tb.c));
+            if (ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(weld[ta.a], weld[ta.b], weld[ta.c]), ref A,
+                    new Index3i(weld[tb.a], weld[tb.b], weld[tb.c]), ref B))
+                crossing++;
+        }
+        // (the positions with several vertices counted here, not the boolean's Contacts: older builds lack it)
+        row["si_pairs"] = pairs.Count;
+        row["si_crossing"] = crossing;
+        row["shared_positions"] = shared.Count;
+        row["verdict"] = pairs.Count > 0 && crossing == 0 && shared.Count > 0 ? "contacts" : "self-intersections";
+    }
+
     static string Hash(DMesh3 m)
     {
         ulong h = 14695981039346656037UL;
@@ -112,10 +146,16 @@ static class Program
                     if (reference.TryGetValue(name, out JsonElement refRow) && refRow.GetProperty("hash").GetString() == hash) {
                         row["reason"] = refRow.GetProperty("reason").GetString();
                         row["reason_from"] = "ref";
+                        foreach (string k in new[] { "si_pairs", "si_crossing", "shared_positions", "verdict" })
+                            if (refRow.TryGetProperty(k, out JsonElement x))
+                                row[k] = x.ValueKind == JsonValueKind.Number ? (object)x.GetInt64() : x.GetString();
                     } else if (noEval == false) {
                         var ev = Stopwatch.StartNew();
                         // the #385 evaluator's verdict: "" (clean), "empty", or the first defect of NotCleanReason
-                        row["reason"] = MeshRobustRepair.NotCleanReason(b.Result);
+                        string reason = MeshRobustRepair.NotCleanReason(b.Result);
+                        row["reason"] = reason;
+                        if (reason == "self-intersections")
+                            contact_check(b.Result, row);
                         row["eval_ms"] = ev.ElapsedMilliseconds;
                     }
                     row["finite"] = b.Result.Vertices().All(v => Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue);
