@@ -91,7 +91,8 @@ namespace geometry3Sharp.Tests
                     case 7:
                         for (int i = 0; i < N; ++i) {
                             Vector3d c = h * new Vector3d(i % 3 - 1, (i / 3) % 3 - 1, 0);
-                            points.Add(c + Math.ScaleB(h, -20) * new Vector3d(Unit(ref state), Unit(ref state), Unit(ref state)));
+                            // (every fourth point is an exact duplicate of the one before)
+                            points.Add(i % 4 == 3 ? points[i - 1] : c + Math.ScaleB(h, -20) * new Vector3d(Unit(ref state), Unit(ref state), Unit(ref state)));
                         }
                         break;
                     default: {
@@ -125,13 +126,15 @@ namespace geometry3Sharp.Tests
             return l;
         }
 
+        static long Bits(double v) => BitConverter.DoubleToInt64Bits(v);
+
         static string SameMesh(DMesh3 a, DMesh3 b, double scale = 1)
         {
             if (a.VertexCount != b.VertexCount || a.TriangleCount != b.TriangleCount) return $"{a.VertexCount}/{a.TriangleCount} vs {b.VertexCount}/{b.TriangleCount} vertices/triangles";
             var va = a.VertexIndices().ToList(); var vb = b.VertexIndices().ToList();
             for (int i = 0; i < va.Count; ++i) {
                 Vector3d p = a.GetVertex(va[i]), q = b.GetVertex(vb[i]);
-                if (p.x * scale != q.x || p.y * scale != q.y || p.z * scale != q.z) return $"vertex {i} differs: {p} * {scale} vs {q}";
+                if (Bits(p.x * scale) != Bits(q.x) || Bits(p.y * scale) != Bits(q.y) || Bits(p.z * scale) != Bits(q.z)) return $"vertex {i} differs: {p} * {scale} vs {q}";
             }
             var ta = a.TriangleIndices().ToList(); var tb = b.TriangleIndices().ToList();
             for (int i = 0; i < ta.Count; ++i) if (a.GetTriangle(ta[i]) != b.GetTriangle(tb[i])) return $"triangle {i} differs";
@@ -143,24 +146,35 @@ namespace geometry3Sharp.Tests
         /// G3_PROPERTY_STRICT=1 makes it fail. Failed ('result box corners on the result') for flat points at relative alpha 5 to 8
         /// (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at 10 and at the default 20)
         /// </summary>
-        [ThreadStatic] static string lastOpenClass;
-        static string OpenClass(Scene s, MeshAlphaWrap w)
+        const string OpenClassName = "flat input at a coarse alpha";
+        static int openClassHits;
+
+        /// <summary> the class of the open finding, whatever the environment (only the box corner failure of the status Failed) </summary>
+        static bool InOpenClass(Scene s, MeshAlphaWrap w) =>
+            w.Status == MeshAlphaWrap.WrapStatus.Failed && w.Error == "result box corners on the result" && s.Kind == 5 && s.RelAlpha <= 8;
+
+        /// <summary> the open class as the campaign treats it: counted and let pass, unless G3_PROPERTY_STRICT=1 </summary>
+        static string OpenClass(Scene s, MeshAlphaWrap w) =>
+            Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1" && InOpenClass(s, w) ? OpenClassName : null;
+
+        static string FirstFrame(Exception e)
         {
-            if (Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") == "1") return null;
-            return w.Status == MeshAlphaWrap.WrapStatus.Failed && s.Kind == 5 && s.RelAlpha <= 8 ? "flat input at a coarse alpha" : null;
+            string line = (e.StackTrace ?? "").Split('\n').FirstOrDefault(l => l.Contains("CheckWrap") || l.Contains("AlphaWrapTests")) ?? (e.StackTrace ?? "").Split('\n').FirstOrDefault() ?? "";
+            return line.Trim();
         }
 
         /// <summary> the property: the guarantees, the repeat on the same instance and on a new one, the 2^k scaled input </summary>
         static string Property(Scene s, int[] shifts)
         {
-            lastOpenClass = null;
             MeshAlphaWrap w = s.Wrap();
             if (!w.Compute()) {
-                lastOpenClass = OpenClass(s, w);
-                return lastOpenClass != null ? "" : "Compute failed: " + w.Status + " " + w.Error;
+                // (the repeat and scale checks are skipped for such a scene; the campaign logs how many)
+                if (OpenClass(s, w) != null) { System.Threading.Interlocked.Increment(ref openClassHits); return ""; }
+                return "Compute failed: " + w.Status + " " + w.Error;
             }
             try { AlphaWrapTests.CheckWrap(w, Samples(w)); }
-            catch (Exception e) { return "guarantee: " + e.Message.Split('\n')[0]; }
+            catch (Xunit.Sdk.XunitException e) { return "guarantee: " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
+            catch (Exception e) { return "exception in the check: " + e.GetType().Name + " " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
             DMesh3 first = w.Result;
             if (!w.Compute()) return "the second Compute on the same instance failed: " + w.Status;
             string d = SameMesh(first, w.Result);
@@ -180,7 +194,7 @@ namespace geometry3Sharp.Tests
 
         static readonly Gen<Scene> GenScene =
             Gen.Select(Gen.Select(Gen.Int[0, 8], Gen.Int[-6, 6], Gen.Int[4, 40], Gen.Int[0, 12], Gen.Int[-1, 14], (k, e, n, g, f) => (k, e, n, g, f)),
-                       Gen.Select(Gen.OneOfConst(5, 10, 20, 40), Gen.OneOfConst(100, 600, 2000), Gen.Bool, Gen.Int[0, 100000], (a, o, r, sd) => (a, o, r, sd)),
+                       Gen.Select(Gen.OneOfConst(5, 6, 8, 10, 20, 40), Gen.OneOfConst(100, 600, 2000), Gen.Bool, Gen.Int[0, 100000], (a, o, r, sd) => (a, o, r, sd)),
                 (x, y) => new Scene { Kind = x.k, Exp = x.e, N = x.n, Gap = x.g, Far = x.f, RelAlpha = y.a, RelOffset = y.o, Refine = y.r, Seed = y.sd });
 
         static readonly int[] Shifts = { -9, 11 };
@@ -203,9 +217,15 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = s.Wrap();
             Assert.False(w.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
-            Assert.Equal("flat input at a coarse alpha", OpenClass(s, w));
+            Assert.True(InOpenClass(s, w));
         }
 
-        [Fact] public void Wrap() => CampaignRunner.Run(log, nameof(AlphaWrapCampaignTests), "alphawrap", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(20), 201u);
+        [Fact]
+        public void Wrap()
+        {
+            openClassHits = 0;
+            CampaignRunner.Run(log, nameof(AlphaWrapCampaignTests), "alphawrap", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(20), 201u);
+            log.WriteLine($"alphawrap: {openClassHits} cases in the open class '{OpenClassName}' (their repeat and scale checks skipped)");
+        }
     }
 }
