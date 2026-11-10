@@ -64,6 +64,7 @@ namespace DeterminismHarness
                 }
                 Console.WriteLine(line);
                 summary.Append(line + "\n");
+                if (trace != null) foreach (string note in trace.Notes) { Console.WriteLine("#   " + note); summary.Append("#   " + note + "\n"); }
             }
             File.WriteAllText(Path.Combine(outDir, "summary.txt"), summary.ToString(), new UTF8Encoding(false));
             return 0;

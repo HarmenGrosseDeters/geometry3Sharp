@@ -22,6 +22,8 @@ namespace DeterminismHarness
             return i;
         }
 
+        /// <summary> short human-readable evidence, printed with the run (not part of the hash) </summary>
+        public readonly List<string> Notes = new List<string>();
         string current = "";
         public void Section(string name) { current = name; }
         public void Add(long v) { Values.Add(v); IsDouble.Add(false); LabelOf.Add(label(current)); }

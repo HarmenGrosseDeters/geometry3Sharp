@@ -134,8 +134,10 @@ namespace DeterminismHarness
                 for (int k = 1; k < digits; ++k) sb.Append(rng.Next() % 10);
                 sb.Append('e').Append((int)(rng.Next() % 40) - 20);
                 string s = sb.ToString();
-                t.Add(double.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
+                double parsed = double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+                t.Add(parsed);
                 t.Add((double)float.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
+                if (i >= 190 && i <= 192) t.Notes.Add("parse \"" + s + "\" -> 0x" + BitConverter.DoubleToInt64Bits(parsed).ToString("x16"));
             }
             return t;
         }
@@ -151,6 +153,7 @@ namespace DeterminismHarness
                     foreach (char ch in s) t.Add((int)ch);
                     t.Add(-1);
                 }
+                if (i < 2) t.Notes.Add("format " + BitConverter.DoubleToInt64Bits(x).ToString("x16") + ": R=" + x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " G17=" + x.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) + " default=" + x.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 // does "R" round-trip?
                 t.Add(double.Parse(x.ToString("R", System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) == x);
             }
@@ -187,6 +190,7 @@ namespace DeterminismHarness
             bool exact = back != null && back.VertexCount == m.VertexCount;
             if (exact) { var a = m.VertexIndices().ToArray(); var b = back.VertexIndices().ToArray(); for (int i = 0; i < a.Length; ++i) exact &= m.GetVertex(a[i]) == back.GetVertex(b[i]); }
             t.Add(exact);
+            t.Notes.Add("roundtrip exact: " + exact + "; text length " + text.Length + "; first vertex line: " + text.Split('\n').FirstOrDefault(l => l.StartsWith("v ") || l.Contains("vertex")));
             return t;
         }
 
