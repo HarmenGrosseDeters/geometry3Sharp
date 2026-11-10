@@ -17,8 +17,10 @@ Part of the [roadmap](../ROADMAP.md).
   builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
-  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection), 6 (point
-  clouds) and 7 (deformation) move to Later; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
+  (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
+  feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
+  upper bound, design note) started; item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
