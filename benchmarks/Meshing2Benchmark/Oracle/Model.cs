@@ -231,6 +231,8 @@ namespace Meshing2Acceptance
         /// contacts, refinement's too, while the mesher does not reroute a chain through a vertex of refinement it only passes (#360)
         /// </summary>
         public Q? MeshMinusSnappedArea;
+        /// <summary> with a snap tolerance: the largest distance, in pixels, of a node of an input edge's iterated image from the exact edge (rule O-G; guard 2.5) </summary>
+        public double? MaxImageDriftPixels;
         public string ExcusedSummary()
         {
             var parts = new List<string>();

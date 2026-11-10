@@ -26,8 +26,9 @@ wall time (an acceptance criterion of the benchmark, which records the piece cou
 that the arrangement size predicts the time far better than the input size, log-log correlation 0.87 vs 0.75). With
 all levers this leaves 11 ops on 7 small, heavily self-intersecting models (113685, 1059579, 105693, 107543, 107545,
 107554, 113906) as documented exceptions (#428, `benchmarks/LevyClassification/results/exceptions_levers.md`).
-Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 after the merge queue
-is one PR with the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
+Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 (done 2026-11-09,
+docs/design/LEVY_CLASSIFICATION.md 4.3: -40 to -45 % classification on the tree-bound open ops, -23 % on both samples,
+hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
 so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 
@@ -59,6 +60,13 @@ over core counts (deterministic by construction: fixed partitions, ordered merge
 across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
 exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
 upper bound per lever on the 2.0 benchmark set.
+**3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
+prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
+Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per lever; (2) memory of exact points and the
+arrangement on the large inputs; (3) N-ary booleans / CSG trees in one arrangement pass vs chained binary ops (time,
+roundings, clean status); (4) an exact-output option without rounding (additive API); (5) fast open-operand
+classification (batched / dual-tree fast winding per patch) against the per-piece path; (6) positioning against the
+published numbers of Manifold, CGAL, EMBER (paper only, patent check first) and Cherchi et al. 2022.
 - Closed inputs, self-intersection free or self-intersecting: a clean result (closed, manifold, free of self-intersections, no degenerate triangles or bowties). Self-intersecting inputs are read as solids by winding number (inside = winding >= 1).
 - Inputs of unknown status: classified first.
 - Open inputs: no degenerate triangles and no crash; closedness is not required.

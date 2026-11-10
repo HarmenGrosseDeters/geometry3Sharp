@@ -11,6 +11,10 @@ namespace g3
     /// Snap Rounding with Restore (A. Belussi, S. Migliorini, M. Negri, G. Pelagatti, ACM TSAS 2016), so that every vertex ends at least
     /// half a pixel from every edge not incident to it.
     ///
+    /// Drift: the rounding of the input moves a point by at most half a pixel per axis. Vertices that refinement adds are hot pixels of the
+    /// mesher's output (MESHING2D_HULL_GRID.md, Q17) and can reroute other chains, so at a sub-pixel wedge a chain may end up to about 2 pixels
+    /// from its input edge (owner decision 2026-11-10).
+    ///
     /// Pixels are half-open, closed on the left and bottom (Hobby). A pixel is hot if it holds an input point or a crossing of two input
     /// segments. Every input point moves to the centre of its pixel; every input segment becomes the chain through the centres of the hot
     /// pixels it touches, in order along it. A hot pixel whose interior an output edge crosses, its ends outside the pixel, is critical;
