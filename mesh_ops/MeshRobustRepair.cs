@@ -1578,13 +1578,6 @@ namespace gs
             return "";
         }
 
-        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
-        // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
-        // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
-        // inside) underflowed below edges of about 2^-255, so well-shaped triangles were degenerate; below a diagonal
-        // of about 2^-517 the threshold underflowed to 0 and no triangle was, not even an exactly flat one. Differences,
-        // not coordinates: a tiny extent far from the origin would overflow when its coordinates are scaled up. 2^k
-        // scales give the same answer
         // MeshIterators.BowtieVertices(mesh).Any(), the vertex ranges in parallel (reads only; the answer is a bool, so
         // it does not depend on the threads)
         static bool any_bowtie_vertex(DMesh3 mesh)
@@ -1617,6 +1610,13 @@ namespace gs
             return found != 0;
         }
 
+        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
+        // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
+        // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
+        // inside) underflowed below edges of about 2^-255, so well-shaped triangles were degenerate; below a diagonal
+        // of about 2^-517 the threshold underflowed to 0 and no triangle was, not even an exactly flat one. Differences,
+        // not coordinates: a tiny extent far from the origin would overflow when its coordinates are scaled up. 2^k
+        // scales give the same answer
         static bool has_degenerate_triangles(DMesh3 mesh)
         {
             AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);

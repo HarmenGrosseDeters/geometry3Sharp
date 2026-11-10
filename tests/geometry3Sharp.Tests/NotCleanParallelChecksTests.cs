@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class NotCleanParallelChecksTests
     {
-        static DMesh3 BigSphere() => new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 70 }.Generate().MakeDMesh();   // ~29k triangles, 15k vertices
+        static DMesh3 BigSphere() => new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 70 }.Generate().MakeDMesh();   // ~57k triangles, ~28.5k vertices
 
         // two tetrahedra sharing the vertex tip (a bowtie), appended after the sphere: its vertex id is in the last block
         static void AddBowtie(DMesh3 m)
@@ -62,6 +62,35 @@ namespace geometry3Sharp.Tests
             m.SetVertex(tv.b, m.GetVertex(tv.a));      // zero area
             Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(m, false));
             Assert.True(MeshRobustRepair.FindDefects(m, false).HasFlag(MeshRobustRepair.Defects.DegenerateTriangles));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(8185)]
+        [InlineData(8192)]
+        [InlineData(16377)]
+        [InlineData(16378)]
+        [InlineData(16384)]
+        [InlineData(16385)]
+        [InlineData(24570)]
+        [InlineData(24577)]
+        [InlineData(30000)]
+        public void BowtieAtThePositionOfTheBlockBorders_IsFound(int firstId)
+        {
+            // isolated vertices first, so the bowtie tip has the id firstId; the mesh has firstId + 7 ids, around the serial
+            // limit (16384) and the block borders (multiples of 8192)
+            var m = new DMesh3();
+            for (int i = 0; i < firstId; ++i) m.AppendVertex(new Vector3d(100 + i, 0, 0));
+            AddBowtie(m);
+            Assert.True(SerialBowtie(m));
+            Assert.Equal("bowties", MeshRobustRepair.NotCleanReason(m, false));
+            // the same mesh without the second tetrahedron: no bowtie anywhere
+            var clean = new DMesh3();
+            for (int i = 0; i < firstId; ++i) clean.AppendVertex(new Vector3d(100 + i, 0, 0));
+            int a = clean.AppendVertex(new Vector3d(0, 0, 0)), b = clean.AppendVertex(new Vector3d(1, 0, 0)), c = clean.AppendVertex(new Vector3d(0, 1, 0)), d = clean.AppendVertex(new Vector3d(0, 0, 1));
+            clean.AppendTriangle(a, c, b); clean.AppendTriangle(a, b, d); clean.AppendTriangle(a, d, c); clean.AppendTriangle(b, c, d);
+            Assert.False(SerialBowtie(clean));
+            Assert.False(MeshRobustRepair.FindDefects(clean, false).HasFlag(MeshRobustRepair.Defects.Bowties));
         }
 
         [Fact]
