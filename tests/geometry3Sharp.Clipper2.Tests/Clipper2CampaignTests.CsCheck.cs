@@ -140,6 +140,8 @@ namespace geometry3Sharp.Clipper2.Tests
             if (d != "") return d;
             d = SimplifyProperty(s, a);
             if (d != "") return d;
+            d = ClipLinesProperty(s, a);
+            if (d != "") return d;
             // a repeated call, and the 2^k scaled input
             Clipper2Result again = Clipper2Polygons.Boolean(op, a, b);
             d = SameResult(r, again, 1);
@@ -247,6 +249,38 @@ namespace geometry3Sharp.Clipper2.Tests
                 if (Oracle.BoundaryDistance(a, p) <= 2 * tol) continue;
                 if (Inside(a, p) != (Oracle.ResultCount(r.Polygons, p) > 0)) return $"simplified: membership of {p} changed (distance {Oracle.BoundaryDistance(a, p)} from the input boundary, epsilon {eps})";
             }
+            return "";
+        }
+
+        /// <summary> ClipPolyLines: the pieces lie on the input lines, on the kept side of the clip polygons, and no kept part of a line is missing </summary>
+        static string ClipLinesProperty(Scene s, List<GeneralPolygon2d> a)
+        {
+            var rnd = new Random(s.Seed ^ 0x3c6ef372);
+            var all = a.SelectMany(Oracle.Rings).SelectMany(q => q).ToList();
+            var box = new AxisAlignedBox2d(all[0]);
+            foreach (Vector2d v in all) box.Contain(v);
+            double w = Math.Max(box.Width, box.Height);
+            Func<Vector2d> pt = () => new Vector2d(box.Min.x - 0.2 * w + 1.4 * w * rnd.NextDouble(), box.Min.y - 0.2 * w + 1.4 * w * rnd.NextDouble());
+            var lines = new List<PolyLine2d>();
+            for (int k = 0; k < 2; ++k) lines.Add(new PolyLine2d(Enumerable.Range(0, 3 + rnd.Next(3)).Select(_ => pt()).ToList()));
+            bool keepInside = s.Op % 2 == 0;
+            Clipper2Result r = Clipper2Polygons.ClipPolyLines(keepInside ? ClipType.Intersection : ClipType.Difference, lines, a);
+            if (!r.Ok) return "ClipPolyLines: " + r;
+            double maxCoord = all.Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double margin = Math.Max(4 * r.Frame.Resolution, 64 * Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(maxCoord) + 1) - maxCoord));
+            double LineDistance(IEnumerable<PolyLine2d> ls, Vector2d p) => ls.Select(l => Oracle.RingDistance(l.Vertices, p, false)).DefaultIfEmpty(double.MaxValue).Min();
+            foreach (PolyLine2d piece in r.PolyLines)
+                foreach (Vector2d v in piece.Vertices) {
+                    if (LineDistance(lines, v) > margin) return $"a piece vertex {v} is {LineDistance(lines, v)} from the input lines";
+                    if (Oracle.BoundaryDistance(a, v) > margin && Inside(a, v) != keepInside) return $"a piece vertex {v} is on the wrong side of the clip polygons (keep inside: {keepInside})";
+                }
+            foreach (PolyLine2d line in lines)
+                for (int i = 0; i + 1 < line.VertexCount; ++i)
+                    for (int k = 0; k <= 40; ++k) {
+                        Vector2d p = line[i] + (k / 40.0) * (line[i + 1] - line[i]);
+                        if (Oracle.BoundaryDistance(a, p) <= margin || Inside(a, p) != keepInside) continue;
+                        if (LineDistance(r.PolyLines, p) > margin) return $"the point {p} of an input line is on the kept side but {LineDistance(r.PolyLines, p)} from the pieces";
+                    }
             return "";
         }
 

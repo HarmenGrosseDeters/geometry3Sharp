@@ -166,8 +166,8 @@ Tier: S, M. Parallel: up to 2 sessions
        disjoint pairs and finely sampled circles, placed freely, as an identical copy, nested at 0.3 size, with a shared rectangle edge, or apart, at scales 2^-10 .. 2^10 and far from the origin,
        against `Oracle.cs`: union, intersection, difference and xor well formed and equal to the Boolean operation on the memberships of the
        inputs away from the boundaries, the area identities, round offsets both ways by the distance to the input, `Simplify` within epsilon,
-       `Simplify` also the other way (every input vertex within 3 epsilon of the result: SimplifyPaths measures against the neighbours' line, so removals drift, 1.04 epsilon seen), a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 8 000 samples: no finding. (Minkowski sums,
-       polyline clipping and offsets are not covered yet.)
+       `Simplify` also the other way (every input vertex within 3 epsilon of the result: SimplifyPaths measures against the neighbours' line, so removals drift, 1.04 epsilon seen), `ClipPolyLines` (intersection and difference: the pieces lie on the input lines on the kept side, no kept part missing), a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 8 000 samples: no finding. (Minkowski sums
+       and polyline offsets are not covered yet.)
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
