@@ -13,6 +13,8 @@ on:
       - 'math/Generated/IndirectPredicates.cs'
       # pilot 2 step 1: the drift accounting of SafeRounding (the apex rule, D1)
       - 'mesh_ops/MeshRoundingRepair.cs'
+      # pilot 2 step 1b: the rounding model of the reference rule (drift_reference.py, its source contract)
+      - 'math/Vector3d.cs'
       # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
       - 'mesh_ops/ExactMeshArrangement.cs'
       - '.github/workflows/z3-pilot.yml'
@@ -32,6 +34,7 @@ jobs:
       # The full gate of each pilot runs once: test_all_obligations_and_exact_witness_replay (pilot 1),
       # test_all_rule_lemmas_mutants_and_replays (pilot 2),
       # test_drift_lemma_obligations_mutants_and_replays (pilot 2 step 1) and
+      # test_reference_rule_obligations_mutants_and_replays (pilot 2 step 1b, about 3 minutes) and
       # test_adapter_and_fp_envelopes (conservative marching cubes) write the reports that are uploaded below.
       # Z3_PILOT_TIMEOUT_MS is the per-query timeout of every pilot.
       - run: python -m unittest discover -s tools/Z3Pilot -p 'test_*.py' -v
@@ -41,6 +44,7 @@ jobs:
           Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
           Z3_CONSERVATIVE_MC_REPORT: z3-conservative-mc-report.json
           Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
+          Z3_DRIFT_REFERENCE_REPORT: z3-drift-reference-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
       - uses: actions/upload-artifact@v4
         if: always()
@@ -51,4 +55,5 @@ jobs:
             z3-filter-rules-report.json
             z3-conservative-mc-report.json
             z3-drift-apex-report.json
+            z3-drift-reference-report.json
             z3-tritri-report.json

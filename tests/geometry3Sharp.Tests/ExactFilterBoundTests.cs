@@ -224,6 +224,7 @@ namespace geometry3Sharp.Tests
             if (den.Sign < 0) { den = -den; num = -num; }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SegmentPoint_BoundHolds_AtWorstCorners()
         {

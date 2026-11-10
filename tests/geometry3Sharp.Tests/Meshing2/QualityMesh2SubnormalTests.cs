@@ -123,6 +123,7 @@ namespace geometry3Sharp.Tests
             return input;
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

@@ -78,6 +78,7 @@ namespace geometry3Sharp.Tests
         // ImproveWrapQuality returns its result without a second Hausdorff check: certified by construction (every new
         // triangle by IsWithin, the others by the simplification's certificate). Checked here with the bounds without the
         // patch bound, over inputs and every kind of operation (default, collapses, splits of more caps, moves only)
+        [Trait("Category", "Slow")]
         [Fact]
         public void ImproveWrapQuality_CertifiedByConstruction()
         {
@@ -384,6 +385,7 @@ namespace geometry3Sharp.Tests
             return (double)n / m.TriangleCount;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SplitCaps_FewerCaps_WithinTheBudget_SameSurface()
         {
@@ -804,6 +806,7 @@ namespace geometry3Sharp.Tests
             Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => true));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RobustRepair_QualityPass_OffByDefault_ImprovesTheWrapWhenOn()
         {

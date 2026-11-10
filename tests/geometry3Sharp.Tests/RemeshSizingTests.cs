@@ -145,6 +145,7 @@ namespace geometry3Sharp.Tests
             Assert.True(hd.UpperBound < 0.05, $"{hd.UpperBound} from the input");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ThinTube_WithPreventSelfIntersections_Clean()
         {
@@ -230,6 +231,7 @@ namespace geometry3Sharp.Tests
             Assert.True(MeanEdge(mesh) < 0.2, $"mean edge {MeanEdge(mesh)}");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameResultUnderSimilarity(string name)

@@ -63,6 +63,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void SameReductionAsTheReference(string name, int target)
@@ -167,6 +168,7 @@ namespace geometry3Sharp.Tests
             Assert.True(a.TriangleCount < input.TriangleCount / 2);
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameReductionAsTheReference_UnderSimilarity(string name)

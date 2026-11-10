@@ -426,6 +426,7 @@ namespace g3
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
+                CheckTagsNow();
                 k.Dirty = null;
                 // a hull tip narrower than a pixel may collapse (owner decision 2026-11-02, Q-H4): both hull chains run through one hot
                 // pixel next to the corner, and the corner and the vertices of the shared chain are left in no triangle; reported, as
@@ -566,7 +567,7 @@ namespace g3
             }
 
             /// <summary>
-            /// tests only: after every operation compare the tags with domain membership computed from scratch (slow). Per thread, so
+            /// tests only: after operations compare the tags with domain membership computed from scratch (slow). Per thread, so
             /// that a test switching it on does not reach meshers that other tests run in parallel (refinement runs on the calling thread)
             /// </summary>
             [ThreadStatic] internal static bool CheckTagsForTests;
@@ -575,11 +576,28 @@ namespace g3
             string lastOperation;
             long operations;
 
+            // tests only: the check recomputes the domain from scratch, so it is quadratic in the number of operations when it runs after
+            // each one. On meshes of this many triangles or more it runs after operations 1, 2, 4, 8, ... and at the end of refinement (a wrong tag that heals between two checks goes unseen there; smaller meshes are checked after every operation)
+            const int DenseCheckBelowTriangles = 2000;
+
             void CheckTags()
             {
                 ++operations;
                 if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                if (k.TriangleSlots >= DenseCheckBelowTriangles && (operations & (operations - 1)) != 0) return;
+                CheckTagsNow();
+            }
+
+            void CheckTagsNow()
+            {
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
                 var inside = b.InsideFromScratch();
+                // The rule "a ghost neighbour counts as outside" in Collect reads -1 and not the ghost's stored tag, because every ghost's tag
+                // is -1; with that invariant the two are the same (so are ignoring the ghost, since the sliver is also tagged from the sides
+                // of the lifted piece: both mutants survive the tag tests, evidence in the PR #447). A change that breaks it fails here.
+                for (int t = 0; t < inside.Length; ++t)
+                    if (k.IsGhost(t) && k.Tag[t] != -1)
+                        throw new InvalidOperationException("tag of ghost triangle " + t + " is " + k.Tag[t] + ", not -1, after operation " + operations + ": " + lastOperation);
                 for (int t = 0; t < inside.Length; ++t)
                     if (!k.IsGhost(t) && (k.Tag[t] >= 0) != inside[t])
                         throw new InvalidOperationException("tag of triangle " + t + " (" + string.Join(" ", new[] { k.V[3 * t], k.V[3 * t + 1], k.V[3 * t + 2] }.Select(q => q + "=(" + k.X[q].ToString("R") + ", " + k.Y[q].ToString("R") + ")")) + ") is " + k.Tag[t]
@@ -698,7 +716,7 @@ namespace g3
             /// not split for vertex v when all of these hold.
             /// - v is a vertex refinement made on exactly one source c: not an input vertex, not a crossing, no third source (Shewchuk 2002
             ///   section 6.2 applies its cure only then: not for a parent that "is an input vertex or lies on a nonincident segment").
-            /// - c and a source a of e make an input angle below the bound, their closed input segments meeting exactly (PairOf).
+            /// - c and a source a of e make an input angle below 60 degrees (SmallPairSin2; the bound until 2026-11-09), their closed input segments meeting exactly (PairOf).
             /// - (i) an end u of e is a vertex on c too (e starts at the apex, or at the crossing of a and c), and v lies on e's side of u;
             ///   or (ii) v and an end of e lie at distances from the apex within a factor of 1.5, on the same side (NearSmallAngle).
             /// Splitting e for such a v is the partner's follow-up in section 6.2's figure-eight cycle (a circumcentre halves a subsegment at
@@ -952,8 +970,8 @@ namespace g3
                 // the small angle lies between two constrained edges: forced by the input (O3)
                 int ea = 3 * t + corner, eb = 3 * t + (corner + 2) % 3;
                 if (k.Seg[ea] >= 0 && k.Seg[eb] >= 0) return false;
-                // the shortest edge spans a small input angle: its ends lie on two input segments that meet at an angle below the
-                // bound, at about the same distance from where they meet. Such a triangle cannot be improved without refining towards
+                // the shortest edge spans a small input angle: its ends lie on two input segments that meet at an angle below 60
+                // degrees (SmallPairSin2), at about the same distance from where they meet. Such a triangle cannot be improved without refining towards
                 // the apex for ever (Shewchuk 2002, small input angles)
                 if (SpansSmallAngle(k.V[3 * t + (corner + 1) % 3], k.V[3 * t + (corner + 2) % 3])) return false;
                 return true;
@@ -1174,7 +1192,11 @@ namespace g3
                 return o1 * o2 < 0 && o3 * o4 < 0;
             }
 
-            /// <summary> the slack below the angle bound's sin^2 under which an input angle counts as small: the oracle's 2^-30 plus 2^-40 for
+            /// <summary> the sine squared of 60 degrees: two input segments at a smaller angle make a small pair, whatever the angle bound
+            /// (owner decision 2026-11-09; refinement towards an apex at less than 60 degrees may not terminate, Shewchuk 2002, 6.2) </summary>
+            internal const double SmallPairSin2 = 0.75;
+
+            /// <summary> the slack below SmallPairSin2 under which an input angle counts as small: the oracle's 2^-30 plus 2^-40 for
             /// rounding </summary>
             internal const double SmallAngleSlack = 1.0 / (1L << 30) + 1.0 / (1L << 40);
 
@@ -1239,14 +1261,14 @@ namespace g3
                     double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
                     if (Math.Abs(cross) > 0 && l1 > 0 && l2 > 0) {
                         double sin = Math.Abs(cross) / (l1 * l2);
-                        // small means strictly below the bound by the oracle's slack 2^-30 on sin^2 (its AngleBound), and by 2^-40 more for
+                        // small means strictly below 60 degrees (SmallPairSin2) by the oracle's slack 2^-30 on sin^2 (its AngleBound), and by 2^-40 more for
                         // the rounding of sin^2 here (about 20 units of 2^-53 by the error analysis; 200k random pairs: at most 2.75): never
                         // small where the oracle would not excuse the triangle. 2^-40 = 8192 units is a proven margin, which no mutation test
                         // can pin. Known limit: a segment about 2^1000 times shorter than the other has a subnormal scaled direction, and the
                         // bound no longer holds. A relative 1e-9 (2.5e-10 at 30 degrees) was more lenient than the oracle's 9.3e-10, and
                         // triangles at an input angle just below the bound were kept without the oracle's excuse (found by review of the
                         // small-angle design)
-                        if (sin * sin < sin2Min - SmallAngleSlack) {
+                        if (sin * sin < SmallPairSin2 - SmallAngleSlack) {
                             // where the lines meet
                             double t1 = (ox * d2y - oy * d2x) / cross;
                             double t2 = (ox * d1y - oy * d1x) / cross;

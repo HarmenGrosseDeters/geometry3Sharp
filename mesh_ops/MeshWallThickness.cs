@@ -95,8 +95,24 @@ namespace gs
             MeshWallThickness local = local_instance();
             if (local != null) {
                 bool ok = local.Compute();
-                VertexThickness = local.VertexThickness; TriangleThickness = local.TriangleThickness;
+                if (localScale == 1) {
+                    VertexThickness = local.VertexThickness; TriangleThickness = local.TriangleThickness;
+                    Statistics = local.Statistics;
+                    return ok;
+                }
+                // (computed at a unit scale: the lengths back in the units of Mesh, exactly)
+                VertexThickness = unscale(local.VertexThickness); TriangleThickness = unscale(local.TriangleThickness);
                 Statistics = local.Statistics;
+                if (ok && Statistics != null) {
+                    var lvalues = new List<double>();
+                    var lweights = new List<double>();
+                    if (TriangleThickness != null && ComputeTriangles) {
+                        foreach (int tid in local.Mesh.TriangleIndices()) { lvalues.Add(TriangleThickness[tid]); lweights.Add(local.Mesh.GetTriArea(tid)); }
+                    } else if (VertexThickness != null) {
+                        foreach (int vid in local.Mesh.VertexIndices()) { lvalues.Add(VertexThickness[vid]); lweights.Add(1); }
+                    }
+                    Statistics = DeviationStatistics.Compute(lvalues, lweights);
+                }
                 return ok;
             }
             ensure_spatial();
@@ -159,7 +175,7 @@ namespace gs
         {
             MeshWallThickness local = local_instance();
             if (local != null)
-                return local.ThicknessAt(p - localOffset, n);
+                return local.ThicknessAt(localScale * (p - localOffset), n) / localScale;
             lock (toleranceLock)
                 ensure_spatial();
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
@@ -237,22 +253,42 @@ namespace gs
             Spatial = ownSpatial;
         }
 
+        // the power of two (exact) the local copy is scaled by: outside an extent of [2^-100, 2^100] the squares of
+        // the lengths overflow or underflow, and the absolute floors (MathUtil.Epsilonf for the distance) are far
+        // above or below the mesh (a hang at 1e-310; QA 2.0 T1 finding R34); 1 in the normal range
+        double localScale = 1;
+
+        // lengths of the scaled local copy back in the units of Mesh (a power of two: exact; NaN stays NaN)
+        double[] unscale(double[] values)
+        {
+            if (values == null) return null;
+            double[] r = new double[values.Length];
+            for (int i = 0; i < r.Length; ++i) r[i] = values[i] / localScale;
+            return r;
+        }
+
         MeshWallThickness local_instance()
         {
-            if (spatial_given_by_caller() || FarFromOrigin(Mesh) == false)
+            if (spatial_given_by_caller())
+                return null;
+            double scale = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true);
+            if (scale == 1 && FarFromOrigin(Mesh) == false)
                 return null;
             lock (toleranceLock) {
                 if (localCopy == null || localSource != Mesh || localStamp != Mesh.ShapeTimestamp) {
                     localOffset = Mesh.CachedBounds.Center;
+                    localScale = scale;
                     DMesh3 m = new DMesh3(Mesh, false, MeshComponents.None);
                     MeshTransforms.Translate(m, -localOffset);
+                    if (scale != 1)
+                        MeshRepairMetrics.ScaleVertices(m, scale);
                     localCopy = new MeshWallThickness(m);
                     localSource = Mesh; localStamp = Mesh.ShapeTimestamp;
                     localCopy.ensure_spatial();     // here, under the lock, not in concurrent ThicknessAt calls
                 }
                 // current settings
                 localCopy.Method = Method; localCopy.ConeAngle = ConeAngle; localCopy.RayCount = RayCount;
-                localCopy.MaxDistance = MaxDistance; localCopy.MaxBallIterations = MaxBallIterations;
+                localCopy.MaxDistance = MaxDistance * localScale; localCopy.MaxBallIterations = MaxBallIterations;
                 localCopy.SeparationAngle = SeparationAngle; localCopy.OrientInvertedParts = OrientInvertedParts;
                 localCopy.ComputeVertices = ComputeVertices; localCopy.ComputeTriangles = ComputeTriangles;
                 localCopy.CancelF = CancelF;

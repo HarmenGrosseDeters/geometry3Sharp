@@ -232,6 +232,7 @@ namespace geometry3Sharp.Tests
 
         // Mixed's designs (TerrainSlopeMixedTests.Make: terrain tilt, offset, tilt direction) in three frames, cut, fill
         // and mixed: on each Success the certificate's bound holds, sampled, on the triangles it bounded
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void BoundHoldsSampled(string name, TerrainSlopeDesign.Directions dir)

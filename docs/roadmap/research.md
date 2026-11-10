@@ -70,19 +70,39 @@ Part of the [roadmap](../ROADMAP.md).
      wrap surfaces on real meshes down to 12° dihedral). Owner: stage 1 waits for the fTetWild black-box comparison on
      the same 40 meshes (runner job on runs/tet-meshing) and for sharp features in the alpha wrap; without sharp edges
      probably not worth building.
-  4. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
+  4. Intersection-free dual contouring (owner 2026-11-09: later, its own session, probably Opus), M: details in
+     [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
+     serves three items at once: sharp features for the alpha wrap and so tet meshing stage 1 (item 3; the later
+     study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
+     path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
+     `WindingContouring` on the lever 6 set (#498) as the upper bound.
+  5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
-  5. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
+  6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks.
-  6. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-  7. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
+     surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
+     application. Stage 1: two closed polygons in parallel planes -> a triangulated band by the optimal graph search
+     of Fuchs, Kedem & Uselton 1977 (also Keppel 1975, Christiansen & Sederberg 1978), with a pluggable cost (minimum
+     area, maximum volume, custom) and a pluggable per-triangle admissibility test; a status when no admissible band
+     exists; optional caps through `QualityMesh2` for a closed solid; invariance, reuse and an independent procedural
+     oracle. Stage 2 (L): several contours per plane and branching (Ekoule, Peyrin & Odet 1991; Meyers, Skinner &
+     Sloan 1992; Barequet & Sharir 1996; Bajaj, Coyle & Lin 1996; topology-constrained: Zou et al. 2015), with
+     Clipper2 for overlapping contours. Applications: terrain bench strings to a TIN under the exact slope oracle
+     ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
+     (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
+     the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Priority medium
+     until a concrete case (a medical or CAD one would raise it).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
 - **Synergies between the topics (owner 2026-11-08), to use when an item starts:**
-  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 5).
+  - Alpha wrap ↔ point clouds: the wrap as watertight reconstruction and as the normal-orientation step (priority 6).
   - Meshing2D ↔ terrain: a TIN with breaklines is constrained quality meshing in 2.5D; the terrain restart (DGM
     reader) designs with `QualityMesh2`, its oracle and golden tests.
   - Exact booleans ↔ tetrahedral meshing ↔ practical 3D snap rounding: exact and implicit points, then doubles
@@ -103,7 +123,7 @@ Part of the [roadmap](../ROADMAP.md).
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
-- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma, waits for the Boolean session's design note.
+- **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
@@ -288,6 +308,15 @@ Ordered by expected value for the library.
    - Status: started 2026-11-09 (owner) as a Fable research session (session_01AaGT5BXr9voD6SYy7KhQDs): design note
      docs/design/SAFE_ROUNDING_D1_DRIFT.md, the lemma checked with Z3, an upper bound on the D1 cases; no library code
      ([exact-boolean.md](exact-boolean.md), D1 order).
+   - Result (#503, 2026-11-09): the reference rule (per-triangle anchors and carried bounds, ghosts for collapsed
+     triangles; never stricter than the apex rule) checked with Z3 (`tools/Z3Pilot/drift_reference.py`: 7038 scripts on
+     tiny configurations UNSAT, 16 mutants SAT, 7 pinned counterexamples; note
+     [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md)); prototype on 75 ops of 25 models: 23 with
+     degenerate triangles left on master, 5 with the rule, 0 newly unclean; 7 of the 12 FINAL-1 regressions cleared,
+     the other 5 are not budget cases (single edits above the bound or no edit). **Owner 2026-11-10: build it** (owner
+     2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
+     session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
+     the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
@@ -305,6 +334,18 @@ Ordered by expected value for the library.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
+   - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
+     B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),
+     but it lies on the input (no offset), has no angle control (triangles > 170°), one self-intersecting result and
+     about 3x the time; the C vertex post-passes keep every guarantee but reach only 17-42 % of B's Chamfer gain
+     (vertices move, edges do not follow the crease). Owner 2026-11-09: a study of *why B fails* and of a hybrid
+     (wrap guarantees with DC creases, e.g. an offset level set, crease-locked angle repair, DC only in crease
+     regions) is wanted later, on the strongest model; the C flip prototype waits for it.
+     Flip prototype (owner 2026-11-09): not built now. First the fTetWild black-box comparison (JOB-2 on
+     runs/tet-meshing) decides whether tet meshing goes on; only then a 2-3 day upper-bound probe on the 6 CAD solids
+     (ideal crease-aligned flips and splits, without the exact checks). Below 70 % of B's Chamfer gain the flip path is
+     dropped in favour of the B hybrid / intersection-free DC; above it the 1-2 week build is justified. #498 (probe
+     harness and results) merges as measurement and docs.
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
@@ -348,7 +389,15 @@ Ordered by expected value for the library.
     - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
       ([platform.md](platform.md)).
 
-13. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
+13. **Intersection-free dual contouring in general** (owner 2026-11-09; probably within reach of Opus, since it is
+    mostly literature and engineering, not a new proof). `mesh_generators/DualContouring.cs` (manifold DC, Schaefer et
+    al. 2007, QEF vertices) and `mesh_ops/WindingContouring.cs` (DC on the winding number, with a self-intersection
+    check after the fact) can produce self-intersections. Wanted: a contouring that is self-intersection-free by
+    construction or by a local exact repair, keeps the QEF sharpness where it can and reports where it cannot.
+    Papers to start from: Ju & Udeshi 2006 (intersection-free contouring on an octree grid), Schaefer, Ju & Warren
+    2007 (manifold DC), Nielson 2004 (dual marching cubes), and newer DC variants (papers only, licences as usual).
+    Serves B above, `WindingContouring`'s repair use and later TPMS / implicit inputs.
+14. **Remesher: a cheaper exact `RejectInvertingPasses`.** The snapshot is 6-19 % of a Remesher run; an exact cheaper
     form needs component labels that survive the edge operations, with a correctness argument
     ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
 

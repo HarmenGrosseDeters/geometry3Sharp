@@ -799,6 +799,7 @@ namespace geometry3Sharp.Tests
             Assert.Null(sol.Result);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void WindingBoolean_EveryFailure_LeavesNoResult_ThenEqualsFreshInstance()
         {

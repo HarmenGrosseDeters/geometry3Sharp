@@ -362,6 +362,7 @@ namespace geometry3Sharp.Tests
             Assert.True(ErrorToPit(tdc.Result, Vector3d.Zero).Item2 < 0.5, "trucks left in the terrain");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void UtmCoordinates_SameAccuracy()
         {
