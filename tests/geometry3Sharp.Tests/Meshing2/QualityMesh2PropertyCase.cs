@@ -15,6 +15,16 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public sealed class QualityMesh2PropertyCase
     {
+        /// <summary> 2^n exactly, also in the subnormal range (Math.Pow is not exact on every platform; Math.ScaleB is missing on net48) </summary>
+        internal static double Pow2(int n)
+        {
+            if (n > 1023) return double.PositiveInfinity;
+            if (n >= -1022) return BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+            double r = BitConverter.Int64BitsToDouble(1L << 52);   // 2^-1022
+            for (int k = -1022; k > n && r > 0; --k) r *= 0.5;
+            return r;
+        }
+
         public string Family;
         public int[] X, Y;
         public int[][] Rings;
@@ -32,11 +42,11 @@ namespace geometry3Sharp.Tests
 
         public Mesh2Input Build(int extraExponent = 0)
         {
-            double unit = Math.ScaleB(1.0, Exponent + extraExponent - Denominator);
+            double unit = Pow2(Exponent + extraExponent - Denominator);
             var input = new Mesh2Input {
                 X = X.Select(v => v * unit).ToArray(), Y = Y.Select(v => v * unit).ToArray(),
                 MinAngleDeg = Angle, ConstrainedQuality = Constrained, Conforming = Conforming, SteinerLimit = SteinerLimit,
-                SnapTolerance = SnapLog2 == null ? 0 : Math.ScaleB(1.0, SnapLog2.Value) * unit
+                SnapTolerance = SnapLog2 == null ? 0 : Pow2(SnapLog2.Value) * unit
             };
             for (int i = 0; i < Rings.Length; ++i) input.Rings.Add(new RingInput((int[])Rings[i].Clone(), Holes[i]));
             foreach (var s in Segments) input.Segments.Add(new SegmentInput(s[0], s[1]));
@@ -157,7 +167,7 @@ namespace geometry3Sharp.Tests
             foreach (int shift in scaleShifts ?? new int[0]) {
                 try {
                     var scaled = Run(c.Build(shift));
-                    reason = SameMesh(o, scaled, Math.ScaleB(1.0, shift), "scale 2^" + shift);
+                    reason = SameMesh(o, scaled, QualityMesh2PropertyCase.Pow2(shift), "scale 2^" + shift);
                     if (reason != "") return reason;
                 } catch (Exception e) { return "scale 2^" + shift + ": " + e.Message; }
             }
