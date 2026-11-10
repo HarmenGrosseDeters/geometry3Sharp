@@ -264,6 +264,67 @@ evaluation of winding numbers or solid angles appears for dense query grids (e.g
 far from the surface; no exact method handles open operands (Zhou 2016, Cherchi 2022, Lévy 2025, EMBER all require
 closed / PWN input; LEVY_CLASSIFICATION_LITERATURE.md).
 
+### 5.1 T5 counting step: the Antipodal Method's cost model (owner request 2026-11-10)
+
+The owner's patent check (2026-11-10) found no patents for the Antipodal Method or One-Shot; the method may be
+implemented from the paper and the MIT reference code ported with attribution. This count decides whether it pays.
+
+**Method** (Martens, Trettner, Bessmeltsev 2026, arXiv:2605.01536, CC BY 4.0; read from the paper): the generalized
+winding number of an open mesh at p is w(p) = χ(x0) + (1/4π) Σ over the boundary segments (a, b) of
+2 atan2(A·(B × x1), 1 + A·B + A·x1 + B·x1), with A, B the unit vectors from p to a and b, x1 = −x0 and χ(x0) the signed
+count of the crossings of the ray from p towards x0 with the surface. Interior edges cancel, so the cost per query is
+one ray plus a term per boundary segment, O(B + log F), with no hierarchy and no far-field approximation (exact up to
+floating point in the boundary sum).
+
+**Setup.** `prestudy-antipodal` (`PrestudyAntipodal.cs`, `antipodal_job.sh`), the 21 open models of the Lévy samples,
+both operands: boundary segments counted with the vertices welded by exact position (|n(a→b) − n(b→a)| per edge, so
+that the duplicated vertices of soups do not count as boundary); the queries are the arrangement pieces' centroids as in
+the per-piece path; per query the library's `FastWindingNumber` (serial, a subsample of 2e4), the per-segment term
+above in plain C# (`Math.Atan2`, at least 2e6 terms after a warm-up), and a ray along +x with
+`DMeshAABBTree3.FindAllHitTriangles` (its exact-predicate ray test; a realistic stand-in for the exact ray of the
+boolean). Model: Antipodal per query = B · t_segment + t_ray
+([results/antipodal_summary.md](../../benchmarks/Boolean30Prestudy/results/antipodal_summary.md)). Three huge models
+(1005586, 112798, 117959; 1.3-1.8 M triangles per operand) did not finish the probe within its 30-minute limit.
+
+| model | boundary segments | FWN µs / query (A, B) | Antipodal / FWN (A, B) | FWN s, all queries | Antipodal s |
+|---|---|---|---|---|---|
+| 113906 | 683 | 242, 305 | 0.43, 0.50 | 414 | 195 |
+| 107554 | 3 | 45, 34 | 0.39, 0.36 | 79 | 30 |
+| 1017015 | 0 | 76, 77 | 0.30, 0.52 | 35 | 15 |
+| 118923, 112535, 112536, 118289, 109088, 124526, 116062 | 4-134 | 14-54 | 0.26-1.0 | 0.4-10 each | 0.2-7 each |
+| 1087141, 1087144, 1088051, 1088054, 1088138 | 1196 | 85-105 | 1.12-1.55 | 287-318 each | 380-427 each |
+| 122796 | 2512 | 24, 17 | 5.9, 5.0 | 26 | 143 |
+| 100030, 102815 | 56-616 | 8-34 | 0.98-3.0 | ≤ 0.3 | ≤ 0.5 |
+
+Unit costs: 51-113 ns per segment term (scalar, `Atan2`-bound), 5-130 µs per ray (46-97 µs on the 720k-triangle
+1087xxx models, which dominates there: 1196 segments cost about 70 µs, the ray 46-97 µs). The 1087xxx "soups" are
+not soups once welded: 360 k welded vertices and only 1196 boundary segments.
+
+**Totals** (serial query work, both operands, 18 models): today 2096 s; the Antipodal Method everywhere 2383 s
+(+14 %); **a switch by boundary-segment count (Antipodal below 1000 segments per open mesh, today's FWN above) 1791 s
+(−15 %), equal to the per-mesh best choice** on these models. Per model with the switch: 113906 −53 %, 107554 −62 %,
+1017015 −59 %, the 1087xxx family unchanged. On the per-piece branch the query work is about the whole
+classification, which is 81 % of the open cohort's time, so the switch gains about −12 % of the open cohort's time with
+today's unit costs, and up to −50 to −60 % of the time of the models with few boundary segments.
+
+**What would move the 1087xxx family.** Its cost is the ray plus 1196 terms; both are engineering: the per-segment term
+vectorized (4-wide doubles, an `atan2` with a proven error bound or an exact sign-only evaluation where the term is far
+from ±π) could reach 15-25 ns (a micro benchmark decides); the ray through a mesh-specific BVH with early rejection by
+the ray's bounding slab, or one shared traversal for the pieces of a patch along the same axis (crossing counts change
+only where the ray sweeps over the mesh), could cut the 46-97 µs several times. With 20 ns per term and a 15 µs ray the
+1087xxx queries would cost about 39 µs against 85-105 µs (0.4-0.45). The boundary sum is the floating-point part (no
+exact code); the ray and its symbolic perturbation must agree with the arrangement's exact ray (the exact-code rules,
+Dekker splitting instead of FMA, apply there).
+
+**Recommendation (T5).** Build the Antipodal Method for open operands **with a switch by boundary-segment count**
+(B < 1000 per open mesh, to be re-tuned after the unit costs are optimized), with today's per-piece FWN above; first PR:
+the exact ray and the scalar boundary sum, judged on the 21 open models against bfaa0158 (time, and the classification
+differences: the Antipodal value has no far-field error, so results may change where the FWN approximation was off;
+those cases are checked against a high-accuracy FWN with β = ∞, i.e. the direct sum). Second step: the vectorized term
+and the faster ray, then the switch threshold re-measured (the 1087xxx family needs both to gain). Prior art: Barill
+et al. 2018 (today's FWN); Martens et al. 2026 (Antipodal, CPU 3.3x over Barill order 2 on their data, GPU 1e9 queries
+per second); Xie et al. 2026 (FEWN); nothing else handles open operands exactly.
+
 ## 6. Positioning
 
 **Same machine** (4 cores, `compare.py -j 1`, ours warm with SafeRounding, Manifold from pip, CGAL 6.0 EPECK as the
@@ -331,7 +392,7 @@ unless a target says otherwise, and every parallel change is deterministic by co
 | T2 | **Memory:** the arrangement retains ≤ 300 B per input triangle (today 390-580) and the peak working set ≤ 1.2 KB per input triangle (today 1.1-1.9 KB on large typical inputs), no time regression; the largest model on a 16 GB machine from about 10 M to about 13 M input triangles | input points without a `FixedPoint3`; `InputTriangle` as struct-of-arrays; then the bottom-up fast-winding coefficients | -35 % retained | L (exact files); the last lever is the open owner decision of LEVY_CLASSIFICATION 4.1 item 3 |
 | T3 | **n-ary:** keep chained evaluation as the recommendation; build nothing for one-pass now | (if wanted later) pruning of pieces that cannot change the tree's indicator + propagation; target then: one pass ≤ chained time for n ≤ 64 on the procedural trees of section 3 | today one pass is 20-110x slower at n = 64 | owner: is n-ary CSG a use case? |
 | T4 | **Exact output:** an additive `ExactMesh` result and input (section 4 sketch): a chain of k booleans with k − 1 roundings fewer, results equal to the one-pass exact result, coplanar faces merged exactly, no growth of the construction degree along the chain | constructions over the original inputs (plane-based provenance) through the arrangement's input path | -29 % per chained step (rounding), chained result size -10 to -80 % | L, 4-8 weeks; **owner:** a use case (chained CSG, tet meshing) before it is built |
-| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22-30 % of the query work, model-based); first count the cost of the exact Antipodal Method (boundary edges per query on the 1087xxx / 113906 soups) and the share of queries that one query per input triangle could replace | then C or the query reduction, judged against the per-piece path | per-piece classification is 81 % of the open cohort | **owner:** C needs the patent check (LEVY_CLASSIFICATION 4.2) |
+| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22-30 % of the query work, model-based); the Antipodal Method with a switch by boundary-segment count (section 5.1): the per-piece query work of the 18 measured open models -15 % (113906 -53 %, 107554 -62 %) with today's unit costs; with a vectorized segment term and a faster ray the 1087xxx family too (bound 0.4-0.45 of today's) | exact ray + scalar boundary sum + switch; then vectorized term and faster ray | per-piece classification is 81 % of the open cohort | patent check done (owner 2026-11-10: freedom to operate); L for the exact ray |
 | T6 | **Positioning:** stay the only method with clean results on `thingi-pairs`; close the gap to CGAL EPECK on the 1k-100k class from 3.1x to ≤ 2x (geomean) with T1 and the 2.0 rounding levers; no target against EMBER / trueform without a second kernel | T1, rounding search levers (hard open problem 3) | | owner: a quantized plane-based opt-in kernel stays out of scope unless decided |
 
 Order proposed: T1 (bit-identical, largest bound at no change of results), T2 (independent, memory only), T5's
