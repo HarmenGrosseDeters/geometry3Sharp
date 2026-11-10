@@ -42,6 +42,10 @@ static partial class Program
             Environment.ExitCode = LocalLogMapGate(args.Length > 1 ? args[1] : null) ? 0 : 1;
             return;
         }
+        if (args.Length > 0 && args[0] == "--local-logmap-est") {
+            Environment.ExitCode = LocalLogMapEstimatedGate(args.Length > 1 ? args[1] : null) ? 0 : 1;
+            return;
+        }
         bool onlyScaling = args.Contains("--scaling");
         if (onlyScaling == false)
             Quality();
