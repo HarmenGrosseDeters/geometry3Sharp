@@ -72,6 +72,9 @@ namespace gs
     /// WrapReason): a part below alpha is replaced by a blob of that size, which no check sees. Only with MinVolumeIoU > 0, and for at most 64
     /// connected components (a triangle soup is not a set of parts), whatever WrapRelativeAlpha is (a coarse alpha is refused in that mode).
     ///
+    /// Clean parts (PassThroughCleanParts, on by default): a closed component that is clean on its own and whose box meets no other component's box is passed through
+    /// untouched, and only the other components go through the stages (design note, option B, stage 0); see PassThroughCleanParts.
+    ///
     /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
     /// at least 2^-40 of the largest magnitude. Parts that lie far apart
     /// compared to their size are handled up to the limits of ScaleDisparity (Apply() false beyond, the mesh is kept);
@@ -407,7 +410,79 @@ namespace gs
             if (SeparatedRounding != null && SeparatedRounding != ExactResolveRounding) SeparatedRounding.AbsoluteTolerance *= s;
         }
 
+        /// <summary>
+        /// Stage 0 of the part handling (docs/design/ROBUST_REPAIR_SCALE_FREE.md, option B), on by default: a closed component of the input that is clean on its own
+        /// (NotCleanReason of the component alone) and whose bounding box meets the box of no other component is passed through untouched, and only
+        /// the other components go through the repair stages (at most 64 components; the result is the union). Where the repair result of the others
+        /// reaches the box of a passed part, the input is repaired as a whole. Off: the whole input goes through the stages, as before.
+        /// </summary>
+        public bool PassThroughCleanParts = true;
+        /// <summary> triangles of the clean parts the last Apply() passed through untouched (PassThroughCleanParts; 0 if none) </summary>
+        public int PassedThroughTriangles { get; private set; }
+        /// <summary> (tests) the last Apply() split off clean parts, but the result of the others met one of them, so the input was repaired as a whole </summary>
+        internal bool PassThroughFellBack { get; private set; }
+        /// <summary> (tests) called with the result of the others before it is checked against the passed parts (the geometry of the solidify and the wrap grows by about a cell) </summary>
+        internal Action<DMesh3> PassThroughTestHook;
+        bool passThroughOff;
+
         bool apply_checked()
+        {
+            if (passThroughOff == false)
+                PassThroughFellBack = false;
+            PassedThroughTriangles = 0;
+            DMesh3 passed, rest;
+            List<AxisAlignedBox3d> passedBoxes;
+            if (PassThroughCleanParts && passThroughOff == false && RepairF == null && Mesh.TriangleCount > 0
+                && MeshRobustRepairPassThrough.Split(Mesh, MaxFarParts, CheckSelfIntersections, out passed, out rest, out passedBoxes))
+                return apply_passing_through(passed, rest, passedBoxes);
+            return apply_checked_whole();
+        }
+
+        // the parts that pass through are put back into the result of the others
+        bool apply_passing_through(DMesh3 passed, DMesh3 rest, List<AxisAlignedBox3d> passedBoxes)
+        {
+            DMesh3 original = Mesh;
+            int passedTriangles = passed.TriangleCount;
+            bool ok;
+            if (rest.TriangleCount == 0) {
+                // every part is clean: nothing to repair
+                Mesh = passed;
+                ok = true;
+                ResultReason = "";
+            } else {
+                Mesh = rest;
+                ok = apply_checked_whole();
+                if (ok && PassThroughTestHook != null)
+                    PassThroughTestHook(Mesh);
+                if (MeshRobustRepairPassThrough.MeetsAny(Mesh, passedBoxes) && ok) {
+                    // the result of the others grew into a passed part (the solidify and the wrap change the geometry by about a cell): as a whole
+                    Mesh = original;
+                    reset_outputs();
+                    passThroughOff = true;
+                    PassThroughFellBack = true;
+                    try { return apply_checked_whole(); } finally { passThroughOff = false; }
+                }
+                if (ok == false && Mesh == rest)
+                    Mesh = original;        // (not repaired: Mesh is not replaced)
+                else
+                    MeshEditor.Append(Mesh, passed);
+            }
+            if (rest.TriangleCount == 0 || Mesh != original) {
+                PassedThroughTriangles = passedTriangles;
+                if (ok) {
+                    // the union is judged as a whole: the degenerate area of NotCleanReason is relative to all triangles, which a part far
+                    // away from the rest can make too large (then the parts are unchanged, but the result is not clean by that criterion)
+                    string reason = NotCleanReason(Mesh, CheckSelfIntersections);
+                    if (reason != "" && ResultReason == "") {
+                        ResultReason = ScaleDisparity;
+                        ok = false;
+                    }
+                }
+            }
+            return ok;
+        }
+
+        bool apply_checked_whole()
         {
             bool ok;
             try {

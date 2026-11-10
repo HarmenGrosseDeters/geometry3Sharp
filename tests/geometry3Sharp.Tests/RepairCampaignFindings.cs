@@ -107,7 +107,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarSphere_LostBox_FinalCheck_IsNotReportedAsRepaired()
         {
-            var r = new MeshRobustRepair(BoxAndFarSphere(2.2e6)) { BypassEarlyLostPartChecks = true };
+            var r = new MeshRobustRepair(BoxAndFarSphere(2.2e6)) { BypassEarlyLostPartChecks = true, PassThroughCleanParts = false };
             bool ok = r.Apply();
             Assert.True(r.UsedExactResolve);
             Assert.False(ok);
@@ -142,7 +142,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarPartHandling_OnlyForFewClosedParts()
         {
-            var far = new MeshRobustRepair(BoxAndFarSphere(2.2e6));
+            var far = new MeshRobustRepair(BoxAndFarSphere(2.2e6)) { PassThroughCleanParts = false };      // (the far part mode, not stage 0, which passes clean parts through)
             far.Apply();
             Assert.True(far.FarPartsHandled);
 
