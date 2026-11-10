@@ -17,7 +17,18 @@ def rows(path):
     return [json.loads(l) for l in open(path) if l.strip().startswith('{')]
 
 
+# models expected to hit job2's per-model timeout (7200 s on 1 core with the per-piece classification), with their
+# numbers from elsewhere (coordinator 2026-11-10: own column "timeout, size")
+EXPECTED_TIMEOUT = {
+    '1368052': 'open, 2.44M triangles per operand, 56k boundary edges; on 79a2c1ab alone on 4 cores: union Success in '
+               '493 s, heap up to 8.7 GB, classification 297 s (60 %), rounding 64 s; rest phase (4 cores): union / '
+               'intersection / difference 582 / 497 / 516 s, all "not closed"',
+}
+
+
 def verdict(r):
+    if 'exit 124' in str(r.get('error', '')):
+        return 'timeout'
     if 'error' in r or 'exception' in r or r.get('ok') is False or r.get('status') not in (None, 'Success'):
         return 'failed'
     v = r.get('verdict', r.get('reason'))
@@ -38,12 +49,18 @@ for i in ids:
             for op in ('union', 'intersection', 'difference'):
                 fix[(i, op)] = r
 print(f"# Open-class re-measure after #528 ({len(ids)} sampled open models)\n")
-print("| | ops | " + " | ".join(['clean', 'contacts', 'empty', 'unclean', 'failed']) + " |")
-print("|---|---|---|---|---|---|---|")
+print("| | ops | " + " | ".join(['clean', 'contacts', 'empty', 'unclean', 'timeout, size', 'failed']) + " |")
+print("|---|---|---|---|---|---|---|---|")
 for name, d in (('pre (79a2c1ab, rest phase)', pre), ('fix (293d0e3b)', fix)):
     c = collections.Counter(verdict(r) for r in d.values())
     unclean = sum(v for k, v in c.items() if k.startswith('unclean'))
-    print(f"| {name} | {len(d)} | {c['clean']} | {c['contacts']} | {c['empty']} | {unclean} | {c['failed'] + c['no verdict']} |")
+    print(f"| {name} | {len(d)} | {c['clean']} | {c['contacts']} | {c['empty']} | {unclean} | {c['timeout']} | {c['failed'] + c['no verdict']} |")
+timeouts = sorted({i for (i, _), r in fix.items() if verdict(r) == 'timeout'}, key=lambda x: int(x) if x.isdigit() else 0)
+if timeouts:
+    print("\nTimeouts (fix): " + ", ".join(i + (" (expected)" if i in EXPECTED_TIMEOUT else " (NOT expected)") for i in timeouts))
+for i, note in EXPECTED_TIMEOUT.items():
+    if i in ids:
+        print(f"- {i}: {note}")
 for name, d in (('pre', pre), ('fix', fix)):
     c = collections.Counter(verdict(r) for r in d.values() if verdict(r).startswith('unclean'))
     if c:

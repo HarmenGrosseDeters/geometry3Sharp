@@ -29,7 +29,8 @@ echo "sample: $(wc -l < "$W/open_ids.txt") open models ($(grep -c ' must$' "$W/o
 IDS_FILE="$W/open_ids.txt" bash "$J/job2.sh" correct "$W" "fix:$FIX" open
 if [ ! -f "$W/open_timing.txt" ]; then
   ls "$REST"/*.jsonl | grep -F -f <(sed 's|^|/|; s|$|.jsonl|' "$W/open_ids.txt") | xargs cat > "$W/rest_sample.jsonl"
-  python3 "$J/sample_timing.py" "$W/rest_sample.jsonl" --per-stratum 8 > "$W/open_timing.txt"
+  # (without the expected timeouts of open_compare.py: 1368052 would take two hours per round and build)
+  python3 "$J/sample_timing.py" "$W/rest_sample.jsonl" --per-stratum 8 | grep -v '^1368052 ' > "$W/open_timing.txt"
 fi
 bash "$J/job2.sh" timing "$W" "$W/open_timing.txt" "pre:$PRE" "fix:$FIX"
 python3 "$J/open_compare.py" "$REST" "$W" > "$W/open_line.md"
