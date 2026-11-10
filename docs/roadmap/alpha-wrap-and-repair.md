@@ -335,3 +335,5 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),
   and the benchmarks write them (eg RemeshBenchmark `not_clean`).
+
+- **Open: procedural coverage of `WindingContouring.FinishHoles`.** Since the dual contouring face vertices (#572) the non-adaptive solidify leaves no non-manifold quads on `ThinPlates` (seeds 1..8, resolution 24 and 40), so `SolidifyHoleFillTests` no longer exercises the fill on a real contour (the contract tests still do). Find a grid-path input with holes (a coarser resolution, an open input) or build the contour by hand.

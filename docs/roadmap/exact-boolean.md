@@ -101,6 +101,14 @@ Difference) that computes A's closedness / orientation, self-intersection pairs 
 parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
 Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
 
+**3.0 execution order (owner 2026-11-10):** serial, one 3.0 work item at a time (they share the exact files), each
+one PR per feature with the exact-code review and the mutation shards: (1) T3a after #539 (Antipodal PR 1) merges (Opus,
+the pre-study session); (2) T3b `IntersectEach` (Sonnet: additive, parallel over the bodies outside the exact kernel,
+oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout, hashes equal); (4) T1 levers one by one
+(Sonnet for the box-tree build, simplify per region and the input orientation sort; an Opus design or review for the
+`merge_points` sort and the classification union-find); (5) T5 Antipodal PR 2 and T1b (after D1) with Opus. Sonnet PRs in
+exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning.
+
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
 Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per lever; (2) memory of exact points and the
