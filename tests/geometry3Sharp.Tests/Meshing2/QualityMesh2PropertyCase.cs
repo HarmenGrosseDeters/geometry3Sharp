@@ -81,9 +81,9 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// The open grid class of the last <see cref="Check"/> on this thread (null: none). Open grid findings of the T5 campaign, after
-        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in two classes, each only in its documented setting:
-        /// AngleBelowBound on a grid finer than the lattice unit; SegmentMissing / VertexUnused (with ChainSkipsHotPixel) with
-        /// conforming refinement. Not a failure of the campaign until decided or fixed (the other properties still
+        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in one class, only in its documented setting:
+        /// SegmentMissing / VertexUnused (with ChainSkipsHotPixel) with
+        /// conforming refinement. (AngleBelowBound on a fine grid was an oracle gap, fixed: hull edges are taken whole on the grid.) Not a failure of the campaign until decided or fixed (the other properties still
         /// run); G3_PROPERTY_STRICT=1 makes them fail. Any other kind of violation stays a failure.
         /// </summary>
         [ThreadStatic] public static string LastOpenClass;
@@ -91,7 +91,6 @@ namespace geometry3Sharp.Tests
         static string OpenClass(QualityMesh2PropertyCase c, HashSet<Violation> kinds)
         {
             if (c.SnapLog2 == null || Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") == "1") return null;
-            if (kinds.SetEquals(new[] { Violation.AngleBelowBound }) && c.SnapLog2 < 0 && c.Angle != null) return "AngleBelowBound";
             if (kinds.IsSubsetOf(new[] { Violation.SegmentMissing, Violation.VertexUnused, Violation.ChainSkipsHotPixel }) && !c.Constrained && c.Angle != null)
                 return "SegmentMissing/VertexUnused";
             return null;

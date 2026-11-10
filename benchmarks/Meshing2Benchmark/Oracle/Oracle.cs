@@ -2239,7 +2239,9 @@ namespace Meshing2Acceptance
             /// The hull edges of a hull domain (D13) where the mesher refines (Refining), which constrains the hull: the boundary, so an input segment at a small
             /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
             /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
-            /// a small angle must lie on one piece; review of the fix). In the merge zone only paired with a segment and without an explicit
+            /// a small angle must lie on one piece; review of the fix). On a snap grid the hull edges are not split: the mesher takes the angle from
+            /// the input constraint (OriginOf: the whole hull edge), and the apex of a small angle may lie on another piece than the triangle's vertex
+            /// (found by the CsCheck campaign, T5; MESHING2D_HULL_GRID.md). In the merge zone only paired with a segment and without an explicit
             /// tolerance (InMergeZone): the mesher refuses a split point of a hull edge near a segment, not one of a segment near the hull.
             /// Empty otherwise.
             /// </summary>
@@ -2258,7 +2260,7 @@ namespace Meshing2Acceptance
                             for (int j = 0; j < inPts.Length; ++j) {
                                 if (box && (input.X[j] < x0 || input.X[j] > x1 || input.Y[j] < y0 || input.Y[j] > y1)) continue;
                                 Pt p = inPts[j];
-                                if (p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
+                                if (input.SnapTolerance > 0 || p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
                                 on.Add((Exact.Len2(a, p), p));
                             }
                             on.Sort((s, t) => s.t.CompareTo(t.t));

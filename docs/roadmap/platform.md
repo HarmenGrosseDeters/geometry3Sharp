@@ -143,8 +143,7 @@ Tier: S, M. Parallel: up to 2 sessions
        holes, touching, wedge, soup, grid, extreme scales; 25 to 50 seeded samples each in CI, category `Campaign`), cases and
        properties in `QualityMesh2PropertyCase.cs`, fixed examples in `QualityMesh2PropertyExamplesTests.cs`. Large runs:
        `G3_PROPERTY_SAMPLES=10000` (about 60 000 samples). Findings: #496 (input angles below 60 degrees are small pairs), #499
-       (oracle rule O-G, the grid tube); open on the snap grid, counted not failing (`G3_PROPERTY_STRICT=1` fails on them): fine-grid
-       `AngleBelowBound`, `SegmentMissing` / `VertexUnused` with conforming refinement of slivers; `TrianglesOnDegenerate` was fixed by #512.
+       (oracle rule O-G, the grid tube); open on the snap grid, counted not failing (`G3_PROPERTY_STRICT=1` fails on them): `SegmentMissing` / `VertexUnused` with conforming refinement of slivers; `TrianglesOnDegenerate` was fixed by #512; fine-grid `AngleBelowBound` was an oracle gap (hull edges taken whole on the grid).
     3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
        deterministic; shrinking to minimal pinch / cap cases.
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations

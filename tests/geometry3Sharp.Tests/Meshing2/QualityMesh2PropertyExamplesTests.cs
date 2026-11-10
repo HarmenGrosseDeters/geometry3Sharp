@@ -46,6 +46,10 @@ namespace geometry3Sharp.Tests
             new object[] { "soup: the hull edge (1,4)-(5,5) passes the pixel of the input point (3,4)", Grid("soup", new[] { 5, 3, 6, 1 }, new[] { 5, 4, 4, 4 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 } }, 1, -2, 0, 30, false, true) },
             new object[] { "wedge 252/253, pixel 1/2 unit", Grid("wedge", new[] { 0, 252, 253, 64 }, new[] { 0, -4, -4, 2 }, new[] { new[] { 0, 1, 2, 3 } }, new int[0][], 2, -4, -1, 0, true, false) },
             new object[] { "wedge, pixel 1/4 unit, 30 degrees", Grid("wedge", new[] { 0, 111, 119, 237 }, new[] { 0, -1, 2, 4 }, new[] { new[] { 0, 1, 2, 3 } }, new int[0][], 1, 2, -2, 30, false, true) },
+            // AngleBelowBound, fixed in the oracle (T5): five segments at pixel 1/8 lattice unit, bound 15; the hull edge (0,8)-(16,40) px passes the input
+            // point (8,24), and the apex of its 4.8 degree angle with the first segment lies on the other piece. The oracle took the pieces
+            // as separate sources on the grid; the mesher takes the whole hull edge (OriginOf)
+            new object[] { "soup: a hull edge through an input point, the small angle's apex on its other piece", Grid("soup", new[] { 0, 2, 6, 4, 6, 1, 4, 6, 0, 4 }, new[] { 0, 5, 4, 4, 2, 3, 3, 3, 1, 0 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 4, 5 }, new[] { 6, 7 }, new[] { 8, 9 } }, 2, -1, -3, 15, false, false) },
             new object[] { "polygon with a ring edge across pixels", Grid("polygon", new[] { 26, 20, 6, 1, -26, -35 }, new[] { -8, 35, 18, 26, 17, 21 }, new[] { new[] { 0, 1, 2, 3, 4, 5 } }, new int[0][], 2, 2, -1, 20, true, false) },
         };
 
@@ -54,21 +58,6 @@ namespace geometry3Sharp.Tests
         public void GridRerouting_IsWithinTheTube(string name, QualityMesh2PropertyCase c)
             => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
 
-        public static IEnumerable<object[]> OpenGridFindings() => new[] {
-            // AngleBelowBound: five segments at pixel 1/8 lattice unit, bound 15: six triangles below it, five excused as without the grid,
-            // one not (the same input without snapping is valid)
-            new object[] { "soup: a triangle below 15 degrees on a fine grid", Grid("soup", new[] { 0, 2, 6, 4, 6, 1, 4, 6, 0, 4 }, new[] { 0, 5, 4, 4, 2, 3, 3, 3, 1, 0 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 4, 5 }, new[] { 6, 7 }, new[] { 8, 9 } }, 2, -1, -3, 15, false, false) },
-        };
-
-        /// <summary> the campaign's filter classifies each open case in its class (and none of the rerouting cases): not hidden, not dead </summary>
-        [Theory]
-        [MemberData(nameof(OpenGridFindings))]
-        public void OpenGridFindings_AreClassified(string name, QualityMesh2PropertyCase c)
-        {
-            Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11 }), name);
-            Assert.NotNull(QualityMesh2Properties.LastOpenClass);
-        }
-
         [Theory]
         [MemberData(nameof(GridRerouting))]
         public void GridRerouting_IsNoOpenClass(string name, QualityMesh2PropertyCase c)
@@ -76,10 +65,5 @@ namespace geometry3Sharp.Tests
             QualityMesh2Properties.Check(c, new[] { -11 });
             Assert.True(QualityMesh2Properties.LastOpenClass == null, name);
         }
-
-        [Theory(Skip = "open grid findings of the T5 campaign (mesher or spec): see the cases' comments")]
-        [MemberData(nameof(OpenGridFindings))]
-        public void OpenGridFindings_Pass(string name, QualityMesh2PropertyCase c)
-            => Assert.True("" == QualityMesh2Properties.Check(c, new[] { -11, 13 }), name);
     }
 }
