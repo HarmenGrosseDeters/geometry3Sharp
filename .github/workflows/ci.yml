@@ -67,16 +67,26 @@ jobs:
       - name: Test (net10.0)
         if: needs.scope.outputs.library == 'true'
         run: |
-          filter=()
-          if [ "$FULL_TIER" != true ]; then filter=(--filter "Category!=Slow"); fi
+          # (Category=Nightly runs in .github/workflows/nightly.yml only)
+          filter=(--filter "Category!=Nightly")
+          if [ "$FULL_TIER" != true ]; then filter=(--filter "Category!=Slow&Category!=Nightly"); fi
           dotnet test tests/geometry3Sharp.Tests -c Release "${filter[@]}" --logger "trx;LogFileName=net10.trx" --results-directory test-results
-      - name: Slow tests are tagged (report; fails for an untagged test of 60 s or more)
+      - name: Test time rule (CLAUDE.md, "Test time"; report, ratchet over SLOW_BACKLOG.txt)
         if: needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
-        # the durations are those of this run on a shared runner, so the report alone would be noisy to gate on; 60 s
-        # untagged is far beyond noise (the tag threshold is 5 s) and means a test grew without anyone tagging it
+        # fails for a test of more than 10 s, and for one of 5 s or more without the trait Slow, unless its method is on
+        # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
+        # RATCHET_ENFORCE=0: report mode (violations go to the step summary and as warnings, the step passes) while the backlog
+        # is filled from the runner timings of master's full runs; then a PR sets it to 1.
+        env:
+          RATCHET_ENFORCE: '0'
         run: |
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
-          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --fail-above 60 --summary "$GITHUB_STEP_SUMMARY"
+          base=()
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
+            if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
+          fi
+          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
       - name: Test CLI / MCP server (tools/g3cli)
         if: needs.scope.outputs.g3cli == 'true'
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
@@ -173,7 +183,7 @@ jobs:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
         if: needs.scope.outputs.library == 'true'
-        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}${{ env.FULL_TIER != 'true' && '&Category!=Slow' || '' }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "${{ matrix.filter }}&Category!=Nightly${{ env.FULL_TIER != 'true' && '&Category!=Slow' || '' }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results
       - name: Test the Clipper2 package (net48 / netstandard2.0)
         if: needs.scope.outputs.library == 'true' && matrix.shard == 'a'
         run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results

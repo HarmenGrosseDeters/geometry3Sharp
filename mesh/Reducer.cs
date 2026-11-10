@@ -24,6 +24,9 @@ namespace g3
     /// Prefer Reducer to lower the triangle count while keeping the shape. Use <see cref="Remesher"/> instead
     /// for uniform, well-shaped triangles of a given edge length (Reducer keeps long thin triangles in flat
     /// regions).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200]. Measured (sphere, reduction to a quarter of the
+    /// triangles): works from 2^-250 to 2^500; below 2^-300 it reduces nothing, above 2^700 the mesh turns invalid.
     /// </summary>
 	public class Reducer : MeshRefinerBase
 	{
