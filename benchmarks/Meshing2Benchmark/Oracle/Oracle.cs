@@ -2930,8 +2930,8 @@ namespace Meshing2Acceptance
             /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
             /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
-            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
-            /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
+            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in the input's own rounding
+            /// (a pixel that collapses in the input's own rounding lies on such links). A subsegment between two pixels of the piece's image that skips
             /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only (review of
             /// #36, S2). Known gap (third review of #36): another edge's link between two pixels of the image can still stand in for the
             /// piece's, where two further chains give the skipped pixel's vertex both sides (about four edges). Pixels of refinement are
@@ -2971,7 +2971,7 @@ namespace Meshing2Acceptance
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
-                    // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
+                    // that side collapses (O-H5's rule (ii'), B: the input's own rounding collapses it, refinement may open area there)
                     Q along = Along(Centre(h, snapPixel));
                     if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
@@ -2990,7 +2990,7 @@ namespace Meshing2Acceptance
                             }
                             if (before && after) { onChain = true; break; }
                         }
-                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in both images
+                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in the input's own rounding
                     if (!onChain && k >= 0) {
                         Snap();
                         onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);

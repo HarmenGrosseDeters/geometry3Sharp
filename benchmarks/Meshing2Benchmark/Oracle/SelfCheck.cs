@@ -697,8 +697,8 @@ namespace Meshing2Acceptance
                             rw2.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw2.CollapsedSegments == 0, "report: " + rw2 + " / " + rw2.ExcusedSummary());
                         // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
                         // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
-                        // row 4 there), opens 7.5 px², and
-                        // the mesh of that triangle without the upper edge's chain
+                        // row 4 there), opens 7.5 px²: the mesh of that
+                        // triangle has no chain of the upper edge.
                         var sliver = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { 0, 4.55, 5.45 } };
                         sliver.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
                         var tsl = new[] { new[] { 0, 3, 1 } };
