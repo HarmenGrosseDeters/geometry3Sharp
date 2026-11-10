@@ -39,9 +39,9 @@ rather than an app. That puts some things first:
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
 **Depth over breadth (owner 2026-11-10):** round off the existing features first; a new topic only with a synergy
-with an existing one. Must-win hard problems: D1 drift, rounding cost on large results, the Meshing2D small-angle
-cascade, robust repair at extreme scale disparity, determinism net48 / net10, intersection-free DC
-([research.md](roadmap/research.md#open)).
+with an existing one. Must-win hard problems (stronger-model investigations): scale-free robust repair, rounding cost
+on large results (with the 3D snap-rounding leads), a proof method for determinism
+([research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)).
 
 Relation to upstream: stay API compatible with 1.0.324, which existing users depend on. Upstream's
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
