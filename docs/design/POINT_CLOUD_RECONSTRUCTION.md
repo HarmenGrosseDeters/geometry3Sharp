@@ -1,6 +1,17 @@
 # Point cloud reconstruction: "alpha wrap + Poisson" (ROADMAP Phase 5 priority 6, stage 1)
 
-Status: stage 1 (prior art, building blocks, upper bound, options). No library code. Needs an owner decision (section 6).
+Status: stage 1 (prior art, building blocks, upper bound, options). No library code in this PR.
+
+## 0. Owner decision (2026-11-10, relayed by the coordinator)
+
+- Order: **A and B now, C1 next, C2 only on request.** Stage 2 as separate PRs: A (docs and pinned tests for `MeshAlphaWrap`
+  on point sets), B (`PointCloudNormals`, additive API), IO (XYZ / PLY point readers and writers), then C1.
+- IO: ASCII XYZ and point-only PLY readers and writers, both added to `ReaderFuzzTests`. LAS / LAZ not without a licence
+  check first.
+- Automatic `Alpha`: yes, from the measured sampling spacing (about 2.5x, with the noise condition). The condition is
+  checked and reported in the result.
+- Band versus octree for C2: not decided now.
+- Paper references are verified against the papers before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
 Upstream demand: gradientspace/geometry3Sharp issues #65, #141, #96, #164 (point clouds in, a surface out).
 
 ## 1. Result in short
@@ -113,7 +124,7 @@ winding-number field of oriented points as the indicator (what each paper does e
 Guarantee that survives in every option: the wrap bounds the result. With the wrap as the outer limit (intersect), no
 detail stage can leave a hole in the enclosure of the input, and no detail stage can be worse than A.
 
-## 6. Recommendation and decisions for the owner
+## 6. Recommendation and open questions (answered in section 0)
 
 1. **A and B now, in this order, as two PRs** (A is S; B is M and is useful alone, for any pipeline that needs normals).
    Both are additive API (`PointCloudNormals` is a new class) and need no change to `MeshAlphaWrap`.
