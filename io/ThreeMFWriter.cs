@@ -102,9 +102,9 @@ namespace g3
                     foreach (int vid in mesh.VertexIndices()) {
                         Vector3d v = mesh.GetVertex(vid);
                         xml.WriteStartElement("vertex", ns);
-                        xml.WriteAttributeString("x", v.x.ToString("R", ci));
-                        xml.WriteAttributeString("y", v.y.ToString("R", ci));
-                        xml.WriteAttributeString("z", v.z.ToString("R", ci));
+                        xml.WriteAttributeString("x", MeshIOUtil.FormatDouble(v.x));
+                        xml.WriteAttributeString("y", MeshIOUtil.FormatDouble(v.y));
+                        xml.WriteAttributeString("z", MeshIOUtil.FormatDouble(v.z));
                         xml.WriteEndElement();
                         map[vid] = vi++;
                     }

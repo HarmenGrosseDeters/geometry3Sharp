@@ -33,7 +33,6 @@ namespace g3
             writer.Write(make_header(layout, "ascii", options));
 
             CultureInfo ci = CultureInfo.InvariantCulture;
-            const string fmt = "R";     // round-trip format
             StringBuilder line = new StringBuilder();
             for (int mi = 0; mi < vMeshes.Count; ++mi) {
                 IMesh mesh = vMeshes[mi].Mesh;
@@ -43,12 +42,12 @@ namespace g3
                     line.Clear();
                     Vector3d v = mesh.GetVertex(vid);
                     if (layout.bDouble)
-                        line.Append(v.x.ToString(fmt, ci)).Append(' ').Append(v.y.ToString(fmt, ci)).Append(' ').Append(v.z.ToString(fmt, ci));
+                        line.Append(MeshIOUtil.FormatDouble(v.x)).Append(' ').Append(MeshIOUtil.FormatDouble(v.y)).Append(' ').Append(MeshIOUtil.FormatDouble(v.z));
                     else
-                        line.Append(((float)v.x).ToString(fmt, ci)).Append(' ').Append(((float)v.y).ToString(fmt, ci)).Append(' ').Append(((float)v.z).ToString(fmt, ci));
+                        line.Append(MeshIOUtil.FormatFloat((float)v.x)).Append(' ').Append(MeshIOUtil.FormatFloat((float)v.y)).Append(' ').Append(MeshIOUtil.FormatFloat((float)v.z));
                     if (layout.bNormals) {
                         Vector3f n = mesh.GetVertexNormal(vid);
-                        line.Append(' ').Append(n.x.ToString(fmt, ci)).Append(' ').Append(n.y.ToString(fmt, ci)).Append(' ').Append(n.z.ToString(fmt, ci));
+                        line.Append(' ').Append(MeshIOUtil.FormatFloat(n.x)).Append(' ').Append(MeshIOUtil.FormatFloat(n.y)).Append(' ').Append(MeshIOUtil.FormatFloat(n.z));
                     }
                     if (layout.bColors) {
                         Vector3f c = mesh.GetVertexColor(vid);
@@ -56,7 +55,7 @@ namespace g3
                     }
                     if (layout.bUVs) {
                         Vector2f uv = mesh.GetVertexUV(vid);
-                        line.Append(' ').Append(uv.x.ToString(fmt, ci)).Append(' ').Append(uv.y.ToString(fmt, ci));
+                        line.Append(' ').Append(MeshIOUtil.FormatFloat(uv.x)).Append(' ').Append(MeshIOUtil.FormatFloat(uv.y));
                     }
                     writer.WriteLine(line.ToString());
                 }

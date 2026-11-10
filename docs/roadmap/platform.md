@@ -145,7 +145,14 @@ Tier: S, M. Parallel: up to 2 sessions
        `G3_PROPERTY_SAMPLES=10000` (about 60 000 samples). Findings: #496 (input angles below 60 degrees are small pairs), #499
        (oracle rule O-G, the grid tube); `TrianglesOnDegenerate` was fixed by #512; fine-grid `AngleBelowBound` was an oracle gap (hull edges taken whole on the grid, #534); the spike case (`VertexUnused` / `SegmentMissing`, a lobe of 5.5 px²) was settled by owner decision B (the reference is the rounded input, the oracle's lobe bounds are gone). The 10k strict grid run has no finding left; the filter for open grid classes (`G3_PROPERTY_STRICT=1` turns it off) stays for new ones.
     3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
-       deterministic; shrinking to minimal pinch / cap cases.
+       deterministic; shrinking to minimal pinch / cap cases. **Campaign done 2026-11-10 (QA 2.0 T6):**
+       `AlphaWrapCampaignTests.CsCheck.cs` (nine scene kinds: points, box, sphere, sheet, two boxes, coplanar points, collinear points,
+       clustered duplicates, sliver tetrahedron; sizes 2^-6 .. 2^6, moved up to 2^14 sizes, relative alpha 5 .. 40, relative offset 100 ..
+       2000; the guarantees of `AlphaWrapTests.CheckWrap`, repeat on the same and on a new instance and the 2^k scaled input bit-identical;
+       20 seeded samples in CI, category `Campaign`). First run, 1 500 samples: one finding, `Status = Failed` ('result box corners on
+       the result') for flat input at relative alpha 5 to 8 (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at
+       10 and at the default 20), pinned as a skipped example and counted as an open class (`G3_PROPERTY_STRICT=1` fails on it); the fix
+       is a bugfix PR of its own.
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
        (never steeper, cut + fill consistent).
     5. Reducer and Remesher (QA 2.0 T7, done 2026-11-10): `RemeshReduceCampaignTests.CsCheck.cs` (sphere, noisy sphere, torus, noisy torus,

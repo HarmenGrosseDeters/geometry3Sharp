@@ -80,6 +80,8 @@ class Program
         r["si_free"] = dc.SelfIntersectionFree;
         r["nonmanifold_tris"] = dc.NonManifoldTriangles;
         r["resolve_ms_last"] = dc.ResolveMilliseconds;
+        r["covered_tris"] = dc.CoveredTriangles; r["checked_tris"] = dc.CheckedTriangles;
+        r["forced_diagonals"] = dc.ForcedDiagonals; r["edge_vertices"] = dc.EdgeVertices;
         foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
         var d = dc.Diagnostics;
         if (d == null) return;

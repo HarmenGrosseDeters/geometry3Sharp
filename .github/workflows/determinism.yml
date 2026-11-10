@@ -1,0 +1,96 @@
+# Bit-for-bit determinism across runtimes (docs/design/DETERMINISM.md): the harness in tools/DeterminismHarness runs fixed
+# procedural inputs through the main operations on net10.0 (Linux and Windows) and net48 (Windows, the netstandard2.0
+# build of the library), serial and parallel, and the compare job lists every case whose values differ with the first
+# diverging value. Not part of the PR gate: it runs when the harness changes, and on demand.
+name: determinism
+
+on:
+  pull_request:
+    paths:
+      - 'tools/DeterminismHarness/**'
+      - '.github/workflows/determinism.yml'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build tools/DeterminismHarness -c Release -f net10.0
+      - name: Run
+        run: |
+          H="dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll"
+          $H run --out out/linux-net10-parallel
+          $H run --out out/linux-net10-parallel2
+          $H run --out out/linux-net10-serial --serial
+          # the partitioning of the library's parallel loops depends on the processor count
+          for n in 1 2 3 8; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/linux-net10-cpu$n; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traces-linux
+          path: out
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build tools/DeterminismHarness -c Release
+      - name: Run
+        shell: bash
+        run: |
+          B=tools/DeterminismHarness/bin/Release
+          dotnet $B/net10.0/DeterminismHarness.dll run --out out/windows-net10-parallel
+          dotnet $B/net10.0/DeterminismHarness.dll run --out out/windows-net10-serial --serial
+          $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel
+          $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel2
+          $B/net48/DeterminismHarness.exe run --out out/windows-net48-serial --serial
+      - name: Run net48 as a 32-bit process (x87 / legacy JIT arithmetic)
+        shell: bash
+        run: |
+          dotnet build tools/DeterminismHarness -c Release -f net48 -p:PlatformTarget=x86 -o tools/DeterminismHarness/bin/x86
+          tools/DeterminismHarness/bin/x86/DeterminismHarness.exe run --out out/windows-net48x86-serial --serial
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traces-windows
+          path: out
+
+  compare:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          path: traces
+          merge-multiple: true
+      - run: dotnet build tools/DeterminismHarness -c Release -f net10.0
+      - name: Compare
+        run: |
+          H="dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll"
+          cmp() { echo "=== $1  vs  $2"; $H compare traces/$1 traces/$2 --brief || true; }
+          # inside one runtime: serial against parallel, and two parallel runs
+          cmp linux-net10-parallel linux-net10-parallel2
+          cmp linux-net10-parallel linux-net10-serial
+          cmp windows-net48-parallel windows-net48-parallel2
+          cmp windows-net48-parallel windows-net48-serial
+          cmp windows-net10-parallel windows-net10-serial
+          # across runtimes and platforms
+          cmp windows-net10-serial windows-net48-serial
+          cmp windows-net10-parallel windows-net48-parallel
+          cmp linux-net10-serial windows-net10-serial
+          cmp linux-net10-serial windows-net48-serial
+          # processor counts, and 32-bit
+          for n in 1 2 3 8; do cmp linux-net10-serial linux-net10-cpu$n; done
+          cmp windows-net48-serial windows-net48x86-serial
+          for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done

@@ -91,3 +91,39 @@ T1 (15-16 % of the whole solidify) and 30-64 % of dense DC; the one bad final re
 left-out non-manifold triangles whose holes `FillSmallHoles` closes with 63 intersecting pairs; thin sheets leave up
 to 10104 non-manifold triangles out (open results); every intersection involves a multi-patch, transition or
 against-criterion polygon (0 covered of 8159 pairs).
+
+## Option A (envelope triangulation, check of the uncovered triangles only)
+
+A/B against the #541 head (`compare.py`, two repetitions alternating, hook off):
+
+| input | res | runs | total s base / cand | ratio | DC s base / cand | ratio | check + repair s base / cand | ratio |
+|---|---|---|---|---|---|---|---|---|
+| T1 | 64 | 20 | 8.8 / 8.2 | 0.92 | 4.5 / 3.6 | 0.79 | 1.25 / 0.20 | 0.16 |
+| T1 | 128 | 20 | 23.9 / 21.9 | 0.92 | 12.7 / 10.5 | 0.82 | 4.14 / 0.87 | 0.21 |
+| imp:boxminussphere | 24 | 20 | 0.2 / 0.1 | 0.50 | 0.2 / 0.1 | 0.42 | 0.11 / 0.01 | 0.14 |
+| imp:boxminussphere | 48 | 20 | 0.9 / 0.7 | 0.74 | 0.9 / 0.6 | 0.73 | 0.35 / 0.07 | 0.22 |
+| imp:boxminussphere | 96 | 20 | 3.9 / 3.1 | 0.79 | 3.8 / 3.0 | 0.79 | 1.67 / 0.39 | 0.23 |
+| imp:cone | 24 | 20 | 0.1 / 0.1 | 0.59 | 0.1 / 0.0 | 0.41 | 0.04 / 0.00 | 0.06 |
+| imp:cone | 48 | 20 | 0.4 / 0.3 | 0.86 | 0.3 / 0.3 | 0.82 | 0.15 / 0.03 | 0.20 |
+| imp:cone | 96 | 20 | 1.6 / 1.3 | 0.80 | 1.5 / 1.2 | 0.79 | 0.71 / 0.17 | 0.24 |
+| imp:gyroid | 24 | 20 | 0.7 / 0.4 | 0.68 | 0.6 / 0.4 | 0.66 | 0.23 / 0.22 | 0.93 |
+| imp:gyroid | 48 | 20 | 2.9 / 3.4 | 1.19 | 2.8 / 3.4 | 1.19 | 1.39 / 1.39 | 0.99 |
+| imp:gyroid | 96 | 20 | 14.1 / 11.4 | 0.81 | 14.0 / 11.3 | 0.81 | 6.30 / 2.73 | 0.43 |
+| imp:rotbox | 24 | 20 | 0.2 / 0.2 | 0.87 | 0.2 / 0.1 | 0.85 | 0.08 / 0.02 | 0.23 |
+| imp:rotbox | 48 | 20 | 0.7 / 0.6 | 0.80 | 0.7 / 0.6 | 0.79 | 0.30 / 0.07 | 0.23 |
+| imp:rotbox | 96 | 20 | 2.8 / 2.4 | 0.88 | 2.7 / 2.4 | 0.88 | 1.14 / 0.36 | 0.31 |
+| imp:slab | 24 | 20 | 0.1 / 0.2 | 1.12 | 0.1 / 0.1 | 1.15 | 0.07 / 0.04 | 0.63 |
+| imp:slab | 48 | 20 | 1.1 / 0.9 | 0.90 | 1.0 / 0.9 | 0.89 | 0.51 / 0.38 | 0.76 |
+| imp:slab | 96 | 20 | 3.9 / 3.3 | 0.84 | 3.9 / 3.3 | 0.84 | 1.72 / 0.70 | 0.41 |
+| imp:twoboxes | 24 | 20 | 0.1 / 0.1 | 0.75 | 0.1 / 0.1 | 0.66 | 0.06 / 0.00 | 0.07 |
+| imp:twoboxes | 48 | 20 | 0.7 / 0.4 | 0.66 | 0.6 / 0.4 | 0.65 | 0.21 / 0.05 | 0.23 |
+| imp:twoboxes | 96 | 20 | 2.5 / 2.2 | 0.87 | 2.4 / 2.1 | 0.87 | 1.07 / 0.24 | 0.23 |
+| mesh:procedural | 64 | 6 | 2.4 / 2.1 | 0.87 | 1.2 / 0.9 | 0.74 | 0.55 / 0.08 | 0.15 |
+| mesh:procedural | 128 | 6 | 8.2 / 6.3 | 0.77 | 4.9 / 3.4 | 0.69 | 1.74 / 0.14 | 0.08 |
+
+```
+python3 benchmarks/DualContouringIntersections/compare.py --base base_w1.jsonl base_w2.jsonl base_i1.jsonl base_i2.jsonl --cand cand_w1.jsonl cand_w2.jsonl cand_i1.jsonl cand_i2.jsonl
+```
+
+Covered 90 % of the triangles (7.59 M of 8.45 M), 135887 forced diagonals, 1278 edge vertices; 0 covered pairs of 8053
+intersecting pairs; 0 left after the repair in all 412 runs. Details in the design note, section 5.
