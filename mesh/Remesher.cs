@@ -978,13 +978,17 @@ namespace g3 {
             if (triangleGrid != null && gridTimestamp == mesh.Timestamp)
                 return;
             // cells of about the target edge length (the triangles the remesher creates), but not below the mean edge
-            // of the mesh (relative values only: scale invariant)
+            // of the mesh and not above twice it (relative values only: scale invariant). A cell far above the
+            // triangles holds hundreds of them that every query visits (a thin tube with a wall-thickness sizing
+            // field, target 0.8 but edges of 0.05: 3.6 s to 2.1 s); the queries' answers do not depend on the cell
+            // size, and a triangle larger than 16 cells goes to a coarser level of the grid.
             double sum = 0; int n = 0;
             foreach (int eid in mesh.EdgeIndices()) {
                 Index2i ev = mesh.GetEdgeV(eid);
                 sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
             }
-            double cell = Math.Max(MaxEdgeLength, sum / Math.Max(1, n));
+            double mean = sum / Math.Max(1, n);
+            double cell = Math.Max(mean, Math.Min(MaxEdgeLength, 2 * mean));
             if (!(cell > 0) || double.IsInfinity(cell))
                 cell = Math.Max(mesh.CachedBounds.MaxDim, double.Epsilon);
             triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, cell);
