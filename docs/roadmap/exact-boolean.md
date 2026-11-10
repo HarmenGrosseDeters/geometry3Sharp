@@ -63,7 +63,7 @@ upper bound per lever on the 2.0 benchmark set.
 **3.0 targets (owner 2026-11-10):** T1 scaling (bit-identical: serial floor 342 -> <= 170 s, 4-core time -20 % on the
 73-model set; parallel deterministic sort in merge_points, classification setup, input orientation, simplify / assembly
 per region, box-tree build) and T2 memory (<= 300 B retained / <= 1.2 KB peak per input triangle: input points without
-FixedPoint3, struct-of-arrays triangles) approved; T3a / T3b by topic 7; T5: first the Antipodal cost count on the slow
+FixedPoint3, struct-of-arrays triangles) approved; T3a / T3b approved (below); T5: first the Antipodal cost count on the slow
 open models, patent check done by the owner 2026-11-10 (PDFs of arXiv:2605.01536 and
 arXiv:2408.04466, Google Patents, Espacenet, DPMA, Shaped Code site: no patent, application or notice; freedom to operate),
 so the method may be implemented from the paper or ported from the MIT reference code (attribution in docs/SOURCES.md, FMA
@@ -87,6 +87,16 @@ once with separate results (shared preprocessing of A, parallel over i). Primary
 sub-area of ~1 km, extruded to a solid, typically <= 10k triangles, out of a 10 x 10 km TIN of 500-800k triangles) against
 construction bodies (pits, trenches, foundations, roads; 100-2k triangles, n = 5..200); secondary: CAD / machining (a part
 of 10k-100k triangles minus up to 500 tools). Measured as topic 7 of the pre-study.
+
+**T3a / T3b targets (owner 2026-11-10, approved; pre-study topic 7, #536 section 8-9):** all variants clean on the
+procedural terrain and CAD workloads. T3a, A − (B1 ∪ … ∪ Bn): today's one-pass n-ary Difference is already right (chained
+is 13-16x slower with up to 5x more triangles); no new API, an operation-aware early-out in the arrangement input path for
+Difference / Intersection (Bi triangles whose box meets no A triangle and that lie outside A by one exact ray are dropped,
+same exact result; bound 6-45 %, terrain 27-31 %). Target: terrain n = 200 <= 2.5 s (today 3.3-3.8 s), CAD 10k n = 500
+<= 30 s (today 49 s), never slower than today's one pass. T3b, A ∩ Bi each: an additive `IntersectEach(a, bodies)` (and
+Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
+parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
+Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
 
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
