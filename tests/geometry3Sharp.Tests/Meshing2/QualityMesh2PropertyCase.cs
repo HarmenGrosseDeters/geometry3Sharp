@@ -70,9 +70,9 @@ namespace geometry3Sharp.Tests
         public static int TimeoutMs = 60000;
 
         /// <summary>
-        /// Open finding 2 of the T5 campaign: on a snap grid the oracle's verdict (AreaMismatch, SegmentMissing, VertexUnused,
-        /// TrianglesOnDegenerate, ChainSkipsHotPixel) fails on thin wedges and star polygons, also with the plain constrained Delaunay
-        /// mesher (M2). Not a failure of the campaign until it is decided (oracle spec or snap rounding); G3_PROPERTY_STRICT counts it.
+        /// Open grid findings of the T5 campaign (after the oracle's rule O-G): on a snap grid the oracle's verdict still fails in four
+        /// classes (AngleBelowBound on fine grids, SegmentMissing and VertexUnused with conforming refinement of slivers,
+        /// TrianglesOnDegenerate). Not a failure of the campaign until decided or fixed; G3_PROPERTY_STRICT counts them.
         /// </summary>
         public static bool IsOpenGridFinding(QualityMesh2PropertyCase c, string reason)
             => c.SnapLog2 != null && reason.StartsWith("oracle verdict: ", StringComparison.Ordinal);
