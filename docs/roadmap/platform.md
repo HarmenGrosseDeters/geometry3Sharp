@@ -200,6 +200,8 @@ and the test tiers and time limit (#447, the backlog program).
   docs and tests): set the range per module (coordinate magnitude, scale disparity, size), write it in the class docs
   and the QA.md table, move the generators to sample inside it plus a small out-of-range sample, and re-classify the
   open sweep / fuzz findings (radius-1e100 ray queries, the 4-12 triangle repair times) under the two properties.
+  **Ranges set (2026-11-10):** QA.md 2.5a has the table (per module magnitude, disparity, measured limits) and the class docs the
+  "Supported input range" paragraphs; range-check bugfix PRs per module and the generator / fuzz domain changes follow.
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 

@@ -303,6 +303,30 @@ non-finite values (always outside). The default is derived from what the exact k
 the range (with a bias toward its edges, where the scale-disparity bugs were found), and add a separate small
 out-of-range sample for property 2. Fuzz harnesses report out-of-range findings in their own class.
 
+**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine);
+"disparity" is the ratio of the largest to the smallest part or component of one input. Measured with a scale sweep
+(a standard input scaled by 2^e, e from -1000 to 1000, 20 s budget per run; see the table notes), then set inside the
+measured range with margin. Subnormal coordinates (below 2.2e-308) are outside for every module, and out of the 2^k
+scale checks of the campaigns (the scaling is not exact there).
+
+| Module | Magnitude (nonzero) | Disparity | Measured | Outside: status |
+|---|---|---|---|---|
+| `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
+| `MeshRoundingRepair` | 2^-200 .. 2^200 | 2^60 | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
+| `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
+| `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
+| `Reducer`, `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 | -- | sphere: ok 2^-250 .. 2^500; no reduction below 2^-300; invalid mesh above 2^700 | not guaranteed (documented limit) |
+| `DMeshAABBTree3` ray, `IsInside`, winding numbers | up to 2^1000 | -- | fuzzed to 2^1000 | not guaranteed above |
+| `DMeshAABBTree3` nearest (squared distance) | extent 2^-450 .. 2^450 | -- | squared distance representable | not guaranteed outside |
+| 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude | -- | exact predicates | `ArgumentException` |
+| `TerrainVolumeDifference`, `TerrainOffset` | <= 2^200, extent 2^-8 .. 2^200 | -- | bumpy 8 x 8 terrain: correct 2^-20 .. 2^250; zero volumes with `true` below 2^-25 and above 2^260; offset wrong with `true` above 2^260, `false` below 2^-30 | `Compute()` false (PR per module) |
+| Other terrain modules (grid TIN, greedy TIN, slope map / design / overlay, dual contouring, safety) | not swept: the slope classes decide with the exact kernel (`ExactSlopeKernel`) | -- | -- | open |
+
+The ranges are class-doc statements ("Supported input range") of the classes above (those of `ExactMeshBoolean` and
+`MeshRoundingRepair` come with their range-check PRs: the mutation shards address these files by character offset). The checks that turn the
+"Outside" column into a status land per module (bugfix PRs); until then the column is the documented behaviour of
+the module outside the range, or "not guaranteed".
+
 ### 2.6 Coverage in CI
 
 - coverlet (MIT) collects line and branch coverage in the Linux job.
