@@ -59,7 +59,6 @@ namespace g3
             }
         }
 
-        static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
         // .NET Core 3.0 and later: "R" is the shortest string that reads back to the same value; .NET Framework: 15 digits, then 17
         // (and not always exact, see HeightGridWriter's note)
         static readonly bool DoubleRIsShortest = (1.0 / 3.0).ToString("R", Inv) == "0.3333333333333333";
