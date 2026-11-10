@@ -248,6 +248,13 @@ namespace g3
         public bool[] ExactWinding;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
+        // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
+        // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers
+        // (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1: the threshold where both cost about the same); for tests
+        internal int AntipodalMaxBoundarySegments = 1000;
+        // for tests and benchmarks: per input mesh after Compute, the number of its boundary segments (BoundarySegments),
+        // -1 for a mesh with exact winding numbers
+        internal int[] OpenBoundarySegments;
         // for tests: triangles per batch of the arrangement's candidate pair search
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
@@ -352,6 +359,8 @@ namespace g3
             arr = null;
             bounds.Clear();
             windingTrees.Clear();
+            antipodalSegments.Clear();
+            OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
                 return fail(BooleanStatus.InvalidInput, "no input meshes");
@@ -410,6 +419,7 @@ namespace g3
             clock.Lap("classification");
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
+            Counts["antipodal_meshes"] = antipodalSegments.Count;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
             Counts["removed_vertices"] = RemovedVertices;
@@ -733,11 +743,26 @@ namespace g3
                 if (ExactWinding[m])
                     mesh_bounds(m, out bmin, out bmax);
             }
-            // the fast-winding trees of the open meshes, concurrently (each is independent, built from its own mesh;
-            // the dictionary is filled serially afterwards, in mesh order)
+            // the open meshes with few boundary segments are evaluated by the Antipodal Method (its segments and the box
+            // the exact ray needs, computed here: the parallel evaluation only reads), the others by fast winding numbers
+            OpenBoundarySegments = new int[nm];
+            for (int m = 0; m < nm; ++m) {
+                OpenBoundarySegments[m] = -1;
+                if (ExactWinding[m])
+                    continue;
+                Vector3d[] segments = BoundarySegments(arr.Meshes[m]);
+                OpenBoundarySegments[m] = segments.Length / 2;
+                if (segments.Length / 2 < AntipodalMaxBoundarySegments) {
+                    antipodalSegments[m] = segments;
+                    BigInteger[] bmin, bmax;
+                    mesh_bounds(m, out bmin, out bmax);
+                }
+            }
+            // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
+            // mesh; the dictionary is filled serially afterwards, in mesh order)
             var built = new DMeshAABBTree3[openMeshes.Count];
             gParallel.ForRange(openMeshes.Count, (k) => {
-                if (windingTrees.ContainsKey(openMeshes[k]) == false)
+                if (windingTrees.ContainsKey(openMeshes[k]) == false && antipodalSegments.ContainsKey(openMeshes[k]) == false)
                     built[k] = new_winding_tree(openMeshes[k]);
             });
             for (int k = 0; k < openMeshes.Count; ++k)
@@ -899,7 +924,10 @@ namespace g3
         {
             List<int> sparse = null;
             foreach (int m in openMeshes) {
-                int wm = threshold_generalized(front_generalized_winding(i, m, stack));
+                Vector3d[] segments;
+                double w = antipodalSegments.TryGetValue(m, out segments) ? antipodal_front_winding(i, m, stack, segments)
+                    : front_generalized_winding(i, m, stack);
+                int wm = threshold_generalized(w);
                 if (wm != 0) {
                     if (sparse == null)
                         sparse = new List<int>();
@@ -1011,13 +1039,20 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         int centroid(ExactMeshArrangement.OutputTriangle ot)
         {
+            return arr.AddPoint(centroid_point(ot));
+        }
+
+        // the exact centroid of a piece (not added to the arrangement)
+        [MethodImpl(JitHints.Optimize)]
+        ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot)
+        {
             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
-            return arr.AddPoint(ExactPoint3.Create(
+            return ExactPoint3.Create(
                 a.X * wbc + b.X * wac + c.X * wab,
                 a.Y * wbc + b.Y * wac + c.Y * wab,
                 a.Z * wbc + b.Z * wac + c.Z * wab,
-                3 * a.W * wbc));
+                3 * a.W * wbc);
         }
 
         // point p (in the common plane of t and u) is in the closed triangle u
@@ -1041,6 +1076,20 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center)
         {
+            Vector3d direction;
+            return front_crossings(i, mesh, tree, rng, stack, center, true, out direction);
+        }
+
+        /// <summary>
+        /// front_winding's signed crossings of the segment from the piece's centroid to the far point in front, and the
+        /// segment's direction (in input coordinates, normalized). outsideBoxIsZero: a point outside the mesh's box has
+        /// winding number 0 (true for a closed mesh; an open mesh's crossings are counted wherever the point is)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        int front_crossings(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center, bool outsideBoxIsZero,
+            out Vector3d direction)
+        {
+            direction = Vector3d.Zero;
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
             List<int> tris = arr.MeshTriangles[mesh];
@@ -1049,7 +1098,7 @@ namespace g3
             mesh_bounds(mesh, out min, out max);
             ExactPoint3 P = center.P;
             // outside the box of the mesh: winding number 0
-            for (int k = 0; k < 3; ++k)
+            for (int k = 0; k < 3 && outsideBoxIsZero; ++k)
                 if (P[k] < min[k] * P.W || P[k] > max[k] * P.W)
                     return 0;
             BigInteger ext = BigInteger.One;
@@ -1130,8 +1179,10 @@ namespace g3
                 });
                 System.Threading.Interlocked.Add(ref windingSides, sides);
                 System.Threading.Interlocked.Add(ref windingExactSides, exactSides);
-                if (degenerate == false)
+                if (degenerate == false) {
+                    direction = (rv - pv).Normalized;
                     return winding;
+                }
             }
             throw new InvalidOperationException("ExactMeshBoolean: no non-degenerate ray found");
         }
@@ -1235,6 +1286,116 @@ namespace g3
                 w -= (dot.Sign > 0) ? 0.5 : -0.5;
             }
             return w;
+        }
+
+        // per open mesh evaluated by the Antipodal Method: its boundary segments (pairs of input points, BoundarySegments)
+        readonly Dictionary<int, Vector3d[]> antipodalSegments = new Dictionary<int, Vector3d[]>();
+
+        /// <summary>
+        /// Generalized winding number of an open mesh just in front of output piece i by the Antipodal Method (Martens,
+        /// Trettner, Bessmeltsev, The Antipodal Method, 2026, eq. 6 and 9): the exact signed crossings chi of a ray from the
+        /// piece's centroid into its front side (front_crossings: the triangles of the piece's stack skipped, so chi is the
+        /// count just in front of the piece), plus 1/(4 pi) times the sum over the mesh's boundary segments (a, b) of the
+        /// signed area 2 atan2(A.(B x x1), 1 + A.B + A.x1 + B.x1) of the spherical triangle of A, B (the unit vectors from
+        /// the centroid to a and b) and x1, the direction opposite to the ray (Van Oosterom and Strackee). The boundary sum
+        /// is continuous across the mesh's own triangles, so no correction for the triangles the piece lies on is needed
+        /// (unlike the fast winding number on the surface). Exact up to the rounding of the boundary sum; no far-field
+        /// approximation. A ray whose opposite direction passes through a boundary segment (the term is undefined) is
+        /// replaced by another.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments)
+        {
+            var ot = arr.Output[i];
+            var center = new Center(centroid_point(ot));
+            center.Input = arr.ToInputVector(center.P);
+            Vector3d p = center.Input;
+            // (a generator per piece and mesh: the pieces are evaluated in parallel)
+            var rng = new Random(unchecked(Seed + 1000003 * i + 7919 * (mesh + 1)));
+            for (int attempt = 0; attempt < 20; ++attempt) {
+                Vector3d x0;
+                int chi = front_crossings(i, mesh, arr.Trees[mesh], rng, stack, center, false, out x0);
+                Vector3d x1 = -x0;
+                double sum = 0;
+                bool degenerate = false;
+                for (int k = 0; k < segments.Length; k += 2) {
+                    Vector3d a = segments[k] - p, b = segments[k + 1] - p;
+                    double la = a.Length, lb = b.Length;
+                    if (la == 0 || lb == 0) {
+                        degenerate = true;
+                        break;
+                    }
+                    a /= la;
+                    b /= lb;
+                    double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
+                    // (x1 on the great circle arc through a and b, or a and b opposite: the area is not defined)
+                    if (Math.Abs(num) < 1e-12 && Math.Abs(den) < 1e-12) {
+                        degenerate = true;
+                        break;
+                    }
+                    sum += 2 * Math.Atan2(num, den);
+                }
+                if (degenerate == false)
+                    return chi + sum / MathUtil.FourPI;
+            }
+            // (no usable ray: undecided, which the threshold reads as outside)
+            return 0.5;
+        }
+
+        /// <summary>
+        /// The boundary of a mesh as an oriented 1-chain: its vertices welded by exact position (-0 as 0), each edge
+        /// counted +1 for every triangle that runs it from the smaller to the larger welded id and -1 the other way, and
+        /// every edge with a nonzero count returned that many times, oriented by its sign (pairs a, b of input
+        /// points, in the order the edges first appear). Opposite half-edges cancel; a same-orientation duplicate
+        /// triangle doubles its edges, a non-manifold fan leaves its odd ones. Linear in the triangles (hash maps),
+        /// deterministic. Empty for a mesh that is closed in the winding number sense.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static Vector3d[] BoundarySegments(DMesh3 mesh)
+        {
+            var ids = new Dictionary<Vector3d, int>();
+            var pos = new List<Vector3d>();
+            var net = new Dictionary<long, int>(EdgeKeyComparer.Instance);
+            var order = new List<long>();
+            var welded = new int[3];
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i t = mesh.GetTriangle(tid);
+                for (int c = 0; c < 3; ++c) {
+                    Vector3d v = mesh.GetVertex(t[c]);
+                    if (v.x == 0) v.x = 0;      // -0.0
+                    if (v.y == 0) v.y = 0;
+                    if (v.z == 0) v.z = 0;
+                    int k;
+                    if (ids.TryGetValue(v, out k) == false) {
+                        k = pos.Count;
+                        ids[v] = k;
+                        pos.Add(v);
+                    }
+                    welded[c] = k;
+                }
+                for (int e = 0; e < 3; ++e) {
+                    int u = welded[e], w = welded[(e + 1) % 3];
+                    if (u == w)
+                        continue;
+                    long key = ((long)Math.Min(u, w) << 32) | (uint)Math.Max(u, w);
+                    int count;
+                    if (net.TryGetValue(key, out count) == false) {
+                        count = 0;
+                        order.Add(key);
+                    }
+                    net[key] = count + ((u < w) ? 1 : -1);
+                }
+            }
+            var segments = new List<Vector3d>();
+            foreach (long key in order) {
+                int count = net[key];
+                int lo = (int)(key >> 32), hi = (int)(key & 0xFFFFFFFF);
+                for (int r = 0; r < Math.Abs(count); ++r) {
+                    segments.Add(pos[count > 0 ? lo : hi]);
+                    segments.Add(pos[count > 0 ? hi : lo]);
+                }
+            }
+            return segments.ToArray();
         }
 
         readonly Dictionary<int, BigInteger[][]> bounds = new Dictionary<int, BigInteger[][]>();
