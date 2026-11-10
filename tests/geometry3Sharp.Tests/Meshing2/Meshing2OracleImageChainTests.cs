@@ -26,6 +26,8 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(0)]
         [InlineData(-20)]
+        [InlineData(-300)]
+        [InlineData(150)]
         [InlineData(30)]
         public void ChainAlongAnImageBeyondOnePixel_IsAccepted(int exponent)
         {

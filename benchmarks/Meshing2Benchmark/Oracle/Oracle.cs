@@ -2358,30 +2358,50 @@ namespace Meshing2Acceptance
                     Q px = Q.FromDouble(input.SnapTolerance);
                     boundaryTube2 = Q.Max(tube2, px * px * (GridTubePixels * GridTubePixels));
                     driftTube2 = Q.Max(tube2, px * px * (GridImageDriftPx * GridImageDriftPx));
-                    // the links between the pixel centres of every source's iterated image (the chain the mesher is judged against)
                     Snap();
-                    imageLinks = new List<(Pt a, Pt b)>();
                     double worstImage = 0;
                     double pxD = input.SnapTolerance;
                     foreach (var kv in full.Images) {
-                        for (int k = 0; k + 1 < kv.Value.Count; ++k) imageLinks.Add((Centre(kv.Value[k], snapPixel), Centre(kv.Value[k + 1], snapPixel)));
-                        // the guard on the image itself: no node farther than GridImageDriftPx pixels from the exact source (in doubles: the
-                        // guard has a margin of 0.9 pixel over the largest drift measured)
+                        if (!o.IdentityRules) break;
+                        // the guard on the image itself: no node farther than GridImageDriftPx pixels from the exact source. In doubles where
+                        // the magnitudes allow (FilterRange; the guard has a margin of 0.9 pixel over the largest drift measured), else exact
                         var sa = PtD(kv.Key.a); var sb = PtD(kv.Key.b);
-                        if (double.IsNaN(sa.x) || double.IsNaN(sb.x)) continue;
+                        double dx = sb.x - sa.x, dy = sb.y - sa.y;
+                        bool inRange = !double.IsNaN(sa.x) && !double.IsNaN(sb.x) && FilterRange(Math.Max(Math.Abs(dx), Math.Abs(dy)))
+                            && FilterRange(Math.Max(Math.Abs(sa.x), Math.Abs(sa.y)) + pxD) && FilterRange(pxD);
                         foreach (var n in kv.Value) {
-                            double cx = (double)n.x * pxD, cy = (double)n.y * pxD, dx = sb.x - sa.x, dy = sb.y - sa.y, len2 = dx * dx + dy * dy;
-                            double t = len2 == 0 ? 0 : Math.Max(0, Math.Min(1, ((cx - sa.x) * dx + (cy - sa.y) * dy) / len2));
-                            double ex = sa.x + t * dx - cx, ey = sa.y + t * dy - cy;
-                            worstImage = Math.Max(worstImage, Math.Sqrt(ex * ex + ey * ey) / pxD);
+                            double pxDist;
+                            if (inRange) {
+                                double cx = (double)n.x * pxD, cy = (double)n.y * pxD, len2 = dx * dx + dy * dy;
+                                double t = Math.Max(0, Math.Min(1, ((cx - sa.x) * dx + (cy - sa.y) * dy) / len2));
+                                double ex = sa.x + t * dx - cx, ey = sa.y + t * dy - cy;
+                                pxDist = Math.Sqrt(ex * ex + ey * ey) / pxD;
+                            } else {
+                                Q q = Exact.Dist2ToSegment(kv.Key.a, kv.Key.b, Centre(n, snapPixel)) / (snapPixel * snapPixel);
+                                q.Bounds(out _, out double qhi);
+                                pxDist = Math.Sqrt(qhi);
+                            }
+                            if (double.IsNaN(pxDist)) pxDist = double.PositiveInfinity;   // fail closed
+                            worstImage = Math.Max(worstImage, pxDist);
                         }
                     }
                     r.MaxImageDriftPixels = worstImage;
-                    if (worstImage > 2.5 && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
+                    if (o.IdentityRules && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
                 }
                 // a boundary point at distance d2 (squared) from the exact input boundary is accepted within the pixel tube, or, farther but
                 // within the drift guard, if it lies within the pixel tube of an image link; false: outside (BoundaryOutsideTube)
-                bool OnImage(Pt pt) { foreach (var (la, lb) in imageLinks) if (Exact.Dist2ToSegment(la, lb, pt) <= boundaryTube2) return true; return false; }
+                bool OnImage(Pt pt)
+                {
+                    if (!o.IdentityRules) return false;
+                    if (imageLinks == null) {
+                        // (built on the first use: only a boundary point beyond the pixel tube needs it)
+                        imageLinks = new List<(Pt a, Pt b)>();
+                        foreach (var kv in full.Images)
+                            for (int k = 0; k + 1 < kv.Value.Count; ++k) imageLinks.Add((Centre(kv.Value[k], snapPixel), Centre(kv.Value[k + 1], snapPixel)));
+                    }
+                    foreach (var (la, lb) in imageLinks) if (Exact.Dist2ToSegment(la, lb, pt) <= boundaryTube2) return true;
+                    return false;
+                }
                 if (domain.IsHull || grid) {
                     // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
                     // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
@@ -2488,6 +2508,8 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
+            Dictionary<(BigInteger x, BigInteger y), List<int>> pixelVertices;
+
             const int GridTubePixels = 1;
 
             /// <summary>
@@ -2795,9 +2817,19 @@ namespace Meshing2Acceptance
                     if (input.SnapTolerance > 0 && o.IdentityRules) {
                         Snap();
                         if (full.Images.TryGetValue((s.a, s.b), out var imageNodes)) {
-                            var nodeSet = new HashSet<(BigInteger x, BigInteger y)>(imageNodes);
-                            for (int i = 0; i < v.Length; ++i)
-                                if (!near.Contains(i) && nodeSet.Contains(PixelOf(v[i], snapPixel)) && AtPixelCentre(v[i], v[i], snapPixel)) imageNear.Add(i);
+                            if (pixelVertices == null) {
+                                // (the vertices at their pixel centres by pixel, once: not a scan of all vertices per source)
+                                pixelVertices = new Dictionary<(BigInteger x, BigInteger y), List<int>>();
+                                for (int i = 0; i < v.Length; ++i) {
+                                    if (!AtPixelCentre(v[i], v[i], snapPixel)) continue;
+                                    var key = PixelOf(v[i], snapPixel);
+                                    if (!pixelVertices.TryGetValue(key, out var list)) pixelVertices.Add(key, list = new List<int>());
+                                    list.Add(i);
+                                }
+                            }
+                            var nearSet = new HashSet<int>(near);
+                            foreach (var node in imageNodes)
+                                if (pixelVertices.TryGetValue(node, out var inPixel)) foreach (int i in inPixel) if (nearSet.Add(i)) imageNear.Add(i);
                         }
                     }
                     foreach (var piece in RetainedPieces(s.a, s.b, ringEdges, double.IsNaN(own[0]) || !(farGap > 0) ? allRingEdges : null, farGap)) {
