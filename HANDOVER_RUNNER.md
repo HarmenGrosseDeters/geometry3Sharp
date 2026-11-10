@@ -85,6 +85,25 @@ anything that changes a script or a plan goes to the coordinator first. Times fo
   fTetWild is MPL-2.0, binary only, no source read or copied. Results: `REPORT-2.md` and two CSVs on
   `runs/tet-meshing`. Recipient: the coordinator.
 
+## Boolean 2.0 sign-off (SIGNOFF.md): the remaining steps
+
+Coordinator 2026-11-10: the target class is signed off on the D1 cohort's base rows (f2245b6f, contains 79a2c1ab; the
+separate 79a2c1ab confirmation run is dropped), control and rest as measured. Once the D1 correctness pass and the
+rest phase (with the 429 reruns) are committed:
+
+1. Copy the D1 base rows: `git show origin/runs/d1-cohort:runs/d1/results/base.jsonl >
+   runs/final/results/d1_base.jsonl`; the rest rows are `runs/final/results/rest.jsonl` (the runner's commit).
+2. Contact check of every "self-intersections" row (ids with reason self-intersections, one per line):
+   - D1 base: `CACHE=<cache> MIN_FREE_GB=4 IDS_FILE=<ids> bash runs/final/job2.sh correct <work dir>
+     d1base:f2245b6fc632fd4997521adbef158c5607c11ce8 target`, then `cat <work dir>/out/correct_d1base/*.jsonl >
+     runs/final/results/contacts_check_d1base.jsonl`;
+   - rest: the same with `master:79a2c1ab15d3ce9e419b2a994af343e32877881c target,selfint,unknown,open` into
+     `contacts_check_rest.jsonl`.
+   Check that the reasons equal those of the source rows (they did for target and control: 0 differences).
+3. `python3 runs/final/signoff.py runs/final/results > runs/final/results/SIGNOFF.md`; add one line per input file
+   with its commit (D1 base f2245b6f, rest 79a2c1ab, control cd7fb8ab) and the 429 reruns as their own line;
+   commit and push to `runs/boolean2-final`; send the table to the coordinator.
+
 ## Pitfalls (seen in FINAL-1)
 
 - **HF 429:** huggingface.co rate-limits bursts. `fetch_thingi.py` from f693a716 / a5411ed0 retries with backoff

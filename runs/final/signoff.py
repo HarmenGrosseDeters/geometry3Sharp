@@ -2,7 +2,8 @@
 """The Boolean 2.0 sign-off tally (owner 2026-11-10: contacts counted apart from unclean): per phase and class, the
 operations clean / contacts / empty / unclean (by reason) / failed and the unavailable models.
   python3 runs/final/signoff.py runs/final/results > runs/final/results/SIGNOFF.md
-Inputs in the results dir: target.jsonl with target_rerun_pr474.jsonl and target_rerun_pr483.jsonl in place of its
+Inputs in the results dir: d1_base.jsonl (the D1 cohort's base rows, f2245b6f, all target models: the sign-off build of
+the target class, coordinator 2026-11-10; rows without "class" are target) with contacts_check_d1base.jsonl, target.jsonl with target_rerun_pr474.jsonl and target_rerun_pr483.jsonl in place of its
 rows, control.jsonl, rest.jsonl (if present) with rest_rerun_429.jsonl in place of its rows (if present), and the
 contact checks contacts_check_master.jsonl / contacts_check_base385.jsonl / contacts_check_rest.jsonl: a
 "self-intersections" row whose contact check (same id, op and reason) has verdict "contacts" counts as contacts."""
@@ -52,9 +53,15 @@ def verdict(r, chk):
 
 
 phases = []
+d1 = rows('d1_base.jsonl')
+if d1:
+    for x in d1:
+        x.setdefault('class', 'unavailable' if x.get('error') == 'export failed' and 'op' not in x else 'target')
+    phases.append(('target, sign-off (D1 cohort base f2245b6f: master with #474 / #483 / #493)', d1,
+                   checks('contacts_check_d1base.jsonl')))
 t = rows('target.jsonl')
 if t:
-    phases.append(('target (master 79a2c1ab, with the #474 / #483 re-runs)',
+    phases.append(('target, FINAL-1 (1fd946aa, the unclean models re-run on #474 / #483)',
                    overlay(t, rows('target_rerun_pr474.jsonl'), rows('target_rerun_pr483.jsonl')),
                    checks('contacts_check_master.jsonl')))
 c = rows('control.jsonl')
