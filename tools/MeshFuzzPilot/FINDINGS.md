@@ -53,3 +53,21 @@ Since 2026-11-10 the decoder samples the scale exponents inside the supported ra
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
 cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
 return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
+
+## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
+
+`MeshFuzzPilot random <n> <seed>` (no coverage guidance, not libFuzzer; the libFuzzer campaigns of the new targets are still to run) on the
+uninstrumented build, one operation selected with `MESH_FUZZ_OPS`:
+
+| Target | Inputs | Result |
+|---|---|---|
+| remesher | 1 800 (seeds 1, 7) | no finding |
+| reducer | 1 800 (seeds 1, 7) | no finding |
+| clipper2 | 4 800 (seeds 1, 7, 8) | no finding in the domain; outside it (coordinates more than 2^16 extents from the origin, 1e14 against an extent of 1) three results with a zero-area outer ring of two distinct vertices: the grid (2^-40 of the extent) is finer than a double at that magnitude, a limit of the representation, now outside the domain of the target |
+| quality-mesh2 | about 5 000 (seeds 1, 2, 3, 5, 11, while the domain was being fixed) | **open class** below; `ArgumentException` for coordinates above 1e70 is the documented contract (outside the domain); `VertexUnused` / `SegmentMissing` with coordinates 2^35 extents from the origin (the automatic snap grid) outside the domain |
+
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area): `AngleBelowBound` ("triangle ... is below 20 (25)
+degrees with no forced small angle"), about 1 in 1 000 inputs, always `ConstrainedQuality` with a minimum angle of 20 or 25 degrees on a projected
+polyhedron whose 11 to 36 segments cross (the Steiner limit is not reached). Replay with `MESH_FUZZ_OPS=quality-mesh2`; the shortest input:
+`c7b3da9eaada3cdb135e1e5eda17447e855accdce3e983d947d76a8fee214eb017fcac7edb93c5ceec3c90806b3f4d5c1e79d624a78300de2f0056d26faded` (16 points, 32 segments, 4 coincident
+points, angle 25, no explicit snap). Whether the mesher or the oracle's notion of a forced small angle at crossings is at fault is not known yet.

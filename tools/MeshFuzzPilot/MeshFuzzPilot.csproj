@@ -8,5 +8,12 @@
   <ItemGroup>
     <PackageReference Include="SharpFuzz" Version="2.2.0" />
     <ProjectReference Include="../../geometry3Sharp_netstandard.csproj" />
+    <!-- the 2D mesher target is judged by the acceptance oracle of the mesher (Meshing2Acceptance) -->
+    <ProjectReference Include="../../benchmarks/Meshing2Benchmark/Oracle/Meshing2Oracle.csproj" />
+    <Compile Include="../../benchmarks/Meshing2Benchmark/Candidates/*.cs" Link="Meshing2/%(Filename)%(Extension)" />
+    <Compile Include="../../benchmarks/Meshing2Benchmark/MeshCommand.cs" Link="Meshing2/MeshCommand.cs" />
+    <Compile Include="../../tools/g3cli/TrianglePolyFormat.cs" Link="Meshing2/TrianglePolyFormat.cs" />
+    <!-- the Clipper2 target -->
+    <ProjectReference Include="../../addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj" />
   </ItemGroup>
 </Project>

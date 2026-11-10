@@ -30,7 +30,8 @@ public static partial class Program
     }
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
-        "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer" };
+        "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
+        "remesher", "reducer", "quality-mesh2", "clipper2" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -451,8 +452,16 @@ public static partial class Program
             RunAlphaWrap(c, what);
         } else if (c.Op == 11) {
             RunTreeWinding(c, what);
-        } else {
+        } else if (c.Op == 12) {
             RunPartitionedReducer(c, what);
+        } else if (c.Op == 13) {
+            RunRemesher(c, what);
+        } else if (c.Op == 14) {
+            RunReducer(c, what);
+        } else if (c.Op == 15) {
+            RunQualityMesh2(c, what);
+        } else {
+            RunClipper(c, what);
         }
     }
 
@@ -508,6 +517,27 @@ public static partial class Program
                 Console.WriteLine($"query {i}: origin {d.Queries[i].origin.x:R} {d.Queries[i].origin.y:R} {d.Queries[i].origin.z:R} direction {d.Queries[i].dir.x:R} {d.Queries[i].dir.y:R} {d.Queries[i].dir.z:R}");
             return 0;
         }
+        if (args.Length == 3 && args[0] == "random") {
+            // a smoke test without coverage guidance: n pseudo-random inputs (seed s, 40 to 300 bytes) of the selected operations, each run
+            // with a 60 s watchdog; prints the hex of every input that gives a finding or an exception (no libFuzzer needed)
+            int n = int.Parse(args[1], CultureInfo.InvariantCulture);
+            var rnd = new Random(int.Parse(args[2], CultureInfo.InvariantCulture));
+            int bad = 0;
+            for (int i = 0; i < n; ++i) {
+                var data = new byte[40 + rnd.Next(260)];
+                rnd.NextBytes(data);
+                string text = Convert.ToHexString(data);
+                Exception? error = null;
+                var thread = new Thread(() => { try { Run(Decode(data)); } catch (Exception e) { error = e; } }, 64 * 1024 * 1024) { IsBackground = true };
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                thread.Start();
+                if (!thread.Join(60000)) { Console.WriteLine($"HANG {text}"); ++bad; continue; }
+                if (error != null) { Console.WriteLine($"{(error is Finding ? "FINDING" : "EXCEPTION " + error.GetType().Name)} {error.Message.Split('\n')[0]} {text}"); ++bad; }
+                else if (watch.ElapsedMilliseconds > 5000) Console.WriteLine($"SLOW {watch.ElapsedMilliseconds} ms {text}");
+            }
+            Console.WriteLine($"{n} inputs, {bad} findings");
+            return bad == 0 ? 0 : 1;
+        }
         if (args.Length == 2 && args[0] == "replay") {
             Case c = Decode(File.ReadAllBytes(args[1]));
             Console.WriteLine(c);
@@ -515,7 +545,7 @@ public static partial class Program
             return 0;
         }
         if (args.Length != 0) {
-            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | dump <input> | self-test]");
+            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | dump <input> | random <n> <seed> | self-test]");
             return 2;
         }
         Fuzzer.LibFuzzer.Run(data => Run(Decode(data.ToArray())));
@@ -605,6 +635,22 @@ public static partial class Program
         ExpectFinding("a scaled result that is not the scaled result", () => CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 1), 1));
         ExpectFinding("a result that is open for a closed input", () => CheckPartitionedReduction("t", true, cube, open, open, open, null, 1));
         ExpectFinding("a result with a vertex that is not finite", () => CheckPartitionedReduction("t", false, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube), null, 1));
+        // the second wave: remesher, reducer, 2D mesher, Clipper2
+        ExpectFinding("a remeshed mesh that is open", () => CheckRemesh("t", true, cube, open, open, open));
+        ExpectFinding("a remeshed mesh that is not finite", () => CheckRemesh("t", true, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube)));
+        ExpectFinding("a remeshed mesh with another Euler characteristic", () => CheckRemesh("t", true, open, cube, cube, cube));
+        ExpectFinding("parallel smoothing that differs", () => CheckRemesh("t", true, cube, cube, ShiftedBy(cube, 1), cube));
+        ExpectFinding("a second remesh that differs", () => CheckRemesh("t", true, cube, cube, cube, ShiftedBy(cube, 1)));
+        ExpectFinding("a reduced mesh that is open", () => CheckReduce("t", true, cube, open, open, null, 1, 0));
+        ExpectFinding("a reduced mesh with more triangles", () => CheckReduce("t", true, open, cube, cube, null, 1, 0));
+        ExpectFinding("a reduced mesh farther than MaxDeviation", () => CheckReduce("t", true, cube, ScaledBy(cube, 3), ScaledBy(cube, 3), null, 1, 0.1));
+        ExpectFinding("a reduced mesh that is not the scaled one", () => CheckReduce("t", true, cube, cube, cube, ShiftedBy(cube, 1), 1, 0));
+        ExpectFinding("a 2D mesher that Failed", () => CheckMesher2("t", "Failed", "x", false, ""));
+        ExpectFinding("a 2D mesher violation", () => CheckMesher2("t", "Success", "", false, "AngleBelowBound"));
+        ExpectFinding("a Clipper2 status that is not Success", () => CheckClipper("t", "Failed", "x", true, true, 0, ""));
+        ExpectFinding("a Clipper2 vertex that is not finite", () => CheckClipper("t", "Success", "", false, true, 0, ""));
+        ExpectFinding("a Clipper2 ring with the wrong orientation", () => CheckClipper("t", "Success", "", true, false, 0, ""));
+        ExpectFinding("a Clipper2 membership that disagrees", () => CheckClipper("t", "Success", "", true, true, 1, "p"));
         CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
         // and pass on a clean result
         CheckNearestTriangle("t", 0, 1, 1, 1, true);
@@ -619,7 +665,18 @@ public static partial class Program
         CheckBoolean("t", true, S, cube, true, 0, 0, 0);
         CheckRepair("t", true, "", cube);
         CheckRounding("t", true, true, cube, 0, 1);
+        CheckRemesh("t", true, cube, cube, cube, cube);
+        CheckReduce("t", true, cube, cube, cube, cube, 1, 0.1);
+        CheckMesher2("t", "Success", "", true, "");
+        CheckClipper("t", "Success", "", true, true, 0, "");
         return 0;
+    }
+
+    static DMesh3 ScaledBy(DMesh3 m, double k)
+    {
+        var n = new DMesh3(m);
+        foreach (int v in n.VertexIndices().ToArray()) n.SetVertex(v, k * n.GetVertex(v));
+        return n;
     }
 
     static DMesh3 ShiftedBy(DMesh3 m, double dx)
