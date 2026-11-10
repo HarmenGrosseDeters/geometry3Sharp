@@ -70,7 +70,8 @@ Part of the [roadmap](../ROADMAP.md).
      wrap surfaces on real meshes down to 12° dihedral). Owner: stage 1 waits for the fTetWild black-box comparison on
      the same 40 meshes (runner job on runs/tet-meshing) and for sharp features in the alpha wrap; without sharp edges
      probably not worth building.
-  4. Intersection-free dual contouring (owner 2026-11-09: later, its own session, probably Opus), M: details in
+  4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: next after
+     the batch-query caller switches, ahead of items 2 and 3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
      serves three items at once: sharp features for the alpha wrap and so tet meshing stage 1 (item 3; the later
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
