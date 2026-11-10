@@ -160,6 +160,26 @@ namespace geometry3Sharp.Tests
             Assert.True(withPairs > 20, $"{withPairs}");
         }
 
+
+        [Fact]
+        public void Pairs_ParallelEqualsSerial_AndRepeatedRunsAreIdentical()
+        {
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            DMesh3 b = Translated(new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh(), new Vector3d(0.9, 0.3, 0.2));
+            DMesh3 m = Merge(a, b);
+            var first = MeshRepairMetrics.SelfIntersectionPairs(m);
+            Assert.True(first.Count > 50, $"{first.Count} pairs");
+            for (int i = 0; i < 3; ++i)
+                Assert.True(first.SequenceEqual(MeshRepairMetrics.SelfIntersectionPairs(m)));
+            gParallel.SerialOnThisThread = true;
+            try {
+                Assert.True(first.SequenceEqual(MeshRepairMetrics.SelfIntersectionPairs(m)));
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            Assert.True(first.SequenceEqual(BruteForce(m)));
+        }
+
         [Fact]
         public void NotCleanReason_Strings_OfTheCases()
         {

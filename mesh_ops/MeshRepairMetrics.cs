@@ -53,39 +53,46 @@ namespace gs
             return self_intersection_pairs(mesh, 1).Count > 0;
         }
 
-        // stop once maxPairs pairs are found (then at least maxPairs pairs are returned if there are as many)
+        // stop once maxPairs pairs are found (then at least maxPairs pairs are returned if there are as many).
+        // The candidates are the pairs of overlapping (closed) boxes of the non-degenerate triangles, from the self-join of
+        // a box tree (the one of the exact boolean): every intersecting pair has overlapping closed boxes, so none is
+        // missed, and the exact test decides. The work items of the join run in parallel, each into its own list; the
+        // pairs are sorted at the end, so with maxPairs = int.MaxValue the result does not depend on the threads
+        // (with a smaller maxPairs the pairs found first are kept, which thread timing decides).
         static List<Index2i> self_intersection_pairs(DMesh3 mesh, int maxPairs)
         {
-            var tree = new DMeshAABBTree3(mesh, true);
+            var tids = new List<int>(mesh.TriangleCount);
+            var boxes = new List<AxisAlignedBox3d>(mesh.TriangleCount);
+            foreach (int t in mesh.TriangleIndices()) {
+                Triangle3d T = triangle(mesh, t);
+                if (ExactTriangleIntersection.IsDegenerate(ref T)) continue;
+                AxisAlignedBox3d box = new AxisAlignedBox3d(T.V0); box.Contain(T.V1); box.Contain(T.V2);
+                tids.Add(t); boxes.Add(box);
+            }
             var pairs = new List<Index2i>();
-            object lockObj = new object();
-            int found = 0;
-            int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
-            gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
-                if (System.Threading.Volatile.Read(ref found) >= maxPairs) return;
-                int ta = tris[k];
-                Triangle3d A = triangle(mesh, ta);
-                if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
-                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
-                Index3i ia = mesh.GetTriangle(ta);
+            if (tids.Count < 2)
+                return pairs;
+            var tree = new TriangleBoxTree(boxes);
+            List<Index2i> tasks = tree.SelfPairTasks(256);
+            var found = new List<Index2i>[tasks.Count];
+            int count = 0;
+            gParallel.ForRange(tasks.Count, () => 0, (k, unused) => {
+                if (System.Threading.Volatile.Read(ref count) >= maxPairs) return;
+                var boxPairs = new List<Index2i>();
+                tree.SelfPairs(tasks[k], boxPairs);
                 List<Index2i> local = null;
-                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => b.Intersects(box) && (local == null || local.Count < maxPairs),
-                    NextTriangleF = (tb) => {
-                        if (tb <= ta || (local != null && local.Count >= maxPairs)) return;
-                        Triangle3d B = triangle(mesh, tb);
-                        if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                        if (Remesher.pair_intersects(ia, ref A, mesh.GetTriangle(tb), ref B)) {
-                            if (local == null) local = new List<Index2i>();
-                            local.Add(new Index2i(ta, tb));
-                        }
+                foreach (Index2i bp in boxPairs) {
+                    int ta = Math.Min(tids[bp.a], tids[bp.b]), tb = Math.Max(tids[bp.a], tids[bp.b]);
+                    Triangle3d A = triangle(mesh, ta), B = triangle(mesh, tb);
+                    if (Remesher.pair_intersects(mesh.GetTriangle(ta), ref A, mesh.GetTriangle(tb), ref B)) {
+                        (local ?? (local = new List<Index2i>())).Add(new Index2i(ta, tb));
+                        if (maxPairs != int.MaxValue && System.Threading.Interlocked.Increment(ref count) >= maxPairs) break;
                     }
-                });
-                if (local != null) {
-                    lock (lockObj) pairs.AddRange(local);
-                    System.Threading.Interlocked.Add(ref found, local.Count);
                 }
+                found[k] = local;
             });
+            foreach (var local in found)
+                if (local != null) pairs.AddRange(local);
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
         }
