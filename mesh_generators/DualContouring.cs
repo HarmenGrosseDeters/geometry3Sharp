@@ -1765,6 +1765,15 @@ namespace g3
         List<int> polygon_cycle(GridEdge e, int[] poly, Cell[] cells, out bool covered)
         {
             covered = true;
+            // fast path (no allocation): most polygons need no face vertex
+            bool any = false;
+            for (int q = 0; q < 4 && !any; ++q) {
+                Cell A = cells[q], B = cells[(q + 1) % 4];
+                if (cell_key(A) != cell_key(B) && face_may_need_vertex(e, A, B, poly[q], poly[(q + 1) % 4]))
+                    any = true;
+            }
+            if (!any)
+                return null;
             // the distinct cells around e in order (a coarse cell can fill two neighbouring quadrants)
             var cq = new List<int>(4);
             for (int q = 0; q < 4; ++q)
@@ -1808,6 +1817,29 @@ namespace g3
             for (int k = 0; k < 3; ++k)
                 if (n[k] < Math.Min(a[k], b[k]) || n[k] > Math.Max(a[k], b[k])) return false;
             return true;
+        }
+
+        // false if the face between A and B around e is certainly dual (the same size, and a multi-patch cell or
+        // not ambiguous); e's end nodes have different signs, so the face is ambiguous only if the two corners
+        // across it continue the alternation
+        bool face_may_need_vertex(GridEdge e, Cell A, Cell B, int vA, int vB)
+        {
+            int sa = cell_size(A), sb = cell_size(B);
+            if (sa != sb) return true;
+            if (genPatches[vA] != 1 || genPatches[vB] != 1) return false;
+            if ((e.Coarse ? F : 1) != sa) return true;     // a fine edge on a coarse face: the full test
+            // the in-plane axis across the face from e: the one along which A and B are not separated
+            int w = -1;
+            for (int k = 0; k < 3; ++k) {
+                if (k == e.Axis) continue;
+                if (A.Min[k] == B.Min[k]) { w = k; break; }
+            }
+            if (w < 0) return true;
+            int d = (A.Min[w] < e.Start[w]) ? -sa : sa;
+            Vector3i s0 = e.Start, s1 = e.End(F), t1 = s1, t0 = s0;
+            t1[w] += d; t0[w] += d;
+            bool i1 = is_inside(node_value(s1)), j1 = is_inside(node_value(t1)), j0 = is_inside(node_value(t0)), i0 = is_inside(node_value(s0));
+            return i1 != j1 && j1 != j0 && j0 != i0;
         }
 
         bool strictly_in_cell(int vid, Cell c)
