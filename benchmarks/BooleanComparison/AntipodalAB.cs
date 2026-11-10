@@ -56,6 +56,7 @@ static class AntipodalAB
                 row[name + "_ok"] = ok;
                 row[name + "_classification_ms"] = r.PhaseMilliseconds.TryGetValue("classification", out long c) ? c : -1;
                 row[name + "_input_ms"] = r.PhaseMilliseconds.TryGetValue("input", out long inp) ? inp : -1;
+                row[name + "_undecided"] = r.Counts.TryGetValue("antipodal_undecided", out long und) ? und : 0;
                 row[name + "_classification_alloc_mb"] = r.PhaseAllocatedBytes.TryGetValue("classification", out long cb) ? cb / 1048576 : -1;
                 if (name == "antipodal") {
                     row["boundary_segments"] = r.OpenBoundarySegments;
@@ -70,6 +71,12 @@ static class AntipodalAB
                 row["equal"] = Hash(f.Result) == Hash(an.Result);
                 row["tris"] = new[] { f.Result.TriangleCount, an.Result.TriangleCount };
                 if ((bool)row["equal"] == false) {
+                    // (the comparison on the pieces: both again without SimplifyFlatRegions and SafeRounding, which
+                    // retriangulate around changed pieces; then every result triangle is an arrangement piece)
+                    var fr = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 0, SimplifyFlatRegions = false, SafeRounding = false };
+                    var ar = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, SimplifyFlatRegions = false, SafeRounding = false };
+                    fr.Compute(); ar.Compute();
+                    f = fr; an = ar;
                     var onlyAnt = Missing(an.Result, f.Result);
                     var onlyFwn = Missing(f.Result, an.Result);
                     row["only_antipodal"] = onlyAnt.Count;
