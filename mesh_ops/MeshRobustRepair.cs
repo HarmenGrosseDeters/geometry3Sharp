@@ -35,12 +35,14 @@ namespace gs
     /// of the exact resolve collapse them. If the exact resolve fails and some component has triangles below that area,
     /// it runs once more with the cleanups relative to the diagonal of the largest component; if that resolve is clean
     /// but for the area of NotCleanReason, Apply() returns false with the resolved mesh in Mesh and ResultReason
-    /// ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the parts). A resolve the
-    /// first attempts accept is unchanged, except where a closed part of the input is missing from it (judged relative to
+    /// ScaleDisparity (the solidify and the wrap, relative to the same diagonal, would lose the parts). With such components
+    /// (the input has a triangle below that area) the repair stage's cleanup and tolerances (MeshAutoRepair.CleanupReferenceDiagonal,
+    /// the relative tolerances) and the cleanups of the exact resolve are relative to the largest component from the first attempt on,
+    /// so a part is not collapsed or eroded by the diagonal of all triangles (before: a part kept 70 to 85 % of its volume with true).
+    /// A resolve the first attempts accept is otherwise unchanged, except where a closed part of the input is missing from it (judged relative to
     /// the largest connected component, MeshRepairMetrics.LostComponents): that resolve is rejected and the retry starts from the input.
     /// An Apply() that ends with such a part lost, by any stage, is false with ResultReason LostFarPart (never a silent loss
-    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area, and with
-    /// MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
+    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area; the relative cleanups and tolerances only for a closed input of at most 64 components (a cracked surface or a soup has pieces, not parts), the lost part checks only with MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -286,6 +288,7 @@ namespace gs
         public bool Apply()
         {
             lostPartInput = null;
+            farParts = false;
             lostFarRejected = false;
             bool ok;
             try {
@@ -305,10 +308,21 @@ namespace gs
         // the input of the last Apply() if its components lie so far apart that a triangle of one is below the degenerate
         // area of all triangles (global_scale_share > 0), null otherwise: only then are parts checked for loss
         DMesh3 lostPartInput;
+        // the input of the last Apply() has far parts (see lostPartInput; independent of MinVolumeIoU): the cleanups are relative to the largest component
+        bool farParts;
+        /// <summary> (tests) the last Apply() treated the input as having far parts (relative cleanups and tolerances) </summary>
+        internal bool FarPartsHandled { get { return farParts; } }
+        const int MaxFarParts = 64;
+        static bool few_parts(DMesh3 mesh)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            return comps.Count <= MaxFarParts;
+        }
         // a resolve was rejected for a lost part in the last Apply(): the repair stage collapsed it (its cleanups are relative to the
         // diagonal of all triangles), so the retry relative to the largest component starts from the input
         bool lostFarRejected;
-        /// <summary> (tests) skips the two early lost part checks, so that the final one is reached </summary>
+        /// <summary> (tests) the repair as before the far part handling: no cleanups relative to the largest component, no early lost part checks, so that the final one is reached </summary>
         internal bool BypassEarlyLostPartChecks;
 
         bool apply_core()
@@ -354,7 +368,11 @@ namespace gs
                 return false;
             }
             DMesh3 input = new DMesh3(Mesh);
-            if (MinVolumeIoU > 0 && global_scale_share(input) > 0)
+            bool disparity = global_scale_share(input) > 0;
+            // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
+            // open pieces that are no separate parts: its tolerances stay relative to the whole)
+            farParts = disparity && BypassEarlyLostPartChecks == false && input.IsClosed() && few_parts(input);
+            if (MinVolumeIoU > 0 && disparity)
                 lostPartInput = input;
             DMesh3 result;
             if (RepairF != null) {
@@ -362,6 +380,18 @@ namespace gs
             } else {
                 var repair = new MeshAutoRepair(Mesh) { PostRepairCleanup = true };
                 ConfigureRepair?.Invoke(repair);
+                if (farParts) {
+                    // the tolerances of the repair are fractions of the diagonal of all triangles (capped by the median edge): with parts far
+                    // apart that is far larger than the parts, whose edges are then collapsed as short. Relative to the largest component
+                    // (after ConfigureRepair: the final fractions are scaled; an absolute tolerance or ToleranceModes.Absolute stays as set)
+                    double largest = MeshRepairMetrics.LargestComponentDiagonal(Mesh), all = MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength;
+                    if (double.IsNaN(repair.CleanupReferenceDiagonal))
+                        repair.CleanupReferenceDiagonal = largest;
+                    if (largest > 0 && all > largest) {
+                        repair.RelativeRepairTolerance *= largest / all;
+                        repair.RelativeMinEdgeLength *= largest / all;
+                    }
+                }
                 repair.Apply();
                 result = repair.Mesh;
             }
@@ -839,6 +869,9 @@ namespace gs
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput, bool largestScale = false)
         {
             var timer = Stopwatch.StartNew();
+            // components far apart (farParts): the cleanups are relative to the largest component from the first attempt on (they
+            // collapsed or eroded the parts that are small next to the diagonal of all triangles, with Apply() true)
+            bool relativeScale = largestScale || farParts;
             // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
             // the nesting of the components, or from the input's solid)
             int flipped = 0;
@@ -888,8 +921,8 @@ namespace gs
                     // (relative to the largest component, as the safe rounding, where the diagonal of all triangles would
                     // collapse real surface: a small part far from the rest must not make every other triangle
                     // degenerate; elsewhere relative to all triangles, as NotCleanReason, as before)
-                    double scale = largestScale ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
-                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = largestScale ? scale : double.NaN }.Apply();
+                    double scale = relativeScale ? MeshRepairMetrics.LargestComponentDiagonal(res) : MeshRepairMetrics.TriangleBounds(res).DiagonalLength;
+                    new MeshPostRepairCleanup(res) { ReferenceDiagonal = relativeScale ? scale : double.NaN }.Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
                     // the self-intersections that can create are found below and resolved by the next round (so
@@ -931,7 +964,7 @@ namespace gs
                 }
                 reason = NotCleanReason(res, false);
                 // (clean but for the degenerate area of NotCleanReason: the rest of the checks as for a clean one)
-                bool onlyScale = largestScale && reason == "degenerate triangles" && not_clean_reason_at_scale(res) == "";
+                bool onlyScale = relativeScale && reason == "degenerate triangles" && not_clean_reason_at_scale(res) == "";
                 if (onlyScale)
                     reason = "";
                 if (reason == "" && CheckSelfIntersections) {
