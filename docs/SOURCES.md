@@ -654,3 +654,9 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the piecewise linearity of both surfaces (the difference is linear on the cells of the overlay of two triangulations, so its maximum is at overlay
 vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
 the usual GIS distinction between constrained and conforming TINs with breaklines.
+
+## ASCII XYZ point files (`XYZReader`, `XYZWriter`)
+
+Own implementation of the informal format (one point per line, optional normals); there is no specification or source. The
+column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
+the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.

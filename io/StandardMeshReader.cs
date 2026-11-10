@@ -34,7 +34,8 @@ namespace g3
     ///   * .stl : ascii and binary STL (vertices are welded, see <see cref="STLReader"/>)
     ///   * .off : ascii OFF
     ///   * .g3mesh : internal binary format for DMesh3
-    ///   * .ply : ascii and binary PLY
+    ///   * .ply : ascii and binary PLY (a file without faces is read as a point cloud: a mesh with only vertices)
+    ///   * .xyz : ascii point cloud, "x y z" or "x y z nx ny nz" per line (a mesh with only vertices, see <see cref="XYZWriter"/>)
     ///   * .3mf : 3D Manufacturing Format (core spec), converted to millimeters
     ///   * .gltf / .glb : glTF 2.0
     /// 
@@ -89,6 +90,7 @@ namespace g3
                 Readers.Add(new OFFFormatReader());
                 Readers.Add(new BinaryG3FormatReader());
                 Readers.Add(new PLYFormatReader());
+                Readers.Add(new XYZFormatReader());
                 Readers.Add(new ThreeMFFormatReader());
                 Readers.Add(new GLTFFormatReader());
             }
@@ -428,6 +430,31 @@ namespace g3
             reader.warningEvent += messages;
             var result = reader.Read(new StreamReader(stream), options, builder);
             return result;
+        }
+    }
+
+
+
+    /// <summary>
+    /// MeshFormatReader impl for ascii XYZ point clouds (a mesh without triangles)
+    /// </summary>
+    public class XYZFormatReader : MeshFormatReader
+    {
+        public List<string> SupportedExtensions { get {
+                return new List<string>() { "xyz" };
+            }
+        }
+
+        public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => ReadFile(stream, builder, options, messages));
+        }
+
+        public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            XYZReader reader = new XYZReader();
+            reader.warningEvent += messages;
+            return reader.Read(new StreamReader(stream), options, builder);
         }
     }
 
