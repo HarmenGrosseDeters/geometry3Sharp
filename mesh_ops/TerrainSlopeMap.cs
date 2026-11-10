@@ -50,7 +50,7 @@ namespace gs
 
         List<int> cycle(int f)
         {
-            var c = new List<int>();
+            var c = new List<int>(8);
             int h0 = fEdge[f], h = h0;
             do { c.Add(h); h = hNext[h]; if (c.Count > 100000) throw new InvalidOperationException("SlopeMap: broken cycle"); } while (h != h0);
             return c;
@@ -103,7 +103,7 @@ namespace gs
         /// the line does not cut f; all zero counts as pos). chord: the new half-edge in neg (-1 if no cut).
         /// </summary>
         readonly List<int> splitCycle = new List<int>();
-        int[] splitSigns = new int[64];
+        int[] splitSigns = new int[64], splitSigns2 = new int[64];
 
         bool split_face(int f, int line, out int neg, out int pos, out int chord)
         {
@@ -123,8 +123,9 @@ namespace gs
             }
             if (anyNeg == false) { pos = f; return false; }
             if (anyPos == false) { neg = f; return false; }
+            // (c is reused buffers' content: copy the cycle, which split_edge below changes; the signs s stay as they are, the buffer is not
+            // touched before the loop below ends. A clone of s copied the whole buffer, which grows with the largest face ever seen)
             c = new List<int>(c);
-            s = (int[])s.Clone();
             // split the edges whose ends are strictly on both sides
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
@@ -136,7 +137,8 @@ namespace gs
             }
             c = cycle(f);
             n = c.Count;
-            s = new int[n];
+            if (splitSigns2.Length < n) splitSigns2 = new int[2 * n];
+            s = splitSigns2;
             for (int i = 0; i < n; ++i) s[i] = K.Side(hOrig[c[i]], line);
             // the two zero vertices: z1 between the negative and the positive run, z2 after the positive run
             int i1 = -1, i2 = -1;
@@ -402,9 +404,19 @@ namespace gs
             foreach (int p in strip) owner[p] = k;
             foreach (int p in fanA) owner[p] = k;
             foreach (int p in fanB) owner[p] = k;
-            var hits = new List<int>();
+            var hits = hitBuffer;
+            hits.Clear();
             qt.QueryRectangle(reach, hits);
-            var faces = hits.Select(id => qtFace[id]).Where(f => f >= 0 && fAlive[f] && fDomain[f]).Distinct().OrderBy(f => f).ToList();
+            // (the live domain faces of the hits, each once, in ascending id: a stamp per face instead of Distinct and OrderBy)
+            if (faceStamp.Length < fEdge.Count) Array.Resize(ref faceStamp, 2 * fEdge.Count);
+            ++stampNow;
+            var faces = faceBuffer;
+            faces.Clear();
+            foreach (int id in hits) {
+                int f = qtFace[id];
+                if (f >= 0 && fAlive[f] && fDomain[f] && faceStamp[f] != stampNow) { faceStamp[f] = stampNow; faces.Add(f); }
+            }
+            faces.Sort();
             var relevant = new List<int>();
             foreach (int f in faces) {
                 int label = fLabel[f];
@@ -443,6 +455,9 @@ namespace gs
             }
         }
 
+        readonly List<int> hitBuffer = new List<int>(), faceBuffer = new List<int>();
+        int[] faceStamp = new int[0];
+        int stampNow;
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
         readonly List<int> prefilterVerts = new List<int>();
 
@@ -799,7 +814,7 @@ namespace gs
             if (anyNeg == false) return anyPos ? -1 : 0;
             if (anyPos == false) return 1;
             // (vertex, line of the edge from it) of the part where the line is negative or zero
-            var nv = new List<int>(n + 1); var nl = new List<int>(n + 1);
+            var nv = new List<int>(n + 2); var nl = new List<int>(n + 2);
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
                 if (s[i] <= 0) {
