@@ -37,19 +37,23 @@ namespace DeterminismHarness
             return new TrivialBox3Generator() { Box = new Box3d(center, half) }.Generate().MakeDMesh();
         }
 
-        /// <summary> a sphere deformed by smooth trigonometric bumps (curved, no symmetry) </summary>
-        public static DMesh3 BumpySphere(int edgeVertices)
+        /// <summary>
+        /// a sphere deformed by smooth bumps (curved, no symmetry); only + - * / and sqrt, which IEEE 754 rounds exactly,
+        /// so the input is the same on every runtime (libm = true: with sin / cos, which are not)
+        /// </summary>
+        public static DMesh3 BumpySphere(int edgeVertices, bool libm = false)
         {
             DMesh3 m = Sphere(Vector3d.Zero, 1, edgeVertices);
             foreach (int vid in m.VertexIndices().ToArray()) {
                 Vector3d p = m.GetVertex(vid);
-                m.SetVertex(vid, p * (1 + 0.2 * Math.Sin(3 * p.x + 1) * Math.Cos(2 * p.y - 0.5) + 0.05 * p.z));
+                double bump = libm ? 0.2 * Math.Sin(3 * p.x + 1) * Math.Cos(2 * p.y - 0.5) : 0.2 * (p.x * p.y - 0.4 * p.z * p.z * p.x + 0.3 * p.y * p.y * p.z);
+                m.SetVertex(vid, p * (1 + bump + 0.05 * p.z));
             }
             return m;
         }
 
         /// <summary> nx x ny cells of size h in the plane z = 0, interior vertices jittered, diagonals alternate; z bumpy if bump </summary>
-        public static DMesh3 Grid(int nx, int ny, double h, ulong seed, bool bump)
+        public static DMesh3 Grid(int nx, int ny, double h, ulong seed, bool bump, bool libm = false)
         {
             var rng = new Rng(seed);
             var m = new DMesh3();
@@ -59,7 +63,7 @@ namespace DeterminismHarness
                     bool inner = i > 0 && j > 0 && i < nx && j < ny;
                     double dx = inner ? 0.3 * h * (rng.Double() - 0.5) : 0, dy = inner ? 0.3 * h * (rng.Double() - 0.5) : 0;
                     double x = i * h + dx, y = j * h + dy;
-                    ids[i, j] = m.AppendVertex(new Vector3d(x, y, bump ? 0.15 * Math.Sin(2.5 * x) * Math.Cos(1.5 * y) : 0));
+                    ids[i, j] = m.AppendVertex(new Vector3d(x, y, bump ? (libm ? 0.15 * Math.Sin(2.5 * x) * Math.Cos(1.5 * y) : 0.15 * (x * y - 0.5 * x * x * y + 0.2 * y * y)) : 0));
                 }
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
@@ -87,13 +91,15 @@ namespace DeterminismHarness
             public Vector3d Gradient(ref Vector3d pt) { return pt.Normalized; }
         }
 
-        /// <summary> a smooth blobby implicit with sin / exp in it </summary>
+        /// <summary> a blobby implicit; arithmetic and sqrt only (Libm: with sin / exp) </summary>
         public class BlobSDF : ImplicitFunction3d
         {
+            public bool Libm;
             public double Value(ref Vector3d p)
             {
                 double r = p.Length;
-                return r - 1 + 0.15 * Math.Sin(3 * p.x) * Math.Cos(2 * p.y + p.z) + 0.1 * Math.Exp(-p.z * p.z);
+                if (Libm) return r - 1 + 0.15 * Math.Sin(3 * p.x) * Math.Cos(2 * p.y + p.z) + 0.1 * Math.Exp(-p.z * p.z);
+                return r - 1 + 0.15 * p.x * p.y * (1 - p.z) + 0.1 / (1 + 4 * p.z * p.z);
             }
         }
     }

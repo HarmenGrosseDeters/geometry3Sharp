@@ -33,9 +33,9 @@ namespace DeterminismHarness
         public void Add(IEnumerable<double> v) { foreach (double d in v) Add(d); }
 
         /// <summary> vertices in id order (with their ids), triangles in id order </summary>
-        public void Add(DMesh3 m)
+        public void Add(DMesh3 m, string section = "mesh")
         {
-            Section("mesh");
+            Section(section);
             Add(m.VertexCount); Add(m.TriangleCount); Add(m.MaxVertexID); Add(m.MaxTriangleID);
             foreach (int v in m.VertexIndices()) { Add(v); Add(m.GetVertex(v)); }
             foreach (int t in m.TriangleIndices()) { Index3i tri = m.GetTriangle(t); Add(t); Add(tri.a); Add(tri.b); Add(tri.c); }
