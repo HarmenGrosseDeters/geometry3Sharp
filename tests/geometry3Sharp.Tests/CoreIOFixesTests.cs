@@ -490,6 +490,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, restored.TriangleCount);
         }
 
+        [Theory]
+        [InlineData(0, 9999)]
+        [InlineData(2, 9999)]
+        [InlineData(2, -1)]
+        public void gSerialization_Restore_TriangleVertexOutOfRange_IsRejectedAsInvalidData(int corner, int value)
+        {
+            // found by the coverage-guided reader fuzzing: a corrupt .g3mesh whose triangle has a vertex index beyond the
+            // vertex buffer (the edge check covers two corners of the triangle an edge names) threw ArgumentOutOfRangeException
+            // from the rebuild instead of the reader's invalid-data error
+            var mesh = new DMesh3();
+            mesh.AppendVertex(new Vector3d(0, 0, 0));
+            mesh.AppendVertex(new Vector3d(1, 0, 0));
+            mesh.AppendVertex(new Vector3d(0, 1, 0));
+            mesh.AppendVertex(new Vector3d(0, 0, 1));
+            mesh.AppendTriangle(0, 1, 2);
+            mesh.AppendTriangle(0, 2, 3);
+            mesh.AppendTriangle(0, 3, 1);
+            mesh.AppendTriangle(1, 3, 2);
+            // corrupt the third corner of triangle 0 after the edges are built (edge vertices stay valid)
+            mesh.TrianglesBuffer[corner] = value;
+            var ms = new MemoryStream();
+            var w = new BinaryWriter(ms);
+            gSerialization.Store(mesh, w);
+            w.Flush();
+            ms.Position = 0;
+            var ex = Assert.ThrowsAny<Exception>(() => gSerialization.Restore(new DMesh3(), new BinaryReader(ms)));
+            Assert.Contains("invalid mesh data", ex.Message);
+        }
 
         // ---------------------------------------------------------------- DVector
 
