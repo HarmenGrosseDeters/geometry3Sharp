@@ -34,6 +34,7 @@ Add both: `using g3; using gs;`.
 | Task | Classes | Example |
 |---|---|---|
 | Build meshes, generators | `DMesh3`, `TrivialBox3Generator`, `GridBox3Generator`, `Sphere3Generator_NormalizedCube`, `CappedCylinderGenerator` | [MeshConstructionExample](examples/MeshConstructionExample.cs) |
+| Read / write a point cloud (no triangles) | `StandardMeshReader` / `StandardMeshWriter` with `.xyz` (ascii, `x y z` or `x y z nx ny nz` per line; `XYZWriter` writes round-trip exact values) or `.ply` without faces (ascii or binary, with normals); the result is a `DMesh3` with only vertices, which `MeshAlphaWrap(mesh)` takes as points | `PointCloudIoTests` |
 | Read / write OBJ, STL, OFF, PLY, 3MF, glTF/GLB | `StandardMeshReader`, `StandardMeshWriter`, `ReadOptions`, `WriteOptions`, `PLYReader`/`PLYWriter`, `ThreeMFReader`/`ThreeMFWriter`, `GLTFReader`/`GLTFWriter` | [MeshIOExample](examples/MeshIOExample.cs) |
 | Repair (keep the triangles) | `gs.MeshAutoRepair`, `gs.MeshPostRepairCleanup` | [MeshRepairExample](examples/MeshRepairExample.cs) |
 | Repair with a clean result guaranteed | `gs.MeshRobustRepair` | [MeshRepairExample](examples/MeshRepairExample.cs) |
