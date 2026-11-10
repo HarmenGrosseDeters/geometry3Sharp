@@ -56,6 +56,11 @@ namespace gs
     ///
     /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
     /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
+    /// at least 2^-40 of the largest magnitude. Parts that lie far apart
+    /// compared to their size are handled up to the limits of ScaleDisparity (Apply() false beyond, the mesh is kept);
+    /// the extent of the whole input is below about 1e154 (ScaleNotFinite). Outside the coordinate range the result is not guaranteed.
     /// </summary>
     public class MeshRobustRepair
     {
@@ -141,7 +146,11 @@ namespace gs
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
         /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
         /// wrap offset of the unsimplified wrap (one-sided Hausdorff upper bound), so it stays about half an offset
-        /// outside the input; otherwise the unsimplified wrap is (AlphaWrapSimplified false).
+        /// outside the input (vertices at least about 0.35 offset, measured on 20 Thingi10K meshes); otherwise the unsimplified
+        /// wrap is (AlphaWrapSimplified false). The wrap encloses the input strictly, and so does the simplification: a collapse
+        /// whose new triangles touch or cross a triangle of the input (exact tests, Reducer.KeepClearOf) is skipped. Before
+        /// 2026-11-09 only the distance to the wrap was certified, and 247 of 692,674 triangles (all 20 meshes) cut a convex
+        /// crease of the input, by at most 0.07 offset.
         /// </summary>
         public bool SimplifyAlphaWrap = true;
         /// <summary>
@@ -367,6 +376,10 @@ namespace gs
                 ResultReason = ScaleNotFinite;
                 return false;
             }
+            if (Mesh.TriangleCount > 0 && !CoordinatesInRange(Mesh)) {
+                ResultReason = OutsideRange;
+                return false;
+            }
             DMesh3 input = new DMesh3(Mesh);
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
@@ -534,14 +547,14 @@ namespace gs
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 wrapped = AlphaWrap.Result;
                     if (SimplifyAlphaWrap) {
-                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset) ?? AlphaWrap.Result;
+                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset, solidifyFrom) ?? AlphaWrap.Result;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
                     }
                     if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
                         DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
-                            (p) => { DefaultWrapQuality(p); ConfigureWrapQuality?.Invoke(p); });
+                            (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(solidifyFrom, true); ConfigureWrapQuality?.Invoke(p); });
                         end_phase("wrap.quality");
                         if (CancelF())
                             return false;
@@ -586,6 +599,39 @@ namespace gs
         /// bounds); Mesh is not replaced (only its unused vertices are removed, as always)
         /// </summary>
         public const string ScaleNotFinite = "scale not finite: the diagonal of the input's bounds is not a finite double (coordinates that are not finite, or an extent above about 1e154); not repaired";
+        /// <summary>
+        /// ResultReason when Apply() returns false because the input is outside the supported range (class comment,
+        /// docs/QA.md 2.5a): a nonzero coordinate with a magnitude outside [2^-200, 2^400] (subnormal numbers
+        /// included), or an extent below 2^-40 of the largest coordinate magnitude (a scene far from the origin compared
+        /// to its size). Mesh is not replaced. (Such inputs did not terminate beyond about 1e100 from the origin, or
+        /// reported a clean result that was not, with subnormal coordinates.)
+        /// </summary>
+        public const string OutsideRange = "outside the supported range: a nonzero coordinate has a magnitude outside [2^-200, 2^400], or the extent is below 2^-40 of the largest magnitude (or a coordinate is not finite); not repaired";
+        const double RangeMin = 6.2230152778611417e-61, RangeMax = 2.5822498780869086e120;   // 2^-200, 2^400
+
+        /// <summary> the supported range of the class comment, for the used vertices </summary>
+        static bool CoordinatesInRange(DMesh3 m)
+        {
+            Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+            double biggest = 0;
+            foreach (int tid in m.TriangleIndices()) {
+                Index3i t = m.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = m.GetVertex(t[k]);
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (!(a == 0 || (a >= RangeMin && a <= RangeMax)))
+                            return false;
+                        biggest = Math.Max(biggest, a);
+                        lo[c] = Math.Min(lo[c], p[c]);
+                        hi[c] = Math.Max(hi[c], p[c]);
+                    }
+                }
+            }
+            double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+            return extent >= biggest * 9.094947017729282e-13;      // 2^-40
+        }
+
         /// <summary>
         /// ResultReason (and ExactResolveReason) when the exact resolve is clean but for the degenerate area of
         /// NotCleanReason, relative to the bounds of all triangles: components far apart compared to their size make it
@@ -656,11 +702,13 @@ namespace gs
         DMesh3 inputSolidOf;
 
         // the wrap simplified within half the offset, without self-intersections; null if that is not clean or certified
-        DMesh3 simplify_wrap(DMesh3 wrap, double offset)
+        DMesh3 simplify_wrap(DMesh3 wrap, double offset, DMesh3 input)
         {
             if (CancelF())
                 return null;
-            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF);
+            int subdivisions;
+            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF, out subdivisions,
+                WrapSimplifyMinQuality, true, WrapSimplifySlabs, 0, null, input);
         }
 
         /// <summary>
@@ -720,12 +768,15 @@ namespace gs
 
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
-            Dictionary<string, long> phases = null)
+            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
             DMesh3 m = new DMesh3(mesh);
+            // (the wrap's input, read only: no collapse creates a triangle that touches it)
+            DMeshAABBTree3 clearTree = keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null;
             Action<Reducer> configure = (r) => {
+                r.KeepClearOf = clearTree;
                 r.PreventSelfIntersections = true; r.Progress = new ProgressCancel(cancelF);
                 r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
                 r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);

@@ -155,13 +155,17 @@ namespace gs
         /// </returns>
         public bool Compute()
         {
-            // outside an extent of [2^-100, 2^100] (the grid takes a float cell size, which is infinite above 3e38 and 0
-            // below 1e-45, and the squares of lengths overflow): run on a copy scaled by a power of two to an extent of
-            // about 1 (exact) and scale the result back; a 2^k scale then gives the unit-scale result times 2^k
-            // (QA 2.0 T1 finding R32)
-            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true);
+            // always on a copy scaled by a power of two to an extent in [1, 2) (exact; an extent that is already in [1, 2) is used as it
+            // is): the grid takes a float cell size (infinite above 3e38, 0 below 1e-45), the squares of lengths overflow, and the
+            // absolute tolerances and float intermediates of the spatial queries and the octree make the result differ between
+            // scales within [2^-100, 2^100] too (below an extent of about 2^-25, and at coordinates of 2^72 to 2^98: F4 of
+            // RepairCampaignFindings). A 2^k scale then gives the unit-scale result times 2^k (QA 2.0 T1 finding R32, F4). The
+            // exception is a mesh that cannot be scaled exactly (a tiny extent far from the origin, subnormal coordinates): it runs as it is
+            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true, 0, 0);
+            finishScale = 1;
             if (s == 1 || Mesh.TriangleCount == 0 || MathUtil.IsFinite(CellSize) == false)
                 return compute_unit();
+            finishScale = s;
             DMesh3 copy = new DMesh3(Mesh);
             MeshRepairMetrics.ScaleVertices(copy, s);
             var inner = new MeshWindingNumberSolidify(copy) {
@@ -263,9 +267,21 @@ namespace gs
             if (StoppedOnSelfIntersections == false || Result == null)
                 return;
             phase_timer.Restart();
-            Result = WindingContouring.PostProcess(Result, CleanupResult, ReduceTolerance, UsedCellSize, CancelF, end_phase);
+            // in the frame of Compute() (the copy scaled to an extent in [1, 2)): the cleanup and the reduction are then what Compute() gives
+            // without StopIfSelfIntersecting, bit for bit
+            double s = finishScale;
+            if (s != 1)
+                MeshRepairMetrics.ScaleVertices(Result, s);
+            Result = WindingContouring.PostProcess(Result, CleanupResult, ReduceTolerance, UsedCellSize * s, CancelF, end_phase);
+            if (s != 1 && Result != null)
+                MeshRepairMetrics.ScaleVertices(Result, 1 / s);
             StoppedOnSelfIntersections = false;
         }
+
+        // the scale of the last Compute() (1: it ran on the mesh as it is), for FinishPostProcess
+        double finishScale = 1;
+        /// <summary> (tests) the power of two the last Compute() scaled the mesh by (1: it ran on the mesh as it was) </summary>
+        internal double NormalizationScale { get { return finishScale; } }
 
 
         // winding number on a full grid (narrow band + propagation), then dual contouring or marching cubes

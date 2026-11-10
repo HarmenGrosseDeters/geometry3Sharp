@@ -238,6 +238,14 @@ off-centres, petal candidates, the grid, lenses and lens deletion are not covere
   - a subsegment that is locked or `unsplittable`. Off the grid, `unsplittable` comes from a split point near another source (`NearOtherSource`,
     O11; the oracle's merge zone), a piece below `MinRoundedSplitExponent`, or a split point that makes no progress (the oracle's precision limit,
     `AtPrecisionLimit`). On the grid it comes from `GridSplitPoint`.
+    - The oracle's merge zone counts a triangle vertex on either side of the exact apex of two sources when it lies within the tube of both
+      and within 8 ulps of the largest coordinate involved (the apex and the ends of the two sources) divided by the sine of their angle
+      (`RoundingReach2`): a vertex computed from the two sources in doubles (a crossing, a split point) is off both by far less than the tube
+      but along them by up to that error over the sine, which exceeds 3 tube once the sine is below about 4e-4 (the near-contact fan of the
+      QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). Open and documented,
+      not fixed: a split point exactly at the mesher's tolerance (2^-41) from another source, which only a dyadic input produces, is
+      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance; and three
+      single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28), not traced.
   - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or the subsegment it would split is locked or
     unsplittable;
   - the grid floor;
@@ -258,7 +266,10 @@ comment only.
 - **Hull sources on the grid.**
   - The mesher's hull sources on the grid are the snapped chains of the hull edges (`HullSegmentsFrom`–`HullSegmentsTo`, MESHING2D_HULL_GRID.md
     §7), resolved with `OriginOf`.
-  - The oracle's `HullSources()` are the edges of the domain's outer hull (rounded on M3), split at input points on them.
+  - The oracle's `HullSources()` are the edges of the domain's outer hull (rounded on M3), split at input points on them without a grid (whole on the grid, next bullet).
+  - On the grid the oracle takes a hull edge whole, not split at the input points on it, as `OriginOf` does: the apex of a small angle may lie
+    on another piece than the triangle's vertex (found by the CsCheck campaign of `QualityMesh2`, T5; owner/coordinator decision 2026-11-10).
+    Without a grid the pieces stay separate sources.
   - The two can differ by the rounding. That changes only which splits are exempt, not the oracle consistency (section 4).
   - A grid test with a hull edge at a small angle to a segment checks pinches 0 and VALID.
 - **Merged chains near the apex.** Two pair chains that share pixels near the apex become one chain with both sources. `OriginOf` picks the first

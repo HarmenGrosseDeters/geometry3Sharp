@@ -19,6 +19,18 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Drift promise on the snap grid (owner 2026-11-10, option A):** the QA 2.0 T5 campaign found chains at sub-pixel
+  wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources; 2 above 1 px), caused by Q17 (refinement
+  vertices of one chain reroute another through hot pixels), against the documented O11 / D14 promise of half a pixel.
+  A bounded-drift variant (Packer, ISRBD, 2006/2008) needs a bound of ~2.1 px and collapses such wedges (Belussi et al.
+  2016), so it cannot restore 1 px. Decision: the oracle judges against its own iterated image (with an explicit drift
+  guard), and O11 / D14 and the class docs state the real bound (input rounding <= half a pixel per axis; chains at
+  sub-pixel wedges up to ~2 px). PR by the T5 session.
+- **Collapsed stretches on the snap grid (owner 2026-11-10, option B):** for a stretch that the input-only image
+  collapses (a spike the input's own rounding removes), the input-only image is the only reference; the mesher need not
+  rebuild it around refinement vertices of other chains, whatever the spike's length. Stretches with area in the input-only
+  image stay judged by the full image (self-check B1 kept). Replaces the 1 px² lobe bound of #530 for such stretches.
+
 Small input angles and triangle count:
 
 - **Lenses up to 28.6°:** closed as not applicable (owner decision 2026-11-08). 28.6° (Rand, CCCG 2011, Thm 8) is a bound for Chew's second algorithm with Chew-2 encroachment and Υ-off-centres, not a diametral-lens bound; it does not apply to the lens rule (lenses stay at 25.65°). A Chew-2 variant would be a different algorithm, with adjacent-segment termination only claimed in the paper (Corollary 9 needs collars; the wedge variant is a Claim).

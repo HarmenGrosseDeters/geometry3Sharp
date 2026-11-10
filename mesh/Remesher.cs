@@ -27,6 +27,9 @@ namespace g3 {
 	/// See <see cref="gs.RemesherPro"/> for a faster variant (queue-based passes and a FastestRemesh/SharpEdgeReprojectionRemesh
 	/// driver), <see cref="RegionRemesher"/> to remesh only part of a mesh, and <see cref="Reducer"/> for
 	/// simplification to a triangle count or error (Remesher only targets edge lengths).
+	///
+	/// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200]. Measured (sphere):
+	/// works from 2^-250 to 2^500, the mesh turns invalid at 2^700.
 	/// </summary>
 	public class Remesher : MeshRefinerBase
     {
