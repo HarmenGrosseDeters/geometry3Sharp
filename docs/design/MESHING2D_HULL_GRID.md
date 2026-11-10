@@ -185,6 +185,12 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
 - O-H1 (judging the boundary against the snapped hull as well) and a separate hull envelope (Q-H3) were not needed: with the hull edges
   snap-rounded as segments, the existing segment rules apply.
 
+**Zero-area input (owner decision 2026-11-10, found by the CsCheck campaign of `QualityMesh2`, T5):** snapping never turns a zero-area input
+into a mesh. A domain whose input has no area is empty with a snap tolerance too, decided exactly on the input before snapping: a hull domain
+whose points are all on one line, or outer rings whose vertices are each on one line: snapping moves a point by up to half a pixel, and three collinear points (2, 4), (3, 3), (0, 6) at pixel 2 became the
+triangle (2, 4), (4, 4), (0, 6). The result is the Empty status with the snapped points as vertices. For inputs with area the tube rules
+O-G apply. (A ring with area whose snapped image has none is the builder's: O-H5, Q17.)
+
 **Rule O-G, the grid tube (owner decision 2026-11-09, found by the CsCheck campaign of `QualityMesh2`, QA 2.0 T5).** With an explicit snap
 tolerance the output boundary is the input boundary snap-rounded, so it may run off the input's by up to a pixel and enclose a different
 area. The tube there is one pixel already (`Max(AutoTolerance, SnapTolerance)`); what changes is how it is used: the movement is measured on the
@@ -195,6 +201,15 @@ input domain alone (not from a snapped domain, which would be the mesher's own c
   input boundary; iterated rounding (Halperin and Packer 2002) only reroutes links between pixel centres through further hot pixels
   within that tube. The bound is not proven for iterated rounding; the campaign (20 000 grid and extreme-scale cases) found no boundary
   vertex beyond it.
+- **The iterated image (owner decision 2026-11-10, option A):** the one-pixel tube holds for the input's own rounding, not for the chains
+  after refinement: output vertices are hot pixels (Q17) and reroute other chains, which at a sub-pixel wedge walks a chain along the pixels of
+  the other chain, up to about 2 pixels from its input edge (1.59 pixels in the shrunk case, a ring with edges at 0.08 degrees). So (1) the
+  vertices at the pixel centres of the nodes of a source's iterated image are candidates of its chain, besides those in the tube of the
+  exact segment (a chain that leaves its image still fails); (2) an output boundary point farther than a pixel from the exact input
+  boundary is accepted if it lies within a pixel of a link of an image, up to the guard; (3) the guard: no node of an image is farther than
+  `GridImageDriftPx` = 2.5 pixels from its exact source, else `BoundaryOutsideTube`; the largest drift is in the report
+  (`OracleReport.MaxImageDriftPixels`). Measured over about 85 000 sources of the campaign's grid families: p99 and p99.9 0.707 pixel,
+  at most 1.32 (random) and 1.59 (shrunk).
 - **Boundary, output to input:** every vertex of the output boundary, and the eighth points of its edges, lie within the tube of the
   input domain's edges (`BoundaryOutsideTube` otherwise). The largest distance found is the movement `moved2` of the area tolerance
   (`diff <= 2 perimeter sqrt(moved2)`), so only what really moved grants area; the probes and the sliver test use it as before.

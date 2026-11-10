@@ -93,6 +93,14 @@ namespace g3
         /// Folds are prevented by the usual flip check. Costs about 2-3x the reduction time.
         /// </summary>
         public bool PreventSelfIntersections = false;
+
+        /// <summary>
+        /// (internal) a mesh the reduced mesh must not touch: a collapse whose new triangles intersect a triangle of it
+        /// (exact tests, ExactTriangleIntersection.Intersects, shared points count) is skipped. Needs the tree to be
+        /// built and current; it is only read, so one tree can serve several Reducers (PartitionedReduction slabs).
+        /// The alpha wrap simplification uses it with the wrap's input, so the simplified wrap still encloses it.
+        /// </summary>
+        internal DMeshAABBTree3 KeepClearOf = null;
         /// <summary>
         /// If true (default), a collapse is also rejected if one of its new triangles turns away from the input surface
         /// it stands for: its unit normal must have a positive dot with the reference normal of its corners, the sum of
@@ -476,6 +484,47 @@ namespace g3
             return box;
         }
 
+        // does one of the triangles intersect a triangle of KeepClearOf? The tree's boxes prune: a triangle far from the
+        // obstacle (the wrap lies about one offset from its input) visits a few boxes and no triangle
+        bool new_triangles_touch_obstacle(List<Triangle3d> tris)
+        {
+            return TrianglesTouch(KeepClearOf, tris);
+        }
+
+        // closed overlap test: AxisAlignedBox3d.Intersects is open (boxes that only touch, and flat boxes of triangles in one axis plane, never overlap by it)
+        static bool BoxesTouch(AxisAlignedBox3d a, AxisAlignedBox3d b)
+        {
+            return a.Min.x <= b.Max.x && a.Max.x >= b.Min.x && a.Min.y <= b.Max.y && a.Max.y >= b.Min.y && a.Min.z <= b.Max.z && a.Max.z >= b.Min.z;
+        }
+
+        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh (exact predicates)? Only reads the tree. </summary>
+        internal static bool TrianglesTouch(DMeshAABBTree3 tree, IList<Triangle3d> tris)
+        {
+            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < tris.Count; ++i) {
+                Triangle3d A = tris[i];
+                var box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                if (i == 0) union = box; else union.Contain(box);
+            }
+            DMesh3 obstacle = tree.Mesh;
+            bool hit = false;
+            tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (bx, depth) => !hit && BoxesTouch(bx, union),
+                NextTriangleF = (tid) => {
+                    if (hit) return;
+                    Index3i ot = obstacle.GetTriangle(tid);
+                    Triangle3d O = new Triangle3d(obstacle.GetVertex(ot.a), obstacle.GetVertex(ot.b), obstacle.GetVertex(ot.c));
+                    var ob = new AxisAlignedBox3d(O.V0); ob.Contain(O.V1); ob.Contain(O.V2);
+                    if (BoxesTouch(ob, union) == false || ExactTriangleIntersection.IsDegenerate(ref O)) return;
+                    for (int i = 0; i < tris.Count; ++i) {
+                        Triangle3d A = tris[i];
+                        if (ExactTriangleIntersection.Intersects(ref A, ref O)) { hit = true; return; }
+                    }
+                }
+            });
+            return hit;
+        }
+
         // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
         // triangle outside the two one-rings (or another new triangle beyond their shared vertex)?
         /// <summary>
@@ -507,6 +556,8 @@ namespace g3
                 if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
                 newIds.Add(nt); newTris.Add(tri);
             }
+            if (KeepClearOf != null && new_triangles_touch_obstacle(newTris))
+                return true;
             // the new triangles among themselves
             for (int i = 0; i < newTris.Count; ++i) {
                 Triangle3d A = newTris[i];

@@ -115,6 +115,164 @@ namespace geometry3Sharp.Tests
             return BitConverter.Int64BitsToDouble((x > 0) == (dir > 0) ? b + 1 : b - 1);
         }
 
+        // ---- survivors of the mutation run (terrain-kernel, 83.64 %): orientation of the plane points, the exact stage of every decision ----
+
+        [Fact]
+        public void Plane_PointOrder_DoesNotChangeThePlane_AndAVerticalPlaneIsNamed()
+        {
+            var rnd = new Random(11);
+            for (int round = 0; round < 40; ++round) {
+                var K = new ExactSlopeKernel();
+                Vector3d p = R(rnd), q = R(rnd), r = R(rnd), a = R(rnd), b = R(rnd), c = R(rnd);
+                if (Math.Abs((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)) < 1e-3 || Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) < 1e-3) continue;
+                // the same plane given counter-clockwise and clockwise: the same heights, and the same side of a line
+                int up = K.AddPlane(p, q, r), down = K.AddPlane(p, r, q), other = K.AddPlane(a, b, c), otherDown = K.AddPlane(a, c, b);
+                double hx = rnd.NextDouble() * 4 - 2, hy = rnd.NextDouble() * 4 - 2;
+                Assert.Equal(K.Height(up, hx, hy), K.Height(down, hx, hy));
+                Assert.Equal(Nearest(Height(p, q, r, Q.Of(hx), Q.Of(hy))), K.Height(down, hx, hy));
+                int lUp = K.PlaneLine(up, other), lDown = K.PlaneLine(down, otherDown);
+                int v = K.PointVertex(new Vector2d(hx, hy));
+                // side > 0 where the first plane is higher, whatever the order of the points
+                Q dz = Height(p, q, r, Q.Of(hx), Q.Of(hy)) - Height(a, b, c, Q.Of(hx), Q.Of(hy));
+                Assert.Equal(dz.Sign, K.Side(v, lUp));
+                Assert.Equal(dz.Sign, K.Side(v, lDown));
+            }
+            var ex = Assert.Throws<ArgumentException>(() => new ExactSlopeKernel().AddPlane(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(2, 0, 1)));
+            Assert.Contains("vertical plane", ex.Message);
+        }
+
+        [Fact]
+        public void PointLines_ExactStage_SideOrientAndCrossing_AgainstRationals()
+        {
+            // nearly collinear point triples: the interval stage cannot decide, the exact stage must (also after planes exist in the kernel)
+            var rnd = new Random(3);
+            var K = new ExactSlopeKernel();
+            K.AddPlane(new Vector3d(0, 0, 0), new Vector3d(1, 0, 1), new Vector3d(0, 1, 2));
+            K.AddPlane(new Vector3d(5, 0, 0), new Vector3d(1, 3, 1), new Vector3d(0, 1, 7));
+            int exact = 0;
+            for (int round = 0; round < 200; ++round) {
+                var u = new Vector2d(rnd.NextDouble() * 3, rnd.NextDouble() * 3);
+                var w = new Vector2d(u.x + 1 + rnd.NextDouble(), u.y + 1 + rnd.NextDouble());
+                double t = rnd.NextDouble() * 2 - 0.5;
+                var mid = new Vector2d(u.x + t * (w.x - u.x), u.y + t * (w.y - u.y));      // (rounded: off the line by an ulp or exactly on it)
+                var off = new Vector2d(mid.x, mid.y + (round % 3 - 1) * 1e-15);
+                int line = K.PointLine(u, w);
+                int v = K.PointVertex(off);
+                Q cross = (Q.Of(w.x) - Q.Of(u.x)) * (Q.Of(off.y) - Q.Of(u.y)) - (Q.Of(w.y) - Q.Of(u.y)) * (Q.Of(off.x) - Q.Of(u.x));
+                long before = K.ExactPredicates;
+                Assert.Equal(cross.Sign, K.Side(v, line));
+                if (K.ExactPredicates > before) ++exact;
+                int a = K.PointVertex(u), b = K.PointVertex(w);
+                Assert.Equal(cross.Sign, K.Orient(a, b, v));
+            }
+            Assert.True(exact > 20, "exact stage reached " + exact + " times");
+        }
+
+        static (Q x, Q y) LineCross(Vector2d a1, Vector2d a2, Vector2d b1, Vector2d b2)
+        {
+            Q dax = Q.Of(a2.x) - Q.Of(a1.x), day = Q.Of(a2.y) - Q.Of(a1.y), dbx = Q.Of(b2.x) - Q.Of(b1.x), dby = Q.Of(b2.y) - Q.Of(b1.y);
+            Q den = dax * dby - day * dbx;
+            Q t = ((Q.Of(b1.x) - Q.Of(a1.x)) * dby - (Q.Of(b1.y) - Q.Of(a1.y)) * dbx) / den;
+            return (Q.Of(a1.x) + t * dax, Q.Of(a1.y) + t * day);
+        }
+
+        static int Cmp(Q a, Q b) => (a - b).Sign;
+
+        [Fact]
+        public void Orient_ExactStage_OfCrossings_AgainstRationals()
+        {
+            var rnd = new Random(5);
+            int exact = 0;
+            for (int round = 0; round < 150; ++round) {
+                var K = new ExactSlopeKernel();
+                // three crossings of point lines that lie almost on one line (a fan of lines through one point, cut by a fourth line)
+                var c = new Vector2d(rnd.NextDouble(), rnd.NextDouble());
+                var cutA = new Vector2d(-1, 0); var cutB = new Vector2d(2, 0.25 + rnd.NextDouble() * 0.01);
+                int cut = K.PointLine(cutA, cutB);
+                var vs = new List<int>(); var pos = new List<(Q x, Q y)>();
+                for (int k = 0; k < 3; ++k) {
+                    var far = new Vector2d(c.x + 3 + k * 0.5, c.y + 1 + k * 0.1 + (k == 2 ? (round % 3 - 1) * 1e-14 : 0));
+                    int v = K.Crossing(K.PointLine(c, far), cut);
+                    Assert.True(v >= 0);
+                    vs.Add(v); pos.Add(LineCross(c, far, cutA, cutB));
+                }
+                Q det = (pos[1].x - pos[0].x) * (pos[2].y - pos[0].y) - (pos[1].y - pos[0].y) * (pos[2].x - pos[0].x);
+                long before = K.ExactPredicates;
+                Assert.Equal(det.Sign, K.Orient(vs[0], vs[1], vs[2]));
+                if (K.ExactPredicates > before) ++exact;
+            }
+            Assert.True(exact > 10, "exact stage reached " + exact + " times");
+        }
+
+        [Fact]
+        public void CompareXY_And_IsAt_AgainstRationals_AlsoWhenTheRoundedCoordinatesAreEqual()
+        {
+            var rnd = new Random(9);
+            int sameRoundedX = 0, sameRoundedY = 0, equal = 0;
+            for (int round = 0; round < 400; ++round) {
+                var K = new ExactSlopeKernel();
+                // two crossings of a horizontal and a vertical-ish line pair: x (or y) differ by less than the rounding
+                var o = new Vector2d(rnd.NextDouble() * 2, rnd.NextDouble() * 2);
+                bool vertical = round % 2 == 0;
+                // lines through o with slopes differing by one or two ulp, cut by y = 1 (x = o.x + (1 - o.y) / slope) or x = 1
+                double m1 = 1 + rnd.NextDouble() * 3, m2 = m1 + (round % 5) * 2.220446049250313e-16 * 2;
+                var a1 = o; var a2 = new Vector2d(o.x + 1, o.y + m1); var b1 = o; var b2 = new Vector2d(o.x + 1, o.y + m2);
+                var cutP = vertical ? new Vector2d(0, 1) : new Vector2d(1, 0); var cutQ = vertical ? new Vector2d(1, 1) : new Vector2d(1, 1);
+                int cut = K.PointLine(cutP, cutQ);
+                int v1 = K.Crossing(K.PointLine(a1, a2), cut), v2 = K.Crossing(K.PointLine(b1, b2), cut);
+                if (v1 < 0 || v2 < 0) continue;
+                var p1 = LineCross(a1, a2, cutP, cutQ); var p2 = LineCross(b1, b2, cutP, cutQ);
+                int expected = Cmp(p1.x, p2.x) != 0 ? Cmp(p1.x, p2.x) : Cmp(p1.y, p2.y);
+                Vector2d r1 = K.Rounded(v1), r2 = K.Rounded(v2);
+                if (r1.x == r2.x && Cmp(p1.x, p2.x) != 0) ++sameRoundedX;
+                if (r1.y == r2.y && Cmp(p1.y, p2.y) != 0 && Cmp(p1.x, p2.x) == 0) ++sameRoundedY;
+                if (expected == 0) ++equal;
+                Assert.Equal(expected, K.CompareXY(v1, v2));
+                Assert.Equal(-expected, K.CompareXY(v2, v1));
+                Assert.Equal(0, K.CompareXY(v1, v1));
+                // IsAt: a crossing is at its rounded position only if the rational is a double
+                bool at = Cmp(p1.x, Q.Of(r1.x)) == 0 && Cmp(p1.y, Q.Of(r1.y)) == 0;
+                Assert.Equal(at, K.IsAt(v1, r1));
+                Assert.False(K.IsAt(v1, new Vector2d(r1.x, Next(r1.y, 1))));
+            }
+            Assert.True(sameRoundedX > 5, "equal rounded x, different exact x: " + sameRoundedX);
+            Assert.True(equal > 5, "equal positions: " + equal);
+        }
+
+        [Fact]
+        public void IsAt_PointVertices_AndCrossingsAtADoublePoint()
+        {
+            var K = new ExactSlopeKernel();
+            int pv = K.PointVertex(new Vector2d(0.1, 0.2));
+            Assert.True(K.IsAt(pv, new Vector2d(0.1, 0.2)));
+            Assert.False(K.IsAt(pv, new Vector2d(0.1, 0.2000000000000001)));
+            Assert.False(K.IsAt(pv, new Vector2d(0.1000000000000001, 0.2)));
+            // the crossing of two lines through the double point (0.5, 0.25) is at it
+            int cr = K.Crossing(K.PointLine(new Vector2d(0, 0), new Vector2d(2, 1)), K.PointLine(new Vector2d(0.5, 0), new Vector2d(0.5, 1)));
+            Assert.True(K.IsAt(cr, new Vector2d(0.5, 0.25)));
+            Assert.False(K.IsAt(cr, new Vector2d(0.5, 0.2500000000000001)));
+            // (1/3, 1): never a double
+            int third = K.Crossing(K.PointLine(new Vector2d(0, 0), new Vector2d(1, 3)), K.PointLine(new Vector2d(0, 1), new Vector2d(1, 1)));
+            Assert.False(K.IsAt(third, K.Rounded(third)));
+        }
+
+        [Fact]
+        public void Approx_IsCloseToTheRoundedPosition_AlsoForNearlyParallelLines()
+        {
+            var rnd = new Random(13);
+            for (int round = 0; round < 100; ++round) {
+                var K = new ExactSlopeKernel();
+                double m = 1 + rnd.NextDouble();
+                double eps = (round % 4 == 0) ? 0 : Math.Pow(2, -20 - round % 30);
+                int l1 = K.PointLine(new Vector2d(0, 0), new Vector2d(1, m)), l2 = K.PointLine(new Vector2d(0, 1 + rnd.NextDouble()), new Vector2d(1, 1 + m + eps));
+                int v = K.Crossing(l1, l2);
+                if (v < 0) continue;
+                Vector2d a = K.Approx(v), r = K.Rounded(v);
+                // either the rounded position (exact) or an approximation that is tight relative to the coordinates
+                Assert.True(Math.Abs(a.x - r.x) + Math.Abs(a.y - r.y) <= 1e-9 * (Math.Abs(r.x) + Math.Abs(r.y)) + 1e-300, $"round {round}: approx {a.x},{a.y} rounded {r.x},{r.y}");
+            }
+        }
+
         [Fact]
         public void PointLines_ExplicitVertices_Orient()
         {

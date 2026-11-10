@@ -729,9 +729,17 @@ namespace g3
                 BigInteger[] bmin, bmax;
                 if (ExactWinding[m])
                     mesh_bounds(m, out bmin, out bmax);
-                else
-                    winding_tree(m);
             }
+            // the fast-winding trees of the open meshes, concurrently (each is independent, built from its own mesh;
+            // the dictionary is filled serially afterwards, in mesh order)
+            var built = new DMeshAABBTree3[openMeshes.Count];
+            gParallel.ForRange(openMeshes.Count, (k) => {
+                if (windingTrees.ContainsKey(openMeshes[k]) == false)
+                    built[k] = new_winding_tree(openMeshes[k]);
+            });
+            for (int k = 0; k < openMeshes.Count; ++k)
+                if (built[k] != null)
+                    windingTrees[openMeshes[k]] = built[k];
             var closedTree = new TriangleBoxTree(closedBoxes);
             var patchWinding = new int[n][];
             var firsts = new List<int>();
@@ -1137,10 +1145,22 @@ namespace g3
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
-            if (windingTrees.TryGetValue(mesh, out tree) == false) {
-                windingTrees[mesh] = tree = new DMeshAABBTree3(arr.Meshes[mesh], true);
-                tree.FastWindingNumber(Vector3d.Zero);
-            }
+            if (windingTrees.TryGetValue(mesh, out tree) == false)
+                windingTrees[mesh] = tree = new_winding_tree(mesh);
+            return tree;
+        }
+
+        // the stored winding tree of an open mesh after Compute, null if none (FastWindingParallelBuildTests)
+        internal DMeshAABBTree3 StoredWindingTree(int mesh)
+        {
+            return windingTrees.TryGetValue(mesh, out DMeshAABBTree3 tree) ? tree : null;
+        }
+
+        // a tree with its fast-winding cache built (reads only the mesh: safe to call concurrently for different meshes)
+        DMeshAABBTree3 new_winding_tree(int mesh)
+        {
+            var tree = new DMeshAABBTree3(arr.Meshes[mesh], true);
+            tree.FastWindingNumber(Vector3d.Zero);
             return tree;
         }
 

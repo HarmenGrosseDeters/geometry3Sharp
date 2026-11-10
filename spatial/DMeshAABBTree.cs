@@ -1571,6 +1571,12 @@ namespace g3
             HashSet<int> root_hash;
             build_fast_winding_cache(root_index, 0, WINDING_CACHE_THRESH, out root_hash, triCache);
         }
+        // the levels of the tree whose two subtrees build their caches concurrently (2^3 = 8 tasks at most): each
+        // subtree writes only the cache entries of its own boxes, its triangle set is its own, and the work per box and
+        // the order of its sums are those of the serial build, so the cache is the same bit for bit (0: the plain
+        // recursion, the reference of FastWindingParallelBuildTests; any value gives the same cache)
+        internal static int FastWindingParallelDepth = 3;
+
         protected int build_fast_winding_cache(int iBox, int depth, int tri_count_thresh, out HashSet<int> tri_hash, MeshTriInfoCache triCache)
         {
             tri_hash = null;
@@ -1596,8 +1602,17 @@ namespace g3
                     // let each child build its own cache if it wants. If so, it will return the
                     // list of its child tris
                     HashSet<int> child2_hash;
-                    int num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
-                    int num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
+                    int num_tris_1, num_tris_2;
+                    if (depth < FastWindingParallelDepth) {
+                        var hashes = new HashSet<int>[2];
+                        var counts = new int[2];
+                        gParallel.ForRange(2, (k) => counts[k] = build_fast_winding_cache(k == 0 ? iChild1 : iChild2, depth + 1, tri_count_thresh, out hashes[k], triCache));
+                        num_tris_1 = counts[0]; num_tris_2 = counts[1];
+                        tri_hash = hashes[0]; child2_hash = hashes[1];
+                    } else {
+                        num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
+                        num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
+                    }
                     bool build_cache = (num_tris_1 + num_tris_2 > tri_count_thresh);
 
                     if (depth == 0)

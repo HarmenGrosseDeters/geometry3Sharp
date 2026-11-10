@@ -164,7 +164,9 @@ namespace gs
                 mn[axis] = (k == 0) ? double.NegativeInfinity : a0 + 0.5 * gap;
                 mx[axis] = (k == K - 1) ? double.PositiveInfinity : a1 - 0.5 * gap;
                 for (int d = 0; d < 3; ++d) if (d != axis) { mn[d] = double.NegativeInfinity; mx[d] = double.PositiveInfinity; }
-                boxes[k] = new AxisAlignedBox3d(mn, mx);
+                // (set field by field: the constructor orders the corners, which turns a slab thinner than the gap, mn > mx on the axis
+                // and so empty, into a box between the two cuts that overlaps its neighbours: a vertex free in two regions, a crack)
+                boxes[k] = new AxisAlignedBox3d { Min = mn, Max = mx };
             }
             // owner of each triangle (-1: frozen)
             int NT = m.MaxTriangleID;

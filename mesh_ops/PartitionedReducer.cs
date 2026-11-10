@@ -25,7 +25,9 @@ namespace gs
     /// Contract:
     ///  - <b>Deterministic</b>: the result depends on the mesh, the settings and <see cref="Configure"/>, never on
     ///    <see cref="MaxThreads"/>, the number of cores or the timing: <see cref="Slabs"/> is a constant. The same
-    ///    input gives the same mesh, bit for bit, in every run, and for every similarity that scales by a power of two.
+    ///    input gives the same mesh, bit for bit, in every run, and for every similarity that scales by a power of two (as long as
+    ///    no coordinate or intermediate quantity is subnormal: a coordinate of 5e-312 loses bits when it is scaled, and the quadric
+    ///    terms made of it underflow at one scale and not at the other).
     ///  - It is <b>not</b> the result of one serial <see cref="Reducer"/> run (the collapses happen in another order; the
     ///    triangle count is usually within a few percent), so a caller that needs the serial result uses the Reducer.
     ///  - The target is a maximum quadric error (as <see cref="Reducer.ReduceToMaxQuadricError"/>); there is no triangle
