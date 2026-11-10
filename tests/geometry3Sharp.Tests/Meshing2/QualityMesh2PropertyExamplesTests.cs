@@ -50,6 +50,10 @@ namespace geometry3Sharp.Tests
             // point (8,24), and the apex of its 4.8 degree angle with the first segment lies on the other piece. The oracle took the pieces
             // as separate sources on the grid; the mesher takes the whole hull edge (OriginOf)
             new object[] { "soup: a hull edge through an input point, the small angle's apex on its other piece", Grid("soup", new[] { 0, 2, 6, 4, 6, 1, 4, 6, 0, 4 }, new[] { 0, 5, 4, 4, 2, 3, 3, 3, 1, 0 }, new int[0][], new[] { new[] { 0, 1 }, new[] { 2, 3 }, new[] { 4, 5 }, new[] { 6, 7 }, new[] { 8, 9 } }, 2, -1, -3, 15, false, false) },
+            // VertexUnused / SegmentMissing, fixed in the oracle (T5, owner decision B 2026-11-10): the ring (0,0), (162,-3), (84,0), (279,3), (103,3) at
+            // pixel 4 units has a spike 0 -> 1 -> 2 about 20 pixels long and under a pixel wide; the input's rounding collapses it, the mesh has no
+            // triangle at its tip, and the full image (with refinement vertices as hot pixels) had a lobe of 5.5 pixels squared there. The reference is the rounded input
+            new object[] { "wedge: a spike the input's rounding collapses, its tip without a triangle", Grid("wedge", new[] { 0, 162, 84, 279, 103 }, new[] { 0, -3, 0, 3, 3 }, new[] { new[] { 0, 1, 2, 3, 4 } }, new int[0][], 1, -1, 2, 15, true, false) },
             new object[] { "polygon with a ring edge across pixels", Grid("polygon", new[] { 26, 20, 6, 1, -26, -35 }, new[] { -8, 35, 18, 26, 17, 21 }, new[] { new[] { 0, 1, 2, 3, 4, 5 } }, new int[0][], 2, 2, -1, 20, true, false) },
         };
 
