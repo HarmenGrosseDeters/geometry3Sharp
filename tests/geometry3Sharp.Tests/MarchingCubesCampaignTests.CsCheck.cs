@@ -10,13 +10,13 @@ using Xunit.Abstractions;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// QA 2.0 T11 (part 1): CsCheck campaign for MarchingCubes and MarchingCubesPro on random compositions of exact signed distance
+    /// QA 2.0 T11 (MarchingCubes; the terrain relations follow in their own PR): CsCheck campaign for MarchingCubes and MarchingCubesPro on random compositions of exact signed distance
     /// primitives (sphere, box, torus, capsule; union and subtraction), all 1-Lipschitz.
     ///   - LinearEdges at the normalized recipe (docs/design/CONSERVATIVE_MC_AUDIT.md: dyadic grid h = 2^-4 on [-1/2, 1/2]^3, level
     ///     sqrt(3) h / 2 + 2^-26, shapes away from the boundary): no exception, closed, valid, finite, and every sampled point of
     ///     {f &lt;= 0} has winding number above 0.99 (the enclosure);
-    ///   - every root mode: parallel equals serial and a repeated run equals the first bit for bit, MarchingCubesPro equals
-    ///     MarchingCubes where the modes share the arithmetic (LinearEdges), and the field, bounds, cell size and level scaled by 2^k
+    ///   - every root mode (MarchingCubes): parallel equals serial and a repeated run equals the first bit for bit; MarchingCubesPro is
+    ///     compared with MarchingCubes in LinearEdges only (the same vertices and triangles by coordinates); and the field, bounds, cell size and level scaled by 2^k
     ///     give the same mesh scaled by 2^k, bit for bit (the arithmetic of the fields is +, -, *, sqrt, min, max, abs, and
     ///     rotation by a constant matrix: exact under 2^k).
     /// 20 samples in CI; G3_PROPERTY_SAMPLES=n, G3_PROPERTY_CAMPAIGN=marchingcubes with G3_PROPERTY_REPLAY=seed to replay.
@@ -120,6 +120,15 @@ namespace geometry3Sharp.Tests
             if (!sorted) {
                 var ta = a.TriangleIndices().ToList(); var tb = b.TriangleIndices().ToList();
                 for (int i = 0; i < ta.Count; ++i) if (a.GetTriangle(ta[i]) != b.GetTriangle(tb[i])) return $"triangle {i} differs";
+            } else {
+                // (other vertex ids: the triangles as sets of coordinate triples, each starting at its smallest corner, in order)
+                string[] Triples(DMesh3 m) => m.TriangleIndices().Select(t => {
+                    var c = new[] { m.GetVertex(m.GetTriangle(t).a), m.GetVertex(m.GetTriangle(t).b), m.GetVertex(m.GetTriangle(t).c) }.Select(v => $"{Bits(v.x):x}:{Bits(v.y):x}:{Bits(v.z):x}").ToArray();
+                    int k = Array.IndexOf(c, c.OrderBy(x => x, StringComparer.Ordinal).First());
+                    return c[k] + "|" + c[(k + 1) % 3] + "|" + c[(k + 2) % 3];
+                }).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                string[] x1 = Triples(a), x2 = Triples(b);
+                for (int i = 0; i < x1.Length; ++i) if (x1[i] != x2[i]) return $"triangle {i} (by coordinates) differs";
             }
             return "";
         }
@@ -178,13 +187,14 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
-        static int outsideRecipe;
+        static int outsideRecipe, enclosureChecks, nonEmptyChecks;
 
         static bool BoundaryHigh(Scene s)
         {
             var f = new Field(s, 0);
-            for (int i = 0; i <= 16; ++i) for (int j = 0; j <= 16; ++j) for (int l = 0; l <= 16; ++l) {
-                if (i != 0 && i != 16 && j != 0 && j != 16 && l != 0 && l != 16) continue;
+            // (Generate() samples one cell layer more than the box: indices 0 .. 17)
+            for (int i = 0; i <= 17; ++i) for (int j = 0; j <= 17; ++j) for (int l = 0; l <= 17; ++l) {
+                if (i != 0 && i != 17 && j != 0 && j != 17 && l != 0 && l != 17) continue;
                 Vector3d p = new Vector3d(i * H - 0.5, j * H - 0.5, l * H - 0.5);
                 if (!(f.Value(ref p) > Sigma)) return false;
             }
@@ -203,6 +213,8 @@ namespace geometry3Sharp.Tests
                     if (f.Value(ref p) <= 0) inside.Add(p);
                 }
             if (inside.Count == 0) return "";
+            System.Threading.Interlocked.Increment(ref enclosureChecks);
+            if (mesh.TriangleCount > 0) System.Threading.Interlocked.Increment(ref nonEmptyChecks);
             if (mesh.TriangleCount == 0) return $"no triangles although {inside.Count} lattice points have f <= 0";
             var tree = new DMeshAABBTree3(mesh, true);
             int step = Math.Max(1, inside.Count / 400);
@@ -232,9 +244,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Campaign()
         {
-            outsideRecipe = 0;
+            outsideRecipe = enclosureChecks = nonEmptyChecks = 0;
             CampaignRunner.Run(log, nameof(MarchingCubesCampaignTests), "marchingcubes", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(20), 401u);
-            log.WriteLine($"marchingcubes: {outsideRecipe} LinearEdges scenes reach the extraction boundary (outside the recipe, closed and enclosure checks skipped)");
+            // (not vacuous: with the CI sample count some LinearEdges scene has a point of {f <= 0} and a mesh to enclose it)
+            if (CampaignRunner.Samples(20) >= 20) Assert.True(nonEmptyChecks > 0, $"{enclosureChecks} enclosure checks, none with a mesh");
+            log.WriteLine($"marchingcubes: {enclosureChecks} enclosure checks ({nonEmptyChecks} with a mesh), {outsideRecipe} LinearEdges scenes reach the extraction boundary (outside the recipe, closed and enclosure checks skipped)");
         }
     }
 }

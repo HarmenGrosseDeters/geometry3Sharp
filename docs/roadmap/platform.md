@@ -156,7 +156,7 @@ Tier: S, M. Parallel: up to 2 sessions
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions (QA 2.0 T11, done 2026-11-10,
        `MarchingCubesCampaignTests.CsCheck.cs`: random unions and subtractions of 1-Lipschitz sphere, box, torus and capsule SDFs;
        LinearEdges at the normalized recipe of CONSERVATIVE_MC_AUDIT.md: no exception, closed, valid, every sampled point of {f <= 0}
-       enclosed (winding > 0.99); all four root modes: parallel equals serial, a repeated run and `MarchingCubesPro` (LinearEdges) agree, the
+       enclosed (winding > 0.99); all four root modes of `MarchingCubes`: parallel equals serial, a repeated run agrees, and `MarchingCubesPro` (LinearEdges only) has the same vertices and triangles by coordinates; the
        field, bounds, cell size and level scaled by 2^-9 and 2^11 give the same mesh bit for bit; 20 samples in CI. 4 000 samples: no
        finding; scenes whose shape reaches the extraction boundary (6 of 4 000) are outside the recipe and keep only the determinism and
        scale checks). Terrain metamorphic relations (never steeper, cut + fill consistent) are still open.
