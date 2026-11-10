@@ -1,8 +1,9 @@
 # The cost of a shallow wedge in the default (conforming) mode (design note, 2026-11-10, QA 2.0 T5)
 
 **Question (owner option B of 2026-11-10):** can shell-matched split points make a small-angle wedge cost O(log 1/θ) in the default mode,
-where it costs about 1/θ today? **Answer of this note: no, not with O2 and the angle bound kept; the 1/θ is a lower bound for any algorithm.**
-What can change it is a spec decision on O2 in the wedge (section 5). Nothing is implemented.
+where it costs about 1/θ today? **Answer of this note (after an independent check of its first version): yes in principle, if the A and B split
+points stay matched; no for the vertex sets that today's refinement produces, which cost 1/θ because their vertices are not matched.**
+The first version of this note claimed 1/θ as a lower bound for any algorithm; the check refuted that (section 2). Nothing is implemented.
 
 ## 1. Measurement
 
@@ -24,49 +25,58 @@ wedge, not at the apex: the A and B subsegments are about 3 to 4 wedge widths lo
 none within 2^-5, 1 311 and 1 468 in the octaves 2^-3 and 2^-2 at k = 10; the A vertices face a B vertex within 10 % of the local spacing in 40 % of the cases).
 The shell rule (a piece next to an input vertex is split at a power of two from it) is active at the apex; it does not change the count.
 
-## 2. Why it is a lower bound (O2 plus a quality mesh on the other side)
+## 2. When the spacing is forced to be about the wedge width (and when not)
 
 Let a, a' be consecutive vertices of A, spacing ℓ, in a wedge of width w ≪ ℓ at that place (w = θ·x for the distance x from the apex). O2
-needs an empty circle through a and a' (every constrained edge is an edge of the Delaunay triangulation of all vertices). The circles
-through a and a' form a pencil, parametrised by the signed offset c of the centre from the chord (positive: towards B).
-- A vertex P on the B side, at height w and horizontal offset t from the chord's middle, |t| < ℓ/2, lies inside the circle iff
-  c > c(P) = (t² + w² − ℓ²/4)/(2w), about −(ℓ²/4 − t²)/(2w): very negative, so P allows only circles bulging towards the other side.
-- A vertex Q on the other side of A at depth d, horizontal offset t', lies inside iff c < c(Q) = −(t'² + d² − ℓ²/4)/(2d).
-- An empty circle exists iff c(Q) < c(P) for all pairs. With d ≥ ℓ this needs d > (ℓ²/4 − t²)/w, about ℓ²/(4w).
-So no vertex may lie on the other side of A within depth ℓ²/(4w) ≈ ℓ·(ℓ/4w) of the edge. But the angle bound (30°) bounds the triangle
-below the edge: its apex lies at depth at most about 1.9 ℓ (an isosceles triangle with the smallest allowed apex angle). Hence
-ℓ/(4w) ≲ 2, ie **ℓ ≲ 8 w** everywhere along the wedge, and the number of vertices on A is at least ∫ dx / (8 θ x) = ln(L/x0)/(8θ). The
-measured spacing of 3 to 4 w is inside that bound. Shell-matched split points (A and B split at the same distances from the apex, which
-makes the strip of isosceles trapezoids, cyclic quadrilaterals) make the wedge side empty, but they do not change the circle on the other
-side, where the condition above bites. They would help the cq mode's neighbours, which it does not need (38 triangles).
+needs an empty circle through a and a' (every constrained edge is an edge of the Delaunay triangulation of all vertices). Put a, a' at (∓ℓ/2, 0);
+the circles through them are centred at (0, c). A point X at horizontal offset t and signed height s (positive: towards B) lies inside the circle iff
+t² + s² − 2sc < ℓ²/4, so its offset c(X) = (t² + s² − ℓ²/4)/(2s); X on the B side excludes c > c(X), X on the other side excludes c < c(X). An
+empty circle exists iff every c(Q) of the other side is at most every c(P) of the B side.
+- **The apex of the triangle below the edge.** Its apex Q is a vertex, so c(Q) is a bound whatever the rest of the mesh is. For the triangle (a, a', Q)
+  with apex angle φ, c(Q) = −(ℓ/2)·cot φ; the 30° bound gives φ ∈ [30°, 120°], hence c(Q) ≥ −(√3/2)ℓ ≈ −0.866 ℓ.
+- **A B-side vertex opposite the middle of the edge** (t = 0, height w) has c(P) = (w² − ℓ²/4)/(2w), and needs c(P) ≥ −0.866 ℓ, ie
+  **ℓ ≤ (2√3 + 2√5)·w ≈ 7.5 w** (about 6.9 w without the w² term). More generally a B-side vertex at distance ε inside the end of the span
+  (t = ℓ/2 − ε) has c(P) ≈ (w² − ℓε)/(2w): it forces ℓ ≲ 7.5 w unless ε is below about 0.6 w (an apex angle of 60°; 0.9 w at 30°).
+- **So the 1/θ is forced only for a vertex set with a B-side vertex inside the span of an A-subsegment.** That is what the refinement produces
+  today (independent splits of A and B: the measured spacing is 3 to 4 w, and only 40 % of the B vertices face an A vertex within 10 % of the
+  spacing). Summed over the wedge, N ≥ ∫ dx / (7.5 θ x) = ln(L/x0)/(7.5 θ).
+- **Matched split points avoid it.** If B's vertices are at the same radii from the apex as A's (the shells), they lie at t ≈ ±ℓ/2 of A's
+  subsegments, c(P) ≈ w/2 > 0 imposes nothing, and the circle may bulge as far as the other side allows; ℓ is then limited only by the grading on the far
+  side, not by w. Checked numerically (exact rational arithmetic, independent check, `/tmp` script not kept): vertices on A and B at radii r^i·10^-3
+  for r = 1.5, 2, 3 and θ = 2^-6, 2^-12, 2^-18, far-side apexes of isosceles triangles with base angles about 50° below each A-edge and above each B-edge: every
+  A-edge and B-edge has an empty circle, with 7 to 18 vertices per side for every θ. With the B vertices at the geometric mid-spans instead, every A-edge
+  and nearly every B-edge fails, as above. Not checked: the full triangulation, and the 30° bound of the whole grading from r = 2 to 3.
+- **Assumptions:** the wedge is interior to the domain (far-side triangles exist) and the far side is a plain quality region, not another wedge;
+  w(x) = θx varies by a factor r across a span when ℓ ~ x (geometric grading), so the thresholds above must be recomputed with the heights actually used.
 
-The same argument shows why the cq mode is constant: it asks for constrained Delaunay only (empty circles within the visibility of the edge),
-so the vertices on the other side of A do not count.
+The same view explains the cq mode: constrained Delaunay ignores the far side, so nothing forces the spacing.
 
 ## 3. Consequence for the stmlf/1461 outlier
 
-Its 6.8x (default mode, q30, 325 662 triangles, "even relative to the LFS yardstick") is then not a defect of the refinement but the price of
-O2 plus the angle bound at θ = 2^-12..2^-15 wedges; the reference (triangle.c) either does not keep O2 there or merges the features (it has
-no tolerance: its 2^-15 features are real). Not verified: the input is not in the repository.
+Its 6.8x (default mode, q30, 325 662 triangles, "even relative to the LFS yardstick") is then the price of unmatched A and B vertices in θ = 2^-12..2^-15
+wedges, not of O2 itself. Not verified on the input (it is not in the repository).
 
 ## 4. What it does not say
 
-- The lower bound is for a wedge with a quality mesh on both sides; where the other side is itself narrow (a corridor), the bound is the corridor's.
-- It does not bound the constant: 3 to 4 w measured against 8 w; a smarter choice of split points could save a factor, not the order.
+- The matched construction is checked for the O2 condition of the edges and the apex triangles, not as a whole triangulation: the Steiner
+  points that encroachment (rule C revokes) and circumcentres add inside the wedge must also stay matched, which is the hard part of an implementation.
+  That the shell rule changes nothing today (section 1) shows the current implementation does not preserve the matching, not that it is impossible.
+- The wedge needs a quality mesh on both outer sides; where the other side is itself narrow, the bound is the corridor's.
 - Rule C itself is needed (its argument B in MESHING2D_SMALL_ANGLES_CONFORMING.md: every forced split is needed by any conforming solution).
 
-## 5. Options (a spec decision, owner)
+## 5. Options (a decision for the owner)
 
-- **D (document):** keep O2, say in the spec and the roadmap that the default mode costs Θ(1/θ) at a wedge of angle θ below the bound, with the
-  numbers of section 1; the cq mode is the answer for such inputs. No code. The generator and the campaign family stay (item 1).
-- **E (O2 in the wedge):** an O2 exception for a subsegment that spans a small input angle (the pair of `SpansSmallAngle`): empty circles are
-  demanded within the wedge, not against vertices across the other side of the segment, ie constrained Delaunay there. It changes the spec
-  (O2's exception list, the oracle's local and global conformity check), the mesher (rule C does not revoke the exemption for such a
-  subsegment), and costs a probe; expected effect: the default mode at the wedge falls to the cq numbers (38 instead of 5 878 at k = 10). Risk:
-  conformity is what downstream users of the default mode rely on (Delaunay across segments); the exception would be narrow (only at input
-  angles below the bound, on subsegments whose both sides are covered by the pair).
-- **C (cap):** stop revoking the exemption below a wedge-width scale. Same effect as E but without the spec statement; it would make the
-  output not conforming at the wedge without saying so: not recommended.
+- **B (shell-matched splits in the conforming wedge), reopened:** after a small-angle pair (the pair of `SpansSmallAngle`) is detected, split the
+  subsegments of both sources next to the apex at the same distances from it (powers of two), and keep matched pairs together (a Steiner point on A
+  in the wedge gets its partner on B at the same radius). Expected: the default-mode wedge falls from 1/θ towards the cq numbers. Needs a design with
+  the termination argument (SMALL_ANGLES_CONFORMING section 4) and the interaction with rule C and the O11 merge zone, and a probe on the
+  generators of section 1 and the F rows 4, 5, 26, 27, 38, 42 before any adoption; high effort, uncertain until probed.
+- **D (document):** keep today's refinement, say in the spec and the roadmap that the default mode costs about 1/θ at a wedge of angle θ below the
+  bound, with the numbers of section 1; the cq mode is the answer for such inputs. No code.
+- **E (O2 in the wedge):** an O2 exception for subsegments that span a small input angle (constrained Delaunay inside the wedge). A spec change
+  (O2's exception list, the oracle's conformity check) and mesher change (rule C does not revoke there); conformity across segments is what default-mode
+  users rely on, so the exception would be narrow. Cheaper than B, weaker guarantee.
+- **C (cap):** stop revoking the exemption below a wedge-width scale: not recommended, it hides a non-conforming output.
 
-Recommendation: D now (it is true and costs nothing), and E only if the owner wants the default mode to be usable on such inputs; E needs the spec
-text first, and the probe (generators of section 1, the F rows 4, 5, 26, 27, 38, 42, the corpus where available) before any decision to adopt it.
+Recommendation: D now (true and free); B as a probe if the owner wants the default mode to stay conforming at such inputs, E if conformity inside the wedge is
+not needed.
