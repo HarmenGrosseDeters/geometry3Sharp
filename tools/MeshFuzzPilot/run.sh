@@ -29,6 +29,10 @@ export PATH="$DOTNET_ROOT:$PATH"
 "$dotnet" "$work/replay/MeshFuzzPilot.dll" write-seeds "$work/corpus"
 cp -a "$work/replay" "$work/bin"
 "$instrumenter" "$work/bin/geometry3Sharp.dll"
+# the Clipper2 target: the adapter and the Clipper2 library it calls get coverage guidance too
+for dll in geometry3Sharp.Clipper2.dll Clipper2Lib.dll; do
+    if [ -f "$work/bin/$dll" ]; then "$instrumenter" "$work/bin/$dll"; fi
+done
 "$fuzzer" -seed=20261109 "-runs=$runs" "-max_total_time=$seconds" -max_len=512 -timeout=30 -rss_limit_mb=3072 ${fork[@]+"${fork[@]}"} \
     "-artifact_prefix=$work/artifacts/" "--target_path=$dotnet" \
     "--target_arg=$work/bin/MeshFuzzPilot.dll" "$work/corpus" 2>&1 | tee "$work/fuzz.log"

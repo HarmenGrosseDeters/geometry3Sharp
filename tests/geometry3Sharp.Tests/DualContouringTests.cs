@@ -175,7 +175,12 @@ namespace geometry3Sharp.Tests
             var plain = new MeshWindingNumberSolidify(mesh) { CellSize = cell, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 0 };
             Assert.True(plain.Compute());
             Assert.True(plain.HiddenGapEdges > 0);
-            Assert.True(SelfIntersections(plain.Result) > 0);
+            // the gap is lost: its two sides merge into one solid (before the face vertices of
+            // docs/design/DC_INTERSECTION_FREE.md option B they also cut through each other)
+            var plainComps = new MeshConnectedComponents(plain.Result);
+            plainComps.FindConnectedT();
+            Assert.Equal(1, plainComps.Count);
+            Assert.Equal(0, SelfIntersections(plain.Result));
 
             var refined = new MeshWindingNumberSolidify(mesh) { CellSize = cell, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 3 };
             Assert.True(refined.Compute());

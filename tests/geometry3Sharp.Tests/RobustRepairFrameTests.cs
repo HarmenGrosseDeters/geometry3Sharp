@@ -156,7 +156,8 @@ namespace geometry3Sharp.Tests
             DMesh3 plates = MeshRobustRepairTests.ThinPlates(6);
             Func<DMesh3, MeshRobustRepair> run = (m) => {
                 var r = new MeshRobustRepair(m) { RepairF = null, ExactResolve = false, SolidifyResolution = 24, WrapRelativeAlpha = 70, WrapRelativeOffset = 700 };
-                r.Apply();
+                // (a not-clean solidify, so the wrap runs: MeshRobustRepairTests.WithUnrepairedContour)
+                MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply());
                 return r;
             };
             MeshRobustRepair r0 = run(new DMesh3(plates));
@@ -227,7 +228,7 @@ namespace geometry3Sharp.Tests
             foreach (int v in small.VertexIndices()) small.SetVertex(v, Math.Pow(2, -r) * small.GetVertex(v) + new Vector3d(Math.Pow(2, f), 0, 0));
             foreach (int t in small.TriangleIndices().Take(8).ToList()) small.RemoveTriangle(t, true, false);
             new MeshEditor(scene).AppendMesh(small);
-            var rep = new MeshRobustRepair(scene);
+            var rep = new MeshRobustRepair(scene) { PassThroughCleanParts = false };       // (with stage 0 the sphere passes through and the part is wrapped alone)
             bool ok = rep.Apply();
             // before: true, with one octahedron of the size of alpha (1400) for each part (the sphere of radius 1 and the part)
             Assert.False(ok && rep.UsedAlphaWrap, $"{ok}, wrap {rep.UsedAlphaWrap}, {rep.Mesh.TriangleCount} triangles");

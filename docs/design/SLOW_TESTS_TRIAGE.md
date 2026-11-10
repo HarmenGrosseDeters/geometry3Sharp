@@ -167,3 +167,20 @@ Counts per class (as written in the table): T: 72, F: 24, K: 5, T (F?): 4, F?: 4
 | P4 | `TerrainGridTinTests.Compute_Twice_AndRepeated_GiveTheSameResult` | 1 | 9.9 | 10 | K/T | terrain TIN | 65x65 grid, 5 Computes (alone: 4 s total, <1 s each) | Not a library problem (4 s alone); 2 new instances instead of 3 |
 | P4 | `MeshFidelityMetricsTests.Determinism_ParallelEqualsSerial_RepeatedRuns` | 1 | 7.1 | 7 | K (T) | MeshFidelityMetrics | Pair ~1k tris, 6 Computes at default samples | Fewer samples (10k/20k), 2 repeats; keep serial-vs-parallel |
 | P4 | `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_CleanWithinTheBound` | 1 | 6.3 | 6 | K | ExactMeshBoolean + SafeRounding | 198 cases x 2 booleans | Keep; split by family |
+
+## Result of the library profiles (perf session, 2026-11-10)
+
+Class F items of the triage, profiled on master (warm, 4 cores; dotnet-trace, wait artifacts filtered out). Numbers and
+benchmarks are in the PRs: #519 (Remesher), #520 (solidify octree), #548 / #557 / #576 (NotCleanReason), and
+`benchmarks/{RemeshPreventBenchmark,SolidifyBenchmark,NotCleanBenchmark}/README.md`.
+
+| item | finding | outcome |
+|---|---|---|
+| `Remesher.PreventSelfIntersections` on the thin tube | the triangle grid cell was the target edge length, hundreds of triangles per cell: `TriangleHashGrid.Query` 60 % of the CPU time | #519: cell at most 2x the mean edge, same result bit for bit, 3.6 -> 2.2 s warm (cold 4.6 -> 3.3 s): `ThinTube_WithPreventSelfIntersections_Clean` is below 5 s |
+| `MeshWindingNumberSolidify`, thin plates, res 64 | flat profile: contour 3.5 s over six phases, reduce 0.7, cleanup 0.3, 2 GB allocated; the winding number is not the cost (20k evaluations) | #520 (octree triangle lists): the fine octree phase 579 -> 333 ms, the whole solidify only 3-5 %. The solidify tests stay slow (about 4 s per Compute); the 6-Compute determinism test needs fewer Computes |
+| `MeshAlphaWrap` + `SimplifyWithin` on the plates | wrap 6 s (`refine_and_carve`: 2.4 M gate pops at about 1.8 us, flat), simplify 2 s (already profiled in `docs/roadmap/alpha-wrap-and-repair.md`) | no cheap lever; the pipeline tests share one wrap run instead |
+| `NotCleanReason` on 185-200k triangle meshes (coordinator's request) | self-intersection search 55-70 % (exact predicate for every box-overlapping pair, one tree traversal per triangle), cheap checks about 25 % on one thread | #548 pair filter, #557 box-tree self-join, #576 parallel bowtie / degenerate checks: 541 -> 240 ms (wrap), 319 -> 144 ms (sphere), same pair sets |
+| `MeshFidelityMetrics` at the defaults (50k / 100k samples) | 81 % winding-number classification of the volume samples; 0.8 s parallel, 2.6 s serial for 5.3k + 2.7k triangles | no lever above 20 % (a cache of the mesh winding for the second IoU: at most 10-15 %); the samples are the accuracy knob, so the tests lower them |
+| `Reducer.PreventSelfIntersections` on the thin slab | check 82 % of the reduction (grid query + candidates 62-70 %, projection filter 36 %); already profiled and tuned (grid cell 3x mean edge) | no lever above 20 % with the existing building blocks |
+| `MeshRoundingRepair` (exact code) | plain run at most 0.7 s on the incremental-test cases; check mode (a test mode that recomputes and compares) is about 3x | no library lever; the slow rows are check-mode overhead |
+| QualityMesh2 refiner, 4-point hull | refiner 255 ms warm (31k triangles), `Oracle.Check` 1.4-1.9 s | no library lever; the time is the test oracle |

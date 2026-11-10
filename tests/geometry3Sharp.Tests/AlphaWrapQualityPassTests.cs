@@ -814,7 +814,8 @@ namespace geometry3Sharp.Tests
                 var r = new MeshRobustRepair(MeshRobustRepairTests.ThinPlates(6)) {
                     RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapQualityPass = on
                 };
-                Assert.True(r.Apply());
+                // (a not-clean solidify, so the wrap is used: MeshRobustRepairTests.WithUnrepairedContour)
+                Assert.True(MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply()));
                 Assert.True(r.UsedAlphaWrap && r.AlphaWrapSimplified);
                 return r;
             };
