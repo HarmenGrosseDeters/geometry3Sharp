@@ -34,6 +34,24 @@ namespace Meshing2Acceptance
         public static bool PinchRuleExcludes(bool inputHotPixel, IEnumerable<bool> subsegmentsAtQOwnChain)
             => !inputHotPixel && subsegmentsAtQOwnChain.Any(own => !own);
 
+        /// <summary>
+        /// The lobe bound of rule (ii') (2026-11-10): the nodes of a rerouted stretch, between its ends a and b, all lie within one pixel of
+        /// the chord a-b (pixel centres; squared distances compared exactly)
+        /// </summary>
+        public static bool LobeWithinTube(Pt a, Pt b, IEnumerable<Pt> between, Q pixel)
+        {
+            Q tube = pixel * pixel;
+            foreach (var p in between) if (Exact.Dist2ToSegment(a, b, p) > tube) return false;
+            return true;
+        }
+
+        /// <summary> the lobe bound for a point: every link at its pixel ends in a neighbouring pixel (index distance at most 1 per axis) </summary>
+        public static bool LinksStayAdjacent((BigInteger x, BigInteger y) pixel, IEnumerable<(BigInteger x, BigInteger y)> ends)
+        {
+            foreach (var q in ends) if (BigInteger.Abs(q.x - pixel.x) > 1 || BigInteger.Abs(q.y - pixel.y) > 1) return false;
+            return true;
+        }
+
         /// <summary> the smallest positive double, 2^-1074: the step of the subnormal grid </summary>
         static readonly Q SubnormalStep = new Q(1, BigInteger.One << 1074);
 
@@ -1586,7 +1604,17 @@ namespace Meshing2Acceptance
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
-                if (!PixelCollapsed(full, p) || !PixelCollapsed(inputOnly, p)) return false;
+                if (!PixelCollapsed(inputOnly, p)) return false;
+                if (!PixelCollapsed(full, p)) {
+                    // the lobe (2026-11-10, as in ChainThroughContactedPixels): the input's rounding collapses the point's pixel (a spike's tip),
+                    // and output vertices rerouted the links at it so that the full image has area beside one of them; excused when every link
+                    // at the pixel in the full image ends in a neighbouring pixel, i.e. the lobe lies within the pixel tube
+                    var tip = PixelOf(p, snapPixel);
+                    if (!full.LinksAt.TryGetValue(tip, out var tipLinks) || tipLinks.Count == 0) return false;
+                    if (!LinksStayAdjacent(tip, tipLinks)) return false;
+                    ++r.LobeExcuses;
+                    return true;
+                }
                 // (iii): the links at its pixel differ between the roundings: output vertices rerouted them
                 var n = PixelOf(p, snapPixel);
                 full.LinksAt.TryGetValue(n, out var withAll); inputOnly.LinksAt.TryGetValue(n, out var withInput);
@@ -2948,7 +2976,25 @@ namespace Meshing2Acceptance
                 var image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
                 var index = new Dictionary<(BigInteger x, BigInteger y), int>(image.Count);
                 for (int t = 0; t < image.Count; ++t) index[image[t]] = t;
-                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
+                // A stretch between two pixels of the input's image is gone when the input's rounding collapses it (a spike: no area beside
+                // it) and the full image does too, or, if output vertices rerouted it through further hot pixels (Q17) so that the
+                // reroute makes a lobe with another chain (even-odd area in the full image that the mesh, as the input's rounding, does not
+                // have), when that lobe lies within the pixel tube of the stretch: refinement never creates a collapse, but need not keep
+                // what the input's rounding collapses (owner decision 2026-11-10). A stretch with area in the input's own image is judged
+                // by the full image as before.
+                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+                {
+                    if (!LinkCollapsed(inputOnly, p, q)) return false;
+                    if (LinkCollapsed(full, p, q)) return true;
+                    var fullImage = full.Images[(a, b)];
+                    int ip = fullImage.IndexOf(p), iq = fullImage.IndexOf(q);
+                    if (ip < 0 || iq < 0 || ip == iq) return false;
+                    if (ip > iq) { int tmp = ip; ip = iq; iq = tmp; }
+                    Pt ca = Centre(fullImage[ip], snapPixel), cb = Centre(fullImage[iq], snapPixel);
+                    if (!LobeWithinTube(ca, cb, Enumerable.Range(ip + 1, iq - ip - 1).Select(t => Centre(fullImage[t], snapPixel)), snapPixel)) return false;
+                    ++r.LobeExcuses;
+                    return true;
+                }
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
