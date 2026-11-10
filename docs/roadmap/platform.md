@@ -151,8 +151,11 @@ Tier: S, M. Parallel: up to 2 sessions
        2000; the guarantees of `AlphaWrapTests.CheckWrap`, repeat on the same and on a new instance and the 2^k scaled input bit-identical;
        20 seeded samples in CI, category `Campaign`). First run, 1 500 samples: one finding, `Status = Failed` ('result box corners on
        the result') for flat input at relative alpha 5 to 8 (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at
-       10 and at the default 20), pinned as a skipped example and counted as an open class (`G3_PROPERTY_STRICT=1` fails on it); the fix
-       is a bugfix PR of its own.
+       10 and at the default 20). **Fixed** (bugfix PR): a flat input gives huge cells with box corners above and below a plane of Steiner points;
+       a pinch at such a point made the manifold step move them inside. The refinement at non-manifold spots could not place a point for
+       them (its depth guard), and with `RefineNonManifold` off nothing refined at all. On the retry, a pinched cell with a box corner gets the
+       projected circumcenter if it lies strictly inside the circumsphere (without the depth), and the retry of `Compute` after box corners on
+       the result refines at non-manifold spots whatever `RefineNonManifold` says. 150 seeds at relative alpha 5 and 8, both settings: 0 failed (before: 17 and 7 of 150 with the setting off, 3 and 0 on).
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions (QA 2.0 T11, done 2026-11-10,
        `MarchingCubesCampaignTests.CsCheck.cs`: random unions and subtractions of 1-Lipschitz sphere, box, torus and capsule SDFs;
        LinearEdges at the normalized recipe of CONSERVATIVE_MC_AUDIT.md: no exception, closed, valid, every sampled point of {f <= 0}

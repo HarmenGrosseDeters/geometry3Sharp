@@ -234,6 +234,10 @@ namespace g3
                     float z = (tokens.Length > 3) ? MeshIOUtil.ParseFloat(tokens[3]) : 0;
                     if (ReadOptions.RejectsPosition(options, x, y, z))
                         return ReadOptions.NonFinitePosition(x, y, z);
+                    if (Objects.Count == 0) {       // handle bad STL: a vertex before any solid / facet
+                        Objects.Add(new STLSolid() { Name = "unknown_solid" });
+                        in_solid = true;
+                    }
                     append_vertex(x, y, z);
 
                 // [RMS] we don't really care about these lines...
