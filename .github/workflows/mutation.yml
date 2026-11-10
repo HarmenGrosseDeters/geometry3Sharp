@@ -29,6 +29,10 @@ on:
       - 'mesh_ops/ExactTriangulation2.cs'
       - 'mesh_ops/MeshRoundingRepair.cs'
       - 'mesh_ops/PolyhedralEnvelope.cs'
+      - 'math/ExactIntervals.cs'
+      - 'math/ExactSlopePredicates.cs'
+      - 'math/ExactSlopeKernel.cs'
+      - 'mesh_ops/TerrainSlope*.cs'
       - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
@@ -43,12 +47,21 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
+      - 'tests/geometry3Sharp.Tests/BoxTreeMortonTests.cs'
+      - 'tests/geometry3Sharp.Tests/BoxTreeOrderTests.cs'
+      - 'tests/geometry3Sharp.Tests/TriTriPrefilterTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanPropertyFindings.cs'
       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
       - 'tests/geometry3Sharp.Tests/BooleanPerformanceTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactIntervalsTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactSlopeKernelTests.cs'
+      - 'tests/geometry3Sharp.Tests/TerrainSlope*Tests.cs'
       - 'tests/mutation/*'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
@@ -57,7 +70,7 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding, boolean-1, ...)'
+        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
 # a new push to the same PR cancels the running run
@@ -90,6 +103,7 @@ jobs:
           python3 test_select_shards.py
           python3 test_baseline.py
           python3 test_incremental.py
+          python3 test_suggest_split.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}
@@ -125,13 +139,14 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         env:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          G3_LIMIT_SECONDS: '9000'                # the job's timeout-minutes (150) in seconds, for the early stop
         run: bash run_stryker.sh stryker-config.json
       - name: Summary
         if: always()
@@ -143,6 +158,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
@@ -160,7 +184,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   exact-mesh:
     needs: changes
@@ -169,8 +193,11 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      # at most 4 shards at a time: a full run leaves runners free for CI (the account runs about 20 jobs at once)
-      max-parallel: 4
+      # at most 12 shards at a time (was 4: the 15 mesh shards of a full run then took 4 waves, about 12 hours of wall
+      # time, with the longest shards queued behind others). The account runs at most 20 jobs at once; a full run is
+      # 12 mesh shards + the arithmetic job + the selection job = 14, which leaves 6 for the CI of the PRs. Scheduling
+      # only: it changes no shard's result (select_shards.py: not a reason for full runs)
+      max-parallel: 12
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:
@@ -188,8 +215,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         # a mutant can turn a loop into one that allocates without end: a heap limit per process makes that an
@@ -216,6 +243,15 @@ jobs:
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
           if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source') && 'warn' || 'error' }}
+      - name: Upload the Stryker logs
+        # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-logs-mesh-${{ matrix.shard }}
+          path: tests/mutation/StrykerOutput/*/logs/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
@@ -233,4 +269,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}

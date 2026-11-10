@@ -43,34 +43,40 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-
-Status on 2026-11-08.
-
-- **Exact Boolean 2.0** (milestone, owner 2026-11-07): every operation of the #385 Thingi10K harness at most 5 s of
-  Compute wall time, clean results on closed inputs. Baseline: 81 of 16 239 operations unclean, p95 4.5 s, max 282 s.
-  Work packages (1)-(5) in session session_01AaGT5CTqL86zQ1wj56oXAq. WP1 done: 16 ops > 5 s on 4 cores in the
-  selfint = 0 cohort; the rounding projection filter (#397) and the rounding-created contacts fix (#398, M3) are in
-  review, gated by the split rounding mutation shard (#403); then L1 (rounding search only from cut triangles), D1
-  (drift budget), L3. No architecture rewrite (assessment 2026-11-07). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Meshing2D** (the 2D quality mesher `QualityMesh2`): M1-M3, snap rounding, Q17, the fast oracle, grading and run A
-  are done; the small-angle rule for cq / constrained mode merged in #394 (2026-11-07). Paused until the owner's local
-  oracle performance work is done (owner 2026-11-08). Open follow-ups: the corner choice, lenses to 28.6°, near-contact inputs (stmlf/1461), grading on f-11, oracle leftovers. [meshing2d.md](roadmap/meshing2d.md#open)
-- **Medium sessions on Sonnet (owner 2026-11-08):** the `thingi-pairs` class in `BooleanComparison` (EMBER protocol,
-  session_01AaGT5DE1eqU32Pa92L638u) ; the near-field log map AffineLocal failed its pre-registered gate (#414: MeshLocalParam is as good near the source), no API.
-  #411 (owner's oracle speed-up, certified STRtree pruning as the oracle default) merged 2026-11-08; next, after the
-  exact-boolean merge queue has cleared (#427, the oracle source coverage index, merged 2026-11-08; owner 2026-11-08): the mesher's corner choice (Sonnet) and a runner measurement of the near-contact inputs (stmlf/1461). Exact Boolean 2.0 also got the Devillers–Guigue intersection prefilter (owner go).
-- **Terrain:** phase 1 done (#357); paused since 2026-11-03 (owner) after #363 and the RoundToGrid decision.
-  Restarts with a DGM reader in the CLI. [terrain.md](roadmap/terrain.md#open)
-- **Alpha Wrap 2.0** (milestone, owner 2026-11-08: quality and speed): on the 800-mesh Thingi10K wrap sample, the full
-  wrap pipeline keeps its guarantees and fidelity, has 0 triangles < 0.5° or > 170°, no pinch caps, a p01 angle at the
-  level of CGAL's alpha wrap (raw wrap; final output p01 >= 10°), and at most max(5 s, 50 µs per raw-wrap triangle) per
-  mesh in a warm process on the 4-core cloud machine. Session
-  session_01AaGT5CSm6ZjSih3jZRg7HJ, WP1 (baseline, profile, upper bounds) first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+Status on 2026-11-08 (evening, Berlin).
+- **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
+  2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
+  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
+  one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
+  runs on master after the merge (owner decision) and seeds the rounding baselines. L3 dropped (owner 2026-11-08:
+  119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The ±1e308 throw is fixed in
+  #449 (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with ScaleNotFinite
+  above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418).
+  Lévy classification: phase 1 done (#428, no propagation now); phase 2
+  (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+- **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
+  p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
+  Next: **Alpha Wrap 3.0** (starts after Exact Boolean 2.0 closes: profile and bounds first, owner sets targets; speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallel evaluate / serial apply)
+  and Reducer / Remesher 2.0 (#454 hand-over). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
+  mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
+  a rollout by ROI. [platform.md](roadmap/platform.md#qa-20-milestone)
+- **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
+  2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
+  machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the
+  exclusive kills, full runs weekly. [platform.md](roadmap/platform.md)
+- **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
+  no verdict worse; Z3 pilot 3 #443). Coarsening closed (re-measured: −4.5 % triangles for +50 % mesher time).
+  Rule C on the snap grid is open.
+  [meshing2d.md](roadmap/meshing2d.md#open)
+- **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 1
+  done (stage 2 after the queue); the rest starts after the 2.0 milestones, next to the CLI / MCP update and a
+  Reducer / Remesher 2.0 milestone.
+- **Terrain:** paused since 2026-11-03; restarts with a DGM reader in the CLI, designed with `QualityMesh2`.
+  [terrain.md](roadmap/terrain.md#open)
 
 ## Open decisions (owner)
 
-- **Meshing2D, default mode near small angles:** a spec decision on O2 near small angles (owner 2026-11-06: needed
-  before the small-angle rule can apply to the conforming mode). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Meshing2D, Terminator:** a region-based oracle excuse would lower the guarantee near small input angles (a spec
   change; research item, not scheduled). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Exact booleans, second kernel:** EMBER levers 1 (quantized 26-bit inputs) and 5 (a new architecture) only as a
@@ -102,7 +108,6 @@ Planned, not started.
 - Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Meshing2D: the corner choice after #394 (MinSin2 against the exact shortest edge). [meshing2d.md](roadmap/meshing2d.md#open)
-- Meshing2D: lenses up to 28.6° (Rand, CCCG 2011). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: near-contact inputs (stmlf/1461), not measured. [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: SplitSegment speed; the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
@@ -122,6 +127,10 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
+- Intersection-free dual contouring (owner 2026-11-09: later, priority 4 of the Phase 5 list, after tet meshing):
+  [research.md](roadmap/research.md#open)
+- Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
+  [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - SMT checks with Z3 (pilot 1 merged in #400; pilot 2 started, see Next): [research.md](roadmap/research.md#smt-checks-with-z3)
 - Mesh-kernel ideas and EMBER: [exact-boolean.md](roadmap/exact-boolean.md#external-boolean-corpora-2026-11-04)
 - Geogram and other permissive libraries: [sources-surveys.md](roadmap/sources-surveys.md)

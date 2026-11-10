@@ -15,6 +15,15 @@ namespace Meshing2Acceptance
     /// </summary>
     public static partial class Oracle
     {
+        /// <summary> judge the grid split's pinch rule by the envelope approximation that the chain identity of the output's graph replaced (per thread; differential tests only) </summary>
+        public static bool LegacyEnvelopeChainForDifferential { get => Run.LegacyEnvelopeChainForDifferential; set => Run.LegacyEnvelopeChainForDifferential = value; }
+
+        /// <summary> the piece's own chain (OwnStretch) on a given graph, for the self-checks </summary>
+        public static HashSet<long> StretchOfForSelfCheck(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot) => Run.StretchOf(ia, ib, neighbours, isHot);
+
+        /// <summary> the key of a subsegment in a stretch (StretchOfForSelfCheck), the same for either orientation </summary>
+        public static long SubsegmentKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
         /// <summary>
         /// The mesher's pinch rule as the oracle applies it to a candidate split pixel q (MESHING2D_HULL_GRID.md section 7): q is no
         /// split point when it is no hot pixel of the input's own rounding and a subsegment of another chain ends there (the piece routed
@@ -694,6 +703,63 @@ namespace Meshing2Acceptance
 
 
 
+
+            /// <summary> set to judge the pinch rule by the envelope approximation that OwnStretch replaced (differential tests only) </summary>
+            [ThreadStatic] public static bool LegacyEnvelopeChainForDifferential;
+
+            static long SubKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+            Dictionary<int, List<int>> subsegmentNeighbours;
+            readonly Dictionary<long, HashSet<long>> ownStretchMemo = new Dictionary<long, HashSet<long>>();
+
+            /// <summary>
+            /// The piece's own chain, recomputed from the output's subsegment graph and the input alone: the piece with the subsegments
+            /// reached from either end through vertices that are no hot pixel of the input's rounding and have exactly two neighbouring
+            /// subsegment vertices. That is the link of the snap-rounded image between two hot pixels (or two branching vertices) that
+            /// the piece lies on, ie the part of one chain the mesher's "shares an input source" holds for, without the envelope
+            /// approximation: two chains that run within a pixel of each other along the piece are two chains here (rule C makes that
+            /// regime reachable: the zigzag of Q17). It relies on monotonicity: a straight input segment crosses each open pixel in one interval and
+            /// candidates project strictly between the piece's ends, so a vertex of the piece's own source in q's pixel can only be an end of the
+            /// piece (skipped as q); a stretch beyond a hot pixel is another input segment's chain. A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
+            /// another chain's: the pinch is a failing violation of its own. Returned as subsegment keys (SubKey)
+            /// </summary>
+            HashSet<long> OwnStretch(int ia, int ib)
+            {
+                long key = SubKey(ia, ib);
+                if (ownStretchMemo.TryGetValue(key, out var memo)) return memo;
+                if (subsegmentNeighbours == null) {
+                    subsegmentNeighbours = new Dictionary<int, List<int>>();
+                    foreach (var g in o.Subsegments ?? new List<SubsegmentOutput>()) {
+                        if (g.A == g.B) continue;
+                        if (!subsegmentNeighbours.TryGetValue(g.A, out var la)) subsegmentNeighbours[g.A] = la = new List<int>();
+                        if (!la.Contains(g.B)) la.Add(g.B);
+                        if (!subsegmentNeighbours.TryGetValue(g.B, out var lb)) subsegmentNeighbours[g.B] = lb = new List<int>();
+                        if (!lb.Contains(g.A)) lb.Add(g.A);
+                    }
+                }
+                var stretch = StretchOf(ia, ib, subsegmentNeighbours, x => snapHot.Contains(PixelOf(v[x], snapPixel)));
+                return ownStretchMemo[key] = stretch;
+            }
+
+
+            /// <summary> OwnStretch on a given graph (vertex to its neighbouring subsegment vertices) and hot-pixel test, from either end of the piece </summary>
+            internal static HashSet<long> StretchOf(int ia, int ib, Dictionary<int, List<int>> neighbours, Func<int, bool> isHot)
+            {
+                var stretch = new HashSet<long> { SubKey(ia, ib) };
+                foreach (var (start, from) in new[] { (ia, ib), (ib, ia) }) {
+                    int prev = from, x = start;
+                    var seen = new HashSet<int> { ia, ib };
+                    while (!isHot(x) && neighbours.TryGetValue(x, out var nb) && nb.Count == 2) {
+                        int next = nb[0] == prev ? nb[1] : nb[0];
+                        if (nb[0] != prev && nb[1] != prev) break;   // (a piece that is no subsegment of the output: only the self-checks)
+                        stretch.Add(SubKey(x, next));
+                        if (!seen.Add(next)) break;
+                        prev = x; x = next;
+                    }
+                }
+                return stretch;
+            }
+
             /// <summary> the grids over the subsegments' boxes and the vertices, in doubles (built once) </summary>
             void EnsureUnsplittableGrids()
             {
@@ -792,12 +858,12 @@ namespace Meshing2Acceptance
                             && subs.Any(g => (Same(v[g.A], q) && (g.B == ia || g.B == ib)) || (Same(v[g.B], q) && (g.A == ia || g.A == ib)))) continue;
                         // nor through a vertex of refinement that another chain already runs through: the two chains would meet there (a
                         // pinch; Q17 strict, the mesher's pinch rule in ValidGridSplit, no broader: q no hot pixel of the input's rounding,
-                        // and a subsegment ending in q's pixel that belongs to another chain, ie no own constraint's envelope holds both its
-                        // ends. By envelope, where the mesher goes by source: a subsegment along the piece within a pixel counts as its own
-                        // here, so the oracle may demand a split the mesher refuses, never excuse one it would make; the envelope a hair
-                        // wider, so that ties go to "own", ie to demanded; self-checks 5c, 5d)
+                        // and a subsegment ending in q's pixel that belongs to another chain, ie not in the piece's own stretch of the output's subsegment graph (OwnStretch)
+                        // ends. By chain identity recomputed from the output (OwnStretch), as the mesher goes by source; self-checks 5c, 5d)
                         if (PinchRuleExcludes(snapHot.Contains(PixelOf(q, snapPixel)),
-                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))))) continue;
+                            subs.Where(g => Same(v[g.A], q) || Same(v[g.B], q)).Select(g => LegacyEnvelopeChainForDifferential
+                                ? own.Any(s => InEnvelopeOf(s.a, s.b, v[g.A], wide) && InEnvelopeOf(s.a, s.b, v[g.B], wide))
+                                : OwnStretch(ia, ib).Contains(SubKey(g.A, g.B))))) continue;
                         bool ok = true;
                         foreach (var g in subs) {
                             Pt c = v[g.A], d = v[g.B];
@@ -2277,27 +2343,59 @@ namespace Meshing2Acceptance
                     var p = Pt.FromDoubles(seed[0], seed[1]);
                     if (domain.Classify(p) == Where.Inside) effectiveSeeds.Add(p);
                 }
-                if (domain.IsHull) {
+                // The grid (rule O-G, MESHING2D_HULL_GRID.md): with an explicit snap tolerance the output boundary is the input boundary
+                // snap-rounded, so a boundary vertex may lie off the input boundary, by at most GridTubePixels pixel (the image of an input
+                // edge lies in the Minkowski sum of the edge with a pixel, Guibas and Marimont 1998; D14: drift of half a pixel per axis).
+                // Computed from the output mesh and the input domain alone, not from the snapped domain.
+                // (not with an effective hole seed: the cell it removes is bounded by constraints that Domain.Edges() does not list)
+                bool grid = input.SnapTolerance > 0 && effectiveSeeds.Count == 0;
+                Q boundaryTube2 = tube2;
+                if (grid) { Q px = Q.FromDouble(input.SnapTolerance) * GridTubePixels; boundaryTube2 = Q.Max(tube2, px * px); }
+                if (domain.IsHull || grid) {
                     // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
                     // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
                     var hullEdges = domain.Edges().ToList();
+                    var checkedVertices = new HashSet<int>();
                     foreach (var pair in edges) {
                         if (pair.Value.Count != 1) continue;
                         foreach (int id in new[] { pair.Value[0].a, pair.Value[0].b }) {
+                            if (!checkedVertices.Add(id)) continue;
                             // (the edges within the tube only: the minimum counts only when it is within the tube, and then its edge is
                             // among them)
-                            var near = DomainEdgesNear(v[id], tube2);
+                            var near = DomainEdgesNear(v[id], boundaryTube2);
                             if (CheckFastPathForTests && hullEdges.Count > 0) {
                                 Q full = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
                                 Q got = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                                if (full <= tube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
+                                if (full <= boundaryTube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
                             }
                             // (no hull edge at all, every input point the same: the scan's minimum of nothing threw; the domain is degenerate
                             // and reported as such, TrianglesOnDegenerate)
-                            if (near.Count == 0) continue;
-                            Q d = near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                            if (d <= tube2) moved2 = Q.Max(moved2, d);
+                            if (hullEdges.Count == 0) continue;
+                            Q d = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                            if (near.Count == 0 || d > boundaryTube2) {
+                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary");
+                                continue;
+                            }
+                            moved2 = Q.Max(moved2, d);
                         }
+                    }
+                    if (grid && o.IdentityRules) {
+                        // the boundary edges between the vertices (a chain link between two pixel centres is straight, the input boundary is not):
+                        // their quarter points, as far from the input boundary as they are
+                        int far = 0;
+                        foreach (var pair in edges) {
+                            if (pair.Value.Count != 1) continue;
+                            Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
+                            foreach (var f in EighthPoints) {
+                                var pt = new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f);
+                                var nearEdges = DomainEdgesNear(pt, boundaryTube2);
+                                if (nearEdges.Count == 0) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                Q dd = nearEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, pt)).Aggregate(Q.Min);
+                                if (dd > boundaryTube2) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                moved2 = Q.Max(moved2, dd);
+                            }
+                        }
+                        InputBoundaryNearOutput(hullEdges, boundaryTube2);
                     }
                 }
                 // (C): the mesh area against the snapped domain with all hot pixels, a report (see OracleReport.MeshMinusSnappedArea)
@@ -2322,7 +2420,7 @@ namespace Meshing2Acceptance
                     bool constrained = constraintEdges.Contains(pair.Key);
                     if (domain.IsHull) {
                         // on a hull edge: within the tube of it, so exactly on it if the tube is 0
-                        bool hull = DomainEdgesNear(v[a], tube2).Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= tube2)
+                        bool hull = DomainEdgesNear(v[a], boundaryTube2).Any(s => Exact.Dist2ToSegment(s.a, s.b, v[a]) <= boundaryTube2 && Exact.Dist2ToSegment(s.a, s.b, v[b]) <= boundaryTube2)
                             || CutsMergedHullCorners(v[a], v[b]);
                         if (!hull && !(constrained && SourceCovers(a, b))) r.Add(e.Milestone == Milestone.M1 ? Violation.HullBoundary : Violation.BoundaryNotConstrained,
                             "boundary edge " + a + "-" + b + " neither on the hull nor on a constraint");
@@ -2355,6 +2453,59 @@ namespace Meshing2Acceptance
                 }
                 foreach (var p in e.Removed) if (LocateExact(Pt.FromDoubles(p[0], p[1])) >= 0) r.Add(Violation.RemovedPointCovered, "(" + p[0] + ", " + p[1] + ") must be in no triangle");
                 foreach (var p in e.Kept) if (LocateExact(Pt.FromDoubles(p[0], p[1])) < 0) r.Add(Violation.KeptPointMissing, "(" + p[0] + ", " + p[1] + ") must be in a triangle");
+            }
+
+            /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
+            const int GridTubePixels = 1;
+
+            // the points between the ends of an edge that rule O-G samples: the distance to a set is 1-Lipschitz, so between samples a
+            // chord of length L can be at most L/16 beyond the tube
+            static readonly Q[] EighthPoints = Enumerable.Range(1, 7).Select(k => new Q(k, 8)).ToArray();
+
+            /// <summary>
+            /// The other direction of rule O-G: points of the input boundary (the quarter points of its edges) lie within the grid tube of an
+            /// output boundary edge, or are collapsed or merged: within the tube of another input edge (a feature narrower than a pixel
+            /// vanishes in snap rounding, Q17, which also drops the other edge's boundary)
+            /// </summary>
+            void InputBoundaryNearOutput(List<(Pt a, Pt b)> inputEdges, Q tube2Grid)
+            {
+                var boundary = new List<(int a, int b)>();
+                foreach (var pair in edges) if (pair.Value.Count == 1) boundary.Add((pair.Value[0].a, pair.Value[0].b));
+                if (boundary.Count == 0) return;
+                // a grid over the output boundary edges' boxes, as the domain edges have one
+                var box = new double[4 * boundary.Count];
+                for (int k = 0; k < boundary.Count; ++k) SegmentBox(v[boundary[k].a], v[boundary[k].b], 0, box, 4 * k);
+                var index = e.Reference ? null : new BoxGrid(box, boundary.Count);
+                bool NearOutput(Pt p)
+                {
+                    IEnumerable<int> candidates = Enumerable.Range(0, boundary.Count);
+                    if (index != null && DistanceQueryBox(p, tube2Grid, out double xl, out double xh, out double yl, out double yh)) candidates = index.Query(xl, xh, yl, yh);
+                    foreach (int k in candidates) if (Exact.Dist2ToSegment(v[boundary[k].a], v[boundary[k].b], p) <= tube2Grid) return true;
+                    return false;
+                }
+                int reports = 0;
+                for (int i = 0; i < inputEdges.Count; ++i) {
+                    var ed = inputEdges[i];
+                    foreach (var f in EighthPoints) {
+                        var p = new Pt(ed.a.Qx + (ed.b.Qx - ed.a.Qx) * f, ed.a.Qy + (ed.b.Qy - ed.a.Qy) * f);
+                        if (NearOutput(p)) continue;
+                        // a part of a ring edge outside the domain (a hole reaching beyond the outer ring, D5) bounds nothing: the domain has
+                        // no interior just beside p on either side
+                        Q eps = new Q(1, 1 << 20);
+                        var side = new Pt(p.Qx - (ed.b.Qy - ed.a.Qy) * eps, p.Qy + (ed.b.Qx - ed.a.Qx) * eps);
+                        var other2 = new Pt(p.Qx + (ed.b.Qy - ed.a.Qy) * eps, p.Qy - (ed.b.Qx - ed.a.Qx) * eps);
+                        if (domain.Classify(side) != Where.Inside && domain.Classify(other2) != Where.Inside) continue;
+                        // collapsed or merged: another input edge within two tubes of p (also a neighbour at an acute corner: a wedge up to two
+                        // pixels wide collapses onto it; the area tolerance, measured on the output boundary, bounds what that can hide)
+                        bool collapsed = false;
+                        foreach (var other in DomainEdgesNear(p, tube2Grid * 4)) {
+                            if (other.a.Equals(ed.a) && other.b.Equals(ed.b) || other.a.Equals(ed.b) && other.b.Equals(ed.a)) continue;
+                            if (Exact.Dist2ToSegment(other.a, other.b, p) > tube2Grid * 4) continue;
+                            collapsed = true; break;
+                        }
+                        if (!collapsed && reports++ < 8) r.Add(Violation.BoundaryOutsideTube, "the input boundary near " + p + " has no output boundary within " + GridTubePixels + " pixel");
+                    }
+                }
             }
 
             bool NearBoundary(Pt p) => DomainEdgesNear(p, moved2).Any(s => Exact.Dist2ToSegment(s.a, s.b, p) <= moved2);
@@ -3225,11 +3376,19 @@ namespace Meshing2Acceptance
                         if (!below && atHigh && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, SmallPairSin2(slack)) || AtPrecisionLimit(t) || Zone(t, low)) continue;
                     if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t) || CircumcentreBehindO11Unsplittable(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
+
+            /// <summary>
+            /// The sine squared below which two input segments count as a small input angle for the excuse of <see cref="SpansSmallInputAngle(int[], Q)"/>:
+            /// that of 60 degrees less the slack, whatever the angle bound (owner decision 2026-11-09). Refinement towards the apex of an
+            /// input angle below 60 degrees may not terminate (Shewchuk 2002, section 6.2: Ruppert's and Chew's proofs need input angles of
+            /// at least 60 degrees), so the mesher stops there and the oracle excuses the triangles it leaves, as for an angle below the bound
+            /// </summary>
+            static Q SmallPairSin2(Q slack) => new Q(3, 4) - slack;
 
             Dictionary<int, List<int>> ConstraintsAround()
             {
@@ -3595,7 +3754,7 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// The shortest edge of t spans a small input angle: its ends lie in the tubes of two input constraints that meet on both of
-            /// them at an angle below the bound, at distances from the apex within a factor of 1.5, on the same side of it. Such a triangle
+            /// them at an angle below 60 degrees (SmallPairSin2), at distances from the apex within a factor of 1.5, on the same side of it. Such a triangle
             /// cannot be improved without refining towards the apex for ever (Shewchuk 2002, small input angles; plan, section 6). Found
             /// with M3 at inputs where several segments cross at small angles (F-4, F-39).
             /// </summary>

@@ -6,18 +6,26 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/TerrainSlopeOverlay.cs"
+      "**/mesh_ops/PolyhedralEnvelope.cs{11013..17079}"
     ],
-    "test-case-filter": "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains",
-    "coverage-analysis": "perTest",
+    "test-case-filter": "FullyQualifiedName~PolyhedralEnvelopeTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
+    "coverage-analysis": "all",
     "configuration": "Release",
-    "additional-timeout": 10000,
+    "additional-timeout": 30000,
     "reporters": [
       "progress",
       "html",
       "json",
       "markdown"
     ],
-    "concurrency": 4
+    "thresholds": {
+      "high": 97,
+      "low": 76,
+      "break": 74
+    },
+    "concurrency": 2
   }
 }

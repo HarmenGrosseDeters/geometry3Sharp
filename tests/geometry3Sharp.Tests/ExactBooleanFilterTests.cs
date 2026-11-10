@@ -62,6 +62,7 @@ namespace geometry3Sharp.Tests
 
         // d moved off the plane of a, b, c by growing powers of two: the first offsets where the filter decides are
         // within a factor of about 2 of its error bound, where a bound that is too small gives wrong signs
+        [Trait("Category", "Slow")]
         [Fact]
         public void Orient3dFiltered_SignHoldsAtAllCornersOfTheErrorBoxes()
         {

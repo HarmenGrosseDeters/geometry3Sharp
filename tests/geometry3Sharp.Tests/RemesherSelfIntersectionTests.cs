@@ -89,6 +89,7 @@ namespace geometry3Sharp.Tests
             yield return ("gear40_1_x1 q0", Gear(40, 0.25, 1), 1.0, 0);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Primitives_NoSelfIntersections()
         {
@@ -118,6 +119,7 @@ namespace geometry3Sharp.Tests
             Assert.True(pairsWithout > 0, $"{pairsWithout} pairs without the option");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RemesherPro_NoSelfIntersections()
         {
@@ -416,6 +418,7 @@ namespace geometry3Sharp.Tests
             Assert.True(pairs > 5000 && hits > 50, $"{pairs} pairs, {hits} intersecting");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameResultUnderSimilarity(string name)
@@ -432,6 +435,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(back));
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void Gear_SameResultUnderSimilarity(string name)
@@ -460,6 +464,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(m0, Remesh(input, edge, 0, true, true)));
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

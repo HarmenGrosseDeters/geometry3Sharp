@@ -1,0 +1,387 @@
+diff --git a/benchmarks/BooleanComparison/D1Probe.cs b/benchmarks/BooleanComparison/D1Probe.cs
+new file mode 100644
+index 0000000..007db9b
+--- /dev/null
++++ b/benchmarks/BooleanComparison/D1Probe.cs
+@@ -0,0 +1,63 @@
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++using System.Globalization;
++using System.Linq;
++using g3;
++using gs;
++
++// scratch probe (not committed): per model and operation, the rounding under the rule chosen by G3_D1, and a sampled
++// Hausdorff distance between the rounded result without the repair and the repaired one
++static class D1Probe
++{
++    static double Sampled(DMesh3 from, DMesh3 to)
++    {
++        var tree = new DMeshAABBTree3(to, true);
++        double worst = 0;
++        object gate = new object();
++        gParallel.ForEach(from.TriangleIndices(), t => {
++            Index3i tv = from.GetTriangle(t);
++            Vector3d a = from.GetVertex(tv.a), b = from.GetVertex(tv.b), c = from.GetVertex(tv.c);
++            double m = 0;
++            foreach (Vector3d p in new[] { a, b, c, (a + b) / 2, (b + c) / 2, (c + a) / 2, (a + b + c) / 3 }) {
++                int near = tree.FindNearestTriangle(p);
++                var d = new DistPoint3Triangle3(p, new Triangle3d(to.GetVertex(to.GetTriangle(near).a), to.GetVertex(to.GetTriangle(near).b), to.GetVertex(to.GetTriangle(near).c)));
++                d.GetSquared();
++                m = Math.Max(m, p.Distance(d.TriangleClosest));
++            }
++            lock (gate) worst = Math.Max(worst, m);
++        });
++        return worst;
++    }
++
++    public static int Run(string[] files)
++    {
++        var ops = new[] { ("union", ExactMeshBoolean.Operations.Union), ("intersection", ExactMeshBoolean.Operations.Intersection), ("difference", ExactMeshBoolean.Operations.Difference) };
++        foreach (string f in files) {
++            DMesh3 a = Program.Load(f);
++            if (a == null) { Console.WriteLine($"{f} load failed"); continue; }
++            DMesh3 b = new DMesh3(a);
++            AxisAlignedBox3d bounds = a.CachedBounds;
++            MeshTransforms.Rotate(b, bounds.Center, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
++            MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
++            foreach (var (name, o) in ops) {
++                var sw = Stopwatch.StartNew();
++                var op = new ExactMeshBoolean(a, b, o);
++                bool ok = op.Compute();
++                sw.Stop();
++                MeshRoundingRepair r = op.Rounding;
++                string id = System.IO.Path.GetFileNameWithoutExtension(f);
++                if (ok == false || r == null) { Console.WriteLine($"model={id} op={name} ok={ok} error={op.Error}"); continue; }
++                string hd = "";
++                if (Environment.GetEnvironmentVariable("G3_D1_HAUSDORFF") == "1") {
++                    var raw = new ExactMeshBoolean(a, b, o) { SafeRounding = false };
++                    raw.Compute();
++                    double h1 = Sampled(op.Result, raw.Result), h2 = Sampled(raw.Result, op.Result);
++                    hd = FormattableString.Invariant($" sampledH_S_to_S0={h1 / r.MaxLength:F4} sampledH_S0_to_S={h2 / r.MaxLength:F4}");
++                }
++                Console.WriteLine(FormattableString.Invariant($"model={id} op={name} rule={(MeshRoundingRepair.RefRule ? "ref" : "apex")} tris={op.Result.TriangleCount} initDeg={r.InitialDegenerate} remDeg={r.RemainingDegenerate} remInt={r.RemainingIntersections} roundingClean={op.RoundingClean} notClean='{MeshRobustRepair.NotCleanReason(op.Result)}' maxDrift={r.MaxDrift / r.MaxLength:F4} smallestRejected={r.SmallestRejectedDrift / r.MaxLength:F4} collapses={r.Collapses} flips={r.Flips} moves={r.Moves} zips={r.Zips} strips={r.StripZips} removals={r.VertexRemovals} removedComponents={r.RemovedComponents} limit={r.EvaluationLimitReached} refDisp={r.RefDisplacementEdits} refGen={r.RefGenericEdits} ghosts={r.RefGhosts} lost={r.RefLostGhosts} ms={sw.ElapsedMilliseconds}{hd}"));
++            }
++        }
++        return 0;
++    }
++}
+diff --git a/benchmarks/BooleanComparison/Program.cs b/benchmarks/BooleanComparison/Program.cs
+index 70f7c14..2ff9513 100644
+--- a/benchmarks/BooleanComparison/Program.cs
++++ b/benchmarks/BooleanComparison/Program.cs
+@@ -48,6 +48,7 @@ static class Program
+     {
+         switch (args[0]) {
+             case "export": return Export(args[1], args[2]);
++            case "d1": return D1Probe.Run(args.Skip(1).ToArray());
+             case "pair": return Pair(args[1], args[2], args[3]);
+             case "components": return Components(args[1], args[2]);
+             case "array": return ArrayCase(args[1], args[2], int.Parse(args[3]));
+diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
+index d334799..f6ac113 100644
+--- a/mesh_ops/MeshRoundingRepair.cs
++++ b/mesh_ops/MeshRoundingRepair.cs
+@@ -266,6 +266,151 @@ namespace g3
+         // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
+         // applied
+         double[] drift;
++        // PROTOTYPE (D1 reference rule, docs/design/SAFE_ROUNDING_D1_DRIFT.md): per triangle its reference corners and
++        // carried bound; ghosts per vertex
++        internal static bool RefRule = Environment.GetEnvironmentVariable("G3_D1") == "ref";
++        internal long RefDisplacementEdits, RefGenericEdits, RefGhosts, RefLostGhosts;
++        sealed class Ghost { public int r0, r1, r2; public Vector3d a0, a1, a2; public double c; public bool dead; }
++        Vector3d[] refAnchor; double[] refCarry;
++        Dictionary<int, List<Ghost>> ghostsAt;
++        readonly List<Ghost> pendingGhosts = new List<Ghost>();
++        readonly List<Ghost> pendingLost = new List<Ghost>();
++        bool editIsDisplacement;
++        void ref_grow(int tid) {
++            if (3 * tid + 2 >= refAnchor.Length) {
++                int n = Math.Max(2 * refAnchor.Length, 3 * tid + 3);
++                Array.Resize(ref refAnchor, n); Array.Resize(ref refCarry, n / 3 + 1);
++            }
++        }
++        void ref_init() {
++            refAnchor = new Vector3d[3 * Mesh.MaxTriangleID + 3]; refCarry = new double[Mesh.MaxTriangleID + 1];
++            foreach (int t in Mesh.TriangleIndices()) {
++                Index3i tv = Mesh.GetTriangle(t);
++                for (int k = 0; k < 3; ++k) refAnchor[3 * t + k] = Mesh.GetVertex(tv[k]);
++            }
++            ghostsAt = new Dictionary<int, List<Ghost>>();
++            RefDisplacementEdits = RefGenericEdits = RefGhosts = RefLostGhosts = 0;
++        }
++        double ref_bound(int t) {
++            Index3i tv = Mesh.GetTriangle(t);
++            double m = 0;
++            for (int k = 0; k < 3; ++k) m = Math.Max(m, Mesh.GetVertex(tv[k]).Distance(refAnchor[3 * t + k]));
++            return refCarry[t] + m;
++        }
++        Vector3d ref_pos(int v, int moved, int gone, Vector3d p) { return (v == moved || v == gone) ? p : Mesh.GetVertex(v); }
++        double ghost_bound(Ghost g, int moved, int gone, Vector3d p) {
++            double m = Math.Max(ref_pos(g.r0, moved, gone, p).Distance(g.a0), Math.Max(ref_pos(g.r1, moved, gone, p).Distance(g.a1), ref_pos(g.r2, moved, gone, p).Distance(g.a2)));
++            return g.c + m;
++        }
++        // the bound of the proposed edit under the reference rule; false if beyond the bound
++        bool ref_propose(double step, double bound) {
++            pendingGhosts.Clear(); pendingLost.Clear();
++            int mv = movedV, gone = vanishing; Vector3d p = movedPos;
++            editIsDisplacement = mv >= 0;
++            double worst = 0;
++            if (editIsDisplacement) {
++                var has = new bool[removed.Count];
++                for (int i = 0; i < added.Count; ++i) {
++                    int t = removed[addedFrom[i]]; has[addedFrom[i]] = true;
++                    Index3i tv = added[i];
++                    double m = 0;
++                    for (int k = 0; k < 3; ++k) m = Math.Max(m, ref_pos(tv[k], mv, gone, p).Distance(refAnchor[3 * t + k]));
++                    worst = Math.Max(worst, refCarry[t] + m);
++                }
++                for (int i = 0; i < removed.Count; ++i) {
++                    if (has[i]) continue;
++                    int t = removed[i]; Index3i tv = Mesh.GetTriangle(t);
++                    var g = new Ghost { r0 = tv.a == gone ? mv : tv.a, r1 = tv.b == gone ? mv : tv.b, r2 = tv.c == gone ? mv : tv.c,
++                        a0 = refAnchor[3 * t], a1 = refAnchor[3 * t + 1], a2 = refAnchor[3 * t + 2], c = refCarry[t] };
++                    pendingGhosts.Add(g);
++                    worst = Math.Max(worst, ghost_bound(g, mv, gone, p));
++                }
++                foreach (int v in new[] { mv, gone }) {
++                    List<Ghost> list;
++                    if (v >= 0 && ghostsAt.TryGetValue(v, out list))
++                        foreach (Ghost g in list)
++                            if (g.dead == false) worst = Math.Max(worst, ghost_bound(g, mv, gone, p));
++                }
++                editDrift = worst;
++            } else {
++                var removedSet = new HashSet<int>(removed);
++                var vr = new HashSet<int>(); var va = new HashSet<int>();
++                foreach (int t in removed) { Index3i tv = Mesh.GetTriangle(t); vr.Add(tv.a); vr.Add(tv.b); vr.Add(tv.c); worst = Math.Max(worst, ref_bound(t)); }
++                foreach (Index3i tv in added) { va.Add(tv.a); va.Add(tv.b); va.Add(tv.c); }
++                Func<int, bool> vertexStays = v => {
++                    if (va.Contains(v)) return true;
++                    foreach (int t in Mesh.VtxTrianglesItr(v)) if (removedSet.Contains(t) == false) return true;
++                    return false; };
++                Func<int, int, bool> edgeStays = (u, v) => {
++                    foreach (Index3i tv in added) {
++                        bool hu = tv.a == u || tv.b == u || tv.c == u, hv = tv.a == v || tv.b == v || tv.c == v;
++                        if (hu && hv) return true;
++                    }
++                    int eid = Mesh.FindEdge(u, v);
++                    if (eid < 0) return false;
++                    Index2i et = Mesh.GetEdgeT(eid);
++                    return (et.a >= 0 && removedSet.Contains(et.a) == false) || (et.b >= 0 && removedSet.Contains(et.b) == false); };
++                var seen = new HashSet<Ghost>();
++                foreach (int v in vr) {
++                    List<Ghost> list;
++                    if (ghostsAt.TryGetValue(v, out list) == false) continue;
++                    foreach (Ghost g in list) {
++                        if (g.dead || seen.Add(g) == false) continue;
++                        var reps = new List<int> { g.r0 };
++                        if (reps.Contains(g.r1) == false) reps.Add(g.r1);
++                        if (reps.Contains(g.r2) == false) reps.Add(g.r2);
++                        bool stays = true;
++                        foreach (int r in reps) stays = stays && vertexStays(r);
++                        if (stays && reps.Count == 2) stays = edgeStays(reps[0], reps[1]);
++                        if (stays && reps.Count == 3) throw new InvalidOperationException("ghost with three reps");
++                        if (stays == false) { pendingLost.Add(g); worst = Math.Max(worst, ghost_bound(g, -2, -2, Vector3d.Zero)); }
++                    }
++                }
++                editDrift = worst + step;
++            }
++            if (!(step >= 0) || !(editDrift <= bound)) {
++                if (step >= 0 && editDrift < SmallestRejectedDrift) SmallestRejectedDrift = editDrift;
++                return false;
++            }
++            return true;
++        }
++        void ghost_add(int v, Ghost g) {
++            List<Ghost> list;
++            if (ghostsAt.TryGetValue(v, out list) == false) ghostsAt[v] = list = new List<Ghost>();
++            if (list.Contains(g) == false) list.Add(g);
++        }
++        void ref_commit(int keptV, int goneV) {
++            if (editIsDisplacement) {
++                RefDisplacementEdits++;
++                // the surviving triangles keep ids and corner slots (checked)
++                for (int i = 0; i < added.Count; ++i) {
++                    int t = removed[addedFrom[i]];
++                    if (Mesh.IsTriangle(t) == false || Mesh.GetTriangle(t) != added[i])
++                        throw new InvalidOperationException("ref rule: triangle " + t + " did not keep its slots");
++                }
++                List<Ghost> list;
++                if (goneV >= 0 && ghostsAt.TryGetValue(goneV, out list)) {
++                    foreach (Ghost g in list) {
++                        if (g.r0 == goneV) g.r0 = keptV; if (g.r1 == goneV) g.r1 = keptV; if (g.r2 == goneV) g.r2 = keptV;
++                        ghost_add(keptV, g);
++                    }
++                    ghostsAt.Remove(goneV);
++                }
++                foreach (Ghost g in pendingGhosts) { RefGhosts++; ghost_add(g.r0, g); ghost_add(g.r1, g); ghost_add(g.r2, g); }
++            } else {
++                RefGenericEdits++;
++                foreach (Ghost g in pendingLost) { g.dead = true; RefLostGhosts++; }
++                foreach (Index3i tv in added) {
++                    int t = Mesh.FindTriangle(tv.a, tv.b, tv.c);
++                    if (t < 0) throw new InvalidOperationException("ref rule: added triangle not found");
++                    ref_grow(t);
++                    Index3i mv = Mesh.GetTriangle(t);
++                    for (int k = 0; k < 3; ++k) refAnchor[3 * t + k] = Mesh.GetVertex(mv[k]);
++                    refCarry[t] = editDrift;
++                }
++            }
++            MaxDrift = Math.Max(MaxDrift, editDrift);
++        }
+         readonly List<int> editVerts = new List<int>();
+         double editDrift;
+         // the proposed edit's apex, a vertex of every triangle it adds (-1: none, or nothing added): only the apex gets
+@@ -352,6 +497,7 @@ namespace g3
+             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             MaxDrift = 0;
+             drift = new double[Mesh.MaxVertexID];
++            if (RefRule) ref_init();
+             touched.Clear();
+             inputBoundary.Clear();
+             inputBoundaryEdges.Clear();
+@@ -1054,6 +1200,10 @@ namespace g3
+             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
+             double step = hasSurface ? surface : displacement;
+             // (the bound of the edit's component: edits stay within one)
++            if (RefRule) {
++                if (ref_propose(step, editVerts.Count > 0 ? maxLength_of(editVerts[0]) : double.NaN) == false)
++                    return false;
++            } else
+             if (within_bound(most, step, editVerts.Count > 0 ? maxLength_of(editVerts[0]) : double.NaN) == false)
+                 return false;
+             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
+@@ -1180,8 +1330,10 @@ namespace g3
+         // edit's drift, else every vertex of the removed and added triangles (docs/design/ROUNDING_DRIFT_APEX.md: every
+         // added triangle then has a vertex with the new drift, and the invariant needs no more; untouched triangles keep
+         // their vertices' drifts, which do not decrease)
++        int refKept = -1, refGone = -1;
+         void commit_drift()
+         {
++            if (RefRule) { ref_commit(refKept, refGone); refKept = refGone = -1; return; }
+             if (editApex >= 0) {
+                 if (check) {
+                     // (against the mesh after the edit: every added triangle is there, with the apex)
+@@ -1336,6 +1488,7 @@ namespace g3
+             foreach (int t in Mesh.VtxTrianglesItr(b))
+                 mark_dirty(t);
+             touched.Add(b);
++            refKept = b; refGone = a;
+             commit_drift();
+             Collapses++;
+             return true;
+diff --git a/tests/geometry3Sharp.Tests/D1ProbeTmp.cs b/tests/geometry3Sharp.Tests/D1ProbeTmp.cs
+new file mode 100644
+index 0000000..9204af5
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/D1ProbeTmp.cs
+@@ -0,0 +1,106 @@
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++using System.IO;
++using System.Linq;
++using g3;
++using gs;
++using Xunit;
++using Ops = g3.ExactMeshBoolean.Operations;
++
++namespace geometry3Sharp.Tests
++{
++    public class D1ProbeTmp
++    {
++        const double Diagonal = 3.4641016151377544;
++        static DMesh3 DensePatchSphere(double radius, double edge)
++        {
++            var g = new Sphere3Generator_NormalizedCube() { EdgeVertices = 16, Radius = 1 };
++            g.Generate();
++            DMesh3 m = g.MakeDMesh();
++            Vector3d p = new Vector3d(-1, -1, -1).Normalized;
++            for (int pass = 0; pass < 200; ++pass) {
++                var split = new List<(int e, double len)>();
++                foreach (int e in m.EdgeIndices()) {
++                    Index2i ev = m.GetEdgeV(e);
++                    Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
++                    double len = a.Distance(b);
++                    if (len > edge && ((a + b) * 0.5).Distance(p) < radius + len)
++                        split.Add((e, len));
++                }
++                if (split.Count == 0)
++                    break;
++                foreach (var (e, _) in split.OrderByDescending(x => x.len).ThenBy(x => x.e)) {
++                    if (!m.IsEdge(e))
++                        continue;
++                    Index2i ev = m.GetEdgeV(e);
++                    if (m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) <= edge)
++                        continue;
++                    if (m.SplitEdge(e, out DMesh3.EdgeSplitInfo s) == MeshResult.Ok)
++                        m.SetVertex(s.vNew, m.GetVertex(s.vNew).Normalized);
++                }
++            }
++            return m;
++        }
++
++        [Fact]
++        public void Probe()
++        {
++            string outPath = Environment.GetEnvironmentVariable("G3_D1_OUT");
++            var lines = new List<string>();
++            foreach (double rad in new[] { 1e-5, 3e-5, 1e-4, 2e-4 })
++                foreach (double edge in new[] { 3.3e-6, 1.5e-6 }) {
++                    DMesh3 a = DensePatchSphere(rad * Diagonal, edge * Diagonal);
++                    DMesh3 b = new DMesh3(a);
++                    AxisAlignedBox3d box = a.CachedBounds;
++                    MeshTransforms.Rotate(b, box.Center, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
++                    MeshTransforms.Translate(b, 0.25 * new Vector3d(box.Width, box.Height, box.Depth));
++                    var sw = Stopwatch.StartNew();
++                    var op = new ExactMeshBoolean(a, b, Ops.Union);
++                    bool ok = op.Compute();
++                    sw.Stop();
++                    MeshRoundingRepair r = op.Rounding;
++                    lines.Add(FormattableString.Invariant($"rule={(MeshRoundingRepair.RefRule ? "ref" : "apex")} rad={rad} edge={edge} tris={a.TriangleCount} ok={ok} initDeg={r.InitialDegenerate} remDeg={r.RemainingDegenerate} remInt={r.RemainingIntersections} clean={op.RoundingClean} maxDrift={r.MaxDrift / r.MaxLength:F4} smallestRejected={r.SmallestRejectedDrift / r.MaxLength:F4} collapses={r.Collapses} flips={r.Flips} moves={r.Moves} zips={r.Zips} strips={r.StripZips} removals={r.VertexRemovals} limit={r.EvaluationLimitReached} refDisp={r.RefDisplacementEdits} refGen={r.RefGenericEdits} ghosts={r.RefGhosts} lost={r.RefLostGhosts} notClean='{MeshRobustRepair.NotCleanReason(op.Result)}' ms={sw.ElapsedMilliseconds}"));
++                }
++            File.AppendAllLines(outPath, lines);
++        }
++
++        static double Sampled(DMesh3 from, DMesh3 to)
++        {
++            var tree = new DMeshAABBTree3(to, true);
++            double worst = 0;
++            foreach (int t in from.TriangleIndices()) {
++                Index3i tv = from.GetTriangle(t);
++                Vector3d a = from.GetVertex(tv.a), b = from.GetVertex(tv.b), c = from.GetVertex(tv.c);
++                foreach (Vector3d p in new[] { a, b, c, (a + b) / 2, (b + c) / 2, (c + a) / 2, (a + b + c) / 3 }) {
++                    int near = tree.FindNearestTriangle(p);
++                    Index3i nv = to.GetTriangle(near);
++                    var d = new DistPoint3Triangle3(p, new Triangle3d(to.GetVertex(nv.a), to.GetVertex(nv.b), to.GetVertex(nv.c)));
++                    d.GetSquared();
++                    worst = Math.Max(worst, p.Distance(d.TriangleClosest));
++                }
++            }
++            return worst;
++        }
++
++        [Fact]
++        public void Probe2()
++        {
++            string outPath = Environment.GetEnvironmentVariable("G3_D1_OUT");
++            var lines = new List<string>();
++            foreach (double rad in new[] { 5e-6, 1e-5, 2e-5 })
++                foreach (double edge in new[] { 2.5e-6, 2e-6, 1.5e-6 })
++                    foreach (double md in new[] { 1e-5, 4e-5 }) {
++                    DMesh3 start = DensePatchSphere(rad * Diagonal, edge * Diagonal), m = new DMesh3(start);
++                    var sw = Stopwatch.StartNew();
++                    var r = new MeshRoundingRepair(m) { MaxDisplacement = md };
++                    r.Apply();
++                    sw.Stop();
++                    double h1 = Sampled(m, start), h2 = Sampled(start, m);
++                    double L = 1e-5 * Diagonal;
++                    lines.Add(FormattableString.Invariant($"direct rule={(MeshRoundingRepair.RefRule ? "ref" : "apex")} rad={rad} edge={edge} md={md} tris={start.TriangleCount} initDeg={r.InitialDegenerate} remDeg={r.RemainingDegenerate} clean={r.IsClean} maxDrift/L={r.MaxDrift / L:F4} rej/L={r.SmallestRejectedDrift / L:F4} H/L={h1 / L:F4},{h2 / L:F4} collapses={r.Collapses} flips={r.Flips} moves={r.Moves} zips={r.Zips} limit={r.EvaluationLimitReached} ms={sw.ElapsedMilliseconds}"));
++                }
++            File.AppendAllLines(outPath, lines);
++        }
++    }
++}

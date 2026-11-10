@@ -9,6 +9,23 @@
 This note comes before the code; the PR follows it. Revised after two reviews: B1 fixed by #396; B2 (region), B3 (literature) and the second
 review's points (v restricted as in §6.2, exact pairing, §6.2 differences) below.
 
+## Update 2026-11-09: the pair threshold is 60 degrees
+
+**Owner decision 2026-11-09**, after the CsCheck campaign of `QualityMesh2` against the oracle (QA 2.0 T5) found that a hull domain of four
+points and two segments (`(0, 4)-(4, 3)` and `(2, 3)-(2, 0)`, bound 20 degrees, input angle 26.6 degrees at `(2, 0)`) refined towards the apex down to
+1e-12 and left a triangle below the bound, which the oracle did not excuse. Input angles between the bound and 60 degrees were the gap named in
+the §6.2 comparison below ("an incident segment at an angle between θ and 60°"): Ruppert's and Chew's termination arguments, and Shewchuk's
+(2002, section 6.2, Figure 24 cycle at 60 degrees or less), need input angles of at least 60 degrees.
+
+- **The threshold** of a small pair, in the mesher (`Refiner.PairOf`, `SmallPairSin2`) and in the oracle's excuse for a shortest edge that spans an
+  input angle (`SpansSmallInputAngle`, `SmallPairSin2`), is the sine squared of 60 degrees less the slack, whatever the angle bound. The other
+  excuses (an angle forced by the input, the merge zone, the Shewchuk-bound clause for a triangle at the apex) keep the bound.
+- **What follows:** the rule against the cascade (`ApexExempt`, both modes) and the triangle excuse (`SpansSmallAngle` / the oracle) work for input
+  angles below 60 degrees; triangles at such corners may lie below the bound, are listed in `BadTriangles`, and the oracle excuses them by the same
+  rule. Golden rows of M3 and M3 constrained changed with this reason: fewer vertices (f-4/a: 1994 to 1266 vertices), more bad triangles.
+- **Termination is still measured, not proven**, as before (end of section 2).
+- Where the text below says "below θ", read "below 60 degrees" for the pair angle.
+
 ## 1. Diagnosis (measured, master 14d744f0)
 
 The large triangle-count outliers of the reference comparison come from a cascade of subsegment splits towards the apex of a small input angle. The
@@ -336,5 +353,5 @@ and three in `MeetKind`. Surviving: the same-source check (equivalent: a pair (a
   - An exact test (as `MeetKind`) would fix both and stay oracle-consistent; measured first.
 - The cascade through causes 1 and 2 (cdt): the Terminator, with a wider oracle excuse, is the ROADMAP research item.
 - The near-contact features of cdt and stmlf (a vertex very close to a segment it does not touch).
-- Lenses up to 28.6° (Rand, CCCG 2011), later.
+- Lenses up to 28.6°: not applicable, Rand's bound is for Chew's second algorithm, not for lenses (meshing2d.md, Open).
 - The O2 question for the default mode (#390 section 6, owner).

@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <!-- polygon2d: the optional Clipper2 adapter (Boost-1.0; the core library stays free of the dependency) -->
+    <ProjectReference Include="..\..\addons\geometry3Sharp.Clipper2\geometry3Sharp.Clipper2.csproj" />
   </ItemGroup>
 
 </Project>

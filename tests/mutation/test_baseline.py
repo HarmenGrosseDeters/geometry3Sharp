@@ -5,9 +5,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
+import ast
+import hashlib
+import inspect
+
 import baseline
+import incremental
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,7 +32,44 @@ REPORT = {"schemaVersion": "2", "thresholds": {"high": 80, "low": 60}, "projectR
 }}
 
 
+# The cache key of a baseline holds BASELINE_FORMAT (a file) instead of the hashes of this script and incremental.py:
+# an edit of a comment, of this file or of an unrelated function then keeps every shard's baseline.
+# The FORMAT of a baseline is what baseline.py stores (relative_key, strip: which files, under which keys, with which
+# fields of Stryker's report) and how incremental.py finds its file in it (baseline_file). When one of these changes
+# (this test fails, comments and docstrings do not count), decide: does an OLD baseline still give the same results
+# through the new code? If not, bump BASELINE_FORMAT, so that every shard runs in full once and stores a new baseline
+# (the next weekly or dispatched run on master seeds them); if so, only update the fingerprint. The fields plan and merge
+# READ are pinned by test_incremental.test_plan_and_merge_read_only_these_baseline_fields (a new field read fails it).
+# Changes of the matching, counting or scoring logic (changes, spans_of, touches, MIN_UNCHANGED, COUNTED, score)
+# interpret old and new baselines alike: no bump, but a change to incremental.py runs the fixed shard in full
+# (select_shards.SCRIPTS).
+FORMAT_FUNCTIONS = (baseline.relative_key, baseline.strip, incremental.baseline_file)
+FORMAT_FINGERPRINT = "4d27a042442e800c"
+
+
+def without_docstrings(tree):
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)) and node.body \
+                and isinstance(node.body[0], ast.Expr) and isinstance(getattr(node.body[0], "value", None), ast.Constant) \
+                and isinstance(node.body[0].value.value, str):
+            node.body = node.body[1:] or [ast.Pass()]
+    return tree
+
+
+def format_fingerprint():
+    h = hashlib.sha256()
+    for f in FORMAT_FUNCTIONS:
+        h.update(ast.dump(without_docstrings(ast.parse(textwrap.dedent(inspect.getsource(f))))).encode())
+    return h.hexdigest()[:16]
+
+
 class Baseline(unittest.TestCase):
+    def test_a_change_of_the_baseline_format_functions_needs_a_decision_on_BASELINE_FORMAT(self):
+        self.assertEqual(FORMAT_FINGERPRINT, format_fingerprint(),
+                         "the functions that write or read the baseline changed: bump tests/mutation/BASELINE_FORMAT if an "
+                         "old baseline would give other results (README, Baseline), then set FORMAT_FINGERPRINT to "
+                         + format_fingerprint())
+
     def test_strip_keeps_only_files_with_tested_mutants_under_relative_keys(self):
         stripped = baseline.strip(REPORT)
         self.assertEqual(["mesh_ops/MeshRoundingRepair.cs"], list(stripped["files"]))

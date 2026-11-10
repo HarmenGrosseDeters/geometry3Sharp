@@ -192,7 +192,7 @@ namespace g3
             // the edges of the new triangles that remain (directed as in their first triangle: an EdgeKey puts the
             // smaller point id first, and point ids depend on the thread schedule)
             var flipQueue = new List<long>();
-            var queued = new HashSet<long>();
+            var queued = new HashSet<long>(EdgeKeyComparer.Instance);
             for (int i = first; i < Tris.Count; ++i)
                 if (alive[i])
                     for (int k = 0; k < 3; ++k) {
@@ -423,7 +423,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void delaunay(List<long> queue)
         {
-            var pending = new HashSet<long>();
+            var pending = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long d in queue)
                 pending.Add(ExactMeshArrangement.EdgeKey((int)(d >> 32), (int)(d & 0xFFFFFFFF)));
             var work = new Queue<long>(queue);

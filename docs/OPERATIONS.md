@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, `geodesic`, the batch queries `query3d`, the polygon booleans and offsets `polygon2d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -91,7 +91,11 @@ run the edge the same way are not joined, and the result is open along the edge;
 - **Solids that touch along an edge give a result that is non-manifold there**, as in Manifold. The union of two
   boxes that share only an edge is two solids meeting in a line: the four triangles at the edge are split into two
   manifold pairs, with copies of the edge's vertices (`NonManifoldEdges` counts these edges), so the `DMesh3` is
-  closed and manifold, but welded by position the edge has four triangles.
+  closed and manifold, but welded by position the edge has four triangles. `Contacts` counts the positions with two or
+  more vertices (points and edges where the solid touches itself), so that a caller that welds (eg writes STL) knows;
+  the in-memory result is the clean one (owner decision 2026-11-07, as Manifold). Two *different* exact points that
+  round to one double are not such a contact: `SafeRounding` separates them by a tiny, exactly checked move, and
+  `RoundingClean` requires none left (`Rounding.InitialFalseContacts`, `RemainingFalseContacts`).
   `MeshRobustRepair.SeparateTouchingVertices` moves such contacts apart if a strictly manifold mesh is needed.
 
 ## The examples
@@ -118,6 +122,11 @@ boolean.Compute();
 bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
 ```
 
+"The diagonal" of the tolerances is the diagonal of the result's largest connected component, not of the bounding box of
+all components: a small part far away (eg 1e8 off) does not make the others' triangles degenerate. Only the ulp term
+below is per component. A long thin component still sets the diagonal for all (eg a rod of length 1e8 makes a unit part
+"tiny", and it is removed), as the bound of `docs/design/SAFE_ROUNDING.md` section 1 decides.
+
 It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
 is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
@@ -128,7 +137,8 @@ contracted (also exact ones, eg a well-shaped triangle of size 2^-20 where an ex
 triangles trouble slicers, FEM and remeshers), and the edits also change well-shaped neighbours (flips, contractions,
 moves), all within a bound: the surface moves by at most `Rounding.MaxDrift` from the rounded result, at most
 `MaxDisplacement` = 1e-5 times the diagonal, in Hausdorff distance (without the components it removes as tiny
-or thin, counted in `Rounding.RemovedComponents`; up to an absolute rounding error of a few ulps of the largest
+or thin, counted in `Rounding.RemovedComponents`; a closed component thinner than the bound that holds real volume for its
+area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is not clean; up to an absolute rounding error of a few ulps of the largest
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
@@ -185,7 +195,7 @@ With the defaults (as upstream) the remeshers check no move for flipped triangle
 creases. For flat, coarse or creased inputs constrain the features with `MeshConstraintUtil.PreserveBoundaryAndFeatures`
 and set `PreventNormalFlips` (edge flips and collapses) and `MinTriangleQuality` (also the smoothing and projection
 moves); without them a coarse L-shaped part loses a leg and a flat fan folds (docs/ISSUE_CASE_FINDINGS.md, S2 and S3).
-`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
+`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2, the recommended robust setting: on 20 Thingi10K meshes remeshed at the mean edge length it removed all degenerate triangles, raised the median p01 minimum angle from 1.3 to 5.7 degrees and cut the slivers by 80 %, at +40 % time; higher values gain nothing, [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 7) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
 `MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
@@ -194,6 +204,10 @@ creases, eg the apex of a cone with many slices, by their angle deficit.
 to tip), so the remeshers neither move them nor join the fans; the `Reducer` keeps bowtie vertices in place by itself.
 `Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
 to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
+
+`PartitionedReducer` (opt-in) is `Reducer.ReduceToMaxQuadricError` on 8 fixed slabs in parallel: deterministic for any thread count, not the serial Reducer's result, the main use is
+`PreventSelfIntersections` (on 60 to 100k triangles 1.3 to 2.4 x the plain time instead of 4 to 5 x, 4 cores; no gain below about 20k triangles, where it reduces serially; the result has no
+attributes and does not keep the boundary shape; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 9).
 
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
@@ -543,7 +557,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `McpTests`).
+`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `WrapPartitionedCliTests`, `GeodesicQueryCliTests`, `PolygonCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -616,6 +630,66 @@ g3cli mesh2d l.poly l_out.ele --max-area 0.1 --min-angle 25
 #   -> "files": ["l_out.node", "l_out.ele", "l_out.poly"], "rings_from_segments": 2, "area": 2.75 (the L minus the hole)
 ```
 
+**Evaluation metrics** (`fidelity`, `MeshFidelityMetrics`; `quality`, `TriangleQualityStatistics` and `MeshTopologySummary`):
+`fidelity` compares a mesh with a reference by what Hausdorff distance and volume IoU miss (lost features, reversed patches,
+changed topology); sampling uses a fixed seed (`--seed`), so a call is reproducible, and all distances are relative to the
+reported `size` (the reference's bounding box diagonal, in mesh units); curvatures are H*size and K*size^2, angles in degrees, `null` is not
+available and the string `"infinity"` is infinite (eg `edge_chamfer` when only one mesh has sharp edges). `quality` reports one mesh's triangle quality distributions and topology:
+
+```
+g3cli fidelity original.stl simplified.stl --relative-thresholds 0.001,0.005,0.01
+#   -> "f_score": [...], "chamfer": ..., "normal_consistency": ..., "edge_recall": [...], "volume_iou": ...,
+#      "outer": {...}, "curvature": {...}, "reference_quality" / "mesh_quality": {...}, "topology_changes": ["components_lost"]
+g3cli quality simplified.stl
+#   -> "quality": { "min_angle": { "worst": ..., "worst_1_percent": ..., "median": ... }, ... }, "topology": { "genus": 0, ... }
+```
+
+**Alpha wrap and partitioned simplification** (`wrap`, `MeshAlphaWrap`; `simplify --partitioned`, `PartitionedReducer`): `wrap`
+makes a closed, 2-manifold surface that encloses any input at about `offset`, following detail down to about `alpha`; without
+options the library defaults apply (bounding box diagonal / 20 and / 600). `point_limit_reached` is still a valid wrap (warning);
+other statuses fail with `operation_failed` and `wrap_status`. `simplify --partitioned` needs the target `--max-error` (a squared
+distance) and gives the same result for every `--threads`, not that of one serial run; it does not preserve boundary shapes:
+
+```
+g3cli wrap assembly.off wrapped.stl --relative-alpha 40 --relative-offset 1000
+g3cli simplify big.ply small.ply --max-error 1e-6 --partitioned --threads 4
+```
+
+**Geodesics and batch queries** (`geodesic`: `MeshGeodesicDistance`, `MeshGeodesicPath`; `query3d`: `MeshBatchQueries`): distances
+from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
+components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
+mesh as read. `query3d` answers each query as the single query would (a ray's `t` is in mesh units; the direction is normalized);
+`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh:
+
+```
+g3cli geodesic terrain.ply --sources 0 --targets 120,4711
+g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
+```
+
+**Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
+`PrimitiveFit3`): statistics only, no per-vertex output yet. `deviation` is positive outside the reference's solid (`--sign`),
+`--certified` adds the certified one-sided Hausdorff distance (`hausdorff_lower_bound`, `hausdorff_upper_bound`); `thickness`
+reports triangles without a value (no ray hit within `--max-distance`) and, with `--min-thickness`, the thin triangles; `fit`
+fails with `operation_failed` and `fit_result` (`too_few_points`, `rejected_by_limits`, ...) when no model is found:
+
+```
+g3cli deviation simplified.stl original.stl --certified
+g3cli thickness part.stl --method ray --min-thickness 0.8 --max-results 20
+g3cli fit pipe.stl --primitive cylinder
+#   -> "cylinder": { "center": [...], "axis_direction": [...], "radius": 12.5, "height": 80 }, "inliers": 4120, "rms_error": ...
+```
+
+**2D polygon booleans and offsets** (`polygon2d`, the optional [Clipper2 adapter](#2d-polygon-booleans-and-offsets-optional-package); `g3cli`
+references the adapter, the core library stays free of the dependency): GeoJSON polygons (with holes) in, a GeoJSON `MultiPolygon` out.
+Union, intersection, difference, xor and offset on the integer grid of the adapter (`frame` in the result); an empty result is `ok` with
+zero polygons; `invalid_input` of the adapter (an unusable extent) is `operation_failed` with `clipper_status`:
+
+```
+g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
+g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
@@ -674,10 +748,15 @@ after the separation of touching vertices uses the relative bound only and does 
 repairs of that stage are reported as `exact_resolve_rounding` and `separated_rounding`.
 
 `rounding` has the counts of `MeshRoundingRepair` (defects before and after, edits, removed tiny components, the
-largest drift and `max_length`, the bound: 1e-5 of the bounding box diagonal, or far from the origin the ulp or absolute term). **Robust repair options** (`repair`, `MeshRobustRepair`):
+largest drift and `max_length`, the bound: 1e-5 of the largest component's diagonal, or far from the origin the ulp or absolute
+term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
+`scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
 `--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`:
+and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
+with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
+false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):
 
 ```
 g3cli repair scan.obj scan_fixed.stl --check-lost-components --no-alpha-wrap

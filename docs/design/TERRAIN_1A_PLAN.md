@@ -154,7 +154,7 @@ Performance numbers are not claimed in 1a; the km-scale benchmark is 1c.
 
 ## Mutation survivors of the kernel shard (follow-up of #267)
 
-`tests/mutation/terrain-kernel-stryker.json` (`ExactSlopeKernel`): 60.59 % in #267's first run, 70.00 % at its merge,
+`tests/mutation/stryker-mesh-terrain-kernel.json` (`ExactSlopeKernel`): 60.59 % in #267's first run, 70.00 % at its merge,
 **89.08 %** (204 killed, 25 survived) in the last full run of this follow-up; one more survivor (line 235, the `true`
 of a Q match) is killed since by a fixed test (checked by applying the mutant by hand): 205 of 229, 89.5 %.
 Tests added for the non-equivalent survivors (`ExactSlopeKernelTests`): Approx and ApproxHeight accuracy (also for

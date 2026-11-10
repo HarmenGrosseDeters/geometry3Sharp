@@ -596,3 +596,99 @@ About 3 s of solver time locally (7 s for the run, report `results/drift_apex_20
   implementation PR adds the source contract against `improves` / `within_bound` / `commit_drift`. Today's code
   still charges every vertex and is deliberately not pinned here.
 - `ε` itself (a few ulps of the largest coordinate per distance computation): stated, not derived.
+
+## Pilot 2, step 1b: the reference rule for SafeRounding's drift (D1, a proposal)
+
+`drift_reference.py`, `test_drift_reference.py`; the note is `docs/design/SAFE_ROUNDING_D1_DRIFT.md` (the rule in
+section 3, this check in section 4). No library code implements the rule yet: the pilot checks the lemma before it
+is built, and searches tiny configurations for counterexamples.
+
+```sh
+python tools/Z3Pilot/drift_reference.py --out /tmp/z3-drift-reference.json      # about 2.5 minutes
+python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
+```
+
+- **A, convexity** (nonlinear real arithmetic): a point of a triangle moves by at most the largest move of a corner,
+  in R^3, as two queries (the dot bound in coordinates, the claim over the Gram entries). The claim on the
+  coordinates directly returned unknown and is not counted.
+- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`.
+- **C, the bounded search** (linear real arithmetic, complete for its configurations): chains of 3 to 5 vertices on
+  the real line, every script of up to three edits (two for five vertices), 7038 scripts, each with one query for
+  "a segment has a point beyond its bound, or the start has a point beyond the largest bound, or a bound exceeds
+  the apex rule's drift, or a bound at the end exceeds the reported drift". `Chain` is written once over a backend, so the same code replays a witness with fractions.
+- **D, the rounding**: `Vector3d.Distance` in three steps (Higham (2.4) per operation), and the induction step of
+  the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
+- **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
+  regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
+  ghosts and why one anchor per vertex is not enough.
+- **Source contract**: not of the rule (there is no code), but of the facts about `MeshRoundingRepair.cs` and
+  `Vector3d.Distance` that the lemma assumes (one writer of positions; only `try_move` and `try_collapse` propose a
+  moved vertex and list its triangles corner for corner).
+
+Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
+which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:
+`results/drift_reference_2026-11-09.json` (19 obligation rows UNSAT with satisfiable assumptions, 8 of them the
+7038 scripts of the search; 16 mutants SAT; 137 s of solver time).
+
+## Pilot 4: the Devillers-Guigue prefilter of the arrangement
+
+`tritri_prefilter.py` checks the lemma of docs/design/TRITRI_PREFILTER.md over the reals (the code's predicates,
+`ExactPredicates.Orient3d` on doubles, are exact, so no rounding is modelled). `U` is normalized to
+`(0,0,0), (1,0,0), (0,1,0)` by an affine map with positive determinant (the bridge in the note), `T`'s nine
+coordinates are free. The segments `T n plane(U)` and `U n plane(T)` are built from their definitions, not from the
+predicates. UNSAT: the order of each segment's ends along `d = nT x nU`, each predicate's equivalence with one
+comparison of ends, and the lemma both ways. SAT: the assumptions, both decisions, touching (no vacuous proof), and
+four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
+that the model describes). All 14 queries take well under a second.
+
+## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
+
+Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and
+inequalities behind the termination arguments of the small-angle rules (#394, rule C in
+`docs/design/MESHING2D_SMALL_ANGLES_CONFORMING.md`). Nothing here is part of the library; the module reads the C# sources and fails when the
+code it models has changed (`source_contracts`, with a test that drift is detected).
+
+```sh
+/tmp/g3-z3/bin/python tools/Z3Pilot/mesher_checks.py --out /tmp/mesher-checks.json
+/tmp/g3-z3/bin/python -m unittest discover -s tools/Z3Pilot -p 'test_mesher_checks.py' -v
+```
+
+Every claim is a counterexample query that must return UNSAT; the assumptions alone must be SAT (no vacuous proof); a mutant must
+return SAT. UNKNOWN is a failure. Results of the run: `results/mesher_checks_2026-11-08.json`.
+
+### What Z3 proves (real arithmetic, under the stated model)
+
+Model: the standard model of binary64 round to nearest, `fl(x) = x (1 + d)`, `|d| <= 2^-53`, except that a product that underflows has an
+absolute error of at most `2^-1075`. Additions and subtractions of doubles are exact when their result is subnormal (reviewed, below).
+
+1. **S1** `fl(fl(x1 - x2)^2)`: relative error `(1 + u)^3 - 1`.
+2. **S2** `l = fl(fl(dx dx) + fl(dy dy))`: `|l - L| <= ((1 + u)^4 - 1) L + 2 (1 + u) 2^-1075`, with `L` the exact squared length.
+3. **S3** with the guard of the code (`l > 1e-280`): `|l - L| <= 2^-50 L`. The mutant without the lower guard is SAT.
+   - Reported, not required: **2^-51 is not proved.** The derivation gives `(1 + u)^4 - 1`, which is above `2^-51`; the sharp bound of S2 with `2^-51`
+     is SAT (Z3 finds the parameters), but that only says the derivation does not prove it, not that the real error reaches it.
+4. **Order (a2):** if the computed values `la <= lb <= lc` of the three squared lengths each are within `2^-50` (relative) of their exact values and
+   `lb - la > lb 2^-40`, then `La < Lb` and `La < Lc`: the minimum chosen in doubles is the exact minimum. The margin `2^-52` is SAT (mutant).
+   - Reported: the margin `2^-49` is also UNSAT (safe) with `2^-50` per length.
+   - When the test in doubles fails (gap at most the margin) the code takes the exact BigInteger path, so no claim is made there.
+5. **Margin constant (bit-precise, FP only):** for `rival` in `(1e-280, 1e140)`, `rival * 2^-40` is exact in binary64.
+6. **(b1) the lens predicate:** for `a = (-1, 0)`, `c = (1, 0)` and `p` not an end of `ac`: the predicate of `InLens`
+   (`dot < 0` and `4 dot^2 >= |pa|^2 |pc|^2`) holds iff the angle `apc` is at least 120 degrees (`dot <= -|pa||pc|/2`) iff `p` is in both disks of radius
+   `|ac| / sqrt 3` through `a` and `c`. **This proves that the code's predicate is the 120 degree lens, not
+   Shewchuk's termination theorem (2002, section 6.4) and not the link between that lens and the bound `sin^2 theta <= 3/16` (25.65 degrees),
+   which is Shewchuk's analysis and is not encoded.**
+7. **(b2) the O2 step of rule C:** `u = (-1, 0)`, `w = (1, 0)`, apexes `p` above and `q` below the line: if neither apex is strictly inside the
+   diametral circle (angles at most 90 degrees), `q` is not strictly inside the circumcircle of `u w p` (locally Delaunay).
+8. **(b3) the arithmetic of the factor 1.5 in #394:** ends at radii `r1 <= r2 <= 2 r1` and a vertex at radius `rho` between them: `rho` is within
+   the factor `sqrt 2` of one end (`rho^2 <= 2 r1^2` or `r2^2 <= 2 rho^2`), hence within 1.5.
+
+### What is reviewed, not proved
+
+- The standard model of IEEE round to nearest (textbook, Higham 2002, section 2.2), and that sums and differences of doubles are exact when their
+  result is subnormal (Hauser 1996). Z3 returns UNKNOWN on binary64 values mixed with reals across `2^+-1000`, so the monolithic
+  bit-precise form of S2 and of the margin test was not obtained.
+- The bridge from the test in doubles to the real inequality: `fl(rival - lj) > m` with `m = rival 2^-40` a double implies `rival - lj > m`
+  (round to nearest is monotone).
+- Similarity (WLOG `a = (-1, 0)`, `c = (1, 0)`) in (b1) and (b2): both sides of the equivalences are invariant under similarities.
+- (b3): the geometric step that an encroaching vertex projects into the piece.
+- Not encoded at all: Shewchuk's termination theorems, the 25.65 degree value as a number (`arcsin(sqrt 3 / 4) = 25.659 degrees` is a numeric
+  fact, not checked by Z3), and every termination argument of #394 and rule C beyond the inequalities above (they are measured, not proved).

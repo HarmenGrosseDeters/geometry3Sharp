@@ -103,6 +103,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> PipelineNames() => Pipelines.Keys.Select(k => new object[] { k });
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(PipelineNames))]
         public void Pipeline_MatchesTheStoredOutcomes(string pipeline)
@@ -559,7 +560,7 @@ namespace geometry3Sharp.Tests
             ["alpha wrap"] = new Dictionary<string, string>() {
                 ["clean sphere"] = "clean 4.08",
                 ["empty"] = "EmptyInput",
-                ["single triangle"] = "clean 0.002331",
+                ["single triangle"] = "clean 0.002367",
                 ["zero-area ears"] = "clean 4.08",
                 ["sliver cap"] = "clean 4.08",
                 ["T-junction"] = "clean 4.08",
@@ -569,14 +570,14 @@ namespace geometry3Sharp.Tests
                 ["overlapping spheres"] = "clean 5.856",
                 ["nested and tiny"] = "clean 4.111",
                 ["unused far vertex"] = "clean 5.642E+10",
-                ["open"] = "clean 0.2628",
+                ["open"] = "clean 0.1664",
                 ["inside-out"] = "clean 4.08",
                 ["partly flipped"] = "clean 4.08",
                 ["duplicated triangles"] = "clean 4.08",
                 ["non-manifold fin"] = "clean 4.177",
-                ["flat"] = "clean 0.02727",
-                ["thin slab"] = "clean 0.02727",
-                ["open sheet"] = "clean 3.25",
+                ["flat"] = "clean 0.02812",
+                ["thin slab"] = "clean 0.02813",
+                ["open sheet"] = "clean 2.56",
                 ["random edits 1"] = "clean 4.077",
                 ["random edits 2"] = "clean 4.078",
                 ["random edits 3"] = "clean 4.078",
@@ -591,7 +592,7 @@ namespace geometry3Sharp.Tests
                 ["random edits 12"] = "clean 4.07",
                 ["clean sphere @ utm"] = "clean 4.079",
                 ["empty @ utm"] = "EmptyInput",
-                ["single triangle @ utm"] = "clean 0.002329",
+                ["single triangle @ utm"] = "clean 0.002367",
                 ["zero-area ears @ utm"] = "clean 4.079",
                 ["sliver cap @ utm"] = "clean 4.079",
                 ["T-junction @ utm"] = "clean 4.079",
@@ -601,14 +602,14 @@ namespace geometry3Sharp.Tests
                 ["overlapping spheres @ utm"] = "clean 5.856",
                 ["nested and tiny @ utm"] = "clean 4.112",
                 ["unused far vertex @ utm"] = "clean 5.642E+10",
-                ["open @ utm"] = "clean 0.2617",
+                ["open @ utm"] = "clean 0.1654",
                 ["inside-out @ utm"] = "clean 4.079",
                 ["partly flipped @ utm"] = "clean 4.079",
                 ["duplicated triangles @ utm"] = "clean 4.079",
                 ["non-manifold fin @ utm"] = "clean 4.176",
-                ["flat @ utm"] = "clean 0.02726",
-                ["thin slab @ utm"] = "clean 0.02723",
-                ["open sheet @ utm"] = "clean 3.223",
+                ["flat @ utm"] = "clean 0.02812",
+                ["thin slab @ utm"] = "clean 0.02812",
+                ["open sheet @ utm"] = "clean 2.561",
                 ["random edits 1 @ utm"] = "clean 4.076",
                 ["random edits 2 @ utm"] = "clean 4.078",
                 ["random edits 3 @ utm"] = "clean 4.077",

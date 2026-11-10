@@ -49,6 +49,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void ExactResolve_ReportsAGenusChange_AndRejectsItIfAsked()
         {
@@ -181,6 +182,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Mesh.Vertices().Count(v => input.Contains(v)) > 0.8 * r.Mesh.VertexCount);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void UncleanResultResolvedExactly_VolumeCheckedOnce()
         {
@@ -296,8 +298,9 @@ namespace geometry3Sharp.Tests
             // the safe rounding leaves slivers, which the cleanup removes, adding self-intersections. The rounding's
             // count (none) no longer holds then: the exact stage must not accept the result
             // (scene 9, 6 gave it while the orientation took boxes crossing others for cavities and flipped them, finding
-            // R1; with the crossing boxes kept outward, scene 4, 7 does)
-            var r = new MeshRobustRepair(NearlyCoincidentBoxes(4, 7)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
+            // R1; with the crossing boxes kept outward, scene 4, 7 did; with the drift charged to the apex of an edit,
+            // which repairs more slivers there, scene 22, 9 does)
+            var r = new MeshRobustRepair(NearlyCoincidentBoxes(22, 9)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
             Assert.True(r.Apply());
             // the scenario: resolved exactly, after a round whose cleaned result had intersections (if a later change
             // to the resolve or the rounding no longer gives it, this test must be given a new scene)
@@ -943,6 +946,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
         {
@@ -1046,6 +1050,7 @@ namespace geometry3Sharp.Tests
                 && a.TriangleIndices().All(t => a.GetTriangle(t) == b.GetTriangle(t));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
         {
@@ -1101,6 +1106,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Solidify_IsDeterministic()
         {
@@ -1119,6 +1125,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
@@ -1148,6 +1155,7 @@ namespace geometry3Sharp.Tests
             Assert.True(SameMesh(without.Mesh, failed.Mesh));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void CancelledDuringWrap_NoFinish()
         {
@@ -1163,6 +1171,7 @@ namespace geometry3Sharp.Tests
             Assert.False(r.PhaseMilliseconds.ContainsKey("solidify.finish"));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void WrapFailed_ReasonReported()
         {

@@ -280,7 +280,7 @@ namespace geometry3Sharp.Tests
 
         // two unit cubes in a checkerboard (touching along the vertical edge x = y = 1) between two slabs that
         // overlap them: the solid is connected around both ends of the contact, so they cannot be duplicated
-        static DMesh3[] PinchedSolid()
+        internal static DMesh3[] PinchedSolid()
         {
             return new[] { Box(0, 0, 0, 1, 1, 1), Box(1, 1, 0, 2, 2, 1), Box(0, 0, -1, 2, 2, 0.25), Box(0, 0, 0.75, 2, 2, 2) };
         }
@@ -347,7 +347,7 @@ namespace geometry3Sharp.Tests
             Assert.True(boolean.NonManifoldEdges > 0);
         }
 
-        static DMesh3 Merge(params DMesh3[] parts)
+        internal static DMesh3 Merge(params DMesh3[] parts)
         {
             DMesh3 m = new DMesh3();
             foreach (DMesh3 p in parts)
