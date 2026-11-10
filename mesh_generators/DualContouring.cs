@@ -1708,7 +1708,7 @@ namespace g3
         // ---- face vertices (option B of docs/design/DC_INTERSECTION_FREE.md) ----
         List<Vector3d> genMass, genPlane, genLast;
         List<Cell> genCell;
-        List<int> genPatches;
+        internal List<int> genPatches;
         Dictionary<EdgeKey, int> crossingIndex;
         Vector3d[] genPoints, genNormals;
         // per (face, segment): the face vertex, or -1 if none could be placed (the face then stays dual)
