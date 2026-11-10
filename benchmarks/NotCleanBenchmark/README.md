@@ -48,6 +48,13 @@ timing, as before; only its existence is used. The pair counts and hashes are th
 
 (Median of 9 runs on a quiet machine, 4 cores; on the last row `NotCleanReason` stops at the first pair, and the time is dominated by the other checks.)
 
+Cost to the exact boolean's use of the same traversal (`TriangleBoxTree.SelfPairs` into a list, the candidate search of
+`ExactMeshArrangement.self_pairs`): the list and the callback version share one generic traversal over a struct visitor, which
+the JIT specialises, so the list path calls its collector directly. Self-join of the boxes of a 200k-triangle sphere (256 work
+items, 1.2 M pairs, serial, list version; min / median of 25 runs, two alternating rounds): master code 67.6 / 78.9 and
+64.7 / 71.2 ms, shared generic traversal 63.1 / 72.3 and 64.2 / 71.9 ms: within noise. (A wrapper over a delegate cost
+about 10 %.)
+
 ## Lever 3: bowtie and degenerate-triangle checks over blocks of ids in parallel (2026-11-10)
 
 `NotCleanReason` / `FindDefects` ran `MeshIterators.BowtieVertices(mesh).Any()` and the degenerate-area test one after the
