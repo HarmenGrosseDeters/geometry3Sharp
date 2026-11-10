@@ -398,6 +398,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2 * ca / (1 + ca), ins.ThicknessAt(new Vector3d(0, 0, 1), Vector3d.AxisZ), 9);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void InscribedSphere_SolidBallAndRod_AreAboutTheDiameter()
         {

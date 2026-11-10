@@ -1,0 +1,11 @@
+# In the patched tree (run.sh), 2026-11-09:
+#   G3_D1=ref dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter "FullyQualifiedName~Rounding|FullyQualifiedName~SafeRounding|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactMeshBooleanTests"
+# (RoundingDriftClusterTests copied into the patched tree). The lines of the output with "Failed" and the summary:
+  Failed geometry3Sharp.Tests.RoundingDriftClusterTests.DensePatch_BudgetUsedUpByTheAccounting_NotByTheDistance [127 ms]      (drift 0.1405 of the bound: the D1 pin)
+  Failed geometry3Sharp.Tests.RoundingDriftClusterTests.DensePatch_WiderBound_CleanWithinTheOriginalBound [2 s]              (certified 0.1405 times the original bound: the D1 pin)
+  Failed geometry3Sharp.Tests.RoundingDenseTessellationTests.DensePatch_Union_StrictRounding_RoundingNotClean [141 ms]       (now clean)
+  Failed geometry3Sharp.Tests.RoundingDenseTessellationTests.DensePatch_Union_ValidNotCleanWithinTheBound [133 ms]           (now clean)
+  Failed geometry3Sharp.Tests.SafeRoundingBoundTests.StrictRounding_FailsWithTheReason_InsteadOfDefects [17 ms]              ("Cluster k0 count 4 seed 0": now clean)
+  Failed geometry3Sharp.Tests.SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance_WithinIt [1 s]                             ("relative bound only: 102", pinned <= 95)
+  Failed geometry3Sharp.Tests.MeshRoundingRepairIncrementalTests.PastTheLimit_SameAsProposingInFull(name: "utm Cluster 0 9 1") [84 ms]   (the prototype's shortcut past the evaluation limit)
+Failed!  - Failed:     7, Passed:   397, Skipped:     0, Total:   404, Duration: 57 s - geometry3Sharp.Tests.dll (net10.0)

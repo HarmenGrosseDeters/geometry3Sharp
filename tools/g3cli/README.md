@@ -16,6 +16,9 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 | `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`) or as Triangle `.poly` / `.node` files; writes the mesh in the XY plane, z = heights, or Triangle `.node` / `.ele` / `.poly` files | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
 | `slope` | slope design from toe lines (GeoJSON) to a terrain (a TIN mesh file): cut, fill or mixed (`--direction auto`), never steeper than the given slopes (every triangle checked exactly); the composite terrain or only its replacement, the slope surface and region, catch lines and target-height level lines (GeoJSON), cut / fill volumes and areas; `--local-frame` for finer guaranteed features at UTM (local outputs plus `used_origin`) | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` |
+| `dgm` | read a height grid (DGM): XYZ ASCII or ESRI ASCII Grid; report (size, cell size, extent, nodes with data, height range); optionally write it again as XYZ or ESRI (`output`) and as the grid TIN (`--mesh`) | `HeightGridReader`, `HeightGridWriter`, `HeightGrid` |
+| `dgm_tin` | TIN of a height grid with a guaranteed vertical error (`--epsilon`, `TerrainGridTin`) and breaklines from GeoJSON (`--breaklines`, heights from the grid or, `--breakline-heights input`, from the z of the positions); the TIN is a height field the `slope` command takes | `TerrainGridTin` |
+| `cell_volumes` | cut and fill volume per cell of a regular XY lattice between two terrain surfaces (TIN files; `--cell-size`), CSV per cell and the totals; the sum over the cells equals the whole-footprint total | `TerrainCellVolumes` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
@@ -136,6 +139,9 @@ g3cli mesh2d parcels.poly parcels.obj --snap-tolerance 0.01        # snap roundi
 g3cli query2d tin.obj --points "1,1;3,2.5" --rect "0,0,1,1" --nearest 2
 
 # slope design: a pit toe (GeoJSON) cut into a TIN (the slopes in the GeoJSON), the composite terrain and the catch line
+# a DGM to a TIN within 5 cm (surface error, exact), keeping the bench lines as edges; then the slope design on it
+g3cli dgm_tin dgm.asc dgm_tin.ply --epsilon 0.05 --breaklines benches.geojson
+g3cli dgm dgm.asc dgm_copy.xyz --mesh dgm_grid.ply     # report; XYZ copy; the 2-triangles-per-cell grid TIN
 g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --catch-lines pit_catch.geojson
 #   -> "design_status": "success", "complete": true, "cut_volume": ..., "catch_lines": [{"points": 812, "closed": true, ...}], "min_feature_size": 0.0149, ...
 # only the replaced triangles, a dump in fill, bench levels at 120 and 110 m
@@ -387,3 +393,16 @@ on every push.
 ```
 dotnet test tests/g3cli.Tests
 ```
+
+## Height grids (`dgm`, `dgm_tin`)
+
+Input: XYZ ASCII (`x y z` per line, separated by blanks, tabs, commas or semicolons; the points on one regular square lattice, gaps are no
+data) or ESRI ASCII Grid (`.asc`); `--format` overrides the guess from the extension, `--no-data` the NODATA value. A file that is no grid
+fails with `read_error` and `grid_status` (`bad_line`, `not_on_grid`, `non_square_cells`, ...).
+
+`dgm_tin` reports `surface_error` (the exact maximum of |TIN - grid surface|, at most `epsilon`), `node_error`, `breakline_error`, `rounds`, the
+triangle counts of the TIN and of the grid TIN, and `breakline_edges`. Breaklines (`--breaklines` file or `--breaklines-geojson`): GeoJSON
+`LineString`, `MultiLineString` and `Polygon` (rings as closed lines), positions `[x, y]` or `[x, y, z]` in the grid's coordinates. With
+`--breakline-heights input` the TIN follows the z of the positions; a line further than `epsilon` from the grid fails with `operation_failed`,
+`tin_status` `breakline_height_deviates` and the measured `breakline_error`. An `epsilon` below the rounding margin of the grid (huge coordinates with
+steep terrain) is `invalid_arguments`; a grid without a cell with data is `empty_mesh`.

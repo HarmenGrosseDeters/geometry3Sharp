@@ -67,6 +67,7 @@ namespace geometry3Sharp.Tests
             Assert.InRange(umin, 0.05 / 1.8 * 0.99, 0.05 / Math.Sqrt(1.64) * 1.2 + d.UsedMinFeatureSize);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RequiredAccuracy_SmallerTolerance_OrNotReached()
         {

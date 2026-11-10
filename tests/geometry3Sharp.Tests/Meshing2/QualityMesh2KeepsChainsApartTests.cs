@@ -59,6 +59,7 @@ namespace geometry3Sharp.Tests
         /// ring's hull within the tolerance; 2022 was rejected for a chain past a hot pixel in that hull mesh </summary>
         internal static readonly int[] EmptyDomain = { 37, 41, 127, 686, 1019, 1052, 1331, 2022, 2200, 2248 };
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void StarPolygonFuzz_VerdictsByClass()
         {

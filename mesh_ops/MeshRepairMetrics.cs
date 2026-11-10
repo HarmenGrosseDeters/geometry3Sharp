@@ -345,7 +345,7 @@ namespace gs
         /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
         /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
         /// </summary>
-        internal static double unit_scale_for_mesh(DMesh3 mesh)
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false)
         {
             AxisAlignedBox3d box = TriangleBounds(mesh);
             double s = unit_scale(box, -100, 100);
@@ -359,7 +359,8 @@ namespace gs
                 Vector3d p = mesh.GetVertex(v);
                 for (int k = 0; k < 3; ++k) {
                     double x = Math.Abs(p[k]);
-                    if (x != 0 && (x < 2.2250738585072014e-308 || x * s < 2.2250738585072014e-308))
+                    // (readOnly: the caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
+                    if (x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
                         return 1;
                 }
             }
@@ -693,14 +694,18 @@ namespace gs
             return LostComponents(new SolidReference(input), SolidInside(result), minCoverage, maxComponents, seed);
         }
 
-        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
+        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1,
+            bool relativeToLargest = false)
         {
             DMesh3 input = reference.Mesh;
             if (input.TriangleCount == 0)
                 return 0;
             Func<Vector3d, bool> inInput = reference.Inside;
-            double minDiagonal = MinComponentDiagonal * TriangleBounds(input).DiagonalLength;
-            var boxes = reference.ComponentBoxes().Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
+            // (relativeToLargest: relative to the largest connected component (open ones too), not to all triangles, whose diagonal grows with the
+            // distance between components: a part far from the rest would make every near part too small to be judged)
+            List<AxisAlignedBox3d> all = reference.ComponentBoxes();
+            double minDiagonal = MinComponentDiagonal * (relativeToLargest ? LargestComponentDiagonal(input) : TriangleBounds(input).DiagonalLength);
+            var boxes = all.Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
                 .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
             int[] lost = new int[boxes.Count];
             gParallel.ForEach(Interval1i.Range(boxes.Count), (k) => {

@@ -454,10 +454,10 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static bool OracleSegment(PolyhedralEnvelope env, Vector3d a, Vector3d b)
+        static bool OracleSegment(PolyhedralEnvelope env, Vector3d a, Vector3d b, bool preFilter = true)
         {
             var iv = new List<(Q lo, bool loOpen, Q hi, bool hiOpen)>();
-            for (int p = 0; p < env.PolyhedronCount; ++p) {
+            foreach (int p in NearPolyhedra(env, preFilter, a, b)) {
                 var i = Interval(env, p, a, b);
                 if (i != null) iv.Add(i.Value);
             }
@@ -478,10 +478,46 @@ namespace geometry3Sharp.Tests
         }
 
         // per polyhedron its facet functions (A, B, C): f(u, v) = A u + B v + C, the sign of the determinant
-        static List<List<BigInteger[]>> FacetFunctions(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c)
+        // The oracles work on the polyhedra whose box meets the box of the query only. Polyhedron p belongs to the p-th triangle of the
+        // mesh and every point of it is within epsilon of that triangle (the library's proven bound, ENVELOPE.md 4.4, tested in
+        // Polyhedron_VerticesWithinEpsilon): it lies in the triangle's box grown by 1.01 epsilon. A polyhedron whose box is disjoint
+        // from the query's cannot meet the query, so its open part of the query is empty and it adds nothing to the covering. (The
+        // oracle looped over all polyhedra for every query, quadratic in the triangle count and 217 s on the 300-triangle sphere.
+        // QueryOracle_PreFilterChangesNoVerdict compares with the unfiltered oracle and checks which triangle each polyhedron is
+        // the polyhedron of.)
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PolyhedralEnvelope, Vector3d[][]> PolyhedronBoxes =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<PolyhedralEnvelope, Vector3d[][]>();
+
+        static Vector3d[][] BoxesOf(PolyhedralEnvelope env) => PolyhedronBoxes.GetValue(env, e => {
+            var boxes = new Vector3d[e.PolyhedronCount][];
+            int p = 0;
+            foreach (int t in e.Mesh.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                e.Mesh.GetTriVertices(t, ref a, ref b, ref c);
+                double g = 1.01 * e.Epsilon;
+                var lo = new Vector3d(Math.Min(a.x, Math.Min(b.x, c.x)) - g, Math.Min(a.y, Math.Min(b.y, c.y)) - g, Math.Min(a.z, Math.Min(b.z, c.z)) - g);
+                var hi = new Vector3d(Math.Max(a.x, Math.Max(b.x, c.x)) + g, Math.Max(a.y, Math.Max(b.y, c.y)) + g, Math.Max(a.z, Math.Max(b.z, c.z)) + g);
+                boxes[p++] = new[] { lo, hi };
+            }
+            return boxes;
+        });
+
+        static IEnumerable<int> NearPolyhedra(PolyhedralEnvelope env, bool preFilter, params Vector3d[] query)
+        {
+            var boxes = BoxesOf(env);
+            for (int p = 0; p < env.PolyhedronCount; ++p) {
+                bool meets = true;
+                if (preFilter)
+                    for (int k = 0; k < 3 && meets; ++k)
+                        meets = query.Max(q => q[k]) >= boxes[p][0][k] && query.Min(q => q[k]) <= boxes[p][1][k];
+                if (meets) yield return p;
+            }
+        }
+
+        static List<List<BigInteger[]>> FacetFunctions(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c, bool preFilter = true)
         {
             var r = new List<List<BigInteger[]>>();
-            for (int p = 0; p < env.PolyhedronCount; ++p) {
+            foreach (int p in NearPolyhedra(env, preFilter, a, b, c)) {
                 var fs = new List<BigInteger[]>();
                 for (int f = 0; f < env.FacetCount(p); ++f) {
                     env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
@@ -579,11 +615,11 @@ namespace geometry3Sharp.Tests
             return Covers(iv);
         }
 
-        static bool OracleTriangle(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c)
+        static bool OracleTriangle(PolyhedralEnvelope env, Vector3d a, Vector3d b, Vector3d c, bool preFilter = true)
         {
             Dy[] N = Cross(Sub(D(b), D(a)), Sub(D(c), D(a)));
-            if (N.All(d => d.M.IsZero)) return OracleSegment(env, a, b) && OracleSegment(env, b, c) && OracleSegment(env, c, a);
-            var polys = FacetFunctions(env, a, b, c);
+            if (N.All(d => d.M.IsZero)) return OracleSegment(env, a, b, preFilter) && OracleSegment(env, b, c, preFilter) && OracleSegment(env, c, a, preFilter);
+            var polys = FacetFunctions(env, a, b, c, preFilter);
             if (AreaCovered(polys) == false) return false;
             var corners = new[] { (BigInteger.Zero, BigInteger.Zero, BigInteger.One), (BigInteger.One, BigInteger.Zero, BigInteger.One), (BigInteger.Zero, BigInteger.One, BigInteger.One) };
             for (int k = 0; k < 3; ++k) if (SegmentCovered(polys, corners[k], corners[(k + 1) % 3]) == false) return false;
@@ -648,6 +684,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Contains_MatchesOracle()
         {
@@ -698,12 +735,55 @@ namespace geometry3Sharp.Tests
             yield return (m.GetTriCentroid(tids[0]), m.GetTriCentroid(tids[0]));
         }
 
+        // The oracle tests below run one query mesh per test class (they are the longest of the suite, the meshes are independent, and
+        // xUnit runs the classes in parallel but the tests of one class one after another). The
+        // queries of all meshes come from one Random: a test generates the queries of the meshes before its own without judging them, so
+        // that each mesh sees exactly the queries it saw in the loop over all of them (QueryMeshes_AreCoveredByTheOracleTests).
+        /// <summary> the pre-filter of the oracles drops polyhedra whose box misses the query: the verdicts are those of the unfiltered oracle </summary>
         [Fact]
-        public void ContainsSegment_MatchesIntervalOracle()
+        public void QueryOracle_PreFilterChangesNoVerdict()
+        {
+            (DMesh3 mesh, double eps) = QueryMeshes().First();            // Sphere(4): the unfiltered oracle takes seconds here
+            var env = new PolyhedralEnvelope(mesh, eps);
+            // polyhedron p is the polyhedron of the p-th triangle: its vertices are strictly inside it (checked exactly at build)
+            int pi = 0;
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                foreach (int v in new[] { tv.a, tv.b, tv.c }) Assert.True(OracleInside(env, pi, mesh.GetVertex(v)), $"polyhedron {pi}");
+                pi++;
+            }
+            Assert.Equal(env.PolyhedronCount, pi);
+            int n = 0, yes = 0;
+            foreach (var (a, b, c) in QueryTriangles(env, new Random(13)).Where((q, i) => i % 6 == 0)) {
+                bool r = OracleTriangle(env, a, b, c, true);
+                Assert.True(r == OracleTriangle(env, a, b, c, false), $"triangle {a} {b} {c}");
+                if (r) yes++;
+                n++;
+            }
+            Assert.True(yes > n / 5 && yes < n, $"{yes} of {n}");
+            foreach (var (a, b) in QuerySegments(env, new Random(5)).Where((q, i) => i % 6 == 0))
+                Assert.True(OracleSegment(env, a, b, true) == OracleSegment(env, a, b, false), $"segment {a} {b}");
+        }
+
+        [Fact]
+        public void QueryMeshes_AreCoveredByTheOracleTests()
+        {
+            Assert.Equal(3, QueryMeshes().Count());      // the per-mesh classes below
+        }
+
+        public class ContainsSegmentMesh0 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(0); }
+
+        public class ContainsSegmentMesh1 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(1); }
+
+        public class ContainsSegmentMesh2 { [Fact] public void ContainsSegment_MatchesIntervalOracle() => SegmentOracle(2); }
+
+        static void SegmentOracle(int meshIndex)
         {
             var rand = new Random(5);
+            int k = 0;
             foreach ((DMesh3 mesh, double eps) in QueryMeshes()) {
                 var env = new PolyhedralEnvelope(mesh, eps);
+                if (k++ != meshIndex) { foreach (var skipped in QuerySegments(env, rand)) { } continue; }
                 int yes = 0, n = 0;
                 foreach ((Vector3d a, Vector3d b) in QuerySegments(env, rand)) {
                     bool r = env.ContainsSegment(a, b);
@@ -723,6 +803,7 @@ namespace geometry3Sharp.Tests
         /// The guarantee on the queries: every sample point of every accepted segment is within epsilon of the mesh (up
         /// to the double rounding of the distance), at scales 1, 2^-10, 1e-150, 1e150 and at UTM coordinates.
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Guarantee_AcceptedSegmentsWithinEpsilon()
         {
@@ -847,12 +928,21 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        [Fact]
-        public void ContainsTriangle_MatchesOracle()
+        public class ContainsTriangleMesh0 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(0); }
+
+        // Slow: ~1200 exact BigInteger oracle verdicts on the 300-triangle sphere (7 s; 110 s before the box pre-filter of the oracle)
+        [Trait("Category", "Slow")]
+        public class ContainsTriangleMesh1 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(1); }
+
+        public class ContainsTriangleMesh2 { [Fact] public void ContainsTriangle_MatchesOracle() => TriangleOracle(2); }
+
+        static void TriangleOracle(int meshIndex)
         {
             var rand = new Random(13);
+            int k = 0;
             foreach ((DMesh3 mesh, double eps) in QueryMeshes()) {
                 var env = new PolyhedralEnvelope(mesh, eps);
+                if (k++ != meshIndex) { foreach (var skipped in QueryTriangles(env, rand)) { } continue; }
                 int yes = 0, n = 0, edgesOnly = 0;
                 foreach ((Vector3d a, Vector3d b, Vector3d c) in QueryTriangles(env, rand)) {
                     bool r = env.ContainsTriangle(a, b, c);
@@ -1017,6 +1107,7 @@ namespace geometry3Sharp.Tests
         /// dependent pairs. ContainsTriangle equals the oracle; the triangle around the meeting point is contained iff
         /// an overlap closes the cross
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void ContainsTriangle_FourCubesMeetingAtAPoint()
         {

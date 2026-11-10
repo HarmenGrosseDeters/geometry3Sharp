@@ -103,6 +103,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> PipelineNames() => Pipelines.Keys.Select(k => new object[] { k });
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(PipelineNames))]
         public void Pipeline_MatchesTheStoredOutcomes(string pipeline)

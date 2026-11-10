@@ -313,6 +313,7 @@ namespace geometry3Sharp.Tests
 
         static string Prefix(string what, string reason) => reason == "" ? "" : what + ": " + reason;
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData("general", 1u, 400)]
         [InlineData("coplanar", 2u, 300)]
@@ -439,6 +440,7 @@ namespace geometry3Sharp.Tests
         /// One representation change (triangle order, vertex ids, corner rotation, subdivision, slivers) of A, B or
         /// both: the result still matches the analytic reference, and the result without the change (SameSolid).
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Boxes_RepresentationInvariance()
         {
@@ -479,6 +481,7 @@ namespace geometry3Sharp.Tests
         /// rounding tolerance; (A-B) u (AnB) is A as a regularized solid; u and n commute (SameSolid). A bounded
         /// numerical check, weaker than the analytic box reference.
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Tetrahedra()
         {
