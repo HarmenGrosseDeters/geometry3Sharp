@@ -62,6 +62,7 @@ static class Program
             case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
             case "envelope": return EnvelopeBench.Run(args.Skip(1).ToArray());
             case "prestudy-fwn": return PrestudyFwn.Run(args.Skip(1).ToArray());
+            case "antipodal-ab": return AntipodalAB.Run(args.Skip(1).ToArray());
             case "prestudy-antipodal": return PrestudyAntipodal.Run(args.Skip(1).ToArray());
             case "prestudy-many-a": return PrestudyMany.RunA(args.Skip(1).ToArray());
             case "prestudy-many-b": return PrestudyMany.RunB(args.Skip(1).ToArray());

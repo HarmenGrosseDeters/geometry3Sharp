@@ -360,6 +360,7 @@ namespace g3
             bounds.Clear();
             windingTrees.Clear();
             antipodalSegments.Clear();
+            antipodalFar.Clear();
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
@@ -754,8 +755,7 @@ namespace g3
                 OpenBoundarySegments[m] = segments.Length / 2;
                 if (segments.Length / 2 < AntipodalMaxBoundarySegments) {
                     antipodalSegments[m] = segments;
-                    BigInteger[] bmin, bmax;
-                    mesh_bounds(m, out bmin, out bmax);
+                    antipodalFar[m] = far_points(m, 64);
                 }
             }
             // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
@@ -923,10 +923,19 @@ namespace g3
         int[] open_winding(int i, List<int> stack, List<int> openMeshes)
         {
             List<int> sparse = null;
+            Center center = null;
             foreach (int m in openMeshes) {
                 Vector3d[] segments;
-                double w = antipodalSegments.TryGetValue(m, out segments) ? antipodal_front_winding(i, m, stack, segments)
-                    : front_generalized_winding(i, m, stack);
+                double w;
+                if (antipodalSegments.TryGetValue(m, out segments)) {
+                    // (the exact centroid once per piece, for all meshes on this path)
+                    if (center == null) {
+                        center = new Center(centroid_point(arr.Output[i], false));
+                        center.Input = arr.ToInputVector(center.P);
+                    }
+                    w = antipodal_front_winding(i, m, stack, segments, center);
+                } else
+                    w = front_generalized_winding(i, m, stack);
                 int wm = threshold_generalized(w);
                 if (wm != 0) {
                     if (sparse == null)
@@ -1039,15 +1048,22 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         int centroid(ExactMeshArrangement.OutputTriangle ot)
         {
-            return arr.AddPoint(centroid_point(ot));
+            return arr.AddPoint(centroid_point(ot, true));
         }
 
-        // the exact centroid of a piece (not added to the arrangement)
+        // the exact centroid of a piece (not added to the arrangement); canonical (reduced by the gcd) only if asked for:
+        // the ray of front_crossings needs only its value
         [MethodImpl(JitHints.Optimize)]
-        ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot)
+        ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical)
         {
             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
+            if (canonical == false)
+                return ExactPoint3.CreateUnreduced(
+                    a.X * wbc + b.X * wac + c.X * wab,
+                    a.Y * wbc + b.Y * wac + c.Y * wab,
+                    a.Z * wbc + b.Z * wac + c.Z * wab,
+                    3 * a.W * wbc);
             return ExactPoint3.Create(
                 a.X * wbc + b.X * wac + c.X * wab,
                 a.Y * wbc + b.Y * wac + c.Y * wab,
@@ -1077,7 +1093,7 @@ namespace g3
         int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center)
         {
             Vector3d direction;
-            return front_crossings(i, mesh, tree, rng, stack, center, true, out direction);
+            return front_crossings(i, mesh, tree, rng, stack, center, true, null, out direction);
         }
 
         /// <summary>
@@ -1087,7 +1103,7 @@ namespace g3
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         int front_crossings(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center, bool outsideBoxIsZero,
-            out Vector3d direction)
+            FarPoints far, out Vector3d direction, int firstAttempt = 0)
         {
             direction = Vector3d.Zero;
             var ot = arr.Output[i];
@@ -1102,7 +1118,7 @@ namespace g3
                 if (P[k] < min[k] * P.W || P[k] > max[k] * P.W)
                     return 0;
             BigInteger ext = BigInteger.One;
-            for (int k = 0; k < 3; ++k)
+            for (int k = 0; k < 3 && far == null; ++k)
                 ext = BigInteger.Max(ext, max[k] - min[k] + 1);
 
             Vector3d pv = center.Input;
@@ -1111,22 +1127,36 @@ namespace g3
             // grid coordinates of the point as doubles, for the filtered plane sides
             Vector3d g = center.Grid();
             double gx = g.x, gy = g.y, gz = g.z;
-            for (int attempt = 0; attempt < 200; ++attempt) {
-                int axis = rng.Next(3);
-                long[] dir = new long[3];
-                for (int k = 0; k < 3; ++k)
-                    dir[k] = rng.Next(-1000, 1001);
-                dir[axis] = (rng.Next(2) == 0) ? -1000 : 1000;
-                BigInteger[] R = new BigInteger[3];
-                for (int k = 0; k < 3; ++k)
-                    R[k] = (min[k] + max[k]) / 2 + dir[k] * ext * 4;
-                ExactPoint3 Rp = ExactPoint3.FromInteger(R[0], R[1], R[2]);
-                // the segment must start into the front side of the piece
-                BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
-                if (front.Sign <= 0)
+            for (int attempt = firstAttempt; attempt < firstAttempt + 200; ++attempt) {
+                ExactPoint3 Rp;
+                double rx, ry, rz;
+                Vector3d rv;
+                if (far != null) {
+                    // (one of the mesh's precomputed far points, FarPoints, chosen by a hash of the seed, the piece and the
+                    // attempt: deterministic in any thread order, no generator per piece)
+                    ulong h = unchecked((ulong)(uint)Seed * 0x9E3779B97F4A7C15UL ^ (ulong)(uint)i * 0xBF58476D1CE4E5B9UL ^ (ulong)(uint)attempt * 0x94D049BB133111EBUL);
+                    h = (h ^ (h >> 31)) * 0xD6E8FEB86659FD93UL;
+                    h ^= h >> 32;
+                    int j = (int)(h % (ulong)far.R.Length);
+                    Rp = far.R[j];
+                    rx = far.Grid[j].x; ry = far.Grid[j].y; rz = far.Grid[j].z;
+                    rv = far.Input[j];
+                } else {
+                    Rp = far_point(min, max, ext, rng);
+                    rx = (double)Rp.X; ry = (double)Rp.Y; rz = (double)Rp.Z;
+                    rv = Vector3d.Zero;
+                }
+                // the segment must start into the front side of the piece: the sign of n . (R - P), in doubles where the
+                // error bound decides (R is far: almost always), else exact
+                int frontSign = DisableFilters ? 2 : front_side_filtered(src.PlaneApprox, rx, ry, rz, gx, gy, gz);
+                if (frontSign == 2) {
+                    BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
+                    frontSign = front.Sign;
+                }
+                if (frontSign <= 0)
                     continue;
-                Vector3d rv = arr.ToInputVector(Rp);
-                double rx = (double)Rp.X, ry = (double)Rp.Y, rz = (double)Rp.Z;
+                if (far == null)
+                    rv = arr.ToInputVector(Rp);
                 Vector3d gp = new Vector3d(gx, gy, gz), gr = new Vector3d(rx, ry, rz);
 
                 int winding = 0;
@@ -1206,8 +1236,72 @@ namespace g3
             }
         }
 
+        // a far point for the ray of front_crossings: centre of the mesh's box plus a random direction (one axis at full length
+        // 1000, the others in -1000..1000) times 4 times the box's extent, so the segment leaves the box
+        static ExactPoint3 far_point(BigInteger[] min, BigInteger[] max, BigInteger ext, Random rng)
+        {
+            int axis = rng.Next(3);
+            long[] dir = new long[3];
+            for (int k = 0; k < 3; ++k)
+                dir[k] = rng.Next(-1000, 1001);
+            dir[axis] = (rng.Next(2) == 0) ? -1000 : 1000;
+            BigInteger[] R = new BigInteger[3];
+            for (int k = 0; k < 3; ++k)
+                R[k] = (min[k] + max[k]) / 2 + dir[k] * ext * 4;
+            return ExactPoint3.FromInteger(R[0], R[1], R[2]);
+        }
+
+        // far points of a mesh, computed once (exact, as doubles in grid units and in input coordinates): the per-piece rays of
+        // the Antipodal Method pick one of them instead of constructing a new one per attempt (no exact arithmetic per ray)
+        sealed class FarPoints
+        {
+            public ExactPoint3[] R;
+            public Vector3d[] Grid, Input;
+        }
+
+        FarPoints far_points(int mesh, int count)
+        {
+            BigInteger[] min, max;
+            mesh_bounds(mesh, out min, out max);
+            BigInteger ext = BigInteger.One;
+            for (int k = 0; k < 3; ++k)
+                ext = BigInteger.Max(ext, max[k] - min[k] + 1);
+            var rng = new Random(unchecked(Seed + 7919 * (mesh + 1)));
+            var f = new FarPoints() { R = new ExactPoint3[count], Grid = new Vector3d[count], Input = new Vector3d[count] };
+            for (int j = 0; j < count; ++j) {
+                f.R[j] = far_point(min, max, ext, rng);
+                f.Grid[j] = new Vector3d((double)f.R[j].X, (double)f.R[j].Y, (double)f.R[j].Z);
+                f.Input[j] = arr.ToInputVector(f.R[j]);
+            }
+            return f;
+        }
+
         // plane sides evaluated by front_winding, and how many of them exactly (the filter could not decide)
         long windingSides, windingExactSides;
+
+        /// <summary>
+        /// sign of n . (r - g) for the normal n = pa[0..2] (doubles with relative error at most 2^-52 each,
+        /// InputTriangle.PlaneApprox) and points r, g given by doubles with relative error at most 2^-52 each; 2 if the error
+        /// bound does not decide (also for overflow or tiny values, and for coordinates below TinyCoordinate)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int front_side_filtered(double[] pa, double rx, double ry, double rz, double gx, double gy, double gz)
+        {
+            if (tiny(rx) || tiny(ry) || tiny(rz) || tiny(gx) || tiny(gy) || tiny(gz))
+                return 2;
+            double a = pa[0] * (rx - gx), b = pa[1] * (ry - gy), c = pa[2] * (rz - gz);
+            double mag = Math.Abs(pa[0]) * (Math.Abs(rx) + Math.Abs(gx)) + Math.Abs(pa[1]) * (Math.Abs(ry) + Math.Abs(gy))
+                + Math.Abs(pa[2]) * (Math.Abs(rz) + Math.Abs(gz));
+            // per term: 2^-52 (coefficient) + 2^-52 (each coordinate) + 2^-53 (difference) + 2^-53 (product), of mag;
+            // the sum adds 2 * 2^-53 of mag: below 6 * 2^-52 * mag, taken generously
+            double bound = 1e-14 * mag;
+            if (!(mag < double.MaxValue) || mag < 1e-290)
+                return 2;
+            double v = a + b + c;
+            if (v > bound) return 1;
+            if (v < -bound) return -1;
+            return 2;
+        }
 
         /// <summary>
         /// sign of A x + B y + C z - D for a plane given by doubles pa[0..3] (each with relative error at most
@@ -1290,6 +1384,8 @@ namespace g3
 
         // per open mesh evaluated by the Antipodal Method: its boundary segments (pairs of input points, BoundarySegments)
         readonly Dictionary<int, Vector3d[]> antipodalSegments = new Dictionary<int, Vector3d[]>();
+        // and its far points for the rays (far_points)
+        readonly Dictionary<int, FarPoints> antipodalFar = new Dictionary<int, FarPoints>();
 
         /// <summary>
         /// Generalized winding number of an open mesh just in front of output piece i by the Antipodal Method (Martens,
@@ -1304,17 +1400,13 @@ namespace g3
         /// replaced by another.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments)
+        double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
         {
-            var ot = arr.Output[i];
-            var center = new Center(centroid_point(ot));
-            center.Input = arr.ToInputVector(center.P);
             Vector3d p = center.Input;
-            // (a generator per piece and mesh: the pieces are evaluated in parallel)
-            var rng = new Random(unchecked(Seed + 1000003 * i + 7919 * (mesh + 1)));
             for (int attempt = 0; attempt < 20; ++attempt) {
                 Vector3d x0;
-                int chi = front_crossings(i, mesh, arr.Trees[mesh], rng, stack, center, false, out x0);
+                // (attempts continue the hash sequence of front_crossings: a new far point each time)
+                int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, antipodalFar[mesh], out x0, 200 * attempt);
                 Vector3d x1 = -x0;
                 double sum = 0;
                 bool degenerate = false;
