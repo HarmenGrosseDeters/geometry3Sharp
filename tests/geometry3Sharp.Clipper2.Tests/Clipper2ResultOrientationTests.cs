@@ -45,6 +45,16 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
+        public void OffsetAndSimplify_OfTheTangledResult_AreOriented()
+        {
+            var union = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { Speck }, new[] { Tangle });
+            AssertOriented(union);
+            AssertOriented(Clipper2Polygons.Offset(union.Polygons, 0.02));
+            AssertOriented(Clipper2Polygons.Offset(union.Polygons, -0.01));
+            AssertOriented(Clipper2Polygons.Simplify(union.Polygons, 0.01));
+        }
+
+        [Fact]
         public void BooleanPaths_ClockwiseLobeNextToCounterclockwiseOne_BothOuterCounterclockwise()
         {
             // a figure of eight: the lobes have opposite winding, both are filled by NonZero

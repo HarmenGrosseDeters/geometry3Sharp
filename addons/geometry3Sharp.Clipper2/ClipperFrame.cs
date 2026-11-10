@@ -195,7 +195,8 @@ namespace g3.Clipper2
         /// <summary>
         /// The polygons of a Clipper2 PolyTree: one GeneralPolygon2d per outer boundary, with its holes; islands inside
         /// a hole are polygons of their own (after their enclosing polygon in the list). Outer boundaries are
-        /// counterclockwise and holes clockwise, as on the grid (the conversion to double does not change that except
+        /// counterclockwise and holes clockwise: each ring is oriented by its grid area (Clipper2 reports a lobe of negative winding
+        /// as a clockwise path even where it is an outer boundary); the conversion to double does not change that except
         /// for rings of a few grid units of area far from the origin). Holes are not checked again for containment.
         /// </summary>
         public List<GeneralPolygon2d> ToGeneralPolygons(PolyTree64 tree)
