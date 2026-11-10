@@ -236,7 +236,7 @@ namespace g3
                         break;
                 } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
                     // Inspect the whole rounded bucket; the final position is checked in double below.
-                    if (EdgeQueue.FirstPriority > (float)MaxQuadricError)
+                    if (EdgeQueue.FirstPriority > priority(MaxQuadricError))
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -945,6 +945,46 @@ namespace g3
             return q.Evaluate(ref local);
         }
 
+        // The unit normal and the area of a triangle, without the absolute thresholds of DMesh3.GetTriInfo / GetTriNormal / Vector3d.Normalize
+        // (a length of 2.2e-16 or less counts as zero there): those give a zero normal and a zero area for a triangle of edge length below
+        // about 1.5e-8, so the quadrics of a small mesh were empty (R14). Only an exactly degenerate triangle has no normal here.
+        void tri_info(int tid, out Vector3d normal, out double area, out Vector3d centroid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            centroid = (1.0 / 3.0) * (a + b + c);
+            normal = (b - a).Cross(c - a);
+            double len = unit_direction(ref normal);
+            area = 0.5 * len;
+        }
+
+        // as MathUtil.Normal (DMesh3.GetTriNormal), the same arithmetic where it is defined, without its absolute thresholds
+        Vector3d tri_normal(int tid)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            Vector3d edge1 = b - a;
+            Vector3d edge2 = c - b;
+            unit_direction(ref edge1);
+            unit_direction(ref edge2);
+            Vector3d cross = edge1.Cross(edge2);
+            unit_direction(ref cross);
+            return cross;
+        }
+
+        // normalizes v in place and returns its length; (0 and v zero) for a vector of length 0 or one that is not finite
+        static double unit_direction(ref Vector3d v)
+        {
+            double len = v.Length;
+            if (!(len > 0 && len <= double.MaxValue))
+            {
+                v = Vector3d.Zero;
+                return 0;
+            }
+            v *= 1.0 / len;
+            return len;
+        }
+
 		protected virtual void InitializeVertexQuadrics()
 		{
             quadricOrigin = mesh.CachedBounds.Center;
@@ -956,7 +996,7 @@ namespace g3
                 Vector3d c, n;
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
-                        mesh.GetTriInfo(tid, out n, out triAreas[tid], out c);
+                        tri_info(tid, out n, out triAreas[tid], out c);
                         triQuadrics[tid] = plane_quadric(n, c);
                     }
                 }
@@ -999,15 +1039,15 @@ namespace g3
                 if (et.b == DMesh3.InvalidID) {
                     if (doBoundary == false)
                         continue;
-                    Vector3d n = mesh.GetTriNormal(et.a);
+                    Vector3d n = tri_normal(et.a);
                     Vector3d m = (b - a).Cross(n);
-                    if (m.Normalize() < MathUtil.Epsilon)
+                    if (unit_direction(ref m) == 0)
                         continue;
                     QuadricError q = plane_quadric(m, a);
                     vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
                     vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
                 } else if (doFeatures) {
-                    Vector3d n0 = mesh.GetTriNormal(et.a), n1 = mesh.GetTriNormal(et.b);
+                    Vector3d n0 = tri_normal(et.a), n1 = tri_normal(et.b);
                     if (n0.Dot(n1) >= featureDot)
                         continue;
                     QuadricError q0 = plane_quadric(n0, a);
@@ -1037,6 +1077,37 @@ namespace g3
         protected QEdge[] EdgeQuadrics;
         protected IndexPriorityQueue EdgeQueue;
 
+        // The queue's priorities are floats, and a quadric error is a squared length (times an area with AreaWeightedQuadrics): it overflows to
+        // +infinity above a mesh extent of about 2^32 (area weighted; 2^64 otherwise), where every edge then has the same priority and the
+        // order is that of the ids, and it underflows below about 2^-32 (R14, F5). The errors are multiplied by a power of two for the queue, chosen
+        // from the median of the initial errors (so that a 2^k scale of the mesh gives the same priorities bit for bit); the cast of a float moves
+        // exactly by a power of two, so the order is the old one wherever the floats did not overflow or underflow. Set by InitializeQueue, fixed for a run.
+        protected double PriorityScale = 1;
+
+        float priority(double err)
+        {
+            return (float)(err * PriorityScale);
+        }
+
+        // 2^-e for the median of the positive finite errors in [2^e, 2^(e+1)); 1 if there is none
+        static double priority_scale_for(double[] errors)
+        {
+            var positive = new List<double>(errors.Length);
+            foreach (double e in errors)
+                if (e > 0 && e <= double.MaxValue)
+                    positive.Add(e);
+            if (positive.Count == 0)
+                return 1;
+            positive.Sort();
+            double median = positive[positive.Count / 2];
+            if (median < 1e-290 || median > 1e290)
+                return 1;
+            int k = (int)Math.Floor(Math.Log(median, 2));
+            if (Math.Pow(2, k) > median) --k;
+            else if (Math.Pow(2, k + 1) <= median) ++k;
+            return Math.Pow(2, -k);
+        }
+
 		protected virtual void InitializeQueue()
 		{
 			int NE = mesh.EdgeCount;
@@ -1044,7 +1115,7 @@ namespace g3
 
             EdgeQuadrics = new QEdge[MaxEID];
             EdgeQueue = new IndexPriorityQueue(MaxEID);
-            float[] edgeErrors = new float[MaxEID];
+            double[] errors = new double[MaxEID];
 
             // vertex quadrics can be computed in parallel
             gParallel.BlockStartEnd(0, MaxEID-1, (start_eid, end_eid) => {
@@ -1053,11 +1124,16 @@ namespace g3
                         Index2i ev = mesh.GetEdgeV(eid);
                         QuadricError Q = new QuadricError(ref vertQuadrics[ev.a], ref vertQuadrics[ev.b]);
                         Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
-                        edgeErrors[eid] = (float)evaluate(ref Q, opt);
+                        errors[eid] = evaluate(ref Q, opt);
                         EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
                     }
                 }
             });
+
+            PriorityScale = priority_scale_for(errors);
+            float[] edgeErrors = new float[MaxEID];
+            for (int i = 0; i < MaxEID; ++i)
+                edgeErrors[i] = priority(errors[i]);
 
             // sorted pq insert is faster, so sort edge errors array and index map
             int[] indices = new int[MaxEID];
@@ -1156,9 +1232,9 @@ namespace g3
 				double err = evaluate(ref Q, opt);
                 EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
 				if ( EdgeQueue.Contains(eid) ) {
-					EdgeQueue.Update(eid, (float)err);
+					EdgeQueue.Update(eid, priority(err));
 				} else {
-					EdgeQueue.Insert(eid, (float)err);
+					EdgeQueue.Insert(eid, priority(err));
 				}
 			}			
 		}
@@ -1715,6 +1791,10 @@ skip_to_end:
 			double a33 = r.Axx * r.Ayy - r.Axy * r.Axy;
 			double det = (r.Axx * a11) + (r.Axy * a12) + (r.Axz * a13);
 			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
+				return false;
+			// (a determinant near the bottom of the double range: the products below underflow to 0 and the solution would be the origin of the
+			// quadric, not a minimizer; area weighted planes reach it at an extent of about 2^-160)
+			if (!(Math.Abs(det) > 1e-290))
 				return false;
 			det = 1.0 / det;
 			// 0 would give a point of zeros; an infinite 1/det ends in the check of the solution below
