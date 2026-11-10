@@ -72,6 +72,8 @@
     <InternalsVisibleTo Include="SnapRoundingExperiment" />
     <!-- SimplifyWithin of the wrap pipeline (benchmarks/SharpFeatureProbe) -->
     <InternalsVisibleTo Include="SharpFeatureProbe" />
+    <!-- the DualContouring diagnostics hook (benchmarks/DualContouringIntersections) -->
+    <InternalsVisibleTo Include="DualContouringIntersections" />
     <!-- the exact ray crossings and the partitioned reduction as oracles (tools/MeshFuzzPilot) -->
     <InternalsVisibleTo Include="MeshFuzzPilot" />
   </ItemGroup>

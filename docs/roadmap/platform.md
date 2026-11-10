@@ -139,8 +139,8 @@ Tier: S, M. Parallel: up to 2 sessions
        scale invariance.
     2. 2D mesher (`QualityMesh2`) against the independent oracle (fast since #411 / #427): random polygons with
        holes, near-parallel and near-touching segments; properties: input segments are unions of output edges,
-       angle bounds, conformity. **Done 2026-11-10 (QA 2.0 T5):** `QualityMesh2PropertyCampaign.CsCheck.cs` (six families: polygon with
-       holes, touching, wedge, soup, grid, extreme scales; 25 to 50 seeded samples each in CI, category `Campaign`), cases and
+       angle bounds, conformity. **Done 2026-11-10 (QA 2.0 T5):** `QualityMesh2PropertyCampaign.CsCheck.cs` (seven families: polygon with
+       holes, touching, wedge, soup, near contact, grid, extreme scales; 8 to 50 seeded samples each in CI, category `Campaign`), cases and
        properties in `QualityMesh2PropertyCase.cs`, fixed examples in `QualityMesh2PropertyExamplesTests.cs`. Large runs:
        `G3_PROPERTY_SAMPLES=10000` (about 60 000 samples). Findings: #496 (input angles below 60 degrees are small pairs), #499
        (oracle rule O-G, the grid tube); `TrianglesOnDegenerate` was fixed by #512; fine-grid `AngleBelowBound` was an oracle gap (hull edges taken whole on the grid, #534); the spike case (`VertexUnused` / `SegmentMissing`, a lobe of 5.5 px²) was settled by owner decision B (the reference is the rounded input, the oracle's lobe bounds are gone). The 10k strict grid run has no finding left; the filter for open grid classes (`G3_PROPERTY_STRICT=1` turns it off) stays for new ones.
