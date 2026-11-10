@@ -105,9 +105,9 @@ namespace g3
                     Vector3d v = mesh.GetVertex(vi);
                     if ( bVtxColors ) {
                         Vector3d c = mesh.GetVertexColor(vi);
-                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2} {3:F8} {4:F8} {5:F8}", v[0], v[1], v[2], c[0],c[1],c[2]));
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2} {3:F8} {4:F8} {5:F8}", MeshIOUtil.FormatDouble(v[0]), MeshIOUtil.FormatDouble(v[1]), MeshIOUtil.FormatDouble(v[2]), c[0],c[1],c[2]));
                     } else {
-                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2}", v[0], v[1], v[2]));
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2}", MeshIOUtil.FormatDouble(v[0]), MeshIOUtil.FormatDouble(v[1]), MeshIOUtil.FormatDouble(v[2])));
                     }
 
 					if ( bNormals ) {
