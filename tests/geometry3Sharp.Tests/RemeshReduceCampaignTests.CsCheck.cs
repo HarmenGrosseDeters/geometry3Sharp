@@ -10,13 +10,13 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// QA 2.0 T7: CsCheck campaign for Reducer and Remesher on procedural meshes (sphere, noisy sphere, torus, two spheres,
-    /// open terrain; sizes 2^-6 .. 2^6). Reducer: valid, finite, closed stays closed, Euler characteristic and components kept
+    /// open terrain; sizes 2^-30 .. 2^6). Reducer: valid, finite, closed stays closed, Euler characteristic and components kept
     /// (collapses with a link condition), no bowtie, positive volume, PreventFoldOver (terrain: no triangle turns down),
     /// MaxDeviation (vertices and centroids within it of the input, also over a second call on the same instance),
     /// repeated run and the 2^k scaled input bit-identical. Remesher: valid, finite, closed stays closed, Euler characteristic
     /// and components kept, no bowtie, positive volume, parallel smoothing equals serial, repeated run and 2^k scaled bit-identical.
-    /// Out of scope (known, docs/ROBUSTNESS_SWEEP.md): R13 (MeshIterativeSmooth, non-finite input in general), R14 (Reducer
-    /// below scale 2^-25): the meshes are finite and the scales moderate.
+    /// Out of scope (known, docs/ROBUSTNESS_SWEEP.md): R13 (MeshIterativeSmooth, non-finite input in general): the meshes are
+    /// finite. R14 (Reducer below scale 2^-25, fixed by #549): sizes reach 2^-30, scaled by 2^-9 down to 2^-39.
     /// 20 samples in CI; G3_PROPERTY_SAMPLES=n, G3_PROPERTY_CAMPAIGN=reducer|remesher with G3_PROPERTY_REPLAY=seed to replay.
     /// </summary>
     [Trait("Category", CampaignRunner.Category)]
@@ -319,7 +319,7 @@ namespace geometry3Sharp.Tests
         }
 
         static readonly Gen<Scene> GenScene =
-            Gen.Select(Gen.Select(Gen.Int[0, 5], Gen.Int[-6, 6], Gen.Int[6, 20], Gen.Int[0, 4], Gen.Int[0, 3], (k, e, n, nz, f) => (k, e, n, nz, f)),
+            Gen.Select(Gen.Select(Gen.Int[0, 5], Gen.Int[-30, 6], Gen.Int[6, 20], Gen.Int[0, 4], Gen.Int[0, 3], (k, e, n, nz, f) => (k, e, n, nz, f)),
                        Gen.Select(Gen.Int[0, 2], Gen.Bool, Gen.Bool, Gen.Int[0, 2], Gen.Bool, Gen.Int[0, 100000], (dv, q, a, l, p, sd) => (dv, q, a, l, p, sd)),
                 (x, y) => new Scene { Kind = x.k, Exp = x.e, N = x.n, Noise = x.nz, Frac = x.f, Dev = y.dv, Quadric = y.q, Area = y.a, Len = y.l, Parallel = y.p, Seed = y.sd });
 
