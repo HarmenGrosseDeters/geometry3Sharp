@@ -63,9 +63,9 @@ namespace g3
             if (tolerance == 0) return run(input, null);
             if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
             new Builder(input, true, cancel).Validate();
-            // A domain whose input has no area is empty, decided exactly on the input, before snapping (MESHING2D_SNAP.md, Q17): snapping
-            // moves points by up to half a pixel and could turn collinear points into a triangle. Only a hull domain is decided here
-            // (all points collinear); rings that enclose no area are the builder's.
+            // A domain whose input has no area is empty, decided exactly on the input, before snapping (MESHING2D_HULL_GRID.md, zero-area input): snapping
+            // moves points by up to half a pixel and could turn collinear points into a triangle. A hull domain of collinear points and outer rings of
+            // collinear vertices are decided here.
             bool noArea = HullHasNoArea(input);
             SnapRounding2 snap;
             try {
@@ -87,7 +87,8 @@ namespace g3
         /// <summary> the result for an input without area: no triangles, the (snapped) points as vertices, as the builder reports an empty domain </summary>
         static ConstrainedTriangulation2Result EmptyResult(ConstrainedMesh2Input snapped)
         {
-            var vertices = snapped.Points.ToArray();
+            // (-0.0 as +0.0, as the builder normalises its vertices)
+            var vertices = snapped.Points.Select(p => new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y)).ToArray();
             var mapping = new int[vertices.Length];
             var first = new Dictionary<Vector2d, int>();
             for (int i = 0; i < vertices.Length; ++i) {
@@ -99,13 +100,27 @@ namespace g3
             return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
         }
 
-        /// <summary> a hull domain (no outer ring) of points that are all on one line, exactly (or fewer than two distinct points) </summary>
+        /// <summary>
+        /// the input has no area, exactly: a hull domain (no outer ring) whose points are all on one line, or whose outer rings each have
+        /// all their vertices on one line (or fewer than two distinct points)
+        /// </summary>
         static bool HullHasNoArea(ConstrainedMesh2Input input)
         {
+            var outer = new List<Mesh2Ring>();
             if (input.Rings != null)
-                foreach (var r in input.Rings) if (r != null && !r.Hole) return false;
+                foreach (var r in input.Rings) if (r != null && !r.Hole) outer.Add(r);
+            if (outer.Count == 0) return Collinear(input.Points, null);
+            foreach (var r in outer) if (!Collinear(input.Points, r.Vertices)) return false;
+            return true;
+        }
+
+        /// <summary> the points (of the given indices, or all) are on one line, exactly </summary>
+        static bool Collinear(IList<Vector2d> points, int[] indices)
+        {
             Vector2d? first = null, second = null;
-            foreach (var p in input.Points) {
+            int n = indices == null ? points.Count : indices.Length;
+            for (int k = 0; k < n; ++k) {
+                var p = points[indices == null ? k : indices[k]];
                 if (first == null) { first = p; continue; }
                 if (p == first.Value) continue;
                 if (second == null) { second = p; continue; }

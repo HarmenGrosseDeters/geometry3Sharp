@@ -24,19 +24,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(0, 2.0, 0.0, true)]
-        [InlineData(0, 2.0, 20.0, false)]
-        [InlineData(0, 2.0, null, false)]
-        [InlineData(-100, 2.0, 20.0, true)]
-        [InlineData(60, 2.0, 0.0, false)]
-        public void CollinearPoints_WithASnapTolerance_AreEmpty(int exponent, double pixel, double? angle, bool constrained)
+        [InlineData(0, 0.0, true)]
+        [InlineData(-100, 0.0, true)]
+        [InlineData(60, 0.0, true)]
+        [InlineData(0, null, false)]
+        [InlineData(-100, null, false)]
+        public void CollinearPoints_WithASnapTolerance_AreEmpty(int exponent, double? angle, bool constrained)
         {
-            var input = Collinear(exponent, pixel, angle, constrained);
+            var input = Collinear(exponent, 2.0, angle, constrained);
             var output = angle == null ? new ConstrainedDelaunayMesh2Candidate().Run(input) : new QualityMesh2Candidate().Run(input);
             Assert.Equal(Mesh2Status.Empty, output.Status);
             Assert.Empty(output.Triangles);
+            // the vertices are the snapped points: (3, 3) in units of 2^-8 moved to the pixel centre (4, 4), the others are pixel centres
+            double unit = Math.Pow(2, -8 + exponent);
+            Assert.Equal(new[] { 2 * unit, 4 * unit, 0 }, output.VX);
+            Assert.Equal(new[] { 4 * unit, 4 * unit, 6 * unit }, output.VY);
             var report = Oracle.Check(input, output, new OracleExpect { Milestone = angle == null ? Milestone.M2 : Milestone.M3 });
             Assert.True(report.Ok, report.ToString());
+        }
+
+        /// <summary> an outer ring over collinear points has no area either, and the mesher can be reused </summary>
+        [Fact]
+        public void CollinearRing_WithASnapTolerance_IsEmpty_AndTheMesherIsReusable()
+        {
+            double unit = Math.Pow(2, -8);
+            var ring = new g3.ConstrainedMesh2Input {
+                Points = new System.Collections.Generic.List<g3.Vector2d> { new g3.Vector2d(2 * unit, 4 * unit), new g3.Vector2d(3 * unit, 3 * unit), new g3.Vector2d(0, 6 * unit) },
+                Rings = new System.Collections.Generic.List<g3.Mesh2Ring> { new g3.Mesh2Ring(new[] { 0, 1, 2 }) } };
+            var mesher = new g3.QualityMesh2 { MinAngle = 20, SnapTolerance = 2 * unit };
+            Assert.Equal(g3.Triangulation2Status.Empty, mesher.Compute(ring).Status);
+            Assert.Equal(g3.Triangulation2Status.Empty, mesher.Compute(ring).Status);
         }
 
         /// <summary> the same without a tolerance is empty too, and a hull with area keeps its mesh when snapped </summary>

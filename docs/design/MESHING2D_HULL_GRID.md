@@ -186,10 +186,10 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
   snap-rounded as segments, the existing segment rules apply.
 
 **Zero-area input (owner decision 2026-11-10, found by the CsCheck campaign of `QualityMesh2`, T5):** snapping never turns a zero-area input
-into a mesh. A hull domain whose input points are all on one line (exact orientation) is empty with a snap tolerance too, decided on the
-input before snapping: snapping moves a point by up to half a pixel, and three collinear points (2, 4), (3, 3), (0, 6) at pixel 2 became the
+into a mesh. A domain whose input has no area is empty with a snap tolerance too, decided exactly on the input before snapping: a hull domain
+whose points are all on one line, or outer rings whose vertices are each on one line: snapping moves a point by up to half a pixel, and three collinear points (2, 4), (3, 3), (0, 6) at pixel 2 became the
 triangle (2, 4), (4, 4), (0, 6). The result is the Empty status with the snapped points as vertices. For inputs with area the tube rules
-O-G apply. (Rings that enclose no area stay with the builder; only the hull domain is decided up front.)
+O-G apply. (A ring with area whose snapped image has none is the builder's: O-H5, Q17.)
 
 **Rule O-G, the grid tube (owner decision 2026-11-09, found by the CsCheck campaign of `QualityMesh2`, QA 2.0 T5).** With an explicit snap
 tolerance the output boundary is the input boundary snap-rounded, so it may run off the input's by up to a pixel and enclose a different
