@@ -273,14 +273,17 @@ implemented from the paper and the MIT reference code ported with attribution. T
 winding number of an open mesh at p is w(p) = χ(x0) + (1/4π) Σ over the boundary segments (a, b) of
 2 atan2(A·(B × x1), 1 + A·B + A·x1 + B·x1), with A, B the unit vectors from p to a and b, x1 = −x0 and χ(x0) the signed
 count of the crossings of the ray from p towards x0 with the surface. Interior edges cancel, so the cost per query is
-one ray plus a term per boundary segment, O(B + log F), with no hierarchy and no far-field approximation (exact up to
-floating point in the boundary sum).
+one ray plus a term per boundary segment, O(B + log F), with no hierarchy and no far-field approximation (the crossing
+count is exact; the boundary sum is plain double `atan2`, without a proven error bound).
 
 **Setup.** `prestudy-antipodal` (`PrestudyAntipodal.cs`, `antipodal_job.sh`), the 21 open models of the Lévy samples,
 both operands: boundary segments counted with the vertices welded by exact position (|n(a→b) − n(b→a)| per edge, so
 that the duplicated vertices of soups do not count as boundary); the queries are the arrangement pieces' centroids as in
 the per-piece path; per query the library's `FastWindingNumber` (serial, a subsample of 2e4), the per-segment term
-above in plain C# (`Math.Atan2`, at least 2e6 terms after a warm-up), and a ray along +x with
+above in plain C# (`Math.Atan2`; review 2026-11-10: the in-probe timing after a 3-call warm-up was biased by
+unoptimized JIT code, 51-113 ns on the first operand against 29-45 ns on the identical second one, so the unit cost
+is measured again with `--unit-only` under `DOTNET_TieredCompilation=0`, 20 untimed passes, at least 2e7 terms, per
+mesh: `results/antipodal_unit.jsonl`), and a ray along +x with
 `DMeshAABBTree3.FindAllHitTriangles` (its exact-predicate ray test; a realistic stand-in for the exact ray of the
 boolean). Model: Antipodal per query = B · t_segment + t_ray
 ([results/antipodal_summary.md](../../benchmarks/Boolean30Prestudy/results/antipodal_summary.md)). Three huge models
@@ -288,31 +291,35 @@ boolean). Model: Antipodal per query = B · t_segment + t_ray
 
 | model | boundary segments | FWN µs / query (A, B) | Antipodal / FWN (A, B) | FWN s, all queries | Antipodal s |
 |---|---|---|---|---|---|
-| 113906 | 683 | 242, 305 | 0.43, 0.50 | 414 | 195 |
+| 113906 | 683 | 242, 305 | 0.29, 0.50 | 414 | 169 |
 | 107554 | 3 | 45, 34 | 0.39, 0.36 | 79 | 30 |
 | 1017015 | 0 | 76, 77 | 0.30, 0.52 | 35 | 15 |
-| 118923, 112535, 112536, 118289, 109088, 124526, 116062 | 4-134 | 14-54 | 0.26-1.0 | 0.4-10 each | 0.2-7 each |
-| 1087141, 1087144, 1088051, 1088054, 1088138 | 1196 | 85-105 | 1.12-1.55 | 287-318 each | 380-427 each |
-| 122796 | 2512 | 24, 17 | 5.9, 5.0 | 26 | 143 |
-| 100030, 102815 | 56-616 | 8-34 | 0.98-3.0 | ≤ 0.3 | ≤ 0.5 |
+| 118923, 112535, 112536, 118289, 109088, 124526, 116062 | 4-134 | 13-54 | 0.25-0.99 | 0.4-10 each | 0.2-6 each |
+| 1087141, 1087144, 1088051, 1088054, 1088138 | 1196 | 85-105 | 0.80-1.01, 1.16-1.53 | 287-318 each | 315-364 each |
+| 122796 | 2512 | 24, 17 | 3.8, 4.6 | 26 | 107 |
+| 100030, 102815 | 56-616 | 8-34 | 0.96-2.1 | ≤ 0.3 | ≤ 0.3 |
 
-Unit costs: 51-113 ns per segment term (scalar, `Atan2`-bound), 5-130 µs per ray (46-97 µs on the 720k-triangle
-1087xxx models, which dominates there: 1196 segments cost about 70 µs, the ray 46-97 µs). The 1087xxx "soups" are
-not soups once welded: 360 k welded vertices and only 1196 boundary segments.
+Unit costs (warm, per mesh): 26-35 ns per segment term (scalar, `Atan2`-bound); 5-130 µs per ray (46-66 µs on the
+first and 88-97 µs on the second operand of the 720k-triangle 1087xxx models: B is A rotated, so the axis ray meets a
+different part of the tree; there the ray dominates, the 1196 segments cost about 35 µs). The 1087xxx "soups" are not
+soups once welded: 360 k welded vertices and only 1196 boundary segments. (The probe's own edge welding used the
+default `long` hash, 2.3 s for 68k triangles; with the library's `EdgeKeyComparer` 0.1 s: the library's
+`BoundarySegments` must use the mixed hash.)
 
-**Totals** (serial query work, both operands, 18 models): today 2096 s; the Antipodal Method everywhere 2383 s
-(+14 %); **a switch by boundary-segment count (Antipodal below 1000 segments per open mesh, today's FWN above) 1791 s
-(−15 %), equal to the per-mesh best choice** on these models. Per model with the switch: 113906 −53 %, 107554 −62 %,
+**Totals** (serial query work, both operands, 18 models, warm unit costs): today 2096 s; the Antipodal Method
+everywhere 1987 s (−5 %); **a switch by boundary-segment count (Antipodal below 1000 segments per open mesh, today's
+FWN above) 1763 s (−16 %)**; the per-mesh best choice 1658 s (−21 %: the switch misses the first operand of the
+1087xxx family, where Antipodal is 0.80-1.01 of FWN). Per model with the switch: 113906 −59 %, 107554 −62 %,
 1017015 −59 %, the 1087xxx family unchanged. On the per-piece branch the query work is about the whole
-classification, which is 81 % of the open cohort's time, so the switch gains about −12 % of the open cohort's time with
-today's unit costs, and up to −50 to −60 % of the time of the models with few boundary segments.
+classification, 81 % of the time of the 21 open models, so the switch gains roughly −13 % of the open cohort's time
+(an extrapolation from 18 models) with today's unit costs, and −50 to −60 % on the models with few boundary segments.
 
 **What would move the 1087xxx family.** Its cost is the ray plus 1196 terms; both are engineering: the per-segment term
 vectorized (4-wide doubles, an `atan2` with a proven error bound or an exact sign-only evaluation where the term is far
-from ±π) could reach 15-25 ns (a micro benchmark decides); the ray through a mesh-specific BVH with early rejection by
+from ±π) could reach 10-15 ns (today 26-35 ns; a micro benchmark decides); the ray through a mesh-specific BVH with early rejection by
 the ray's bounding slab, or one shared traversal for the pieces of a patch along the same axis (crossing counts change
-only where the ray sweeps over the mesh), could cut the 46-97 µs several times. With 20 ns per term and a 15 µs ray the
-1087xxx queries would cost about 39 µs against 85-105 µs (0.4-0.45). The boundary sum is the floating-point part (no
+only where the ray sweeps over the mesh), could cut the 46-97 µs several times. With 12 ns per term and a 15 µs ray the
+1087xxx queries would cost about 29 µs against 85-105 µs (0.3-0.35). The boundary sum is the floating-point part (no
 exact code); the ray and its symbolic perturbation must agree with the arrangement's exact ray (the exact-code rules,
 Dekker splitting instead of FMA, apply there).
 
@@ -323,7 +330,8 @@ differences: the Antipodal value has no far-field error, so results may change w
 those cases are checked against a high-accuracy FWN with β = ∞, i.e. the direct sum). Second step: the vectorized term
 and the faster ray, then the switch threshold re-measured (the 1087xxx family needs both to gain). Prior art: Barill
 et al. 2018 (today's FWN); Martens et al. 2026 (Antipodal, CPU 3.3x over Barill order 2 on their data, GPU 1e9 queries
-per second); Xie et al. 2026 (FEWN); nothing else handles open operands exactly.
+per second); Xie et al. 2026 (FEWN); no other method we found gives open operands an exact crossing count without a far-field
+approximation.
 
 ## 6. Positioning
 
@@ -390,10 +398,10 @@ unless a target says otherwise, and every parallel change is deterministic by co
 | T1 | **Scaling:** on the 73-model set of section 1, the serial floor sum t1 (1 − f) halves (342 -> ≤ 170 s) and the 4-core time drops by ≥ 20 % (528 -> ≤ 420 s); speedup 1 -> 4 cores ≥ 2.5x (today 2.06x); measured again on an 8- or 16-core machine before more is promised | parallel deterministic sort in `merge_points` (5.6 %); classification setup: radix sort, union-find, the open-mesh tree build after #501 (9.2 %); input orientation by a sort instead of the dictionary (4.7 %); `ExactPlanarSimplify` and assembly per region (6 %); box-tree build (part of 3.8 %) | 27 % at 4 cores, the floor 342 -> about 155 s | L (exact files); bit-identical |
 | T1b | the SafeRounding edits in parallel over a fixed spatial partition | rounding 8.1 % at 4 cores, more on many cores | 8 % | L; **owner:** the edit order changes, so results change (within the same guarantees) |
 | T2 | **Memory:** the arrangement retains ≤ 300 B per input triangle (today 390-580) and the peak working set ≤ 1.2 KB per input triangle (today 1.1-1.9 KB on large typical inputs), no time regression; the largest model on a 16 GB machine from about 10 M to about 13 M input triangles | input points without a `FixedPoint3`; `InputTriangle` as struct-of-arrays; then the bottom-up fast-winding coefficients | -35 % retained | L (exact files); the last lever is the open owner decision of LEVY_CLASSIFICATION 4.1 item 3 |
-| T3a | **Subtract many** (owner 2026-11-10, section 9): the existing n-ary difference (`ExactMeshBoolean(meshes, Operations.Difference)`) with an operation-aware early-out: triangles of the Bi whose box lies outside A (no A triangle in the box, and outside A by one winding query) are dropped before the intersections; target: terrain n = 200 (A 5k-10k, Bi 60k triangles) ≤ 2.5 s at 4 cores (today one pass 3.3-3.8 s, chained 44-62 s), CAD block 10k with 500 tools ≤ 30 s (today 49 s), never slower than today's one pass, the same exact result as today's one pass | the early-out in the arrangement's input path | 6-45 % (terrain 27-31 % from n = 100) | L (`ExactMesh*`); no API change |
-| T3b | **Intersect each** (owner 2026-11-10, section 9): an additive `ExactMeshBoolean.IntersectEach(DMesh3 a, IReadOnlyList<DMesh3> bodies)` (results by index) that computes A's part once (closedness and orientation, its triangles, box tree and self-intersection pairs) and runs the n booleans in parallel over i; results bit-identical to n separate booleans; target: terrain n = 200 ≤ 1.5 s (today 4.9 s serial, 2.7 s parallel), CAD 100k with 50 tools ≤ 4 s (today 15.0 / 11.4 s), at 4 cores | cache of A's self-pairs and tree (EMBER idea 2 in exact form), parallel over i | A's repeated part 42-89 % of the serial time; parallel over i 1.3-2.5x | M-L; additive API |
+| T3a | **Subtract many** (owner 2026-11-10, section 9): the existing n-ary difference (`ExactMeshBoolean(meshes, Operations.Difference)`) with an operation-aware early-out: triangles of the Bi whose box lies outside A (no A triangle in the box, and outside A by one winding query) are dropped before the intersections; target (conditional on the share of droppable Bi triangles, section 9.1): terrain n = 200 (A 5k-10k, Bi 60k triangles) ≤ 2.7 s at 4 cores (today one pass 3.3-3.8 s, chained 44-62 s), CAD block 10k with 500 tools ≤ 30 s (today 49 s), never slower than today's one pass, the same exact result as today's one pass | the early-out in the arrangement's input path | 6-45 % (terrain 27-31 % from n = 100) | L (`ExactMesh*`); no API change |
+| T3b | **Intersect each** (owner 2026-11-10, section 9): an additive `ExactMeshBoolean.IntersectEach(DMesh3 a, IReadOnlyList<DMesh3> bodies)` (results by index) that computes A's part once (closedness and orientation, its triangles, box tree and self-intersection pairs) and runs the n booleans in parallel over i; results bit-identical to n separate booleans; target: terrain n = 200 ≤ 1.5 s (today 4.9 s serial, 2.7 s parallel), CAD 100k with 50 tools ≤ 4 s (today 15.0 / 11.4 s), at 4 cores | cache of A's self-pairs and tree (EMBER idea 2 in exact form), parallel over i | A's repeated part 29-89 % of the serial time; parallel over i 1.3-2.5x | M-L; additive API |
 | T4 | **Exact output:** an additive `ExactMesh` result and input (section 4 sketch): a chain of k booleans with k − 1 roundings fewer, results equal to the one-pass exact result, coplanar faces merged exactly, no growth of the construction degree along the chain | constructions over the original inputs (plane-based provenance) through the arrangement's input path | -29 % per chained step (rounding), chained result size -10 to -80 % | L, 4-8 weeks; **owner:** a use case (chained CSG, tet meshing) before it is built |
-| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22-30 % of the query work, model-based); the Antipodal Method with a switch by boundary-segment count (section 5.1): the per-piece query work of the 18 measured open models -15 % (113906 -53 %, 107554 -62 %) with today's unit costs; with a vectorized segment term and a faster ray the 1087xxx family too (bound 0.4-0.45 of today's) | exact ray + scalar boundary sum + switch; then vectorized term and faster ray | per-piece classification is 81 % of the open cohort | patent check done (owner 2026-11-10: freedom to operate); L for the exact ray |
+| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22-30 % of the query work, model-based); the Antipodal Method with a switch by boundary-segment count (section 5.1): the per-piece query work of the 18 measured open models -16 % (113906 -59 %, 107554 -62 %) with today's unit costs; with a vectorized segment term and a faster ray the 1087xxx family too (bound 0.3-0.35 of today's) | exact ray + scalar boundary sum + switch; then vectorized term and faster ray | per-piece classification is 81 % of the open cohort | patent check done (owner 2026-11-10: freedom to operate); L for the exact ray |
 | T6 | **Positioning:** stay the only method with clean results on `thingi-pairs`; close the gap to CGAL EPECK on the 1k-100k class from 3.1x to ≤ 2x (geomean) with T1 and the 2.0 rounding levers; no target against EMBER / trueform without a second kernel | T1, rounding search levers (hard open problem 3) | | owner: a quantized plane-based opt-in kernel stays out of scope unless decided |
 
 Order proposed: T1 (bit-identical, largest bound at no change of results), T2 (independent, memory only), T5's
@@ -420,7 +428,10 @@ frusta over rounded rectangles), foundations, round shafts (32-200 sides), trenc
 curve) and road bodies (a trapezoid swept along a gently curved polyline, following the terrain), about 70-800
 triangles each, all from above the terrain to below it; n = 5-200. *CAD*: A = a block 100 × 60 × 40 with subdivided
 faces (10k or 99k triangles); Bi = 32-sided drills (vertical, a fifth horizontal, blind or through) and rounded
-pockets, n = 10-500. `many_job.sh`, `analyze_many.py`
+pockets, n = 10-500. Caveats (review 2026-11-10): about 12 % of the pockets have a corner radius above half their
+shorter side, so their polygon and prism self-intersect (closed and consistently oriented, read by winding number like
+any self-intersecting input); the terrain jitter folds about 3e-5 of the top triangles in xy. Neither changes the
+timings materially. `many_job.sh`, `analyze_many.py`
 ([results/many_summary.md](../../benchmarks/Boolean30Prestudy/results/many_summary.md)), 4 cores unless stated.
 
 ### 9.1 T3a: A − (B1 ∪ … ∪ Bn)
@@ -441,9 +452,10 @@ then A − U), *pairwise tree* (balanced pairwise unions, each level in parallel
 
 - All results of all variants are clean (`NotCleanReason` ""); volumes agree with the one pass within 1.5e-9
   (relative; SafeRounding edits in the chains).
-- Chaining is 3.5-15x slower and its results carry up to 5x more triangles (CAD n = 500: 601k against 119k; rounded
-  faces no longer exactly coplanar, section 3). The one pass and "union first" are within ±15 % of each other; the
-  pairwise tree wins only where the tools overlap each other heavily (CAD n = 500: 35 s).
+- Chaining is 2.5-16x slower and its results carry up to 5x more triangles (CAD n = 500: 601k against 119k; rounded
+  faces no longer exactly coplanar, section 3). "Union first" is −22 % to +37 % of the one pass (single runs); the
+  pairwise tree wins where the tools overlap each other heavily (CAD 10k, n = 500: 35 s against 49 s) and on the 100k
+  block (−7 to −17 %), and loses on the terrain (+25-45 %).
 - Unlike the dense trees of section 3, here the one pass is the right evaluation: the operands overlap A, not each
   other, so its arrangement does not explode.
 
@@ -454,7 +466,11 @@ share of the Bi's pieces outside A (an estimate: it counts the pieces' share of 
 the terrain case 27-31 % from n = 100 on. The remaining time is A's own arrangement with the parts of the Bi inside it,
 which every method needs.
 
-**Design sketch (T3a).** No new API: `ExactMeshBoolean(meshes, Operations.Difference)` (and `Intersection`, whose
+**Design sketch (T3a).** (Review 2026-11-10: the bound above counts *pieces* outside A; a test per input triangle
+reaches less, because on the terrain most side walls of pits, shafts and trenches run from above the surface to
+below it and stay; only caps and the parts of roads far above the terrain go. The share of Bi triangles that a
+triangle-level test drops is not measured yet; it is the first step of the T3a work, and the target in section 8 is
+conditional on it.) No new API: `ExactMeshBoolean(meshes, Operations.Difference)` (and `Intersection`, whose
 result also lies inside each operand) gets an early-out in the arrangement's input path: per triangle of a Bi, its box
 against A's box tree; a box that meets no triangle of A is wholly inside or outside A, decided by one exact winding
 query of its centre against A (A is closed: the exact ray of `front_winding`); outside triangles are dropped before
