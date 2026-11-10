@@ -249,7 +249,7 @@ public static partial class Program
         }
         Mesh2Output o = new QualityMesh2Candidate().Run(input);
         if (o.Status == Mesh2Status.Failed) {
-            CheckMesher2(what, "Failed", o.FailureKind?.ToString() ?? "", false, "");
+            CheckMesher2(what, "Failed", (o.FailureKind?.ToString() ?? "") + (o.FailureDetail != null ? ": " + o.FailureDetail : ""), false, "");
             return;
         }
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"mesher2: limit reached {o.SteinerLimitReached}, {o.VX.Length} vertices for {input.X.Length} input points, angle {input.MinAngleDeg}, constrained {input.ConstrainedQuality}, conforming {input.Conforming}, x0 {input.X[0]}, {input.Segments.Count} segments, x range {input.X.Min()}..{input.X.Max()}, y range {input.Y.Min()}..{input.Y.Max()}, duplicates {input.X.Length - input.X.Zip(input.Y, (a, b) => (a, b)).Distinct().Count()}, snap {input.SnapTolerance}");

@@ -67,6 +67,8 @@ namespace Meshing2Acceptance
     {
         public Mesh2Status Status;
         public string FailureKind;
+        /// <summary> the mesher's own text for a Failed status (a report, no rule) </summary>
+        public string FailureDetail;
         public double[] VX = new double[0], VY = new double[0];
         /// <summary>Optional exact vertices: when a producer has them, the oracle judges these, not the doubles.</summary>
         public Pt[] ExactVertices;

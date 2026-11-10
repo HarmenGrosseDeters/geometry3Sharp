@@ -28,6 +28,7 @@ namespace Meshing2Acceptance
             if (result.Status == Triangulation2Status.Failed) {
                 output.Status = Mesh2Status.Failed;
                 output.FailureKind = result.FailureKind.ToString();
+                output.FailureDetail = result.FailureDetail;
                 return output;
             }
             var mesh = result.Mesh;
