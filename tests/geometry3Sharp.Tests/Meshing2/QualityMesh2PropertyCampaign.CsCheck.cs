@@ -190,13 +190,15 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// Near contact (QA 2.0 T5, the stmlf/1461 class of the roadmap): a frame of 2^10, 2^13 or 2^15 lattice units with a long segment A
         /// along a small direction (p, q), 1 to 3 segments B that start at a lattice point exactly on A's interior (a T-junction) and end 1
-        /// or 2 units beside A's line (angles down to 1/2^15 of a radian, 0.002 degrees), and 0 to 3 free points 3 units beside A (2^-15
-        /// of the extent off a segment they do not touch).
+        /// or 2 steps of the perpendicular (-q, p) beside A's line (a step is |(p, q)| lattice units: 1 to 3.6; angles of 1/2^15 radian and
+        /// above, 0.002 degrees), and 0 to 3 free points 3 steps beside A (about 2^-15 to 2^-13 of the extent off a segment they do not
+        /// touch). Two B's may cross each other in their interiors (nearly parallel, same side): rounded crossing vertices, the class of
+        /// the oracle's RoundingReach2.
         /// </summary>
         static Gen<QualityMesh2PropertyCase> GenNearContact() =>
-            Gen.Select(Pick(10, 13, 15), Pick((1, 0), (0, 1), (1, 1), (2, 1), (1, 2), (3, 2)), Gen.Int[1, 3], Gen.Int[0, 1 << 20].Array[17],
+            Gen.Select(Pick(10, 13, 15), Pick((1, 0), (0, 1), (1, 1), (2, 1), (1, 2), (3, 2)), Gen.Int[1, 3], Gen.Int[0, 1 << 20].Array[16],
                 (bits, dir, nb, raw) => {
-                    // raw: per T segment (3): j, h, delta, side; then the number of free points and their 3 positions
+                    // raw: 4 ints per T segment (3 segments): j, h, delta, side; then the number of free points and their 3 positions
                     int[] js = { raw[0], raw[4], raw[8] }, hs = { raw[1], raw[5], raw[9] }, deltas = { 1 + raw[2] % 2, 1 + raw[6] % 2, 1 + raw[10] % 2 };
                     bool[] down = { raw[3] % 2 == 1, raw[7] % 2 == 1, raw[11] % 2 == 1 };
                     int nfree = raw[12] % 4;
@@ -213,7 +215,8 @@ namespace geometry3Sharp.Tests
                         int sign = down[i] ? -1 : 1;
                         int t0 = b.Point(x0 + j * p, y0 + j * q);
                         int t1 = b.Point(x0 + h * p - sign * deltas[i] * q, y0 + h * q + sign * deltas[i] * p);
-                        if (t0 != t1) b.Segments.Add(new[] { t0, t1 });
+                        // (a segment already there is not added again: CsCheck shrinks the raw ints to 0, which would make all three the same segment)
+                        if (!b.Segments.Any(sg => sg[0] == t0 && sg[1] == t1)) b.Segments.Add(new[] { t0, t1 });
                     }
                     for (int i = 0; i < nfree; ++i) {
                         int j = 1 + frees[i] % Math.Max(1, g - 1);
@@ -288,7 +291,7 @@ namespace geometry3Sharp.Tests
         [Fact] public void Touching() => Campaign("touching", WithFrame(GenTouching(), Gen.Int[-6, 6], NoSnap), Shifts, 50, 102u);
         [Fact] public void Wedge() => Campaign("wedge", WithFrame(GenWedge(), Gen.Int[-6, 6], NoSnap), Shifts, 12, 103u);
         [Fact] public void Soup() => Campaign("soup", WithFrame(GenSoup(), Gen.Int[-6, 6], NoSnap), Shifts, 50, 104u);
-        [Fact] public void NearContact() => Campaign("nearcontact", WithFrame(GenNearContact(), Gen.Int[-6, 6], NoSnap), Shifts, 10, 107u);
+        [Fact] public void NearContact() => Campaign("nearcontact", WithFrame(GenNearContact(), Gen.Int[-6, 6], NoSnap), Shifts, 8, 107u);
         [Fact] public void Grid() => Campaign("grid", WithFrame(GenAnyFamily(), Gen.Int[-6, 6], GridSnap), Shifts, 50, 105u);
         [Fact] public void Extreme() => Campaign("extreme", WithFrame(GenAnyFamily(), Gen.Int[-300, 100], Gen.OneOf(NoSnap, GridSnap)), ExtremeShifts, 50, 106u);
     }
