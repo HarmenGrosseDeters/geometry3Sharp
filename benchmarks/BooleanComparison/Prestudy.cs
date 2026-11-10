@@ -321,6 +321,9 @@ static class Prestudy
                     stepClean.Add(op.RoundingClean);
                     if (op.RoundingClean == false) notClean++;
                     result = op.Result;
+                    row["phases_ms"] = op.PhaseMilliseconds;
+                    row["counts"] = op.Counts;
+                    row["patches"] = op.Patches;
                 }
             }
             row["ms"] = sw.ElapsedMilliseconds;
