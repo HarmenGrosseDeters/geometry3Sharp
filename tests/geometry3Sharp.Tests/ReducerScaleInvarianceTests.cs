@@ -7,13 +7,13 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Reducer under power-of-two scaling (F5 of RepairCampaignFindings, R14 of docs/ROBUSTNESS_SWEEP.md), at every scale from 2^-120 to 2^120:
+    /// Reducer under power-of-two scaling (F5 of RepairCampaignFindings, R14 of docs/ROBUSTNESS_SWEEP.md), at every scale from 2^-128 to 2^128:
     /// the edge queue's priorities were floats, which overflowed to infinity for a quadric error above 3.4e38 (an area weighted error is about the
     /// fourth power of the extent: from an extent of 2^32; every edge then had the same priority and the order was that of the ids, erratic in a
     /// window of scales) and underflowed below about 2^-32; and the triangle normals and areas of the quadrics used a length of 2.2e-16 as zero
     /// (triangles of edge length below about 1.5e-8 had no plane). Now the errors are scaled by a power of two for the queue, and the normals have
-    /// no absolute threshold. Beyond 2^+-128 the quadric arithmetic itself leaves the double range (products of area weighted planes), which the
-    /// Reducer answers by taking an endpoint or the midpoint of the edge.
+    /// no absolute threshold; the optimal point is computed on the quadric scaled by a power of two (it overflowed from an extent of 2^150 and
+    /// underflowed below 2^-150, where it returned the origin of the quadric). The range tested is 2^+-128.
     /// </summary>
     public class ReducerScaleInvarianceTests
     {
@@ -35,7 +35,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        public static readonly int[] Shifts = { -120, -100, -60, -30, -24, -20, -10, -1, 1, 10, 30, 32, 33, 40, 63, 64, 66, 70, 80, 90, 100, 120 };
+        public static readonly int[] Shifts = { -128, -120, -100, -60, -30, -24, -20, -10, -1, 1, 10, 30, 32, 33, 40, 63, 64, 66, 70, 80, 90, 100, 120, 128 };
 
         static DMesh3 ReduceToCount(DMesh3 m, int count)
         {
@@ -94,6 +94,36 @@ namespace geometry3Sharp.Tests
                 string d = Invariance.Difference(reference, Scaled(r, -shift));
                 Assert.True(d == "", $"variant {variant}, shift {shift}: {d}");
             }
+        }
+
+        // triangles that are collinear up to rounding (no normal, no area): the same decisions at every scale
+        [Fact]
+        public void CollinearSlivers_ShiftSweep_BitIdentical()
+        {
+            DMesh3 unit = Bumpy();
+            // a fan of collinear points on a boundary strip: appended triangles with a rounding-noise cross product
+            int a = unit.AppendVertex(new Vector3d(3.1, 0.1, 0)), b = unit.AppendVertex(new Vector3d(3.2, 0.2, 0)), c = unit.AppendVertex(new Vector3d(3.3, 0.3, 0));
+            unit.AppendTriangle(a, b, c);
+            Func<DMesh3, DMesh3> run = (m) => {
+                var r = new Reducer(m) { AreaWeightedQuadrics = false, FeatureAngle = 20 };
+                r.ReduceToTriangleCount(m.TriangleCount / 3);
+                return m;
+            };
+            DMesh3 reference = run(new DMesh3(unit));
+            foreach (int shift in new[] { -100, -30, 33, 100 }) {
+                string d = Invariance.Difference(reference, Scaled(run(Scaled(unit, shift)), -shift));
+                Assert.True(d == "", $"shift {shift}: {d}");
+            }
+        }
+
+        // the queue is built in parallel: repeated runs agree
+        [Fact]
+        public void Repeated_SameResult()
+        {
+            DMesh3 unit = Scaled(Bumpy(), 70);
+            DMesh3 first = ReduceToCount(new DMesh3(unit), unit.TriangleCount / 4);
+            for (int i = 0; i < 3; ++i)
+                Assert.Equal("", Invariance.Difference(first, ReduceToCount(new DMesh3(unit), unit.TriangleCount / 4)));
         }
 
         [Fact]
