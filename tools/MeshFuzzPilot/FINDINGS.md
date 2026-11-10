@@ -21,8 +21,8 @@ PR #493 and #495 where noted.
 
 | # | Operations | Class | Symptom | Hex |
 |---|---|---|---|---|
-| 1 | partitioned-reducer | **in** | closed skewed tetrahedron, 3x subdivided (256 triangles), error (0.01 diagonal)^2, no area weights, MinTriangles 0: result 3 triangles, open; the serial Reducer gives 4, closed. Normalized corners (0,0,0), (1,.25,.1875), (0,1.25,.1875), (0,.25,1.1875) | `000000000000000403fe0cfe0000fe0000000000000000000000000000000000000000050300` |
-| 2 | partitioned-reducer | **in** | the result for the 2^40 scaled copy is not the scaled result (documented contract) | `000403fe03fe000004040483fe000000000403fe03fe0000fe0000010000` |
+| 1 (fixed, #516) | partitioned-reducer | **in** | closed skewed tetrahedron, 3x subdivided (256 triangles), error (0.01 diagonal)^2, no area weights, MinTriangles 0: result 3 triangles, open; the serial Reducer gives 4, closed. Normalized corners (0,0,0), (1,.25,.1875), (0,1.25,.1875), (0,.25,1.1875) | `000000000000000403fe0cfe0000fe0000000000000000000000000000000000000000050300` |
+| 2 (resolved, #516: subnormal coordinate) | partitioned-reducer | out: subnormal | the result for the 2^40 scaled copy is not the scaled result (documented contract) | `000403fe03fe000004040483fe000000000403fe03fe0000fe0000010000` |
 | 3 | robust-repair (with the six Boolean/repair operations) | out: magnitude 1e176; **hang** | `MeshRobustRepair` runs over 120 s on collinear points at y, z about 1.9e176 (20 of 32 artifacts of one run) | `030303fefe08000303` |
 | 4 | alpha-wrap | out: size disparity 1e293; **false success** | Success, an input vertex is outside the wrap (tetrahedron 1e-276 .. 3e17) | `3b5454204854542054545474a35454545454545454542c54cc54cc000000cc0000005454` |
 | 5a | union (+ six ops) | out: scale below 1e-285, pair more than 2^60 apart; **false success** | `RoundingClean` with degenerate triangles at the rounding's scale (cube 2.6e-290, tetrahedron 3.6e-307) | `fcfefff8fbff00` |
@@ -36,3 +36,15 @@ PR #493 and #495 where noted.
 "six ops" = `MESH_FUZZ_OPS=union,intersection,difference,robust-repair,robust-repair-soup,rounding-repair`; items 1 and 2 use
 `partitioned-reducer`, items 4, 7 and 8 `alpha-wrap`. The harness keeps the out-of-range classes out of its fuzz domain
 (README, "domains"); once the per-module ranges exist, the domains follow them.
+
+## Classes under the supported ranges (2026-11-10, QA.md 2.5a table)
+
+| # | Range of the module | Class now | Action |
+|---|---|---|---|
+| 3 | robust repair: magnitude 2^-200 .. 2^200 | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
+| 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
+| 5a, 5b | boolean / rounding: 2^-200 .. 2^200, disparity 2^60 | out **false success** | range check (bugfix PR) |
+| 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
+| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | documented limit |
+| 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
+| 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | documented limit |

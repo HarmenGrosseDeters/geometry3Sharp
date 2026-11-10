@@ -55,6 +55,12 @@ namespace gs
     /// vertices of the result.
     ///
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-128, 2^128] (about 3e-39 to 3e38), and the extent of the input is at
+    /// least 2^-40 of the largest coordinate magnitude (a point cluster of extent 5e-14 around -26.5 is below it and
+    /// fails with Failed, "box corners on the result"). Measured (octahedron and sphere, relative alpha 5, relative offset
+    /// 100): usable between 2^-160 and 2^160; at 2^+-180 and 2^+-200 the wrap degrades or runs for minutes, at 2^+-220 and
+    /// beyond it returns Failed or InvalidParameters.
     /// </summary>
     public class MeshAlphaWrap
     {

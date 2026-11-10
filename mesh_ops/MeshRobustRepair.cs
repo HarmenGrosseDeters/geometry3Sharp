@@ -56,6 +56,10 @@ namespace gs
     ///
     /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
     /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200], no subnormal coordinates. Parts that lie far apart
+    /// compared to their size are handled up to the limits of ScaleDisparity (Apply() false beyond, the mesh is kept);
+    /// the extent of the whole input is below about 1e154 (ScaleNotFinite). Outside the coordinate range the result is not guaranteed.
     /// </summary>
     public class MeshRobustRepair
     {

@@ -57,6 +57,11 @@ namespace g3
     /// acceptable and very broken input (triangle soups) must give a closed mesh.
     ///
     /// Implemented from the papers cited here and in ExactMeshArrangement, no code taken over (docs/SOURCES.md).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200] (about 6e-61 to 2e60), the inputs are not subnormal, and the
+    /// largest and the smallest part of an operation are at most 2^60 apart in size. Inside, the result is exact and
+    /// RoundingClean is meaningful. Outside, the result is not guaranteed (measured: a union of two cubes returns an empty
+    /// mesh with Success below 2^-280 and an invalid rounding above 2^700).
     /// </summary>
     public class ExactMeshBoolean
     {

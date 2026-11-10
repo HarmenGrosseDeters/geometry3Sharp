@@ -36,6 +36,11 @@ namespace g3
     ///   - FastWindingNumber(point)
     ///   - DoTraversal(generic_traversal_object)
     /// 
+    /// Supported input range (docs/QA.md 2.5a): coordinate magnitudes up to 2^1000 (about 1e301) for the ray queries,
+    /// IsInside and the winding numbers (fuzzed to there, MeshFuzzPilot); the squared distances of the nearest queries
+    /// are representable for a mesh extent between 2^-450 and 2^450. Subnormal coordinates are fine for the queries, but
+    /// a scaling by 2^k is exact only for normal numbers. Non-finite coordinates are outside.
+    /// 
     /// </summary>
     public class DMeshAABBTree3 : ISpatial
     {

@@ -56,6 +56,10 @@ namespace gs
     /// Sources: Garland and Heckbert 1997 (quadrics); the partition with frozen borders is the approach of out-of-core
     /// simplification (P. Lindstrom, SIGGRAPH 2000; Ozaki, Kyota, Kanai 2015), here with fixed slabs for determinism
     /// (docs/SOURCES.md).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): as the Reducer, every nonzero coordinate has a magnitude in [2^-200, 2^200]; no subnormal coordinates (the slab
+    /// boxes are not exact there). The result is not invariant under scaling (the slabs and the frozen borders have
+    /// absolute tolerances), see above.
     /// </summary>
     public sealed class PartitionedReducer
     {
