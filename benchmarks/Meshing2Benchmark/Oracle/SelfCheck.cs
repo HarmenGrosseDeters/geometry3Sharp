@@ -323,6 +323,28 @@ namespace Meshing2Acceptance
                 Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
             }
 
+            // ---- the same on a snap grid, with a hull edge through a collinear input point (T5, found by the CsCheck campaign). The hull
+            // domain A = (0, 0), E1 = (120, 0), E2 = (96, 72) (the hull angle at A is 36.87 degrees) with the input point P = (2, 0) on the bottom
+            // edge, at pixel 1, a bound of 20 degrees and the triangle p E1 q with p = (4, 0) on the piece P-E1 and q on A-E2: its shortest
+            // edge p-q spans the hull angle at A, whose apex lies on the other piece A-P. On the grid the hull edge is taken whole (as the
+            // mesher's OriginOf does), so the triangle is excused; without the grid the pieces are separate sources. (The meshes are not
+            // otherwise valid outputs: only AngleBelowBound is asserted)
+            {
+                Mesh2Input GridIn(double ex, double ey) => new Mesh2Input { SnapTolerance = 1, X = new[] { 0, 120, ex, 2 }, Y = new[] { 0, 0, ey, 0 }, MinAngleDeg = 20 };
+                Mesh2Output GridOut(double ex, double ey, double qx, double qy) {
+                    var tris = new[] { new[] { 0, 3, 5 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 120, ex, 2, 4, qx }, VY = new[] { 0, 0, ey, 0, 0, qy },
+                        InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 2 } };
+                }
+                var onGrid = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 4, 3), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: on the grid the shortest edge spans the hull angle whose apex is on another piece of the split hull edge", !onGrid.Has(Violation.AngleBelowBound), "report: " + onGrid);
+                var farQ = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 12, 9), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same with q 3.75 times as far from the apex as p, as AngleBelowBound", farQ.Has(Violation.AngleBelowBound), "report: " + farQ);
+                var wideGrid = Oracle.Check(GridIn(32, 64), GridOut(32, 64, 2, 4), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same at a hull angle of 63.43 degrees as AngleBelowBound", wideGrid.Has(Violation.AngleBelowBound), "report: " + wideGrid);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed
