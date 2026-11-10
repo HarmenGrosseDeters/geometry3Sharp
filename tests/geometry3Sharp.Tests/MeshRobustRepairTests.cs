@@ -153,7 +153,7 @@ namespace geometry3Sharp.Tests
         }
 
         // two overlapping spheres: closed and manifold, but self-intersecting (the repair keeps that)
-        static DMesh3 OverlappingSpheres()
+        internal static DMesh3 OverlappingSpheres()
         {
             DMesh3 m = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(m, Sphere(1, new Vector3d(1.2, 0, 0)));
