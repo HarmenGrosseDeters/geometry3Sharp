@@ -139,3 +139,21 @@ Tests planned for B (procedural only): sphere / torus / noisy / holed / non-unif
 invariance over `Similarity.All()` (2^k scales bit for bit); reuse; determinism (parallel equals serial); a negative
 test per failure mode (open sheet reported, `Alpha` below the spacing reported); mutation check of the orientation
 sign and of the condition thresholds.
+
+## 7. Status and follow-ups (2026-11-10)
+
+Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566) and step B (`PointCloudNormals`; #568). The XYZ reader and
+writer (#571, draft) and step C1 follow in the week of 2026-11-16, as does the check of the paper references against the papers
+themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
+
+Residuals of the independent review of `PointCloudNormals` (no code now; a follow-up PR, or an issue, on Monday):
+- A wrap with `WrapStatus == PointLimitReached` is accepted if it is closed. `IsClosed()` does not show that it is manifold or free
+  of self-intersections, which the exact parity test of the probes needs. Reaching the limit takes more than 2M Steiner points,
+  so no input has triggered it. Options: treat `PointLimitReached` as `WrapFailed`, or check `MeshRobustRepair.NotCleanReason`
+  before counting confident points.
+- A cloud with a few degenerate neighbourhoods (for example a short line among surface points) still gets `Success`, with zero
+  normals for those points; only `AxisCount` shows it (`DegenerateInput` needs fewer than `MinConfidentFraction` of the points
+  with an axis). Option: a status or a warning count for the zero normals.
+- Two mutants of defensive paths survive (the closed-wrap check, a probe that is not finite): neither can be reached by a test input.
+- `NoiseSigma` is about 0.6 of the true noise (calibrated by `NoiseFactor` 6.5); a better estimator (larger neighbourhood, or a
+  robust fit) is part of C1 if the Alpha rule needs it.
