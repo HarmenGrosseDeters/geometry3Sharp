@@ -196,7 +196,7 @@ namespace g3
 
                 int meshIndex = meshes.Add("{" + (name != null ? "\"name\":" + name + "," : "") + "\"primitives\":[" + primitive + "]}");
                 string translation = (origin != Vector3d.Zero) ?
-                    string.Format(ci, ",\"translation\":[{0},{1},{2}]", origin.x.ToString("R", ci), origin.y.ToString("R", ci), origin.z.ToString("R", ci)) : "";
+                    string.Format(ci, ",\"translation\":[{0},{1},{2}]", MeshIOUtil.FormatDouble(origin.x), MeshIOUtil.FormatDouble(origin.y), MeshIOUtil.FormatDouble(origin.z)) : "";
                 nodes.Add("{" + (name != null ? "\"name\":" + name + "," : "") + string.Format(ci, "\"mesh\":{0}", meshIndex) + translation + "}");
             }
 
@@ -229,7 +229,7 @@ namespace g3
 
         static string f2s(float f)
         {
-            return f.ToString("R", CultureInfo.InvariantCulture);
+            return MeshIOUtil.FormatFloat(f);
         }
     }
 }
