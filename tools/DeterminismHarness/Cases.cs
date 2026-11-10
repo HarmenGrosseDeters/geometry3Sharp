@@ -43,6 +43,7 @@ namespace DeterminismHarness
             list.Add(new Case("probe.double-parse", serial => ProbeParse()));
             list.Add(new Case("probe.double-format", serial => ProbeFormat()));
             list.Add(new Case("probe.float-cast", serial => ProbeFloat()));
+            list.Add(new Case("probe.format-roundtrip", serial => ProbeFormatRoundTrip()));
             list.Add(new Case("io.obj-text", serial => IoObj()));
             list.Add(new Case("io.stl-text", serial => IoStl()));
             // ---- exact Boolean
@@ -157,6 +158,33 @@ namespace DeterminismHarness
                 // does "R" round-trip?
                 t.Add(double.Parse(x.ToString("R", System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) == x);
             }
+            return t;
+        }
+
+        // does format-then-parse give the same double back? (the platform's own formatter and parser, on random bit patterns
+        // and on random ordinary values), for "R", "G17" and the G15 / G16 / G17 ladder
+        static Trace ProbeFormatRoundTrip()
+        {
+            var t = new Trace();
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            var rng = new Rng(77);
+            int[] fail = new int[4]; int n = 0, wrongDigits = 0;
+            for (int i = 0; i < 40000; ++i) {
+                double x;
+                if (i % 2 == 0) {
+                    x = BitConverter.Int64BitsToDouble((long)rng.Next());
+                    if (double.IsNaN(x) || double.IsInfinity(x)) continue;
+                } else x = rng.Range(-100, 100);
+                n++;
+                string r = x.ToString("R", ci), g17 = x.ToString("G17", ci);
+                string ladder = x.ToString("G15", ci);
+                if (double.Parse(ladder, ci) != x) { ladder = x.ToString("G16", ci); if (double.Parse(ladder, ci) != x) ladder = g17; }
+                if (double.Parse(r, ci) != x) { fail[0]++; if (fail[0] <= 2) t.Notes.Add("R fails: bits " + BitConverter.DoubleToInt64Bits(x).ToString("x16") + " string " + r); }
+                if (double.Parse(g17, ci) != x) { fail[1]++; if (fail[1] <= 2) t.Notes.Add("G17 fails: bits " + BitConverter.DoubleToInt64Bits(x).ToString("x16") + " string " + g17); }
+                if (double.Parse(ladder, ci) != x) fail[2]++;
+                t.Add(r.Length); t.Add(ladder.Length);
+            }
+            t.Notes.Add("values " + n + "; round trip failures: R " + fail[0] + ", G17 " + fail[1] + ", ladder " + fail[2]);
             return t;
         }
 

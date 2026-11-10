@@ -154,7 +154,16 @@ SLIM, BFF when the input is libm-free). L2, everything, including ARM and all I/
 **Order of value**: C3 and C2 first (small, and the OBJ round trip on net48 is a plain data-loss defect today), then the
 ARM run, then C1 for the geodesic family if the owner wants L2 for it.
 
-## 8. Reproduction
+## 8. Owner decision (2026-11-10) and plan
+
+Approved, in this order, one PR each: (1) C3: every text writer writes round-trip exact doubles on every runtime
+(test: write on one runtime, read back bit-exact, on the net48 CI); (2) C2: a correctly rounded double parser for the
+readers (or a fallback on net48 only), added to `ReaderFuzzTests`; (3) the arm64 run of the harness on a GitHub-hosted
+arm64 runner (no self-hosted runner), result into this note; (4) C1: a small portable `DMath` for the geodesic /
+intrinsic family (`portable_atan2` of #539 as building block once merged; permissive sources only after a licence check,
+listed in `docs/SOURCES.md`), with the contract levels L0 / L1 / L2 documented. The state of each step is in its PR.
+
+## 9. Reproduction
 
 `dotnet run --project tools/DeterminismHarness -c Release -f net10.0 -- run --out <dir> [--serial] [--filter <text>]`,
 `... -- compare <dirA> <dirB> [--brief]`. net48 on Windows: `dotnet build tools/DeterminismHarness -c Release` and run
