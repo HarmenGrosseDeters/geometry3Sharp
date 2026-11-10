@@ -14,18 +14,12 @@ namespace MeshFuzzPilot;
 /// Clipper2 adapter. As for the first wave, every claim is a function of plain results, so that the self-test can hand it a
 /// contradiction. The operations run on the power-of-two normalized copy of the case's mesh A (its box diagonal in [1, 2)): the
 /// Remesher and the Reducer have been judged at the scales 2^-30 .. 2^6 by the campaigns; this target looks for the topology and
-/// the corners of the shapes. The parameters (a few options, the target size) come from the bytes of the first query's direction.
+/// the corners of the shapes. The options (a few flags, the target size) are four raw bytes after the queries.
 /// </summary>
 public static partial class Program
 {
-    /// <summary> the k-th parameter byte of a case: the components of the queries' directions (unit vectors, a function of the bytes) </summary>
-    static int ParamByte(Case c, int k)
-    {
-        if (c.Queries.Count == 0)
-            return 0;
-        double v = c.Queries[(k / 3) % c.Queries.Count].dir[k % 3];
-        return (int)Math.Floor((Math.Max(-1, Math.Min(1, v)) + 1) * 127.5) & 255;
-    }
+    /// <summary> the k-th option byte of a case (four raw bytes after the queries) </summary>
+    static int ParamByte(Case c, int k) => c.Options[k & 3];
 
     static double MeanEdge(DMesh3 m)
     {
@@ -65,10 +59,10 @@ public static partial class Program
         if (inputClosed) {
             if (!result.IsClosed())
                 throw new Finding($"{what}: a closed input, but the remeshed mesh is not closed");
-            if (EulerCharacteristic(result) != EulerCharacteristic(input))
-                throw new Finding($"{what}: the Euler characteristic changed from {EulerCharacteristic(input)} to {EulerCharacteristic(result)}");
             if (ComponentCount(result) != ComponentCount(input))
                 throw new Finding($"{what}: {ComponentCount(input)} components became {ComponentCount(result)}");
+            if (EulerCharacteristic(result) != EulerCharacteristic(input))
+                throw new Finding($"{what}: the Euler characteristic changed from {EulerCharacteristic(input)} to {EulerCharacteristic(result)}");
         }
         if (!SameMesh(result, other, 1))
             throw new Finding($"{what}: parallel and serial smoothing give different meshes");
@@ -83,7 +77,7 @@ public static partial class Program
             return;
         DMesh3 input = Subdivide(s.Norm);
         if (!input.CheckValidity(true, FailMode.ReturnOnly))
-            return;     // (a mesh with coincident corners: the subdivision of a degenerate input is not a mesh)
+            return;     // (a degenerate input, eg coincident corners: its subdivision is not a valid mesh, the claims have nothing to be judged on)
         double mean = MeanEdge(input);
         if (!(mean > 0))
             return;
@@ -126,10 +120,10 @@ public static partial class Program
         if (inputClosed && result.TriangleCount > 0) {
             if (!result.IsClosed())
                 throw new Finding($"{what}: a closed input, but the reduced mesh is not closed");
-            if (EulerCharacteristic(result) != EulerCharacteristic(input))
-                throw new Finding($"{what}: the Euler characteristic changed from {EulerCharacteristic(input)} to {EulerCharacteristic(result)}");
             if (ComponentCount(result) != ComponentCount(input))
                 throw new Finding($"{what}: {ComponentCount(input)} components became {ComponentCount(result)}");
+            if (EulerCharacteristic(result) != EulerCharacteristic(input))
+                throw new Finding($"{what}: the Euler characteristic changed from {EulerCharacteristic(input)} to {EulerCharacteristic(result)}");
         }
         if (deviation > 0 && result.TriangleCount > 0) {
             var tree = new DMeshAABBTree3(input, true);
@@ -142,7 +136,7 @@ public static partial class Program
         if (!SameMesh(result, again, 1))
             throw new Finding($"{what}: two runs give different meshes");
         if (scaled != null && !SameMesh(result, scaled, 1 / scale))
-            throw new Finding($"{what}: the result for the copy scaled by {scale} is not the scaled result");
+            throw new Finding($"{what}: the result for the copy scaled by {scale} is not the scaled result ({result.VertexCount} vertices / {result.TriangleCount} triangles against {scaled.VertexCount} / {scaled.TriangleCount})");
     }
 
     static void RunReducer(Case c, string what)
@@ -168,10 +162,16 @@ public static partial class Program
             return m;
         }
         DMesh3 a = Run(input, deviation), again = Run(input, deviation);
+        // the scale claim holds inside the Reducer's range (QA.md 2.5a: nonzero coordinates 2^-200 .. 2^200; the copy is 2^40 larger): a mesh
+        // with a coordinate of a tiny magnitude beside large ones (the case's offset against its extent) is judged without it
         double k = Pow2(40);
-        DMesh3 big = new DMesh3(input);
-        foreach (int v in big.VertexIndices()) big.SetVertex(v, k * big.GetVertex(v));
-        DMesh3 scaled = Run(big, deviation * k);
+        bool inRange = input.Vertices().All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= Pow2(-200) && Math.Abs(v) <= Pow2(150))));
+        DMesh3? scaled = null;
+        if (inRange) {
+            DMesh3 big = new DMesh3(input);
+            foreach (int v in big.VertexIndices()) big.SetVertex(v, k * big.GetVertex(v));
+            scaled = Run(big, deviation * k);
+        }
         CheckReduce(what, input.IsClosed(), input, a, again, scaled, k, deviation);
     }
 
@@ -190,17 +190,34 @@ public static partial class Program
             throw new Finding($"{what}: the oracle reports {violations}");
     }
 
+    /// <summary>
+    /// The open findings of the 2D mesher that this target meets (FINDINGS.md, second wave), so that a campaign goes on to other findings;
+    /// MESH_FUZZ_STRICT=1 turns the gate off. 1: AngleBelowBound only, with a minimum angle, in any quality mode (about 1 in 700
+    /// random inputs, a projected polyhedron with 17 to 36 crossing segments, the Steiner limit not reached). 2: VertexUnused / SegmentMissing only,
+    /// for coordinates more than 2^16 extents from the origin (the automatic snap grid).
+    /// </summary>
+    static string? KnownMesher2Class(Mesh2Input input, OracleReport report)
+    {
+        if (Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") == "1")
+            return null;
+        var kinds = new HashSet<Violation>(report.Violations.Select(v => v.Kind));
+        if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.AngleBelowBound }) && input.MinAngleDeg != null)
+            return "AngleBelowBound";
+        double far = Math.Max(input.X.Max(v => Math.Abs(v)), input.Y.Max(v => Math.Abs(v)));
+        if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.VertexUnused, Violation.SegmentMissing, Violation.ChainSkipsHotPixel }))
+            return far > Pow2(16) ? "VertexUnused / SegmentMissing far from the origin" : "VertexUnused / SegmentMissing";
+        return null;
+    }
+
     static void RunQualityMesh2(Case c, string what)
     {
         Setup? s = MakeSetup(c);
         if (s == null)
             return;
-        // the mesher's contract: coordinates finite and at most 1e70 in absolute value (ArgumentException otherwise)
-        if (s.Norm.Vertices().Any(p => Math.Abs(p.x) > 1e70 || Math.Abs(p.y) > 1e70))
-            return;
-        // (far from the origin compared with the extent the automatic snap grid is coarser than the input's own spacing; see FINDINGS.md)
-        if (s.Norm.Vertices().Any(p => Math.Abs(p.x) > Pow2(16) || Math.Abs(p.y) > Pow2(16)))
-            return;
+        // (the mesher's range, QA.md 2.5a: coordinates up to 1e70: the normalized copy is far inside it)
+        // the mesher's contract: coordinates finite and at most 1e70 in absolute value, else ArgumentException (the normalized copy keeps the
+        // case's offset, so a large offset reaches this)
+        bool beyondRange = s.Norm.Vertices().Any(p => Math.Abs(p.x) > 1e70 || Math.Abs(p.y) > 1e70);
         var input = new Mesh2Input();
         var index = new Dictionary<int, int>();
         var x = new List<double>(); var y = new List<double>();
@@ -225,6 +242,11 @@ public static partial class Program
         input.ConstrainedQuality = (p1 & 1) != 0;
         input.Conforming = (p1 & 2) != 0;
         input.SteinerLimit = 1500;
+        if (beyondRange) {
+            try { new QualityMesh2Candidate().Run(input); }
+            catch (ArgumentException) { return; }
+            throw new Finding($"{what}: coordinates beyond 1e70 were accepted (the documented contract is an ArgumentException)");
+        }
         Mesh2Output o = new QualityMesh2Candidate().Run(input);
         if (o.Status == Mesh2Status.Failed) {
             CheckMesher2(what, "Failed", o.FailureKind?.ToString() ?? "", false, "");
@@ -232,6 +254,8 @@ public static partial class Program
         }
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"mesher2: limit reached {o.SteinerLimitReached}, {o.VX.Length} vertices for {input.X.Length} input points, angle {input.MinAngleDeg}, constrained {input.ConstrainedQuality}, conforming {input.Conforming}, x0 {input.X[0]}, {input.Segments.Count} segments, x range {input.X.Min()}..{input.X.Max()}, y range {input.Y.Min()}..{input.Y.Max()}, duplicates {input.X.Length - input.X.Zip(input.Y, (a, b) => (a, b)).Distinct().Count()}, snap {input.SnapTolerance}");
         OracleReport report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+        if (!report.Ok && KnownMesher2Class(input, report) != null)
+            return;     // (an open class, pinned in FINDINGS.md; MESH_FUZZ_STRICT=1 judges it)
         CheckMesher2(what, o.Status.ToString(), "", report.Ok, string.Join("; ", report.Violations.Take(4)));
     }
 
@@ -288,6 +312,37 @@ public static partial class Program
             throw new Finding($"{what}: {membershipMismatches} sample points disagree with the winding numbers, first {firstMismatch}");
     }
 
+    /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise </summary>
+    static void Inspect(Clipper2Result r, out bool finite, out bool oriented)
+    {
+        finite = true; oriented = true;
+        foreach (GeneralPolygon2d g in r.Polygons) {
+            finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) oriented = false;
+            foreach (Polygon2d h in g.Holes)
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) >= 0) oriented = false;
+        }
+    }
+
+    static bool SegmentsCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+    {
+        double o1 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x), o2 = (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x);
+        double o3 = (d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x), o4 = (d.x - c.x) * (b.y - c.y) - (d.y - c.y) * (b.x - c.x);
+        return o1 * o2 < 0 && o3 * o4 < 0;
+    }
+
+    /// <summary> does a ring cross itself (two non-adjacent edges cross properly)? </summary>
+    static bool SelfIntersects(IReadOnlyList<Vector2d> ring)
+    {
+        int n = ring.Count;
+        for (int i = 0; i < n; ++i)
+            for (int j = i + 2; j < n; ++j) {
+                if (i == 0 && j == n - 1) continue;
+                if (SegmentsCross(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) return true;
+            }
+        return false;
+    }
+
     static void RunClipper(Case c, string what)
     {
         Setup? s = MakeSetup(c);
@@ -303,11 +358,10 @@ public static partial class Program
         if (ringA.Count < 3 || ringB.Count < 3 || ringA.Any(p => !p.IsFinite) || ringB.Any(p => !p.IsFinite))
             return;
         // the grid of the adapter (2^-40 of the extent) must be representable at the coordinates' magnitude: far from the origin
-        // compared with the extent, the results are rounded to doubles coarser than the grid and rings collapse (a limit of the
-        // representation, not of the adapter): the coordinates are at most 2^16 extents from the origin
+        // compared with the extent (more than 2^16 extents), the results are rounded to doubles coarser than the grid and rings collapse
+        // (a limit of the representation, not of the adapter), so there only no crash, a Success status and finite vertices are judged
         double extent = Math.Max(Diagonal(s.Norm.GetBounds()), 1.0), far = ringA.Concat(ringB).Max(p => Math.Max(Math.Abs(p.x), Math.Abs(p.y)));
-        if (far > Pow2(16) * extent)
-            return;
+        bool farInput = far > Pow2(16) * extent;
         var pa = new Polygon2d(ringA); var pb = new Polygon2d(ringB);
         ClipType[] ops = { ClipType.Union, ClipType.Intersection, ClipType.Difference, ClipType.Xor };
         ClipType op = ops[p0 & 3];
@@ -323,6 +377,11 @@ public static partial class Program
             foreach (GeneralPolygon2d g in r.Polygons) Console.Error.WriteLine("result outer: " + string.Join(" ", g.Outer.Vertices.Select(p => $"({p.x:R},{p.y:R})")) + $" holes {g.Holes.Count}");
         }
         bool finite = true, orientations = true;
+        if (farInput) {
+            Inspect(r, out finite, out _);
+            CheckClipper(what + " (far)", r.Status.ToString(), "", finite, true, 0, "");
+            return;
+        }
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
             if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
@@ -348,6 +407,10 @@ public static partial class Program
                     if (mismatches++ == 0) first = $"{p} (in A {ia}, in B {ib}, result {count > 0}, {op})";
                 }
             }
+        // open finding (FINDINGS.md): a self-intersecting input ring can give an outer ring of the wrong orientation (negative area); gated
+        // unless MESH_FUZZ_STRICT=1
+        if (!orientations && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1" && (SelfIntersects(ringA) || SelfIntersects(ringB)))
+            orientations = true;
         CheckClipper(what, r.Status.ToString(), "", finite, orientations, mismatches, first);
         // Offset and Simplify of the union
         Clipper2Result u = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { pa }, new[] { pb });
@@ -355,8 +418,10 @@ public static partial class Program
             return;
         double diag = Math.Max(box.Width, box.Height);
         Clipper2Result off = Clipper2Polygons.Offset(u.Polygons, (p0 & 4) == 0 ? 0.05 * diag : -0.03 * diag, new Clipper2Options { JoinType = (p0 & 8) == 0 ? JoinType.Round : JoinType.Miter });
-        CheckClipper(what + " (offset)", off.Status.ToString(), off.Error ?? "", off.Polygons.All(g => g.Outer.Vertices.All(v => v.IsFinite)), true, 0, "");
+        Inspect(off, out bool offFinite, out bool offOriented);
+        CheckClipper(what + " (offset)", off.Status.ToString(), off.Error ?? "", offFinite, offOriented, 0, "");
         Clipper2Result simp = Clipper2Polygons.Simplify(u.Polygons, 0.01 * diag);
-        CheckClipper(what + " (simplify)", simp.Status.ToString(), simp.Error ?? "", simp.Polygons.All(g => g.Outer.Vertices.All(v => v.IsFinite)), true, 0, "");
+        Inspect(simp, out bool simpFinite, out bool simpOriented);
+        CheckClipper(what + " (simplify)", simp.Status.ToString(), simp.Error ?? "", simpFinite, simpOriented, 0, "");
     }
 }

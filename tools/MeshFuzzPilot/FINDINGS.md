@@ -57,41 +57,43 @@ return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`
 ## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
 
 `MeshFuzzPilot random <n> <seed>` (no coverage guidance, not libFuzzer; the libFuzzer campaigns of the new targets are still to run) on the
-uninstrumented build, one operation selected with `MESH_FUZZ_OPS`:
+uninstrumented build, one operation selected with `MESH_FUZZ_OPS`. The first smoke runs (about 1 800 inputs per target) took their options from the
+queries' directions, which are constants for most inputs: their "no finding" meant little (the independent review found it); the options are four raw
+bytes now and the numbers below are from the second round.
 
 | Target | Inputs | Result |
 |---|---|---|
-| remesher | 1 800 (seeds 1, 7) | no finding |
-| reducer | 1 800 (seeds 1, 7) | no finding |
-| clipper2 | 4 800 (seeds 1, 7, 8) | no finding in the domain; outside it (coordinates more than 2^16 extents from the origin, 1e14 against an extent of 1) three results with a zero-area outer ring of two distinct vertices: the grid (2^-40 of the extent) is finer than a double at that magnitude, a limit of the representation, now outside the domain of the target |
-| quality-mesh2 | about 5 000 (seeds 1, 2, 3, 5, 11, while the domain was being fixed) | **open class** below; `ArgumentException` for coordinates above 1e70 is the documented contract (outside the domain); `VertexUnused` / `SegmentMissing` with coordinates 2^35 extents from the origin (the automatic snap grid) outside the domain |
+| remesher | 2 000 + 1 250 | no finding |
+| reducer | 2 000 + 1 250 | no finding |
+| clipper2 | 2 000 + 4 000 | no finding; coordinates more than 2^16 extents from the origin (1e14 against an extent of 1) gave rings of zero area (the grid, 2^-40 of the extent, is finer than a double there): a limit of the representation, judged there only for no crash, Success and finite vertices |
+| quality-mesh2 | 2 000 + 2 500 | the open classes below |
 
-Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area): `AngleBelowBound` ("triangle ... is below 20 (25)
-degrees with no forced small angle"), about 1 in 1 000 inputs, always `ConstrainedQuality` with a minimum angle of 20 or 25 degrees on a projected
-polyhedron whose 11 to 36 segments cross (the Steiner limit is not reached). Replay with `MESH_FUZZ_OPS=quality-mesh2`; the shortest input:
-`c7b3da9eaada3cdb135e1e5eda17447e855accdce3e983d947d76a8fee214eb017fcac7edb93c5ceec3c90806b3f4d5c1e79d624a78300de2f0056d26faded` (16 points, 32 segments, 4 coincident
-points, angle 25, no explicit snap). Whether the mesher or the oracle's notion of a forced small angle at crossings is at fault is not known yet.
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; both are gated in the target, `MESH_FUZZ_STRICT=1`
+judges them):
 
-### Independent review of the second wave (2026-11-10) and what it changes: to do before the PR
+1. `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, **in every quality mode** (constrained,
+   conforming and neither) with a minimum angle of 20 or 25 degrees, on a projected polyhedron with 17 to 36 crossing segments over 8 to 16 points (the
+   Steiner limit is not reached). The first guess "constrained mode only" was wrong (the options were constants then). Whether the mesher or the oracle's notion of a
+   forced small angle at crossings is at fault is not known: the shortest first-round input had points about 1e-25 from zero next to coincident points,
+   so a snap or tube interplay is as likely as the crossings. Replay with `MESH_FUZZ_OPS=quality-mesh2` (the options are the last four bytes of an input; the
+   hex of the first-round input, whose options are the old constants, is no longer a valid reproducer; `random 2500 22` with that filter finds it again).
+2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
+   success inside the documented range (up to 1e70).
+3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
+4. (clipper2) `BooleanPaths` of a self-intersecting raw ring (NonZero) returned an outer ring of negative area (clockwise: a 3-vertex lobe of area 3e-5),
+   against the documented orientation of results ("outer rings counterclockwise, holes clockwise"); a plain bowtie is fine (both lobes counterclockwise), so the
+   cause is a more complex winding structure (a lobe of negative winding next to or inside one of positive winding); the target gates it for self-intersecting
+   input rings. Input: the 16 corners of a projected polyhedron, e.g. `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24`.
+`ArgumentException` for coordinates above 1e70 is the documented contract: the target judges it (the normalized copy keeps the case's offset, so it is reached; accepted
+input beyond 1e70 would be a finding).
+The reducer's 2^40 scale check is judged only inside the Reducer's range (nonzero coordinates 2^-200 .. 2^150, QA.md 2.5a); two inputs with a vertex of magnitude 1e-235
+beside others of 1 (the case's offset against its extent) gave a mesh that is not the scaled one: outside the range, no finding.
 
-- **The smoke numbers above are weaker than they read.** The option bytes are taken from the first query's direction (`ParamByte`), and in 6 of 8
-  inputs (and in all seeds) that direction is an axis vector, so the options are constants (0, 127 or 255): the remesher then often runs with
-  flips, collapses, splits and smoothing all disabled (a no-op), Clipper2 only reaches union and xor, the mesher and reducer options are
-  fixed. "No finding" for remesher, reducer and clipper2 holds for those few option sets only. Fix: read the options from raw bytes after the
-  queries in `Decode`, not from the query directions (the README says "bytes 0, 1, 2"), then repeat the smoke runs.
-- **Domains.** The cut-offs (2^16 extents from the origin for the mesher and Clipper2, the dropped collapsed rings) return before anything is
-  judged; the first-wave convention judges out-of-range input for no crash, no hang, no false success. The mesher's `VertexUnused` /
-  `SegmentMissing` with status Success at 2^35 extents is such a false success and has to be judged (or classified as a limit with a number),
-  not skipped. The 1e70 check is dead (normalized meshes). `Setup == null` and `CheckValidity` returns drop tiny-triangle and coincident-corner
-  inputs silently; `Subdivide` keeps the vertices, so the comment about degenerate subdivision is wrong.
-- **The open `AngleBelowBound` class needs a known-issue gate** before a libFuzzer run (it would stop every run) and its triage hint ("segments
-  cross") may be wrong: the shortest input has points about 1e-25 from zero next to coincident points, so a snap or tube interplay is as likely.
-- **Instrumentation.** `run.sh` instruments only `geometry3Sharp.dll`: the Clipper2 addon (and the oracle) get no coverage guidance; instrument the
-  addon's dll too.
-- **Checks that cannot fire.** The Offset and Simplify calls pass fixed `true` orientations and no membership check; the finite check covers
-  outer rings only; `ExpectFinding` accepts any finding, and the self-test does not reach the invalid / empty / components branches of
-  `CheckRemesh` and the not-finite / invalid / Euler / components branches of `CheckReduce`.
-- **`random`:** a hung thread keeps running after the watchdog; the hex is printed after the run (a stack overflow or OOM loses the input; print it
-  first); a 64 MB stack hides overflows that the 8 MB main thread of libFuzzer would see.
-- **csproj:** `MeshCommand.cs` is compiled but not used by the pilot (drop it); changes to `benchmarks/Meshing2Benchmark/Candidates` now affect this
-  tool's build (check `tools/ci_scope.py`).
+### Independent review of the second wave (2026-11-10) and what was done
+
+Done in this PR: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
+judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
+every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
+`ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
+of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
+no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).

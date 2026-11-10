@@ -26,6 +26,8 @@ public static partial class Program
         public DMesh3 A = null!, B = null!;
         /// <summary> the queries of the tree, batch and alpha-wrap targets: an origin and a unit direction each </summary>
         public List<(Vector3d origin, Vector3d dir)> Queries = new List<(Vector3d, Vector3d)>();
+        /// <summary> the option bytes of the second-wave targets (remesher, reducer, quality-mesh2, clipper2): four raw bytes after the queries </summary>
+        public byte[] Options = new byte[4];
         public override string ToString() => $"op {Op} ({Ops[Op]}): A {A.VertexCount} v / {A.TriangleCount} t, B {B.VertexCount} v / {B.TriangleCount} t";
     }
 
@@ -148,6 +150,8 @@ public static partial class Program
         c.A = DecodeMesh(r);
         c.B = DecodeMesh(r);
         DecodeQueries(r, c);
+        for (int i = 0; i < c.Options.Length; ++i)
+            c.Options[i] = r.Byte();
         return c;
     }
 
@@ -484,6 +488,8 @@ public static partial class Program
                 }
                 for (int q = 0; q < 8; ++q)
                     bytes.AddRange(new byte[] { (byte)q, (byte)(3 * q + 1), (byte)(q + 2), (byte)(5 * q), (byte)q, (byte)(7 * q) });
+                // the option bytes of the second-wave targets: different options for each shape (shape 0: all options at their defaults)
+                bytes.AddRange(new byte[] { (byte)(shape * 37), (byte)(shape * 73 % 64), (byte)(shape * 29), (byte)(shape * 11) });
                 yield return ($"{Ops[op]}-{shape}.bin", bytes.ToArray());
             }
         }
@@ -513,13 +519,15 @@ public static partial class Program
                     Console.WriteLine($"  {v}: {m.GetVertex(v).x:R} {m.GetVertex(v).y:R} {m.GetVertex(v).z:R}");
                 Console.WriteLine(name + " triangles: " + string.Join(" ", m.TriangleIndices().Select(t => $"({m.GetTriangle(t).a},{m.GetTriangle(t).b},{m.GetTriangle(t).c})")));
             }
+            Console.WriteLine("options: " + string.Join(" ", d.Options));
             for (int i = 0; i < d.Queries.Count; ++i)
                 Console.WriteLine($"query {i}: origin {d.Queries[i].origin.x:R} {d.Queries[i].origin.y:R} {d.Queries[i].origin.z:R} direction {d.Queries[i].dir.x:R} {d.Queries[i].dir.y:R} {d.Queries[i].dir.z:R}");
             return 0;
         }
         if (args.Length == 3 && args[0] == "random") {
             // a smoke test without coverage guidance: n pseudo-random inputs (seed s, 40 to 300 bytes) of the selected operations, each run
-            // with a 60 s watchdog; prints the hex of every input that gives a finding or an exception (no libFuzzer needed)
+            // with a 60 s watchdog; prints the hex of every input that gives a finding or an exception (no libFuzzer needed); MESH_FUZZ_LAST
+            // names a file that gets the hex of the running input first
             int n = int.Parse(args[1], CultureInfo.InvariantCulture);
             var rnd = new Random(int.Parse(args[2], CultureInfo.InvariantCulture));
             int bad = 0;
@@ -528,10 +536,14 @@ public static partial class Program
                 rnd.NextBytes(data);
                 string text = Convert.ToHexString(data);
                 Exception? error = null;
-                var thread = new Thread(() => { try { Run(Decode(data)); } catch (Exception e) { error = e; } }, 64 * 1024 * 1024) { IsBackground = true };
+                // (the input first, so that a crash that kills the process names it; the stack of libFuzzer's main thread)
+                var lastInput = Environment.GetEnvironmentVariable("MESH_FUZZ_LAST");
+                if (!string.IsNullOrEmpty(lastInput)) File.WriteAllText(lastInput, text);
+                var thread = new Thread(() => { try { Run(Decode(data)); } catch (Exception e) { error = e; } }, 8 * 1024 * 1024) { IsBackground = true };
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 thread.Start();
-                if (!thread.Join(60000)) { Console.WriteLine($"HANG {text}"); ++bad; continue; }
+                // (a hung thread cannot be stopped: report and end the process, so it does not compete with the following inputs)
+                if (!thread.Join(60000)) { Console.WriteLine($"HANG {text}"); Console.WriteLine($"{i + 1} inputs, {bad + 1} findings (stopped at a hang)"); return 3; }
                 if (error != null) { Console.WriteLine($"{(error is Finding ? "FINDING" : "EXCEPTION " + error.GetType().Name)} {error.Message.Split('\n')[0]} {text}"); ++bad; }
                 else if (watch.ElapsedMilliseconds > 5000) Console.WriteLine($"SLOW {watch.ElapsedMilliseconds} ms {text}");
             }
@@ -636,7 +648,13 @@ public static partial class Program
         ExpectFinding("a result that is open for a closed input", () => CheckPartitionedReduction("t", true, cube, open, open, open, null, 1));
         ExpectFinding("a result with a vertex that is not finite", () => CheckPartitionedReduction("t", false, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube), null, 1));
         // the second wave: remesher, reducer, 2D mesher, Clipper2
-        ExpectFinding("a remeshed mesh that is open", () => CheckRemesh("t", true, cube, open, open, open));
+        ExpectFinding("a remeshed mesh that is open", () => CheckRemesh("t", true, cube, open, open, open), "not closed");
+        ExpectFinding("an empty remeshed mesh", () => CheckRemesh("t", false, cube, new DMesh3(), new DMesh3(), new DMesh3()), "empty");
+        ExpectFinding("a remeshed mesh with more components", () => CheckRemesh("t", true, cube, TwoCubes(cube), TwoCubes(cube), TwoCubes(cube)), "components");
+        ExpectFinding("a reduced mesh that is not finite", () => CheckReduce("t", true, cube, NotFinite(cube), NotFinite(cube), null, 1, 0), "not finite");
+        ExpectFinding("a reduced mesh with another Euler characteristic", () => CheckReduce("t", true, Torus3x3(), cube, cube, null, 1, 0), "Euler");
+        ExpectFinding("a reduced mesh with other components", () => CheckReduce("t", true, TwoCubes(cube), cube, cube, null, 1, 0), "components");
+        ExpectFinding("a remeshed mesh with another Euler characteristic", () => CheckRemesh("t", true, cube, Torus3x3(), Torus3x3(), Torus3x3()), "Euler");
         ExpectFinding("a remeshed mesh that is not finite", () => CheckRemesh("t", true, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube)));
         ExpectFinding("a remeshed mesh with another Euler characteristic", () => CheckRemesh("t", true, open, cube, cube, cube));
         ExpectFinding("parallel smoothing that differs", () => CheckRemesh("t", true, cube, cube, ShiftedBy(cube, 1), cube));
@@ -670,6 +688,35 @@ public static partial class Program
         CheckMesher2("t", "Success", "", true, "");
         CheckClipper("t", "Success", "", true, true, 0, "");
         return 0;
+    }
+
+    // a closed torus of 18 triangles (Euler characteristic 0, one component)
+    static DMesh3 Torus3x3()
+    {
+        var m = new DMesh3();
+        int[,] id = new int[3, 3];
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                double u = 2 * Math.PI * i / 3, v = 2 * Math.PI * j / 3;
+                id[i, j] = m.AppendVertex(new Vector3d((2 + Math.Cos(v)) * Math.Cos(u), (2 + Math.Cos(v)) * Math.Sin(u), Math.Sin(v)));
+            }
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                int i1 = (i + 1) % 3, j1 = (j + 1) % 3;
+                m.AppendTriangle(id[i, j], id[i1, j], id[i1, j1]);
+                m.AppendTriangle(id[i, j], id[i1, j1], id[i, j1]);
+            }
+        return m;
+    }
+
+    // two disjoint copies of a mesh (two components, twice the Euler characteristic)
+    static DMesh3 TwoCubes(DMesh3 m)
+    {
+        var n = new DMesh3(m);
+        var far = ScaledBy(m, 1);
+        foreach (int v in far.VertexIndices().ToArray()) far.SetVertex(v, far.GetVertex(v) + new Vector3d(100, 0, 0));
+        new MeshEditor(n).AppendMesh(far);
+        return n;
     }
 
     static DMesh3 ScaledBy(DMesh3 m, double k)
@@ -706,11 +753,14 @@ public static partial class Program
         return m;
     }
 
-    static void ExpectFinding(string what, Action check)
+    static void ExpectFinding(string what, Action check, string? message = null)
     {
         try {
             check();
-        } catch (Finding) {
+        } catch (Finding f) {
+            // (the intended branch fired: its message names it)
+            if (message != null && !f.Message.Contains(message))
+                throw new InvalidOperationException($"the check for '{what}' fired another branch: {f.Message}");
             return;
         }
         throw new InvalidOperationException("the check did not fire: " + what);

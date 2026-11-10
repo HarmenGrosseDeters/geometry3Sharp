@@ -175,11 +175,13 @@ Tier: S, M. Parallel: up to 2 sessions
        of needle triangles) is certified only after retries of the exact check (4 attempts, slope margin from 1e-6 to 5e-4) and ended once
        in about 500 such designs with `SlopeViolation` (a safe failure: fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671); the same
        design on the outside is certified at once. Second open finding: `Direction.Auto` on a terrain that tilts through the toe plane ends, with the failing catch point at a toe edge, with `SlopeViolation` ("the composite is not certified: its catch points moved ... changed the surface by up to 0.23, where at most 0.0127 fits into Tolerance", a safe failure; 1 of 700 designs, tilt 0 and 1 certified). Both counted by the campaign (`G3_PROPERTY_STRICT=1` fails on them) and pinned as fixed examples; not fixed.
-    8. Fuzz targets, second wave (QA 2.0 T13, targets done 2026-11-10; libFuzzer campaigns still to run): `tools/MeshFuzzPilot` got `remesher`, `reducer`,
+    8. Fuzz targets, second wave (QA 2.0 T13; targets done 2026-11-10, libFuzzer campaigns still to run): `tools/MeshFuzzPilot` got `remesher`, `reducer`,
        `quality-mesh2` (judged by the acceptance oracle of the mesher) and `clipper2` (Boolean on raw rings against a winding check, offset,
-       simplify), each with self-test contradictions, seeds and the replay tests, and a `random <n> <seed>` smoke command that needs no libFuzzer.
-       Smoke runs: remesher and reducer no finding (1 800 inputs each), clipper2 none in its domain (4 800), quality-mesh2 one open class
-       (`AngleBelowBound` in the constrained mode on crossing segments, about 1 in 1 000; FINDINGS.md), not fixed.
+       simplify), each with self-test contradictions (the branch each check takes), seeds, the replay tests, option bytes after the queries, and a
+       `random <n> <seed>` smoke command that needs no libFuzzer; `run.sh` also instruments the Clipper2 dlls. Smoke runs after the independent
+       review (about 10 000 inputs per target): remesher and reducer no finding, clipper2 one open class (a self-intersecting input ring gives an outer ring of
+       negative area), quality-mesh2 two open classes (`AngleBelowBound` in every quality mode, about 1 in 700; `VertexUnused` / `SegmentMissing` at far or tiny coordinates). All pinned in
+       FINDINGS.md and gated in the targets (`MESH_FUZZ_STRICT=1`), none fixed.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
