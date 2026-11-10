@@ -118,6 +118,42 @@ def _read_report(file, suite, assembly, suites, directory, root, merged, reports
                 hits[number] = max(hits.get(number, 0), count)
 
 
+def _is_ancestor(root, ancestor, descendant):
+    return subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=root).returncode == 0
+
+
+def introducing_pr(root, commit, head, cache):
+    """The pull request that brought `commit` into `head`: the first merge on head's first-parent line that
+    contains it only through its second parent ("Merge pull request #N"), else a "(#N)" in its own subject
+    (squash merge), else its short hash."""
+    if commit not in cache:
+        found = None
+        rows = git(root, "log", "--first-parent", "--merges", "--reverse", "--format=%H %P\t%s", f"{commit}..{head}")
+        for row in filter(None, rows.split("\n")):
+            ids, subject = row.split("\t", 1)
+            _, first, second = ids.split()[:3]
+            if _is_ancestor(root, commit, second) and not _is_ancestor(root, commit, first):
+                found = re.search(r"#(\d+)", subject)
+                break
+        found = found or re.search(r"\(#(\d+)\)", git(root, "log", "-n", "1", "--format=%s", commit))
+        cache[commit] = f"#{found.group(1)}" if found else commit[:10]
+    return cache[commit]
+
+
+def attribute(root, head, uncovered):
+    """{path: {pr: [lines]}} for the uncovered lines, by git blame at head."""
+    cache, result = {}, {}
+    for path, lines in uncovered.items():
+        wanted, owner = set(lines), {}
+        for row in git(root, "blame", "--porcelain", head, "--", path).split("\n"):
+            match = re.match(r"^([0-9a-f]{40}) \d+ (\d+)", row)
+            if match and int(match.group(2)) in wanted:
+                owner[int(match.group(2))] = match.group(1)
+        for number in sorted(owner):
+            result.setdefault(path, {}).setdefault(introducing_pr(root, owner[number], head, cache), []).append(number)
+    return result
+
+
 def evaluate(changes, coverage, slow=None):
     uncovered, missing, only_slow = {}, [], {}
     executable = covered = 0
@@ -151,6 +187,8 @@ def main(argv=None):
     parser.add_argument("--coverage-dir", type=Path, required=True)
     parser.add_argument("--slow-coverage-dir", type=Path,
                         help="core/ below it holds the coverlet report of the Category=Slow run")
+    parser.add_argument("--attribute", action="store_true",
+                        help="name the pull request that introduced each uncovered line (scheduled runs)")
     parser.add_argument("--json", type=Path, required=True, help="machine-readable result")
     parser.add_argument("--summary", type=Path, help="append a Markdown CI summary")
     args = parser.parse_args(argv)
@@ -170,6 +208,8 @@ def main(argv=None):
             slow, slow_reports = read_coverage(args.slow_coverage_dir.resolve(), root, {"core": SUITES["core"]})
             reports += ["slow: " + r for r in slow_reports]
         result = dict(evaluate(changes, coverage, slow), head=head, merge_base=ancestor, reports=reports)
+        if args.attribute:
+            result["uncovered_by_pr"] = attribute(root, head, result["uncovered"])
         code = 2 if result["missing_files"] else (0 if result["ok"] else 1)
     except (ValueError, KeyError, OSError, ET.ParseError, subprocess.CalledProcessError) as error:
         result = {"ok": False, "error": str(error)}
@@ -178,8 +218,11 @@ def main(argv=None):
     print(json.dumps(result, indent=2))
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as output:
-            output.write("\n### Changed-line coverage (100% required)\n\n```json\n"
-                         + json.dumps(result, indent=2) + "\n```\n")
+            output.write("\n### Changed-line coverage (100% required)\n\n")
+            for path, by_pr in result.get("uncovered_by_pr", {}).items():
+                for pr, lines in by_pr.items():
+                    output.write(f"- `{path}` lines {', '.join(map(str, lines))} (introduced by {pr})\n")
+            output.write("\n```json\n" + json.dumps(result, indent=2) + "\n```\n")
     return code
 
 

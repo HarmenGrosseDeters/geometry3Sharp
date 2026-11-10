@@ -130,10 +130,11 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
-      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py)
+      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py)
         run: |
           python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
           python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
+          python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
@@ -148,103 +149,6 @@ jobs:
           path: |
             artifacts/
             test-results/
-
-  # Changed-line coverage gate (docs/QA.md 2.6, tools/changed_line_coverage.py) in a job of its own, parallel to linux: coverlet
-  # makes the suite about 3x slower (the first version in the linux job hit the 60 min limit). The fast tier (without Slow and
-  # Nightly) runs under coverage; when it leaves changed lines uncovered, the Slow tier of the core suite runs under coverage too,
-  # and a line only it hits is reported as covered_only_by_slow, not a failure. PRs only (the gate compares with the merge base).
-  # The core suite is collected in shards (tools/coverage/shard_filter.py), the gate job below merges the reports.
-  coverage-core:
-    needs: scope
-    if: github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Build
-        run: dotnet build tests/geometry3Sharp.Tests -c Release
-      - name: Fast tier of this shard under coverage
-        # (a test with a wall-clock budget can fail under the instrumentation: linux is the test run, this one only collects the
-        # reports, so a failing test does not fail the step; a missing report fails the gate)
-        continue-on-error: true
-        run: |
-          # the tests with a wall-clock budget fail under the instrumentation (about 3x slower); they stay enforced in linux, only this collection skips them
-          BASE='Category!=Slow&Category!=Nightly&FullyQualifiedName!~RobustnessSweepTests.Sweep_SameResultUnderSimilarity&FullyQualifiedName!~UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic'
-          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "$BASE" > list.txt
-          FILTER=$(python3 tools/coverage/shard_filter.py ${{ matrix.shard }} 8 "$BASE" < list.txt)
-          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --blame-hang-timeout 12m --blame-hang-dump-type none --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-core-${{ matrix.shard }}
-          path: test-results/core/
-
-  coverage:
-    needs: [scope, coverage-core]
-    if: always() && github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # the gate compares the tested merge commit with its merge base
-          fetch-depth: 0
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Test the gate
-        run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-core-*
-          merge-multiple: true
-          path: test-results/core
-      - name: Build
-        run: dotnet build tests/geometry3Sharp.Tests -c Release
-      - name: Fast tier under coverage (CLI)
-        continue-on-error: true
-        run: dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
-      - name: Fast tier under coverage (Clipper2 package)
-        continue-on-error: true
-        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
-      - name: Changed-line coverage (fast tier)
-        id: gate
-        continue-on-error: true
-        run: |
-          set +e
-          # (the first parent of the tested merge commit is the base it was merged into: the event's base.sha is stale on re-runs)
-          BASE_SHA=$(git rev-parse HEAD^1)
-          python3 tools/changed_line_coverage.py --base "$BASE_SHA" --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
-          code=$?
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          exit $code
-      - name: Slow tier under coverage (the fast tier left changed lines uncovered)
-        if: steps.gate.outputs.code == '1'
-        run: dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category=Slow" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results-slow/core
-      - name: Changed-line coverage (fast and Slow tier)
-        if: steps.gate.outputs.code == '1'
-        run: python3 tools/changed_line_coverage.py --base "$(git rev-parse HEAD^1)" --coverage-dir test-results --slow-coverage-dir test-results-slow --json test-results/changed-line-coverage-with-slow.json --summary "$GITHUB_STEP_SUMMARY"
-      - name: Replay the gate on the last merged PRs (impact measurement, tools/coverage/replay_merged_prs.py)
-        if: always()
-        continue-on-error: true
-        run: python3 tools/coverage/replay_merged_prs.py test-results/replay.json --coverage-dir test-results >> "$GITHUB_STEP_SUMMARY"
-      - name: Incomplete coverage evidence
-        if: steps.gate.outputs.code != '' && steps.gate.outputs.code != '0' && steps.gate.outputs.code != '1'
-        run: exit 1
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-results
-          path: |
-            test-results/
-            test-results-slow/
 
   # net48 test run, which uses the netstandard2.0 build of the library. It runs in two shards with complementary
   # filters (every test exactly once): the net48 run took 40-60 min in one job and hit timeout-minutes; the 2D mesher

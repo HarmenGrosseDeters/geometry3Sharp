@@ -107,6 +107,30 @@ class Repository(unittest.TestCase):
         finally:
             os.chdir(previous)
 
+    def test_uncovered_lines_are_attributed_to_the_pull_request_that_introduced_them(self):
+        self.run_git("checkout", "-q", "-b", "feature")
+        self.write("math/A.cs", "// unchanged\nnew1();\n// between\nnew2();\n// comment\nbranch();\n")
+        self.commit("feature work")
+        self.run_git("checkout", "-q", "-")
+        self.run_git("merge", "--no-ff", "-q", "-m", "Merge pull request #7 from x/feature", "feature")
+        self.write("math/A.cs", "// unchanged\nnew1();\n// between\nnew2();\n// comment\nbranch();\nsquash();\n")
+        self.commit("Squash merged change (#42)")
+        head = self.run_git("rev-parse", "HEAD").strip()
+        got = c.attribute(self.root, head, {"math/A.cs": [2, 6, 7]})
+        self.assertEqual(got["math/A.cs"]["#7"], [6])
+        self.assertEqual(got["math/A.cs"]["#42"], [7])
+        self.assertEqual(list(got["math/A.cs"]).count("#7"), 1)
+        self.assertEqual(len(got["math/A.cs"]), 3)             # line 2 is from "head": no PR, its short hash
+
+    def test_core_shards_are_merged_by_maximum(self):
+        (self.results / "core/run/coverage.cobertura.xml").unlink()
+        self.report("core/0", c.SUITES["core"], {"math/A.cs": {2: 1, 4: 0}})
+        self.report("core/1", c.SUITES["core"], {"math/A.cs": {2: 0, 4: 3}})
+        code, result = self.invoke()
+        self.assertEqual((code, result["uncovered"]), (0, {}))
+        self.report("core/1", c.SUITES["core"], {"math/A.cs": {2: 0, 4: 0}})
+        self.assertEqual(self.invoke()[1]["uncovered"], {"math/A.cs": [4]})
+
     def test_changed_lines_and_complete_cli_decision(self):
         ancestor, lines = c.changed_lines(self.root, self.base, "HEAD")
         self.assertEqual(ancestor, self.base)

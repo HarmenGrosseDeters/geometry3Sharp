@@ -329,48 +329,51 @@ the module outside the range, or "not guaranteed".
 
 ### 2.6 Coverage in CI
 
-- coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in the `coverage` job of `ci.yml`, a job of its own
-  that runs parallel to `linux` on pull requests (coverlet makes the suite about 3x slower: the first version, inside
-  the `linux` job, hit the 60 min limit; `linux` runs without it). The existing Microsoft.NET.Test.Sdk 17.8.0 supplies
-  the integration; Windows/net48 runs do not collect coverage. The job collects the **fast tier** of the core suite
-  (`Category!=Slow&Category!=Nightly`) plus the CLI and Clipper2 package suites.
-- On pull requests, `tools/changed_line_coverage.py` requires **100% of changed executable lines** in the core
-  library, `addons/geometry3Sharp.Clipper2` and `tools/g3cli` to have at least one hit across those runs. Existing
-  unmodified gaps do not fail the gate. There is no whole-library or branch-coverage threshold.
-- A line that the fast tier does not hit may still be hit by a `Slow` test. When the gate finds uncovered changed lines,
-  the job runs the Slow tier of the core suite under coverage as well (`--slow-coverage-dir`; only then: the cost is paid
-  by the PRs that need it) and reports the lines only that tier hits as `covered_only_by_slow`; they do not fail the
-  gate. A line neither tier hits fails. Nightly tests are not counted: a changed line only a Nightly test hits needs a
-  test in the PR tiers. Exemptions: none beyond the scope below; a line that cannot be hit by a test (defensive code) is
-  discussed in the PR, not excluded by a marker.
-- The test steps of the `coverage` job do not fail the job: a test with a wall-clock budget can fail under the
-  instrumentation (about 3x slower), `linux` is the test run, and a missing report fails the gate. The base of the
-  comparison is the first parent of the tested merge commit (the event's `base.sha` is stale on re-runs).
-- Compare the tested checkout (GitHub's PR merge commit) with its merge base against the event's pinned base SHA.
-  Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line
-  records define executable lines, so comments and whitespace within a measured file need no hits.
-- Missing, malformed, duplicate or empty suite reports fail the gate, including a changed source file absent from
-  all reports. This is deliberately conservative: a new file containing only interfaces/enums, or code excluded
-  from instrumentation, may need investigation rather than silently passing as covered. Tests, benchmark code,
-  documentation examples, assembly metadata and build tools are outside this first gate.
-- The job summary and `linux-results` artifact include the uncovered line numbers per file, the gate JSON and
-  all three raw reports. Master/tag/manual runs collect reports without a PR diff gate.
+- coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in its own workflow, `.github/workflows/coverage.yml`,
+  **not on pull requests**: coverlet makes the suites about 3x slower (a first version in the PR jobs took 59 min for
+  the core fast tier alone, and eight parallel shards were limited by the runner quota), so the gate runs cyclically
+  (owner decision 2026-11-10): every night on master (`schedule`) and on demand (`workflow_dispatch`, optional `ref`
+  input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate. The existing Microsoft.NET.Test.Sdk 17.8.0
+  supplies the integration; Windows/net48 runs do not collect coverage.
+- The `core` jobs run the core suite in four shards by test class (`tools/coverage/shard_filter.py`), **including the
+  Slow tier** (nobody waits for this run), without Nightly; the `gate` job runs the CLI and Clipper2 package suites and
+  merges the reports (per line the maximum of the hits; several reports per suite are shards). Two tests with a
+  wall-clock budget (`RobustnessSweepTests.Sweep_SameResultUnderSimilarity`, `UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic`)
+  fail under the instrumentation and are excluded **in this run only**; the normal CI jobs keep enforcing them. A failing
+  test does not fail a collection step (a missing report fails the gate); `--blame-hang-timeout` names a hanging test.
+- `tools/changed_line_coverage.py` requires **100% of the changed executable lines** in the core library,
+  `addons/geometry3Sharp.Clipper2` and `tools/g3cli` to have at least one hit across those runs. Existing unmodified gaps do
+  not fail it. There is no whole-library or branch-coverage threshold.
+- The comparison base is the HEAD of the last run that evaluated its lines (its `gate-result` artifact, uploaded for exit
+  code 0 and 1, not after incomplete evidence), else the master of 24 hours ago. With `--attribute` the report names, per
+  file, the pull request that introduced each uncovered line (git blame, then the first-parent merge that brought the
+  commit in, else the `(#N)` of a squash subject, else the short hash). The job summary lists them and the scheduled run
+  fails when there are any. **There is no exemption mechanism** and a nightly report blocks no pull request: uncovered
+  lines become follow-up work (a test) for the owning session. A line that cannot be hit by a test (defensive code) is
+  discussed in that follow-up, not excluded by a marker.
+- Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line records
+  define executable lines, so comments and whitespace within a measured file need no hits. Missing, malformed or empty suite
+  reports fail the gate (exit 2), including a changed source file absent from all reports. This is deliberately
+  conservative: a new file containing only interfaces/enums, or code excluded from instrumentation, may need
+  investigation rather than silently passing as covered. Tests, benchmark code, documentation examples, assembly metadata
+  and build tools are outside this gate. The unit tests of the gate run in the `linux` job of `ci.yml`.
+- Optional `--slow-coverage-dir` (a second core report over `Category=Slow` only) reports lines that only the Slow tier
+  hits as `covered_only_by_slow`; the cyclic run does not need it, because it collects the Slow tier with the rest.
 - Local reproduction from a clean committed checkout, using the same SDK as CI:
 
   ```sh
   rm -rf test-results
-  dotnet test tests/geometry3Sharp.Tests -c Release --filter "Category!=Slow&Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
+  dotnet test tests/geometry3Sharp.Tests -c Release --filter "Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
   dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
   dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
   python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
-  python3 tools/changed_line_coverage.py --base origin/master --coverage-dir test-results --json test-results/changed-line-coverage.json
-  # if lines are left uncovered: the Slow tier of the core suite (test-results-slow/core), then the same command with
-  #   --slow-coverage-dir test-results-slow
+  python3 tools/changed_line_coverage.py --base origin/master --attribute --coverage-dir test-results --json test-results/changed-line-coverage.json
   ```
 
-  Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a
-  fresh results directory: multiple reports per suite are rejected to prevent stale coverage masking a gap.
-  Coverage demonstrates execution, not assertion quality; mutation gates remain.
+  (the core run takes about an hour with coverage; `--filter` on the classes of the changed files is enough locally).
+  Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a fresh
+  results directory: a stale report left in it would mask a gap. Coverage demonstrates execution, not assertion quality;
+  mutation gates remain.
 
 ### 2.7 A small regression corpus as a CI smoke benchmark
 
@@ -721,7 +724,7 @@ not depend on the implementer's own tests. Order of priority:
 7. **Reproducible claims**: every number in a PR cites the command and attaches the raw output; the reviewer re-runs
    a sample (as `benchmarks/BooleanComparison/perf/` already allows).
 8. **Changed-line coverage gate**: new or changed lines must be executed by tests. Implemented for the core,
-   Clipper2 and CLI in normal Linux CI (section 2.6).
+   Clipper2 and CLI as a nightly workflow on master with attribution to the pull request, not as a PR gate (section 2.6).
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
    replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
