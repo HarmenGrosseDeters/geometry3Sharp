@@ -74,16 +74,17 @@ static class PrestudyFwn
         }
 
         public bool Contains(int box, Vector3d p) { return box_contains(box, p); }
+        public double BoxRadius(int box) { return box_extents[box].Length; }
 
         // the single-query traversal (branch_fast_winding_num) with counters, from node box
-        public double Single(int box, Vector3d p)
+        public double Single(int box, Vector3d p, bool eval = true)
         {
             Visits++;
             double sum = 0;
             int idx = box_to_index[box];
             if (idx < triangles_end) {
                 int k = index_list[idx];
-                for (int i = 1; i <= k; ++i) {
+                for (int i = 1; i <= k && eval; ++i) {
                     Index3i t = Mesh.GetTriangle(index_list[idx + i]);
                     Vector3d a = Mesh.GetVertex(t.a), b = Mesh.GetVertex(t.b), c = Mesh.GetVertex(t.c);
                     sum += MathUtil.TriSolidAngle(a, b, c, ref p) / MathUtil.FourPI;
@@ -94,9 +95,9 @@ static class PrestudyFwn
             foreach (int c in Children(box)) {
                 if (box_contains(c, p) == false && Has[c] && C[c].Distance(p) > Beta * R[c]) {
                     Far++;
-                    sum += FastTriWinding.EvaluateOrder2Approx(ref C[c], ref O1[c], ref O2[c], ref p);
+                    if (eval) sum += FastTriWinding.EvaluateOrder2Approx(ref C[c], ref O1[c], ref O2[c], ref p);
                 } else
-                    sum += Single(c, p);
+                    sum += Single(c, p, eval);
             }
             return sum;
         }
@@ -136,6 +137,11 @@ static class PrestudyFwn
             dc.M2L++;
             return;
         }
+        // far for every point of t by the single-query criterion: one expansion per point (as the single query)
+        if (src.Has[s] && t.C.Distance(src.C[s]) - t.R > src.Beta * src.R[s]) {
+            dc.Far += t.Hi - t.Lo;
+            return;
+        }
         if (t.A == null) {
             // target leaf: the single-query traversal from s per point (its own near and far terms)
             long n0 = src.Near, f0 = src.Far;
@@ -144,14 +150,14 @@ static class PrestudyFwn
                 if (src.Contains(s, p) == false && src.Has[s] && src.C[s].Distance(p) > src.Beta * src.R[s])
                     src.Far++;
                 else
-                    src.Single(s, p);
+                    src.Single(s, p, false);
             }
             dc.Near += src.Near - n0;
             dc.Far += src.Far - f0;
             src.Near = n0; src.Far = f0;
             return;
         }
-        if (src.IsLeaf(s) || t.R > src.R[s]) {
+        if (src.IsLeaf(s) || t.R > src.BoxRadius(s)) {
             Dual(src, t.A, s, pts, order, dc);
             Dual(src, t.B, s, pts, order, dc);
         } else {
@@ -211,17 +217,22 @@ static class PrestudyFwn
             sw.Restart();
             lib.FastWindingNumber(Vector3d.Zero);
             long buildMs = sw.ElapsedMilliseconds;
+            // timing on a fixed subsample (every stride-th query), scaled to all queries
+            int stride = Math.Max(1, pts.Length / 100000);
             sw.Restart();
             double check = 0;
-            foreach (Vector3d p in pts) check += lib.FastWindingNumber(p);
-            double libMs = sw.Elapsed.TotalMilliseconds;
+            for (int q = 0; q < pts.Length; q += stride) check += lib.FastWindingNumber(pts[q]);
+            double libMs = sw.Elapsed.TotalMilliseconds * stride;
 
             var ct = new CountingTree(m);
             ct.BuildCoefficients();
             sw.Restart();
             double check2 = 0;
-            foreach (Vector3d p in pts) check2 += ct.Single(ct.Root, p);
-            double copyMs = sw.Elapsed.TotalMilliseconds;
+            for (int q = 0; q < pts.Length; q += stride) check2 += ct.Single(ct.Root, pts[q]);
+            double copyMs = sw.Elapsed.TotalMilliseconds * stride;
+            // counts over all queries (no arithmetic)
+            ct.Near = ct.Far = ct.Visits = 0;
+            foreach (Vector3d p in pts) ct.Single(ct.Root, p, false);
             long near = ct.Near, far = ct.Far, visits = ct.Visits;
 
             int[] order = Enumerable.Range(0, pts.Length).ToArray();
@@ -232,8 +243,45 @@ static class PrestudyFwn
             double modelSingle = (near * tTri + far * tFar) / 1e6;     // ms
             double bLower = (dc.Near * tTri + dc.Far * tFar) / 1e6;   // M2L and L2P free
             double bEstimate = bLower + (dc.M2L * 10 * tFar + pts.Length * tFar) / 1e6;
+            // two-tier accuracy (an alternative lever): beta = 1 first (smaller near field), accepted where w is farther
+            // than a margin from every value at which a thresholded front winding number can flip (0, 1/2, 1: the
+            // own-mesh correction moves w by 1/2); the rest again with beta = 2. On the timing subsample.
+            var tier = new Dictionary<string, object>();
+            {
+                long n1 = 0, f1 = 0, nq = 0;
+                var w1s = new List<double>(); var w2s = new List<double>();
+                for (int q = 0; q < pts.Length; q += stride) {
+                    ct.Beta = 1; ct.Near = ct.Far = 0;
+                    double w1 = ct.Single(ct.Root, pts[q]);
+                    n1 += ct.Near; f1 += ct.Far;
+                    ct.Beta = 2; ct.Near = ct.Far = 0;
+                    double w2 = ct.Single(ct.Root, pts[q]);
+                    w1s.Add(w1); w2s.Add(w2); nq++;
+                }
+                ct.Beta = 2;
+                Func<double, int> cls = (w) => w > 1 ? 3 : w > 0.5 ? 2 : w > 0 ? 1 : 0;
+                Func<double, double> gap = (w) => Math.Min(Math.Abs(w), Math.Min(Math.Abs(w - 0.5), Math.Abs(w - 1)));
+                double single = (near * tTri + far * tFar) / pts.Length;
+                tier["near_per_query_beta1"] = Math.Round(n1 / (double)nq, 1);
+                tier["far_per_query_beta1"] = Math.Round(f1 / (double)nq, 1);
+                foreach (double margin in new[] { 0.01, 0.05, 0.1 }) {
+                    int acc = 0, wrong = 0;
+                    for (int k = 0; k < w1s.Count; ++k)
+                        if (gap(w1s[k]) > margin) { acc++; if (cls(w1s[k]) != cls(w2s[k])) wrong++; }
+                    double rejected = 1 - acc / (double)nq;
+                    double cost = (n1 * tTri + f1 * tFar) / nq + rejected * single;
+                    tier["m" + margin.ToString(System.Globalization.CultureInfo.InvariantCulture)] = new Dictionary<string, object> {
+                        ["accepted"] = Math.Round(acc / (double)nq, 4), ["accepted_flips_vs_beta2"] = wrong,
+                        ["cost_vs_single"] = Math.Round(cost / single, 3) };
+                }
+                int flips = 0;
+                for (int k = 0; k < w1s.Count; ++k) if (cls(w1s[k]) != cls(w2s[k])) flips++;
+                tier["flips_beta1_vs_beta2_all"] = flips;
+                tier["sampled"] = nq;
+            }
             row["mesh" + mi] = new Dictionary<string, object> {
-                ["tree_build_ms"] = buildMs, ["lib_queries_ms"] = Math.Round(libMs, 1), ["copy_queries_ms"] = Math.Round(copyMs, 1),
+                ["two_tier"] = tier,
+                ["tree_build_ms"] = buildMs, ["timing_stride"] = stride, ["lib_queries_ms"] = Math.Round(libMs, 1), ["copy_queries_ms"] = Math.Round(copyMs, 1),
                 ["sums_equal"] = Math.Abs(check - check2) <= 1e-9 * Math.Max(1, Math.Abs(check)),
                 ["near_per_query"] = Math.Round(near / (double)pts.Length, 1), ["far_per_query"] = Math.Round(far / (double)pts.Length, 1),
                 ["visits_per_query"] = Math.Round(visits / (double)pts.Length, 1),
