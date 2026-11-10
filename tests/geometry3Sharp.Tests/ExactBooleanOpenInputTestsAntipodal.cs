@@ -256,8 +256,13 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(2, ant.Counts["antipodal_meshes"]);
                     Assert.Equal(0, ant.Counts["antipodal_undecided"]);
                     AssertDifferencesDecidedAsDirectSum(a, other, ant, fwn, op, $"coplanar {op}");
-                    // (AssertPieces is not used here: on these coplanar open boxes it flags 5 of 154 union triangles for both
-                    // paths alike, the fast winding numbers included, so it is not a property of this path; reported)
+                    // (AssertPieces is not used here: on these coplanar open boxes it flags a few union triangles for both
+                    // paths alike, the fast winding numbers included. The Boolean session traced both kinds to the oracle, not
+                    // to the classification: triangles of the coplanar bottoms, on both inputs, whose distance to one input is
+                    // the rounding of TriDistanceSqr (about 7e-9) and so escape the "on both" guard; and, after
+                    // SimplifyFlatRegions, a new triangle whose centroid lies on the other side of {w = 1/2} than the pieces it
+                    // replaces, since an open boundary does not cut the pieces and each piece is decided at its centroid, by
+                    // design. The direct-sum check above compares the pieces themselves.)
                 }
         }
 
