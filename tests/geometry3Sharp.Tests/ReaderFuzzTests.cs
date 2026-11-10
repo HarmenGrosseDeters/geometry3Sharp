@@ -42,6 +42,9 @@ namespace geometry3Sharp.Tests
                 case "off": return new OFFFormatReader();
                 case "stl": return new STLFormatReader();
                 case "ply": return new PLYFormatReader();
+                case "ply-points": return new PLYFormatReader();       // a PLY file without faces: a point cloud
+                case "xyz": return new XYZFormatReader();
+                case "xyz-points": return new XYZFormatReader();       // positions only
                 case "3mf": return new ThreeMFFormatReader();
                 case "glb": return new GLTFFormatReader();
                 case "g3mesh": return new BinaryG3FormatReader();
@@ -52,6 +55,20 @@ namespace geometry3Sharp.Tests
         static byte[] Write(string extension, bool binary)
         {
             DMesh3 mesh = MeshFormatTestUtil.AttributeSphere(new Vector3d(1, 2, 3));
+            if (extension == "xyz-points") {
+                DMesh3 plain = new DMesh3();
+                foreach (int vid in mesh.VertexIndices()) plain.AppendVertex(mesh.GetVertex(vid));
+                mesh = plain;
+                extension = "xyz";
+            }
+            if (extension == "ply-points") {
+                // the vertices of the sphere with their normals, no triangles
+                DMesh3 points = new DMesh3(true, false, false, false);
+                foreach (int vid in mesh.VertexIndices())
+                    points.AppendVertex(new NewVertexInfo(mesh.GetVertex(vid), mesh.GetVertexNormal(vid)));
+                mesh = points;
+                extension = "ply";
+            }
             string dir = MeshFormatTestUtil.TempDir();
             try {
                 string path = Path.Combine(dir, "mesh." + extension);
@@ -73,6 +90,10 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "off", false };
             yield return new object[] { "ply", false };
             yield return new object[] { "ply", true };
+            yield return new object[] { "ply-points", false };
+            yield return new object[] { "ply-points", true };
+            yield return new object[] { "xyz", false };
+            yield return new object[] { "xyz-points", false };
         }
 
         /// <summary>One mutation of the input, described for the failure message.</summary>
