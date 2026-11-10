@@ -2752,15 +2752,43 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void SelfPairs(Index2i t, List<Index2i> result)
         {
-            SelfPairs(t, (i, j) => { result.Add(new Index2i(i, j)); return true; });
+            var collector = new ListCollector { Result = result };
+            SelfPairs(t, ref collector);
         }
 
         /// <summary>
         /// SelfPairs, handing each pair (i, j) to visit instead of collecting it (no list of all overlapping pairs of a
         /// work item); the order is the same. visit returns false to stop the work item.
         /// </summary>
-        [MethodImpl(JitHints.Optimize)]
         public void SelfPairs(Index2i t, Func<int, int, bool> visit)
+        {
+            var visitor = new FuncVisitor { F = visit };
+            SelfPairs(t, ref visitor);
+        }
+
+        /// <summary> receives the pairs of SelfPairs; Visit returns false to stop </summary>
+        internal interface IPairVisitor
+        {
+            bool Visit(int i, int j);
+        }
+
+        struct ListCollector : IPairVisitor
+        {
+            public List<Index2i> Result;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public bool Visit(int i, int j) { Result.Add(new Index2i(i, j)); return true; }
+        }
+
+        struct FuncVisitor : IPairVisitor
+        {
+            public Func<int, int, bool> F;
+            public bool Visit(int i, int j) { return F(i, j); }
+        }
+
+        // (one traversal for both: a generic method over a struct visitor is specialised by the JIT, so the list version
+        // calls its collector directly, with no delegate)
+        [MethodImpl(JitHints.Optimize)]
+        void SelfPairs<TVisitor>(Index2i t, ref TVisitor visitor) where TVisitor : struct, IPairVisitor
         {
             var stack = new List<Index2i> { t };
             while (stack.Count > 0) {
@@ -2771,7 +2799,7 @@ namespace g3
                     if (nodeLeft[a] < 0) {
                         for (int i = nodeStart[a], e = nodeStart[a] + nodeSize[a]; i < e; ++i)
                             for (int j = i + 1; j < e; ++j)
-                                if (leaves_overlap(i, j) && visit(order[i], order[j]) == false)
+                                if (leaves_overlap(i, j) && visitor.Visit(order[i], order[j]) == false)
                                     return;
                     } else {
                         int l = nodeLeft[a], r = nodeRight[a];
@@ -2784,7 +2812,7 @@ namespace g3
                 if (nodeLeft[a] < 0 && nodeLeft[b] < 0) {
                     for (int i = nodeStart[a], ei = nodeStart[a] + nodeSize[a]; i < ei; ++i)
                         for (int j = nodeStart[b], ej = nodeStart[b] + nodeSize[b]; j < ej; ++j)
-                            if (leaves_overlap(i, j) && visit(order[i], order[j]) == false)
+                            if (leaves_overlap(i, j) && visitor.Visit(order[i], order[j]) == false)
                                 return;
                 } else if (split_first(a, b)) {
                     stack.Add(new Index2i(nodeRight[a], b)); stack.Add(new Index2i(nodeLeft[a], b));
