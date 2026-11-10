@@ -41,6 +41,11 @@ namespace geometry3Sharp.Tests
     /// F3 (and a window of coordinates of 2^72 to 2^98 where it was not scale invariant either, SolidifyScaleInvarianceTests); the text below
     /// stays for the other users of the spatial queries (the alpha wrap, the exact resolve's tree).
     ///
+    /// F6 and F7 (fixed with the working frame of MeshRobustRepair; found by the design note ROBUST_REPAIR_SCALE_FREE.md, 3.3): a unit sphere (rounded to multiples of
+    /// 2^-12) and a part of half size 0.25 at distance 8, scaled by 2^s. F6, a clean second part (a box): the repair stage's result is not clean at s = -102 .. -70 and
+    /// the exact resolve of the input is returned with another vertex order. F7, a small sphere with 8 triangles removed: another hole-fill triangulation for s <= -48
+    /// and s >= 345, and the solidify path at s = -100 .. -70. Both are the same scene in one frame now (RobustRepairFrameTests, shifts -190 .. 380).
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in
