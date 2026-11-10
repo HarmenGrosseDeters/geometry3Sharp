@@ -1344,10 +1344,11 @@ namespace g3
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
                 if (round == 0 && Diagnostics != null) {
-                    // (serial again, all pairs, each once: classify the triangles of the intersecting pairs)
+                    // (serial again, all pairs of all triangles, covered ones included, each once: classify the
+                    // triangles of the intersecting pairs)
                     var diagTimer = System.Diagnostics.Stopwatch.StartNew();
                     var hitTris = new HashSet<int>();
-                    foreach (int ta in cand) {
+                    foreach (int ta in Mesh.TriangleIndices()) {
                         Index3i ia = Mesh.GetTriangle(ta);
                         Triangle3d A = new Triangle3d(Mesh.GetVertex(ia.a), Mesh.GetVertex(ia.b), Mesh.GetVertex(ia.c));
                         if (ExactTriangleIntersection.IsDegenerate(ref A)) continue;
