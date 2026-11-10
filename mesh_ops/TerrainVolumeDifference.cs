@@ -19,6 +19,10 @@ namespace gs
     /// merged with an overlap, or folds) would be counted twice: they are found with exact orientation
     /// predicates, counted in BeforeOverlaps / AfterOverlaps, and Compute fails (RequireHeightField).
     /// Computed relative to a local origin, so UTM coordinates do not lose precision.
+    ///
+    /// Supported input range (docs/QA.md 2.5a): the coordinates of both surfaces are at most 2^200 in magnitude and the extent of
+    /// each is in [2^-8, 2^200]; otherwise Compute() returns false (before, a terrain of extent below 2^-25 or above 2^260
+    /// gave a success with zero volumes).
     /// </summary>
     public class TerrainVolumeDifference
     {
@@ -63,6 +67,9 @@ namespace gs
             CutVolume = FillVolume = OverlapArea = CutArea = FillArea = 0;
             BeforeOverlaps = AfterOverlaps = 0;
             if (Before.TriangleCount == 0 || After.TriangleCount == 0)
+                return false;
+            // the supported range (class comment): outside, a zero volume was reported as a success
+            if (TerrainInputRange.Check(Before, "Before") != null || TerrainInputRange.Check(After, "After") != null)
                 return false;
             if (RequireHeightField) {
                 BeforeOverlaps = XYOverlaps(Before);
