@@ -13,6 +13,16 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Depth over breadth (owner 2026-11-10):** no new topic unless it has a synergy with an existing feature (it
+  builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
+  list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
+  item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
+  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection), 6 (point
+  clouds) and 7 (deformation) move to Later; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  Must-win hard problems (below): 2 (D1, #513), 3 (rounding cost on large or rotated results), 6 (Meshing2D small-angle
+  cascade; the wedge mechanism and option B, owner 2026-11-10), 9 (robust repair at extreme scale disparity),
+  11 (bit-for-bit determinism net48 vs net10 on x64; ARM measured only), 13 (intersection-free DC). Useful, not
+  must-win: 7, 12, 14. Not must-win: 1 (D1 is the practical answer), 4, 5 (tied to tet meshing), 10.
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
   alongside):**
@@ -280,6 +290,8 @@ Problems where the library already has a head start and that could be researched
   Orthotics: geodesic cut lines, wall thickness, feature-preserving offsets.
 
 #### Hard open problems (candidates for a stronger model)
+
+Must-win (owner 2026-11-10): items 2, 3, 6, 9, 11 (net48 / net10 on x64), 13; see "Depth over breadth" under Open.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them

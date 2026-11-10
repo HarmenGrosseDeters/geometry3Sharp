@@ -339,28 +339,33 @@ namespace gs
 
         /// <summary>
         /// The power of two that brings the extent of the triangles of mesh into [1, 4) when it lies outside
-        /// [2^-100, 2^100] (where the squares of lengths and the products of areas overflow or underflow, and an
-        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. Also 1 if scaling the coordinates would
+        /// [2^lowExp, 2^highExp] (default [2^-100, 2^100]: where the squares of lengths and the products of areas overflow or underflow, and an
+        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. With (0, 0) every extent but 1 is scaled, into [1, 2):
+        /// the canonical scale (MeshWindingNumberSolidify). Also 1 if scaling the coordinates would
         /// overflow or leave the normal range (a tiny extent far from the origin, subnormal coordinates): then the
         /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
         /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
         /// </summary>
-        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false)
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false, int lowExp = -100, int highExp = 100)
         {
             AxisAlignedBox3d box = TriangleBounds(mesh);
-            double s = unit_scale(box, -100, 100);
+            double s = unit_scale(box, lowExp, highExp);
             if (s == 1)
                 return 1;
             double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
             if (!(largest * s <= 1e300))
                 return 1;
-            // (exact both ways only if no non-zero coordinate is subnormal before or after scaling)
             foreach (int v in mesh.VertexIndices()) {
                 Vector3d p = mesh.GetVertex(v);
+                bool used = !readOnly || mesh.GetVtxEdgeCount(v) > 0;
                 for (int k = 0; k < 3; ++k) {
                     double x = Math.Abs(p[k]);
-                    // (readOnly: the caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
-                    if (x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
+                    // (an unused vertex far away is scaled with the others: it must not overflow)
+                    if (!(x * s <= 1e300))
+                        return 1;
+                    // (exact both ways only if no non-zero coordinate of a used vertex is subnormal before or after scaling; readOnly: the
+                    // caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
+                    if (used && x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
                         return 1;
                 }
             }
