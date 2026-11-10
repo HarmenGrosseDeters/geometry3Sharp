@@ -93,7 +93,8 @@ namespace geometry3Sharp.Tests
             // cannot change, so the exact resolve does not run again relative to the largest component
             DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 10);
             scene.RemoveTriangle(scene.TriangleIndices().First(), true, false);
-            var r = new MeshRobustRepair(scene);
+            // (without the repair stage: with the far part handling its hole filling runs relative to the largest component and closes the sphere)
+            var r = new MeshRobustRepair(scene) { RepairF = m => new DMesh3(m) };
             r.Apply();
             Assert.Contains("not closed (winding number)", r.ExactResolveReason);
             Assert.False(r.ScaleRetry, r.ExactResolveReason);
