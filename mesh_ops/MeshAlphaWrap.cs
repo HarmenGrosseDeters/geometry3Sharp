@@ -58,6 +58,11 @@ namespace gs
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
     ///
+    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-128, 2^128] (about 3e-39
+    /// to 3e38) and the extent of the input is zero (a single point) or at least 2^-40 of the largest magnitude; otherwise Compute() returns false
+    /// with InvalidInput. Measured (sphere, relative alpha 5, relative offset 100): usable between 2^-160 and 2^160; at
+    /// 2^+-180 and 2^+-200 the wrap degrades or runs for minutes.
+    ///
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class MeshAlphaWrap
@@ -67,7 +72,7 @@ namespace gs
             Success = 0,
             /// <summary> no triangles and no points </summary>
             EmptyInput = 1,
-            /// <summary> non-finite coordinates, or finite ones whose box (with its margin) does not fit doubles </summary>
+            /// <summary> non-finite coordinates, finite ones whose box (with its margin) does not fit doubles, or coordinates outside the supported range (class comment) </summary>
             InvalidInput = 2,
             /// <summary> Alpha / Offset not positive (eg relative values for an input of zero size) </summary>
             InvalidParameters = 3,
@@ -322,6 +327,29 @@ namespace gs
         }
 
 
+        const double RangeMin = 2.9387358770557188e-39, RangeMax = 3.402823669209385e38;   // 2^-128, 2^128
+
+        /// <summary> null if every nonzero coordinate has a magnitude in [2^-128, 2^128] and the extent is zero or at least 2^-40 of the largest one, otherwise why not </summary>
+        static string outside_range(List<Vector3d> tris, List<Vector3d> pts)
+        {
+            Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+            double biggest = 0;
+            foreach (var list in new[] { tris, pts })
+                foreach (Vector3d p in list)
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (!(a == 0 || (a >= RangeMin && a <= RangeMax)))
+                            return "outside the supported range: a nonzero coordinate has a magnitude outside [2^-128, 2^128]";
+                        biggest = Math.Max(biggest, a);
+                        lo[c] = Math.Min(lo[c], p[c]);
+                        hi[c] = Math.Max(hi[c], p[c]);
+                    }
+            double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+            if (extent > 0 && extent < biggest * 9.094947017729282e-13)
+                return "outside the supported range: the extent of the input is below 2^-40 of the largest coordinate magnitude";
+            return null;
+        }
+
         WrapStatus setup()
         {
             var tris = new List<Vector3d>();
@@ -346,6 +374,13 @@ namespace gs
                         Error = "input has non-finite coordinates";
                         return WrapStatus.InvalidInput;
                     }
+            // the supported range (class comment, docs/QA.md 2.5a): outside it the wrap ran for minutes (beyond 2^+-180) or
+            // reported a success with an input vertex outside (coordinates of 1e-276 next to an extent of 1e17)
+            string outside = outside_range(tris, pts);
+            if (outside != null) {
+                Error = outside;
+                return WrapStatus.InvalidInput;
+            }
             oracle = new AlphaWrapOracle(tris, pts);
             Counts["input_triangles"] = oracle.Triangles;
             Counts["input_segments"] = oracle.Segments;
