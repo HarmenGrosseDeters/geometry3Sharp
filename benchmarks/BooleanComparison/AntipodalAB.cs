@@ -115,7 +115,9 @@ static class AntipodalAB
         }
         foreach (string op in ops) {
             var row = new Dictionary<string, object> { ["case"] = Path.GetFileName(dir.TrimEnd('/')), ["op"] = op };
-            var results = new Dictionary<string, ExactMeshBoolean>();
+            // (only the hash and the triangle count of each result are kept: an instance alive during the next run would
+            // weigh on its time, and on the largest models the reruns below ran out of memory)
+            var hashes = new Dictionary<string, (string, int)>();
             foreach (var (name, max) in new[] { ("fwn", 0), ("antipodal", 1000) }) {
                 if (only != null && only != name)
                     continue;
@@ -133,20 +135,26 @@ static class AntipodalAB
                     row["boundary_segments"] = r.OpenBoundarySegments;
                     row["antipodal_meshes"] = r.Counts.TryGetValue("antipodal_meshes", out long am) ? am : 0;
                 }
-                results[name] = r;
+                if (r.Result != null)
+                    hashes[name] = (Hash(r.Result), r.Result.TriangleCount);
+                r = null;
             }
-            ExactMeshBoolean f, an;
-            results.TryGetValue("fwn", out f);
-            results.TryGetValue("antipodal", out an);
-            if (f != null && an != null && f.Result != null && an.Result != null) {
-                row["equal"] = Hash(f.Result) == Hash(an.Result);
-                row["tris"] = new[] { f.Result.TriangleCount, an.Result.TriangleCount };
+            if (hashes.TryGetValue("fwn", out var hf) && hashes.TryGetValue("antipodal", out var ha)) {
+                row["equal"] = hf.Item1 == ha.Item1;
+                row["tris"] = new[] { hf.Item2, ha.Item2 };
                 if ((bool)row["equal"] == false) {
                     // (per piece: both again with the open winding numbers recorded; the arrangement is the same)
+                    // (one instance at a time: of the FWN run only its recorded values are kept)
+                    GC.Collect();
                     var fr = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
+                    fr.Compute();
+                    int[][] fwnWinding = fr.OpenWindingPerPiece;
+                    int fwnPieces = fr.Arrangement.Output.Count;
+                    fr = null;
+                    GC.Collect();
                     var ar = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, RecordOpenWinding = true };
-                    fr.Compute(); ar.Compute();
-                    int[] cmp = ComparePieces(ar, fr);
+                    ar.Compute();
+                    int[] cmp = ComparePieces(ar, fwnWinding, fwnPieces);
                     // ray independence: the Antipodal values with other rays (another seed: other far points and choices) must
                     // be the same at every piece (exact crossing counts; the boundary sum differs only by rounding)
                     var ar2 = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, RecordOpenWinding = true, Seed = 12345 };
@@ -195,12 +203,12 @@ static class AntipodalAB
     // all of the mesh's triangles, no approximation) just in front of the piece (its centroid moved by 1e-7 of its longest
     // edge along its source's normal), thresholded the same way, decides which run is right. Values within 1e-6 of a
     // flip value are skipped.
-    static int[] ComparePieces(ExactMeshBoolean x, ExactMeshBoolean y)
+    static int[] ComparePieces(ExactMeshBoolean x, int[][] wy, int yPieces)
     {
         var arr = x.Arrangement;
-        int[][] wx = x.OpenWindingPerPiece, wy = y.OpenWindingPerPiece;
+        int[][] wx = x.OpenWindingPerPiece;
         int n = arr.Output.Count;
-        if (y.Arrangement.Output.Count != n || wx == null || wy == null)
+        if (yPieces != n || wx == null || wy == null)
             throw new InvalidOperationException("ComparePieces: different arrangements or no record");
         int differing = 0, xRight = 0, yRight = 0, neither = 0, skipped = 0;
         var items = new List<(int, int, int, int)>();
