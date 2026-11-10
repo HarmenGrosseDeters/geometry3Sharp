@@ -200,8 +200,8 @@ roundoff there, 1e-14):
 | sphere lat-long | (1.2,1.8] / (1.8,2.4] / (2.4,2.85] | 0.12 / 0.30 / 2.04 | 0.56 / 0.74 / 1.30 | 0.46 / 1.62 / 5.3 | 0.65 / 1.97 / 5.8 | 0.25 / 0.40 / **1.57** | 0.18 / 0.63 / 1.27 |
 | cylinder | <= 0.3 / 0.6 / 1.2 | 0.0009 / 0.0018 / 0.0036 | 0.14 / 0.23 / 0.34 | 0.0016 / 0.0032 / 0.0065 | same | 0.59 / 0.56 / 0.56 | 0.44 / 0.47 / 0.51 |
 
-**G1 fails** (mean at most half the best competitor in 3 of 21 cells, 16 needed: the two lowest sphere and lat-long bands
-below the cut locus); **G2 fails** (affine's mean is 1.29 times the best on the sphere at 0.6 and 1.6 to 2.3 times in the
+**G1 fails** (mean at most half the best competitor in 3 of 21 cells, 16 needed:
+all in the mid-field bands (1.2, 2.4] of the sphere and lat-long sphere); **G2 fails** (affine's mean is 1.29 times the best on the sphere at 0.6 and 1.6 to 2.3 times in the
 band (2.4, 2.85]); **G3 fails** (1.85 times on the noisy sphere in that band); G4 holds. No API.
 
 What the numbers say, beyond the verdict:
