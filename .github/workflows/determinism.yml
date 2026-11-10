@@ -71,7 +71,7 @@ jobs:
       - name: Compare
         run: |
           H="dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll"
-          cmp() { echo "=== $1  vs  $2"; $H compare traces/$1 traces/$2 || true; }
+          cmp() { echo "=== $1  vs  $2"; $H compare traces/$1 traces/$2 --brief || true; }
           # inside one runtime: serial against parallel, and two parallel runs
           cmp linux-net10-parallel linux-net10-parallel2
           cmp linux-net10-parallel linux-net10-serial
@@ -83,4 +83,4 @@ jobs:
           cmp windows-net10-parallel windows-net48-parallel
           cmp linux-net10-serial windows-net10-serial
           cmp linux-net10-serial windows-net48-serial
-          for d in traces/*/; do echo "--- $d"; cat "$d/summary.txt" | head -6; done
+          for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done

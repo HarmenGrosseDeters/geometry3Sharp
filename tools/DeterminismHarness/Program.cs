@@ -19,7 +19,7 @@ namespace DeterminismHarness
         {
             CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
             Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-            if (args.Length >= 1 && args[0] == "compare" && args.Length == 3) return Compare(args[1], args[2]);
+            if (args.Length >= 3 && args[0] == "compare") return Compare(args[1], args[2], args.Contains("--brief"));
             if (args.Length >= 1 && args[0] == "run") return Run(args);
             Console.Error.WriteLine("usage: run --out <dir> [--serial] [--filter <substring>] | compare <dirA> <dirB>");
             return 2;
@@ -70,7 +70,7 @@ namespace DeterminismHarness
         }
 
         // first diverging value of every case that differs
-        static int Compare(string dirA, string dirB)
+        static int Compare(string dirA, string dirB, bool brief)
         {
             var names = Directory.GetFiles(dirA, "*.trace").Select(Path.GetFileName)
                 .Union(Directory.GetFiles(dirB, "*.trace").Select(Path.GetFileName)).OrderBy(x => x, StringComparer.Ordinal).ToList();
@@ -86,7 +86,13 @@ namespace DeterminismHarness
                 int diffCount = 0;
                 for (int i = 0; i < m; ++i) if (la[i] != lb[i]) diffCount++;
                 string va = k < la.Length ? Describe(la[k]) : "(end)", vb = k < lb.Length ? Describe(lb[k]) : "(end)";
-                Console.WriteLine($"{n.Replace(".trace", "")}\tDIFFERS first at value {k} ({(k < la.Length ? la[k].Split('\t')[2] : "")}) A={va} B={vb}; {diffCount} of {m} values differ; lengths {la.Length}/{lb.Length}");
+                string label = k < la.Length ? la[k].Split('\t')[2] : "";
+                // per label: how many values differ (which part of the result diverges)
+                var perLabel = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                for (int i = 0; i < m; ++i) if (la[i] != lb[i]) { string l = la[i].Split('\t')[2]; perLabel[l] = perLabel.TryGetValue(l, out int c) ? c + 1 : 1; }
+                string parts = string.Join(",", perLabel.Select(kv => (kv.Key == "" ? "-" : kv.Key) + ":" + kv.Value));
+                if (brief) Console.WriteLine($"{n.Replace(".trace", "")}\tfirst@{k}({(label == "" ? "-" : label)})\t{diffCount}/{m}\t{parts}");
+                else Console.WriteLine($"{n.Replace(".trace", "")}\tDIFFERS first at value {k} ({label}) A={va} B={vb}; {diffCount} of {m} values differ; lengths {la.Length}/{lb.Length}; by section {parts}");
             }
             Console.WriteLine($"# {same} identical, {differ} different");
             return differ == 0 ? 0 : 1;
