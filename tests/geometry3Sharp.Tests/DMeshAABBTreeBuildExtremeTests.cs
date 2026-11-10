@@ -106,6 +106,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(m.TriangleIndices().OrderBy(t => t), leaves.OrderBy(t => t));
         }
 
+        // (queries, found by tools/MeshFuzzPilot's tree target) a ray with no distance limit used float.MaxValue as the
+        // limit, so every hit farther than 3.4e38 was lost: FindNearestHitTriangle -1, FindAllHitTriangles 0, and
+        // IsInside false for the centre of any mesh of that size
+        [Theory]
+        [InlineData(1e30)]
+        [InlineData(1e39)]
+        [InlineData(1e100)]
+        [InlineData(1e150)]
+        [InlineData(1e300)]
+        public void RayQueries_HugeSphere_HitAndInside(double radius)
+        {
+            var g = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6, Radius = radius };
+            g.Generate();
+            DMesh3 m = g.MakeDMesh();
+            var tree = new DMeshAABBTree3(m, true);
+            var ray = new Ray3d(Vector3d.Zero, new Vector3d(0.6, 0, 0.8));
+            int hit = tree.FindNearestHitTriangle(ray);
+            Assert.NotEqual(DMesh3.InvalidID, hit);
+            var all = new List<int>();
+            Assert.True(tree.FindAllHitTriangles(ray, all) >= 1);
+            Assert.Contains(hit, all);
+            Assert.True(tree.IsInside(Vector3d.Zero));
+            Assert.False(tree.IsInside(new Vector3d(0.5 * radius, 0, 0) * 3));
+            // a limit is still a limit
+            Assert.Equal(DMesh3.InvalidID, tree.FindNearestHitTriangle(ray, 0.5 * radius));
+            Assert.Equal(hit, tree.FindNearestHitTriangle(ray, 2 * radius));
+        }
+
         [Fact]
         public void Build_NonFiniteCentroid_Skipped_OthersOnce()
         {
