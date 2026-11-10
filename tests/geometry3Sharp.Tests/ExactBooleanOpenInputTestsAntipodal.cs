@@ -241,6 +241,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(count, ant.OpenBoundarySegments[0]);
             Assert.Equal(-1, ant.OpenBoundarySegments[1]);
             Assert.Equal(0, ant.Counts["antipodal_undecided"]);
+            // (no flat part, no tie: nothing within the bound of a half-integer, so a wider snap radius would show here)
+            Assert.Equal(0, ant.Counts["antipodal_snapped"]);
         }
 
         [Fact]
@@ -420,6 +422,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.Compute(), r.Error);
                 Assert.Equal(1, r.Counts["antipodal_meshes"]);
                 Assert.True(r.Result.TriangleCount > 0);
+                // (the disk's pieces are ties)
+                Assert.True(r.Counts["antipodal_snapped"] > ring);
                 int[][] w = r.OpenWindingPerPiece;
                 if (first == null) {
                     first = w;

@@ -25,7 +25,8 @@ namespace geometry3Sharp.Tests
         {
             double m = (long)(Next() >> 11) / 9007199254740992.0 * 2 - 1;
             int e = (int)(Next() % 81) - 40;
-            return m * Math.Pow(2, e);
+            // (2^e from its bits: exact on every runtime)
+            return m * BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);
         }
 
         static double[] Special()
@@ -72,6 +73,21 @@ namespace geometry3Sharp.Tests
                     h = unchecked((h ^ bits) * 1099511628211UL);
                 }
             Assert.Equal(PinnedHash, h);
+        }
+
+        [Fact]
+        public void SnapHalf_OnlyWithinTheBound()
+        {
+            Assert.Equal(0.5, ExactMeshBoolean.snap_half(0.5 + 1e-13, 1e-12));
+            Assert.Equal(0.5, ExactMeshBoolean.snap_half(0.5 - 1e-13, 1e-12));
+            Assert.Equal(0.5 + 1e-11, ExactMeshBoolean.snap_half(0.5 + 1e-11, 1e-12));
+            Assert.Equal(-0.5, ExactMeshBoolean.snap_half(-0.5 + 1e-13, 1e-12));
+            Assert.Equal(-1.5, ExactMeshBoolean.snap_half(-1.5 - 1e-13, 1e-12));
+            Assert.Equal(-1.5 - 1e-11, ExactMeshBoolean.snap_half(-1.5 - 1e-11, 1e-12));
+            Assert.Equal(2.5, ExactMeshBoolean.snap_half(2.5, 0));
+            Assert.Equal(0.9, ExactMeshBoolean.snap_half(0.9, 1e-12));
+            Assert.Equal(1.0, ExactMeshBoolean.snap_half(1.0, 1e-12));
+            Assert.True(double.IsNaN(ExactMeshBoolean.snap_half(double.NaN, 1e-12)));
         }
 
         const ulong PinnedHash = 13027935797655104570UL;

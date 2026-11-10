@@ -374,6 +374,7 @@ namespace g3
             antipodalFar.Clear();
             OpenWindingPerPiece = null;
             antipodalUndecided = 0;
+            antipodalSnapped = 0;
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
@@ -435,6 +436,7 @@ namespace g3
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
             Counts["antipodal_undecided"] = antipodalUndecided;
+            Counts["antipodal_snapped"] = antipodalSnapped;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
             Counts["removed_vertices"] = RemovedVertices;
@@ -1434,7 +1436,10 @@ namespace g3
         /// then decided by its rule, not by the rounding of the sum, so the same with every ray). A true value within the
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
         /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at the switch's 1000), more for a
-        /// centroid next to a segment (on or next to one it is undecided anyway). The sum uses portable_atan2, so the value is the same bits on every runtime.
+        /// centroid next to a segment, at most 1e-9 per segment (a ray with a larger term error is replaced; on or next to
+        /// a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
+        /// ray, a value within the bound of a tie but not on it can be snapped with one ray and not with another (one Seed
+        /// gives one result). The sum uses portable_atan2, so the value is the same bits on CoreCLR and .NET Framework.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
@@ -1482,24 +1487,35 @@ namespace g3
                     }
                     // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
                     // next to the edge of the snap below could then be decided differently)
+                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order:
+                    // valid while it is small, so a term whose error exceeds 1e-9 takes another ray: num and den both small
+                    // means the ray nearly passes through an end of the segment, where the term is ill-conditioned and the
+                    // snap below would otherwise widen to the whole interval); den > tol or |num| > tol here, so the hypot
+                    // is above tol
+                    double termError = 4 * tol / Math.Sqrt(num * num + den * den);
+                    if (!(termError <= 1e-9)) {
+                        degenerate = true;
+                        break;
+                    }
                     double theta = 2 * portable_atan2(num, den);
                     sum += theta;
                     abs += Math.Abs(theta);
-                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2, plus twice
-                    // the error of portable_atan2 (PortableAtan2Error; den > tol or |num| > tol here, so the hypot is above tol)
-                    err += 4 * tol / Math.Sqrt(num * num + den * den) + 2 * PortableAtan2Error;
+                    // plus twice the error of portable_atan2 (PortableAtan2Error)
+                    err += termError + 2 * PortableAtan2Error;
                 }
                 if (degenerate == false) {
                     // (the recursive summation: at most n u times the sum of the absolute terms)
                     err += 2.3e-16 * (segments.Length / 2) * abs;
                     double w = chi + sum / MathUtil.FourPI;
+                    // (and the roundings of the division by 4 pi (also of 4 pi itself) and of the addition of chi)
+                    double bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
                     // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
                     // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
                     // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
-                    double half = Math.Floor(w) + 0.5;
-                    if (Math.Abs(w - half) <= err / MathUtil.FourPI)
-                        return half;
-                    return w;
+                    double snapped = snap_half(w, bound);
+                    if (snapped != w)
+                        System.Threading.Interlocked.Increment(ref antipodalSnapped);
+                    return snapped;
                 }
             }
             // (no usable ray: undecided, which the threshold reads as outside)
@@ -1507,13 +1523,21 @@ namespace g3
             return 0.5;
         }
 
+        // w, or the half-integer nearest to w (floor(w) + 1/2, exact for |w| below 2^52) if it is within bound of it
+        internal static double snap_half(double w, double bound)
+        {
+            double half = Math.Floor(w) + 0.5;
+            return Math.Abs(w - half) <= bound ? half : w;
+        }
+
         // the bound of the absolute error of portable_atan2 (its result is at most pi; measured below 1e-15 against
         // Math.Atan2, PortableAtan2Tests; taken with a wide margin)
         internal const double PortableAtan2Error = 4e-15;
 
         /// <summary>
-        /// atan2(y, x) from +, -, *, / and the square root only (IEEE, correctly rounded; .NET does not contract them to
-        /// FMA), so the same bits on every runtime and platform, unlike Math.Atan2. Reduced to atan(t), t in [0, 1], halved
+        /// atan2(y, x) from +, -, *, / and the square root only (IEEE, correctly rounded; the CoreCLR and .NET Framework
+        /// JITs do not contract them to FMA; x87 on 32-bit .NET Framework rounds to 53 bits and differs only in the
+        /// subnormal range, which the caller does not reach), so the same bits on these runtimes, unlike Math.Atan2. Reduced to atan(t), t in [0, 1], halved
         /// twice by atan(t) = 2 atan(t / (1 + sqrt(1 + t^2))) to |v| at most tan(pi / 16) (v^2 below 0.04), then the
         /// Taylor series to v^25 (the rest below 1e-17 v). atan2(+-0, +-0) is 0; otherwise the signs and quadrants of Math.Atan2.
         /// </summary>
@@ -1544,6 +1568,8 @@ namespace g3
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
         long antipodalUndecided;
+        // values the Antipodal Method snapped to a half-integer (snap_half)
+        long antipodalSnapped;
 
         // the boundary segments of a mesh in grid coordinates (relative to the arrangement's centre, as doubles)
         Vector3d[] antipodal_grid(Vector3d[] segments)
