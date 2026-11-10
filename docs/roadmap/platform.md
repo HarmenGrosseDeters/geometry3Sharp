@@ -178,6 +178,13 @@ Tier: S, M. Parallel: up to 2 sessions
        of needle triangles) is certified only after retries of the exact check (4 attempts, slope margin from 1e-6 to 5e-4) and ended once
        in about 500 such designs with `SlopeViolation` (a safe failure: fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671); the same
        design on the outside is certified at once. Second open finding: `Direction.Auto` on a terrain that tilts through the toe plane ends, with the failing catch point at a toe edge, with `SlopeViolation` ("the composite is not certified: its catch points moved ... changed the surface by up to 0.23, where at most 0.0127 fits into Tolerance", a safe failure; 1 of 700 designs, tilt 0 and 1 certified). Both counted by the campaign (`G3_PROPERTY_STRICT=1` fails on them) and pinned as fixed examples; not fixed.
+    7. Clipper2 addon (QA 2.0 T10, done 2026-11-10): `Clipper2CampaignTests.CsCheck.cs` in `tests/geometry3Sharp.Clipper2.Tests` (CsCheck added
+       there for net10.0, with its own small runner and the same environment variables): random sets of stars, rectangles, stars with holes,
+       disjoint pairs and finely sampled circles, placed freely, as an identical copy, nested at 0.3 size, with a shared rectangle edge, or apart, at scales 2^-10 .. 2^10 and far from the origin,
+       against `Oracle.cs`: union, intersection, difference and xor well formed and equal to the Boolean operation on the memberships of the
+       inputs away from the boundaries, the area identities, round offsets both ways by the distance to the input, `Simplify` within epsilon,
+       `Simplify` also the other way (every input vertex within 3 epsilon of the result: SimplifyPaths measures against the neighbours' line, so removals drift, 1.04 epsilon seen), `ClipPolyLines` (intersection and difference: the pieces lie on the input lines on the kept side, no kept part missing), a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 8 000 samples: no finding. (Minkowski sums
+       and polyline offsets are not covered yet.)
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
