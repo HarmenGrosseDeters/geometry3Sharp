@@ -1450,7 +1450,7 @@ namespace gs
         {
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
-            if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
+            if (any_bowtie_vertex(mesh)) return "bowties";
             if (has_degenerate_triangles(mesh)) return "degenerate triangles";
             if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
@@ -1485,7 +1485,7 @@ namespace gs
             if (mesh.TriangleCount == 0) return Defects.Empty;
             Defects d = Defects.None;
             if (mesh.IsClosed() == false) d |= Defects.NotClosed;
-            if (MeshIterators.BowtieVertices(mesh).Any()) d |= Defects.Bowties;
+            if (any_bowtie_vertex(mesh)) d |= Defects.Bowties;
             if (has_degenerate_triangles(mesh)) d |= Defects.DegenerateTriangles;
             if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) d |= Defects.InconsistentOrientation;
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) d |= Defects.InsideOutComponents;
@@ -1578,6 +1578,38 @@ namespace gs
             return "";
         }
 
+        // MeshIterators.BowtieVertices(mesh).Any(), the vertex ranges in parallel (reads only; the answer is a bool, so
+        // it does not depend on the threads)
+        static bool any_bowtie_vertex(DMesh3 mesh)
+        {
+            return any_in_blocks(mesh.MaxVertexID, (i) => mesh.IsVertex(i) && mesh.IsBowtieVertex(i));
+        }
+
+        // mesh.TriangleIndices().Any(f), the triangle id ranges in parallel (f must only read the mesh)
+        static bool any_triangle(DMesh3 mesh, Func<int, bool> f)
+        {
+            return any_in_blocks(mesh.MaxTriangleID, (t) => mesh.IsTriangle(t) && f(t));
+        }
+
+        // is f(i) true for some i in [0, n)? Blocks of ids in parallel for large n, stopping once one is found
+        static bool any_in_blocks(int n, Func<int, bool> f)
+        {
+            const int Block = 8192;
+            if (n <= 2 * Block) {
+                for (int i = 0; i < n; ++i)
+                    if (f(i)) return true;
+                return false;
+            }
+            int blocks = (n + Block - 1) / Block;
+            int found = 0;
+            gParallel.ForRange(blocks, () => 0, (b, unused) => {
+                if (System.Threading.Volatile.Read(ref found) != 0) return;
+                for (int i = b * Block, e = Math.Min(n, i + Block); i < e; ++i)
+                    if (f(i)) { System.Threading.Volatile.Write(ref found, 1); return; }
+            });
+            return found != 0;
+        }
+
         // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
         // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
         // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
@@ -1592,7 +1624,7 @@ namespace gs
             if (s == 1) {
                 double diag = box.DiagonalLength;
                 double areaEps = 1e-12 * diag * diag;
-                return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+                return any_triangle(mesh, t => mesh.GetTriArea(t) < areaEps);
             }
             double d = scaled_difference(box.Max, box.Min, s).Length, eps = 1e-12 * d * d;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;

@@ -54,3 +54,34 @@ the JIT specialises, so the list path calls its collector directly. Self-join of
 items, 1.2 M pairs, serial, list version; min / median of 25 runs, two alternating rounds): master code 67.6 / 78.9 and
 64.7 / 71.2 ms, shared generic traversal 63.1 / 72.3 and 64.2 / 71.9 ms: within noise. (A wrapper over a delegate cost
 about 10 %.)
+
+## Lever 3: bowtie and degenerate-triangle checks over blocks of ids in parallel (2026-11-10)
+
+`NotCleanReason` / `FindDefects` ran `MeshIterators.BowtieVertices(mesh).Any()` and the degenerate-area test one after the
+other on one thread. Both are reads only and their answer is a bool, so they now run over blocks of 8192 ids in parallel
+(meshes with up to 16384 ids stay serial) and stop once a block finds one. The checks themselves are unchanged, so the
+verdicts are too (`NotCleanParallelChecksTests`: a bowtie or a zero-area triangle in the first, middle and last block, id
+gaps from removed triangles; a mutant that skips the last block fails 3 tests).
+
+| mesh | closed + bowtie + degenerate + orientation + inverted ms: lever 2 / lever 3 | NotCleanReason ms: lever 2 / lever 3 |
+|---|---|---|
+| sphere, 200k triangles | 65 / 36 | 148 / 144 |
+| alpha wrap, 185k triangles | 130 / 93 | 319 / 240 |
+| two shifted wraps | 308 / 224 | 512 / 446 |
+
+What is left of `NotCleanReason` on the clean wrap (240 ms): the self-intersection search 155, `FindInvertedComponents` 48,
+the rest of the cheap checks about 40.
+
+## All three levers together (2026-11-10)
+
+Median of 9 runs, quiet machine, 4 cores; master = before lever 1, all levers = with the cheap pair filter, the box-tree
+self-join and the parallel bowtie / degenerate checks. The pair counts and hashes are the same in all builds.
+
+| mesh | NotCleanReason ms: master / all levers | all-pairs search ms: master / all levers |
+|---|---|---|
+| sphere, 200k triangles (clean) | 319 / 144 (-55 %) | 267 / 117 |
+| alpha wrap, 185k triangles (clean) | 541 / 240 (-56 %) | 420 / 155 |
+| two shifted wraps (20 293 pairs) | 481 / 446 (-7 %) | 1080 / 446 |
+
+The last row is dominated by the other checks, because `NotCleanReason` stops at the first self-intersection and the
+all-pairs search is not what it runs; the all-pairs search (`SelfIntersectionPairs`) is 2.4x faster there.
