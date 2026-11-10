@@ -173,12 +173,16 @@ namespace gs
                 Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
-                CancelF = CancelF
+                CancelF = CancelF, KeepRawContour = KeepRawContour
             };
             bool ok = inner.compute_unit();
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
+            RawContour = inner.RawContour;
+            if (RawContour != null)
+                MeshRepairMetrics.ScaleVertices(RawContour, 1 / s);
+            gridFillIntersections = inner.gridFillIntersections;
             NonManifoldTriangles = inner.NonManifoldTriangles; NonManifoldRefinements = inner.NonManifoldRefinements;
             WindingEvaluations = inner.WindingEvaluations; HiddenGapEdges = inner.HiddenGapEdges; HiddenWallEdges = inner.HiddenWallEdges;
             GapEdgesPerLevel = inner.GapEdgesPerLevel; UsedCellSize = inner.UsedCellSize / s;
@@ -190,6 +194,8 @@ namespace gs
 
         bool compute_unit()
         {
+            gridFillIntersections = 0;
+            RawContour = null;
             StoppedOnSelfIntersections = false;
             Result = null;      // set only on success, below
             UsedCellSize = 0;
