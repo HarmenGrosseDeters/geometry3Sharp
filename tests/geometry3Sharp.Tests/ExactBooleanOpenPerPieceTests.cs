@@ -87,10 +87,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OpenAClosedB_PatchValueRight_PerPieceSame()
+        public void OpenAClosedB_PiecesOnTheRightSide()
         {
-            // A open, B closed: A's patch reaches no further than the closed intersection curve, so the per-patch value
-            // was right here; the per-piece evaluation gives the same classification
+            // A open, B closed: A's patches are decided by B's exact winding number, but B's patches by A's generalized
+            // one, and the curve where B meets A ends at A's hole, so a patch of B reaches around it (before: 1375 of the
+            // union's 7328 triangles on the wrong side)
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
             Assert.True(b.IsClosed() && a.IsClosed() == false);
             foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
