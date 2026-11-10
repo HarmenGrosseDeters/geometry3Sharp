@@ -160,6 +160,51 @@ namespace geometry3Sharp.Tests
             Assert.True(withPairs > 20, $"{withPairs}");
         }
 
+
+        [Fact]
+        public void Pairs_ParallelEqualsSerial_AndRepeatedRunsAreIdentical()
+        {
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            DMesh3 b = Translated(new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh(), new Vector3d(0.9, 0.3, 0.2));
+            DMesh3 m = Merge(a, b);
+            var first = MeshRepairMetrics.SelfIntersectionPairs(m);
+            Assert.True(first.Count > 50, $"{first.Count} pairs");
+            for (int i = 0; i < 3; ++i)
+                Assert.True(first.SequenceEqual(MeshRepairMetrics.SelfIntersectionPairs(m)));
+            gParallel.SerialOnThisThread = true;
+            try {
+                Assert.True(first.SequenceEqual(MeshRepairMetrics.SelfIntersectionPairs(m)));
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            Assert.True(first.SequenceEqual(BruteForce(m)));
+        }
+
+
+        [Fact]
+        public void DenseFan_AllBoxesOverlap_NoPairList_NoIntersections_And_OneCrossingTriangleIsFound()
+        {
+            // a fan of 2000 thin triangles around one apex: every box contains the apex, so all 2 million box pairs overlap;
+            // the candidates are streamed (no list of all box pairs), and the exact test finds no intersection
+            int n = 2000;
+            var m = new DMesh3();
+            int apex = m.AppendVertex(Vector3d.Zero);
+            int prev = m.AppendVertex(new Vector3d(1, 0, 0));
+            for (int i = 1; i <= n; ++i) {
+                double a = 2 * Math.PI * i / n * 0.9;
+                int cur = m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), 0));
+                m.AppendTriangle(apex, prev, cur);
+                prev = cur;
+            }
+            Assert.False(MeshRepairMetrics.HasSelfIntersections(m));
+            Assert.Empty(MeshRepairMetrics.SelfIntersectionPairs(m));
+            // one more triangle through the fan's plane: it crosses some of the fan's triangles
+            int p0 = m.AppendVertex(new Vector3d(0.5, 0.1, -1)), p1 = m.AppendVertex(new Vector3d(0.5, 0.1, 1)), p2 = m.AppendVertex(new Vector3d(0.6, 0.15, 0));
+            m.AppendTriangle(p0, p1, p2);
+            Assert.True(MeshRepairMetrics.HasSelfIntersections(m));
+            Assert.NotEmpty(MeshRepairMetrics.SelfIntersectionPairs(m));
+        }
+
         [Fact]
         public void NotCleanReason_Strings_OfTheCases()
         {

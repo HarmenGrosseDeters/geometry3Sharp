@@ -19,7 +19,7 @@ namespace geometry3Sharp.Tests
             var rnd = new Random(4);
             DMesh3 mesh = new DMesh3(normals, false, false, false);
             // UTM-like and tiny and huge coordinates, signed zeros excluded
-            double[] scales = { 1, 632117.25, 1e-9, 1e12 };
+            double[] scales = { 1, 632117.25, 1e-9, 1e12, 5e-320 };
             for (int i = 0; i < 40; ++i) {
                 double s = scales[i % scales.Length];
                 var p = new Vector3d(s * (rnd.NextDouble() - 0.5), 5712043.5 * rnd.NextDouble() + s, s * Math.PI * rnd.NextDouble());
@@ -126,8 +126,45 @@ namespace geometry3Sharp.Tests
             Assert.Equal(IOCode.GarbageDataError, ReadText(text, out _).code);
         }
 
+        [Fact]
+        public void Xyz_SignedZeroAndSubnormals_RoundTrip()
+        {
+            DMesh3 mesh = new DMesh3(true, false, false, false);
+            mesh.AppendVertex(new NewVertexInfo(new Vector3d(-0.0, 0.0, -4.9406564584124654e-324), new Vector3f(-0.0f, 1.4e-45f, -3.4028235e38f)));
+            mesh.AppendVertex(new NewVertexInfo(new Vector3d(1.7976931348623157e308, 2.2250738585072014e-308, 0.1), new Vector3f(0.1f, 1f / 3f, 16777217f)));
+            DMesh3 back = RoundTrip(mesh, "xyz");
+            Assert.Equal(2, back.VertexCount);
+            for (int i = 0; i < 2; ++i) {
+                Vector3d e = mesh.GetVertex(i), g = back.GetVertex(i);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(e.x), BitConverter.DoubleToInt64Bits(g.x));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(e.y), BitConverter.DoubleToInt64Bits(g.y));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(e.z), BitConverter.DoubleToInt64Bits(g.z));
+                Assert.Equal(mesh.GetVertexNormal(i), back.GetVertexNormal(i));
+            }
+        }
+
+        [Fact]
+        public void Xyz_ColorColumnsAreReadAsNormals_Pinned()
+        {
+            // "x y z r g b" cannot be told from "x y z nx ny nz": the colors become normals (documented at the reader)
+            Assert.Equal(IOCode.Ok, ReadText("1 2 3 255 0 128\n4 5 6 0 255 0\n", out DMesh3 mesh).code);
+            Assert.True(mesh.HasVertexNormals);
+            Assert.Equal(new Vector3f(255, 0, 128), mesh.GetVertexNormal(0));
+        }
+
+        [Fact]
+        public void Xyz_NonFiniteVertex_FailsTheWrite()
+        {
+            DMesh3 mesh = new DMesh3();
+            mesh.AppendVertex(new Vector3d(1, 2, 3));
+            mesh.AppendVertex(new Vector3d(1, double.NaN, 3));
+            var result = new XYZWriter().Write(new StringWriter(), new List<WriteMesh> { new WriteMesh(mesh) }, WriteOptions.Defaults);
+            Assert.Equal(IOCode.WriterError, result.code);
+        }
+
         [Theory]
         [InlineData("1 2\n")]
+        [InlineData("1 2 3\n4 5 6 0 0 1\n")]                // the first point has no normal, the second does
         [InlineData("1 2 3\n4 5\n")]
         [InlineData("1 2 3 0 0 1\n4 5 6\n")]                // the first point has a normal, the second does not
         [InlineData("1 2 3 0 0 1\n4 5 6 0 1\n")]
@@ -174,6 +211,7 @@ namespace geometry3Sharp.Tests
             var sw = new StringWriter();
             var result = new XYZWriter().Write(sw, new List<WriteMesh> { new WriteMesh(sphere), new WriteMesh(plain) }, WriteOptions.Defaults);
             Assert.Equal(IOCode.Ok, result.code);
+            Assert.True(sphere.HasVertexNormals);
             string[] lines = sw.ToString().Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(sphere.VertexCount + 1, lines.Length);
             Assert.All(lines, l => Assert.Equal(sphere.HasVertexNormals ? 6 : 3, l.Trim().Split(' ').Length));

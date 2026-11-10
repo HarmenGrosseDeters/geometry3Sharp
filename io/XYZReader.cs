@@ -14,8 +14,10 @@ namespace g3
     /// 5 values in a file whose first point line has normals, or a value that is not a number fails the read
     /// (FileParsingError); a position with a non-finite coordinate is rejected as in the other readers
     /// (ReadOptions.AllowNonFiniteCoordinates). A file without points is GarbageDataError. Whether the file has normals is
-    /// decided by its first point line (6 or more values); the decimal separator is the point. Normals are
-    /// stored as float, like all DMesh3 normals, and are not normalized or checked.
+    /// decided by its first point line (6 or more values), and a later line must agree (fewer or more values than the first
+    /// is a FileParsingError, except the ignored columns below six); a file "x y z r g b" is read as having normals (the
+    /// colors become normals: there is no way to tell them apart). The decimal separator is the point. Normals are read
+    /// as float (one rounding), like all DMesh3 normals, and are not normalized or checked (they can be NaN or infinite).
     /// </summary>
     class XYZReader : IMeshReader
     {
@@ -32,7 +34,7 @@ namespace g3
             while ((line = reader.ReadLine()) != null) {
                 lineNumber++;
                 string[] tokens = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length == 0 || tokens[0].StartsWith("#") || tokens[0].StartsWith("//"))
+                if (tokens.Length == 0 || tokens[0].StartsWith("#", StringComparison.Ordinal) || tokens[0].StartsWith("//", StringComparison.Ordinal))
                     continue;
                 if (tokens.Length < 3)
                     return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + " has fewer than 3 values");
@@ -43,6 +45,8 @@ namespace g3
                 }
                 if (haveNormals && tokens.Length < 6)
                     return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + " has no normal, the first point has one");
+                if (!haveNormals && tokens.Length >= 6)
+                    return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + " has a normal, the first point has none");
                 double x, y, z;
                 try {
                     x = MeshIOUtil.ParseDouble(tokens[0]);
@@ -56,17 +60,17 @@ namespace g3
                 if (ReadOptions.RejectsPosition(options, x, y, z))
                     return ReadOptions.NonFinitePosition(x, y, z);
                 if (haveNormals) {
-                    double nx, ny, nz;
+                    float nx, ny, nz;
                     try {
-                        nx = MeshIOUtil.ParseDouble(tokens[3]);
-                        ny = MeshIOUtil.ParseDouble(tokens[4]);
-                        nz = MeshIOUtil.ParseDouble(tokens[5]);
+                        nx = MeshIOUtil.ParseFloat(tokens[3]);
+                        ny = MeshIOUtil.ParseFloat(tokens[4]);
+                        nz = MeshIOUtil.ParseFloat(tokens[5]);
                     } catch (FormatException) {
                         return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a normal value is not a number");
                     } catch (OverflowException) {
                         return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a normal value is out of range");
                     }
-                    NewVertexInfo info = new NewVertexInfo(new Vector3d(x, y, z), new Vector3f((float)nx, (float)ny, (float)nz));
+                    NewVertexInfo info = new NewVertexInfo(new Vector3d(x, y, z), new Vector3f(nx, ny, nz));
                     builder.AppendVertex(info);
                 } else
                     builder.AppendVertex(x, y, z);
@@ -82,7 +86,9 @@ namespace g3
     /// <summary>
     /// Write ascii XYZ point files: the vertices of all meshes (triangles are ignored), one line "x y z" or, for a
     /// mesh with vertex normals, "x y z nx ny nz". Values are written in the shortest form that reads back as the
-    /// same double (normals: as the same float), with the point as decimal separator. If the meshes
+    /// same double (normals: as the same float; MeshIOUtil.FormatDouble / FormatFloat, also on .NET Framework), with the point
+    /// as decimal separator. A vertex that is not finite makes the write fail (WriterError): the reader would reject the file.
+    /// Normals are written whenever a mesh has them, WriteOptions.bPerVertexNormals is not looked at. If the meshes
     /// differ in having normals, the normals are written for all (zero for a mesh without). The BinaryWriter overload
     /// returns FormatNotSupportedError.
     /// </summary>
@@ -98,11 +104,17 @@ namespace g3
             bool normals = false;
             foreach (WriteMesh wm in vMeshes)
                 normals = normals || (wm.Mesh.HasVertexNormals);
+            foreach (WriteMesh wm in vMeshes)
+                foreach (int vid in wm.Mesh.VertexIndices()) {
+                    Vector3d v = wm.Mesh.GetVertex(vid);
+                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x) || double.IsInfinity(v.y) || double.IsInfinity(v.z))
+                        return new IOWriteResult(IOCode.WriterError, "vertex " + vid + " is not finite");
+                }
             int N = vMeshes.Count;
             for (int mi = 0; mi < N; ++mi) {
                 IMesh mesh = vMeshes[mi].Mesh;
                 if (options.ProgressFunc != null)
-                    options.ProgressFunc(mi, Math.Max(1, N - 1));
+                    options.ProgressFunc(mi, N);
                 foreach (int vid in mesh.VertexIndices()) {
                     Vector3d v = mesh.GetVertex(vid);
                     string line = R(v.x) + " " + R(v.y) + " " + R(v.z);
@@ -116,7 +128,7 @@ namespace g3
             return new IOWriteResult(IOCode.Ok, "");
         }
 
-        static string R(double d) { return d.ToString("R", CultureInfo.InvariantCulture); }
-        static string R(float f) { return f.ToString("R", CultureInfo.InvariantCulture); }
+        static string R(double d) { return MeshIOUtil.FormatDouble(d); }
+        static string R(float f) { return MeshIOUtil.FormatFloat(f); }
     }
 }
