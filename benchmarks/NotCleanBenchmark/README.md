@@ -47,3 +47,20 @@ timing, as before; only its existence is used. The pair counts and hashes are th
 | two shifted wraps (20 293 pairs) | 1080 / 849 / 438 | 183 / 186 / 200 | 481 / 488 / 512 |
 
 (Median of 9 runs on a quiet machine, 4 cores; on the last row `NotCleanReason` stops at the first pair, and the time is dominated by the other checks.)
+
+## Lever 3: bowtie and degenerate-triangle checks over blocks of ids in parallel (2026-11-10)
+
+`NotCleanReason` / `FindDefects` ran `MeshIterators.BowtieVertices(mesh).Any()` and the degenerate-area test one after the
+other on one thread. Both are reads only and their answer is a bool, so they now run over blocks of 8192 ids in parallel
+(meshes with up to 16384 ids stay serial) and stop once a block finds one. The checks themselves are unchanged, so the
+verdicts are too (`NotCleanParallelChecksTests`: a bowtie or a zero-area triangle in the first, middle and last block, id
+gaps from removed triangles; a mutant that skips the last block fails 3 tests).
+
+| mesh | closed + bowtie + degenerate + orientation + inverted ms: lever 2 / lever 3 | NotCleanReason ms: lever 2 / lever 3 |
+|---|---|---|
+| sphere, 200k triangles | 65 / 36 | 148 / 144 |
+| alpha wrap, 185k triangles | 130 / 93 | 319 / 240 |
+| two shifted wraps | 308 / 224 | 512 / 446 |
+
+What is left of `NotCleanReason` on the clean wrap (240 ms): the self-intersection search 155, `FindInvertedComponents` 48,
+the rest of the cheap checks about 40.
