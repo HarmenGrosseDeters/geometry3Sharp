@@ -671,7 +671,7 @@ g3cli quality simplified.stl
 **Alpha wrap and partitioned simplification** (`wrap`, `MeshAlphaWrap`; `simplify --partitioned`, `PartitionedReducer`): `wrap`
 makes a closed, 2-manifold surface that encloses any input at about `offset`, following detail down to about `alpha`; without
 options the library defaults apply (bounding box diagonal / 20 and / 600). `point_limit_reached` is still a valid wrap (warning);
-other statuses fail with `operation_failed` and `wrap_status`. `simplify --partitioned` needs the target `--max-error` (a squared
+other statuses fail with `operation_failed` and `wrap_status`. For a flat input at a coarse alpha (relative alpha 8 or less) the library may retry with another box and place a few extra points whose triangles have no minimum-angle bound (`MeshAlphaWrap.CornerPinchPoints` counts them; the distance to the input is unchanged, every vertex is at the offset). `simplify --partitioned` needs the target `--max-error` (a squared
 distance) and gives the same result for every `--threads`, not that of one serial run; it does not preserve boundary shapes:
 
 ```
