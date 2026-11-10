@@ -199,6 +199,7 @@ namespace g3
         public void Generate()
         {
             SelfIntersectionFree = false;
+            Diagnostics = new DiagnosticCounts();
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -336,6 +337,7 @@ namespace g3
             var vertexPlane = new List<Vector3d>();
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
+            var vertexPatches = CollectDiagnostics ? new List<int>() : null;
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -345,6 +347,7 @@ namespace g3
                     vertexMass.Add(cellGroupMass[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
+                    if (vertexPatches != null) vertexPatches.Add(groupVertex.Length);
                     // last resort for resolving self-intersections: the cell center if it is a fine cell with
                     // one patch (the polygons are then squares between cell centers), else halfway between the
                     // patch's crossing centroid and the cell center; in a coarse cell (its center can be far
@@ -389,6 +392,8 @@ namespace g3
                 }
                 if (valid == false)
                     continue;
+                if (vertexPatches != null)
+                    diagnose_polygon(e, poly, polyCells, anyFine && anyCoarse, vertexPatches);
                 // cells are ordered counter-clockwise around the +axis direction. The polygon normal must point
                 // from inside to outside, ie along +axis if the edge start corner is inside.
                 if (is_inside(node_value(e.Start)) == false) {
@@ -420,6 +425,21 @@ namespace g3
             NonManifoldCells = new List<Vector3i>();
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
 
+            Vector3d[] qefPositions = null;
+            if (vertexPatches != null) {
+                qefPositions = new Vector3d[Mesh.MaxVertexID];
+                for (int v = 0; v < qefPositions.Length; ++v) {
+                    qefPositions[v] = Mesh.GetVertex(v);
+                    Cell c = vertexCell[v];
+                    Vector3d lo = node_pos(c.Min), hi = node_pos(c.Min + cell_size(c) * Vector3i.One);
+                    bool strict = true;
+                    for (int k = 0; k < 3; ++k)
+                        strict &= qefPositions[v][k] > lo[k] && qefPositions[v][k] < hi[k];
+                    if (!strict) Diagnostics.VerticesNotStrictlyInCell++;
+                    if (vertexPatches[v] > 1) Diagnostics.MultiPatchVertices++;
+                }
+                Diagnostics.Vertices = qefPositions.Length;
+            }
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
             if (ResolveSelfIntersections) {
@@ -447,6 +467,10 @@ namespace g3
                 resolve_self_intersections(fallback, (v) => vertexLast[v]);
             }
             phase("intersections");
+            if (qefPositions != null) {
+                for (int v = 0; v < qefPositions.Length; ++v)
+                    if (Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
+            }
 
             // safety net: closed results must have positive volume (relative to the center: results with
             // holes are not closed)
@@ -454,8 +478,79 @@ namespace g3
             if (Mesh.TriangleCount > 0 && MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (vid) => Mesh.GetVertex(vid) - center).x < 0)
                 Mesh.ReverseOrientation(false);
             phase("mesh");
+            if (vertexPatches != null && GenerateFinished != null)
+                GenerateFinished(this);
         }
         long gapMilliseconds;
+
+        // Measurement only (benchmarks/DualContouringIntersections, design note DC_INTERSECTION_FREE.md): off by
+        // default, no effect on the result. Counts, per dual polygon, the "concave envelope vertices" of Wang's
+        // intersection-free criterion (C.C.L. Wang, Intersection-free dual contouring on uniform grids: an
+        // approach based on convex/concave analysis, CUHK tech. report): the envelope of a grid edge e is the
+        // union of the tetrahedra (v_i, v_i+1, e+, e-) of the cell vertices around it; the polygon's triangles
+        // lie in it if no vertex is concave, with one concave vertex for the diagonal through it, with two an
+        // edge vertex is needed.
+        internal static bool CollectDiagnostics = false;
+        internal static Action<DualContouring> GenerateFinished = null;
+        internal class DiagnosticCounts
+        {
+            public int Polygons, TransitionPolygons, MultiPatchPolygons, DegeneratePolygons;
+            public int[] Concave = new int[5];     // uniform single-patch quads by number of concave vertices
+            public int OnPlane;                    // of those, quads with an exactly coplanar envelope test
+            public int Vertices, MultiPatchVertices, VerticesNotStrictlyInCell, ResolveMovedVertices;
+            // class of the polygon a triangle comes from (by its sorted vertex ids): 1 uniform single-patch quad,
+            // triangle inside the envelope; 2 the same, outside it (wrong diagonal or two concave vertices);
+            // 3 multi-patch; 4 transition; 5 degenerate quad
+            public Dictionary<long, byte> TriangleClass = new Dictionary<long, byte>(EdgeKeyComparer.Instance);
+            // triangles of the intersecting pairs found in the first resolve round, by class (index 0: unknown)
+            public int[] IntersectingByClass = new int[6];
+            // intersecting pairs with both triangles inside their envelopes (the criterion says: none)
+            public int CoveredPairs;
+        }
+        static long tri_key(int a, int b, int c)
+        {
+            if (a > b) { int t = a; a = b; b = t; }
+            if (b > c) { int t = b; b = c; c = t; }
+            if (a > b) { int t = a; a = b; b = t; }
+            return (long)a | ((long)b << 21) | ((long)c << 42);
+        }
+        void classify_all(int[] poly, byte cls)
+        {
+            for (int m = 0; m < 4; ++m)
+                Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = cls;
+        }
+        internal DiagnosticCounts Diagnostics = new DiagnosticCounts();
+
+        void diagnose_polygon(GridEdge e, int[] poly, Cell[] cells, bool transition, List<int> vertexPatches)
+        {
+            Diagnostics.Polygons++;
+            if (transition) { Diagnostics.TransitionPolygons++; classify_all(poly, 4); return; }
+            for (int q = 0; q < 4; ++q)
+                for (int r = q + 1; r < 4; ++r)
+                    if (poly[q] == poly[r]) { Diagnostics.DegeneratePolygons++; classify_all(poly, 5); return; }
+            bool multi = false;
+            for (int q = 0; q < 4; ++q) multi |= vertexPatches[poly[q]] > 1;
+            if (multi) { Diagnostics.MultiPatchPolygons++; classify_all(poly, 3); return; }
+            Vector3d vm = node_pos(e.Start), vp = node_pos(e.End(F));
+            int concave = 0, concaveAt = -1;
+            bool onPlane = false;
+            for (int i = 0; i < 4; ++i) {
+                Vector3d p = Mesh.GetVertex(poly[i]), s = Mesh.GetVertex(poly[(i + 3) % 4]), n = Mesh.GetVertex(poly[(i + 1) % 4]);
+                // convex: p above the oriented triangles (s, n, e+) and (n, s, e-); the sign convention of the
+                // canonical convex configuration (cells counter-clockwise around +axis) is ConvexSign
+                int a = ExactPredicates.Orient3d(s, n, vp, p), b = ExactPredicates.Orient3d(n, s, vm, p);
+                if (a == 0 || b == 0) onPlane = true;
+                if (a != ConvexSign || b != ConvexSign) { concave++; concaveAt = i; }
+            }
+            Diagnostics.Concave[concave]++;
+            // the triangle without vertex m has the diagonal (m+1, m+3)
+            for (int m = 0; m < 4; ++m) {
+                bool inside = concave == 0 || (concave == 1 && (concaveAt == (m + 1) % 4 || concaveAt == (m + 3) % 4));
+                Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = (byte)(inside ? 1 : 2);
+            }
+            if (onPlane) Diagnostics.OnPlane++;
+        }
+        static readonly int ConvexSign = ExactPredicates.Orient3d(new Vector3d(1, -1, 0), new Vector3d(-1, 1, 0), new Vector3d(0, 0, 1), new Vector3d(1, 1, 0));
 
         class CellCrossings
         {
@@ -1210,6 +1305,37 @@ namespace g3
                     }
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
+                if (round == 0 && CollectDiagnostics) {
+                    // (serial again: classify the triangles of the pairs found, in the moving set's triangles)
+                    foreach (int ta in cand) {
+                        Index3i ia = Mesh.GetTriangle(ta);
+                        Triangle3d A = new Triangle3d(Mesh.GetVertex(ia.a), Mesh.GetVertex(ia.b), Mesh.GetVertex(ia.c));
+                        if (ExactTriangleIntersection.IsDegenerate(ref A)) continue;
+                        AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                        bool hit = false;
+                        byte clsA;
+                        Diagnostics.TriangleClass.TryGetValue(tri_key(ia.a, ia.b, ia.c), out clsA);
+                        tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                            NextBoxDF = (b, depth) => !hit && b.Intersects(box),
+                            NextTriangleF = (tb) => {
+                                if (hit || tb == ta) return;
+                                Index3i ib = Mesh.GetTriangle(tb);
+                                Triangle3d B = new Triangle3d(Mesh.GetVertex(ib.a), Mesh.GetVertex(ib.b), Mesh.GetVertex(ib.c));
+                                if (ExactTriangleIntersection.IsDegenerate(ref B) == false && ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) {
+                                    byte clsB;
+                                    Diagnostics.TriangleClass.TryGetValue(tri_key(ib.a, ib.b, ib.c), out clsB);
+                                    if (clsA == 1 && clsB == 1) Diagnostics.CoveredPairs++;
+                                    hit = true;
+                                }
+                            }
+                        });
+                        if (hit) {
+                            byte cls;
+                            Diagnostics.TriangleClass.TryGetValue(tri_key(ia.a, ia.b, ia.c), out cls);
+                            Diagnostics.IntersectingByClass[cls]++;
+                        }
+                    }
+                }
                 SelfIntersectionsLeft = pairs;
                 if (pairs == 0) {
                     SelfIntersectionFree = true;
