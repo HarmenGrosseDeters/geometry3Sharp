@@ -425,5 +425,5 @@ shared `EdgeKeyComparer`; the meshes are the same (same triangle counts, the gol
 | 120 | 56 032 | 22 279 | 1 612 | 54 329 | 17 969 | 298 |
 | 240 | 219 395 | not run | 7 823 | 226 612 | not run | 2 081 |
 
-After the fix the no-snap run is near linear (4.2x the triangles, 7x the time from 120 to 240); the snap run grows 3.9x the triangles in 4.9x the time, the rest
+The triangle counts before the fix are the same (3 429, 13 610, 31 684, 56 032 with snap; 3 352, 13 760, 31 833, 54 329 without). After the fix the no-snap run is near linear (4.2x the triangles, 7x the time from 120 to 240); the snap run grows 3.9x the triangles in 4.9x the time, the rest
 is not the hash (snap rounding itself, 1.5 s at 56 000 triangles in the profile): a follow-up.

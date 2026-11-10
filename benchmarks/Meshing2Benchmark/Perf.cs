@@ -139,7 +139,7 @@ namespace Meshing2Acceptance
         static int RunQuality(string[] args, Func<string[], string, string> arg)
         {
             var sides = (arg(args, "--sizes") ?? "30,60,120").Split(',').Select(t => int.Parse(t, CultureInfo.InvariantCulture)).ToArray();
-            int repeats = int.Parse(arg(args, "--repeats") ?? "1", CultureInfo.InvariantCulture);
+            int repeats = Math.Max(1, int.Parse(arg(args, "--repeats") ?? "1", CultureInfo.InvariantCulture));
             double angle = double.Parse(arg(args, "--angle") ?? "30", CultureInfo.InvariantCulture);
             Console.WriteLine("runtime " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription + ", " + Environment.ProcessorCount + " cores");
             Console.WriteLine("producer,kind,side,triangles,median_ms,min_ms,status");
