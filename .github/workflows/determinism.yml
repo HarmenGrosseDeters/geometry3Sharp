@@ -27,6 +27,8 @@ jobs:
           $H run --out out/linux-net10-parallel
           $H run --out out/linux-net10-parallel2
           $H run --out out/linux-net10-serial --serial
+          # the partitioning of the library's parallel loops depends on the processor count
+          for n in 1 2 3 8; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/linux-net10-cpu$n; done
       - uses: actions/upload-artifact@v4
         with:
           name: traces-linux
@@ -50,6 +52,11 @@ jobs:
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel2
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-serial --serial
+      - name: Run net48 as a 32-bit process (x87 / legacy JIT arithmetic)
+        shell: bash
+        run: |
+          dotnet build tools/DeterminismHarness -c Release -f net48 -p:PlatformTarget=x86 -o tools/DeterminismHarness/bin/x86
+          tools/DeterminismHarness/bin/x86/DeterminismHarness.exe run --out out/windows-net48x86-serial --serial
       - uses: actions/upload-artifact@v4
         with:
           name: traces-windows
@@ -83,4 +90,7 @@ jobs:
           cmp windows-net10-parallel windows-net48-parallel
           cmp linux-net10-serial windows-net10-serial
           cmp linux-net10-serial windows-net48-serial
+          # processor counts, and 32-bit
+          for n in 1 2 3 8; do cmp linux-net10-serial linux-net10-cpu$n; done
+          cmp windows-net48-serial windows-net48x86-serial
           for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done
