@@ -252,8 +252,14 @@ namespace g3
         // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers
         // (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1: the threshold where both cost about the same); for tests
         internal int AntipodalMaxBoundarySegments = 1000;
+        // and only open meshes with fewer input triangles than this: the exact ray's cost grows with the mesh (the segment
+        // query through it), the fast winding number's about with its logarithm; on the A/B of the 21 open models
+        // (benchmarks/BooleanComparison/perf, #539) the Antipodal Method won up to 68k triangles per mesh (0.22-0.77 of
+        // the classification time) and lost from 112k (1.05-1.42) and at 1.56M (1.30); for tests
+        internal int AntipodalMaxTriangles = 100000;
         // for tests and benchmarks: per input mesh after Compute, the number of its boundary segments (BoundarySegments),
-        // -1 for a mesh with exact winding numbers
+        // -1 for a mesh with exact winding numbers, -2 for an open mesh with AntipodalMaxTriangles triangles or more (not
+        // counted: it goes to fast winding numbers whatever its boundary)
         internal int[] OpenBoundarySegments;
         // for tests and benchmarks: keep, per arrangement piece (Arrangement.Output), the thresholded winding numbers of the
         // open meshes in front of it (pairs mesh, value; null for a piece that is not a representative), in
@@ -752,13 +758,17 @@ namespace g3
                 if (ExactWinding[m])
                     mesh_bounds(m, out bmin, out bmax);
             }
-            // the open meshes with few boundary segments are evaluated by the Antipodal Method (its segments and the box
+            // the open meshes with few boundary segments and triangles are evaluated by the Antipodal Method (its segments and the box
             // the exact ray needs, computed here: the parallel evaluation only reads), the others by fast winding numbers
             OpenBoundarySegments = new int[nm];
             for (int m = 0; m < nm; ++m) {
                 OpenBoundarySegments[m] = -1;
                 if (ExactWinding[m])
                     continue;
+                if (arr.Meshes[m].TriangleCount >= AntipodalMaxTriangles) {
+                    OpenBoundarySegments[m] = -2;
+                    continue;
+                }
                 Vector3d[] segments = BoundarySegments(arr.Meshes[m]);
                 OpenBoundarySegments[m] = segments.Length / 2;
                 if (segments.Length / 2 < AntipodalMaxBoundarySegments) {

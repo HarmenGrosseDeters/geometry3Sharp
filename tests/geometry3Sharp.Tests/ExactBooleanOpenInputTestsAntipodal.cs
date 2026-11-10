@@ -244,6 +244,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Switch_TriangleCapIsStrict_AndCappedMeshesGoToFastWinding()
+        {
+            // a mesh with as many triangles as the cap goes to fast winding numbers (not counted, -2), whatever its
+            // boundary: the same result, bit for bit, as fast winding numbers everywhere; one triangle fewer than the cap
+            // goes to Antipodal
+            DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
+            Assert.Equal(100000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
+            var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount };
+            Assert.True(capped.Compute(), capped.Error);
+            Assert.Equal(0, capped.Counts["antipodal_meshes"]);
+            Assert.Equal(-2, capped.OpenBoundarySegments[0]);
+            Assert.Equal(-1, capped.OpenBoundarySegments[1]);
+            Assert.Equal("", Invariance.Difference(fwn.Result, capped.Result));
+            // (open: A's hole stays inside B; non-empty and finite)
+            Assert.True(capped.Result.TriangleCount > 0);
+            Assert.True(Invariance.AllFinite(capped.Result));
+            var under = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount + 1 };
+            Assert.True(under.Compute(), under.Error);
+            Assert.Equal(1, under.Counts["antipodal_meshes"]);
+            Assert.Equal(ExactMeshBoolean.BoundarySegments(a).Length / 2, under.OpenBoundarySegments[0]);
+        }
+
+        [Fact]
         public void CoplanarOpenBoxes_StacksOnTheAntipodalPath()
         {
             // two open boxes whose bottoms overlap in one plane (coplanar stacks of both meshes), and the same shifted so
