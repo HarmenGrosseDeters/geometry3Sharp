@@ -71,3 +71,17 @@ gaps from removed triangles; a mutant that skips the last block fails 3 tests).
 
 What is left of `NotCleanReason` on the clean wrap (240 ms): the self-intersection search 155, `FindInvertedComponents` 48,
 the rest of the cheap checks about 40.
+
+## All three levers together (2026-11-10)
+
+Median of 9 runs, quiet machine, 4 cores; master = before lever 1, all levers = with the cheap pair filter, the box-tree
+self-join and the parallel bowtie / degenerate checks. The pair counts and hashes are the same in all builds.
+
+| mesh | NotCleanReason ms: master / all levers | all-pairs search ms: master / all levers |
+|---|---|---|
+| sphere, 200k triangles (clean) | 319 / 144 (-55 %) | 267 / 117 |
+| alpha wrap, 185k triangles (clean) | 541 / 240 (-56 %) | 420 / 155 |
+| two shifted wraps (20 293 pairs) | 481 / 446 (-7 %) | 1080 / 446 |
+
+The last row is dominated by the other checks, because `NotCleanReason` stops at the first self-intersection and the
+all-pairs search is not what it runs; the all-pairs search (`SelfIntersectionPairs`) is 2.4x faster there.
