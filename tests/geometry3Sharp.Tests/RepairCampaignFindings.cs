@@ -41,6 +41,10 @@ namespace geometry3Sharp.Tests
     /// F3 (and a window of coordinates of 2^72 to 2^98 where it was not scale invariant either, SolidifyScaleInvarianceTests); the text below
     /// stays for the other users of the spatial queries (the alpha wrap, the exact resolve's tree).
     ///
+    /// F4 (fixed, #537; found by the edge shifts of the campaign, 2026-11-10): the robust repair was not scale invariant for coordinates of about
+    /// 2^74 to 2^96 (and below an extent of 2^-25): the solidify fallback ran unnormalized within [2^-100, 2^100]. It is computed on a copy scaled
+    /// to an extent in [1, 2) now (SolidifyScaleInvarianceTests); the campaign's edge shifts go up with it.
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in

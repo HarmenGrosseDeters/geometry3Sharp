@@ -48,3 +48,8 @@ PR #493 and #495 where noted.
 | 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | documented limit |
 | 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
 | 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | documented limit |
+
+Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
+judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
+cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
+return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
