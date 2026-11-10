@@ -469,8 +469,9 @@ namespace g3
             PairTestsChecked = FilterDecisions = 0;
             checkedThreads.Clear();
             if (Script != null) {
+                // (the defects are not counted: the result is not claimed clean)
                 run_script();
-                return IsClean;
+                return false;
             }
 
             List<Index2i> pairs = intersecting_pairs();
@@ -1421,13 +1422,25 @@ namespace g3
                 }
                 List<Ghost> list;
                 if (editGone >= 0 && ghostsAt.TryGetValue(editGone, out list)) {
+                    // (the ghosts at both vertices are listed at both; the shorter list goes into the longer one)
+                    var shared = new HashSet<Ghost>();
                     foreach (Ghost g in list) {
-                        // (one already at the kept vertex is listed there)
-                        bool listed = g.at.a == editKept || g.at.b == editKept || g.at.c == editKept;
+                        if (g.at.a == editKept || g.at.b == editKept || g.at.c == editKept)
+                            shared.Add(g);
                         g.at = new Index3i(g.at.a == editGone ? editKept : g.at.a, g.at.b == editGone ? editKept : g.at.b, g.at.c == editGone ? editKept : g.at.c);
-                        if (listed == false)
-                            ghost_add(editKept, g);
                     }
+                    List<Ghost> keptList;
+                    if (ghostsAt.TryGetValue(editKept, out keptList) == false)
+                        ghostsAt[editKept] = list;
+                    else if (list.Count > keptList.Count) {
+                        foreach (Ghost g in keptList)
+                            if (shared.Contains(g) == false)
+                                list.Add(g);
+                        ghostsAt[editKept] = list;
+                    } else
+                        foreach (Ghost g in list)
+                            if (shared.Contains(g) == false)
+                                keptList.Add(g);
                     ghostsAt.Remove(editGone);
                 }
                 foreach (Ghost g in editGhosts) {

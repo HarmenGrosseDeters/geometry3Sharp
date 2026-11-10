@@ -266,7 +266,7 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(114, n);
             Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
-            Assert.True(cleanRelative <= 102 && cleanRelative < clean, $"relative bound only: {cleanRelative}");
+            Assert.True(cleanRelative >= 102 && cleanRelative < clean, $"relative bound only: {cleanRelative}");
             Assert.True(removals > 0, "vertex removals");
         }
 

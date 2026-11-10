@@ -94,6 +94,48 @@ namespace geometry3Sharp.Tests
                     MoveTo(t.Q, f(t.P(t.Q) - Move * t.Normal)) },
             };
 
+        // the tent with two more pokes at its tip u: (a, n1, u) poked at w, then (n1, u, w) at z, both raised by H / 2.
+        // Contracting z into u leaves a ghost on the edge u-w; contracting w into u then collapses that edge, so the
+        // ghost lies on the vertex u, which has valence 3 again and is removed: the ghost on a vertex is lost
+        static Tent MakePokedTent(out int w, out int z)
+        {
+            Tent t = MakeTent();
+            DMesh3 m = t.Mesh;
+            int poke(int a, int b, int c)
+            {
+                int tid = m.FindTriangle(a, b, c);
+                Index3i T = m.GetTriangle(tid);
+                Vector3d p0 = m.GetVertex(T.a), p1 = m.GetVertex(T.b), p2 = m.GetVertex(T.c);
+                Assert.Equal(MeshResult.Ok, m.PokeTriangle(tid, out DMesh3.PokeTriangleInfo info));
+                m.SetVertex(info.new_vid, (p0 + p1 + p2) / 3 + (H / 2) * (p1 - p0).Cross(p2 - p0).Normalized);
+                return info.new_vid;
+            }
+            w = poke(t.A, t.N1, t.U);
+            z = poke(t.N1, t.U, w);
+            Assert.True(m.IsClosed() && m.CheckValidity(eFailMode: FailMode.ReturnOnly));
+            return t;
+        }
+
+        [Fact]
+        public void Script_GhostOnAVertex_LostByARemoval()
+        {
+            Tent t = MakePokedTent(out int w, out int z);
+            var script = new List<Edit> { Collapse(z, t.U, t.P(t.U)), Collapse(w, t.U, t.P(t.U)), Remove(t.U) };
+            DMesh3 m = new DMesh3(t.Mesh);
+            // (check mode: a ghost left at the removed vertex throws)
+            MeshRoundingRepair r = Run(m, script, check: true);
+            Assert.True(r.ScriptAccepted.Count == 3 && r.ScriptAccepted.All(ok => ok), string.Join(",", r.ScriptAccepted));
+            Assert.False(m.IsVertex(t.U));
+            // four ghosts made (on u-w and u-n1, then on u-a and u-n1, the first on u-w now on the vertex u); the
+            // removal loses all four
+            Assert.Equal(4, r.GhostsMade);
+            Assert.Equal(4, r.GhostsLost);
+            Assert.True(m.IsClosed() && Invariance.AllFinite(m));
+            double distance = Measured2(m, t.Mesh);
+            Assert.True(distance <= r.MaxDrift + 1e-12, $"measured {distance:R}, reported {r.MaxDrift:R}");
+            Assert.True(distance >= 0.9 * H, $"measured {distance:R}");
+        }
+
         // the largest distance of the corners, edge midpoints and centroids of from's triangles to the surface to: a
         // lower estimate of the one-sided Hausdorff distance (as RoundingDriftClusterTests)
         static double Measured(DMesh3 from, DMesh3 to)

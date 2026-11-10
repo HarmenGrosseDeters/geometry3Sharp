@@ -179,7 +179,7 @@ Results still depend on the order of the edits, and more edits pass, so single o
 - A4: surviving triangles keep their id and corner order through `CollapseEdge` (the prototype checks it at every
   contraction; no violation in any run of section 5). The other edits do not: `FlipEdge` reuses the two ids with
   new corners, and zips, strip zips and vertex removals append triangles, so the record of an added triangle is
-  written after the edit, by looking the triangle up. The undo paths of `try_zip`, `try_strip` and
+  written after the edit (the build takes its id from the edit, `addedIds`, see section 7b). The undo paths of `try_zip`, `try_strip` and
   `try_remove_vertex` (an append failed: the old triangles are appended again, under new ids) must restore the old
   records with them; today's per-vertex drift needs no such care.
 - A5: edits stay within one component and vertex ids are not reused (as for the apex rule).

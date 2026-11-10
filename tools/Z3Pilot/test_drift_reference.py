@@ -160,7 +160,7 @@ class DriftReferenceTests(unittest.TestCase):
             # the seven mutants of the rule (PINNED), as changes of the code
             ('MeshRoundingRepair.cs', 'if (editKeptRef[i])\n                        continue;',
              'if (editKeptRef[i] || true)\n                        continue;'),                                    # no_ghosts
-            ('MeshRoundingRepair.cs', 'if (listed == false)\n                            ghost_add(editKept, g);', ''),  # ghost_dies_with_its_vertex
+            ('MeshRoundingRepair.cs', 'ghostsAt[editKept] = list;\n                    else if', 'list.Clear();\n                    else if'),  # ghost_dies_with_its_vertex
             ('MeshRoundingRepair.cs', 'most = Math.Max(most, triangle_bound(t, Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c)));\n            }\n            foreach (int v in editCorners)',
              'most = Math.Max(most, refCarry[t]);\n            }\n            foreach (int v in editCorners)'),  # generic_carry_only
             ('MeshRoundingRepair.cs', 'editLost.Add(g);\n                    most = Math.Max(most, ghost_bound(g, -1, -1, Vector3d.Zero));',
