@@ -559,6 +559,57 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, cut.FailedSegmentInsertions);
             Assert.True(target.CheckValidity(false, FailMode.ReturnOnly));
         }
+
+        // guard: upstream #138 (find_segments looked up the first segment point for both ends) is already fixed here.
+        // The cut line runs diagonally through a grid whose triangles use the other diagonal, so both ends of every
+        // cut segment are existing target vertices or edge points; the second end must be found as well.
+        [Theory]
+        [MemberData(nameof(CutVariants))]
+        public void MeshMeshCut_Issue138_Guard_SecondSegmentEndIsFound(bool flipCutter, bool reverseTarget, string similarity)
+        {
+            Similarity s = Similarity.ByName(similarity);
+            var target = new DMesh3();
+            int[,] id = new int[3, 3];
+            for (int y = 0; y < 3; ++y)
+                for (int x = 0; x < 3; ++x)
+                    id[x, y] = target.AppendVertex(s.Apply(new Vector3d(x, y, 0)));
+            for (int y = 0; y < 2; ++y)
+                for (int x = 0; x < 2; ++x) {
+                    // diagonal from (x+1,y) to (x,y+1)
+                    target.AppendTriangle(id[x, y], id[x + 1, y], id[x, y + 1]);
+                    target.AppendTriangle(id[x + 1, y], id[x + 1, y + 1], id[x, y + 1]);
+                }
+            if (reverseTarget) target.ReverseOrientation();
+            Vector3d a = new Vector3d(-1, -1, -1), b = new Vector3d(3, 3, -1), c = new Vector3d(1, 1, 2);
+            var cutter = new DMesh3();
+            int ca = cutter.AppendVertex(s.Apply(a)), cb = cutter.AppendVertex(s.Apply(b)), cc = cutter.AppendVertex(s.Apply(c));
+            if (flipCutter) cutter.AppendTriangle(ca, cc, cb); else cutter.AppendTriangle(ca, cb, cc);
+
+            var cut = new MeshMeshCut() { Target = target, CutMesh = cutter };
+            cut.Compute();
+            Assert.Equal(0, cut.FailedSegmentInsertions);
+            Assert.True(target.CheckValidity(false, FailMode.ReturnOnly));
+
+            double tol = 1e-9 * s.Scale + 16 * s.Resolution(4) * s.Scale;
+            int[] chain = new int[5];
+            double[] t = { 0, 0.5, 1, 1.5, 2 };
+            for (int k = 0; k < 5; ++k) {
+                Vector3d p = s.Apply(new Vector3d(t[k], t[k], 0));
+                var found = target.VertexIndices().Where(v => target.GetVertex(v).Distance(p) <= tol).ToList();
+                Assert.True(found.Count == 1, $"{found.Count} target vertices at ({t[k]},{t[k]},0)");
+                chain[k] = found[0];
+            }
+            for (int k = 0; k < 4; ++k)
+                Assert.True(target.FindEdge(chain[k], chain[k + 1]) != DMesh3.InvalidID, $"no cut edge between chain vertices {k} and {k + 1}");
+        }
+
+        public static IEnumerable<object[]> CutVariants()
+        {
+            foreach (bool flip in new[] { false, true })
+                foreach (bool rev in new[] { false, true })
+                    foreach (Similarity s in Similarity.All())
+                        yield return new object[] { flip, rev, s.Name };
+        }
     }
 
 

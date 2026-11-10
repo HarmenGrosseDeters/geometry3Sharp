@@ -12,12 +12,7 @@ namespace g3
     /// </summary>
     public static class HeightGridWriter
     {
-        // (.NET Framework's "R" can lose the last digit: fall back to 17 digits there)
-        static string R(double v)
-        {
-            string r = v.ToString("R", CultureInfo.InvariantCulture);
-            return double.Parse(r, CultureInfo.InvariantCulture) == v ? r : v.ToString("G17", CultureInfo.InvariantCulture);
-        }
+        static string R(double v) { return MeshIOUtil.FormatDouble(v); }
 
         /// <summary> "x y z" per line, south row first; nodes without data are not written (the reader makes them gaps again) </summary>
         public static void WriteXyz(TextWriter w, HeightGrid grid)
