@@ -278,11 +278,12 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
 
 **Open operands per piece (2026-11-10, owner decision A).** The generalized winding number of an open operand varies
 within a patch (a patch can reach from inside an open mesh to outside it through its hole), so open operands are now
-classified at every piece, not once per patch (the bugfix PR of claude/open-operand-per-piece: two overlapping open
-spheres had an empty intersection). Cost on the 21 open models of the Lévy samples, on top of #501: total 4.34x,
-classification 18.4x, worst 113906 about 10x (100 s); closed inputs unchanged. A certified per-patch bound cannot
-help much: in the 1087xxx soups 92-96 % of the pieces lie in patches whose pieces the per-piece rule decides
-differently, and the own-mesh queries (half of them) no bound decides. Later performance item (B): a batched or
-dual-tree fast winding number per patch (far nodes once per patch box, near nodes per piece), judged by an A/B
-against the per-piece rule with a stated tolerance. (C), the exact Antipodal Method, stays as in
-LEVY_CLASSIFICATION.md 4.2 (owner decision and patent check).
+classified at every piece, not once per patch (#528). Two overlapping open spheres had an empty intersection; with an
+open A and a closed B, B's patches reach around A's hole (1375 of the union's 7328 triangles on the wrong side). Cost on
+the 21 open models of the Lévy samples, on top of #501: total 4.34x, classification 18.4x, worst 113906 about 10x
+(100 s); closed inputs unchanged. A certified per-patch bound cannot help much: in the 1087xxx soups 92-96 % of the
+pieces lie in patches whose pieces the per-piece rule decides differently, and the own-mesh queries (half of them) no
+bound decides. Item (B), a batched or dual-tree fast winding number per patch: measured upper bound 22-30 % of the
+per-piece query work (the near-field triangle terms are 70-78 % of it; Exact Boolean 3.0 pre-study,
+docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5, PR #532): not planned. The remaining lever is what is evaluated: (C), the
+exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and patent check), or fewer queries.
