@@ -206,7 +206,6 @@ namespace g3
             edgeVertexIds = new HashSet<int>();
             faceVertexIds = new HashSet<int>();
             FaceVertices = ClampedFaceVertices = 0;
-            clampedFaceCells = new Dictionary<long, Vector3i>(EdgeKeyComparer.Instance);
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -454,10 +453,14 @@ namespace g3
             nmc.Sort((x, y) => x.Key.CompareTo(y.Key));
             NonManifoldCells = new List<Vector3i>();
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
-            var cfc = new List<KeyValuePair<long, Vector3i>>(clampedFaceCells);
-            cfc.Sort((x, y) => x.Key.CompareTo(y.Key));
-            ClampedFaceCells = new List<Vector3i>();
-            foreach (var kv in cfc) ClampedFaceCells.Add(kv.Value);
+            // face vertices left without triangles (their only fans failed): removed, not counted
+            foreach (int v in new List<int>(faceVertexIds)) {
+                if (Mesh.IsVertex(v) && Mesh.GetVtxEdgeCount(v) == 0) {
+                    Mesh.RemoveVertex(v, false, false);
+                    faceVertexIds.Remove(v);
+                    FaceVertices--;
+                }
+            }
 
             Vector3d[] qefPositions = null;
             if (Diagnostics != null) {
@@ -1730,18 +1733,7 @@ namespace g3
         /// the fans of the face apart, or the Hermite data was missing): the sharpness there is not kept
         /// </summary>
         public int ClampedFaceVertices;
-        /// <summary>
-        /// unrefined cells (grid cell coordinates) next to the clamped face vertices of the last Generate(): refining
-        /// there (SetRefinement) can restore the sharpness, as for NonManifoldCells
-        /// </summary>
-        public List<Vector3i> ClampedFaceCells = new List<Vector3i>();
-        Dictionary<long, Vector3i> clampedFaceCells = new Dictionary<long, Vector3i>();
-        void add_cell(Dictionary<long, Vector3i> cells, Cell c)
-        {
-            Vector3i coarse = fdiv(c.Min, F);
-            if (F == 1 || c.Coarse)
-                cells[node_key(coarse)] = coarse;
-        }
+
         internal HashSet<int> faceVertexIds = new HashSet<int>();
         /// test seam (the thread that calls Generate): skip the self-intersection repair, for tests that need a
         /// contour that still intersects (eg the not-clean paths of MeshRobustRepair)
@@ -1914,7 +1906,7 @@ namespace g3
             bool atQef;
             vid = place_face_vertex(corner, inside, normal, ambiguous, seg, Mesh.GetVertex(vA), Mesh.GetVertex(vB), out p, out atQef)
                 ? append_aux_vertex(p, A) : FaceVertexFailed;
-            if (vid >= 0) { FaceVertices++; faceVertexIds.Add(vid); if (!atQef) { ClampedFaceVertices++; add_cell(clampedFaceCells, A); add_cell(clampedFaceCells, B); } }
+            if (vid >= 0) { FaceVertices++; faceVertexIds.Add(vid); if (!atQef) ClampedFaceVertices++; }
             faceVertices[key] = vid;
             return vid;
         }

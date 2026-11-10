@@ -156,7 +156,8 @@ namespace geometry3Sharp.Tests
             DMesh3 plates = MeshRobustRepairTests.ThinPlates(6);
             Func<DMesh3, MeshRobustRepair> run = (m) => {
                 var r = new MeshRobustRepair(m) { RepairF = null, ExactResolve = false, SolidifyResolution = 24, WrapRelativeAlpha = 70, WrapRelativeOffset = 700 };
-                r.Apply();
+                // (a not-clean solidify, so the wrap runs: MeshRobustRepairTests.WithUnrepairedContour)
+                MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply());
                 return r;
             };
             MeshRobustRepair r0 = run(new DMesh3(plates));

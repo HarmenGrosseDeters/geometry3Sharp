@@ -30,7 +30,6 @@ class Program
         bool diagnostics = true;
         for (int i = 1; i < args.Length; ++i) {
             if (args[i] == "--timing") { diagnostics = false; continue; }   // hook off: only times and counts
-            if (args[i] == "--refine-clamped") { WindingContouring.RefineClampedFaces = true; continue; }
 
             if (args[i] == "--") { resolutions = args[i + 1].Split(',').Select(int.Parse).ToArray(); break; }
             if (args[i] == "mesh:all") inputs.AddRange(Procedural.Names.Select(n => "mesh:" + n));
@@ -55,7 +54,7 @@ class Program
             foreach (int res in resolutions) {
                 if (done.Contains(name + "|" + res)) continue;
                 var r = new Dictionary<string, object>();
-                r["input"] = name; r["res"] = res; r["diagnostics"] = diagnostics; r["refine_clamped"] = WindingContouring.RefineClampedFaces;
+                r["input"] = name; r["res"] = res; r["diagnostics"] = diagnostics;
                 last = null; generates = 0;
                 try {
                     resolveMs = 0;

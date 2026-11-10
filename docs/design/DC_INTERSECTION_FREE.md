@@ -285,7 +285,8 @@ face of the same polygon gives (v_p, v_q, v_e) inside Wang's tetrahedron. The fa
 have one patch and are strictly inside their cells.
 
 Not next to multi-patch cells: a first version put face vertices there too; they cost sharpness (the in-face QEF
-point was often outside the allowed region; RotatedBox 0.31 cells instead of 0.14) and gave no guarantee, since the
+point was often outside the allowed region; `ContouringQualityTests.RotatedBox_SharpCornersAndExactVolume` failed with
+a vertex 0.31 cells off the input, against 0.14 with A) and gave no guarantee, since the
 fans of different patches in one cell are checked anyway. The multi-patch interior stays checked exactly and repaired
 heuristically, reported (`CheckedTriangles`, `SelfIntersectionsLeft`).
 
@@ -353,9 +354,19 @@ Time (A/B against master with option A, hook off, two repetitions alternating):
 
 Dual contouring takes 0-10 % longer on T1 and the implicit shapes at 96 cells (the face test of every polygon), up to
 24 % on the six procedural solids, where dual contouring is a small part (runs under a second are noisy); the T1
-solidify as a whole is within -14 % to +8 % (less refinement for left-out quads, measured in a second run as well).
+solidify as a whole is within -14 % to +8 % (less refinement for left-out quads; the second run is in the benchmark
+README).
 
-Sharpness, the refinement alternative (owner's question, measured with `WindingContouring.RefineClampedFaces`, an
-internal switch, off): refining around clamped face vertices in the adaptive path costs about 10 % time and 3 %
-triangles on T1 and changes no deviation measurably (RotatedBox 0.143 cells, 16 vertices above 0.02 cells, the same
-as A; T1 maximum and counts within 2 %). Not on by default.
+Sharpness, the refinement alternative (owner's question; measured with an internal switch, then removed; table in the
+benchmark README): refining around clamped face vertices in the adaptive path cost about 10 % time and 3 % triangles on
+T1 and changed no deviation measurably (RotatedBox 0.143 cells and 16 vertices above 0.02 cells with A, B and B
+refining; T1 maximum and counts within 2 %). 6287 of the 9959 face vertices are clamped, mostly on thin sheets.
+**Decision (owner 2026-11-10): option B without refinement.** A QEF minimised over the allowed region (convex: the face
+rectangle, on an ambiguous face the triangle on the corner's side) instead of the clamp was not built: the deviation is
+already at A's level; the clamp chain already takes the QEF minimum on the bounding diagonal of an ambiguous face.
+
+Prior art refresh (2026-11-10, papers only): Occupancy-Based Dual Contouring (J. Hwang, M. Sung, SIGGRAPH Asia 2024,
+arXiv 2409.13418; abstract and project page) is learning-free, builds on manifold DC, finds edge points by binary
+search and uses Ju and Udeshi's quad splitting to reduce self-intersections, without a guarantee. Nothing newer with
+a guarantee on vertex placement was found ("dual contouring intersection-free guarantee vertex placement 2024 2025");
+a 2026 preprint on subgrid marching tetrahedra (arXiv 2606.00454) was found by title only, not read.
