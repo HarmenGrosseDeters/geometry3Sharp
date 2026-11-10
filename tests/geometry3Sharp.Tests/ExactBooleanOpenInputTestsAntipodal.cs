@@ -362,6 +362,58 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the thresholded open winding number of mesh m recorded for a piece (0 when not listed)
+        static int Recorded(int[] sparse, int m)
+        {
+            for (int k = 0; sparse != null && k < sparse.Length; k += 2)
+                if (sparse[k] == m)
+                    return sparse[k + 1];
+            return 0;
+        }
+
+        [Fact]
+        public void FlatSheet_HalfIntegerTies_SameWithEveryRay()
+        {
+            // a flat open disk (a fan of 41 triangles in a tilted plane, irrational coordinates) through a closed sphere:
+            // just in front of the disk its winding number is exactly -1/2, and the ray's crossings plus the rounded
+            // boundary sum give -1/2 within a few ulps on either side; the threshold of an exact tie must not depend on the
+            // ray (the seed picks the far points), so every seed gives the same recorded values at every piece
+            Vector3d n = new Vector3d(0.3, 0.5, 0.81).Normalized, u = n.Cross(Vector3d.AxisX).Normalized, v = n.Cross(u);
+            var disk = new DMesh3();
+            int c = disk.AppendVertex(new Vector3d(0.1, 0.2, 0.3));
+            const int ring = 41;
+            for (int k = 0; k < ring; ++k) {
+                double t = 2 * Math.PI * k / ring;
+                disk.AppendVertex(new Vector3d(0.1, 0.2, 0.3) + 0.9 * (Math.Cos(t) * u + Math.Sin(t) * v));
+            }
+            for (int k = 0; k < ring; ++k)
+                disk.AppendTriangle(c, 1 + k, 1 + (k + 1) % ring);
+            DMesh3 ball = Sphere(new Vector3d(0.25, 0.1, 0.35), 2, 8);
+            int[][] first = null;
+            int ties = 0;
+            for (int seed = 1; seed <= 24; ++seed) {
+                var r = new ExactMeshBoolean(new DMesh3(disk), new DMesh3(ball), Ops.Union) { RecordOpenWinding = true, Seed = seed };
+                Assert.True(r.Compute(), r.Error);
+                Assert.Equal(1, r.Counts["antipodal_meshes"]);
+                Assert.True(r.Result.TriangleCount > 0);
+                int[][] w = r.OpenWindingPerPiece;
+                if (first == null) {
+                    first = w;
+                    // the disk's own pieces: the tie -1/2 in front, read as -1 by ceil(w - 1/2)
+                    for (int i = 0; i < w.Length; ++i)
+                        if (r.Arrangement.Output[i].Mesh == 0) {
+                            Assert.Equal(-1, Recorded(w[i], 0));
+                            ties++;
+                        }
+                    continue;
+                }
+                Assert.Equal(first.Length, w.Length);
+                for (int i = 0; i < w.Length; ++i)
+                    Assert.True(Recorded(first[i], 0) == Recorded(w[i], 0), $"seed {seed}, piece {i}");
+            }
+            Assert.True(ties > ring);
+        }
+
         // ---------------------------------------------------------------- invariance, determinism, reuse
 
         [Fact]

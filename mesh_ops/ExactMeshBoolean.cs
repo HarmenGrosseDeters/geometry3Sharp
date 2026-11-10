@@ -1419,7 +1419,9 @@ namespace g3
         /// is continuous across the mesh's own triangles, so no correction for the triangles the piece lies on is needed
         /// (unlike the fast winding number on the surface). Exact up to the rounding of the boundary sum; no far-field
         /// approximation. A ray whose opposite direction passes through a boundary segment (the term is undefined) is
-        /// replaced by another.
+        /// replaced by another. A value within the error bound of the sum of a half-integer is returned as that
+        /// half-integer (in front of a flat part of an open sheet the value is exactly k + 1/2: the tie of the threshold is
+        /// then decided by its rule, not by the rounding of the sum, so the same with every ray).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
@@ -1434,7 +1436,7 @@ namespace g3
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
                 int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, far, out j, 200 * attempt);
                 Vector3d x1 = -(far.Grid[j] - p).Normalized;
-                double sum = 0;
+                double sum = 0, err = 0, abs = 0;
                 bool degenerate = false;
                 for (int k = 0; k < segments.Length; k += 2) {
                     Vector3d a = segments[k] - p, b = segments[k + 1] - p;
@@ -1465,10 +1467,25 @@ namespace g3
                         degenerate = true;
                         break;
                     }
-                    sum += 2 * Math.Atan2(num, den);
+                    double theta = 2 * Math.Atan2(num, den);
+                    sum += theta;
+                    abs += Math.Abs(theta);
+                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2, plus the
+                    // rounding of atan2 (den > tol or |num| > tol here, so the hypot is above tol)
+                    err += 4 * tol / Math.Sqrt(num * num + den * den) + 1e-15;
                 }
-                if (degenerate == false)
-                    return chi + sum / MathUtil.FourPI;
+                if (degenerate == false) {
+                    // (the recursive summation: at most n u times the sum of the absolute terms)
+                    err += 2.3e-16 * (segments.Length / 2) * abs;
+                    double w = chi + sum / MathUtil.FourPI;
+                    // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
+                    // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
+                    // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
+                    double half = Math.Floor(w) + 0.5;
+                    if (Math.Abs(w - half) <= err / MathUtil.FourPI)
+                        return half;
+                    return w;
+                }
             }
             // (no usable ray: undecided, which the threshold reads as outside)
             System.Threading.Interlocked.Increment(ref antipodalUndecided);

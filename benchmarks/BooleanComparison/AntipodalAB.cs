@@ -152,10 +152,28 @@ static class AntipodalAB
                     var ar2 = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, RecordOpenWinding = true, Seed = 12345 };
                     ar2.Compute();
                     int rayDiff = 0;
+                    var rayDiffSamples = new List<string>();
+                    var segsByMesh = new Dictionary<int, Vector3d[]>();
                     for (int i = 0; i < ar.OpenWindingPerPiece.Length; ++i)
-                        for (int m = 0; m < 2; ++m)
-                            if (Lookup(ar.OpenWindingPerPiece[i], m) != Lookup(ar2.OpenWindingPerPiece[i], m)) rayDiff++;
+                        for (int m = 0; m < 2; ++m) {
+                            int v1 = Lookup(ar.OpenWindingPerPiece[i], m), v2 = Lookup(ar2.OpenWindingPerPiece[i], m);
+                            if (v1 == v2) continue;
+                            rayDiff++;
+                            if (rayDiffSamples.Count < 8) {
+                                var arrA = ar.Arrangement;
+                                var ot = arrA.Output[i];
+                                Vector3d c = (arrA.PointToVector(ot.A) + arrA.PointToVector(ot.B) + arrA.PointToVector(ot.C)) / 3;
+                                if (segsByMesh.ContainsKey(m) == false) segsByMesh[m] = ExactMeshBoolean.BoundarySegments(arrA.Meshes[m]);
+                                var sg = segsByMesh[m];
+                                double best = double.MaxValue;
+                                for (int k = 0; k < sg.Length; k += 2) best = Math.Min(best, new Segment3d(sg[k], sg[k + 1]).DistanceSquared(c));
+                                Vector3d pa = arrA.PointToVector(ot.A), pb = arrA.PointToVector(ot.B), pc = arrA.PointToVector(ot.C);
+                                double edge = Math.Max((pa - pb).Length, Math.Max((pb - pc).Length, (pc - pa).Length));
+                                rayDiffSamples.Add($"piece {i} mesh {m} srcmesh {ot.Mesh} seed1 {v1} seed2 {v2} dist to boundary {Math.Sqrt(best):G3} edge {edge:G3}");
+                            }
+                        }
                     row["antipodal_other_rays_differing"] = rayDiff;
+                    row["ray_samples"] = rayDiffSamples.ToArray();
                     row["pieces_differing"] = cmp[0];
                     row["antipodal_right"] = cmp[1];
                     row["fwn_right"] = cmp[2];
