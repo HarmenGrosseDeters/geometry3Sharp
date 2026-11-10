@@ -673,10 +673,80 @@ namespace gs
                     { int h0 = fEdge[f], h = h0; do { fpos.Add(K.Approx(hOrig[h])); fcorner.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
                     if (clearly_apart(rpos, fpos) || clearly_apart(fpos, rpos)) continue;
                     if (classify(q, fLabel[f], fcorner) > 0) continue;
+                    if (higher_on_overlap(rpos, fpos, q, fLabel[f])) continue;
+                    if (interior_disjoint(region, fcorner, f, other, corners)) continue;
                     ++CarveCount;
                     insert_into(f, fLabel[f], new List<int> { q }, region);
                 }
             }
+        }
+
+        /// <summary>
+        /// exact: f and r have no interior in common (touching or apart). Two convex polygons are interior-disjoint iff one of the lines of their edges has the
+        /// other on its closed outer side (separating axis): the signs of the corners against the lines of r's edges (region: kept where flip * side is not positive) and
+        /// against the lines of f's edges.
+        /// </summary>
+        bool interior_disjoint(List<(int line, int flip)> region, List<int> fcorner, int f, SlopeMap other, List<int> rEdges)
+        {
+            foreach (var rc in region) {
+                bool anyInside = false;
+                foreach (int v in fcorner) if (rc.flip * K.Side(v, rc.line) < 0) { anyInside = true; break; }
+                if (!anyInside) return true;
+            }
+            int h0 = fEdge[f], h = h0;
+            do {
+                int line = hLine[h];
+                if (line >= 0) {
+                    int sgn = 0;
+                    foreach (int v in fcorner) { int sd = K.Side(v, line); if (sd != 0) { sgn = sd; break; } }
+                    if (sgn != 0) {
+                        bool anyInside = false;
+                        foreach (int e in rEdges) if (sgn * K.Side(other.hOrig[e], line) > 0) { anyInside = true; break; }
+                        if (!anyInside) return true;
+                    }
+                }
+                h = hNext[h];
+            } while (h != h0);
+            return false;
+        }
+
+        readonly List<Vector2d> clipA = new List<Vector2d>(), clipB = new List<Vector2d>();
+
+        /// <summary>
+        /// true if the plane q is clearly higher than the label's plane everywhere on f ∩ r, so that no part of f is carved: the approximate polygon f clipped to
+        /// the edges of r, each pushed outwards by the error margin (a superset of the true overlap), and the heights at its corners (linear, so the minimum
+        /// is at a corner) against the margin of classify. A sliver of the true overlap is inside the expanded polygon, so it is never skipped wrongly.
+        /// </summary>
+        bool higher_on_overlap(List<Vector2d> rpos, List<Vector2d> fpos, int q, int label)
+        {
+            double scale = 0, ext = 0;
+            foreach (var c in rpos) scale = Math.Max(scale, Math.Abs(c.x) + Math.Abs(c.y));
+            foreach (var c in fpos) { scale = Math.Max(scale, Math.Abs(c.x) + Math.Abs(c.y)); ext = Math.Max(ext, Math.Abs(c.x - fpos[0].x) + Math.Abs(c.y - fpos[0].y)); }
+            var cur = clipA; cur.Clear(); cur.AddRange(fpos);
+            var nxt = clipB;
+            for (int i = 0; i < rpos.Count && cur.Count > 0; ++i) {
+                Vector2d p = rpos[i], qq = rpos[(i + 1) % rpos.Count];
+                double ex = qq.x - p.x, ey = qq.y - p.y, len = Math.Abs(ex) + Math.Abs(ey);
+                if (len == 0) continue;
+                double tol = 1e-10 * scale * (len + ext + Math.Abs(p.x - fpos[0].x) + Math.Abs(p.y - fpos[0].y));
+                nxt.Clear();
+                for (int j = 0; j < cur.Count; ++j) {
+                    Vector2d a = cur[j], b = cur[(j + 1) % cur.Count];
+                    double sa = ex * (a.y - p.y) - ey * (a.x - p.x) + tol, sb = ex * (b.y - p.y) - ey * (b.x - p.x) + tol;
+                    if (sa >= 0) nxt.Add(a);
+                    if ((sa > 0 && sb < 0) || (sa < 0 && sb > 0)) nxt.Add(a + (sa / (sa - sb)) * (b - a));
+                }
+                var tmp = cur; cur = nxt; nxt = tmp;
+            }
+            if (cur.Count == 0) return true;
+            double minD = double.MaxValue, sc = 0, span = 0;
+            foreach (var c in cur) {
+                double hp = K.ApproxHeight(q, c.x, c.y), hl = K.ApproxHeight(label, c.x, c.y);
+                minD = Math.Min(minD, hp - hl);
+                sc = Math.Max(sc, Math.Max(Math.Abs(hp), Math.Abs(hl)));
+                span = Math.Max(span, Math.Abs(c.x) + Math.Abs(c.y));
+            }
+            return minD > (1e-9 * sc + 3e-10 * span + 1e-12);
         }
 
         // all corners of b strictly outside one edge of the counter-clockwise convex polygon a, by a margin
@@ -715,7 +785,7 @@ namespace gs
                 scale = Math.Max(scale, Math.Max(Math.Abs(hp), Math.Abs(hl)));
                 span = Math.Max(span, Math.Abs(q.x) + Math.Abs(q.y));
             }
-            double tol = 1e-7 * (scale + span + 1);
+            double tol = (1e-9 * scale + 3e-10 * span + 1e-12);
             if (minD > tol) return 1;
             if (maxD < -tol) return -1;
             return 0;

@@ -1176,7 +1176,6 @@ namespace gs
                     return a;
                 };
                 map = solve(0, pieces.Count);
-                Console.Error.WriteLine($"DC merges {DcMerges} carves {DcCarves} liveSum {DcLiveSum} liveMax {map.LiveFacesMax} faces {map.FaceCount}");
             } else {
                 int[] order = InsertionOrder != null ? InsertionOrder(pieces.Count) : shuffled(pieces.Count, InsertionSeed);
                 foreach (int k in order) {
