@@ -141,6 +141,18 @@ namespace geometry3Sharp.Tests
             Assert.False(off.ResultReason == "" && Vertices(tiny).IsSubsetOf(Vertices(off.Mesh)));
         }
 
+        // a clean tetrahedron 1e3 away from two overlapping spheres: the repaired spheres and the tetrahedron are not clean by the degenerate area of all triangles
+        // (NotCleanReason), which the whole repair meets by its own cleanups: that result is used, Apply() stays true
+        [Fact]
+        public void UnionNotCleanByTheGlobalArea_WholeRepairDecides()
+        {
+            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e3));
+            Assert.True(r.Apply());
+            Assert.True(r.PassThroughFellBack);
+            Assert.Equal(0, r.PassedThroughTriangles);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
         // 2^k scaling and the similarities: the same result up to the scale
         [Fact]
         public void ShiftSweep_SameResult()

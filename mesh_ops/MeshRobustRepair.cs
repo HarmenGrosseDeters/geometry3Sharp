@@ -414,7 +414,8 @@ namespace gs
         /// Stage 0 of the part handling (docs/design/ROBUST_REPAIR_SCALE_FREE.md, option B), on by default: a closed component of the input that is clean on its own
         /// (NotCleanReason of the component alone) and whose bounding box meets the box of no other component is passed through untouched, and only
         /// the other components go through the repair stages (at most 64 components; the result is the union). Where the repair result of the others
-        /// reaches the box of a passed part, the input is repaired as a whole. Off: the whole input goes through the stages, as before.
+        /// reaches the box of a passed part, or the union is not clean by NotCleanReason (a part far away makes its degenerate area too large), the input is repaired as a whole
+        /// (then, if that fails, the union is returned with ScaleDisparity). Off: the whole input goes through the stages, as before.
         /// </summary>
         public bool PassThroughCleanParts = true;
         /// <summary> triangles of the clean parts the last Apply() passed through untouched (PassThroughCleanParts; 0 if none) </summary>
@@ -471,11 +472,25 @@ namespace gs
                 PassedThroughTriangles = passedTriangles;
                 if (ok) {
                     // the union is judged as a whole: the degenerate area of NotCleanReason is relative to all triangles, which a part far
-                    // away from the rest can make too large (then the parts are unchanged, but the result is not clean by that criterion)
-                    string reason = NotCleanReason(Mesh, CheckSelfIntersections);
-                    if (reason != "" && ResultReason == "") {
+                    // away from the rest can make too large (the parts are unchanged, but the union is not clean by that criterion). Then the
+                    // input is repaired as a whole as before; only if that fails too, the union is returned, reported as ScaleDisparity
+                    if (ResultReason == "" && NotCleanReason(Mesh, CheckSelfIntersections) != "") {
+                        DMesh3 union = Mesh;
+                        Mesh = original;
+                        reset_outputs();
+                        passThroughOff = true;
+                        PassThroughFellBack = true;
+                        bool wholeOk;
+                        try { wholeOk = apply_checked_whole(); } finally { passThroughOff = false; }
+                        if (wholeOk) {
+                            PassedThroughTriangles = 0;
+                            return true;
+                        }
+                        reset_outputs();
+                        Mesh = union;
+                        PassedThroughTriangles = passedTriangles;
                         ResultReason = ScaleDisparity;
-                        ok = false;
+                        return false;
                     }
                 }
             }
