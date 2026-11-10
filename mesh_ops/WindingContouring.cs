@@ -732,8 +732,7 @@ namespace gs
         }
 
         /// <summary>
-        /// FillSmallHoles, then an exact check of the triangles it added or changed (or whose vertices it moved)
-        /// against the whole mesh: returns the number of intersecting pairs that involve one of them (0: the fill
+        /// FillSmallHoles, then an exact check of the triangles it added or changed against the whole mesh: returns the number of intersecting pairs that involve one of them (0: the fill
         /// added none). The bowties along the hole borders are split first, so the split itself, which leaves
         /// coincident vertices but adds no triangle, is not counted.
         /// </summary>
@@ -743,19 +742,12 @@ namespace gs
             var before = new Dictionary<int, Index3i>();
             foreach (int t in mesh.TriangleIndices())
                 before[t] = mesh.GetTriangle(t);
-            var positions = new Dictionary<int, Vector3d>();
-            foreach (int v in mesh.VertexIndices())
-                positions[v] = mesh.GetVertex(v);
             FillSmallHoles(mesh);
             var changed = new HashSet<int>();
             foreach (int t in mesh.TriangleIndices()) {
-                Index3i old, cur = mesh.GetTriangle(t);
-                bool moved = false;
-                for (int j = 0; j < 3; ++j) {
-                    Vector3d p;
-                    if (positions.TryGetValue(cur[j], out p) == false || p != mesh.GetVertex(cur[j])) moved = true;
-                }
-                if (moved || before.TryGetValue(t, out old) == false || old != cur)
+                Index3i old;
+                // (the fillers only add triangles; an existing one whose vertices changed is checked as well)
+                if (before.TryGetValue(t, out old) == false || old != mesh.GetTriangle(t))
                     changed.Add(t);
             }
             if (changed.Count == 0)

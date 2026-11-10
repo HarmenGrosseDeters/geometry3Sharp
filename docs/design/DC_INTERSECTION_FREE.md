@@ -219,7 +219,7 @@ against the whole mesh; after a repair move, the triangles around the moved vert
 every triangle that is not checked is covered at its current position. `SelfIntersectionFree` keeps its meaning.
 
 `WindingContouring` checks the hole fill exactly (`FinishHoles` / `FillSmallHolesChecked`: the bowties along the
-hole borders are split first, then the triangles the fill added or changed, or whose vertices it moved, are checked
+hole borders are split first, then the triangles the fill added or changed are checked
 against the whole mesh; `HoleFillIntersections`), and its `SelfIntersectionFree` is true only if the fill added none
 (holes the fill could not close may remain). Not in this PR: the non-adaptive call in `MeshWindingNumberSolidify`
 still calls the unchecked `FillSmallHoles` (its `knownFree` stays false there, so nothing is reported wrongly), and
