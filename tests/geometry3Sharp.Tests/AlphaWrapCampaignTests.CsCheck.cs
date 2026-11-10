@@ -153,7 +153,8 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = s.Wrap();
             if (!w.Compute())
                 return "Compute failed: " + w.Status + " " + w.Error;
-            try { AlphaWrapTests.CheckWrap(w, Samples(w)); }
+            // (without RefineNonManifold the manifold step can reach up to 8.8 (offset + alpha) from the input: class comment of MeshAlphaWrap)
+            try { AlphaWrapTests.CheckWrap(w, Samples(w), true, s.Refine ? 2 : 9 * (1 + 1.0 / s.RelOffset * s.RelAlpha)); }
             catch (Xunit.Sdk.XunitException e) { return "guarantee: " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
             catch (Exception e) { return "exception in the check: " + e.GetType().Name + " " + e.Message.Split('\n')[0] + " at " + FirstFrame(e); }
             DMesh3 first = w.Result;

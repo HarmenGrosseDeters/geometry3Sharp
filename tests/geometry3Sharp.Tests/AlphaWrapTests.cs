@@ -317,7 +317,7 @@ namespace geometry3Sharp.Tests
         /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
         /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
-        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
+        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true, double bandFactor = 2)
         {
             if (expectSuccess)
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
@@ -347,7 +347,7 @@ namespace geometry3Sharp.Tests
                     double u = rnd.NextDouble(), v = rnd.NextDouble();
                     if (u + v > 1) { u = 1 - u; v = 1 - v; }
                     double d = oracle(a + u * (b - a) + v * (c - a));
-                    Assert.True(d > 0 && d <= off + 2 * alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
+                    Assert.True(d > 0 && d <= off + bandFactor * alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
                 }
             }
             // the input is enclosed
