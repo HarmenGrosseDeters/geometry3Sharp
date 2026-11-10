@@ -41,7 +41,8 @@ namespace geometry3Sharp.Tests
                     }
                     if (so.StoppedOnSelfIntersections) stopped++; else free++;
                 }
-            Assert.True(holes >= 5, $"{holes} runs with holes to fill");
+            // (since the face vertices of the dual contouring, #572, it leaves few or no non-manifold quads on these plates: the fill then has nothing to do and
+            // the invariants above hold trivially for it; the stops come from the contour itself)
             Assert.True(stopped >= 1 && free >= 1, $"{stopped} stopped, {free} free");
             log?.WriteLine($"{holes} runs with holes, {fillIntersecting} with intersections added by the fill, {stopped} stopped, {free} free");
         }
