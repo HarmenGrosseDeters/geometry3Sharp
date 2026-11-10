@@ -198,6 +198,84 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SmallSeparateObject_IsNotABubble_StatusSaysSo()
+        {
+            // a unit sphere and a small sphere (300 points, radius 0.15) far from it: the small one would be removed as a bubble,
+            // but it holds data
+            var big = PointClouds.Sphere(2500, 5, 1.0, out _);
+            var small = PointClouds.Sphere(300, 6, 0.15, out _).Select(p => p + new Vector3d(3, 0, 0));
+            var pts = big.Concat(small).ToList();
+            var surface = new PointCloudSurface(pts) { CubeSize = 0.1 };
+            Assert.False(surface.Compute());
+            Assert.Equal(PointCloudSurface.SurfaceStatus.DataDropped, surface.Status);
+            Assert.True(surface.ComponentsRemoved >= 1);
+            Assert.True(surface.UncoveredFraction > 0.05, $"{surface.UncoveredFraction:P1}");
+            Assert.NotNull(surface.Result);
+            // the caller may accept it
+            var accepted = new PointCloudSurface(pts) { CubeSize = 0.1, MaxUncoveredFraction = 1 };
+            Assert.True(accepted.Compute(), accepted.Status + accepted.Error);
+            // and a cloud that is covered reports 0
+            var whole = new PointCloudSurface(PointClouds.Torus(1600, 5, out _, 0.0)) { CubeSize = 0.2 };
+            Assert.True(whole.Compute());
+            Assert.True(whole.UncoveredFraction < 0.01);
+        }
+
+        [Fact]
+        public void InvalidOptions_AreReported_AndNothingStaleRemains()
+        {
+            var pts = PointClouds.Torus(1600, 5, out _, 0.0);
+            var surface = new PointCloudSurface(pts) { CubeSize = 0.2 };
+            Assert.True(surface.Compute());
+            foreach (Action<PointCloudSurface> bad in new Action<PointCloudSurface>[] {
+                x => x.HoleFactor = double.NaN, x => x.HoleFactor = 0, x => x.MinComponentAreaFraction = 2, x => x.MinComponentAreaFraction = double.NaN,
+                x => x.CubeSize = -1, x => x.CubeSize = double.PositiveInfinity, x => x.MaxGridNodes = 0 }) {
+                var s2 = new PointCloudSurface(pts) { CubeSize = 0.2 };
+                bad(s2);
+                Assert.False(s2.Compute());
+                Assert.Equal(PointCloudSurface.SurfaceStatus.InvalidOptions, s2.Status);
+                Assert.Null(s2.Result);
+            }
+            surface.HoleFactor = double.NaN;
+            Assert.False(surface.Compute());
+            Assert.Equal(PointCloudSurface.SurfaceStatus.InvalidOptions, surface.Status);
+            Assert.Null(surface.Result);
+        }
+
+        [Fact]
+        public void CubeLargerThanTheObject_IsEmptyResult()
+        {
+            var surface = new PointCloudSurface(PointClouds.Torus(1600, 5, out _, 0.0)) { CubeSize = 100 };
+            Assert.False(surface.Compute());
+            Assert.Equal(PointCloudSurface.SurfaceStatus.EmptyResult, surface.Status);
+        }
+
+        [Fact]
+        public void NegativeZero_IsTheSamePointAsZero()
+        {
+            var pts = PointClouds.Torus(1600, 5, out _, 0.0);
+            pts[10] = new Vector3d(pts[10].x, 0.0, pts[10].z);
+            var single = new PointCloudSurface(pts) { CubeSize = 0.2 };
+            Assert.True(single.Compute());
+            var withCopy = pts.ToList();
+            withCopy.Add(new Vector3d(pts[10].x, -0.0, pts[10].z));
+            var twice = new PointCloudSurface(withCopy) { CubeSize = 0.2 };
+            Assert.True(twice.Compute(), twice.Status + twice.Error);
+            AssertSameMesh(single.Result, twice.Result);
+        }
+
+        [Fact]
+        public void FarFromTheOrigin_TheNodesAreStillRemembered()
+        {
+            // the lattice test of the node memory is relative to the rounding of the coordinates: a UTM offset must not switch it off
+            var pts = PointClouds.Torus(1600, 5, out _, 0.0);
+            var near = new PointCloudSurface(pts) { CubeSize = 0.2 };
+            Assert.True(near.Compute());
+            var far = new PointCloudSurface(pts.Select(p => p + new Vector3d(5712043.5, 5712043.5, 0)).ToList()) { CubeSize = 0.2 };
+            Assert.True(far.Compute(), far.Status + far.Error);
+            Assert.True(far.BandNodes < 1.1 * near.BandNodes, $"{far.BandNodes} evaluations against {near.BandNodes}");
+        }
+
+        [Fact]
         public void DuplicatedPoints_GiveTheSurfaceOfTheUniquePoints()
         {
             var pts = PointClouds.Torus(1600, 5, out _, 0.0);

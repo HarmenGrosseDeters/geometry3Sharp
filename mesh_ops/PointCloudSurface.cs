@@ -21,8 +21,9 @@ namespace gs
     ///
     /// The result is cleaned of small closed components (bubbles of the winding number field of noisy data): components with less
     /// than MinComponentAreaFraction of the area of the largest are removed, and the number removed and their share of the area are
-    /// reported (ComponentsRemoved, RemovedAreaFraction). Nothing is removed silently. The Status is Success only for a
-    /// single closed, manifold component.
+    /// reported (ComponentsRemoved, RemovedAreaFraction). Nothing is removed silently, and a removal must not take data with it: if more
+    /// than MaxUncoveredFraction of the points are then farther than CoverFactor local spacings from the result (a small separate object
+    /// is not a bubble), the status is DataDropped. The Status is Success only for a single closed, manifold component that covers the data.
     ///
     /// Limits: the surface follows the data to about CubeSize; sharp features are rounded; the normals are only as good as
     /// PointCloudNormals (an open sheet or thin walls have no orientation, the status says so); the cost is that of the grid
@@ -41,7 +42,11 @@ namespace gs
             /// <summary> the result is not a single closed manifold component (see Error); Result is set for diagnostics </summary>
             NotClean = 3,
             /// <summary> the grid would have more nodes than MaxGridNodes </summary>
-            GridTooLarge = 4
+            GridTooLarge = 4,
+            /// <summary> more than MaxUncoveredFraction of the points are farther than CoverFactor local spacings from the result: a part of the input is not in it (a small separate object was removed as a bubble, or the field lost a part); Result is set </summary>
+            DataDropped = 5,
+            /// <summary> an option is out of range (see Error) </summary>
+            InvalidOptions = 6
         }
 
         public IList<Vector3d> Points;
@@ -57,8 +62,14 @@ namespace gs
         public double HoleFactor = 1.5;
         /// <summary> components with less than this fraction of the area of the largest are removed (and reported) </summary>
         public double MinComponentAreaFraction = 0.05;
-        /// <summary> stop (GridTooLarge) if the grid has more nodes </summary>
-        public long MaxGridNodes = 60000000;
+        /// <summary>
+        /// stop (GridTooLarge) if the grid has more nodes. The winding number of a node near the data is remembered (about 50 bytes), so
+        /// the memory is about 50 bytes times the nodes in the band (40-70 % of the grid for a thin object): 20 million nodes need about 1 GB
+        /// </summary>
+        public long MaxGridNodes = 20000000;
+        /// <summary> Success needs at most this fraction of the points farther than CoverFactor local spacings from the result (else DataDropped) </summary>
+        public double MaxUncoveredFraction = 0.01;
+        public double CoverFactor = 4;
         /// <summary> options of the normals stage (0: chosen by it) </summary>
         public double Alpha = 0, Offset = 0;
         public bool Parallel = true;
@@ -70,9 +81,11 @@ namespace gs
         /// <summary> the normals stage with its results (Normals, Confident, Wrap, Spacing, ...) </summary>
         public PointCloudNormals NormalsStage;
         public double Spacing, UsedCubeSize;
-        public int GridNodes;
-        /// <summary> nodes where the winding number was evaluated (the narrow band), of GridNodes </summary>
+        public long GridNodes;
+        /// <summary> evaluations of the winding number (the narrow band; marching cubes asks for a node up to 4 times, the evaluations are remembered). Approximate: two threads may evaluate the same node, so it differs a little from run to run (the mesh does not) </summary>
         public long BandNodes;
+        /// <summary> the fraction of the points farther than CoverFactor local spacings from the result </summary>
+        public double UncoveredFraction;
         public int ComponentsRemoved;
         /// <summary> removed area as a fraction of the area before the cleanup </summary>
         public double RemovedAreaFraction;
@@ -92,6 +105,14 @@ namespace gs
             ComponentsRemoved = 0; RemovedAreaFraction = 0; WrapAreaFraction = 0; Error = "";
             PhaseMilliseconds = new Dictionary<string, long>();
             var timer = System.Diagnostics.Stopwatch.StartNew();
+            UncoveredFraction = 0;
+            Status = SurfaceStatus.NotClean;          // (an exception leaves a status that is not Success)
+            if (!(HoleFactor > 0) || double.IsInfinity(HoleFactor) || !(MinComponentAreaFraction >= 0 && MinComponentAreaFraction <= 1)
+                || !(CubeSize >= 0) || double.IsInfinity(CubeSize) || !(MaxGridNodes > 0) || !(MaxUncoveredFraction >= 0) || !(CoverFactor > 0)) {
+                Status = SurfaceStatus.InvalidOptions;
+                Error = "HoleFactor must be positive, MinComponentAreaFraction in [0, 1], CubeSize finite and not negative, MaxGridNodes positive";
+                return false;
+            }
 
             NormalsStage = new PointCloudNormals(Points) { Alpha = Alpha, Offset = Offset, Parallel = Parallel };
             bool ok = NormalsStage.Compute();
@@ -110,8 +131,9 @@ namespace gs
             var area = new List<double>();
             for (int i = 0; i < n; ++i) {
                 Vector3d p = Points[i];
-                if (seen.ContainsKey(p)) continue;
-                seen[p] = i;
+                Vector3d key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);        // (-0.0 + 0.0 is +0.0: the same point as PointCloudNormals merges)
+                if (seen.ContainsKey(key)) continue;
+                seen[key] = i;
                 ps.AppendVertex(new NewVertexInfo(p, new Vector3f(NormalsStage.Normals[i])));
                 area.Add(NormalsStage.PointArea[i]);
             }
@@ -129,7 +151,7 @@ namespace gs
             UsedCubeSize = CubeSize > 0 ? CubeSize : Spacing / 2.5;
             AxisAlignedBox3d bounds = wrap.CachedBounds;
             bounds.Expand(2 * UsedCubeSize);
-            double cells = (bounds.Width / UsedCubeSize + 1) * (bounds.Height / UsedCubeSize + 1) * (bounds.Depth / UsedCubeSize + 1);
+            double cells = (Math.Floor(bounds.Width / UsedCubeSize) + 2) * (Math.Floor(bounds.Height / UsedCubeSize) + 2) * (Math.Floor(bounds.Depth / UsedCubeSize) + 2);
             if (!(cells <= MaxGridNodes)) {
                 Status = SurfaceStatus.GridTooLarge;
                 Error = "the grid has about " + cells.ToString("0") + " nodes";
@@ -143,21 +165,27 @@ namespace gs
             double ox = bounds.Min.x, oy = bounds.Min.y, oz = bounds.Min.z, cs = UsedCubeSize;
             long nodesX = (long)Math.Floor(bounds.Width / cs) + 3, nodesY = (long)Math.Floor(bounds.Height / cs) + 3;
             var memo = new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
-            Func<Vector3d, double> rawField = null;
+            RawFieldF rawField = null;
             Func<Vector3d, double> field = (p) => {
                 // (the root finder of marching cubes also asks for points between the nodes: those are not remembered)
                 double fx = (p.x - ox) / cs, fy = (p.y - oy) / cs, fz = (p.z - oz) / cs;
                 double rx = Math.Round(fx), ry = Math.Round(fy), rz = Math.Round(fz);
-                if (Math.Abs(fx - rx) > 1e-9 || Math.Abs(fy - ry) > 1e-9 || Math.Abs(fz - rz) > 1e-9)
-                    return rawField(p);
+                // a lattice node is Min + cs * index, so it is off by the rounding of the coordinate only; the points of the root finder
+                // are at least 1e-5 of an edge away from a node
+                double tx = Math.Min(1e-6, 1e-9 + 8 * 2.3e-16 * Math.Max(Math.Abs(p.x), Math.Abs(ox)) / cs);
+                double ty = Math.Min(1e-6, 1e-9 + 8 * 2.3e-16 * Math.Max(Math.Abs(p.y), Math.Abs(oy)) / cs);
+                double tz = Math.Min(1e-6, 1e-9 + 8 * 2.3e-16 * Math.Max(Math.Abs(p.z), Math.Abs(oz)) / cs);
+                if (Math.Abs(fx - rx) > tx || Math.Abs(fy - ry) > ty || Math.Abs(fz - rz) > tz)
+                    return rawField(p, out bool offLattice);
                 long key = ((long)rz * nodesY + (long)ry) * nodesX + (long)rx;
                 double v;
                 if (memo.TryGetValue(key, out v)) return v;
-                v = rawField(p);
-                memo[key] = v;
+                v = rawField(p, out bool inBand);
+                if (inBand) memo[key] = v;           // (a wrap-only node is cheap: not worth the memory)
                 return v;
             };
-            rawField = (p) => {
+            rawField = (Vector3d p, out bool inBand) => {
+                inBand = false;
                 int j = pointTree.FindNearestPoint(p);
                 double s = pointSpacing[j];
                 double d = ps.GetVertex(j).Distance(p);
@@ -171,6 +199,7 @@ namespace gs
                     wrapField = wrapTree.IsInside(p) ? -dist : dist;
                     if (mask >= 1) return wrapField;
                 }
+                inBand = true;
                 System.Threading.Interlocked.Increment(ref band);
                 double w = pointTree.FastWindingNumber(p);
                 double windField = (0.5 - w) * s;
@@ -182,7 +211,7 @@ namespace gs
                 RootMode = MarchingCubes.RootfindingModes.LerpSteps, ParallelCompute = Parallel
             };
             mc.Generate();
-            GridNodes = mc.CellDimensions.x * mc.CellDimensions.y * mc.CellDimensions.z;
+            GridNodes = (long)mc.CellDimensions.x * mc.CellDimensions.y * mc.CellDimensions.z;
             BandNodes = band;
             PhaseMilliseconds["grid"] = timer.ElapsedMilliseconds; timer.Restart();
             DMesh3 mesh = mc.Mesh;
@@ -218,6 +247,15 @@ namespace gs
             WrapAreaFraction = all > 0 ? wrapArea / all : 0;
 
             PhaseMilliseconds["cleanup"] = timer.ElapsedMilliseconds;
+            // every point should be near the result: a component removed as a bubble that holds data (a small separate object) is not a bubble
+            var resultTree = new DMeshAABBTree3(mesh, true);
+            int uncovered = 0;
+            for (int i = 0; i < m; ++i) {
+                double sqr;
+                int tid = resultTree.FindNearestTriangle(ps.GetVertex(i), out sqr);
+                if (tid == DMesh3.InvalidID || Math.Sqrt(sqr) > CoverFactor * pointSpacing[i]) uncovered++;
+            }
+            UncoveredFraction = (double)uncovered / m;
             string reason = "";
             if (!mesh.IsClosed()) reason = "not closed";
             else if (mesh.Vertices().Any(v => !v.IsFinite)) reason = "non-finite vertices";
@@ -230,9 +268,17 @@ namespace gs
             if (reason != "") {
                 Status = SurfaceStatus.NotClean; Error = reason; return false;
             }
+            if (UncoveredFraction > MaxUncoveredFraction) {
+                Status = SurfaceStatus.DataDropped;
+                Error = (100 * UncoveredFraction).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " % of the points are farther than "
+                    + CoverFactor + " local spacings from the result (" + ComponentsRemoved + " components removed)";
+                return false;
+            }
             Status = SurfaceStatus.Success;
             return true;
         }
+
+        delegate double RawFieldF(Vector3d p, out bool inBand);
 
         static double Smooth(double t)
         {
