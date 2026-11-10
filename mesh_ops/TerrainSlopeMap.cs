@@ -30,6 +30,7 @@ namespace gs
         // barriers: the toe segments in order (barrier id = piece index), then the lateral rays
         readonly List<int> barToe = new List<int>(), barSeg = new List<int>(), barDomainSign = new List<int>();
         int toeBarriers;
+        AxisAlignedBox2d domainBox;
         // plane -> piece (-1: the cap)
         readonly Dictionary<int, int> owner = new Dictionary<int, int>();
 
@@ -246,6 +247,7 @@ namespace gs
                 int o = new_half_edge(kv[b], -1, hLine[e.Value]);
                 hTwin[e.Value] = o; hTwin[o] = e.Value;
             }
+            domainBox = box;
             qt = new LooseQuadtree2d(new AxisAlignedBox2d[] { box }, false);
             qt.Remove(0);
             qtFace.Add(-1);
@@ -526,7 +528,7 @@ namespace gs
             return o1 * o2 <= 0 && o3 * o4 <= 0;
         }
 
-        void insert_into(int f, int label, List<int> planes)
+        void insert_into(int f, int label, List<int> planes, List<(int line, int flip)> region = null)
         {
             // W = f ∩ {P_j < label for all j}, clipped virtually first, so that f is only split if W is not empty
             // (the corners and the lines of the edges from them, walked in place into lists of the right size)
@@ -537,27 +539,36 @@ namespace gs
             { int h0 = fEdge[f], h = h0; do { verts.Add(hOrig[h]); elines.Add(hLine[h]); h = hNext[h]; } while (h != h0); }
             // (a plane the same as the label's, a line that is zero everywhere: F_k equals the label where it is the
             // maximum; the lower plane id wins the tie, so that the labels do not depend on the order of the pieces)
-            var applied = new List<int>();
+            var applied = new List<(int line, int flip)>();
             int tied = int.MaxValue;
+            // (the region of a face of another map, divide and conquer: the half-planes of its edges, kept where flip * side is not positive)
+            if (region != null)
+                foreach (var rc in region) {
+                    int rr = clip(ref verts, ref elines, rc.line, rc.flip);
+                    if (rr < 0) return;
+                    if (rr == 0) continue;
+                    applied.Add(rc);
+                }
             foreach (int p in planes) {
                 int line = K.PlaneLine(p, label);
                 int r = clip(ref verts, ref elines, line);
                 if (r < 0)
                     return;     // empty
                 if (r == 0) { tied = Math.Min(tied, p); continue; }
-                applied.Add(line);
+                applied.Add((line, 1));
             }
             if (tied < int.MaxValue && tied > label)
                 return;
             // replay the lines that bound W, in order
             var bounding = new HashSet<int>(elines);
             int cur = f;
-            foreach (int line in applied) {
-                if (bounding.Contains(line) == false) continue;
+            foreach (var ap in applied) {
+                if (bounding.Contains(ap.line) == false) continue;
                 int neg, pos, chord;
-                split_face(cur, line, out neg, out pos, out chord);
-                if (neg < 0) throw new InvalidOperationException("SlopeMap: replay");
-                cur = neg;
+                split_face(cur, ap.line, out neg, out pos, out chord);
+                int keep = ap.flip > 0 ? neg : pos;
+                if (keep < 0) throw new InvalidOperationException("SlopeMap: replay");
+                cur = keep;
             }
             // W gets the maximum of the planes (incremental: the parts where the next plane is higher)
             var parts = new List<int>() { cur };
@@ -582,6 +593,187 @@ namespace gs
             }
         }
 
+        // ---------------------------------------------------------------- divide and conquer (prototype)
+
+        /// <summary> a copy of the map (the kernel is shared) </summary>
+        public SlopeMap Clone()
+        {
+            var m = new SlopeMap(K);
+            m.hOrig.AddRange(hOrig); m.hTwin.AddRange(hTwin); m.hNext.AddRange(hNext); m.hPrev.AddRange(hPrev); m.hFace.AddRange(hFace);
+            m.hLine.AddRange(hLine); m.hBar.AddRange(hBar); m.hBarSide.AddRange(hBarSide); m.hAlive.AddRange(hAlive);
+            m.fEdge.AddRange(fEdge); m.fLabel.AddRange(fLabel); m.fDomain.AddRange(fDomain); m.fAlive.AddRange(fAlive); m.fBox.AddRange(fBox);
+            for (int f = 0; f < fEdge.Count; ++f) m.fQt.Add(-1);
+            m.barToe.AddRange(barToe); m.barSeg.AddRange(barSeg); m.barDomainSign.AddRange(barDomainSign);
+            m.toeBarriers = toeBarriers; m.RayCount = RayCount; m.domainBox = domainBox;
+            foreach (var kv in owner) m.owner[kv.Key] = kv.Value;
+            m.qt = new LooseQuadtree2d(new AxisAlignedBox2d[] { domainBox }, false);
+            m.qt.Remove(0);
+            m.qtFace.Add(-1);
+            for (int f = 0; f < fEdge.Count; ++f) if (fAlive[f]) m.qt_set(f, fBox[f]);
+            return m;
+        }
+
+        public int CarveCount, LiveFacesMax;
+
+        /// <summary>
+        /// this &lt;- min(this, other): for every face r of other (label q, not the cap), the part of every face of this that lies in r and where the plane q is
+        /// lower than the label is cut out and relabelled q (the tie rule of insert_into)
+        /// </summary>
+        public void MergeMin(SlopeMap other, int cap)
+        {
+            ordered = null;
+            foreach (var kv in other.owner) owner[kv.Key] = kv.Value;
+            var hits = new List<int>();
+            var region = new List<(int line, int flip)>();
+            for (int r = 0; r < other.fEdge.Count; ++r) {
+                if (other.in_domain(r) == false) continue;
+                int q = other.fLabel[r];
+                if (q == cap || q < 0) continue;
+                // the half-planes of r: for every edge the side its other corners are on
+                region.Clear();
+                var corners = other.cycle(r);
+                bool degenerate = false;
+                foreach (int e in corners) {
+                    int line = other.hLine[e];
+                    if (line < 0) continue;
+                    int sgn = 0;
+                    foreach (int e2 in corners) {
+                        int sd = K.Side(other.hOrig[e2], line);
+                        if (sd != 0) { sgn = sd; break; }
+                    }
+                    if (sgn == 0) { degenerate = true; break; }
+                    region.Add((line, -sgn));
+                }
+                if (degenerate) continue;
+                hits.Clear();
+                qt.QueryRectangle(other.fBox[r], hits);
+                var faces = hits.Select(id => qtFace[id]).Where(f => f >= 0 && fAlive[f] && fDomain[f]).Distinct().OrderBy(f => f).ToList();
+                var rpos = new List<Vector2d>();
+                foreach (int e in corners) rpos.Add(K.Approx(other.hOrig[e]));
+                foreach (int f in faces) {
+                    // (cheap conservative prefilters on the approximate corners, with a wide margin: the polygons are clearly apart, or the plane q is
+                    // clearly higher than the label at every corner of f, so that W is empty; else the exact carve)
+                    var fpos = new List<Vector2d>();
+                    var fcorner = new List<int>();
+                    { int h0 = fEdge[f], h = h0; do { fpos.Add(K.Approx(hOrig[h])); fcorner.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                    if (clearly_apart(rpos, fpos) || clearly_apart(fpos, rpos)) continue;
+                    if (classify(q, fLabel[f], fcorner) > 0) continue;
+                    ++CarveCount;
+                    insert_into(f, fLabel[f], new List<int> { q }, region);
+                }
+            }
+        }
+
+        // all corners of b strictly outside one edge of the counter-clockwise convex polygon a, by a margin
+        static bool clearly_apart(List<Vector2d> a, List<Vector2d> b)
+        {
+            double scale = 0;
+            foreach (var p in a) scale = Math.Max(scale, Math.Abs(p.x) + Math.Abs(p.y));
+            foreach (var p in b) scale = Math.Max(scale, Math.Abs(p.x) + Math.Abs(p.y));
+            for (int i = 0; i < a.Count; ++i) {
+                Vector2d p = a[i], q = a[(i + 1) % a.Count];
+                double ex = q.x - p.x, ey = q.y - p.y, len = Math.Abs(ex) + Math.Abs(ey);
+                bool outside = true;
+                foreach (var c in b) {
+                    // (the positions are within 1e-12 of the coordinates; the product's error is that times (length + distance); a factor 100 on top)
+                    double dist = Math.Abs(c.x - p.x) + Math.Abs(c.y - p.y);
+                    double tol = 1e-10 * scale * (len + dist);
+                    if (ex * (c.y - p.y) - ey * (c.x - p.x) >= -tol) { outside = false; break; }
+                }
+                if (outside) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// +1 if the plane p is higher than the label's plane at every one of the corners, -1 if lower at every one, 0 if that is not clear: by the
+        /// approximate corners and the interval midpoints of the planes with a wide margin (both planes are linear, so the sign holds on the polygon)
+        /// </summary>
+        int classify(int p, int label, IList<int> corners)
+        {
+            double minD = double.MaxValue, maxD = double.MinValue, scale = 0, span = 0;
+            for (int i = 0; i < corners.Count; ++i) {
+                Vector2d q = K.Approx(corners[i]);
+                double hp = K.ApproxHeight(p, q.x, q.y), hl = K.ApproxHeight(label, q.x, q.y);
+                double d = hp - hl;
+                minD = Math.Min(minD, d); maxD = Math.Max(maxD, d);
+                scale = Math.Max(scale, Math.Max(Math.Abs(hp), Math.Abs(hl)));
+                span = Math.Max(span, Math.Abs(q.x) + Math.Abs(q.y));
+            }
+            double tol = 1e-7 * (scale + span + 1);
+            if (minD > tol) return 1;
+            if (maxD < -tol) return -1;
+            return 0;
+        }
+
+        /// <summary> merge neighbours of one label while the union stays convex (all faces); returns the number of live domain faces </summary>
+        public int Compact()
+        {
+            var cand = new List<int>();
+            for (int f = 0; f < fEdge.Count; ++f) if (in_domain(f)) cand.Add(f);
+            foreach (int f in cand) {
+                if (in_domain(f) == false) continue;
+                bool again = true;
+                while (again) {
+                    again = false;
+                    int h0 = fEdge[f], h = h0;
+                    do {
+                        int t = hTwin[h], g = t >= 0 ? hFace[t] : -1;
+                        if (g >= 0 && g != f && hBar[h] < 0 && hBar[t] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; break; }
+                        h = hNext[h];
+                    } while (h != h0);
+                }
+            }
+            int live = 0;
+            for (int f = 0; f < fEdge.Count; ++f) if (in_domain(f)) ++live;
+            LiveFacesMax = Math.Max(LiveFacesMax, live);
+            return live;
+        }
+
+        // p -> u -> x does not clearly turn left? By the approximate positions with a wide margin (Approx is within 1e-12 of the coordinates: the margin
+        // below is 1e-9 of the products); a straight end on another line counts as a turn: not merging is always safe
+        bool turns_right(int p, int u, int x)
+        {
+            Vector2d P = K.Approx(p), U = K.Approx(u), X = K.Approx(x);
+            double ax = U.x - P.x, ay = U.y - P.y, bx = X.x - U.x, by = X.y - U.y;
+            double cross = ax * by - ay * bx;
+            double scale = Math.Abs(P.x) + Math.Abs(P.y) + Math.Abs(U.x) + Math.Abs(U.y) + Math.Abs(X.x) + Math.Abs(X.y);
+            double tol = 1e-9 * (Math.Abs(ax) + Math.Abs(ay) + Math.Abs(bx) + Math.Abs(by) + 1e-300) * (scale + 1e-300);
+            return cross <= tol;
+        }
+
+        // merge face g into f across the run of their shared edges that contains h (f's half-edge with g behind it)
+        bool try_merge(int f, int g, int h)
+        {
+            int s = h, guard = 0;
+            while (hFace[hTwin[hPrev[s]]] == g && hPrev[s] != h) { s = hPrev[s]; if (++guard > 100000) return false; }
+            int e = s, m = 1;
+            while (hFace[hTwin[hNext[e]]] == g && hNext[e] != s) { e = hNext[e]; ++m; if (m > 100000) return false; }
+            int shared = 0, nf = 0, ng = 0;
+            { int x = fEdge[f]; do { ++nf; if (hFace[hTwin[x]] == g) ++shared; x = hNext[x]; } while (x != fEdge[f]); }
+            { int x = fEdge[g]; do { ++ng; x = hNext[x]; } while (x != fEdge[g]); }
+            if (shared != m || m >= nf || m >= ng) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i)
+                if (hBar[x] >= 0 || hBar[hTwin[x]] >= 0) return false;
+            int ts = hTwin[s], te = hTwin[e];
+            for (int x = s, i = 0; i + 1 < m; x = hNext[x], ++i)
+                if (hNext[hTwin[hNext[x]]] != hTwin[x]) return false;
+            int a = hPrev[s], b = hNext[e], c = hPrev[te], d = hNext[ts];
+            if (on_one_line(a, d) == false && turns_right(hOrig[a], hOrig[s], hOrig[hNext[d]])) return false;
+            if (on_one_line(c, b) == false && turns_right(hOrig[c], hOrig[te], hOrig[hNext[b]])) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
+            hNext[a] = d; hPrev[d] = a; hNext[c] = b; hPrev[b] = c;
+            fEdge[f] = a;
+            int y = a;
+            do { hFace[y] = f; y = hNext[y]; } while (y != a);
+            fAlive[g] = false;
+            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
+            fEdge[g] = -1;
+            if (a != b && c != d && d != b && a != c) { try_remove_vertex(d); try_remove_vertex(b); }
+            qt_update(f);
+            return true;
+        }
+
         bool all_positive(int f, int line)
         {
             bool any = false;
@@ -595,13 +787,13 @@ namespace gs
 
         // keep the part of the polygon where the line is negative or zero: -1 if no corner is negative (nothing is
         // left, or a line zero at every corner, of two planes that are the same, which leaves the polygon as it is: 0)
-        int clip(ref List<int> verts, ref List<int> elines, int line)
+        int clip(ref List<int> verts, ref List<int> elines, int line, int flip = 1)
         {
             int n = verts.Count;
             var s = new int[n];
             bool anyNeg = false, anyPos = false;
             for (int i = 0; i < n; ++i) {
-                s[i] = K.Side(verts[i], line);
+                s[i] = flip * K.Side(verts[i], line);
                 if (s[i] < 0) anyNeg = true; else if (s[i] > 0) anyPos = true;
             }
             if (anyNeg == false) return anyPos ? -1 : 0;

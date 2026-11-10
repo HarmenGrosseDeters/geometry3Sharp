@@ -1156,11 +1156,34 @@ namespace gs
             phase("domain");
             // insert the pieces, in a random order (the expected work of an incremental envelope; the result does not
             // depend on the order: ties go to the lower plane id, and Simplify makes the canonical partition)
-            int[] order = InsertionOrder != null ? InsertionOrder(pieces.Count) : shuffled(pieces.Count, InsertionSeed);
-            foreach (int k in order) {
-                checkCancel();
-                map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
-                    pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+            if (EnvelopeDivideAndConquer) {
+                // the prototype (docs/design/TERRAIN_SLOPE_ENVELOPE_DC.md): envelopes of halves of the pieces, merged by their overlay
+                Func<int, int, SlopeMap> solve = null;
+                solve = (lo, hi) => {
+                    checkCancel();
+                    if (hi - lo == 1) {
+                        SlopeMap leaf = map.Clone();
+                        int k = lo;
+                        leaf.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
+                            pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                        leaf.Compact();
+                        return leaf;
+                    }
+                    int mid = (lo + hi) / 2;
+                    SlopeMap a = solve(lo, mid), b = solve(mid, hi);
+                    a.MergeMin(b, cap);
+                    DcCarves += a.CarveCount; DcLiveSum += a.Compact(); ++DcMerges;
+                    return a;
+                };
+                map = solve(0, pieces.Count);
+                Console.Error.WriteLine($"DC merges {DcMerges} carves {DcCarves} liveSum {DcLiveSum} liveMax {map.LiveFacesMax} faces {map.FaceCount}");
+            } else {
+                int[] order = InsertionOrder != null ? InsertionOrder(pieces.Count) : shuffled(pieces.Count, InsertionSeed);
+                foreach (int k in order) {
+                    checkCancel();
+                    map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
+                        pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                }
             }
 
             phase("insert");
@@ -1222,6 +1245,9 @@ namespace gs
         /// <summary> tests: build the map again for every new toe lowering instead of realizing it again </summary>
         internal bool RebuildForEachLowering;
         /// <summary> tests: the order in which the pieces are inserted (a permutation of 0 .. n-1), instead of the seeded shuffle </summary>
+        /// <summary> prototype (not for merge): build the slope map by divide and conquer over the pieces; the default path is unchanged. G3_ENVELOPE_DC=1 switches it on. </summary>
+        internal bool EnvelopeDivideAndConquer = Environment.GetEnvironmentVariable("G3_ENVELOPE_DC") != null;
+        internal long DcCarves, DcLiveSum; internal int DcMerges;
         internal Func<int, int[]> InsertionOrder;
         internal ulong InsertionSeed = 0x5EED5EEDUL;
         /// <summary> tests: the most rays a build's Simplify cut (reflex corners of the label components) </summary>
