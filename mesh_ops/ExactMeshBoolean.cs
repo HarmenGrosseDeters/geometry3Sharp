@@ -1421,7 +1421,10 @@ namespace g3
         /// approximation. A ray whose opposite direction passes through a boundary segment (the term is undefined) is
         /// replaced by another. A value within the error bound of the sum of a half-integer is returned as that
         /// half-integer (in front of a flat part of an open sheet the value is exactly k + 1/2: the tie of the threshold is
-        /// then decided by its rule, not by the rounding of the sum, so the same with every ray).
+        /// then decided by its rule, not by the rounding of the sum, so the same with every ray). A true value within the
+        /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
+        /// result is not exact; the bound is about 1e-13 except next to a boundary segment (and the centroid on or next to
+        /// one is undecided anyway). The sum uses portable_atan2, so the value is the same bits on every runtime.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
@@ -1467,12 +1470,14 @@ namespace g3
                         degenerate = true;
                         break;
                     }
-                    double theta = 2 * Math.Atan2(num, den);
+                    // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
+                    // next to the edge of the snap below could then be decided differently)
+                    double theta = 2 * portable_atan2(num, den);
                     sum += theta;
                     abs += Math.Abs(theta);
-                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2, plus the
-                    // rounding of atan2 (den > tol or |num| > tol here, so the hypot is above tol)
-                    err += 4 * tol / Math.Sqrt(num * num + den * den) + 1e-15;
+                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2, plus twice
+                    // the error of portable_atan2 (PortableAtan2Error; den > tol or |num| > tol here, so the hypot is above tol)
+                    err += 4 * tol / Math.Sqrt(num * num + den * den) + 2 * PortableAtan2Error;
                 }
                 if (degenerate == false) {
                     // (the recursive summation: at most n u times the sum of the absolute terms)
@@ -1490,6 +1495,41 @@ namespace g3
             // (no usable ray: undecided, which the threshold reads as outside)
             System.Threading.Interlocked.Increment(ref antipodalUndecided);
             return 0.5;
+        }
+
+        // the bound of the absolute error of portable_atan2 (its result is at most pi; measured below 1e-15 against
+        // Math.Atan2, PortableAtan2Tests; taken with a wide margin)
+        internal const double PortableAtan2Error = 4e-15;
+
+        /// <summary>
+        /// atan2(y, x) from +, -, *, / and the square root only (IEEE, correctly rounded; .NET does not contract them to
+        /// FMA), so the same bits on every runtime and platform, unlike Math.Atan2. Reduced to atan(t), t in [0, 1], halved
+        /// twice by atan(t) = 2 atan(t / (1 + sqrt(1 + t^2))) to |v| at most tan(pi / 16) (v^2 below 0.04), then the
+        /// Taylor series to v^25 (the rest below 1e-17 v). atan2(+-0, +-0) is 0; otherwise the signs and quadrants of Math.Atan2.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double portable_atan2(double y, double x)
+        {
+            double ax = Math.Abs(x), ay = Math.Abs(y);
+            if (ax == 0 && ay == 0)
+                return 0;
+            bool swap = ay > ax;
+            double t = swap ? ax / ay : ay / ax;
+            double u = t / (1 + Math.Sqrt(1 + t * t));
+            double v = u / (1 + Math.Sqrt(1 + u * u));
+            double v2 = v * v;
+            // sum over k of (-1)^k v^(2k+1) / (2k+1), k = 0..12, by Horner in v^2
+            double s = 1.0 / 25;
+            s = s * -v2 + 1.0 / 23; s = s * -v2 + 1.0 / 21; s = s * -v2 + 1.0 / 19; s = s * -v2 + 1.0 / 17;
+            s = s * -v2 + 1.0 / 15; s = s * -v2 + 1.0 / 13; s = s * -v2 + 1.0 / 11; s = s * -v2 + 1.0 / 9;
+            s = s * -v2 + 1.0 / 7; s = s * -v2 + 1.0 / 5; s = s * -v2 + 1.0 / 3; s = s * -v2 + 1;
+            double a = 4 * (v * s);
+            if (swap)
+                a = Math.PI / 2 - a;
+            if (x < 0)
+                a = Math.PI - a;
+            // (the sign bit of y, as Math.Atan2: atan2(-0, -1) is -pi)
+            return BitConverter.DoubleToInt64Bits(y) < 0 ? -a : a;
         }
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
