@@ -49,6 +49,11 @@ namespace geometry3Sharp.Tests
     /// 2^-32: float priorities of its edge queue (an area weighted quadric error is about the fourth power of the extent), absolute thresholds of 2.2e-16 in
     /// the quadrics' normals and areas (R14), and the range of the optimal point's arithmetic. Identical under 2^k scaling from 2^-128 to 2^128 since.
     ///
+    /// F6 and F7 (fixed with the working frame of MeshRobustRepair; found by the design note ROBUST_REPAIR_SCALE_FREE.md, 3.3): a unit sphere (rounded to multiples of
+    /// 2^-12) and a part of half size 0.25 at distance 8, scaled by 2^s. F6, a clean second part (a box): the repair stage's result is not clean at s = -102 .. -70 and
+    /// the exact resolve of the input is returned with another vertex order. F7, a small sphere with 8 triangles removed: another hole-fill triangulation for s <= -48
+    /// and s >= 345, and the solidify path at s = -100 .. -70. Both are the same scene in one frame now (RobustRepairFrameTests, shifts -190 .. 380).
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in
