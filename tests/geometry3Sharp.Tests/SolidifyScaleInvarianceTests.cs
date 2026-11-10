@@ -31,7 +31,7 @@ namespace geometry3Sharp.Tests
         static DMesh3 Scaled(DMesh3 m, int shift)
         {
             var c = new DMesh3(m);
-            foreach (int v in c.VertexIndices()) c.SetVertex(v, Math.ScaleB(1.0, shift) * c.GetVertex(v));
+            foreach (int v in c.VertexIndices()) c.SetVertex(v, Math.Pow(2, shift) * c.GetVertex(v));
             return c;
         }
 
@@ -122,7 +122,7 @@ namespace geometry3Sharp.Tests
         [InlineData(1e-30, 0.0)]       // (the expected scale is computed in the test)
         public void UnitScale_CanonicalWindow_IsOneToTwo(double extent, double expectedScale)
         {
-            if (extent == 1e-30) { expectedScale = Math.ScaleB(1.0, -(int)Math.Floor(Math.Log2(extent))); }
+            if (extent == 1e-30) { expectedScale = Math.Pow(2, -Math.Floor(Math.Log(extent, 2))); }
             var m = new DMesh3();
             m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(new Vector3d(extent, 0, 0)), m.AppendVertex(new Vector3d(0, extent / 2, 0)));
             double s = MeshRepairMetrics.unit_scale_for_mesh(m, true, 0, 0);
@@ -170,10 +170,10 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 scene = Scene(0);
             var a = new MeshWindingNumberSolidify(new DMesh3(scene)) { CellSize = 0.05 };
-            var b = new MeshWindingNumberSolidify(Scaled(scene, 40)) { CellSize = Math.ScaleB(0.05, 40) };
+            var b = new MeshWindingNumberSolidify(Scaled(scene, 40)) { CellSize = 0.05 * Math.Pow(2, 40) };
             Assert.True(a.Compute());
             Assert.True(b.Compute());
-            Assert.Equal(a.UsedCellSize, Math.ScaleB(b.UsedCellSize, -40));
+            Assert.Equal(a.UsedCellSize, b.UsedCellSize * Math.Pow(2, -40));
             Assert.Equal("", Invariance.Difference(a.Result, Scaled(b.Result, -40)));
         }
 
