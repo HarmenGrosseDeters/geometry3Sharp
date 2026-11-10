@@ -199,7 +199,57 @@ points (it has `Orient3dLPI` / `TPI`).
 
 ## 5. Fast open-operand classification: batched / dual-tree fast winding (variant B)
 
-[filled from the run below]
+**Baseline.** Since the open-operand fix (branch `claude/open-operand-per-piece`, bfaa0158, on Lévy phase 2 #501) an
+open operand is classified per representative piece: one `DMeshAABBTree3.FastWindingNumber` query per piece and open
+mesh. On the 21 open models of the Lévy samples it costs 4.34x in total, and classification becomes 81 % of the open
+cohort's time (the Boolean session's A/B, `benchmarks/LevyClassification/results/open_per_piece/`). Variant B (its
+roadmap item): evaluate the far field once per patch or cluster of pieces, the near field per piece.
+
+**Setup.** `prestudy-fwn` (`PrestudyFwn.cs`), built against the library of bfaa0158 (`fwn_job.sh`), 8 open models of the
+cohort: the queries are the double centroids of all arrangement pieces (as the per-piece path), against both open
+meshes. Per mesh: the library's queries (serial, on a fixed subsample of at most 1e5 queries, scaled); a copy of the
+same traversal over the same tree with counters (leaf triangle terms = near, node expansions = far); a dual-tree count
+(target tree over the queries, a pair (target t, source s) far when |c_t − c_s| > β (R_s + r_t), else the smaller
+side is split; near target leaves fall back to the single-query traversal); unit costs of a triangle term (about 80 ns)
+and an order-2 expansion (about 70 ns) from a micro benchmark
+([results/fwn_summary.md](../../benchmarks/Boolean30Prestudy/results/fwn_summary.md)).
+
+| model | queries | library queries, serial s (both meshes) | near terms / query | far terms / query | near share of the work |
+|---|---|---|---|---|---|
+| 100030 | 5.5 k | 0.3 | 279-318 | 40-41 | 0.86-0.87 |
+| 112536 | 117 k | 6.1 | 506-592 | 112-117 | 0.85-0.87 |
+| 112535 | 103 k | 4.1 | 338-347 | 101-114 | 0.80-0.81 |
+| 107554 | 1.01 M | 67 | 477-548 | 149-179 | 0.77-0.78 |
+| 122796 | 639 k | 18 | 101-105 | 168-185 | 0.38-0.41 |
+| 1087141 | 1.57 M | 244 | 1318-1365 | 322-387 | 0.79-0.83 |
+| 1087144 | 1.58 M | 254 | 1325-1368 | 327-379 | 0.79-0.82 |
+| 113906 | 756 k | 368 | 2604-3045 | 826-926 | 0.77-0.78 |
+
+**Upper bound.** A batched or dual-tree scheme can share the far field and the traversal, not the near field (each
+query point has its own exact triangle terms). With free multipole-to-local translations it saves at most the far share:
+22 % of the per-piece query work weighted by time (13-23 % per model, about 60 % on 122796, the only far-dominated
+one). The query work is about all of the per-piece classification (113906: 368 s serial, about 93 s per op on 4
+cores, against a classification of 94 s per op in the A/B), so B gains at most about 18 % of the open cohort's time.
+A real dual tree with the pair criterion does worse than the bound: its near work is 1.1-1.6x that of the single
+queries, because a source node that is far for each point of a cluster but not for the cluster as a whole is opened.
+
+**A cheaper accuracy first (probed and rejected).** β = 1 first, accepted where w is farther than a margin from every
+value at which the thresholded front winding number can flip (0, 1/2, 1: the own-mesh correction moves w by 1/2),
+else β = 2 again: β = 1 cuts the near terms 2-4x, but on all models but the smallest 52-97 % of the queries lie within 0.1 of a flip
+value (the pieces are on or next to the open surfaces), so the cost is 0.59-1.52x today's, and 14-694 accepted queries
+per mesh flip against β = 2 at margin 0.1 (0 only on one mesh of the smallest model; more at 0.05). Not a lever.
+
+**Reading.** The per-piece path is expensive because each query sits on or next to a surface and needs hundreds to
+thousands of exact triangle terms; batching does not touch that. The levers that can reach the 1087xxx / 113906 tail
+change what is evaluated: (C) the exact Antipodal Method (Martens et al. 2026: an exact ray plus a sum over the boundary
+edges, no near field; [LEVY_CLASSIFICATION.md](LEVY_CLASSIFICATION.md) 4.2, owner decision and patent check; its
+cost is O(boundary edges) per query, to be counted on the soups before anything else), or fewer queries (one per input
+triangle where all its pieces provably lie on one side of every open boundary). **Recommendation: do not build B.**
+
+**How others do it.** Barill et al. 2018 (the fast winding numbers we use) evaluate single queries; dual-tree / FMM
+evaluation of winding numbers or solid angles appears for dense query grids (e.g. GWN contouring), where the queries are
+far from the surface; no exact method handles open operands (Zhou 2016, Cherchi 2022, Lévy 2025, EMBER all require
+closed / PWN input; LEVY_CLASSIFICATION_LITERATURE.md).
 
 ## 6. Positioning
 
