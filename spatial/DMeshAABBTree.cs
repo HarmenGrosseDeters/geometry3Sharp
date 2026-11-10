@@ -316,10 +316,9 @@ namespace g3
             if (ray.Direction.IsNormalized == false)
                 throw new Exception("DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized");
 
-            // [RMS] note: using float.MaxValue here because we need to use <= to compare box hit
-            //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
-            //   nearestT to double.MaxValue, then we will test all boxes (!)
-            double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
+            // (no limit is double.MaxValue: a missed box is +infinity (box_ray_intersect_t), so it is skipped by the <=
+            // test; a float.MaxValue limit lost every hit farther than 3.4e38, ie any mesh of that size)
+            double fNearestT = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             int tNearID = DMesh3.InvalidID;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             find_hit_triangle(root_index, ref ray, ref p, ref fNearestT, ref tNearID);
@@ -420,10 +419,8 @@ namespace g3
             if (ray.Direction.IsNormalized == false)
                 throw new Exception("DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized");
 
-            // [RMS] note: using float.MaxValue here because we need to use <= to compare box hit
-            //   to fNearestT, and box hit returns double.MaxValue on no-hit. So, if we set
-            //   nearestT to double.MaxValue, then we will test all boxes (!)
-            double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : float.MaxValue;
+            // (no limit is double.MaxValue, see FindNearestHitTriangle)
+            double fUseMaxDist = (fMaxDist < double.MaxValue) ? fMaxDist : double.MaxValue;
             Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
             int nCount = find_all_hit_triangles(root_index, hitTriangles, ref ray, ref p, fUseMaxDist, false);
             return nCount;
@@ -1109,7 +1106,7 @@ namespace g3
                 throw new Exception("DMeshAABBTree3.IsInside: mesh has been modified since tree construction");
             Ray3d ray = new Ray3d(origin, direction, true);
             Vector3d secondPoint = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
-            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, float.MaxValue, true);
+            return find_all_hit_triangles(root_index, null, ref ray, ref secondPoint, double.MaxValue, true);
         }
 
 
@@ -1768,6 +1765,17 @@ namespace g3
                 // triangle of such a mesh was skipped)
                 bool bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
                     && Math.Abs(centroid.z) <= double.MaxValue);
+                if (bInvalid) {
+                    // (the sum of three finite corners above about 6e307 overflows: a third of each corner first, which
+                    // is not the same double as the sum's third, so only here; before, such triangles were skipped)
+                    Index3i f = mesh.GetTriangle(ti);
+                    Vector3d a = mesh.GetVertex(f.a), b = mesh.GetVertex(f.b), c = mesh.GetVertex(f.c);
+                    double third = 1.0 / 3.0;
+                    centroid = new Vector3d(a.x * third + b.x * third + c.x * third, a.y * third + b.y * third + c.y * third,
+                        a.z * third + b.z * third + c.z * third);
+                    bInvalid = !(Math.Abs(centroid.x) <= double.MaxValue && Math.Abs(centroid.y) <= double.MaxValue
+                        && Math.Abs(centroid.z) <= double.MaxValue);
+                }
                 if (bInvalid == false) {
                     triangles[i] = ti;
                     centers[i] = centroid;
@@ -2465,11 +2473,11 @@ namespace g3
             Vector3d e = box_extents[iBox];
             AxisAlignedBox3d box = new AxisAlignedBox3d(ref c, e.x + box_eps, e.y + box_eps, e.z + box_eps);
 
-            double ray_t = double.MaxValue;
+            double ray_t;
             if (IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out ray_t)) {
                 return ray_t;
             } else {
-                return double.MaxValue;
+                return double.PositiveInfinity;     // (a miss: farther than any limit, double.MaxValue included)
             }
         }
 

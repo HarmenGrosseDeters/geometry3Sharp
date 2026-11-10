@@ -167,9 +167,9 @@ Procedural terrains only (no geodata): a paraboloid pit with benches (breaklines
 
 ## 11. Implemented: `TerrainGridTin` and what the surface guarantee costs
 
-API (additive): `TerrainGridTin { Grid, Epsilon, Breaklines, MaxRounds, CancelF; Compute(); Status, Message, Result (DMesh3), SurfaceError, NodeError, Rounds, BreaklineEdges, LockedCreases, DroppedBreaklineSegments }`,
-`TerrainBreakline(points)`, `TerrainGridTinStatus`, and `TerrainGridTin.ErrorOfTin(grid, tin, out nodeError, out surfaceError)` (the exact scan of any TIN, eg `TerrainGreedyTIN`'s result).
-Differences from the proposal: breaklines take their heights from the grid only (D4 `FromGrid`; `FromInput` is not implemented); the domain is every cell with all four
+API (additive): `TerrainGridTin { Grid, Epsilon, Breaklines, MaxRounds, CancelF; Compute(); Status, Message, Result (DMesh3), SurfaceError, NodeError, BreaklineError, Rounds, BreaklineEdges, LockedCreases, DroppedBreaklineSegments }`,
+`TerrainBreakline(points)`, `TerrainBreakline(points3d, TerrainBreaklineHeights)`, `TerrainGridTinStatus`, and `TerrainGridTin.ErrorOfTin(grid, tin, out nodeError, out surfaceError)` (the exact scan of any TIN, eg `TerrainGreedyTIN`'s result).
+Differences from the proposal: breaklines take their heights from the grid (D4 `FromGrid`, default) or from the input (`FromInput`, a `TerrainBreakline` of `Vector3d` points, below); the domain is every cell with all four
 corners valid: the boundary runs are locked segments and the triangles over cells without data are dropped (a breakline segment must lie in the data over its whole length, else it is dropped); creases of the grid surface (cell diagonals and cell sides) are locked
 where a violation sits on them and all corners are selected (cell sides are needed as soon as breakline vertices lie off the lattice); the error scan runs in parallel, the
 violations are acted on in triangle order.
@@ -192,3 +192,20 @@ would double it).
 
 Cost of the surface guarantee: against a node-only guarantee in the same method +10 % vertices on gentle terrain and +33 % on the cliff terrain (spike, benchmarks/TerrainBenchmark README); against `TerrainGreedyTIN`
 1.6-2.2x the vertices and about 10-20x the time (the time is the constrained Delaunay of every round, 90 %). Decimation (D5) is not part of it.
+
+### 11.1 Gaps closed after the first implementation (owner 2026-11-09)
+
+* **Survey heights (`FromInput`, D4).** A `TerrainBreakline` built from `Vector3d` points with `TerrainBreaklineHeights.FromInput` keeps its z: the vertices of the line
+  (and the points where the loop or the mesher splits it) carry the survey height, linearly interpolated along the segment. The TIN follows the line exactly, so the vertical
+  distance of the line to the grid surface cannot be reduced by refinement. It is therefore **measured, not refined**: the exact scan runs as before, but errors on the
+  edges of a survey line, at its vertices and at the crossings of the edges next to them are collected in `BreaklineError` and excluded from the convergence test. The
+  guarantee stays: status `Ok` means `SurfaceError <= Epsilon` over the whole TIN, survey lines included. If a survey line is further than `Epsilon` from the grid
+  somewhere, the loop still converges everywhere else and the status is `BreaklineHeightDeviates` (the Result is that TIN, `SurfaceError` says what it achieves, `BreaklineError`
+  how far the line is); the caller raises `Epsilon` or uses `FromGrid`. Where `FromInput` lines meet at a vertex (shared input point, or a crossing the mesher splits), the
+  line given first wins its height (spec D11, lowest index), and the other line bends there, which its `BreaklineError` shows.
+* **World coordinates.** The output vertices are `X0 + i CellSize` rounded to a double, which moves a vertex by up to `u (|X0| + 2 extent)` (about 1e-10 at UTM). The margin now adds
+  `2 sqrt(2) D / CellSize` times that move (`D`: the largest height difference of neighbouring nodes), the Lipschitz constant of the grid surface times the move: a point of a moved
+  triangle has the same TIN height and lies that far from the exact one. Measured before the change: a steep UTM terrain had 1.1e-8 world error against a reported 2e-11. An `Epsilon`
+  below twice the margin is rejected as `InvalidInput`.
+* **The crease-conflict guard** (a crease request next to a segment that is split in the same round is retried in the next round) is reachable (random small terrains with crossing
+  breaklines) and not redundant: without it the rounds and counts change. Three cases are pinned by their counts (`CreaseConflicts_AreRetriedInTheNextRound_AndTheGuaranteeHolds`).

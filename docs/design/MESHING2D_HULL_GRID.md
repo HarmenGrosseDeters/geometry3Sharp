@@ -185,6 +185,29 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
 - O-H1 (judging the boundary against the snapped hull as well) and a separate hull envelope (Q-H3) were not needed: with the hull edges
   snap-rounded as segments, the existing segment rules apply.
 
+**Rule O-G, the grid tube (owner decision 2026-11-09, found by the CsCheck campaign of `QualityMesh2`, QA 2.0 T5).** With an explicit snap
+tolerance the output boundary is the input boundary snap-rounded, so it may run off the input's by up to a pixel and enclose a different
+area. The tube there is one pixel already (`Max(AutoTolerance, SnapTolerance)`); what changes is how it is used: the movement is measured on the
+output boundary's links and the check also covers ring domains and the input boundary's side. Computed from the output mesh and the
+input domain alone (not from a snapped domain, which would be the mesher's own claim):
+- **Bound:** `GridTubePixels` = 1 pixel. Basis: the image of a segment under snap rounding lies in the Minkowski sum of the segment with
+  a pixel (Guibas and Marimont 1998), D14's drift is half a pixel per axis, so a vertex or a link of the image is within 1 pixel of the
+  input boundary; iterated rounding (Halperin and Packer 2002) only reroutes links between pixel centres through further hot pixels
+  within that tube. The bound is not proven for iterated rounding; the campaign (20 000 grid and extreme-scale cases) found no boundary
+  vertex beyond it.
+- **Boundary, output to input:** every vertex of the output boundary, and the eighth points of its edges, lie within the tube of the
+  input domain's edges (`BoundaryOutsideTube` otherwise). The largest distance found is the movement `moved2` of the area tolerance
+  (`diff <= 2 perimeter sqrt(moved2)`), so only what really moved grants area; the probes and the sliver test use it as before.
+- **Boundary, input to output:** the eighth points of every input boundary edge lie within the tube of an output boundary edge, or
+  within two tubes of another input edge (also a neighbour at an acute corner; both sides of a feature move by up to a pixel, so one up to two pixels wide may collapse, Q17,
+  and takes its boundary with it).
+- **Not applied** with an effective hole seed (the removed cell is bounded by constraints that the domain's ring edges do not list).
+- **Unchanged:** without a snap tolerance the comparison is exact (tube 2^-40); SegmentMissing, VertexUnused and TrianglesOnDegenerate
+  keep their rules (O-H4, O-H5): a segment or point is excused only where the oracle's own images collapse it. What O-G did not excuse is
+  a finding for the mesher, not a tolerance.
+- **Self-checks:** a hull edge rerouted through a hot pixel (the mesh 3 of the hull's 5) is accepted; the same mesh without a tolerance
+  is rejected as AreaMismatch; a boundary vertex 4 pixels off the hull is rejected as BoundaryOutsideTube.
+
 **Measured** (all runs judged by the oracle):
 
 | | master | built |

@@ -10,7 +10,8 @@ namespace geometry3Sharp.Tests
     /// What the property campaigns of MeshRobustRepair and MeshRoundingRepair (RepairCampaignTests, QA 2.0 T3) found,
     /// pinned with minimal procedural reproductions (each failing seed is a fixed example test, QA.md 2.4).
     ///
-    /// F1 (open, skipped until decided): a clean closed part is lost with Apply() true where the parts lie far apart
+    /// F1 (fixed: the exact resolve of a result that lost a part is retried relative to the largest component, and a part still lost
+    /// makes Apply() false with LostFarPart): a clean closed part is lost with Apply() true where the parts lie far apart
     /// compared to their size, but not as far as the retry of ScaleDisparity covers. A unit box at the origin and a
     /// sphere of radius 8 at distance 2.2e6: by the diagonal of all triangles (2.2e6) the box's triangles are below the
     /// degenerate area of NotCleanReason (1e-12 * diagonal^2 = 4.8), MeshAutoRepair's result is "not clean", the exact
@@ -20,6 +21,11 @@ namespace geometry3Sharp.Tests
     /// Closer (up to 3e5) the box is kept, further (1e7 and more) the retry relative to the largest component runs and
     /// Apply() is false with ScaleDisparity, as documented. The retry (ScaleRetry) is tried only when the exact
     /// resolve fails; here it succeeds.
+    ///
+    /// F1c (open, noted): with parts far apart, the cleanups relative to the diagonal of all triangles can erode a part without
+    /// losing it, with Apply() true: a tetrahedron-sized part at 2e7 from a sphere of radius 4096 comes back with 85 % of its
+    /// volume, a sphere of radius 1.5e-3 next to a box at 1e5 with 70 % (the IoU of the whole stays above 0.99, the part
+    /// is not judged). The loss check of F1 sees only a part with less than half of its samples left.
     ///
     /// F1b (open, noted): with Apply() false and ScaleDisparity the returned mesh can hold a part at a fraction of its
     /// volume (a sphere of radius 2 next to a tetrahedron of size 2^8 at 2^22: volume 29.7 in the input, 1.1 in the mesh).
@@ -70,14 +76,34 @@ namespace geometry3Sharp.Tests
                 Assert.StartsWith("scale disparity", r.ResultReason);
         }
 
-        [Theory(Skip = "F1: the box is lost with Apply() true (see the class comment); decision pending")]
+        // F1, fixed. With the exact resolve the first attempt (from the repair stage, whose cleanups collapse the box) is rejected
+        // for the lost part, and the retry relative to the largest component starts from the input: the box is kept, and the
+        // result is reported as not repaired (ScaleDisparity), as for the farther cases
+        [Theory]
         [InlineData(1e6)]
         [InlineData(2.2e6)]
+        [InlineData(5e6)]
         public void FarSphere_BoxKept_InTheGap(double far)
         {
             var r = new MeshRobustRepair(BoxAndFarSphere(far));
             bool ok = r.Apply();
-            Assert.True(Components(r.Mesh) == 2, $"{Components(r.Mesh)} components, Apply() {ok}, '{r.ResultReason}'");
+            Assert.False(ok);
+            Assert.StartsWith("scale disparity: degenerate triangles", r.ResultReason);
+            Assert.Equal(2, Components(r.Mesh));
+        }
+
+
+        // the final check, reached with the early ones bypassed: the exact resolve of the repair result has collapsed the box and
+        // is accepted, Apply() is false with the reason (the mesh stays in Mesh)
+        [Fact]
+        public void FarSphere_LostBox_FinalCheck_IsNotReportedAsRepaired()
+        {
+            var r = new MeshRobustRepair(BoxAndFarSphere(2.2e6)) { BypassEarlyLostPartChecks = true };
+            bool ok = r.Apply();
+            Assert.True(r.UsedExactResolve);
+            Assert.False(ok);
+            Assert.Equal(MeshRobustRepair.LostFarPart, r.ResultReason);
+            Assert.Equal(1, Components(r.Mesh));
         }
     }
 }
