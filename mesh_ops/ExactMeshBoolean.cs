@@ -24,7 +24,8 @@ namespace g3
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
     /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
-    /// solid where it is above 0.5; then the result is generally not closed, also along edges where an open boundary
+    /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
+    /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
     /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
     /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
@@ -52,6 +53,12 @@ namespace g3
     ///
     /// Cost: exact predicates behind floating-point filters (BigInteger only where the filters cannot decide);
     /// slower than floating-point methods, the phases run in parallel.
+    ///
+    /// Performance of open inputs: an open mesh's generalized winding number is evaluated at every output piece (one
+    /// fast-winding query per piece and open mesh), not once per patch as the exact winding numbers of closed meshes;
+    /// on the open Thingi10K cohort of docs/design/LEVY_CLASSIFICATION.md (21 models, 63 operations) that costs 4.3
+    /// times the total time of the per-patch evaluation (classification 18 times; up to 10 times on single
+    /// operations, about 100 s). Closed inputs are not affected.
     /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
     /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
     /// acceptable and very broken input (triangle soups) must give a closed mesh.
