@@ -1638,7 +1638,7 @@ namespace g3
         // the order of its smallest triangle id, gets a new vertex at the same position (vertexPoint extended): the same
         // result on every run. Splitting the fans at one vertex makes no new bowtie at another. Returns the vertices split
         [MethodImpl(JitHints.Optimize)]
-        static int split_bowties(DMesh3 mesh, List<int> vertexPoint)
+        internal static int split_bowties(DMesh3 mesh, List<int> vertexPoint)
         {
             int split = 0, nv = mesh.MaxVertexID;
             var parent = new Dictionary<int, int>();

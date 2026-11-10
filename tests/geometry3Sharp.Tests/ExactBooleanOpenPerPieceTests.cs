@@ -77,6 +77,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.Result.TriangleCount > 0, $"{op}: empty");
                 AssertPieces(a, b, r, op, op.ToString());
             }
+            // the oracle is not blind: the intersection's pieces are on the wrong side for a union
+            ExactMeshBoolean inter = Run(a, b, Ops.Intersection);
+            Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertPieces(a, b, inter, Ops.Union, "control"));
             // before, the union kept the pieces of both inputs, also those inside the other (7592 triangles for 6726
             // input triangles here), and the intersection was empty
             int all = a.TriangleCount + b.TriangleCount;
@@ -111,6 +114,67 @@ namespace geometry3Sharp.Tests
                 else
                     AssertPieces(sa, sb, r, Ops.Intersection, sim.ToString());
             }
+        }
+
+        [Fact]
+        public void ReusedInstance_OpenThenClosedThenOpen_AsFresh()
+        {
+            // open inputs (per-piece winding, bowtie split), then closed ones (per patch) on the same instance, then the
+            // open ones again: each result as from a fresh instance
+            DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 0.5), ca = Sphere(Vector3d.Zero, 2), cb = Sphere(CenterB, 2);
+            ExactMeshBoolean open = Run(a, b, Ops.Intersection), closed = Run(ca, cb, Ops.Intersection);
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal("", Invariance.Difference(open.Result, op.Result));
+            op.MeshA = new DMesh3(ca);
+            op.MeshB = new DMesh3(cb);
+            Assert.True(op.Compute(), op.Error);
+            Assert.True(op.ExactWindingA && op.ExactWindingB);
+            Assert.Equal("", Invariance.Difference(closed.Result, op.Result));
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(op.Result));
+            op.MeshA = new DMesh3(a);
+            op.MeshB = new DMesh3(b);
+            Assert.True(op.Compute(), op.Error);
+            Assert.False(op.ExactWindingA || op.ExactWindingB);
+            Assert.Equal("", Invariance.Difference(open.Result, op.Result));
+        }
+
+        [Fact]
+        public void SplitBowties_HandBuilt_EachFanItsOwnVertex()
+        {
+            // vertex 0 shared by two closed fans (the apexes of two tetrahedra) and an open fan of two triangles; vertex
+            // 1 is not a bowtie. The fan with the smallest triangle id keeps vertex 0, the others get a copy each, in the
+            // order of their smallest triangle id, at the same position and with the same point id
+            var m = new DMesh3();
+            var o = new Vector3d(0.25, -0.5, 1.5);
+            m.AppendVertex(o);
+            Vector3d[] p = { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(1, 0, 1), new Vector3d(-1, 0, 0), new Vector3d(-1, 0, 1), new Vector3d(-1, 1, 0),
+                new Vector3d(0, -1, 2), new Vector3d(0.5, -1, 2), new Vector3d(1, -1, 2) };
+            foreach (Vector3d q in p)
+                m.AppendVertex(o + q);
+            void tet(int b, int c, int d) { m.AppendTriangle(0, c, b); m.AppendTriangle(0, b, d); m.AppendTriangle(0, d, c); m.AppendTriangle(b, c, d); }
+            tet(1, 2, 3);
+            tet(4, 5, 6);
+            m.AppendTriangle(0, 7, 8);
+            m.AppendTriangle(0, 8, 9);
+            Assert.True(m.IsBowtieVertex(0));
+            var vertexPoint = Enumerable.Range(0, m.MaxVertexID).Select(v => 100 + v).ToList();
+            Assert.Equal(1, ExactMeshBoolean.split_bowties(m, vertexPoint));
+            Assert.Equal(12, m.VertexCount);
+            Assert.Equal(new[] { 100, 100 }, vertexPoint.Skip(10));
+            Assert.Equal(o, m.GetVertex(10));
+            Assert.Equal(o, m.GetVertex(11));
+            Assert.Empty(MeshIterators.BowtieVertices(m));
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
+            // the first tetrahedron (triangles 0-2) keeps vertex 0, the second (4-6) gets 10, the open fan (8, 9) 11
+            int[] owner = { 0, 0, 0, -1, 10, 10, 10, -1, 11, 11 };
+            for (int t = 0; t < owner.Length; ++t)
+                if (owner[t] >= 0)
+                    Assert.True(m.GetTriangle(t).a == owner[t], "triangle " + t);
+            Assert.Equal(new[] { 1, 2, 3 }, m.GetTriangle(3).array.OrderBy(x => x));
+            // nothing to split now
+            Assert.Equal(0, ExactMeshBoolean.split_bowties(m, vertexPoint));
+            Assert.Equal(12, vertexPoint.Count);
         }
 
         [Fact]
