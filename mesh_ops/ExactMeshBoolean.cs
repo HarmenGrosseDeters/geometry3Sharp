@@ -255,6 +255,11 @@ namespace g3
         // for tests and benchmarks: per input mesh after Compute, the number of its boundary segments (BoundarySegments),
         // -1 for a mesh with exact winding numbers
         internal int[] OpenBoundarySegments;
+        // for tests and benchmarks: keep, per arrangement piece (Arrangement.Output), the thresholded winding numbers of the
+        // open meshes in front of it (pairs mesh, value; null for a piece that is not a representative), in
+        // OpenWindingPerPiece after Compute
+        internal bool RecordOpenWinding = false;
+        internal int[][] OpenWindingPerPiece;
         // for tests: triangles per batch of the arrangement's candidate pair search
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
@@ -361,6 +366,7 @@ namespace g3
             windingTrees.Clear();
             antipodalSegments.Clear();
             antipodalFar.Clear();
+            OpenWindingPerPiece = null;
             antipodalUndecided = 0;
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
@@ -801,6 +807,7 @@ namespace g3
                         openWinding[i] = open_winding(i, stack[i], openMeshes);
                 });
             }
+            OpenWindingPerPiece = RecordOpenWinding ? openWinding : null;
 
             int[] winding = new int[nm];
             bool[] isTouched = new bool[nm];
