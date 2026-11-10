@@ -37,7 +37,8 @@ done since and what is open.
   `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
   exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:
   the exact reference path of the 2D mesher oracle on its largest catalogue rows (`CatalogueRowsNightly`, `CorruptedRowsNightly`,
-  and F-38/d of `ExtremeScales`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
+  and F-38/d of `ExtremeScales`). Also three K checks that are runs by nature, each with a reduced variant in the PR tier
+  (`Solidify_IsDeterministic_Reduced`, `InsertionOrder_Reduced_DoesNotChangeTheResult`, `RemesherPro_FullRemesh_Reduced_...`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
   contain these; a class that gets Nightly tests and is in a filter needs `&Category!=Nightly` there.
 - The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet in the full run:
   `tools/trx_durations.py --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt` fails for a test above 10 s, and for one of
