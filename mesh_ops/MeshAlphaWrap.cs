@@ -184,6 +184,11 @@ namespace gs
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> Steiner points, carved cells etc, for diagnostics </summary>
+        /// <summary>
+        /// Number of Steiner points of the exception to the separation bound (class comment: pinch points for cells with a box corner on
+        /// the retry); 0 for a result without it. Those points can have no min-angle bound around them
+        /// </summary>
+        public int CornerPinchPoints { get; private set; }
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> the triangulation of the last Compute() (for tests) </summary>
         internal Delaunay3 Triangulation { get { return dt; } }
@@ -250,6 +255,7 @@ namespace gs
             Error = null;
             PhaseMilliseconds.Clear();
             Counts.Clear();
+            CornerPinchPoints = 0;
             phaseTimer.Restart();
             Status = setup();
             if (Status != WrapStatus.Success)
@@ -320,6 +326,7 @@ namespace gs
                 return false;
             }
             Counts["result_triangles"] = Result.TriangleCount;
+            CornerPinchPoints = Counts.TryGetValue("pinch_corner_points", out long cpp) ? (int)cpp : 0;
             Counts["result_box_corners"] = boxCornersInResult;
             // the guarantees, checked (topology only, cheap): a result that misses them is not reported as one that
             // has them (Result is kept for diagnostics)
