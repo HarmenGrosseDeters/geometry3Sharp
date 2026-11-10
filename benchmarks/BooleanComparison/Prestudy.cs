@@ -265,6 +265,13 @@ static class Prestudy
             int t = reference.FindNearestTriangle(p);
             if (t < 0) continue;
             double d = Math.Sqrt(MeshQueries.TriDistanceSqr(reference.Mesh, t, p));
+            // (the square root of a squared distance has an absolute error of about 1e-8 of the size: near the surface
+            // the distance to the triangle's plane, accurate to about 1e-16 of the size, is used instead)
+            if (d < 1e-6 * reference.Mesh.CachedBounds.Diagonal.Length) {
+                Vector3d nrm = reference.Mesh.GetTriNormal(t);
+                if (nrm.LengthSquared > 0.5)
+                    d = Math.Abs(nrm.Dot(p - reference.Mesh.GetVertex(reference.Mesh.GetTriangle(t).a)));
+            }
             max = Math.Max(max, d); sum += d; n++;
         }
         mean = n > 0 ? sum / n : 0;
