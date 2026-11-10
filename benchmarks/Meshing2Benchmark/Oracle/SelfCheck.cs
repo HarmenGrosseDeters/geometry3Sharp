@@ -270,6 +270,38 @@ namespace Meshing2Acceptance
                 Must("accept: the apex triangle with the whole input angle", !whole.Has(Violation.AngleBelowBound), "report: " + whole);
             }
 
+            // ---- rule O-G, the grid tube (MESHING2D_HULL_GRID.md): with a snap tolerance the output boundary may run off the input's boundary
+            // by one pixel and the area changes by that much (Guibas and Marimont 1998: the image lies in the Minkowski sum of the input with a
+            // pixel). The hull domain of (5, 5), (3, 4), (6, 4), (1, 4) at pixel 1 and a bound of 20 degrees (refinement rounds the hull, option C): the hull edge (1, 4)-(5, 5) passes the pixel of (3, 4), snap
+            // rounding routes it through (3, 4) onto the bottom edge, and the mesh is the triangle (3, 4), (6, 4), (5, 5), 3 of the hull's 5
+            // (found by the CsCheck campaign of QualityMesh2, T5). A boundary vertex 4 pixels off the hull is another matter
+            {
+                var ogIn = new Mesh2Input { X = new double[] { 5, 3, 6, 1 }, Y = new double[] { 5, 4, 4, 4 }, SnapTolerance = 1, MinAngleDeg = 20, Segments = { new SegmentInput(0, 1), new SegmentInput(2, 3) } };
+                var ogTri = new[] { new[] { 1, 2, 0 } };
+                Mesh2Output OgMesh(double[] vx, double[] vy) => new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = ogTri, Neighbours = NeighboursOf(ogTri), TriangleLabels = new[] { 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] };
+                var ogRerouted = Oracle.Check(ogIn, OgMesh(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: a hull edge rerouted through a hot pixel, the mesh smaller by the collapsed triangle", !ogRerouted.Has(Violation.AreaMismatch) && !ogRerouted.Has(Violation.BoundaryOutsideTube), "report: " + ogRerouted);
+                var ogNo = new Mesh2Input { X = ogIn.X, Y = ogIn.Y, MinAngleDeg = 20, Segments = { new SegmentInput(0, 1), new SegmentInput(2, 3) } };
+                var ogExact = Oracle.Check(ogNo, OgMesh(new double[] { 5, 3, 6, 1 }, new double[] { 5, 4, 4, 4 }), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same mesh without a snap tolerance as AreaMismatch (the exact comparison stays)", ogExact.Has(Violation.AreaMismatch), "report: " + ogExact);
+                var awayTri = new[] { new[] { 1, 2, 4 } };
+                var ogAway = Oracle.Check(ogIn, new Mesh2Output { Status = Mesh2Status.Success, VX = new double[] { 5, 3, 6, 1, 4 }, VY = new double[] { 5, 4, 4, 4, 9 }, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = awayTri, Neighbours = NeighboursOf(awayTri), TriangleLabels = new[] { 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: a boundary vertex 4 pixels off the hull as BoundaryOutsideTube", ogAway.Has(Violation.BoundaryOutsideTube), "report: " + ogAway);
+            }
+
+            // ---- rule O-G, the other direction: a hole of 10 x 10 in a square of 20 x 20 at pixel 1 left out of the mesh (its boundary has no
+            // output boundary near it, and no other input edge within two pixels that could have collapsed it)
+            {
+                var holeIn = new Mesh2Input { X = new double[] { 0, 20, 20, 0, 5, 15, 15, 5 }, Y = new double[] { 0, 0, 20, 20, 5, 5, 15, 15 }, SnapTolerance = 1 };
+                holeIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); holeIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+                var solid = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                var noHole = Oracle.Check(holeIn, new Mesh2Output { Status = Mesh2Status.Success, VX = holeIn.X, VY = holeIn.Y, InputToVertex = Enumerable.Range(0, 8).ToArray(),
+                    Triangles = solid, Neighbours = NeighboursOf(solid), TriangleLabels = new[] { 0, 0 }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: a hole left out of the mesh, on the grid, as BoundaryOutsideTube", noHole.Has(Violation.BoundaryOutsideTube), "report: " + noHole);
+            }
+
             // ---- the shortest edge of a triangle spans an input angle below 60 degrees (owner decision 2026-11-09, Shewchuk 2002 section
             // 6.2: refinement towards the apex of such an angle may not terminate). A hull domain of A = (0, 0), E1 = (30, 0) and E2, a bound
             // of 20 degrees, and the triangle p E1 q with p = (1, 0) and q on A-E2 at a distance within 1.5 of p's: its shortest edge p-q
