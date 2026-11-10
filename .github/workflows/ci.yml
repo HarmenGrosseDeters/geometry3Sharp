@@ -153,9 +153,41 @@ jobs:
   # makes the suite about 3x slower (the first version in the linux job hit the 60 min limit). The fast tier (without Slow and
   # Nightly) runs under coverage; when it leaves changed lines uncovered, the Slow tier of the core suite runs under coverage too,
   # and a line only it hits is reported as covered_only_by_slow, not a failure. PRs only (the gate compares with the merge base).
-  coverage:
+  # The core suite is collected in shards (tools/coverage/shard_filter.py), the gate job below merges the reports.
+  coverage-core:
     needs: scope
     if: github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build tests/geometry3Sharp.Tests -c Release
+      - name: Fast tier of this shard under coverage
+        # (a test with a wall-clock budget can fail under the instrumentation: linux is the test run, this one only collects the
+        # reports, so a failing test does not fail the step; a missing report fails the gate)
+        continue-on-error: true
+        run: |
+          BASE='Category!=Slow&Category!=Nightly'
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "$BASE" > list.txt
+          FILTER=$(python3 tools/coverage/shard_filter.py ${{ matrix.shard }} 8 "$BASE" < list.txt)
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-core-${{ matrix.shard }}
+          path: test-results/core/
+
+  coverage:
+    needs: [scope, coverage-core]
+    if: always() && github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -168,16 +200,19 @@ jobs:
           dotnet-version: 10.0.x
       - name: Test the gate
         run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-core-*
+          merge-multiple: true
+          path: test-results/core
       - name: Build
         run: dotnet build tests/geometry3Sharp.Tests -c Release
-      - name: Fast tier under coverage (core, CLI, Clipper2 package)
-        # (a test with a wall-clock budget can fail under the instrumentation, which makes the run about 3x slower: linux is the
-        # test run, this one only collects the reports, so a failing test does not fail the step; no report fails the gate)
+      - name: Fast tier under coverage (CLI)
         continue-on-error: true
-        run: |
-          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category!=Slow&Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
-          dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
-          dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
+        run: dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
+      - name: Fast tier under coverage (Clipper2 package)
+        continue-on-error: true
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
       - name: Changed-line coverage (fast tier)
         id: gate
         continue-on-error: true

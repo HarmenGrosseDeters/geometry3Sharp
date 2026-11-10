@@ -180,6 +180,7 @@ class Repository(unittest.TestCase):
     def test_missing_duplicate_empty_or_malformed_report_fails_closed(self):
         p = self.results / "core/run/coverage.cobertura.xml"
         original = p.read_bytes()
+        before = self.invoke()[0]
         for payload in (b"not xml", b"<coverage/>", b"<other/>" ):
             p.write_bytes(payload)
             code, result = self.invoke()
@@ -189,6 +190,9 @@ class Repository(unittest.TestCase):
         duplicate = p.parent.parent / "duplicate/coverage.cobertura.xml"
         duplicate.parent.mkdir()
         duplicate.write_bytes(original)
+        # a second report of a suite is a shard (merged by max), not an error: the result does not change
+        self.assertEqual(self.invoke()[0], before)
+        duplicate.write_bytes(b"not xml")
         self.assertEqual(self.invoke()[0], 2)
         duplicate.unlink()
         p.unlink()
@@ -258,3 +262,18 @@ class Repository(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShardFilter(unittest.TestCase):
+    LISTING = "The following Tests are available:\n    A.B.One\n    A.B.Two(x: 1)\n    A.C.Three\n    A.D.Four\n"
+
+    def test_every_class_lands_in_exactly_one_shard(self):
+        sys.path.insert(0, str(Path(__file__).parent / "coverage"))
+        import shard_filter
+        self.assertEqual(shard_filter.classes(self.LISTING), ["A.B", "A.C", "A.D"])
+        seen = []
+        for i in range(2):
+            f = shard_filter.shard_filter(self.LISTING, i, 2, "Category!=Slow")
+            self.assertTrue(f.startswith("(Category!=Slow)&("))
+            seen += [c for c in ("A.B.", "A.C.", "A.D.") if "~" + c in f]
+        self.assertEqual(sorted(seen), ["A.B.", "A.C.", "A.D."])

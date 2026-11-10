@@ -80,36 +80,42 @@ def read_coverage(directory, root, suites=SUITES):
         # VSTest writes <suite>/<attachment-id>/coverage.cobertura.xml. A TRX
         # logger additionally copies it below <suite>/<run>/In/<host>/; that
         # copy is not a second collection and must not be merged as evidence.
-        files = sorted((directory / suite).glob("*/coverage.cobertura.xml"))
-        if len(files) != 1:
-            raise ValueError(f"{suite}: expected exactly one coverlet report, found {len(files)} (clean results first)")
-        report = ET.parse(files[0]).getroot()
-        if report.tag != "coverage":
-            raise ValueError(f"{suite}: expected Cobertura coverage root")
-        sources = [node.text for node in report.findall("./sources/source") if node.text]
-        packages = report.findall("./packages/package")
-        if not any(p.get("name") == assembly and p.findall("./classes/class/lines/line") for p in packages):
-            raise ValueError(f"{suite}: no executable lines for expected assembly {assembly}")
-        reports.append(str(files[0].relative_to(directory)))
-        for package in packages:
-            if package.get("name") not in suites.values():
-                raise ValueError(f"unexpected instrumented assembly: {package.get('name')}")
-            for cls in package.findall("./classes/class"):
-                class_lines = cls.findall("./lines/line")
-                method_numbers = {int(n.attrib["number"]) for n in cls.findall("./methods/method/lines/line")}
-                if method_numbers - {int(n.attrib["number"]) for n in class_lines}:
-                    raise ValueError("incomplete class-level line evidence")
-                if not class_lines:
-                    continue
-                path = coverage_path(cls.attrib["filename"], sources, root)
-                hits = merged.setdefault(path, {})
-                # Class-level lines avoid counting the duplicate method-level entries.
-                for line in class_lines:
-                    number, count = int(line.attrib["number"]), int(line.attrib["hits"])
-                    if number < 1 or count < 0:
-                        raise ValueError(f"invalid line/hit count in {path}")
-                    hits[number] = max(hits.get(number, 0), count)
+        # A suite run in shards (core) has <suite>/<shard>/<attachment-id>/coverage.cobertura.xml for every shard.
+        files = sorted((directory / suite).glob("*/coverage.cobertura.xml")) or sorted((directory / suite).glob("*/*/coverage.cobertura.xml"))
+        if not files:
+            raise ValueError(f"{suite}: expected a coverlet report, found none (clean results first)")
+        for file in files:
+            _read_report(file, suite, assembly, suites, directory, root, merged, reports)
     return merged, reports
+
+
+def _read_report(file, suite, assembly, suites, directory, root, merged, reports):
+    report = ET.parse(file).getroot()
+    if report.tag != "coverage":
+        raise ValueError(f"{suite}: expected Cobertura coverage root")
+    sources = [node.text for node in report.findall("./sources/source") if node.text]
+    packages = report.findall("./packages/package")
+    if not any(p.get("name") == assembly and p.findall("./classes/class/lines/line") for p in packages):
+        raise ValueError(f"{suite}: no executable lines for expected assembly {assembly}")
+    reports.append(str(file.relative_to(directory)))
+    for package in packages:
+        if package.get("name") not in suites.values():
+            raise ValueError(f"unexpected instrumented assembly: {package.get('name')}")
+        for cls in package.findall("./classes/class"):
+            class_lines = cls.findall("./lines/line")
+            method_numbers = {int(n.attrib["number"]) for n in cls.findall("./methods/method/lines/line")}
+            if method_numbers - {int(n.attrib["number"]) for n in class_lines}:
+                raise ValueError("incomplete class-level line evidence")
+            if not class_lines:
+                continue
+            path = coverage_path(cls.attrib["filename"], sources, root)
+            hits = merged.setdefault(path, {})
+            # Class-level lines avoid counting the duplicate method-level entries.
+            for line in class_lines:
+                number, count = int(line.attrib["number"]), int(line.attrib["hits"])
+                if number < 1 or count < 0:
+                    raise ValueError(f"invalid line/hit count in {path}")
+                hits[number] = max(hits.get(number, 0), count)
 
 
 def evaluate(changes, coverage, slow=None):
