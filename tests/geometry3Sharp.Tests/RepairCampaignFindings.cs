@@ -58,7 +58,7 @@ namespace geometry3Sharp.Tests
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in
     /// FindNearestHitTriangle / FindAllHitTriangles). It is a case of the scale-relative tolerances concept
-    /// (docs/ROADMAP.md); the campaign stays within pieces of at least 2.4e-4 (RepairCampaignTests.RobustShift).
+    /// (docs/ROADMAP.md); the campaign's scale is 2^-20 .. 2^10 (RepairCampaignTests.RobustShift) since the solidify fallback is computed at unit scale (#537).
     /// </summary>
     public class RepairCampaignFindings
     {

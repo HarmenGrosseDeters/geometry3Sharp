@@ -43,11 +43,11 @@ PR #493 and #495 where noted.
 |---|---|---|---|
 | 3 | robust repair: magnitude 2^-200 .. 2^400, extent >= 2^-40 of it | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
 | 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
-| 5a, 5b | boolean / rounding: 2^-200 .. 2^200, disparity 2^60 | out **false success** | range check (bugfix PR) |
+| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (follows, held until #513) |
 | 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
-| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | documented limit |
+| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (follows, held until #513): not clean, mesh not touched |
 | 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
-| 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | documented limit |
+| 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | range check (#527): `InvalidInput` |
 
 Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other

@@ -183,10 +183,11 @@ namespace geometry3Sharp.Tests
         static readonly Gen<int> RobustShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(24, 32, 40) : Gen.Int[-20, 10]);
 
         /// <summary>
-        /// the edges of the supported range (docs/QA.md 2.5a) are part of the sample: one case in eight uses a shift near its
-        /// upper end (the scenes reach 2^33 before the shift, the alpha wrap fallback ends at 2^128; the robust repair's own
-        /// range is wider, 2^400). Not above 2^40 (coordinates beyond about 2^72): F4 in RepairCampaignFindings. Its lower end is held by the absolute tolerances of F3 (above). The rounding repair is
-        /// scale relative (2^-200 .. 2^200): its edges are +-100 (the scenes' coordinates reach 2^-52 .. 2^33 before the shift)
+        /// the edges of the supported range (docs/QA.md 2.5a) are part of the samples: one case in eight of RobustShift uses a shift of 2^24 .. 2^40 (the
+        /// scenes reach 2^33 before the shift; not higher: the Reducer is not scale invariant above an extent of about 2^63, F5 in
+        /// RepairCampaignFindings; the alpha wrap fallback ends at 2^128, the robust repair's own range at 2^400). One case in eight of RoundingShift uses
+        /// +-90 or +-100: the rounding repair is scale relative (2^-200 .. 2^200) and the scenes' coordinates reach 2^-52 .. 2^33 before the shift.
+        /// (The clean-solid claims of CleanSceneProperties run on the scene at scale 1 and the general ones at the shift: the edge shifts test those.)
         /// </summary>
         static readonly Gen<int> RoundingShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(-100, 100, -90, 90) : Gen.Int[-10, 10]);
 
@@ -580,7 +581,7 @@ namespace geometry3Sharp.Tests
         public void Range_OutsideTheSupportedRange()
         {
             CampaignRunner.Run(log, nameof(RepairCampaignTests), "Range(outside)",
-                GenDirty.SelectMany(s => OutsideShift.Select(k => (s, k))), c => OutsideRangeProperties(c.s, c.k), 6, 104u, 40);
+                GenDirty.SelectMany(s => OutsideShift.Select(k => (s, k))), c => OutsideRangeProperties(c.s, c.k), 12, 104u, 40);
         }
 
         [Fact]

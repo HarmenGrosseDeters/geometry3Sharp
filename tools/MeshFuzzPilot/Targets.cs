@@ -619,6 +619,7 @@ public static partial class Program
             throw new Finding($"{what}: the result has {MeshRobustRepair.DescribeDefects(shape)}");
     }
 
+    // (the library also checks isolated vertices and Points, and returns EmptyInput for no input: the decoded shapes always have triangles and no loose vertices)
     static bool WrapRangeOk(DMesh3 m)
     {
         double biggest = 0;
