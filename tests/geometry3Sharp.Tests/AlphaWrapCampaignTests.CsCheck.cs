@@ -199,7 +199,6 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = s.Wrap();
             Assert.True(w.Compute(), w.Status + " " + w.Error);
             AlphaWrapTests.CheckWrap(w, Samples(w));
-            Assert.Equal(0, w.Counts["result_box_corners"]);
         }
 
         /// <summary> the retry path of the flat input (box corners on the first result) is also repeatable and scale invariant: 2^k scaled input, a second Compute and a new instance give the same bits </summary>

@@ -55,6 +55,11 @@ namespace gs
     /// 170 degrees 327 -> 40). Rule 2 points projected from the clamped dual edge (Counts["projection_fallbacks"], none
     /// measured) have no separation bound.
     ///
+    /// Exception to the separation: a pinch point for an outside cell with a box corner (Counts["pinch_corner_points"], flat
+    /// input: the huge cells above and below a plane of Steiner points) only lies strictly inside the cell's circumsphere, so
+    /// it can be closer to a vertex than that and the triangles around it have no angle bound. The retry of Compute() after box
+    /// corners on the result refines at non-manifold spots even with RefineNonManifold off.
+    ///
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
     ///
@@ -1094,8 +1099,10 @@ namespace gs
             // the depth. The point can be closer to a vertex than the separation, but the manifold step would move the
             // cell inside and put the box corner on the result, which fails the wrap
             if (has_corner(c) && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
-                && project_to_offset(c, 0, cc, out p) && dt.InCircumsphere(c, p) > 0)
+                && project_to_offset(c, 0, cc, out p) && dt.InCircumsphere(c, p) > 0) {
+                add_count("pinch_corner_points", 1);
                 return true;
+            }
             p = Vector3d.Zero;
             return false;
         }
