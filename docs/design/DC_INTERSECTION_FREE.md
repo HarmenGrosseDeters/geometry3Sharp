@@ -104,13 +104,14 @@ Findings:
    Every intersection involves a multi-patch or transition polygon or a quad split against the criterion.
 4. **Cost.** With the hook off, the exact check plus repair (`ResolveMilliseconds`) is 25-28 % of the dual
    contouring time on T1 (13-14 % of the whole `MeshWindingNumberSolidify`, where the octree and the winding numbers
-   dominate) and 30-64 % of dense `DualContouring` (median about 43 %). It checks every triangle, although only the
+   dominate) and 30-64 % of dense `DualContouring` (median about 44 %). It checks every triangle, although only the
    triangles not covered by the criterion (multi-patch, transition, against-criterion: 1-5 % on CAD-like inputs, up to
    80 % on thin sheets at low resolution) can intersect.
 5. **Wang's criterion is cheap to meet.** Of the uniform single-patch quads (four cells of one size, one patch each),
-   1.5-8 % have one concave envelope vertex on CAD-like and smooth inputs (up to 18 % on the gyroid at 24 cells), so
-   the diagonal through it is forced; 0.006-0.12 % have two (up to 0.8 % on the gyroid at 24 cells), where an edge
-   vertex is needed; 3 or 4 never occur (Wang, Remark 3).
+   0.04-0.1 % on the procedural CAD solids, 1.5-8 % on T1 and the smooth or CAD-like implicits at 48-96 cells, and up to
+   11-18 % at 24 cells (twoboxes, slab, gyroid) have one concave envelope vertex, so the diagonal through it is forced;
+   0-0.07 % have two (where an edge vertex is needed) except on thin sheets and the coarsest grids (rotbox / twoboxes at
+   24: 0.10-0.12 %, slab and gyroid at 24-48: 0.14-0.8 %); 3 or 4 never occur (Wang, Remark 3).
 
 So the measurable gains on this set are: a guarantee instead of a heuristic, closed (hole-free) results at ambiguous
 faces, no unchecked hole fill, and part of the check time: if the check shrinks to the uncovered triangles, at most
@@ -178,7 +179,7 @@ Cover = a triangle that lies, by an exact argument, in a region disjoint from ev
 
 | | what | guarantee | sharpness | cost to build | runtime |
 |---|---|---|---|---|---|
-| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 1.5-8 % of quads (up to 18 % on thin sheets; may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: at most ~1.15x faster solidify, 1.3-2x dense DC |
+| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 0.04-8 % of quads (up to 18 % on coarse grids and thin sheets; may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: at most ~1.15x faster solidify, 1.3-2x dense DC |
 | **B. A + Ju-Udeshi faces** | as A, and faces next to multi-patch cells or refinement transitions get face vertices (one per face segment), so each such cell's triangles are fans from its vertices inside the cell; ambiguous faces then give two separate face vertices and no non-manifold edge (no holes, no unchecked fill) | everything covered except fans of different patches inside one multi-patch cell, which are checked exactly within the cell (a few triangles) | QEF vertices kept; extra face vertices only at those faces (a few % of triangles) | M | as A; closes the `NonManifoldTriangles` holes |
 | C. Full hybrid everywhere | Ju & Udeshi on every edge, then drop vertices by the criterion | as B | as B | M-L | 1-4x triangles before dropping |
 | D. Primal fallback | multi-patch cells contoured by marching tetrahedra inside the cell | covers multi-patch cells too, but the face polylines must match the neighbours (needs B's face vertices) and positions on interior simplex edges round off them | QEF lost in those cells | L | small |

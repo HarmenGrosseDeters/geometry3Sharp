@@ -45,7 +45,8 @@ class Program
         DualContouring.CollectDiagnostics = diagnostics;
         DualContouring last = null;
         int generates = 0;
-        DualContouring.GenerateFinished = (dc) => { last = dc; generates++; };
+        long resolveMs = 0;   // summed over the passes (the adaptive path runs Generate several times on one instance)
+        DualContouring.GenerateFinished = (dc) => { last = dc; generates++; resolveMs += dc.ResolveMilliseconds; };
         RunImplicit("sphere", 16, new Dictionary<string, object>());   // warm-up (JIT), not recorded
 
         foreach (string input in inputs) {
@@ -56,10 +57,12 @@ class Program
                 r["input"] = name; r["res"] = res; r["diagnostics"] = diagnostics;
                 last = null; generates = 0;
                 try {
+                    resolveMs = 0;
                     if (input.StartsWith("imp:")) RunImplicit(input.Substring(4), res, r);
                     else RunWinding(input, res, r);
                     if (last != null) Record(last, r);
                     r["generates"] = generates;
+                    r["resolve_ms"] = resolveMs;
                 } catch (Exception e) { r["status"] = "exception"; r["error"] = e.GetType().Name + ": " + e.Message; }
                 string json = JsonSerializer.Serialize(r, new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals });
                 File.AppendAllText(outFile, json + "\n");
@@ -76,7 +79,7 @@ class Program
         r["si_left"] = dc.SelfIntersectionsLeft;
         r["si_free"] = dc.SelfIntersectionFree;
         r["nonmanifold_tris"] = dc.NonManifoldTriangles;
-        r["resolve_ms"] = dc.ResolveMilliseconds;
+        r["resolve_ms_last"] = dc.ResolveMilliseconds;
         foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
         var d = dc.Diagnostics;
         if (d == null) return;
