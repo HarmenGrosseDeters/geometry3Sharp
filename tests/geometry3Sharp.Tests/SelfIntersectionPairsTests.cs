@@ -112,6 +112,54 @@ namespace geometry3Sharp.Tests
             Assert.True(withPairs > 100 && coplanarSoups == 150, $"{withPairs} soups with pairs");
         }
 
+
+        [Fact]
+        public void SeparateVerticesAtOnePosition_AndDuplicateTrianglesWithOppositeWinding_SamePairsAsTheBruteForce()
+        {
+            // every triangle gets its own vertices (ids differ at one position: not "shared"), some triangles are repeated with
+            // the reverse winding on the same ids (three shared vertices)
+            var rnd = new Random(23);
+            int withPairs = 0;
+            for (int n = 0; n < 200; ++n) {
+                var m = new DMesh3();
+                Vector3d P() => new Vector3d(rnd.Next(0, 4), rnd.Next(0, 4), n % 2 == 0 ? 0 : rnd.Next(0, 3));
+                for (int k = 0, count = 5 + rnd.Next(8); k < count; ++k) {
+                    int a = m.AppendVertex(P()), b = m.AppendVertex(P()), c = m.AppendVertex(P());
+                    m.AppendTriangle(a, b, c);
+                    if (rnd.Next(4) == 0) m.AppendTriangle(a, c, b);
+                }
+                AssertSamePairs(m, "separate vertices " + n);
+                if (BruteForce(m).Count > 0) withPairs++;
+            }
+            Assert.True(withPairs > 100, $"{withPairs}");
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1e-3)]
+        [InlineData(1e6)]
+        [InlineData(1e-150)]
+        [InlineData(1e150)]
+        public void NonLatticeCoordinates_NearlyCoplanarAndScaled_SamePairsAsTheBruteForce(double scale)
+        {
+            // random double coordinates, a third of the triangles nearly in the plane z = 0 (offsets of 1e-9..1e-15 of the
+            // size) and triangles sharing vertices; the brute force runs on the very same mesh
+            var rnd = new Random(31);
+            int withPairs = 0;
+            for (int n = 0; n < 120; ++n) {
+                var pts = Enumerable.Range(0, 7).Select(_ => new Vector3d(rnd.NextDouble(), rnd.NextDouble(),
+                    n % 3 == 0 ? rnd.NextDouble() * Math.Pow(10, -9 - rnd.Next(7)) : rnd.NextDouble()) * scale).ToArray();
+                var m = new DMesh3();
+                foreach (var p in pts) m.AppendVertex(p);
+                for (int k = 0, count = 5 + rnd.Next(6); k < count; ++k)
+                    m.AppendTriangle(rnd.Next(7), rnd.Next(7), rnd.Next(7));
+                if (m.TriangleCount == 0) continue;
+                AssertSamePairs(m, $"scale {scale} case {n}");
+                if (BruteForce(m).Count > 0) withPairs++;
+            }
+            Assert.True(withPairs > 20, $"{withPairs}");
+        }
+
         [Fact]
         public void NotCleanReason_Strings_OfTheCases()
         {
