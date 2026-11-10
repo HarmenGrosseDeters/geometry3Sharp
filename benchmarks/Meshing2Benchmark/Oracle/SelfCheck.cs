@@ -1659,22 +1659,27 @@ namespace Meshing2Acceptance
                 must("merge zone: a skinny triangle at an apex of 179 degrees is judged", report.Has(Violation.AngleBelowBound), "report: " + report);
             }
 
-            // 6a'. a vertex at the crossing of two segments 1e-5 radian apart, rounded to doubles: it lies along the segments up to 8 ulps / sin
-            //      from the exact apex (1.8e-7 at 1000 here), far more than 3 tube (3.3e-9: tube 1200 / 2^40), and may lie on the wrong
-            //      side of it, while the rest of the triangle lies on the far side (found with the near-contact fan of the QualityMesh2
-            //      campaign, T5: crossings of segments 1.6e-7 radian apart). Accepted 1e-7 left of the apex, within the rounding; judged at
-            //      3e-7 (beyond it, still within the zone of 3.3e-4)
+            // 6a'. a vertex computed from two segments 1e-5 radian apart in doubles lies along the segments up to a few ulps / sin from
+            //      the exact apex (8 ulps of the largest coordinate: 1.8e-7 at 1000, 1.8e-8 at 100), far more than 3 tube (3.3e-9 resp. 1.6e-9: tube
+            //      2^-40 of the extent), and may lie on the wrong side of it, while the rest of the triangle lies on the far side (found with the
+            //      near-contact fan of the QualityMesh2 campaign, T5). Accepted within the reach and within the tube of both segments; judged
+            //      beyond the reach (still within the zone), or off the segments by 3e-9 (outside both tubes; room to improve). The apex at
+            //      (1000, 0) and at the origin with the ends of the segments at 100 (the magnitude of the ends counts, not only the apex's)
             {
-                foreach (var (dx, ok) in new[] { (1e-7, true), (3e-7, false) }) {
-                    var input = Points(900, 0, 1100, 0, 900, -1e-3, 1100, 1e-3, 1000 - dx, 0, 1000 + 2e-5, 0, 1000 + 1e-5, 5e-9,
-                        800, -300, 1300, -300, 1300, 300, 800, 300);
+                foreach (var (cx, half, dx, y0, ok, what) in new[] {
+                    (1000.0, 100.0, 1e-7, 0.0, true, "a crossing vertex rounded along the segments (1e-7 from the apex) is on either side"),
+                    (1000.0, 100.0, 3e-7, 0.0, false, "a vertex 3e-7 from the apex, beyond the rounding, is judged on its side"),
+                    (1000.0, 100.0, 1e-7, 3e-9, false, "a vertex 3e-9 off the segments, outside both tubes, is judged on its side"),
+                    (0.0, 100.0, 1e-8, 0.0, true, "at the origin the magnitude of the segments' ends sets the reach (1e-8 from the apex)"),
+                    (0.0, 100.0, 5e-8, 0.0, false, "at the origin a vertex 5e-8 from the apex, beyond the reach of 1.8e-8, is judged") }) {
+                    var input = Points(cx - half, 0, cx + half, 0, cx - half, -half * 1e-5, cx + half, half * 1e-5, cx - dx, y0, cx + 2e-5, 0, cx + 1e-5, 5e-9,
+                        cx - 300, -300, cx + 300, -300, cx + 300, 300, cx - 300, 300);
                     input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(2, 3));
                     input.Rings.Add(new RingInput(new[] { 7, 8, 9, 10 }, false));
                     input.MinAngleDeg = 20;
                     var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
                     var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
-                    must(ok ? "merge zone: a crossing vertex rounded along the segments (1e-7 from the apex) is on either side" : "merge zone: a vertex 3e-7 from the apex, beyond the crossing's rounding, is judged on its side",
-                        report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+                    must("merge zone: " + what, ok ? !report.Has(Violation.AngleBelowBound) && report.MergeZoneExcused == 1 : report.Has(Violation.AngleBelowBound), "report: " + report);
                 }
             }
 

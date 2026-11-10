@@ -3569,29 +3569,33 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// The squared distance from the exact apex of two sources at the sine squared sin2 within which an output vertex may lie
-            /// because it is the apex (a crossing, or a split point) rounded to doubles: it is off both sources by far less than the tube, but along
-            /// them by up to the rounding error divided by the sine, which exceeds ZoneFactor tube at a small angle (1.6e-7 radian at 0.5:
-            /// 1e-11 against 3e-12; found with the near-contact fan of the QualityMesh2 campaign, T5). 8 ulps of the apex's magnitude over the sine
+            /// because it was computed from them in doubles (a crossing, a split point of a piece): it is off both sources by far less than
+            /// the tube, but along them by up to the rounding error of the coordinates it was computed from divided by the sine, which exceeds
+            /// ZoneFactor tube at a small angle (the near-contact fan of the QualityMesh2 campaign, T5: 1e-11 along the sources against 3e-12).
+            /// The error is a few ulps of the largest coordinate involved (the apex and the four ends of the sources); 8 ulps is a
+            /// conservative envelope, not a derived bound, and AcuteSide applies it only to vertices within the tube of both sources
             /// </summary>
-            static Q RoundingReach2(Pt apex, Q sin2)
+            static Q RoundingReach2(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, Q sin2)
             {
                 if (sin2.Sign <= 0) return Q.Zero;
                 Q m = Q.Max(Q.Abs(apex.Qx), Q.Abs(apex.Qy));
+                foreach (var p in new[] { a.a, a.b, c.a, c.b }) m = Q.Max(m, Q.Max(Q.Abs(p.Qx), Q.Abs(p.Qy)));
                 return m * m * 64 / (sin2 * new Q(BigInteger.One << 104, BigInteger.One));
             }
 
             /// <summary>
             /// A branch u of a and a branch w of c leave the apex with a positive dot product, and every vertex of t lies within
-            /// ZoneFactor tube of the apex or within the rounding of a crossing (RoundingReach2) or has a positive dot product with both u and w
+            /// ZoneFactor tube of the apex, or within the tube of both sources and within the rounding reach of the apex (RoundingReach2), or has a positive
+            /// dot product with both u and w
             /// </summary>
             bool AcuteSide(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, int[] t, Q sin2)
             {
-                Q near2 = Q.Max(tube2 * (ZoneFactor * ZoneFactor), RoundingReach2(apex, sin2));
+                Q near2 = tube2 * (ZoneFactor * ZoneFactor), reach2 = RoundingReach2(apex, a, c, sin2);
                 Q Dot(Pt o, Pt x, Pt y) => (x.Qx - o.Qx) * (y.Qx - o.Qx) + (x.Qy - o.Qy) * (y.Qy - o.Qy);
                 foreach (var u in new[] { a.a, a.b })
                     foreach (var w in new[] { c.a, c.b }) {
                         if (u.Equals(apex) || w.Equals(apex) || Dot(apex, u, w).Sign <= 0) continue;
-                        if (t.All(i => Exact.Len2(apex, v[i]) <= near2 || (Dot(apex, u, v[i]).Sign > 0 && Dot(apex, w, v[i]).Sign > 0))) return true;
+                        if (t.All(i => Exact.Len2(apex, v[i]) <= near2 || (Exact.Len2(apex, v[i]) <= reach2 && WithinTube(a, v[i]) && WithinTube(c, v[i])) || (Dot(apex, u, v[i]).Sign > 0 && Dot(apex, w, v[i]).Sign > 0))) return true;
                     }
                 return false;
             }

@@ -25,7 +25,8 @@ namespace geometry3Sharp.Tests
             return input;
         }
 
-        /// <summary> B_0 and B_2 cross at x = 0.507 at an angle of 1.6e-7 radian; 5, 22 and 41 violations before the rounding reach (scale 1.37, k = 24, 26, 28) </summary>
+        /// <summary> B_0 and B_2 cross at x = 0.507 at an angle of 5e-7 (k = 24), 1e-7 (26) and 3e-8 radian (28); 5, 22 and 41 violations before the rounding
+        /// reach (scale 1.37). The SelfCheck items hold the pinning of the rule itself; this checks it against a real mesher output </summary>
         [Theory]
         [InlineData(24, 1.37)]
         [InlineData(26, 1.37)]
