@@ -291,6 +291,77 @@ namespace Meshing2Acceptance
             return with && without ? Where.Inside : !with && !without ? Where.Outside : Where.Boundary;
         }
 
+        /// <summary> one connected piece of the domain for the vanishing rule: the rings nested in one top-level ring, as a domain of its own </summary>
+        public sealed class Component
+        {
+            public Domain Region;
+            /// <summary> an upper bound of the summed ring lengths (L1) </summary>
+            public Q Perimeter2Bound;
+        }
+
+        List<Component> components;
+
+        /// <summary>
+        /// The parts of the domain that do not touch: the top-level rings (inside no other ring) with the rings nested in each. They are
+        /// separate only if no two top-level rings meet (exact); otherwise, or when a ring lies in two top-level rings, the whole domain
+        /// is the one part (never a finer split than is certain). A hull domain is its hull alone.
+        /// </summary>
+        public IReadOnlyList<Component> Components()
+        {
+            if (components != null) return components;
+            int n = Rings.Count;
+            var top = new List<int>();
+            for (int k = 0; k < n; ++k) {
+                bool covered = false;
+                for (int j = 0; j < n && !covered; ++j) if (j != k && inside[k, j] && !inside[j, k]) covered = true;
+                if (!covered) top.Add(k);
+            }
+            // equal rings (nested both ways) are one top-level ring
+            top = top.Where(k => !top.Any(j => j < k && inside[k, j] && inside[j, k])).ToList();
+            var groups = new List<List<int>>();
+            bool whole = top.Count <= 1;
+            if (!whole) {
+                foreach (int t in top) groups.Add(new List<int> { t });
+                for (int k = 0; k < n && !whole; ++k) {
+                    if (top.Contains(k)) continue;
+                    var homes = top.Where(t => inside[k, t]).ToList();
+                    if (homes.Count != 1) whole = true; else groups[top.IndexOf(homes[0])].Add(k);
+                }
+                for (int a = 0; a < top.Count && !whole; ++a)
+                    for (int b = a + 1; b < top.Count && !whole; ++b)
+                        if (RingsMeet(Rings[top[a]].ring, Rings[top[b]].ring)) whole = true;
+            }
+            Q Length(IEnumerable<Pt[]> rings)
+            {
+                Q length = Q.Zero;
+                foreach (var ring in rings)
+                    for (int i = 0; i < ring.Length; ++i) {
+                        var a = ring[i]; var b = ring[(i + 1) % ring.Length];
+                        length += Q.Abs(a.Qx - b.Qx) + Q.Abs(a.Qy - b.Qy);
+                    }
+                return length;
+            }
+            if (whole) return components = new List<Component> { new Component { Region = this, Perimeter2Bound = Length(Rings.Select(x => x.ring)) } };
+            components = new List<Component>();
+            foreach (var g in groups)
+                components.Add(new Component { Region = new Domain(g.Select(k => Rings[k]).ToList(), Filter), Perimeter2Bound = Length(g.Select(k => Rings[k].ring)) });
+            return components;
+        }
+
+        /// <summary> two rings share a point (exact): some edge of one meets some edge of the other </summary>
+        static bool RingsMeet(Pt[] r, Pt[] s)
+        {
+            for (int i = 0; i < r.Length; ++i) {
+                Pt a = r[i], b = r[(i + 1) % r.Length];
+                for (int j = 0; j < s.Length; ++j) {
+                    Pt c = s[j], d = s[(j + 1) % s.Length];
+                    if (Exact.ProperCross(a, b, c, d) || Exact.OnClosedSegment(a, b, c) || Exact.OnClosedSegment(a, b, d)
+                        || Exact.OnClosedSegment(c, d, a) || Exact.OnClosedSegment(c, d, b)) return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>All ring edges of the domain.</summary>
         public IEnumerable<(Pt a, Pt b)> Edges()
         {

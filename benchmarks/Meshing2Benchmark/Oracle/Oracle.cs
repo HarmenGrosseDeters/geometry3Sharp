@@ -1940,6 +1940,7 @@ namespace Meshing2Acceptance
                     if (isUsed) continue;
                     if (!InClosure(inPts[i]) || CollapsedHullTip(i, usedSet)) continue;
                     if (OnCollapsedPoint(inPts[i])) { ++r.CollapsedPoints; continue; }
+                    if (InVanishingPart(inPts[i])) { ++r.VanishedPoints; continue; }
                     r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
                 }
                 if (o.IdentityRules)
@@ -2636,6 +2637,25 @@ namespace Meshing2Acceptance
             BoxGrid closureGrid;
             Dictionary<int, List<(Pt from, Pt to)>> closurePieces;
 
+            /// <summary>
+            /// All the points lie in the closure of one part of the domain that may vanish: its twice area is at most tube times its
+            /// perimeter (twice, squared: the rule for a domain with no triangles at all, applied to each part that does not touch
+            /// another), without a snap tolerance. The mesher merges what is within the tube (O11) and may drop such a sliver beside real parts, with its input
+            /// points and the segments inside it; a real part (above the bound) is never excused
+            /// </summary>
+            bool InVanishingPart(params Pt[] points)
+            {
+                // (with a snap tolerance the tube is a pixel and the bound would excuse whole shapes of a few pixels: parts collapsed by
+                // the grid are O-H5's, decided on the snapped arrangement)
+                if (input.SnapTolerance > 0) return false;
+                foreach (var part in domain.Components()) {
+                    Q twice = part.Region.Area * 2, perimeter = part.Perimeter2Bound * 2;
+                    if (twice * twice > tube2 * perimeter * perimeter) continue;
+                    if (points.All(p => part.Region.Classify(p) != Where.Outside)) return true;
+                }
+                return false;
+            }
+
             bool InClosure(Pt p)
             {
                 var where = domain.Classify(p);
@@ -2869,6 +2889,7 @@ namespace Meshing2Acceptance
                         }
                         if (reached < 0) {
                             if (ChainAcrossCollapsed((s.a, s.b), candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
+                            if (InVanishingPart(s.a, s.b, new Pt((s.a.Qx + s.b.Qx) * new Q(1, 2), (s.a.Qy + s.b.Qy) * new Q(1, 2)))) { ++r.VanishedSegments; continue; }
                             r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to);
                             continue;
                         }
