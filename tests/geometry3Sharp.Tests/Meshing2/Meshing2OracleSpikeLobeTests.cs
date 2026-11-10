@@ -36,21 +36,36 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Mesh2Status.Success, output.Status);
             var report = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3 });
             Assert.True(report.Ok, report.ToString());
-            Assert.True(report.LobeExcuses > 0, "the lobe excuse must have been used");
+            Assert.True(report.LobeChainExcuses > 0, "the chain excuse must have been used");
+            Assert.True(report.LobePointExcuses > 0, "the point excuse must have been used");
         }
 
         /// <summary> the bounds of the excuse, directly: a lobe within one pixel of the stretch's chord, links to neighbouring pixels </summary>
-        [Fact]
-        public void LobeBounds_AreOnePixel()
+        [Theory]
+        [InlineData(1, 1)]
+        [InlineData(2, 1)]
+        [InlineData(1, 2)]
+        public void LobeBounds_AreOnePixel(int pixelNum, int pixelDen)
         {
-            var pixel = new Q(1, 1);
-            var a = new Pt(new Q(0, 1), new Q(0, 1)); var b = new Pt(new Q(10, 1), new Q(0, 1));
-            Assert.True(Oracle.LobeWithinTube(a, b, new[] { new Pt(new Q(5, 1), new Q(1, 1)), new Pt(new Q(5, 1), new Q(-1, 1)) }, pixel));
-            Assert.False(Oracle.LobeWithinTube(a, b, new[] { new Pt(new Q(5, 1), new Q(2, 1)) }, pixel));
-            Assert.False(Oracle.LobeWithinTube(a, b, new[] { new Pt(new Q(5, 1), new Q(1, 1)), new Pt(new Q(5, 1), new Q(-3, 2)) }, pixel));
+            var pixel = new Q(pixelNum, pixelDen);
+            Pt P(int x, int y) => new Pt(new Q(x, 1) * pixel / 2, new Q(y, 1) * pixel / 2);   // in half pixels
+            var a = P(0, 0); var b = P(4, 0);                                                       // a chord of two pixels
+            Assert.True(Oracle.LobeWithinTube(a, b, new[] { P(2, 2) }, pixel));                     // one pixel off, area exactly one pixel squared
+            Assert.True(Oracle.LobeWithinTube(a, b, new[] { P(2, 1) }, pixel));
+            Assert.False(Oracle.LobeWithinTube(a, b, new[] { P(2, 3) }, pixel));                    // 1.5 pixels off: out of the tube
+            Assert.False(Oracle.LobeWithinTube(a, b, new[] { P(2, 2), P(2, -2) }, pixel));          // two nodes: each within a pixel, the lobe twice the area
+            Assert.False(Oracle.LobeWithinTube(a, b, new[] { P(7, 0) }, pixel));                    // beyond the chord's end: distance to the end
+            var longB = P(40, 0);                                                                    // a chord of 20 pixels: 0.7 pixel off opens 7 pixels squared
+            Assert.False(Oracle.LobeWithinTube(a, longB, new[] { P(20, 1) }, pixel));
+            Assert.False(Oracle.LobeWithinTube(a, a, new[] { P(0, 3) }, pixel));                     // a degenerate chord: distance to the point
+            Assert.True(Oracle.LobeWithinTube(a, a, new[] { P(0, 2) }, pixel));
             var n = (new System.Numerics.BigInteger(-11), new System.Numerics.BigInteger(-4));
-            Assert.True(Oracle.LinksStayAdjacent(n, new[] { (new System.Numerics.BigInteger(-12), new System.Numerics.BigInteger(-3)), (new System.Numerics.BigInteger(-10), new System.Numerics.BigInteger(-5)) }));
-            Assert.False(Oracle.LinksStayAdjacent(n, new[] { (new System.Numerics.BigInteger(-13), new System.Numerics.BigInteger(-4)) }));
+            System.Numerics.BigInteger B(int v) => new System.Numerics.BigInteger(v);
+            Assert.True(Oracle.LinksStayAdjacent(n, new[] { (B(-12), B(-3)), (B(-10), B(-5)), (B(-11), B(-4)) }));
+            Assert.False(Oracle.LinksStayAdjacent(n, new[] { (B(-13), B(-4)) }));
+            Assert.False(Oracle.LinksStayAdjacent(n, new[] { (B(-9), B(-4)) }));
+            Assert.False(Oracle.LinksStayAdjacent(n, new[] { (B(-11), B(-6)) }));
+            Assert.False(Oracle.LinksStayAdjacent(n, new[] { (B(-11), B(-2)) }));
         }
     }
 }
