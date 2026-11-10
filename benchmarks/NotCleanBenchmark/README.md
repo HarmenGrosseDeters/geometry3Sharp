@@ -38,12 +38,12 @@ a `DMeshAABBTree3` per triangle. Every intersecting pair has overlapping closed 
 (lever 1) decides. Each work item fills its own list and the pairs are sorted at the end, so the result does not depend on
 the number of threads (`Pairs_ParallelEqualsSerial_AndRepeatedRunsAreIdentical`: repeated runs, `gParallel.SerialOnThisThread`,
 and the brute force). With `HasSelfIntersections` (stop at the first pair) the pair found first depends on the thread
-timing, as before; only its existence is used. The pair counts and hashes are the same as before and after lever 1.
+timing, as before; only its existence is used. The pair counts and hashes are the same as before and after lever 1. The candidates are streamed to the exact test (`TriangleBoxTree.SelfPairs` with a visit callback), not listed per work item: a fan of 2000 triangles, where every box overlaps every other, needs no list of box pairs, and `HasSelfIntersections` stops its work item at the first pair (`DenseFan_...` test; found by review).
 
 | mesh | all-pairs search ms: master / lever 1 / lever 2 | HasSelfIntersections ms: master / lever 1 / lever 2 | NotCleanReason ms: master / lever 1 / lever 2 |
 |---|---|---|---|
-| sphere, 200k triangles | 264 / 178 / 166 | 273 / 164 / 136 | 326 / 203 / 171 |
-| alpha wrap, 185k triangles | 405 / 283 / 191 | 400 / 287 / 164 | 536 / 443 / 340 |
-| two shifted wraps (20 293 pairs) | 1060 / 813 / 472 | 181 / 191 / 205 | 487 / 469 / 517 |
+| sphere, 200k triangles | 267 / 204 / 135 | 297 / 166 / 119 | 319 / 221 / 148 |
+| alpha wrap, 185k triangles | 420 / 287 / 170 | 439 / 295 / 152 | 541 / 417 / 319 |
+| two shifted wraps (20 293 pairs) | 1080 / 849 / 438 | 183 / 186 / 200 | 481 / 488 / 512 |
 
-(Runs on a shared machine, 10-20 % noise; the last row's NotCleanReason time stops at the first pair after the other checks.)
+(Median of 9 runs on a quiet machine, 4 cores; on the last row `NotCleanReason` stops at the first pair, and the time is dominated by the other checks.)
