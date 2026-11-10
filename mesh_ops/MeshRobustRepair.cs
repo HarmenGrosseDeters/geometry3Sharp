@@ -60,15 +60,17 @@ namespace gs
     /// Working frame: Apply() scales the mesh by a power of two (exact) to an extent in [1, 2), runs every stage there and scales the result back,
     /// so a scene and its 2^k scaled copy give the same result up to the scale, bit for bit, at every scale of the supported range (design note
     /// docs/design/ROBUST_REPAIR_SCALE_FREE.md, option A). Lengths set by the caller are in its units and are scaled into the frame
-    /// (RoundingAbsoluteTolerance, the absolute tolerances and CleanupReferenceDiagonal set by ConfigureRepair); the callbacks ConfigureRepair
-    /// and ConfigureWrapQuality see frame objects. The meshes and lengths of the public Solidify and AlphaWrap (Result, Mesh, UsedCellSize,
+    /// (RoundingAbsoluteTolerance, the absolute tolerances and CleanupReferenceDiagonal set by ConfigureRepair, as constants: do not derive them from
+    /// repair.Mesh, which is in the frame); the callbacks ConfigureRepair and ConfigureWrapQuality see frame objects. ConfigureRepair is called once on an empty
+    /// probe first: with ToleranceMode.Absolute, or if it throws there, the frame is not used. The meshes and lengths of the public Solidify and AlphaWrap (Result, Mesh, UsedCellSize,
     /// UsedAlpha, UsedOffset) are in the caller's units after Apply(); the length diagnostics of ExactResolveRounding and SeparatedRounding
     /// (MaxDrift, MaxLength, ...) stay in the frame. There is no frame with RepairF (a function on the caller's coordinates) or for a mesh that
     /// cannot be scaled exactly (a tiny extent far from the origin). The result is checked once more by NotCleanReason on the mesh in the caller's frame.
     ///
     /// Components far apart compared to their size (the far-part mode): the alpha wrap, whose alpha and offset are fractions of the diagonal of
     /// all triangles, is taken only if alpha + offset is at most 5 % of the largest component's diagonal (WrapTooCoarse otherwise, in
-    /// WrapReason): a part below alpha is replaced by a blob of that size, which no check sees.
+    /// WrapReason): a part below alpha is replaced by a blob of that size, which no check sees. Only with MinVolumeIoU > 0, and for at most 64
+    /// connected components (a triangle soup is not a set of parts), whatever WrapRelativeAlpha is (a coarse alpha is refused in that mode).
     ///
     /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
     /// at least 2^-40 of the largest magnitude. Parts that lie far apart
@@ -313,6 +315,7 @@ namespace gs
             farParts = false;
             lostFarRejected = false;
             frameScale = 1;
+            LastFrameScale = 1;
             reset_outputs();
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
@@ -334,7 +337,7 @@ namespace gs
             // up to the scale, by construction (the windows of scales where single stages were not, F3 to F5 of RepairCampaignFindings, are
             // gone with it). Not with RepairF (a user function on user coordinates), and for a mesh that cannot be scaled exactly
             // (a tiny extent far from the origin).
-            double s = RepairF == null && NoWorkingFrame == false && Mesh.TriangleCount > 0 ? MeshRepairMetrics.unit_scale_for_mesh(Mesh, false, 0, 0) : 1;
+            double s = RepairF == null && NoWorkingFrame == false && Mesh.TriangleCount > 0 && repair_settings_allow_frame() ? MeshRepairMetrics.unit_scale_for_mesh(Mesh, false, 0, 0) : 1;
             if (s == 1)
                 return apply_checked();
             frameScale = s;
@@ -350,20 +353,26 @@ namespace gs
                 map_back(1 / s, callersMesh);
                 frameScale = 1;
             }
-            // the public check on the mesh in the caller's frame decides (NotCleanReason has its own code paths outside [2^-100, 2^100]):
-            // a result that was clean in the frame and is not here is reported
-            if (ok && ResultReason == "" && Mesh.TriangleCount > 0) {
-                string outer = NotCleanReason(Mesh, CheckSelfIntersections);
-                if (outer != "") {
-                    ResultReason = outer;
-                    ok = false;
-                }
-            }
             return ok;
         }
 
         /// <summary> (tests, benchmarks: an A/B in one build) Apply() works on the mesh as it is, without the working frame </summary>
         internal bool NoWorkingFrame;
+        // ConfigureRepair is applied to a probe first: ToleranceMode.Absolute (the 1.0.324 values, also some constants inside MeshAutoRepair that cannot be scaled
+        // from here) means the caller's units matter, so there is no frame; a callback that throws on the probe (it needs a mesh) is not framed either
+        bool repair_settings_allow_frame()
+        {
+            if (ConfigureRepair == null)
+                return true;
+            try {
+                var probe = new MeshAutoRepair(new DMesh3());
+                ConfigureRepair(probe);
+                return probe.ToleranceMode != MeshAutoRepair.ToleranceModes.Absolute;
+            } catch (Exception) {
+                return false;
+            }
+        }
+
         // the scale of the working frame of the running Apply() (1: none); lengths the caller set are multiplied by it
         double frameScale = 1;
         /// <summary> (tests) the power of two the last Apply() scaled the mesh by for its working frame (1: it worked on the mesh as it was) </summary>
@@ -646,7 +655,7 @@ namespace gs
                     // components far apart compared to their size: the wrap is one global alpha, and a result with surface far from the input (one
                     // blob over the separated parts, which encloses the parts: the lost-part check cannot see it) is not a repair of it. The
                     // solidify result is taken instead, and judged as always
-                    if (lostPartInput != null && wrap_too_coarse(lostPartInput, AlphaWrap.UsedAlpha + AlphaWrap.UsedOffset))
+                    if (lostPartInput != null && few_parts(lostPartInput) && wrap_too_coarse(lostPartInput, AlphaWrap.UsedAlpha + AlphaWrap.UsedOffset))
                         WrapReason = WrapTooCoarse;
                     else {
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;

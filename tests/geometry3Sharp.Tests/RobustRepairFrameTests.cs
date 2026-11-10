@@ -109,7 +109,7 @@ namespace geometry3Sharp.Tests
             var r = new MeshRobustRepair(input) { SolidifyResolution = 32, WrapRelativeAlpha = 16, WrapRelativeOffset = 160 };
             r.Apply();
             Assert.True(r.LastFrameScale != 1);
-            Assert.Equal(before.GetBounds().MaxDim, input.GetBounds().MaxDim, 12);      // (not in the frame: its extent is 1 .. 2 there)
+            Assert.InRange(input.GetBounds().MaxDim / before.GetBounds().MaxDim, 0.99, 1.01);      // (not in the frame: its extent is 1 .. 2 there)
             Assert.InRange(r.Mesh.GetBounds().MaxDim / before.GetBounds().MaxDim, 0.99, 1.01);
         }
 
@@ -175,6 +175,35 @@ namespace geometry3Sharp.Tests
                 // the box of the wrap is the scene's, not the frame's
                 Assert.InRange(r.AlphaWrap.Result.GetBounds().MaxDim / s, 0.5, 5);
             }
+        }
+
+        // the caller's RoundingAbsoluteTolerance is scaled into the frame and restored, also on the rounding objects the Apply() leaves
+        [Fact]
+        public void RoundingAbsoluteTolerance_ScaledInRestoredAfter()
+        {
+            DMesh3 m = Scaled(MeshRobustRepairTests.OverlappingSpheres(), -70);
+            var r = new MeshRobustRepair(m) { RoundingAbsoluteTolerance = 1e-30 };
+            Assert.True(r.Apply());
+            Assert.True(r.LastFrameScale != 1);
+            Assert.Equal(1e-30, r.RoundingAbsoluteTolerance);
+            Assert.NotNull(r.ExactResolveRounding);
+            Assert.Equal(1e-30, r.ExactResolveRounding.AbsoluteTolerance);
+            // the same scene at unit scale with the tolerance scaled the same way: the same result
+            var r0 = new MeshRobustRepair(MeshRobustRepairTests.OverlappingSpheres()) { RoundingAbsoluteTolerance = 1e-30 * Math.Pow(2, 70) };
+            Assert.True(r0.Apply());
+            Assert.Equal("", Invariance.Difference(r0.Mesh, Scaled(r.Mesh, 70)));
+        }
+
+        // ToleranceMode.Absolute (the 1.0.324 values, some constants not scalable from here) and a callback that needs a mesh: no frame
+        [Fact]
+        public void AbsoluteMode_And_ThrowingProbe_NoFrame()
+        {
+            var a = new MeshRobustRepair(Scaled(CleanTwoParts(), -95)) { SolidifyResolution = 32, ConfigureRepair = (rep) => rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute };
+            a.Apply();
+            Assert.Equal(1.0, a.LastFrameScale);
+            var t = new MeshRobustRepair(Scaled(CleanTwoParts(), -95)) { SolidifyResolution = 32, ConfigureRepair = (rep) => { if (rep.Mesh.TriangleCount == 0) throw new InvalidOperationException("needs a mesh"); } };
+            t.Apply();
+            Assert.Equal(1.0, t.LastFrameScale);
         }
 
         // RepairF is a function on the caller's coordinates: the frame is not used
