@@ -324,25 +324,6 @@ public static partial class Program
         }
     }
 
-    static bool SegmentsCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
-    {
-        double o1 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x), o2 = (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x);
-        double o3 = (d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x), o4 = (d.x - c.x) * (b.y - c.y) - (d.y - c.y) * (b.x - c.x);
-        return o1 * o2 < 0 && o3 * o4 < 0;
-    }
-
-    /// <summary> does a ring cross itself (two non-adjacent edges cross properly)? </summary>
-    static bool SelfIntersects(IReadOnlyList<Vector2d> ring)
-    {
-        int n = ring.Count;
-        for (int i = 0; i < n; ++i)
-            for (int j = i + 2; j < n; ++j) {
-                if (i == 0 && j == n - 1) continue;
-                if (SegmentsCross(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) return true;
-            }
-        return false;
-    }
-
     static void RunClipper(Case c, string what)
     {
         Setup? s = MakeSetup(c);
@@ -407,10 +388,6 @@ public static partial class Program
                     if (mismatches++ == 0) first = $"{p} (in A {ia}, in B {ib}, result {count > 0}, {op})";
                 }
             }
-        // open finding (FINDINGS.md): a self-intersecting input ring can give an outer ring of the wrong orientation (negative area); gated
-        // unless MESH_FUZZ_STRICT=1
-        if (!orientations && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1" && (SelfIntersects(ringA) || SelfIntersects(ringB)))
-            orientations = true;
         CheckClipper(what, r.Status.ToString(), "", finite, orientations, mismatches, first);
         // Offset and Simplify of the union
         Clipper2Result u = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { pa }, new[] { pb });

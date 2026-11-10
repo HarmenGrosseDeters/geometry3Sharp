@@ -208,11 +208,12 @@ namespace g3.Clipper2
 
         void AddOuter(PolyPath64 node, List<GeneralPolygon2d> result)
         {
-            var polygon = new GeneralPolygon2d(ToPolygon2d(node.Polygon));
+            // (Clipper2 reports a lobe of negative winding as a clockwise path even where it is an outer boundary: oriented here, by the grid area)
+            var polygon = new GeneralPolygon2d(ToPolygon2d(Oriented(new Path64(node.Polygon), true)));
             result.Add(polygon);
             for (int i = 0; i < node.Count; ++i) {
                 PolyPath64 hole = node.Child(i);
-                polygon.AddHole(ToPolygon2d(hole.Polygon), false, false);
+                polygon.AddHole(ToPolygon2d(Oriented(new Path64(hole.Polygon), false)), false, false);
                 for (int j = 0; j < hole.Count; ++j)
                     AddOuter(hole.Child(j), result);
             }

@@ -80,10 +80,10 @@ judges them):
 2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
    success inside the documented range (up to 1e70).
 3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
-4. (clipper2) `BooleanPaths` of a self-intersecting raw ring (NonZero) returned an outer ring of negative area (clockwise: a 3-vertex lobe of area 3e-5),
-   against the documented orientation of results ("outer rings counterclockwise, holes clockwise"); a plain bowtie is fine (both lobes counterclockwise), so the
-   cause is a more complex winding structure (a lobe of negative winding next to or inside one of positive winding); the target gates it for self-intersecting
-   input rings. Input: the 16 corners of a projected polyhedron, e.g. `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24`.
+4. (clipper2, fixed) `BooleanPaths` of a self-intersecting raw ring (NonZero) returned an outer ring of negative area (clockwise: a 3-vertex lobe of area 3e-5),
+   against the documented orientation of results ("outer rings counterclockwise, holes clockwise"). Clipper2 reports a lobe of negative winding as a clockwise path
+   even where it is an outer boundary; `ClipperFrame.ToGeneralPolygons` now orients every outer ring and hole by its grid area (`Clipper2ResultOrientationTests`).
+   Input: `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24` (0 findings after the fix; the target no longer gates it).
 `ArgumentException` for coordinates above 1e70 is the documented contract: the target judges it (the normalized copy keeps the case's offset, so it is reached; accepted
 input beyond 1e70 would be a finding).
 The reducer's 2^40 scale check is judged only inside the Reducer's range (nonzero coordinates 2^-200 .. 2^150, QA.md 2.5a); two inputs with a vertex of magnitude 1e-235
