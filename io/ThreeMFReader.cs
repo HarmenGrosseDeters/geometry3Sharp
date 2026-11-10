@@ -290,7 +290,7 @@ namespace g3
                 throw new FormatException("3MF transform must have 12 values: " + s);
             double[] m = new double[12];
             for (int i = 0; i < 12; ++i)
-                m[i] = double.Parse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture);
+                m[i] = MeshIOUtil.ParseDouble(tokens[i]);
             // 3MF: [x y z 1] * [m00 m01 m02; m10 m11 m12; m20 m21 m22; m30 m31 m32]
             // so x' = m00*x + m10*y + m20*z + m30, ie the column-vector matrix is the transpose
             return new Matrix4x3() {

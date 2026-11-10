@@ -109,7 +109,7 @@ namespace g3
 
         static bool TryNumber(string s, out double v)
         {
-            return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+            return MeshIOUtil.TryParseDouble(s, out v);
         }
 
         // ---------------------------------------------------------------- XYZ

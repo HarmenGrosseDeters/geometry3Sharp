@@ -57,6 +57,21 @@ namespace gs
     /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
     /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
     ///
+    /// Working frame: Apply() scales the mesh by a power of two (exact) to an extent in [1, 2), runs every stage there and scales the result back,
+    /// so a scene and its 2^k scaled copy give the same result up to the scale, bit for bit, at every scale of the supported range (design note
+    /// docs/design/ROBUST_REPAIR_SCALE_FREE.md, option A). Lengths set by the caller are in its units and are scaled into the frame
+    /// (RoundingAbsoluteTolerance, the absolute tolerances and CleanupReferenceDiagonal set by ConfigureRepair, as constants: do not derive them from
+    /// repair.Mesh, which is in the frame); the callbacks ConfigureRepair and ConfigureWrapQuality see frame objects. ConfigureRepair is called once on an empty
+    /// probe first: with ToleranceMode.Absolute, or if it throws there, the frame is not used. The meshes and lengths of the public Solidify and AlphaWrap (Result, Mesh, UsedCellSize,
+    /// UsedAlpha, UsedOffset) are in the caller's units after Apply(); the length diagnostics of ExactResolveRounding and SeparatedRounding
+    /// (MaxDrift, MaxLength, ...) stay in the frame. There is no frame with RepairF (a function on the caller's coordinates) or for a mesh that
+    /// cannot be scaled exactly (a tiny extent far from the origin). The result is checked once more by NotCleanReason on the mesh in the caller's frame.
+    ///
+    /// Components far apart compared to their size (the far-part mode): the alpha wrap, whose alpha and offset are fractions of the diagonal of
+    /// all triangles, is taken only if alpha + offset is at most 5 % of the largest component's diagonal (WrapTooCoarse otherwise, in
+    /// WrapReason): a part below alpha is replaced by a blob of that size, which no check sees. Only with MinVolumeIoU > 0, and for at most 64
+    /// connected components (a triangle soup is not a set of parts), whatever WrapRelativeAlpha is (a coarse alpha is refused in that mode).
+    ///
     /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
     /// at least 2^-40 of the largest magnitude. Parts that lie far apart
     /// compared to their size are handled up to the limits of ScaleDisparity (Apply() false beyond, the mesh is kept);
@@ -299,6 +314,101 @@ namespace gs
             lostPartInput = null;
             farParts = false;
             lostFarRejected = false;
+            frameScale = 1;
+            LastFrameScale = 1;
+            reset_outputs();
+            phase_timer.Restart();
+            // unused vertices are no part of the solid, but far away they would make every threshold relative to the
+            // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
+            MeshEditor.RemoveUnusedVertices(Mesh);
+            // a diagonal that is not finite (an extent above about 1e154, or coordinates that are not finite): every
+            // threshold relative to it would be infinite (the repair collapsed whole components); not repaired, Mesh not
+            // replaced
+            if (Mesh.TriangleCount > 0 && !(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength < double.PositiveInfinity)) {
+                ResultReason = ScaleNotFinite;
+                return false;
+            }
+            if (Mesh.TriangleCount > 0 && !CoordinatesInRange(Mesh)) {
+                ResultReason = OutsideRange;
+                return false;
+            }
+            // One working frame for the whole Apply(): the mesh scaled by a power of two (exact) to an extent in [1, 2), the result scaled back. Every
+            // stage, tolerance, float cast and power then sees the same numbers for a scene and its 2^k scaled copy, so the result is the same
+            // up to the scale, by construction (the windows of scales where single stages were not, F3 to F5 of RepairCampaignFindings, are
+            // gone with it). Not with RepairF (a user function on user coordinates), and for a mesh that cannot be scaled exactly
+            // (a tiny extent far from the origin).
+            double s = RepairF == null && NoWorkingFrame == false && Mesh.TriangleCount > 0 && repair_settings_allow_frame() ? MeshRepairMetrics.unit_scale_for_mesh(Mesh, false, 0, 0) : 1;
+            if (s == 1)
+                return apply_checked();
+            frameScale = s;
+            double roundingAbsolute = RoundingAbsoluteTolerance;
+            DMesh3 callersMesh = Mesh;
+            MeshRepairMetrics.ScaleVertices(Mesh, s);
+            RoundingAbsoluteTolerance = roundingAbsolute * s;
+            bool ok = false;
+            try {
+                ok = apply_checked();
+            } finally {
+                RoundingAbsoluteTolerance = roundingAbsolute;
+                map_back(1 / s, callersMesh);
+                frameScale = 1;
+            }
+            return ok;
+        }
+
+        /// <summary> (tests, benchmarks: an A/B in one build) Apply() works on the mesh as it is, without the working frame </summary>
+        internal bool NoWorkingFrame;
+        // ConfigureRepair is applied to a probe first: ToleranceMode.Absolute (the 1.0.324 values, also some constants inside MeshAutoRepair that cannot be scaled
+        // from here) means the caller's units matter, so there is no frame; a callback that throws on the probe (it needs a mesh) is not framed either
+        bool repair_settings_allow_frame()
+        {
+            if (ConfigureRepair == null)
+                return true;
+            try {
+                var probe = new MeshAutoRepair(new DMesh3());
+                ConfigureRepair(probe);
+                return probe.ToleranceMode != MeshAutoRepair.ToleranceModes.Absolute;
+            } catch (Exception) {
+                return false;
+            }
+        }
+
+        // the scale of the working frame of the running Apply() (1: none); lengths the caller set are multiplied by it
+        double frameScale = 1;
+        /// <summary> (tests) the power of two the last Apply() scaled the mesh by for its working frame (1: it worked on the mesh as it was) </summary>
+        internal double LastFrameScale { get; private set; } = 1;
+
+        // the meshes the last Apply() made in the frame, and the lengths it reports, back to the caller's frame (s = 1 / frame scale; exact)
+        void map_back(double s, DMesh3 callersMesh)
+        {
+            LastFrameScale = 1 / s;
+            var done = new HashSet<DMesh3>();
+            Action<DMesh3> back = (m) => {
+                if (m != null && done.Add(m))
+                    MeshRepairMetrics.ScaleVertices(m, s);
+            };
+            back(callersMesh);          // (the mesh the caller handed over, which Mesh may no longer be: it was scaled into the frame)
+            back(Mesh);
+            if (Solidify != null) {
+                back(Solidify.Mesh);
+                back(Solidify.Result);
+                Solidify.UsedCellSize *= s;
+            }
+            if (AlphaWrap != null) {
+                back(AlphaWrap.Mesh);
+                back(AlphaWrap.Result);
+                AlphaWrap.UsedAlpha *= s;
+                AlphaWrap.UsedOffset *= s;
+            }
+            back(ExactResolveRounding?.Mesh);
+            back(SeparatedRounding?.Mesh);
+            // (a setting, not a diagnostic: what the caller set, in its units)
+            if (ExactResolveRounding != null) ExactResolveRounding.AbsoluteTolerance *= s;
+            if (SeparatedRounding != null && SeparatedRounding != ExactResolveRounding) SeparatedRounding.AbsoluteTolerance *= s;
+        }
+
+        bool apply_checked()
+        {
             bool ok;
             try {
                 ok = apply_core();
@@ -314,27 +424,7 @@ namespace gs
             return ok;
         }
 
-        // the input of the last Apply() if its components lie so far apart that a triangle of one is below the degenerate
-        // area of all triangles (global_scale_share > 0), null otherwise: only then are parts checked for loss
-        DMesh3 lostPartInput;
-        // the input of the last Apply() has far parts (see lostPartInput; independent of MinVolumeIoU): the cleanups are relative to the largest component
-        bool farParts;
-        /// <summary> (tests) the last Apply() treated the input as having far parts (relative cleanups and tolerances) </summary>
-        internal bool FarPartsHandled { get { return farParts; } }
-        const int MaxFarParts = 64;
-        static bool few_parts(DMesh3 mesh)
-        {
-            var comps = new MeshConnectedComponents(mesh);
-            comps.FindConnectedT();
-            return comps.Count <= MaxFarParts;
-        }
-        // a resolve was rejected for a lost part in the last Apply(): the repair stage collapsed it (its cleanups are relative to the
-        // diagonal of all triangles), so the retry relative to the largest component starts from the input
-        bool lostFarRejected;
-        /// <summary> (tests) the repair as before the far part handling: no cleanups relative to the largest component, no early lost part checks, so that the final one is reached </summary>
-        internal bool BypassEarlyLostPartChecks;
-
-        bool apply_core()
+        void reset_outputs()
         {
             UsedSolidify = false;
             ResultReason = "not repaired";
@@ -365,21 +455,30 @@ namespace gs
             VolumeChecksRun = 0;
             VolumeCheckStats = new List<MeshRepairMetrics.VolumeCheckStats>();
             PhaseMilliseconds.Clear();
-            phase_timer.Restart();
-            // unused vertices are no part of the solid, but far away they would make every threshold relative to the
-            // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
-            MeshEditor.RemoveUnusedVertices(Mesh);
-            // a diagonal that is not finite (an extent above about 1e154, or coordinates that are not finite): every
-            // threshold relative to it would be infinite (the repair collapsed whole components); not repaired, Mesh not
-            // replaced
-            if (Mesh.TriangleCount > 0 && !(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength < double.PositiveInfinity)) {
-                ResultReason = ScaleNotFinite;
-                return false;
-            }
-            if (Mesh.TriangleCount > 0 && !CoordinatesInRange(Mesh)) {
-                ResultReason = OutsideRange;
-                return false;
-            }
+        }
+
+        // the input of the last Apply() if its components lie so far apart that a triangle of one is below the degenerate
+        // area of all triangles (global_scale_share > 0), null otherwise: only then are parts checked for loss
+        DMesh3 lostPartInput;
+        // the input of the last Apply() has far parts (see lostPartInput; independent of MinVolumeIoU): the cleanups are relative to the largest component
+        bool farParts;
+        /// <summary> (tests) the last Apply() treated the input as having far parts (relative cleanups and tolerances) </summary>
+        internal bool FarPartsHandled { get { return farParts; } }
+        const int MaxFarParts = 64;
+        static bool few_parts(DMesh3 mesh)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            return comps.Count <= MaxFarParts;
+        }
+        // a resolve was rejected for a lost part in the last Apply(): the repair stage collapsed it (its cleanups are relative to the
+        // diagonal of all triangles), so the retry relative to the largest component starts from the input
+        bool lostFarRejected;
+        /// <summary> (tests) the repair as before the far part handling: no cleanups relative to the largest component, no early lost part checks, so that the final one is reached </summary>
+        internal bool BypassEarlyLostPartChecks;
+
+        bool apply_core()
+        {
             DMesh3 input = new DMesh3(Mesh);
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
@@ -393,6 +492,15 @@ namespace gs
             } else {
                 var repair = new MeshAutoRepair(Mesh) { PostRepairCleanup = true };
                 ConfigureRepair?.Invoke(repair);
+                if (frameScale != 1) {
+                    // lengths the caller set are in its units: into the frame (a default value stays the default, which is relative)
+                    if (repair.ToleranceMode == MeshAutoRepair.ToleranceModes.Absolute || repair.RepairTolerance != MathUtil.ZeroTolerancef)
+                        repair.RepairTolerance *= frameScale;
+                    if (repair.ToleranceMode == MeshAutoRepair.ToleranceModes.Absolute || repair.MinEdgeLengthTol != 0.0001)
+                        repair.MinEdgeLengthTol *= frameScale;
+                    if (!double.IsNaN(repair.CleanupReferenceDiagonal) && !double.IsInfinity(repair.CleanupReferenceDiagonal))
+                        repair.CleanupReferenceDiagonal *= frameScale;
+                }
                 if (farParts) {
                     // the tolerances of the repair are fractions of the diagonal of all triangles (capped by the median edge): with parts far
                     // apart that is far larger than the parts, whose edges are then collapsed as short. Relative to the largest component
@@ -544,6 +652,12 @@ namespace gs
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
+                    // components far apart compared to their size: the wrap is one global alpha, and a result with surface far from the input (one
+                    // blob over the separated parts, which encloses the parts: the lost-part check cannot see it) is not a repair of it. The
+                    // solidify result is taken instead, and judged as always
+                    if (lostPartInput != null && few_parts(lostPartInput) && wrap_too_coarse(lostPartInput, AlphaWrap.UsedAlpha + AlphaWrap.UsedOffset))
+                        WrapReason = WrapTooCoarse;
+                    else {
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 wrapped = AlphaWrap.Result;
                     if (SimplifyAlphaWrap) {
@@ -569,8 +683,9 @@ namespace gs
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
                     ResultReason = "";
                     return true;
-                }
-                WrapReason = AlphaWrap.Status + (AlphaWrap.Error != null ? ": " + AlphaWrap.Error : "");
+                    }
+                } else
+                    WrapReason = AlphaWrap.Status + (AlphaWrap.Error != null ? ": " + AlphaWrap.Error : "");
             }
             if (solidified == false || CancelF())
                 return false;
@@ -590,6 +705,21 @@ namespace gs
         }
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+        /// <summary> WrapReason when the alpha wrap of an input with far parts is too coarse for its largest component and is not taken </summary>
+        public const string WrapTooCoarse = "wrap rejected: alpha and offset are not small against the largest component (components far apart compared to their size)";
+        // The wrap's alpha and offset are fractions of the diagonal of ALL triangles. With components far apart that is far larger than a component:
+        // every part below alpha is replaced by an alpha-sized blob (a sphere of radius 1 next to a part at 4e6 became an octahedron of radius
+        // 1400), and the result is "closed and encloses the input" but not a repair, which no check sees (the parts are inside their blobs). In that
+        // mode a wrap is taken only if alpha + offset is at most this share of the largest component's diagonal (a single part at the defaults:
+        // 0.0037, so a scene is accepted up to a disparity of about 13)
+        const double WrapMaxResolutionShare = 0.05;
+
+        internal static bool wrap_too_coarse(DMesh3 input, double alphaPlusOffset)
+        {
+            double largest = MeshRepairMetrics.LargestComponentDiagonal(input);
+            return !(alphaPlusOffset <= WrapMaxResolutionShare * largest);
+        }
+
         const string PartsLostFarReason = "a part of the input lost (components far apart compared to their size)";
         /// <summary> ResultReason of an Apply() that is false because a closed part of the input is not in the result, where components lie far apart compared to their size </summary>
         public const string LostFarPart = "scale disparity: a part of the input is lost (components far apart compared to their size)";

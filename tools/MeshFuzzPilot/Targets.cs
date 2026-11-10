@@ -619,16 +619,39 @@ public static partial class Program
             throw new Finding($"{what}: the result has {MeshRobustRepair.DescribeDefects(shape)}");
     }
 
+    // (the library also checks isolated vertices and Points, and returns EmptyInput for no input: the decoded shapes always have triangles and no loose vertices)
+    static bool WrapRangeOk(DMesh3 m)
+    {
+        double biggest = 0;
+        Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
+        foreach (int tid in m.TriangleIndices()) {
+            Index3i t = m.GetTriangle(tid);
+            for (int k = 0; k < 3; ++k) {
+                Vector3d p = m.GetVertex(t[k]);
+                for (int c = 0; c < 3; ++c) {
+                    double a = Math.Abs(p[c]);
+                    if (!(a == 0 || (a >= Pow2(-128) && a <= Pow2(128)))) return false;
+                    biggest = Math.Max(biggest, a);
+                    lo[c] = Math.Min(lo[c], p[c]); hi[c] = Math.Max(hi[c], p[c]);
+                }
+            }
+        }
+        double extent = Math.Max(hi.x - lo.x, Math.Max(hi.y - lo.y, hi.z - lo.z));
+        return extent == 0 || extent >= biggest * Pow2(-40);
+    }
+
     static void RunAlphaWrap(Case c, string what)
     {
         var input = new DMesh3(c.A);
         new MeshEditor(input).AppendMesh(c.B);
-        // the wrap's domain is a box diagonal within 2^+-150: beyond it a tetrahedron or an octahedron gives InvalidParameters
-        // (below 2^-700, above 2^700), Failed (box corners on the result, from 2^-300 and 2^300) or a wrap of ten times the
-        // triangles (2^+-200), see the report of the first campaign
-        double inputDiagonal = Diagonal(input.GetBounds());
-        if (!(inputDiagonal >= Pow2(-150) && inputDiagonal <= Pow2(150)))
+        // the supported range of the wrap (class comment, QA.md 2.5a): every nonzero coordinate in [2^-128, 2^128], the extent zero
+        // or at least 2^-40 of the largest magnitude. Outside, the documented status is InvalidInput (no hang, no false success)
+        if (!WrapRangeOk(input)) {
+            var outside = new MeshAlphaWrap(input) { RelativeAlpha = 5, RelativeOffset = 100, MaxSteinerPoints = 3000 };
+            if (outside.Compute() || outside.Status != MeshAlphaWrap.WrapStatus.InvalidInput)
+                throw new Finding($"{what}: outside the supported range, Status {outside.Status} instead of InvalidInput ({outside.Error})");
             return;
+        }
         // a coarse wrap (alpha a fifth of the diagonal), few Steiner points: an input costs milliseconds to a second
         var wrap = new MeshAlphaWrap(input) { RelativeAlpha = 5, RelativeOffset = 100, MaxSteinerPoints = 3000 };
         bool ok = wrap.Compute();
