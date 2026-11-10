@@ -1218,7 +1218,8 @@ namespace g3
             // the drift bound first (it does not count as an evaluation)
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
-            // (the bound of the edit's component: edits stay within one)
+            // (the bound of the edit's component: edits stay within one; every edit removes a triangle, an edit without
+            // one would get a NaN bound and be rejected)
             double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;
             if (within_bound(proposed_drift(step), bound) == false)
                 return false;
