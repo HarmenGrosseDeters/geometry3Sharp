@@ -343,6 +343,34 @@ namespace g3
 
 
         /// <summary>
+        /// true if values[4 * v + slot] == target for some value v of the list at list_index (the order of ValueItr,
+        /// stops at the first); without allocating an iterator (DMesh3.IsBoundaryVertex: an edge with no second triangle)
+        /// </summary>
+        internal bool AnyAtSlot(int list_index, DVector<int> values, int slot, int target)
+        {
+            int block_ptr = list_heads[list_index];
+            if (block_ptr != Null) {
+                int N = block_store[block_ptr];
+                int iEnd = block_ptr + Math.Min(N, BLOCKSIZE);
+                for (int i = block_ptr + 1; i <= iEnd; ++i) {
+                    if (values[4 * block_store[i] + slot] == target)
+                        return true;
+                }
+                if (N >= BLOCKSIZE) {
+                    // spilled to the linked list
+                    int cur_ptr = block_store[block_ptr + BLOCK_LIST_OFFSET];
+                    while (cur_ptr != Null) {
+                        if (values[4 * linked_store[cur_ptr] + slot] == target)
+                            return true;
+                        cur_ptr = linked_store[cur_ptr + 1];
+                    }
+                }
+            }
+            return false;
+        }
+
+
+        /// <summary>
         /// search for findF(list_value) == true, of list at list_index, and return list_value
         /// </summary>
         public int Find(int list_index, Func<int,bool> findF, int invalidValue = -1 )

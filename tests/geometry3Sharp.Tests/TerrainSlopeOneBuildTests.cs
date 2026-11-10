@@ -59,6 +59,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void OneBuild_EqualsARebuildAtTheFinalLowering()
         {
@@ -101,6 +102,7 @@ namespace geometry3Sharp.Tests
             Assert.True(raised >= 3, $"{raised}");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void InsertionOrder_DoesNotChangeTheResult()
         {

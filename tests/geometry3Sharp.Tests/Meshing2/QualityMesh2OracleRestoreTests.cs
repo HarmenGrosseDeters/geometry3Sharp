@@ -57,6 +57,7 @@ namespace geometry3Sharp.Tests
         /// on seeds 0 to 2999 of <see cref="StarPolygonFuzz"/>, the hot pixels the library's snap rounding adds beyond the input points'
         /// are exactly the crossings' and the oracle's restore pixels; at least the 10 seeds that need them have some
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void RestorePixels_MatchTheLibrarys_OnTheFuzz()
         {

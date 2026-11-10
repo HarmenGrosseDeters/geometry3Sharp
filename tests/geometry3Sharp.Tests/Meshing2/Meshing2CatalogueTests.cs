@@ -31,6 +31,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Rows.Count, Rows.Select(r => r.Id).Distinct().Count());
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(RowIds))]
         public void Row_IsInItsState(string id)

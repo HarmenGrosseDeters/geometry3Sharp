@@ -1359,6 +1359,35 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// The inside cells of the last successful Compute() as a tetrahedral mesh (docs/design/TET_MESHING.md, stage 0).
+        /// The wrap surface is a union of facets of the triangulation, so the inside cells are a valid tetrahedral mesh of the
+        /// wrapped volume whose boundary is exactly Result (same vertex positions, no rounding). Delaunay, positive
+        /// volumes exactly, but without any quality bound in the interior. Null if there is no successful Result.
+        /// </summary>
+        public TetMesh3 ExtractTetMesh()
+        {
+            if (Result == null || Status != WrapStatus.Success || dt == null)
+                return null;
+            var tm = new TetMesh3();
+            var map = new Dictionary<int, int>();
+            Func<int, int> vid = (v) => {
+                if (!map.TryGetValue(v, out int id)) { id = tm.Vertices.Count; tm.Vertices.Add(dt.GetVertex(v)); map[v] = id; }
+                return id;
+            };
+            foreach (int c in dt.CellIndices()) {
+                if (label[c] != Inside) continue;
+                Index4i cv = dt.GetCell(c);
+                tm.Tets.Add(new Index4i(vid(cv.a), vid(cv.b), vid(cv.c), vid(cv.d)));
+                for (int i = 0; i < 4; ++i) {
+                    if (label_of(dt.Neighbour(c, i)) != Outside) continue;
+                    Index3i f = dt.FacetVertices(c, i);
+                    tm.BoundaryTriangles.Add(new Index3i(vid(f.a), vid(f.b), vid(f.c)));
+                }
+            }
+            return tm;
+        }
+
         /// <summary> max-heap of gates (facet i of inside cell c, with the cell's stamp), by facet radius </summary>
         class GateQueue
         {

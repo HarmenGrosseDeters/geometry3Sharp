@@ -239,6 +239,7 @@ namespace geometry3Sharp.Tests
 
         static double Ulp(DMesh3 m) => Math.Pow(2, Math.Floor(Math.Log(m.Vertices().Max(v => v.MaxAbs), 2)) - 52);
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Utm_CleanWithTheUlpTolerance_WithinIt()
         {
@@ -273,6 +274,7 @@ namespace geometry3Sharp.Tests
         // fix_degenerate moved the apex of a cap along Normalized, fix_intersection along GetTriNormal and Normalized, and
         // those return 0 below the absolute MathUtil.Epsilon, so an offset of 1e-17 gave no move at scale 1 but one at
         // 2^10 (docs/design/SAFE_ROUNDING.md, the snap-rounding experiment)
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 4, 5)]
         [InlineData(SafeRoundingDegenerateInputTests.Family.Cluster, 0, 8, 4)]

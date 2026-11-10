@@ -442,6 +442,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reuse_AfterACancelledLocalLimitRun()
         {
