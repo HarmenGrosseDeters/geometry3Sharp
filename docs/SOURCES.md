@@ -654,3 +654,16 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the piecewise linearity of both surfaces (the difference is linear on the cells of the overlay of two triangulations, so its maximum is at overlay
 vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
 the usual GIS distinction between constrained and conforming TINs with breaklines.
+
+
+## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
+
+Implemented from the papers below; no code of any of them was read.
+
+| Part | Source |
+|---|---|
+| Normal axis from a PCA of the nearest neighbours (tangent plane) | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992, pp. 71-78 (bibliographic data checked by web search only) |
+| The wrap of the cloud | `MeshAlphaWrap` (Portaneri et al. 2022, see its entry) |
+| Sign by two probe points against the wrap (outer side = the probe outside the closed wrap) | own construction, not from a paper; the pairing "alpha wrap for normal orientation" was not found in the literature searched (design note section 2) |
+| Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
+| k-nearest neighbours | a uniform grid with ring search; textbook method, own code |
