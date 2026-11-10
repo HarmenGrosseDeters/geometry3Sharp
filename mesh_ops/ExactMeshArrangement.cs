@@ -2752,36 +2752,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void SelfPairs(Index2i t, List<Index2i> result)
         {
-            var stack = new List<Index2i> { t };
-            while (stack.Count > 0) {
-                Index2i top = stack[stack.Count - 1];
-                stack.RemoveAt(stack.Count - 1);
-                int a = top.a, b = top.b;
-                if (a == b) {
-                    if (nodeLeft[a] < 0) {
-                        for (int i = nodeStart[a], e = nodeStart[a] + nodeSize[a]; i < e; ++i)
-                            for (int j = i + 1; j < e; ++j)
-                                if (leaves_overlap(i, j))
-                                    result.Add(new Index2i(order[i], order[j]));
-                    } else {
-                        int l = nodeLeft[a], r = nodeRight[a];
-                        stack.Add(new Index2i(r, r)); stack.Add(new Index2i(l, r)); stack.Add(new Index2i(l, l));
-                    }
-                    continue;
-                }
-                if (nodes_overlap(a, b) == false)
-                    continue;
-                if (nodeLeft[a] < 0 && nodeLeft[b] < 0) {
-                    for (int i = nodeStart[a], ei = nodeStart[a] + nodeSize[a]; i < ei; ++i)
-                        for (int j = nodeStart[b], ej = nodeStart[b] + nodeSize[b]; j < ej; ++j)
-                            if (leaves_overlap(i, j))
-                                result.Add(new Index2i(order[i], order[j]));
-                } else if (split_first(a, b)) {
-                    stack.Add(new Index2i(nodeRight[a], b)); stack.Add(new Index2i(nodeLeft[a], b));
-                } else {
-                    stack.Add(new Index2i(a, nodeRight[b])); stack.Add(new Index2i(a, nodeLeft[b]));
-                }
-            }
+            SelfPairs(t, (i, j) => { result.Add(new Index2i(i, j)); return true; });
         }
 
         /// <summary>
