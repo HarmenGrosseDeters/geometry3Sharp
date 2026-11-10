@@ -1423,8 +1423,8 @@ namespace g3
         /// half-integer (in front of a flat part of an open sheet the value is exactly k + 1/2: the tie of the threshold is
         /// then decided by its rule, not by the rounding of the sum, so the same with every ray). A true value within the
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
-        /// result is not exact; the bound is about 1e-13 except next to a boundary segment (and the centroid on or next to
-        /// one is undecided anyway). The sum uses portable_atan2, so the value is the same bits on every runtime.
+        /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at the switch's 1000), more for a
+        /// centroid next to a segment (on or next to one it is undecided anyway). The sum uses portable_atan2, so the value is the same bits on every runtime.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
