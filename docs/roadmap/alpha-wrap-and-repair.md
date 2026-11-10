@@ -57,6 +57,8 @@ guarantees and angles unchanged, deterministic); the owner sets them; one PR per
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
 and memory): both use "evaluate in parallel, apply serially".
 
+**Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`.
+
 **Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
 PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
 60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
