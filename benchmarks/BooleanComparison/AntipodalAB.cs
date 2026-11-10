@@ -257,7 +257,13 @@ static class AntipodalAB
             var src = arr.Triangles[ot.Source];
             Vector3d nrm = new Vector3d((double)src.NX, (double)src.NY, (double)src.NZ).Normalized;
             double edge = Math.Max((a - b).Length, Math.Max((b - c).Length, (c - a).Length));
-            Vector3d q = (a + b + c) / 3 + 1e-7 * edge * nrm;
+            // (the offset at least 1e-12 of the coordinates: below that the point does not leave the piece's plane in
+            // doubles, and the piece's own triangle counts as in-plane; skipped if it reaches half the distance to the
+            // nearest other sheet, where the offset point could lie across it)
+            double scale = Math.Abs(a.x) + Math.Abs(a.y) + Math.Abs(a.z) + 1;
+            double offset = Math.Max(1e-7 * edge, 1e-12 * scale);
+            if (offset >= nearDist[k] / 2) { verdict[k] = 0; return; }
+            Vector3d q = (a + b + c) / 3 + offset * nrm;
             DMesh3 mesh = arr.Meshes[m];
             double w = 0;
             Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
