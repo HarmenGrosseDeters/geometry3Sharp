@@ -545,6 +545,12 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
 
+## Text number parsing across frameworks (`ExactDecimal`, `MeshIOUtil.ParseDouble`; docs/design/DETERMINISM.md)
+
+| Method | Source |
+|---|---|
+| Correctly rounded decimal-to-double / float conversion for the text readers where the platform parser is wrong (`ExactDecimal`, .NET Framework: 1 ulp errors for long digit strings, "-0" read as +0): the value as an integer times a power of ten, quotient of two big integers scaled by a power of two, remainder decides the rounding (ties to even); Clinger's exact fast path for at most 15 digits and |exponent| <= 22. Own implementation, nothing ported; the fast_float / Eisel-Lemire algorithm (Lemire, *Number Parsing at a Gigabyte per Second*, 2021) was considered and not used | W. D. Clinger, *How to Read Floating Point Numbers Accurately*, PLDI 1990; D. M. Gay, *Correctly rounded binary-decimal and decimal-binary conversions*, AT&T Bell Labs Numerical Analysis Manuscript 90-10, 1990 |
+
 ## Cross-field research
 
 The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
