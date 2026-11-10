@@ -1,6 +1,9 @@
 // Exact Boolean 2.0 final run: the three operations of one #385 case (A.off, B.off, info.json from BooleanComparison
 // export), each timed on its own instance, then checked. One JSON line per operation.
-//   FinalRunner <case dir> <id> <class>
+//   FinalRunner <case dir> <id> <class> [--ref <rows.jsonl>] [--no-eval]
+//   --ref: rows of a reference build for this id (one per operation, with "hash" and "reason"): where the result's hash
+//          equals the reference's, its reason is taken over ("reason_from": "ref") instead of evaluated again
+//   --no-eval: no NotCleanReason at all (timing runs)
 // Compiles against the library of every measured build (master and the #385 baseline cd7fb8ab): fields that the
 // baseline lacks are read by reflection.
 using System;
@@ -50,10 +53,39 @@ static class Program
         }
     }
 
+    // FNV-1a over the vertex coordinates (bits, in vertex id order) and the triangles: equal results, equal hashes
+    static string Hash(DMesh3 m)
+    {
+        ulong h = 14695981039346656037UL;
+        void add(ulong x) { for (int k = 0; k < 8; ++k) { h ^= (x >> (8 * k)) & 0xFF; h *= 1099511628211UL; } }
+        add((ulong)m.MaxVertexID); add((ulong)m.MaxTriangleID);
+        for (int v = 0; v < m.MaxVertexID; ++v) {
+            if (m.IsVertex(v) == false) { add(ulong.MaxValue); continue; }
+            Vector3d p = m.GetVertex(v);
+            add((ulong)BitConverter.DoubleToInt64Bits(p.x)); add((ulong)BitConverter.DoubleToInt64Bits(p.y)); add((ulong)BitConverter.DoubleToInt64Bits(p.z));
+        }
+        for (int t = 0; t < m.MaxTriangleID; ++t) {
+            if (m.IsTriangle(t) == false) { add(ulong.MaxValue); continue; }
+            Index3i tv = m.GetTriangle(t);
+            add((ulong)(uint)tv.a | ((ulong)(uint)tv.b << 32)); add((ulong)(uint)tv.c);
+        }
+        return h.ToString("X16");
+    }
+
     static int Main(string[] args)
     {
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         string dir = args[0], id = args[1], cls = args[2];
+        bool noEval = args.Contains("--no-eval");
+        var reference = new Dictionary<string, JsonElement>();
+        int ri = Array.IndexOf(args, "--ref");
+        if (ri >= 0 && ri + 1 < args.Length && File.Exists(args[ri + 1]))
+            foreach (string line in File.ReadLines(args[ri + 1])) {
+                if (line.Trim().Length == 0) continue;
+                JsonElement e = JsonDocument.Parse(line).RootElement;
+                if (e.TryGetProperty("op", out JsonElement o) && e.TryGetProperty("hash", out _) && e.TryGetProperty("reason", out _))
+                    reference[o.GetString()] = e;
+            }
         DMesh3 A = Load(Path.Combine(dir, "A.off")), B = Load(Path.Combine(dir, "B.off"));
         WarmUp();
         foreach (var (name, op) in new[] { ("union", ExactMeshBoolean.Operations.Union), ("intersection", ExactMeshBoolean.Operations.Intersection),
@@ -75,10 +107,17 @@ static class Program
                 if (b.Rounding != null) row["rounding_limit"] = b.Rounding.EvaluationLimitReached;
                 if (ok && b.Result != null) {
                     row["triangles"] = b.Result.TriangleCount;
-                    var ev = Stopwatch.StartNew();
-                    // the #385 evaluator's verdict: "" (clean), "empty", or the first defect of NotCleanReason
-                    row["reason"] = MeshRobustRepair.NotCleanReason(b.Result);
-                    row["eval_ms"] = ev.ElapsedMilliseconds;
+                    string hash = Hash(b.Result);
+                    row["hash"] = hash;
+                    if (reference.TryGetValue(name, out JsonElement refRow) && refRow.GetProperty("hash").GetString() == hash) {
+                        row["reason"] = refRow.GetProperty("reason").GetString();
+                        row["reason_from"] = "ref";
+                    } else if (noEval == false) {
+                        var ev = Stopwatch.StartNew();
+                        // the #385 evaluator's verdict: "" (clean), "empty", or the first defect of NotCleanReason
+                        row["reason"] = MeshRobustRepair.NotCleanReason(b.Result);
+                        row["eval_ms"] = ev.ElapsedMilliseconds;
+                    }
                     row["finite"] = b.Result.Vertices().All(v => Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue);
                 }
             } catch (Exception e) {
