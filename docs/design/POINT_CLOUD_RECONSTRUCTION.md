@@ -21,20 +21,23 @@ Upstream demand: gradientspace/geometry3Sharp issues #65, #141, #96, #164 (point
 
 ## 2. How others solve it (prior art, papers only)
 
-No code of any of these was read; the licence rule of CLAUDE.md applies (implement from papers). Reference details are
-from memory of the papers and must be checked against the papers when they go into `docs/SOURCES.md` in stage 2.
+No code of any of these was read; the licence rule of CLAUDE.md applies (implement from papers). The bibliographic data
+below was checked on 2026-11-10 against web search results (publisher, DBLP-like listings, SIGGRAPH history, arXiv, project
+pages), not against the papers' own pages: the ACM and Wiley pages were not reachable from the session. What is marked
+"unverified" was not confirmed and is re-checked before the entry goes into `docs/SOURCES.md` in stage 2. What the papers
+say about the methods (not the bibliography) is from memory and unverified, unless a note says otherwise.
 
 | Topic | Source | What we take |
 |---|---|---|
-| Poisson reconstruction | Kazhdan, Bolitho, Hoppe, "Poisson surface reconstruction", SGP 2006 | Indicator function from oriented points: solve laplace(chi) = div(V), V the smoothed normal field; octree + B-spline basis. |
-| Screened Poisson | Kazhdan, Hoppe, "Screened Poisson surface reconstruction", ACM TOG 32(3), 2013 | Adds a point-interpolation term (screening) so the surface passes near the samples; the fix for the over-smoothing of the first method. Data term and iso value = average of chi at the samples. |
-| Alpha wrap | Portaneri, Rouxel-Labbe, Hemmer, Cohen-Steiner, Alliez, "Alpha wrapping with an offset", ACM TOG 41(4), 2022 | Already implemented (`MeshAlphaWrap`). Works on point sets, offset gives the distance to them. |
-| Normals by propagation | Hoppe, DeRose, Duchamp, McDonald, Stuetzle, "Surface reconstruction from unorganized points", SIGGRAPH 1992 | PCA tangent plane normal, orientation propagated on a neighbour graph (MST). Fails where the graph jumps across thin parts. |
-| Dipole propagation | Metzer, Hanocka, Giryes, Cohen-Or, "Orienting point clouds with dipole propagation", TOG 40(4), 2021 | Propagation guided by a winding-number-like dipole field. |
-| Winding-number orientation | Xu et al., "Globally consistent normal orientation for point clouds by regularizing the winding-number field", TOG 42(4), 2023 (GCNO) | Orientation by optimizing the winding-number field of the oriented points. |
-| Iterative Poisson | Hou et al., "Iterative Poisson surface reconstruction (iPSR) for unoriented points", TOG 41(4), 2022 | Poisson on guessed normals, refined by iterating the result; no separate orientation step. |
-| Fast winding numbers | Barill, Dickson, Schmidt, Levin, Jacobson, "Fast winding numbers for soups and clouds", TOG 37(4), 2018 | Already in `PointAABBTree3.FastWindingNumber` (oriented points with area weights). Also defined for generalized winding numbers (Jacobson et al. 2013). |
-| Survey | Berger et al., "A survey of surface reconstruction from point clouds", CGF 2017 | Positions the above: Poisson is the standard for oriented, noisy data; wraps and Delaunay methods for guarantees. |
+| Poisson reconstruction | Kazhdan, Bolitho, Hoppe, "Poisson surface reconstruction", Proc. SGP 2006, pp. 61-70 | Indicator function from oriented points: solve laplace(chi) = div(V), V the smoothed normal field; octree + B-spline basis. |
+| Screened Poisson | Kazhdan, Hoppe, "Screened Poisson surface reconstruction", ACM TOG 32(3), Article 29, 2013 (DOI 10.1145/2487228.2487237) | Adds a point-interpolation term (screening) so the surface passes near the samples; the fix for the over-smoothing of the first method. Data term and iso value = average of chi at the samples. |
+| Alpha wrap | Portaneri, Rouxel-Labbe, Hemmer, Cohen-Steiner, Alliez, "Alpha wrapping with an offset", ACM TOG (SIGGRAPH 2022) 41(4), 2022 (volume / issue and article number unverified) | Already implemented (`MeshAlphaWrap`). Works on point sets, offset gives the distance to them. |
+| Normals by propagation | Hoppe, DeRose, Duchamp, McDonald, Stuetzle, "Surface reconstruction from unorganized points", SIGGRAPH 1992, pp. 71-78 | PCA tangent plane normal, orientation propagated on a neighbour graph (MST). Fails where the graph jumps across thin parts. |
+| Dipole propagation | Metzer, Hanocka, Zorin, Giryes, Panozzo, Cohen-Or, "Orienting point clouds with dipole propagation", ACM TOG 40(4), Article 165, 2021 (arXiv 2105.01604) | Propagation guided by a winding-number-like dipole field. |
+| Winding-number orientation | Xu, Dou, Wang, Xin, Tu et al., "Globally consistent normal orientation for point clouds by regularizing the winding-number field", ACM TOG (SIGGRAPH 2023) 42(4), 2023, GCNO (arXiv 2304.11605; the complete author list and the issue number are unverified) | Orientation by optimizing the winding-number field of the oriented points. |
+| Iterative Poisson | Hou, Wang, Wang, Qin, Qian, He, "Iterative Poisson surface reconstruction (iPSR) for unoriented points", ACM TOG 41(4), Article 128, 2022 (arXiv 2209.09510) | Poisson on guessed normals, refined by iterating the result; no separate orientation step. |
+| Fast winding numbers | Barill, Dickson, Schmidt, Levin, Jacobson, "Fast winding numbers for soups and clouds", ACM TOG 37(4), Article 43, 2018 | Already in `PointAABBTree3.FastWindingNumber` (oriented points with area weights). The winding number itself is the generalized one of Jacobson, Kavan, Sorkine-Hornung, "Robust inside-outside segmentation using generalized winding numbers", ACM TOG 32(4), 33:1-33:12, 2013. |
+| Survey | Berger, Tagliasacchi, Seversky, Alliez, Guennebaud, Levine, Sharf, Silva, "A survey of surface reconstruction from point clouds", Computer Graphics Forum 36(1), pp. 301-329, 2017 (DOI 10.1111/cgf.12802) | Positions the above: Poisson is the standard for oriented, noisy data; wraps and Delaunay methods for guarantees. |
 
 How others solve normal orientation: all propagate or optimize **without an outside reference**; our wrap supplies one
 (the unbounded outside component of the complement), which is the idea of the owner (2026-11-08) and, as far as the
@@ -100,12 +103,12 @@ varying noise), N > 20000, memory.
 |---|---|---|---|---|
 | A | Wrap only. Document the recipe, pin it with guard tests (torus, noise, hole). | Closed, oriented, manifold, no self-intersection, encloses all points (existing). | S, 1 PR | none; no detail below `Alpha`. |
 | B | A + `PointCloudNormals`: PCA axes, orientation from the wrap, confidence report (fraction oriented, `Alpha` vs spacing / noise check). | Exact status when the condition fails; orientation is a heuristic with a measured rate, not a proof. | M, 1 PR | Open sheets and thin walls have no outside: reported, not guessed. |
-| C1 | B + detail by contouring `FastWindingNumber` of the oriented points at 0.5 with marching cubes on a band around the wrap. | The result is closed (grid mesh); containment in the wrap can be enforced by intersecting the field with the wrap's inside. No guarantee on topology or self-intersection beyond what `MarchingCubes` gives. | M, 1-2 PRs; no solver | Winding number of a sparse / noisy cloud is blobby (Barill 2018 notes it); needs area estimates. |
+| C1 | B + detail by contouring `FastWindingNumber` of the oriented points at 0.5 with marching cubes on a band around the wrap. | The result is closed (grid mesh); containment in the wrap can be enforced by intersecting the field with the wrap's inside. No guarantee on topology or self-intersection beyond what `MarchingCubes` gives. | M, 1-2 PRs; no solver | The winding number of a sparse / noisy cloud is expected to be blobby and to need good area estimates (our expectation; not confirmed against Barill et al. 2018, to be measured in C1). |
 | C2 | B + screened Poisson (Kazhdan and Hoppe 2013) on a narrow-band grid around the wrap, CG solve, iso at the sample average, trimming by the wrap. | As C1; smoother, interpolates the samples through the screening term. | L: discretization, solver, tests; an estimate of the solve (not measured): 200k unknowns x 27 nonzeros x ~300 CG iterations is a few seconds | The most requested look; most code; no octree, so resolution is limited by a uniform band. |
 
 How others solve it: A and the Poisson part of C2 are the standard (Berger et al. 2017); orientation by the wrap and the
 trimming by the wrap are the new pairing (section 2); C1 follows Barill et al. 2018 and GCNO 2023 in using the
-winding-number field of oriented points as the indicator.
+winding-number field of oriented points as the indicator (what each paper does exactly is unverified).
 
 Guarantee that survives in every option: the wrap bounds the result. With the wrap as the outer limit (intersect), no
 detail stage can leave a hole in the enclosure of the input, and no detail stage can be worse than A.
