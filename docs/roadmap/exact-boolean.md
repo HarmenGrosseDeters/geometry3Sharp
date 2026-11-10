@@ -60,6 +60,17 @@ over core counts (deterministic by construction: fixed partitions, ordered merge
 across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
 exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
 upper bound per lever on the 2.0 benchmark set.
+**Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
+target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
+the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
+coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
+bounds per construction, the arrangement's input path from constructions, consumers: chained booleans, tet meshing).
+
+**T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change):** the library is unpublished, so
+changed rounding results are acceptable if they are not worse. Conditions: after D1 (#513) has landed, since both change the
+rounding; deterministic over thread counts and runs (fixed spatial partition, ordered commit); gate: a cohort run on the
+16 239 target operations with no op newly unclean, unclean count and MaxDrift distribution not worse, time measured.
+
 **3.0 n-ary use case (owner 2026-11-10):** n-ary booleans are a real use case in two forms: T3a, A − (B1 ∪ … ∪ Bn)
 in one pass (subtract many bodies from one, with operation-aware pruning and one rounding), and T3b, A ∩ Bi for many i at
 once with separate results (shared preprocessing of A, parallel over i). Primary workload: terrain volume bodies (a TIN
