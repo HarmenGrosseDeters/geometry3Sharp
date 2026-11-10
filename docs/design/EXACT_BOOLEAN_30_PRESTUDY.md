@@ -45,12 +45,15 @@ Ops above 5 s: 69 / 29 / 22 at 1 / 2 / 4 cores. Per cohort at 4 cores: 2.0 set 2
 19 %, intersections 38 %), open 1.88x (classification 20 %, input 13 %, merge 13 %), self-intersecting 1.93x (rounding
 22 %, merge 17 %), unknown 2.01x. The open cohort is measured before Lévy phase 2 (#501, parallel fast-winding tree
 build) and before the per-piece fix of open operands; with the fix, classification is 81 % of the open cohort's time
-(section 5).
+(section 5). SafeRounding's result is not clean (`RoundingClean` false) on 30 of the 219 ops at 4 cores (open 11,
+self-intersecting 9, unknown 6, 2.0 set 4), 4 of them (open) at the effort limit: the times include these runs as
+they are.
 
 **Amdahl.** The serial part, sum of t1 (1 - f) over the phases, is 342 s, 65 % of today's 4-core time: the current
 code is at most about 1.5x faster than on 4 cores with any number of cores (projection with the fitted fractions:
 435 s on 8, 389 s on 16, 354 s on 64 cores). The fitted fractions are a model (memory bandwidth, the shared point index
-and the GC also limit), not a measurement beyond 4 cores.
+and the GC also limit), not a measurement beyond 4 cores; with `DOTNET_PROCESSOR_COUNT=1` the runtime also switches
+off the concurrent GC, so the 1-core baseline runs a slightly different GC mode.
 
 **Where the serial time is** (code reading, `mesh_ops/ExactMesh*`, matched to the phase clocks):
 
@@ -88,11 +91,11 @@ first the arrangement alone (retained heap after `Compute`, points by representa
 | measure | value |
 |---|---|
 | arrangement retained | 390-580 B per input triangle (1.4 GB at 3.66 M); 1559 B on the heavily intersecting 519511 |
-| peak working set of a boolean | 1.0-1.7 KB per input triangle (6.1 GB for 1005586 union): a 16 GB machine ends near 10 M input triangles |
-| points | 0.5-0.6 per input triangle, almost all input vertices (1005586: 1.83 M of 2.0 M); all stored as 4-limb `FixedPoint3` (about 160 B) |
+| peak working set of a boolean | 1.1-1.9 KB per input triangle on the six large inputs (6.1 GB for 1005586 union; 0.8 KB on 1230687, 2.4-2.5 KB on 1517923, 4.9-5.5 KB on the heavily intersecting 519511): a 16 GB machine ends near 8-10 M input triangles of typical models |
+| points | 0.52-0.56 per input triangle on the six large inputs (0.80 on 1517923, 3.1 on 519511), almost all input vertices (1005586: 1.83 M of 2.0 M); all stored as 4-limb `FixedPoint3` (about 160 B) |
 | allocated per op | 3-4 KB per input triangle on the large open inputs (12.9 GB for 1005586 union), 25-30 KB on 519511 |
 | largest phases (allocations) | classification on huge open inputs (3.5 GB on 1005586: the HashSets of the fast-winding cache build), rounding 1.5-2.8 GB, input orientation 1.6 GB, assembly 1.8 GB |
-| GC pauses | 7.5 % of the summed time (2-2.6 s on 26-38 s ops; 11 % on 519511) |
+| GC pauses | 7.5 % of the summed time (2-2.6 s on 26-38 s ops; 11-15 % on 519511, up to 14 % on single ops of 1230687) |
 | GC knobs (upper bound of less allocation) | 512 MB gen0 -0.9 %, server GC -3.7 % of the summed time (single runs, noise about ±3 %) |
 
 Estimated layout per point: approximation 24 B, error 8 B, key 32 B, reference 4 B, fixed-width point about 160 B, index
@@ -118,29 +121,32 @@ Lévy do not report memory.
 operations cycling union, union, difference, intersection, n = 4, 8, 16, 32, 64, seeds 1-3; and 6 Thingi triples
 (A ∪ B) − C of clean models, normalized, B and C rotated and shifted. Chained: n − 1 `ExactMeshBoolean` with SafeRounding;
 one pass: one `ExactMeshBoolean` over all inputs with the tree's predicate on the winding numbers. Reference: the
-one-pass exact vertices rounded to nearest; distances by the plane distance near the surface
+one-pass exact vertices rounded to nearest; "Hausdorff" here is a vertex-sampled lower bound: the largest distance of a
+vertex of either mesh to the other surface, near the surface (below 1e-6 diag) the distance to the nearest triangle's
+plane, so values far below 1e-6 only show that the vertices lie within 1e-6 diag
 ([results/csg_summary.md](../../benchmarks/Boolean30Prestudy/results/csg_summary.md)).
 
 | class | one pass / chained time | result triangles chained / one pass | clean | Hausdorff of chained to exact (of diag) |
 |---|---|---|---|---|
-| Thingi triples (4k-270k input triangles) | 0.72-1.08 (one rounding instead of two) | 1.00-1.02 | all | ≤ 1.1e-14 (one pass the same) |
+| Thingi triples (4k-270k input triangles) | 0.72-1.08 (one rounding instead of two) | 1.00-1.02 | all | ≤ 1.1e-14 (one pass the same); 4.4e-7 on one triple (116870 / 118287 / 178340) where SafeRounding edited, the same in both variants |
 | n = 4 | 0.4-0.7 | 1.1-1.9 | all | ≤ 1.4e-15 |
-| n = 8 | 0.8-1.4 | 1.1-2.6 | all | ≤ 3.6e-16 |
+| n = 8 | 0.8-1.4 | 1.1-2.8 | all | ≤ 3.6e-16 |
 | n = 16 | 2.0-3.4 | 1.1-3.0 | all | ≤ 9.8e-15 |
 | n = 32 | 3.9-15 | 1.4-5.6 | all | ≤ 2.7e-16 |
-| n = 64 | 20-110 (boxes_64_1: 56.6 s against 0.52 s) | 1.2-6.1 | all | ≤ 3.3e-15 |
+| n = 64 | 20-110 (boxes_64_1: 56.6 s against 0.52 s; a rerun 64.0 / 0.62 s) | 1.2-6.1 | all | ≤ 3.3e-15 |
 
-- **Correctness and rounding.** Every result is clean in both variants, no chained step is unclean, SafeRounding made no
-  edit on the procedural trees; the chained drift is a few units in the last place. Rounding error is not a reason for
-  one-pass evaluation at these depths.
+- **Correctness and rounding.** Every result is clean in both variants, no chained step is unclean; SafeRounding edited in
+  5 chained procedural trees (1 edit each, n = 32 and 64) and in 3 Thingi triples; where it did not edit, the chained
+  drift is a few units in the last place, and where it did, the edits stay within its bound (4.4e-7 of the diagonal on
+  one triple, equal in both variants). Rounding error is not a reason for one-pass evaluation at these depths.
 - **Size.** Chained results carry up to 6x more triangles: after rounding, coplanar faces are not exactly coplanar any
   more, so `SimplifyFlatRegions` cannot merge them in the later steps.
-- **Time.** One pass loses from n = 16 on: it builds the full arrangement of all operands (boxes_64_1: 1.13 M pieces,
-  478 k patches from 768 input triangles) and casts one exact ray per patch and candidate mesh (classification 52.2 of
-  56.6 s), while a chain shrinks the intermediate result at each step.
+- **Time.** One pass loses from n = 16 on: it builds the full arrangement of all operands (boxes_64_1 in a rerun with the phase clocks, `results/csg_phases.jsonl`: 1.13 M pieces,
+  478 k patches from 768 input triangles) and casts one exact ray per patch and candidate mesh (classification 59.1 of
+  64.0 s), while a chain shrinks the intermediate result at each step.
 
-Upper bounds: Lévy-style propagation (one ray per component) removes at most the classification (boxes_64_1 56.6 ->
-about 4.4 s, still 8x the chain: the triangulation of the full arrangement alone is 3.7 s). The lever for n-ary is
+Upper bounds: Lévy-style propagation (one ray per component) removes at most the classification (boxes_64_1 64.0 ->
+about 4.9 s, still 8x the chain: the triangulation of the full arrangement alone is 4.1 s). The lever for n-ary is
 pruning: drop the pieces whose cells cannot change the tree's indicator before triangulation and classification (EMBER
 idea 3), or a tree-aware evaluation (one pass per small subtree, chained above it).
 
@@ -154,13 +160,16 @@ arrangement.
 
 **Measured** (`prestudy-exact`, 12 models x 3 ops, each op rounded / unrounded / unrounded with exact vertices in one
 process; [results/exact_summary.md](../../benchmarks/Boolean30Prestudy/results/exact_summary.md)):
-- cost saved by not rounding: the summed time 186.7 -> 133.0 s (-29 %), per op 0-72 % (1041432 union 7.4 -> 3.0 s,
+- cost saved by not rounding: the summed time 186.7 -> 133.0 s (-29 %), per op -5 to 69 % (1087144 intersection was faster with rounding: single runs, noise about 10 %; 1041432 union 7.4 -> 3.0 s,
   519511 union 16.7 -> 10.1 s, 119829 union 3.4 -> 1.0 s);
 - `ComputeExactVertices` costs nothing measurable (133.2 s): the exact points exist in the arrangement already;
 - the unrounded output rounded to nearest is not clean on 23 of the 33 non-empty ops (degenerate triangles; 1087144
   union not closed): exact output is useful only for a consumer that stays exact;
 - size: numerators up to 175-300 bits, W up to 170-295 bits, 120-590 bits per vertex in the mean (four `BigInteger`s,
-  about 100-200 B against 24 B); 35-99 % of the vertices of a union are input doubles.
+  about 100-200 B against 24 B); 39-99 % of the vertices of a union are input doubles;
+- caveat: SafeRounding is not clean on 4 of these ops (119829 union / difference, 1041432 intersection / difference),
+  and on 1041432 union `RoundingClean` is true while `MeshRobustRepair.NotCleanReason` reports self-intersections (a
+  disagreement of the two checks like M3, passed to the Boolean session); 107543 and 113685 had no exported case.
 
 **What consumers need.** A chained boolean or a tet mesher (Diazzi-style recovery, [TET_MESHING.md](TET_MESHING.md))
 cannot take these rationals as plain input: the planes of triangles with 230-bit rational corners and their
@@ -226,11 +235,15 @@ and an order-2 expansion (about 70 ns) from a micro benchmark
 | 113906 | 756 k | 368 | 2604-3045 | 826-926 | 0.77-0.78 |
 
 **Upper bound.** A batched or dual-tree scheme can share the far field and the traversal, not the near field (each
-query point has its own exact triangle terms). With free multipole-to-local translations it saves at most the far share:
-22 % of the per-piece query work weighted by time (13-23 % per model, about 60 % on 122796, the only far-dominated
-one). The query work is about all of the per-piece classification (113906: 368 s serial, about 93 s per op on 4
-cores, against a classification of 94 s per op in the A/B), so B gains at most about 18 % of the open cohort's time.
-A real dual tree with the pair criterion does worse than the bound: its near work is 1.1-1.6x that of the single
+query point has its own exact triangle terms). With free multipole-to-local translations it saves at most the far share
+and the traversal. The bound rests on a cost model (counts times micro-benchmark unit costs; the library runs at
+0.45-0.92x of the modelled time, and the unit cost of a triangle term varies 62-89 ns between runs): weighting the
+counts with the unit costs gives a far share of 22 % of the per-piece query work by time (13-23 % per model, about
+60 % on 122796, the only far-dominated one); charging the far terms at their unit cost against the measured library
+time (so all the remaining time, traversal included, counts as shareable) gives 30 %. So B saves at most 22-30 % of
+the query work. The query work is about all of the per-piece classification (113906: 368 s serial, about 93 s per op on 4
+cores, against a classification of 94 s per op in the A/B), so B gains at most about 18-25 % of the open cohort's time.
+A real dual tree with the pair criterion does worse than the bound: its near work is 1.07-1.73x that of the single
 queries, because a source node that is far for each point of a cluster but not for the cluster as a whole is opened.
 
 **A cheaper accuracy first (probed and rejected).** β = 1 first, accepted where w is farther than a margin from every
@@ -244,7 +257,7 @@ thousands of exact triangle terms; batching does not touch that. The levers that
 change what is evaluated: (C) the exact Antipodal Method (Martens et al. 2026: an exact ray plus a sum over the boundary
 edges, no near field; [LEVY_CLASSIFICATION.md](LEVY_CLASSIFICATION.md) 4.2, owner decision and patent check; its
 cost is O(boundary edges) per query, to be counted on the soups before anything else), or fewer queries (one per input
-triangle where all its pieces provably lie on one side of every open boundary). **Recommendation: do not build B.**
+triangle where all its pieces provably lie on one side of every open boundary). **Recommendation: do not build B** (at most a quarter of the open time, at tier-L effort, approximate like today).
 
 **How others do it.** Barill et al. 2018 (the fast winding numbers we use) evaluate single queries; dual-tree / FMM
 evaluation of winding numbers or solid angles appears for dense query grids (e.g. GWN contouring), where the queries are
@@ -268,7 +281,7 @@ operand) and the first 10 pairs of `thingi-pairs-size` (100k-1M);
 | | Manifold | 6 | 1 | 23 degenerate triangles | 404 | 418 | 930 | 1065 |
 
 Ours is the only method whose results are all clean (the oracle counts triangles below 1e-12 diag² as degenerate; the
-others' volumes are exact to 1e-13). Speed: 3.1x CGAL EPECK and 5.8x Manifold (geomean) on the 1k-100k class, 1.6x
+others' volumes are exact to 7e-13). Speed: 3.1x CGAL EPECK and 5.8x Manifold (geomean) on the 1k-100k class, 1.6x
 CGAL and 5.8x Manifold on the size class. Our phase mix there: intersections 34-37 %, rounding 20-21 %, classification
 8-13 %, setup 8-10 %, assembly 7-10 %.
 
@@ -315,10 +328,10 @@ unless a target says otherwise, and every parallel change is deterministic by co
 |---|---|---|---|---|
 | T1 | **Scaling:** on the 73-model set of section 1, the serial floor sum t1 (1 − f) halves (342 -> ≤ 170 s) and the 4-core time drops by ≥ 20 % (528 -> ≤ 420 s); speedup 1 -> 4 cores ≥ 2.5x (today 2.06x); measured again on an 8- or 16-core machine before more is promised | parallel deterministic sort in `merge_points` (5.6 %); classification setup: radix sort, union-find, the open-mesh tree build after #501 (9.2 %); input orientation by a sort instead of the dictionary (4.7 %); `ExactPlanarSimplify` and assembly per region (6 %); box-tree build (part of 3.8 %) | 27 % at 4 cores, the floor 342 -> about 155 s | L (exact files); bit-identical |
 | T1b | the SafeRounding edits in parallel over a fixed spatial partition | rounding 8.1 % at 4 cores, more on many cores | 8 % | L; **owner:** the edit order changes, so results change (within the same guarantees) |
-| T2 | **Memory:** the arrangement retains ≤ 300 B per input triangle (today 390-580) and the peak working set ≤ 1.2 KB per input triangle (today 1.0-1.7 KB), no time regression; the largest model on a 16 GB machine from about 10 M to about 13 M input triangles | input points without a `FixedPoint3`; `InputTriangle` as struct-of-arrays; then the bottom-up fast-winding coefficients | -35 % retained | L (exact files); the last lever is the open owner decision of LEVY_CLASSIFICATION 4.1 item 3 |
+| T2 | **Memory:** the arrangement retains ≤ 300 B per input triangle (today 390-580) and the peak working set ≤ 1.2 KB per input triangle (today 1.1-1.9 KB on large typical inputs), no time regression; the largest model on a 16 GB machine from about 10 M to about 13 M input triangles | input points without a `FixedPoint3`; `InputTriangle` as struct-of-arrays; then the bottom-up fast-winding coefficients | -35 % retained | L (exact files); the last lever is the open owner decision of LEVY_CLASSIFICATION 4.1 item 3 |
 | T3 | **n-ary:** keep chained evaluation as the recommendation; build nothing for one-pass now | (if wanted later) pruning of pieces that cannot change the tree's indicator + propagation; target then: one pass ≤ chained time for n ≤ 64 on the procedural trees of section 3 | today one pass is 20-110x slower at n = 64 | owner: is n-ary CSG a use case? |
 | T4 | **Exact output:** an additive `ExactMesh` result and input (section 4 sketch): a chain of k booleans with k − 1 roundings fewer, results equal to the one-pass exact result, coplanar faces merged exactly, no growth of the construction degree along the chain | constructions over the original inputs (plane-based provenance) through the arrangement's input path | -29 % per chained step (rounding), chained result size -10 to -80 % | L, 4-8 weeks; **owner:** a use case (chained CSG, tet meshing) before it is built |
-| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22 % of the query work); first count the cost of the exact Antipodal Method (boundary edges per query on the 1087xxx / 113906 soups) and the share of queries that one query per input triangle could replace | then C or the query reduction, judged against the per-piece path | per-piece classification is 81 % of the open cohort | **owner:** C needs the patent check (LEVY_CLASSIFICATION 4.2) |
+| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22-30 % of the query work, model-based); first count the cost of the exact Antipodal Method (boundary edges per query on the 1087xxx / 113906 soups) and the share of queries that one query per input triangle could replace | then C or the query reduction, judged against the per-piece path | per-piece classification is 81 % of the open cohort | **owner:** C needs the patent check (LEVY_CLASSIFICATION 4.2) |
 | T6 | **Positioning:** stay the only method with clean results on `thingi-pairs`; close the gap to CGAL EPECK on the 1k-100k class from 3.1x to ≤ 2x (geomean) with T1 and the 2.0 rounding levers; no target against EMBER / trueform without a second kernel | T1, rounding search levers (hard open problem 3) | | owner: a quantized plane-based opt-in kernel stays out of scope unless decided |
 
 Order proposed: T1 (bit-identical, largest bound at no change of results), T2 (independent, memory only), T5's

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Exact Boolean 3.0 pre-study, topic 2: memory per operation (one process each) and the GC upper bound.
+# Rows carry "gc_variant" (analyze_memory.py: cat <work dir>/memory/*/*.json > results/memory.jsonl).
 # usage: bash memory_job.sh <work dir> <tool dir> "<ids>" [variants, default "default gen0 server"]
 #   default: workstation concurrent GC (as shipped); gen0: DOTNET_GCgen0size=0x20000000 (512 MB gen0 budget);
 #   server: DOTNET_gcServer=1. Rows go to <work dir>/memory/<variant>/<id>_<op>.json; resumable.
@@ -14,8 +15,8 @@ for v in $VARIANTS; do
       gen0) env=(DOTNET_GCgen0size=0x20000000);;
       server) env=(DOTNET_gcServer=1);;
     esac
-    extra=(); [ "$v" = default ] || extra=(--no-arrangement-probe)
-    env "${env[@]}" timeout 1800 dotnet "$T/BooleanComparison.dll" prestudy-memory "$W/cases/$id" $op > "$f.tmp" 2> "$f.err" \
+    extra=(); [ "$v" = default ] || extra=(--no-arrangement-probe)   # (the committed gen0 / server rows predate this flag: they also ran the probe)
+    env "${env[@]}" timeout 1800 dotnet "$T/BooleanComparison.dll" prestudy-memory "$W/cases/$id" $op "${extra[@]}" 2> "$f.err" | sed "s/^{/{\"gc_variant\":\"$v\",/" > "$f.tmp" \
       || echo "{\"case\":\"$id\",\"op\":\"$op\",\"error\":\"exit $?\"}" > "$f.tmp"
     mv "$f.tmp" "$f"
   done; done

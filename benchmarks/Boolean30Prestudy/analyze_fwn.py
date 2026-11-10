@@ -3,7 +3,7 @@
 usage: python3 analyze_fwn.py results/fwn.jsonl"""
 import json, sys
 print('| model | mesh | queries (pieces) | library queries s (serial) | near terms / query | far terms / query | near share of the work | '
-      'bound of B (far + traversal free) | dual-tree near / single near | two-tier: accepted at margin 0.1 | cost vs today | accepted flips |')
+      'bound of B (unit-cost model) | dual-tree near / single near | two-tier: accepted at margin 0.1 | cost vs today | accepted flips |')
 print('|' + '---|' * 12)
 tot = near_w = 0.0
 for line in open(sys.argv[1]):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact Boolean 3.0 pre-study, topic 1: per-phase scaling and Amdahl shares from scaling_job.sh output.
 
-usage: python3 analyze_scaling.py <work dir>/scaling <ids file> [--per-op]
+usage: python3 analyze_scaling.py <work dir>/scaling | results/scaling.jsonl <ids file> [--per-op]
 Reads c<n>/<id>.jsonl (BooleanComparison profile rows) for n in 1, 2, 4. Prints markdown tables:
   - per cohort and phase: time at 1/2/4 cores, speedup, Amdahl parallel fraction f (from 1 -> 4 cores),
     the share of the 4-core time, and the upper bound of a perfectly parallel phase (t4 - t1/4) as % of the total;
@@ -30,6 +30,12 @@ def phases(row):
 
 def load(d, ids):
     rows = {}
+    if os.path.isfile(d):       # the committed results/scaling.jsonl (rows with cores_run)
+        for line in open(d):
+            r = json.loads(line)
+            if 'phases_ms' in r and r['case'] in ids:
+                rows[(r['cores_run'], r['case'], r['op'])] = (phases(r), r)
+        return rows
     for n in (1, 2, 4):
         for i in ids:
             f = os.path.join(d, f'c{n}', f'{i}.jsonl')

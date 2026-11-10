@@ -1,4 +1,4 @@
-| model | mesh | queries (pieces) | library queries s (serial) | near terms / query | far terms / query | near share of the work | bound of B (far + traversal free) | dual-tree near / single near | two-tier: accepted at margin 0.1 | cost vs today | accepted flips |
+| model | mesh | queries (pieces) | library queries s (serial) | near terms / query | far terms / query | near share of the work | bound of B (unit-cost model) | dual-tree near / single near | two-tier: accepted at margin 0.1 | cost vs today | accepted flips |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 100030 | 0 | 5510 | 0.2 | 318.1 | 41.1 | 0.87 | -13 % | 1.40 | 0.78 | 0.59 | 0 |
 | 100030 | 1 | 5510 | 0.1 | 278.9 | 40.2 | 0.86 | -14 % | 1.50 | 0.65 | 0.67 | 14 |

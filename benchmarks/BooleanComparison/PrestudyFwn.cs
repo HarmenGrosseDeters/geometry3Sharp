@@ -128,7 +128,7 @@ static class PrestudyFwn
         return t;
     }
 
-    sealed class DualCounts { public long M2L, Near, Far, Points; }
+    sealed class DualCounts { public long M2L, Near, Far; }
 
     // dual traversal: target t against source node s (whose contribution has not been accounted yet)
     static void Dual(CountingTree src, Target t, int s, Vector3d[] pts, int[] order, DualCounts dc)

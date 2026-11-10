@@ -15,9 +15,9 @@ for id in ...; do dotnet $W/tool_pre/BooleanComparison.dll export $W/raw/$id.* $
 
 | topic | job | analysis | rows | summary |
 |---|---|---|---|---|
-| 1 parallel scaling (1 / 2 / 4 cores, 73 models x 3 ops) | `scaling_job.sh W ids [cores]` (tool in `W/tool_master`) | `analyze_scaling.py W/scaling results/scaling_ids.txt --per-op` | `results/scaling.jsonl` | `results/scaling_summary.md` |
+| 1 parallel scaling (1 / 2 / 4 cores, 73 models x 3 ops) | `scaling_job.sh W ids [cores]` (tool in `W/tool_master`) | `analyze_scaling.py results/scaling.jsonl results/scaling_ids.txt --per-op` (or `W/scaling`) | `results/scaling.jsonl` | `results/scaling_summary.md` |
 | 2 memory (8 large models x 3 ops, GC variants) | `memory_job.sh W W/tool_pre "<ids>"` | `analyze_memory.py results/memory.jsonl` | `results/memory.jsonl` | `results/memory_summary.md` |
-| 3 n-ary one pass vs chained | `csg_job.sh W W/tool_pre` | `analyze_csg.py results/csg.jsonl` | `results/csg.jsonl` | `results/csg_summary.md` |
+| 3 n-ary one pass vs chained | `csg_job.sh W W/tool_pre` | `analyze_csg.py results/csg.jsonl` | `results/csg.jsonl`, `results/csg_phases.jsonl` (boxes_64_1 and mixed_32_1 rerun with the phase clocks) | `results/csg_summary.md` |
 | 4 exact output | `exact_job.sh W W/tool_pre "<ids>"` | `analyze_exact.py results/exact.jsonl` | `results/exact.jsonl` | `results/exact_summary.md` |
 | 5 batched fast winding bound | `fwn_job.sh W W/tool_perpiece "<ids>"` (BooleanComparison of this branch built in a worktree of bfaa0158) | `analyze_fwn.py results/fwn.jsonl` | `results/fwn.jsonl` | `results/fwn_summary.md` |
 | 6 positioning (thingi-pairs CGAL sample + 10 size pairs) | `../BooleanComparison/compare.py` (see its README), methods ours, manifold, cgal_epeck | `../BooleanComparison/data/thingi_pairs.py summary` | not committed (CGAL results are GPL-tool output) | `results/positioning_summary.md` |
