@@ -33,6 +33,12 @@ done since and what is open.
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
   runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+- The scheduled tier: `[Trait("Category", "Nightly")]` tests run only in `.github/workflows/nightly.yml` (daily on master, and
+  `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
+  exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:
+  the exact reference path of the 2D mesher oracle on its largest catalogue rows (`CatalogueRowsNightly`, `CorruptedRowsNightly`,
+  and F-38/d of `ExtremeScales`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
+  contain these; a class that gets Nightly tests and is in a filter needs `&Category!=Nightly` there.
 - The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet in the full run:
   `tools/trx_durations.py --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt` fails for a test above 10 s, and for one of
   5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with

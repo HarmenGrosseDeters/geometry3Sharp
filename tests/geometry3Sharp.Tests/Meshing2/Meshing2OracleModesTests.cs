@@ -24,15 +24,30 @@ namespace geometry3Sharp.Tests
             new[] { "F-24/b", "F-37", "F-12/b", "F-4/a", "F-5" },
         };
 
+        // The rows of these two tests that take more than 10 s (the exact reference path is the check: F-39 alone is 7.5 s per
+        // Oracle.Check on 1188 triangles) run in the scheduled tier, Category=Nightly (CLAUDE.md, Test time; .github/workflows/nightly.yml),
+        // and not in PR or master CI. The sets are the rows measured above 10 s; the other slow rows stay in the Slow classes.
+        static readonly string[] NightlyCatalogueRows = { "F-39", "F-42", "F-24/b", "F-37" };
+        static readonly string[] NightlyCorruptedRows = { "F-39", "F-42", "F-24/b", "F-37", "F-4/b", "F-38/d" };
+
+        static string[] NightlyRows(bool corrupted) => corrupted ? NightlyCorruptedRows : NightlyCatalogueRows;
+
         public static IEnumerable<object[]> RowIds() => Rows.Where(r => SlowRowGroups.All(g => !g.Contains(r.Id))).Select(r => new object[] { r.Id });
 
-        public static IEnumerable<object[]> SlowRowIds(int group) => SlowRowGroups[group].Select(id => new object[] { id });
+        /// <summary> the Slow group's rows of the corrupted-rows (true) or the catalogue-rows (false) test, without its Nightly rows </summary>
+        public static IEnumerable<object[]> SlowRowIds(int group, bool corrupted) =>
+            SlowRowGroups[group].Where(id => !NightlyRows(corrupted).Contains(id)).Select(id => new object[] { id });
+
+        public static IEnumerable<object[]> NightlyRowIds(bool corrupted) => NightlyRows(corrupted).Select(id => new object[] { id });
 
         [Fact]
         public void RowGroups_PartitionTheCoveredRows()
         {
-            var ids = RowIds().Select(a => (string)a[0]).Concat(Enumerable.Range(0, SlowRowGroups.Length).SelectMany(g => SlowRowIds(g)).Select(a => (string)a[0])).ToList();
-            Assert.Equal(Rows.Select(r => r.Id).OrderBy(x => x, StringComparer.Ordinal), ids.OrderBy(x => x, StringComparer.Ordinal));
+            foreach (bool corrupted in new[] { false, true }) {
+                var ids = RowIds().Concat(Enumerable.Range(0, SlowRowGroups.Length).SelectMany(g => SlowRowIds(g, corrupted))).Concat(NightlyRowIds(corrupted))
+                    .Select(a => (string)a[0]).ToList();
+                Assert.Equal(Rows.Select(r => r.Id).OrderBy(x => x, StringComparer.Ordinal), ids.OrderBy(x => x, StringComparer.Ordinal));
+            }
         }
 
         /// <summary> what a verdict consists of: the kinds with their counts, and the measured values </summary>
@@ -69,7 +84,7 @@ namespace geometry3Sharp.Tests
         public class CatalogueRowsSlow1
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 0, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 0, false, MemberType = typeof(Meshing2OracleModesTests))]
             public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
         }
 
@@ -77,7 +92,7 @@ namespace geometry3Sharp.Tests
         public class CatalogueRowsSlow2
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 1, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 1, false, MemberType = typeof(Meshing2OracleModesTests))]
             public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
         }
 
@@ -85,7 +100,15 @@ namespace geometry3Sharp.Tests
         public class CatalogueRowsSlow3
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 2, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 2, false, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
+        }
+
+        [Trait("Category", "Nightly")]
+        public class CatalogueRowsNightly
+        {
+            [Theory]
+            [MemberData(nameof(NightlyRowIds), false, MemberType = typeof(Meshing2OracleModesTests))]
             public void CatalogueRow_SameVerdictOnBothPaths(string id) => CatalogueRow(id);
         }
 
@@ -111,7 +134,7 @@ namespace geometry3Sharp.Tests
         }
 
         // F-38/d (22k triangles) is the long one, once at 2^-270 and once at 2^512: a class each, so that they run in parallel
-        [Trait("Category", "Slow")]
+        [Trait("Category", "Nightly")]
         public class ExtremeScalesSmallF38d
         {
             [Theory]
@@ -119,7 +142,7 @@ namespace geometry3Sharp.Tests
             public void ExtremeScales_SameVerdictAndDetailsOnBothPaths(string id, int exponent) => ExtremeScales(id, exponent);
         }
 
-        [Trait("Category", "Slow")]
+        [Trait("Category", "Nightly")]
         public class ExtremeScalesLargeF38d
         {
             [Theory]
@@ -214,7 +237,7 @@ namespace geometry3Sharp.Tests
         public class CorruptedRowsSlow1
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 0, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 0, true, MemberType = typeof(Meshing2OracleModesTests))]
             public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
         }
 
@@ -222,7 +245,7 @@ namespace geometry3Sharp.Tests
         public class CorruptedRowsSlow2
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 1, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 1, true, MemberType = typeof(Meshing2OracleModesTests))]
             public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
         }
 
@@ -230,7 +253,15 @@ namespace geometry3Sharp.Tests
         public class CorruptedRowsSlow3
         {
             [Theory]
-            [MemberData(nameof(SlowRowIds), 2, MemberType = typeof(Meshing2OracleModesTests))]
+            [MemberData(nameof(SlowRowIds), 2, true, MemberType = typeof(Meshing2OracleModesTests))]
+            public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
+        }
+
+        [Trait("Category", "Nightly")]
+        public class CorruptedRowsNightly
+        {
+            [Theory]
+            [MemberData(nameof(NightlyRowIds), true, MemberType = typeof(Meshing2OracleModesTests))]
             public void CorruptedRow_RejectedOnBothPaths(string id) => CorruptedRow(id);
         }
 
