@@ -1,8 +1,9 @@
 """Z3 pilot 2, step 1b: the reference rule for SafeRounding's drift (docs/design/SAFE_ROUNDING_D1_DRIFT.md), the
-tighter accounting proposed for D1, checked before it is built. No library code implements it yet.
+tighter accounting for D1, checked before it was built; implemented in mesh_ops/MeshRoundingRepair.cs since Boolean
+2.1 (source_contract holds the code to the rule).
 
-Today (the apex rule, drift_apex.py) every edit adds its bound delta to M, the largest drift among its vertices, so
-a chain of neighbouring edits adds up although no point of the surface moved further than one edit. The reference
+Under the apex rule (drift_apex.py, Boolean 2.0) every edit added its bound delta to M, the largest drift among its
+vertices, so a chain of neighbouring edits adds up although no point of the surface moved further than one edit. The reference
 rule keeps, per triangle t, a reference triangle (three anchor points, one per corner) and a carried bound c_t, and
 per collapsed triangle a ghost (the same data, attached to the vertices it collapsed onto):
 
@@ -644,9 +645,241 @@ def _method(text, signature):
     raise ValueError('unterminated method ' + signature)
 
 
+# the reference rule as implemented in mesh_ops/MeshRoundingRepair.cs (compared without comments and white space by
+# source_contract; a change of any of these methods is a change of the rule or its bookkeeping: review it against
+# SAFE_ROUNDING_D1_DRIFT.md sections 3.1 and 3.4 and this file, then update the text here)
+RULE_METHODS = [
+    ('bool within_bound(', r"""bool within_bound(double drift, double bound)
+        {
+            editDrift = drift;
+            if (!(drift <= bound)) {
+                if (drift < SmallestRejectedDrift)
+                    SmallestRejectedDrift = drift;
+                return false;
+            }
+            return true;
+        }"""),
+    ('double triangle_bound(', r"""double triangle_bound(int t, Vector3d p0, Vector3d p1, Vector3d p2)
+        {
+            double far = Math.Max(p0.Distance(refAnchor[3 * t]), Math.Max(p1.Distance(refAnchor[3 * t + 1]), p2.Distance(refAnchor[3 * t + 2])));
+            return refCarry[t] + far;
+        }"""),
+    ('double ghost_bound(', r"""double ghost_bound(Ghost g, int v, int gone, Vector3d p)
+        {
+            Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : Mesh.GetVertex(g.at.a);
+            Vector3d p1 = (g.at.b == v || g.at.b == gone) ? p : Mesh.GetVertex(g.at.b);
+            Vector3d p2 = (g.at.c == v || g.at.c == gone) ? p : Mesh.GetVertex(g.at.c);
+            return g.carry + Math.Max(p0.Distance(g.a0), Math.Max(p1.Distance(g.a1), p2.Distance(g.a2)));
+        }"""),
+    ('double ghosts_bound(', r"""double ghosts_bound(int u, int v, int gone, Vector3d p)
+        {
+            double most = 0;
+            List<Ghost> list;
+            if (u >= 0 && ghostsAt.TryGetValue(u, out list))
+                foreach (Ghost g in list)
+                    if (g.lost == false)
+                        most = Math.Max(most, ghost_bound(g, v, gone, p));
+            return most;
+        }"""),
+    ('double move_bound(', r"""double move_bound(int v, Vector3d p)
+        {
+            double most = ghosts_bound(v, v, -1, p);
+            foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                Index3i tv = Mesh.GetTriangle(t);
+                most = Math.Max(most, triangle_bound(t, tv.a == v ? p : Mesh.GetVertex(tv.a), tv.b == v ? p : Mesh.GetVertex(tv.b),
+                    tv.c == v ? p : Mesh.GetVertex(tv.c)));
+            }
+            return most;
+        }"""),
+    ('double proposed_drift(', r"""double proposed_drift(double step)
+        {
+            editGhosts.Clear(); editLost.Clear();
+            editMoves = movedV >= 0;
+            editKept = movedV; editGone = vanishing;
+            editKeptMoved = editMoves && movedPos != Mesh.GetVertex(movedV);
+            double most = 0;
+            if (editMoves) {
+                editKeptRef.Clear();
+                for (int i = 0; i < removed.Count; ++i)
+                    editKeptRef.Add(false);
+                for (int i = 0; i < added.Count; ++i) {
+                    Index3i tv = added[i];
+                    editKeptRef[addedFrom[i]] = true;
+                    most = Math.Max(most, triangle_bound(removed[addedFrom[i]], pos(tv.a), pos(tv.b), pos(tv.c)));
+                }
+                for (int i = 0; i < removed.Count; ++i) {
+                    if (editKeptRef[i])
+                        continue;
+                    int t = removed[i];
+                    Index3i tv = Mesh.GetTriangle(t);
+                    var g = new Ghost {
+                        at = new Index3i(tv.a == vanishing ? movedV : tv.a, tv.b == vanishing ? movedV : tv.b, tv.c == vanishing ? movedV : tv.c),
+                        a0 = refAnchor[3 * t], a1 = refAnchor[3 * t + 1], a2 = refAnchor[3 * t + 2], carry = refCarry[t] };
+                    editGhosts.Add(g);
+                    most = Math.Max(most, ghost_bound(g, movedV, -1, movedPos));
+                }
+                most = Math.Max(most, Math.Max(ghosts_bound(movedV, movedV, vanishing, movedPos), ghosts_bound(vanishing, movedV, vanishing, movedPos)));
+                // (a step that is not a number, eg from a position that is not finite, rejects the edit)
+                return (step >= 0) ? most : double.NaN;
+            }
+            editRemovedSet.Clear(); editCorners.Clear();
+            foreach (int t in removed) {
+                Index3i tv = Mesh.GetTriangle(t);
+                editRemovedSet.Add(t);
+                editCorners.Add(tv.a); editCorners.Add(tv.b); editCorners.Add(tv.c);
+                most = Math.Max(most, triangle_bound(t, Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c)));
+            }
+            foreach (int v in editCorners) {
+                List<Ghost> list;
+                if (ghostsAt.TryGetValue(v, out list) == false)
+                    continue;
+                foreach (Ghost g in list) {
+                    if (g.lost || editLost.Contains(g) || stays(g, editRemovedSet))
+                        continue;
+                    editLost.Add(g);
+                    most = Math.Max(most, ghost_bound(g, -1, -1, Vector3d.Zero));
+                }
+            }
+            return most + step;
+        }"""),
+    ('bool stays(', r"""bool stays(Ghost g, HashSet<int> removedSet)
+        {
+            int u = g.at.a, v = (g.at.b != u) ? g.at.b : g.at.c;
+            if (v == u)
+                return vertex_stays(u, removedSet);
+            foreach (Index3i tv in added)
+                if ((tv.a == u || tv.b == u || tv.c == u) && (tv.a == v || tv.b == v || tv.c == v))
+                    return true;
+            int eid = Mesh.FindEdge(u, v);
+            if (eid < 0)
+                return false;
+            Index2i et = Mesh.GetEdgeT(eid);
+            return removedSet.Contains(et.a) == false || (et.b != DMesh3.InvalidID && removedSet.Contains(et.b) == false);
+        }"""),
+    ('bool vertex_stays(', r"""bool vertex_stays(int u, HashSet<int> removedSet)
+        {
+            foreach (Index3i tv in added)
+                if (tv.a == u || tv.b == u || tv.c == u)
+                    return true;
+            foreach (int t in Mesh.VtxTrianglesItr(u))
+                if (removedSet.Contains(t) == false)
+                    return true;
+            return false;
+        }"""),
+    ('void ghost_add(', r"""void ghost_add(int v, Ghost g)
+        {
+            List<Ghost> list;
+            if (ghostsAt.TryGetValue(v, out list) == false)
+                ghostsAt[v] = list = new List<Ghost>();
+            list.Add(g);
+        }"""),
+    ('void ghost_list(', r"""void ghost_list(Ghost g)
+        {
+            ghost_add(g.at.a, g);
+            if (g.at.b != g.at.a)
+                ghost_add(g.at.b, g);
+            if (g.at.c != g.at.a && g.at.c != g.at.b)
+                ghost_add(g.at.c, g);
+        }"""),
+    ('void ghost_unlist(', r"""void ghost_unlist(Ghost g)
+        {
+            List<Ghost> list;
+            for (int k = 0; k < 3; ++k)
+                if (ghostsAt.TryGetValue(g.at[k], out list))
+                    list.Remove(g);
+        }"""),
+    ('void set_reference(', r"""void set_reference(int t, double carry)
+        {
+            if (t >= refCarry.Length) {
+                int n = Math.Max(2 * refCarry.Length, t + 1);
+                Array.Resize(ref refCarry, n);
+                Array.Resize(ref refAnchor, 3 * n);
+            }
+            Index3i tv = Mesh.GetTriangle(t);
+            refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
+            refCarry[t] = carry;
+        }"""),
+    ('KeyValuePair<Vector3d[], double>[] save_references(', r"""KeyValuePair<Vector3d[], double>[] save_references(List<int> tids)
+        {
+            var saved = new KeyValuePair<Vector3d[], double>[tids.Count];
+            for (int i = 0; i < tids.Count; ++i) {
+                int t = tids[i];
+                saved[i] = new KeyValuePair<Vector3d[], double>(new[] { refAnchor[3 * t], refAnchor[3 * t + 1], refAnchor[3 * t + 2] }, refCarry[t]);
+            }
+            return saved;
+        }"""),
+    ('void restore_reference(', r"""void restore_reference(int t, KeyValuePair<Vector3d[], double> saved)
+        {
+            set_reference(t, saved.Value);
+            refAnchor[3 * t] = saved.Key[0]; refAnchor[3 * t + 1] = saved.Key[1]; refAnchor[3 * t + 2] = saved.Key[2];
+        }"""),
+    ('void commit_drift(', r"""void commit_drift()
+        {
+            if (editMoves) {
+                if (check) {
+                    for (int i = 0; i < added.Count; ++i) {
+                        int t = removed[addedFrom[i]];
+                        if (Mesh.IsTriangle(t) == false || Mesh.GetTriangle(t) != added[i])
+                            throw new InvalidOperationException("MeshRoundingRepair check: triangle " + t + " did not keep its corners' order, " + added[i]);
+                    }
+                }
+                List<Ghost> list;
+                if (editGone >= 0 && ghostsAt.TryGetValue(editGone, out list)) {
+                    foreach (Ghost g in list) {
+                        // (one already at the kept vertex is listed there)
+                        bool listed = g.at.a == editKept || g.at.b == editKept || g.at.c == editKept;
+                        g.at = new Index3i(g.at.a == editGone ? editKept : g.at.a, g.at.b == editGone ? editKept : g.at.b, g.at.c == editGone ? editKept : g.at.c);
+                        if (listed == false)
+                            ghost_add(editKept, g);
+                    }
+                    ghostsAt.Remove(editGone);
+                }
+                foreach (Ghost g in editGhosts) {
+                    ghost_list(g);
+                    GhostsMade++;
+                }
+                if (check) {
+                    check_bounds(editKeptMoved);
+                    check_ghosts(editKept);
+                    if (editGone >= 0 && ghostsAt.ContainsKey(editGone))
+                        throw new InvalidOperationException("MeshRoundingRepair check: ghosts left at the vanished vertex " + editGone);
+                }
+            } else {
+                if (addedIds.Count != added.Count)
+                    throw new InvalidOperationException("MeshRoundingRepair: the ids of the added triangles are not known");
+                foreach (Ghost g in editLost) {
+                    g.lost = true;
+                    ghost_unlist(g);
+                    GhostsLost++;
+                }
+                for (int i = 0; i < added.Count; ++i) {
+                    int t = addedIds[i];
+                    if (check && (Mesh.IsTriangle(t) == false || Mesh.GetTriangle(t) != added[i]))
+                        throw new InvalidOperationException("MeshRoundingRepair check: the added triangle " + added[i] + " is not triangle " + t + " after the edit");
+                    set_reference(t, editDrift);
+                }
+                if (check) {
+                    // (every ghost at a vertex of the edit is still on a vertex or an edge of the mesh: a lost one
+                    // that the proposal missed is caught here, also at a vertex the edit removed)
+                    foreach (int v in editCorners)
+                        check_ghosts(v);
+                    foreach (Index3i tv in added)
+                        for (int k = 0; k < 3; ++k)
+                            check_ghosts(tv[k]);
+                }
+            }
+            MaxDrift = Math.Max(MaxDrift, editDrift);
+        }"""),
+]
+
+
 def source_contract():
-    """The facts about today's code that the note's lemma assumes (section 3.4), so that a change of them is seen
-    before the rule is built on them. Not a contract of the rule itself: no code implements it yet."""
+    """The code against the rule: the facts the note's lemma assumes (section 3.4: one place writes positions, only
+    try_move and try_collapse propose a moved vertex and list every triangle of it), and the rule itself as implemented
+    (RULE_METHODS, compared as text; improves accepts by proposed_drift before anything else; every generic edit names
+    the ids of its added triangles before commit_drift; the records start at Apply). The check-mode blocks are in the
+    compared methods; what they check is tested by the C# check-mode tests (RoundingDriftApexTests,
+    MeshRoundingRepairTestsDriftReference)."""
     text = (ROOT / 'mesh_ops/MeshRoundingRepair.cs').read_text(encoding='utf-8-sig')
     norm = lambda x: re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', x))
     # one place writes positions
@@ -694,6 +927,43 @@ def source_contract():
 			return Math.Sqrt(dx*dx + dy*dy + dz*dz);
 		}""") not in norm(vec):
         raise ValueError('Vector3d.Distance changed; review the rounding model of drift_reference.py')
+    # the rule: the bounds, the proposal, the ghosts and the commit, as written
+    for signature, expected in RULE_METHODS:
+        if signature not in text:
+            raise ValueError(signature + ' is gone; review drift_reference.py')
+        if norm(_method(text, signature)) != norm(expected):
+            raise ValueError(signature + ' changed; review it against the rule and update RULE_METHODS in drift_reference.py')
+    if text.count('within_bound(') != 3 or text.count('proposed_drift(') != 2 or text.count('commit_drift();') != 6:
+        raise ValueError('within_bound, proposed_drift or commit_drift is called elsewhere; review drift_reference.py')
+    # improves: the drift is the first thing checked, with the bound of the edit's component
+    improves = norm(_method(text, 'bool improves('))
+    accept = norm("""double step = hasSurface ? surface : displacement;
+            double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;
+            if (within_bound(proposed_drift(step), bound) == false)
+                return false;""")
+    if not improves.startswith(norm('bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, '
+                                    'bool removesContact = false)') + '{' + accept):
+        raise ValueError('improves: the drift is not checked first, or not by proposed_drift; review drift_reference.py')
+    # the moves past the evaluation limit compute what proposed_drift computes for a move
+    if 'within_bound(move_bound(v, p), maxLength_of(v));' not in _method(text, 'bool try_move('):
+        raise ValueError('try_move: the moves past the limit do not use move_bound; review drift_reference.py')
+    # every generic edit names its added triangles before commit_drift
+    for edit, ids in (('bool try_flip(', 'addedIds.Add(et.a); addedIds.Add(et.b);'), ('bool try_zip(', 'addedIds.AddRange(tids);'),
+                      ('bool zip_strip(', 'addedIds.AddRange(tids);'), ('bool try_remove_vertex(', 'addedIds.Add(tid);')):
+        body = norm(_method(text, edit))
+        if norm(ids + 'commit_drift();') not in body:
+            raise ValueError(edit + ' does not set the ids of its added triangles before commit_drift; review '
+                             'drift_reference.py')
+    # the records start at Apply: the anchors are the corners, the carried bounds 0, no ghosts
+    apply = norm(_method(text, 'public bool Apply('))
+    if norm("""refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
+            refCarry = new double[Mesh.MaxTriangleID];
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
+            }
+            ghostsAt = new Dictionary<int, List<Ghost>>();""") not in apply:
+        raise ValueError('Apply: the records do not start from the mesh; review drift_reference.py')
 
 
 if __name__ == '__main__':

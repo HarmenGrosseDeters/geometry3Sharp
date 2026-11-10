@@ -157,6 +157,26 @@ class DriftReferenceTests(unittest.TestCase):
              'if (p != Mesh.GetVertex(b) && a > b) {\n                foreach (int t in Mesh.VtxTrianglesItr(b)) {'),
             ('Vector3d.cs', 'return Math.Sqrt(dx*dx + dy*dy + dz*dz);\n\t\t}\n        public double Distance(ref',
              'return Math.Sqrt(dx*dx + dy*dy) + Math.Abs(dz);\n\t\t}\n        public double Distance(ref'),
+            # the seven mutants of the rule (PINNED), as changes of the code
+            ('MeshRoundingRepair.cs', 'if (editKeptRef[i])\n                        continue;',
+             'if (editKeptRef[i] || true)\n                        continue;'),                                    # no_ghosts
+            ('MeshRoundingRepair.cs', 'if (listed == false)\n                            ghost_add(editKept, g);', ''),  # ghost_dies_with_its_vertex
+            ('MeshRoundingRepair.cs', 'most = Math.Max(most, triangle_bound(t, Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c)));\n            }\n            foreach (int v in editCorners)',
+             'most = Math.Max(most, refCarry[t]);\n            }\n            foreach (int v in editCorners)'),  # generic_carry_only
+            ('MeshRoundingRepair.cs', 'editLost.Add(g);\n                    most = Math.Max(most, ghost_bound(g, -1, -1, Vector3d.Zero));',
+             'editLost.Add(g);'),                                                                         # generic_ignores_lost_ghosts
+            ('MeshRoundingRepair.cs', 'return most + step;', 'return most;'),                             # generic_without_delta
+            ('MeshRoundingRepair.cs', 'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : Mesh.GetVertex(g.at.a);',
+             'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? g.a0 : Mesh.GetVertex(g.at.a);'),          # kept_vertex_anchor (a ghost's)
+            ('MeshRoundingRepair.cs', 'most = Math.Max(most, Math.Max(ghosts_bound(movedV, movedV, vanishing, movedPos), ghosts_bound(vanishing, movedV, vanishing, movedPos)));',
+             'most = Math.Max(most, ghosts_bound(vanishing, movedV, vanishing, movedPos));'),             # move_skips_ghosts
+            # the bookkeeping around the rule
+            ('MeshRoundingRepair.cs', 'if (within_bound(proposed_drift(step), bound) == false)', 'if (within_bound(proposed_drift(0), bound) == false)'),
+            ('MeshRoundingRepair.cs', 'within_bound(move_bound(v, p), maxLength_of(v));', 'within_bound(0, maxLength_of(v));'),
+            ('MeshRoundingRepair.cs', 'addedIds.Add(tid);\n            commit_drift();', 'commit_drift();'),
+            ('MeshRoundingRepair.cs', 'set_reference(t, editDrift);', 'set_reference(t, 0);'),
+            ('MeshRoundingRepair.cs', 'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in Mesh.TriangleIndices()) {',
+             'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in new int[0]) {'),
         ]
         for name, old, new in changes:
             with self.subTest(change=new):

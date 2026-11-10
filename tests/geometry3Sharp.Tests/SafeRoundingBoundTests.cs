@@ -243,8 +243,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Utm_CleanWithTheUlpTolerance_WithinIt()
         {
-            // 108 of 114 clean with the default (UlpFactor 256); 95 with the relative bound only (UlpFactor 0, before; 92
-            // before the drift was charged to the apex of an edit).
+            // 108 of 114 clean with the default (UlpFactor 256); 102 with the relative bound only (UlpFactor 0; 95 under
+            // the apex rule, 92 before the drift was charged to the apex of an edit, 102 with the reference rule of
+            // docs/design/SAFE_ROUNDING_D1_DRIFT.md).
             // Every result within its bound, MaxDrift <= MaxLength = 256 ulps (0.24 micrometres here)
             int clean = 0, cleanRelative = 0, removals = 0, n = 0;
             foreach (var (name, mesh) in UtmCases()) {
@@ -265,7 +266,7 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(114, n);
             Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
-            Assert.True(cleanRelative <= 95, $"relative bound only: {cleanRelative}");
+            Assert.True(cleanRelative <= 102 && cleanRelative < clean, $"relative bound only: {cleanRelative}");
             Assert.True(removals > 0, "vertex removals");
         }
 
@@ -383,7 +384,8 @@ namespace geometry3Sharp.Tests
         {
             // a UTM case that the relative bound cannot repair: strict, Compute fails with the defects left, where, and
             // the drift the smallest rejected edit needed; not strict, it is clean
-            var (name, mesh) = UtmCases().First(c => c.name == "Cluster k0 count 4 seed 0");
+            // (Cluster k0 count 4 seed 0 until Boolean 2.0: the reference rule repairs it within the relative bound)
+            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k36 count 4 seed 1");
             var strict = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { StrictRounding = true };
             Assert.False(strict.Compute(), name);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);
