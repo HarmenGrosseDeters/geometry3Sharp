@@ -332,8 +332,8 @@ namespace gs
 
 
         // tris: per mesh, the triangles that overlap the parent cell (null at the root: all, via the tree). A
-        // triangle that does not overlap a cell cannot overlap its children (their enlarged boxes lie inside the
-        // enlarged box of the parent, with a margin of 5e-7 of the parent's size), so the children test only
+        // triangle that does not overlap a cell (enlarged by 1e-3 of its size) cannot overlap its children (their
+        // enlarged boxes lie inside it, with a margin of 5e-4 of the parent's size), so the children test only
         // those instead of querying the tree of the whole mesh.
         void refine(Vector3i min, int size, ConcurrentBag<Vector3i> cells, int level, int[][] tris)
         {
@@ -365,20 +365,20 @@ namespace gs
         }
 
 
-        // true if any triangle overlaps the box; with collect, mine gets all overlapping triangles per mesh
-        // (without it, the search stops at the first, and mine is incomplete)
+        // true if any triangle overlaps the box; with collect, mine gets the triangles per mesh that overlap the box
+        // enlarged by 1e-3 of its size (the margin keeps a child's box inside it despite the rounding of the box centres,
+        // also far from the origin); without collect, the search stops at the first and mine is incomplete
         bool overlapping_triangles(Vector3d center, double halfSize, int[][] candidates, bool collect, out int[][] mine)
         {
             mine = new int[Meshes.Length][];
             bool any = false;
-            Vector3d halfExtents = halfSize * Vector3d.One;
+            Vector3d halfExtents = halfSize * Vector3d.One, wideExtents = (halfSize * (1 + ListMargin)) * Vector3d.One;
             for (int i = 0; i < Meshes.Length; ++i) {
                 if (candidates == null) {
                     if (collect) {
                         var found = new List<int>();
-                        collect_overlapping(Meshes[i], Spatials[i], center, halfExtents, found);
+                        any |= collect_overlapping(Meshes[i], Spatials[i], center, halfExtents, wideExtents, found);
                         mine[i] = found.ToArray();
-                        any |= found.Count > 0;
                     } else {
                         mine[i] = null;
                         if (triangles_overlap(Meshes[i], Spatials[i], center, halfExtents)) { any = true; break; }
@@ -390,11 +390,14 @@ namespace gs
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 for (int k = 0; k < cand.Length; ++k) {
                     Meshes[i].GetTriVertices(cand[k], ref a, ref b, ref c);
-                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfExtents)) {
-                        any = true;
-                        if (collect == false)
+                    Vector3d ra = a - center, rb = b - center, rc = c - center;
+                    if (collect == false) {
+                        if (TriangleBoxOverlap(ra, rb, rc, halfExtents))
                             return true;
+                    } else if (TriangleBoxOverlap(ra, rb, rc, wideExtents)) {
                         keep.Add(cand[k]);
+                        if (any == false && TriangleBoxOverlap(ra, rb, rc, halfExtents))
+                            any = true;
                     }
                 }
                 mine[i] = collect ? keep.ToArray() : null;
@@ -402,19 +405,28 @@ namespace gs
             return any;
         }
 
-        static void collect_overlapping(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents, List<int> found)
+        const double ListMargin = 1e-3;
+
+        // adds the triangles overlapping the wide box to found; true if one overlaps the narrow one
+        static bool collect_overlapping(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents, Vector3d wideExtents, List<int> found)
         {
-            AxisAlignedBox3d box = new AxisAlignedBox3d(center - halfExtents, center + halfExtents);
+            AxisAlignedBox3d box = new AxisAlignedBox3d(center - wideExtents, center + wideExtents);
+            bool any = false;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             var traversal = new DMeshAABBTree3.TreeTraversal() {
                 NextBoxDF = (treeBox, depth) => box.Intersects(treeBox),
                 NextTriangleF = (tid) => {
                     mesh.GetTriVertices(tid, ref a, ref b, ref c);
-                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfExtents))
+                    Vector3d ra = a - center, rb = b - center, rc = c - center;
+                    if (TriangleBoxOverlap(ra, rb, rc, wideExtents)) {
                         found.Add(tid);
+                        if (any == false && TriangleBoxOverlap(ra, rb, rc, halfExtents))
+                            any = true;
+                    }
                 }
             };
             spatial.DoTraversal(traversal);
+            return any;
         }
 
         static bool triangles_overlap(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents)
