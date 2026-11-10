@@ -48,8 +48,13 @@ namespace gs
 
         /// <summary> grid cell size; not positive: Spacing / 2.5 </summary>
         public double CubeSize = 0;
-        /// <summary> the data zone around a point is HoleFactor local spacings; beyond it the wrap is used </summary>
-        public double HoleFactor = 2.5;
+        /// <summary>
+        /// the data zone around a point is HoleFactor local spacings; beyond it (blended over the next half) the wrap is used.
+        /// Measured on a torus with a removed patch (6000 points): 2.5 let the winding number sag into the hole (max deviation
+        /// 0.242 against 0.141 of the wrap), 1.5 gave 0.171, 1.0 gave 0.141 but 4 % of the surface of a clean cloud then comes from
+        /// the wrap and 2-3 times as many bubble components appear on noisy data
+        /// </summary>
+        public double HoleFactor = 1.5;
         /// <summary> components with less than this fraction of the area of the largest are removed (and reported) </summary>
         public double MinComponentAreaFraction = 0.05;
         /// <summary> stop (GridTooLarge) if the grid has more nodes </summary>
@@ -73,6 +78,8 @@ namespace gs
         public double RemovedAreaFraction;
         /// <summary> the part of the result area that lies in the no-data zone (where the wrap decides): holes, gaps </summary>
         public double WrapAreaFraction;
+        /// <summary> time of the phases in milliseconds: normals, trees, grid, cleanup </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
         public PointCloudSurface(IList<Vector3d> points)
         {
@@ -83,10 +90,13 @@ namespace gs
         {
             Result = null; NormalsStage = null; Spacing = UsedCubeSize = 0; GridNodes = 0; BandNodes = 0;
             ComponentsRemoved = 0; RemovedAreaFraction = 0; WrapAreaFraction = 0; Error = "";
+            PhaseMilliseconds = new Dictionary<string, long>();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
 
             NormalsStage = new PointCloudNormals(Points) { Alpha = Alpha, Offset = Offset, Parallel = Parallel };
             bool ok = NormalsStage.Compute();
             Spacing = NormalsStage.Spacing;
+            PhaseMilliseconds["normals"] = timer.ElapsedMilliseconds; timer.Restart();
             if (!ok) {
                 Status = SurfaceStatus.NormalsFailed;
                 Error = "normals: " + NormalsStage.Status + " " + NormalsStage.Error;
@@ -115,6 +125,7 @@ namespace gs
             var wrapTree = new DMeshAABBTree3(wrap, true);
             wrapTree.FindNearestTriangle(ps.GetVertex(0));
 
+            PhaseMilliseconds["trees"] = timer.ElapsedMilliseconds; timer.Restart();
             UsedCubeSize = CubeSize > 0 ? CubeSize : Spacing / 2.5;
             AxisAlignedBox3d bounds = wrap.CachedBounds;
             bounds.Expand(2 * UsedCubeSize);
@@ -127,7 +138,26 @@ namespace gs
 
             long band = 0;
             double hole = HoleFactor;
+            // marching cubes asks for every node up to four times (once per cell around it): remember the values
+            // (a value is a pure function of the node, so the order of the queries does not matter)
+            double ox = bounds.Min.x, oy = bounds.Min.y, oz = bounds.Min.z, cs = UsedCubeSize;
+            long nodesX = (long)Math.Floor(bounds.Width / cs) + 3, nodesY = (long)Math.Floor(bounds.Height / cs) + 3;
+            var memo = new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
+            Func<Vector3d, double> rawField = null;
             Func<Vector3d, double> field = (p) => {
+                // (the root finder of marching cubes also asks for points between the nodes: those are not remembered)
+                double fx = (p.x - ox) / cs, fy = (p.y - oy) / cs, fz = (p.z - oz) / cs;
+                double rx = Math.Round(fx), ry = Math.Round(fy), rz = Math.Round(fz);
+                if (Math.Abs(fx - rx) > 1e-9 || Math.Abs(fy - ry) > 1e-9 || Math.Abs(fz - rz) > 1e-9)
+                    return rawField(p);
+                long key = ((long)rz * nodesY + (long)ry) * nodesX + (long)rx;
+                double v;
+                if (memo.TryGetValue(key, out v)) return v;
+                v = rawField(p);
+                memo[key] = v;
+                return v;
+            };
+            rawField = (p) => {
                 int j = pointTree.FindNearestPoint(p);
                 double s = pointSpacing[j];
                 double d = ps.GetVertex(j).Distance(p);
@@ -154,6 +184,7 @@ namespace gs
             mc.Generate();
             GridNodes = mc.CellDimensions.x * mc.CellDimensions.y * mc.CellDimensions.z;
             BandNodes = band;
+            PhaseMilliseconds["grid"] = timer.ElapsedMilliseconds; timer.Restart();
             DMesh3 mesh = mc.Mesh;
             if (mesh == null || mesh.TriangleCount == 0) {
                 Status = SurfaceStatus.EmptyResult; Error = "the iso-surface is empty"; return false;
@@ -186,6 +217,7 @@ namespace gs
             }
             WrapAreaFraction = all > 0 ? wrapArea / all : 0;
 
+            PhaseMilliseconds["cleanup"] = timer.ElapsedMilliseconds;
             string reason = "";
             if (!mesh.IsClosed()) reason = "not closed";
             else if (mesh.Vertices().Any(v => !v.IsFinite)) reason = "non-finite vertices";
