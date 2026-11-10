@@ -27,7 +27,10 @@ class Program
         string outFile = args[0];
         var inputs = new List<string>();
         int[] resolutions = { 64, 128 };
+        bool diagnostics = true;
         for (int i = 1; i < args.Length; ++i) {
+            if (args[i] == "--timing") { diagnostics = false; continue; }   // hook off: only times and counts
+
             if (args[i] == "--") { resolutions = args[i + 1].Split(',').Select(int.Parse).ToArray(); break; }
             if (args[i] == "mesh:all") inputs.AddRange(Procedural.Names.Select(n => "mesh:" + n));
             else if (args[i] == "imp:all") inputs.AddRange(Implicits.Select(n => "imp:" + n));
@@ -39,7 +42,7 @@ class Program
                 using (var doc = JsonDocument.Parse(line))
                     done.Add(doc.RootElement.GetProperty("input").GetString() + "|" + doc.RootElement.GetProperty("res").GetInt32());
 
-        DualContouring.CollectDiagnostics = true;
+        DualContouring.CollectDiagnostics = diagnostics;
         DualContouring last = null;
         int generates = 0;
         DualContouring.GenerateFinished = (dc) => { last = dc; generates++; };
@@ -50,7 +53,7 @@ class Program
             foreach (int res in resolutions) {
                 if (done.Contains(name + "|" + res)) continue;
                 var r = new Dictionary<string, object>();
-                r["input"] = name; r["res"] = res;
+                r["input"] = name; r["res"] = res; r["diagnostics"] = diagnostics;
                 last = null; generates = 0;
                 try {
                     if (input.StartsWith("imp:")) RunImplicit(input.Substring(4), res, r);
@@ -68,12 +71,16 @@ class Program
 
     static void Record(DualContouring dc, Dictionary<string, object> r)
     {
-        var d = dc.Diagnostics;
         r["dc_tris"] = dc.Mesh?.TriangleCount ?? 0;
         r["si_found"] = dc.SelfIntersectionsFound;
         r["si_left"] = dc.SelfIntersectionsLeft;
         r["si_free"] = dc.SelfIntersectionFree;
         r["nonmanifold_tris"] = dc.NonManifoldTriangles;
+        r["resolve_ms"] = dc.ResolveMilliseconds;
+        foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
+        var d = dc.Diagnostics;
+        if (d == null) return;
+        r["si_pairs_diag"] = d.Pairs;
         r["polys"] = d.Polygons; r["transition_polys"] = d.TransitionPolygons; r["multipatch_polys"] = d.MultiPatchPolygons;
         r["degenerate_polys"] = d.DegeneratePolygons;
         r["concave0"] = d.Concave[0]; r["concave1"] = d.Concave[1]; r["concave2"] = d.Concave[2]; r["concave3"] = d.Concave[3]; r["concave4"] = d.Concave[4];
@@ -83,7 +90,6 @@ class Program
         r["covered_pairs"] = d.CoveredPairs;
         string[] cls = { "unknown", "envelope_in", "envelope_out", "multipatch", "transition", "degenerate" };
         for (int c = 0; c < 6; ++c) r["si_tris_" + cls[c]] = d.IntersectingByClass[c];
-        foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
     }
 
     static void RunWinding(string input, int res, Dictionary<string, object> r)

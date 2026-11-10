@@ -199,7 +199,8 @@ namespace g3
         public void Generate()
         {
             SelfIntersectionFree = false;
-            Diagnostics = new DiagnosticCounts();
+            Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;
+            ResolveMilliseconds = 0;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -337,7 +338,7 @@ namespace g3
             var vertexPlane = new List<Vector3d>();
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
-            var vertexPatches = CollectDiagnostics ? new List<int>() : null;
+            var vertexPatches = Diagnostics != null ? new List<int>() : null;
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -464,7 +465,9 @@ namespace g3
                     return c;
                 };
                 fallback = (v) => transitionVertices.Contains(v) ? ring_target(v) : vertexMass[v];
-                resolve_self_intersections(fallback, (v) => vertexLast[v]);
+                var resolveTimer = System.Diagnostics.Stopwatch.StartNew();
+                long diagnosticMs = resolve_self_intersections(fallback, (v) => vertexLast[v]);
+                ResolveMilliseconds = resolveTimer.ElapsedMilliseconds - diagnosticMs;
             }
             phase("intersections");
             if (qefPositions != null) {
@@ -478,7 +481,7 @@ namespace g3
             if (Mesh.TriangleCount > 0 && MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (vid) => Mesh.GetVertex(vid) - center).x < 0)
                 Mesh.ReverseOrientation(false);
             phase("mesh");
-            if (vertexPatches != null && GenerateFinished != null)
+            if (GenerateFinished != null)
                 GenerateFinished(this);
         }
         long gapMilliseconds;
@@ -490,8 +493,12 @@ namespace g3
         // union of the tetrahedra (v_i, v_i+1, e+, e-) of the cell vertices around it; the polygon's triangles
         // lie in it if no vertex is concave, with one concave vertex for the diagonal through it, with two an
         // edge vertex is needed.
+        // (mutable statics: a test that sets them must run in a non-parallel collection)
         internal static bool CollectDiagnostics = false;
+        /// called at the end of every Generate (also with CollectDiagnostics off, for timings)
         internal static Action<DualContouring> GenerateFinished = null;
+        /// time of the self-intersection check and repair of the last Generate (ms), without the diagnostics
+        internal long ResolveMilliseconds;
         internal class DiagnosticCounts
         {
             public int Polygons, TransitionPolygons, MultiPatchPolygons, DegeneratePolygons;
@@ -504,11 +511,13 @@ namespace g3
             public Dictionary<long, byte> TriangleClass = new Dictionary<long, byte>(EdgeKeyComparer.Instance);
             // triangles of the intersecting pairs found in the first resolve round, by class (index 0: unknown)
             public int[] IntersectingByClass = new int[6];
-            // intersecting pairs with both triangles inside their envelopes (the criterion says: none)
-            public int CoveredPairs;
+            // intersecting pairs of the first resolve round (each once), and those with both triangles inside
+            // their envelopes (the criterion says: none)
+            public int Pairs, CoveredPairs;
         }
         static long tri_key(int a, int b, int c)
         {
+            System.Diagnostics.Debug.Assert(a >= 0 && b >= 0 && c >= 0 && a < (1 << 21) && b < (1 << 21) && c < (1 << 21));
             if (a > b) { int t = a; a = b; b = t; }
             if (b > c) { int t = b; b = c; c = t; }
             if (a > b) { int t = a; a = b; b = t; }
@@ -519,7 +528,7 @@ namespace g3
             for (int m = 0; m < 4; ++m)
                 Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = cls;
         }
-        internal DiagnosticCounts Diagnostics = new DiagnosticCounts();
+        internal DiagnosticCounts Diagnostics;
 
         void diagnose_polygon(GridEdge e, int[] poly, Cell[] cells, bool transition, List<int> vertexPatches)
         {
@@ -531,17 +540,10 @@ namespace g3
             bool multi = false;
             for (int q = 0; q < 4; ++q) multi |= vertexPatches[poly[q]] > 1;
             if (multi) { Diagnostics.MultiPatchPolygons++; classify_all(poly, 3); return; }
-            Vector3d vm = node_pos(e.Start), vp = node_pos(e.End(F));
-            int concave = 0, concaveAt = -1;
-            bool onPlane = false;
-            for (int i = 0; i < 4; ++i) {
-                Vector3d p = Mesh.GetVertex(poly[i]), s = Mesh.GetVertex(poly[(i + 3) % 4]), n = Mesh.GetVertex(poly[(i + 1) % 4]);
-                // convex: p above the oriented triangles (s, n, e+) and (n, s, e-); the sign convention of the
-                // canonical convex configuration (cells counter-clockwise around +axis) is ConvexSign
-                int a = ExactPredicates.Orient3d(s, n, vp, p), b = ExactPredicates.Orient3d(n, s, vm, p);
-                if (a == 0 || b == 0) onPlane = true;
-                if (a != ConvexSign || b != ConvexSign) { concave++; concaveAt = i; }
-            }
+            Vector3d[] v = { Mesh.GetVertex(poly[0]), Mesh.GetVertex(poly[1]), Mesh.GetVertex(poly[2]), Mesh.GetVertex(poly[3]) };
+            int concaveAt;
+            bool onPlane;
+            int concave = ConcaveEnvelopeVertices(v, node_pos(e.Start), node_pos(e.End(F)), out concaveAt, out onPlane);
             Diagnostics.Concave[concave]++;
             // the triangle without vertex m has the diagonal (m+1, m+3)
             for (int m = 0; m < 4; ++m) {
@@ -549,6 +551,25 @@ namespace g3
                 Diagnostics.TriangleClass[tri_key(poly[(m + 1) % 4], poly[(m + 2) % 4], poly[(m + 3) % 4])] = (byte)(inside ? 1 : 2);
             }
             if (onPlane) Diagnostics.OnPlane++;
+        }
+        /// <summary>
+        /// Wang's test: the number of concave envelope vertices of the cell vertices v[0..3] around the grid edge
+        /// from eMinus to ePlus (cells counter-clockwise around the direction eMinus to ePlus). v[i] is concave
+        /// if it is not strictly above the oriented triangles (v[i-1], v[i+1], ePlus) and (v[i+1], v[i-1], eMinus);
+        /// an exactly coplanar test counts as concave and sets onPlane. concaveAt: the last concave vertex.
+        /// </summary>
+        internal static int ConcaveEnvelopeVertices(Vector3d[] v, Vector3d eMinus, Vector3d ePlus, out int concaveAt, out bool onPlane)
+        {
+            int concave = 0;
+            concaveAt = -1;
+            onPlane = false;
+            for (int i = 0; i < 4; ++i) {
+                Vector3d p = v[i], s = v[(i + 3) % 4], n = v[(i + 1) % 4];
+                int a = ExactPredicates.Orient3d(s, n, ePlus, p), b = ExactPredicates.Orient3d(n, s, eMinus, p);
+                if (a == 0 || b == 0) onPlane = true;
+                if (a != ConvexSign || b != ConvexSign) { concave++; concaveAt = i; }
+            }
+            return concave;
         }
         static readonly int ConvexSign = ExactPredicates.Orient3d(new Vector3d(1, -1, 0), new Vector3d(-1, 1, 0), new Vector3d(0, 0, 1), new Vector3d(1, 1, 0));
 
@@ -1265,8 +1286,10 @@ namespace g3
         /// <summary> rounds of the self-intersection resolve (each moves the vertices of the intersecting pairs) </summary>
         internal int MaxResolveRounds = 10;
 
-        void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
+        // returns the time spent in the diagnostics (ms)
+        long resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
+            long diagnosticMs = 0;
             var tree = new DMeshAABBTree3(Mesh, true);
             HashSet<int> candidates = new HashSet<int>(Mesh.TriangleIndices());
             var moves = new Dictionary<int, int>();
@@ -1305,41 +1328,45 @@ namespace g3
                     }
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
-                if (round == 0 && CollectDiagnostics) {
-                    // (serial again: classify the triangles of the pairs found, in the moving set's triangles)
+                if (round == 0 && Diagnostics != null) {
+                    // (serial again, all pairs, each once: classify the triangles of the intersecting pairs)
+                    var diagTimer = System.Diagnostics.Stopwatch.StartNew();
+                    var hitTris = new HashSet<int>();
                     foreach (int ta in cand) {
                         Index3i ia = Mesh.GetTriangle(ta);
                         Triangle3d A = new Triangle3d(Mesh.GetVertex(ia.a), Mesh.GetVertex(ia.b), Mesh.GetVertex(ia.c));
                         if (ExactTriangleIntersection.IsDegenerate(ref A)) continue;
                         AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
-                        bool hit = false;
                         byte clsA;
                         Diagnostics.TriangleClass.TryGetValue(tri_key(ia.a, ia.b, ia.c), out clsA);
                         tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                            NextBoxDF = (b, depth) => !hit && b.Intersects(box),
+                            NextBoxDF = (bx, depth) => bx.Intersects(box),
                             NextTriangleF = (tb) => {
-                                if (hit || tb == ta) return;
+                                if (tb <= ta) return;
                                 Index3i ib = Mesh.GetTriangle(tb);
                                 Triangle3d B = new Triangle3d(Mesh.GetVertex(ib.a), Mesh.GetVertex(ib.b), Mesh.GetVertex(ib.c));
                                 if (ExactTriangleIntersection.IsDegenerate(ref B) == false && ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) {
                                     byte clsB;
                                     Diagnostics.TriangleClass.TryGetValue(tri_key(ib.a, ib.b, ib.c), out clsB);
+                                    Diagnostics.Pairs++;
                                     if (clsA == 1 && clsB == 1) Diagnostics.CoveredPairs++;
-                                    hit = true;
+                                    hitTris.Add(ta); hitTris.Add(tb);
                                 }
                             }
                         });
-                        if (hit) {
-                            byte cls;
-                            Diagnostics.TriangleClass.TryGetValue(tri_key(ia.a, ia.b, ia.c), out cls);
-                            Diagnostics.IntersectingByClass[cls]++;
-                        }
                     }
+                    foreach (int t in hitTris) {
+                        Index3i it = Mesh.GetTriangle(t);
+                        byte cls;
+                        Diagnostics.TriangleClass.TryGetValue(tri_key(it.a, it.b, it.c), out cls);
+                        Diagnostics.IntersectingByClass[cls]++;
+                    }
+                    diagnosticMs += diagTimer.ElapsedMilliseconds;
                 }
                 SelfIntersectionsLeft = pairs;
                 if (pairs == 0) {
                     SelfIntersectionFree = true;
-                    return;
+                    return diagnosticMs;
                 }
                 var targets = new List<KeyValuePair<int, Vector3d>>();
                 foreach (int v in moving) {
@@ -1358,6 +1385,7 @@ namespace g3
                     foreach (int tt in Mesh.VtxTrianglesItr(v))
                         candidates.Add(tt);
             }
+            return diagnosticMs;
         }
 
         Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)

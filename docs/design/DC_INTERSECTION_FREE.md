@@ -28,9 +28,10 @@ the alpha wrap (lever 6 variant B) and so tet meshing stage 1.
 ## 2. Upper bound (measured, `benchmarks/DualContouringIntersections`)
 
 Inputs: the lever 6 set (20 T1 Thingi10K meshes of #498 and the 6 procedural CAD solids, through
-`MeshWindingNumberSolidify`, adaptive, cell = diagonal / 64 and / 128) and 7 implicit shapes on a dense grid (rotated
+`MeshWindingNumberSolidify`, adaptive, cell = diagonal / 64 and / 128) and 6 implicit shapes on a dense grid (rotated
 box, box minus sphere, union of two boxes with concave creases, two plates with a sub-cell gap, a cone tip, a gyroid
-sheet, a sphere), each under 20 random rotations and grid shifts at 24 / 48 / 96 cells across. Command and tables:
+sheet), each under 20 random rotations and grid shifts at 24 / 48 / 96 cells across. Counts are of the last `Generate` of a run (the adaptive path can run several); times come from separate
+runs with the hook off (`--timing`). Command and tables:
 the benchmark README.
 
 | input | res | runs | raw SI runs | SI pairs | left after repair (runs) | final SI (runs) | non-manifold tris (runs) | moved / vertices | multi-patch polys | 1 / 2 concave | SI triangles in / out / multi-patch / transition | covered pairs | check+repair share of DC time |
