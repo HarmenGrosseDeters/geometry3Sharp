@@ -169,7 +169,7 @@ Tier: S, M. Parallel: up to 2 sessions
        and close volumes; 5 samples in CI, 4 s). 1 800 samples: one open finding: a closed toe with the slope on its inside (a cone to an apex
        of needle triangles) is certified only after retries of the exact check (4 attempts, slope margin from 1e-6 to 5e-4) and ended once
        in about 500 such designs with `SlopeViolation` (a safe failure: fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671); the same
-       design on the outside is certified at once. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it. Status not fixed.
+       design on the outside is certified at once. Second open finding: `Direction.Auto` on a terrain that tilts through the toe plane ends, with the failing catch point at a toe edge, with `SlopeViolation` ("the composite is not certified: its catch points moved ... changed the surface by up to 0.23, where at most 0.0127 fits into Tolerance", a safe failure; 1 of 700 designs, tilt 0 and 1 certified). Both counted by the campaign (`G3_PROPERTY_STRICT=1` fails on them) and pinned as fixed examples; not fixed.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
