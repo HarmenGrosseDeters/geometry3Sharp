@@ -9,12 +9,22 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// A printable case of the QualityMesh2 property campaign (QA 2.0 T5; the generators and the campaign are in
-    /// QualityMesh2PropertyTests.CsCheck.cs): lattice points with integer coordinates, rings and segments over them, a lattice unit
+    /// QualityMesh2PropertyCampaign.CsCheck.cs): lattice points with integer coordinates, rings and segments over them, a lattice unit
     /// 2^-Denominator, a scale 2^Exponent, an optional snap grid and the options. It builds a <see cref="Mesh2Input"/> exactly (every
     /// coordinate is an integer times a power of two), and <see cref="ToCode"/> prints it as the C# literal a fixed example test pastes.
     /// </summary>
     public sealed class QualityMesh2PropertyCase
     {
+        /// <summary> 2^n exactly, also in the subnormal range (Math.Pow is not exact on every platform; Math.ScaleB is missing on net48) </summary>
+        internal static double Pow2(int n)
+        {
+            if (n > 1023) return double.PositiveInfinity;
+            if (n >= -1022) return BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+            double r = BitConverter.Int64BitsToDouble(1L << 52);   // 2^-1022
+            for (int k = -1022; k > n && r > 0; --k) r *= 0.5;
+            return r;
+        }
+
         public string Family;
         public int[] X, Y;
         public int[][] Rings;
@@ -32,11 +42,11 @@ namespace geometry3Sharp.Tests
 
         public Mesh2Input Build(int extraExponent = 0)
         {
-            double unit = Math.Pow(2, Exponent + extraExponent - Denominator);
+            double unit = Pow2(Exponent + extraExponent - Denominator);
             var input = new Mesh2Input {
                 X = X.Select(v => v * unit).ToArray(), Y = Y.Select(v => v * unit).ToArray(),
                 MinAngleDeg = Angle, ConstrainedQuality = Constrained, Conforming = Conforming, SteinerLimit = SteinerLimit,
-                SnapTolerance = SnapLog2 == null ? 0 : Math.Pow(2, SnapLog2.Value) * unit
+                SnapTolerance = SnapLog2 == null ? 0 : Pow2(SnapLog2.Value) * unit
             };
             for (int i = 0; i < Rings.Length; ++i) input.Rings.Add(new RingInput((int[])Rings[i].Clone(), Holes[i]));
             foreach (var s in Segments) input.Segments.Add(new SegmentInput(s[0], s[1]));
@@ -70,19 +80,29 @@ namespace geometry3Sharp.Tests
         public static int TimeoutMs = 60000;
 
         /// <summary>
-        /// Open finding 2 of the T5 campaign: on a snap grid the oracle's verdict (AreaMismatch, SegmentMissing, VertexUnused,
-        /// TrianglesOnDegenerate, ChainSkipsHotPixel) fails on thin wedges and star polygons, also with the plain constrained Delaunay
-        /// mesher (M2). Not a failure of the campaign until it is decided (oracle spec or snap rounding); G3_PROPERTY_STRICT counts it.
+        /// The open grid class of the last <see cref="Check"/> on this thread (null: none). Open grid findings of the T5 campaign, after
+        /// the oracle's rule O-G: on a snap grid the oracle's verdict still fails in one class, only in its documented setting:
+        /// SegmentMissing / VertexUnused (with ChainSkipsHotPixel) with
+        /// conforming refinement. (AngleBelowBound on a fine grid was an oracle gap, fixed: hull edges are taken whole on the grid.) Not a failure of the campaign until decided or fixed (the other properties still
+        /// run); G3_PROPERTY_STRICT=1 makes them fail. Any other kind of violation stays a failure.
         /// </summary>
-        public static bool IsOpenGridFinding(QualityMesh2PropertyCase c, string reason)
-            => c.SnapLog2 != null && reason.StartsWith("oracle verdict: ", StringComparison.Ordinal);
+        [ThreadStatic] public static string LastOpenClass;
+
+        static string OpenClass(QualityMesh2PropertyCase c, HashSet<Violation> kinds)
+        {
+            if (c.SnapLog2 == null || Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") == "1") return null;
+            if (kinds.IsSubsetOf(new[] { Violation.SegmentMissing, Violation.VertexUnused, Violation.ChainSkipsHotPixel }) && !c.Constrained && c.Angle != null)
+                return "SegmentMissing/VertexUnused";
+            return null;
+        }
 
         static Mesh2Output Run(Mesh2Input input)
         {
             Mesh2Output result = null;
             Exception error = null;
-            var task = Task.Run(() => { try { result = new QualityMesh2Candidate().Run(input); } catch (Exception e) { error = e; } });
-            if (!task.Wait(TimeoutMs)) throw new TimeoutException("no result after " + TimeoutMs + " ms");
+            var thread = new System.Threading.Thread(() => { try { result = new QualityMesh2Candidate().Run(input); } catch (Exception e) { error = e; } }, 16 * 1024 * 1024) { IsBackground = true };
+            thread.Start();
+            if (!thread.Join(TimeoutMs)) throw new TimeoutException("no result after " + TimeoutMs + " ms");
             if (error != null) throw new InvalidOperationException(error.GetType().Name + ": " + error.Message, error);
             return result;
         }
@@ -119,7 +139,11 @@ namespace geometry3Sharp.Tests
             OracleReport report;
             try { report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 }); }
             catch (Exception e) { return "oracle exception: " + e.GetType().Name + ": " + e.Message; }
-            if (!report.Ok) return "oracle verdict: " + string.Join("; ", report.Violations.Take(5));
+            LastOpenClass = null;
+            if (!report.Ok) {
+                LastOpenClass = OpenClass(c, new HashSet<Violation>(report.Violations.Select(v => v.Kind)));
+                if (LastOpenClass == null) return "oracle verdict: " + string.Join("; ", report.Violations.Take(5));
+            }
 
             string reason = SegmentsAreUnions(c, input, o);
             if (reason != "") return reason;
@@ -141,7 +165,7 @@ namespace geometry3Sharp.Tests
             foreach (int shift in scaleShifts ?? new int[0]) {
                 try {
                     var scaled = Run(c.Build(shift));
-                    reason = SameMesh(o, scaled, Math.Pow(2, shift), "scale 2^" + shift);
+                    reason = SameMesh(o, scaled, QualityMesh2PropertyCase.Pow2(shift), "scale 2^" + shift);
                     if (reason != "") return reason;
                 } catch (Exception e) { return "scale 2^" + shift + ": " + e.Message; }
             }

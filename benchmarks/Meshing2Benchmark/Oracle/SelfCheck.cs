@@ -323,6 +323,28 @@ namespace Meshing2Acceptance
                 Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
             }
 
+            // ---- the same on a snap grid, with a hull edge through a collinear input point (T5, found by the CsCheck campaign). The hull
+            // domain A = (0, 0), E1 = (120, 0), E2 = (96, 72) (the hull angle at A is 36.87 degrees) with the input point P = (2, 0) on the bottom
+            // edge, at pixel 1, a bound of 20 degrees and the triangle p E1 q with p = (4, 0) on the piece P-E1 and q on A-E2: its shortest
+            // edge p-q spans the hull angle at A, whose apex lies on the other piece A-P. On the grid the hull edge is taken whole (as the
+            // mesher's OriginOf does), so the triangle is excused; without the grid the pieces are separate sources. (The meshes are not
+            // otherwise valid outputs: only AngleBelowBound is asserted)
+            {
+                Mesh2Input GridIn(double ex, double ey) => new Mesh2Input { SnapTolerance = 1, X = new[] { 0, 120, ex, 2 }, Y = new[] { 0, 0, ey, 0 }, MinAngleDeg = 20 };
+                Mesh2Output GridOut(double ex, double ey, double qx, double qy) {
+                    var tris = new[] { new[] { 0, 3, 5 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 120, ex, 2, 4, qx }, VY = new[] { 0, 0, ey, 0, 0, qy },
+                        InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput>(), BadTriangles = new[] { 2 } };
+                }
+                var onGrid = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 4, 3), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: on the grid the shortest edge spans the hull angle whose apex is on another piece of the split hull edge", !onGrid.Has(Violation.AngleBelowBound), "report: " + onGrid);
+                var farQ = Oracle.Check(GridIn(96, 72), GridOut(96, 72, 12, 9), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same with q 3.75 times as far from the apex as p, as AngleBelowBound", farQ.Has(Violation.AngleBelowBound), "report: " + farQ);
+                var wideGrid = Oracle.Check(GridIn(32, 64), GridOut(32, 64, 2, 4), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: on the grid the same at a hull angle of 63.43 degrees as AngleBelowBound", wideGrid.Has(Violation.AngleBelowBound), "report: " + wideGrid);
+            }
+
             // ---- O-H5, parts collapsed by snapping (Q17): a 20 square with a corridor from x 20 to 50 around y 10, of width w, and a
             // segment along its middle, on a grid of pixel 1. A corridor narrower than a pixel snaps onto one row of pixel centres and
             // has no area: the mesh is the square alone, and the corridor's segment, its edges and its far points are on a collapsed
@@ -675,8 +697,8 @@ namespace Meshing2Acceptance
                             rw2.Violations.Count(x => x.Kind == Violation.SegmentMissing) == 2 && rw2.CollapsedSegments == 0, "report: " + rw2 + " / " + rw2.ExcusedSummary());
                         // ... and the converse: the sliver (0, 0), (20, 4.55), (20, 5.45) collapses in the input's own rounding (both edges
                         // the link (0, 0) - (20, 5)); a Steiner vertex at (15, 3), in the pixel of the lower edge only (that link passes
-                        // row 4 there), opens 7.5 px², and
-                        // the mesh of that triangle without the upper edge's chain is rejected: a link must be collapsed in both roundings
+                        // row 4 there), opens 7.5 px²: the mesh of that
+                        // triangle has no chain of the upper edge.
                         var sliver = new Mesh2Input { SnapTolerance = 1, X = new double[] { 0, 20, 20 }, Y = new double[] { 0, 4.55, 5.45 } };
                         sliver.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
                         var tsl = new[] { new[] { 0, 3, 1 } };
@@ -684,8 +706,10 @@ namespace Meshing2Acceptance
                             Triangles = tsl, Neighbours = NeighboursOf(tsl), TriangleLabels = new int[1], BadTriangles = new int[0],
                             Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 3), new SubsegmentOutput(3, 1) } };
                         var rsl = Oracle.Check(sliver, osl, m3);
-                        Must("reject: a chain missing where an output vertex opens area the input's rounding collapses (rule (ii'), both roundings)",
-                            rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
+                        // (since the owner decision B of 2026-11-10 the reference is the rounded input, which collapses this sliver: the missing chain is
+                        // excused, and the mesh is still rejected, for the triangle's edge that is no constraint)
+                        Must("reject: the triangle an output vertex opens in a sliver the input's rounding collapses (rule (ii'), B), as BoundaryNotConstrained, no chain missing",
+                            rsl.Has(Violation.BoundaryNotConstrained) && !rsl.Has(Violation.SegmentMissing), "report: " + rsl + " / " + rsl.ExcusedSummary());
                         // SRR's known discrepancy (Belussi et al. 2016): Listing 2 against Proposition 4.14. The segment (0, 0) - (10, 1.4)
                         // with the point (5, 0.4) gets the restore pixels (4, 1) and (3, 0); the segment (5.4, 3.4) - (3.4, 1.2) crosses the
                         // interior of (4, 1), but its link (3, 1) - (5, 3) only touches its corner. Listing 2 restores critical edges only,

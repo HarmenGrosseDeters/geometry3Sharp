@@ -1,0 +1,37 @@
+name: Nightly
+
+# The tests tagged [Trait("Category", "Nightly")]: checks whose run is the check and takes more than 10 s (CLAUDE.md, "Test time";
+# docs/QA.md, "Test tiers"), e.g. the exact reference path of the 2D mesher oracle on its largest catalogue rows. They do not run in
+# PR or master CI (ci.yml excludes the category). Daily on master, and on demand.
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test (net10.0, Category=Nightly)
+        run: dotnet test tests/geometry3Sharp.Tests -c Release --filter "Category=Nightly" --logger "trx;LogFileName=nightly.trx" --results-directory test-results
+      - name: Durations
+        if: always()
+        run: python3 tools/trx_durations.py test-results/nightly.trx --top 30 --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-results
+          path: test-results/

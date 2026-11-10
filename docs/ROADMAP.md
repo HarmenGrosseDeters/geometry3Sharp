@@ -52,8 +52,8 @@ Status on 2026-11-08 (evening, Berlin).
   119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The ±1e308 throw is fixed in
   #449 (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with ScaleNotFinite
   above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418).
-  Lévy classification: phase 1 done (#428, no propagation now); phase 2
-  (parallel fast-winding build) after the queue. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+  Lévy classification: phase 1 done (#428, no propagation now); phase 2 done
+  (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
   Next: **Alpha Wrap 3.0** (starts after Exact Boolean 2.0 closes: profile and bounds first, owner sets targets; speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallel evaluate / serial apply)
@@ -127,7 +127,7 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
-- Intersection-free dual contouring (owner 2026-11-09: later, priority 4 of the Phase 5 list, after tet meshing):
+- Intersection-free dual contouring (owner 2026-11-10: moved up, next Phase 5 item, ahead of collision detection and tet meshing):
   [research.md](roadmap/research.md#open)
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)

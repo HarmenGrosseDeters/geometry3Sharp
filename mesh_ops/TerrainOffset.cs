@@ -18,6 +18,10 @@ namespace gs
     /// The result covers exactly the XY footprint of the terrain (its boundary lines are kept, see
     /// TerrainDualContouring.FootprintMesh). Beyond the terrain's border there is nothing, so a positive
     /// offset does not continue around the border (the round part of the true offset is not produced).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): the terrain's coordinates are at most 2^200 in magnitude and its extent is in
+    /// [2^-8, 2^200] (Distance at most 2^200 too); otherwise Compute() returns false and Result is null (before, an extent
+    /// beyond 2^260 returned a wrong surface as a success).
     /// </summary>
     public class TerrainOffset
     {
@@ -47,6 +51,8 @@ namespace gs
         {
             Result = null;      // a failing Compute leaves no result of an earlier one
             if (Terrain.TriangleCount == 0 || Distance == 0 || double.IsNaN(Distance) || double.IsInfinity(Distance))
+                return false;
+            if (TerrainInputRange.Check(Terrain, "the terrain") != null || Math.Abs(Distance) > TerrainInputRange.MaxMagnitude)
                 return false;
             spatial = new DMeshAABBTree3(Terrain, true);
             // bounds of the triangles (isolated vertices do not count)

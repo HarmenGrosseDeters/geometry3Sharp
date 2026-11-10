@@ -1536,9 +1536,10 @@ namespace Meshing2Acceptance
             /// <summary>
             /// O-H5 with rule (ii') on the image of source: which links of its full image are excused, and whether output vertices
             /// rerouted any of them. The full image and the input's own image are matched at the pixels they share, in order (the ends are
-            /// shared: both are input points); a link of the full image is excused if it is collapsed there and every link of the
-            /// input's own image between the same two shared pixels is collapsed in the input's own rounding. So an output vertex may
-            /// reroute a chain only across a stretch the input's rounding collapses, and never creates a collapse (owner 2026-11-03).
+            /// shared: both are input points); a link of the full image is excused if every link of the input's own image between the
+            /// same two shared pixels is collapsed in the input's own rounding, whatever the full image makes of it (the reference is the
+            /// rounded input; owner decisions 2026-11-03 and B of 2026-11-10). So an output vertex may reroute a chain only across a
+            /// stretch the input's rounding collapses.
             /// Judging the input's rounding beside the full link's middle instead is unsound: a rerouted link can run outside the
             /// input's band while the band keeps area next to it (post-review B1, the wedge self-check).
             /// </summary>
@@ -1561,8 +1562,12 @@ namespace Meshing2Acceptance
                     if (!ownCollapsed) continue;
                     bool same = f1 - f0 == o1 - o0;
                     for (int k = f0; k < f1 && same; ++k) same = image[k].Equals(own[o0 + k - f0]);
-                    for (int k = f0; k < f1; ++k)
-                        if (LinkCollapsed(full, image[k], image[k + 1])) { excused[k] = true; rerouted[k] = !same; }
+                    for (int k = f0; k < f1; ++k) {
+                        // the reference is the rounded input (owner 2026-11-10): a stretch that the input's own rounding collapses is excused
+                        // whatever the full image makes of it; a reroute through refinement pixels that opens area there (a lobe) is not required of the mesh
+                        if (!LinkCollapsed(full, image[k], image[k + 1])) ++r.LobeChainExcuses;
+                        excused[k] = true; rerouted[k] = !same;
+                    }
                 }
                 return excused;
             }
@@ -1586,7 +1591,10 @@ namespace Meshing2Acceptance
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
-                if (!PixelCollapsed(full, p) || !PixelCollapsed(inputOnly, p)) return false;
+                if (!PixelCollapsed(inputOnly, p)) return false;
+                // the reference is the rounded input (owner 2026-11-10): the input's rounding collapses the point's pixel (a spike's tip), so the
+                // mesh need not have area there, even if output vertices rerouted the links at it and the full image has a lobe beside one of them
+                if (!PixelCollapsed(full, p)) { ++r.LobePointExcuses; return true; }
                 // (iii): the links at its pixel differ between the roundings: output vertices rerouted them
                 var n = PixelOf(p, snapPixel);
                 full.LinksAt.TryGetValue(n, out var withAll); inputOnly.LinksAt.TryGetValue(n, out var withInput);
@@ -2178,7 +2186,9 @@ namespace Meshing2Acceptance
             /// The hull edges of a hull domain (D13) where the mesher refines (Refining), which constrains the hull: the boundary, so an input segment at a small
             /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
             /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
-            /// a small angle must lie on one piece; review of the fix). In the merge zone only paired with a segment and without an explicit
+            /// a small angle must lie on one piece; review of the fix). On a snap grid the hull edges are not split: the mesher takes the angle from
+            /// the input constraint (OriginOf: the whole hull edge), and the apex of a small angle may lie on another piece than the triangle's vertex
+            /// (found by the CsCheck campaign, T5; MESHING2D_HULL_GRID.md). In the merge zone only paired with a segment and without an explicit
             /// tolerance (InMergeZone): the mesher refuses a split point of a hull edge near a segment, not one of a segment near the hull.
             /// Empty otherwise.
             /// </summary>
@@ -2197,7 +2207,7 @@ namespace Meshing2Acceptance
                             for (int j = 0; j < inPts.Length; ++j) {
                                 if (box && (input.X[j] < x0 || input.X[j] > x1 || input.Y[j] < y0 || input.Y[j] > y1)) continue;
                                 Pt p = inPts[j];
-                                if (p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
+                                if (input.SnapTolerance > 0 || p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
                                 on.Add((Exact.Len2(a, p), p));
                             }
                             on.Sort((s, t) => s.t.CompareTo(t.t));
@@ -2350,7 +2360,58 @@ namespace Meshing2Acceptance
                 // (not with an effective hole seed: the cell it removes is bounded by constraints that Domain.Edges() does not list)
                 bool grid = input.SnapTolerance > 0 && effectiveSeeds.Count == 0;
                 Q boundaryTube2 = tube2;
-                if (grid) { Q px = Q.FromDouble(input.SnapTolerance) * GridTubePixels; boundaryTube2 = Q.Max(tube2, px * px); }
+                // (the output boundary may run off the exact input boundary as far as the iterated image does, up to the guard
+                // GridImageDriftPixels; what is measured on the vertices and the links is the movement of the area tolerance)
+                Q driftTube2 = tube2;
+                List<(Pt a, Pt b)> imageLinks = null;
+                if (grid) {
+                    Q px = Q.FromDouble(input.SnapTolerance);
+                    boundaryTube2 = Q.Max(tube2, px * px * (GridTubePixels * GridTubePixels));
+                    driftTube2 = Q.Max(tube2, px * px * (GridImageDriftPx * GridImageDriftPx));
+                    Snap();
+                    double worstImage = 0;
+                    double pxD = input.SnapTolerance;
+                    foreach (var kv in full.Images) {
+                        if (!o.IdentityRules) break;
+                        // the guard on the image itself: no node farther than GridImageDriftPx pixels from the exact source. In doubles where
+                        // the magnitudes allow (FilterRange; the guard has a margin of 0.9 pixel over the largest drift measured), else exact
+                        var sa = PtD(kv.Key.a); var sb = PtD(kv.Key.b);
+                        double dx = sb.x - sa.x, dy = sb.y - sa.y;
+                        bool inRange = !double.IsNaN(sa.x) && !double.IsNaN(sb.x) && FilterRange(Math.Max(Math.Abs(dx), Math.Abs(dy)))
+                            && FilterRange(Math.Max(Math.Abs(sa.x), Math.Abs(sa.y)) + pxD) && FilterRange(pxD);
+                        foreach (var n in kv.Value) {
+                            double pxDist;
+                            if (inRange) {
+                                double cx = (double)n.x * pxD, cy = (double)n.y * pxD, len2 = dx * dx + dy * dy;
+                                double t = Math.Max(0, Math.Min(1, ((cx - sa.x) * dx + (cy - sa.y) * dy) / len2));
+                                double ex = sa.x + t * dx - cx, ey = sa.y + t * dy - cy;
+                                pxDist = Math.Sqrt(ex * ex + ey * ey) / pxD;
+                            } else {
+                                Q q = Exact.Dist2ToSegment(kv.Key.a, kv.Key.b, Centre(n, snapPixel)) / (snapPixel * snapPixel);
+                                q.Bounds(out _, out double qhi);
+                                pxDist = Math.Sqrt(qhi);
+                            }
+                            if (double.IsNaN(pxDist)) pxDist = double.PositiveInfinity;   // fail closed
+                            worstImage = Math.Max(worstImage, pxDist);
+                        }
+                    }
+                    r.MaxImageDriftPixels = worstImage;
+                    if (o.IdentityRules && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
+                }
+                // a boundary point at distance d2 (squared) from the exact input boundary is accepted within the pixel tube, or, farther but
+                // within the drift guard, if it lies within the pixel tube of an image link; false: outside (BoundaryOutsideTube)
+                bool OnImage(Pt pt)
+                {
+                    if (!o.IdentityRules) return false;
+                    if (imageLinks == null) {
+                        // (built on the first use: only a boundary point beyond the pixel tube needs it)
+                        imageLinks = new List<(Pt a, Pt b)>();
+                        foreach (var kv in full.Images)
+                            for (int k = 0; k + 1 < kv.Value.Count; ++k) imageLinks.Add((Centre(kv.Value[k], snapPixel), Centre(kv.Value[k + 1], snapPixel)));
+                    }
+                    foreach (var (la, lb) in imageLinks) if (Exact.Dist2ToSegment(la, lb, pt) <= boundaryTube2) return true;
+                    return false;
+                }
                 if (domain.IsHull || grid) {
                     // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
                     // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
@@ -2362,18 +2423,19 @@ namespace Meshing2Acceptance
                             if (!checkedVertices.Add(id)) continue;
                             // (the edges within the tube only: the minimum counts only when it is within the tube, and then its edge is
                             // among them)
-                            var near = DomainEdgesNear(v[id], boundaryTube2);
+                            var near = DomainEdgesNear(v[id], driftTube2);
                             if (CheckFastPathForTests && hullEdges.Count > 0) {
-                                Q full = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                                Q full0 = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
                                 Q got = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                                if (full <= boundaryTube2 && (near.Count == 0 || got != full)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
+                                if (full0 <= driftTube2 && (near.Count == 0 || got != full0)) FastPathDiffers("the nearest hull edge of boundary vertex " + id);
                             }
                             // (no hull edge at all, every input point the same: the scan's minimum of nothing threw; the domain is degenerate
                             // and reported as such, TrianglesOnDegenerate)
                             if (hullEdges.Count == 0) continue;
                             Q d = near.Count == 0 ? Q.Zero : near.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
-                            if (near.Count == 0 || d > boundaryTube2) {
-                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary");
+                            bool inside = near.Count > 0 && d <= (grid ? driftTube2 : tube2) && (!grid || d <= boundaryTube2 || OnImage(v[id]));
+                            if (!inside) {
+                                if (grid && o.IdentityRules) r.Add(Violation.BoundaryOutsideTube, "boundary vertex " + id + " at " + v[id] + " is farther than " + GridTubePixels + " pixel from the input's boundary and off its image");
                                 continue;
                             }
                             moved2 = Q.Max(moved2, d);
@@ -2388,10 +2450,10 @@ namespace Meshing2Acceptance
                             Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
                             foreach (var f in EighthPoints) {
                                 var pt = new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f);
-                                var nearEdges = DomainEdgesNear(pt, boundaryTube2);
+                                var nearEdges = DomainEdgesNear(pt, driftTube2);
                                 if (nearEdges.Count == 0) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
                                 Q dd = nearEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, pt)).Aggregate(Q.Min);
-                                if (dd > boundaryTube2) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary near " + pt); continue; }
+                                if (dd > driftTube2 || dd > boundaryTube2 && !OnImage(pt)) { if (far++ < 8) r.Add(Violation.BoundaryOutsideTube, "boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + " leaves the grid tube of the input's boundary and its image near " + pt); continue; }
                                 moved2 = Q.Max(moved2, dd);
                             }
                         }
@@ -2456,7 +2518,18 @@ namespace Meshing2Acceptance
             }
 
             /// <summary> the distance, in pixels, within which the output boundary lies from the input's and the input's from the output's (rule O-G) </summary>
+            Dictionary<(BigInteger x, BigInteger y), List<int>> pixelVertices;
+
             const int GridTubePixels = 1;
+
+            /// <summary>
+            /// The guard on the image itself (owner decision 2026-11-10): no node of a source's iterated image lies farther than this many
+            /// pixels from the exact source. Input rounding moves at most half a pixel per axis (SR with restore); refinement vertices may reroute
+            /// other chains through hot pixels (Q17), so a chain at a sub-pixel wedge can end up farther: measured at most 1.6 pixels, p99.9
+            /// 0.707 pixel over about 85 000 sources. A bounded drift cannot give back one pixel (Packer 2006, 2008: the bound must be about
+            /// three times the deviation of snap rounding; Belussi et al. 2016, section 5.2: it collapses at small angles).
+            /// </summary>
+            static readonly Q GridImageDriftPx = new Q(5, 2);   // 2.5 pixels
 
             // the points between the ends of an edge that rule O-G samples: the distance to a set is 1-Lipschitz, so between samples a
             // chord of length L can be at most L/16 beyond the tube
@@ -2747,8 +2820,31 @@ namespace Meshing2Acceptance
                             farGap = Math.Min(farGap, gap);
                         }
                     }
+                    // With a snap tolerance the chain follows the source's iterated image (Q17: output vertices are hot pixels and reroute it), which
+                    // can leave the tube of the exact segment at a sub-pixel wedge (up to ~1.6 pixels measured, rule O-G): the vertices at the
+                    // pixel centres of the image's nodes are candidates too, in addition to the tube's (owner decision 2026-11-10, option A)
+                    var imageNear = new List<int>();
+                    if (input.SnapTolerance > 0 && o.IdentityRules) {
+                        Snap();
+                        if (full.Images.TryGetValue((s.a, s.b), out var imageNodes)) {
+                            if (pixelVertices == null) {
+                                // (the vertices at their pixel centres by pixel, once: not a scan of all vertices per source)
+                                pixelVertices = new Dictionary<(BigInteger x, BigInteger y), List<int>>();
+                                for (int i = 0; i < v.Length; ++i) {
+                                    if (!AtPixelCentre(v[i], v[i], snapPixel)) continue;
+                                    var key = PixelOf(v[i], snapPixel);
+                                    if (!pixelVertices.TryGetValue(key, out var list)) pixelVertices.Add(key, list = new List<int>());
+                                    list.Add(i);
+                                }
+                            }
+                            var nearSet = new HashSet<int>(near);
+                            foreach (var node in imageNodes)
+                                if (pixelVertices.TryGetValue(node, out var inPixel)) foreach (int i in inPixel) if (nearSet.Add(i)) imageNear.Add(i);
+                        }
+                    }
                     foreach (var piece in RetainedPieces(s.a, s.b, ringEdges, double.IsNaN(own[0]) || !(farGap > 0) ? allRingEdges : null, farGap)) {
                         var candidates = new HashSet<int>(near);
+                        foreach (int i in imageNear) candidates.Add(i);
                         // A piece ends where a ring edge cuts it. At a tiny angle that point is ill-conditioned along the lines: a crossing rounded
                         // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
                         // source and of a ring edge through the end also ends the chain.
@@ -2834,8 +2930,8 @@ namespace Meshing2Acceptance
             /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
             /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
-            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
-            /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
+            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in the input's own rounding
+            /// (a pixel that collapses in the input's own rounding lies on such links). A subsegment between two pixels of the piece's image that skips
             /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only (review of
             /// #36, S2). Known gap (third review of #36): another edge's link between two pixels of the image can still stand in for the
             /// piece's, where two further chains give the skipped pixel's vertex both sides (about four edges). Pixels of refinement are
@@ -2862,11 +2958,20 @@ namespace Meshing2Acceptance
                 var image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
                 var index = new Dictionary<(BigInteger x, BigInteger y), int>(image.Count);
                 for (int t = 0; t < image.Count; ++t) index[image[t]] = t;
-                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
+                // A stretch between two pixels of the input's image is gone when the input's rounding collapses it (a spike: no area beside
+                // it): the reference is the rounded input, and the mesh need not rebuild what that rounding collapses, whatever the full image
+                // makes of it after output vertices rerouted it through further hot pixels (Q17; owner decision 2026-11-10). A stretch with
+                // area in the input's own image is judged by the full image as before.
+                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+                {
+                    if (!LinkCollapsed(inputOnly, p, q)) return false;
+                    if (!LinkCollapsed(full, p, q)) ++r.LobeChainExcuses;
+                    return true;
+                }
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
-                    // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
+                    // that side collapses (O-H5's rule (ii'), B: the input's own rounding collapses it, refinement may open area there)
                     Q along = Along(Centre(h, snapPixel));
                     if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
@@ -2885,7 +2990,7 @@ namespace Meshing2Acceptance
                             }
                             if (before && after) { onChain = true; break; }
                         }
-                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in both images
+                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in the input's own rounding
                     if (!onChain && k >= 0) {
                         Snap();
                         onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);

@@ -27,6 +27,8 @@ namespace gs
         internal readonly DMesh3 Reference;
         internal double Tolerance;
         internal bool CheckSelfIntersections = true;
+        /// <summary> a mesh (as a built tree, only read) that no new triangle may touch: the wrap's input, which the wrap encloses (see Reducer.KeepClearOf) </summary>
+        internal DMeshAABBTree3 KeepClearOf = null;
         internal Func<bool> CancelF = () => false;
 
         /// <summary> triangles with a smaller minimum angle are improved (their edges flipped, their vertices moved) </summary>
@@ -302,6 +304,10 @@ namespace gs
                     RejectedByDeviation++;
                     return false;
                 }
+            if (KeepClearOf != null && Reducer.TrianglesTouch(KeepClearOf, tris)) {
+                RejectedByIntersection++;
+                return false;
+            }
             if (grid == null)
                 return true;
             for (int i = 0; i < tris.Count; ++i) {
