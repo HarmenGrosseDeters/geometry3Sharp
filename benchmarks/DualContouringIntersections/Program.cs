@@ -82,6 +82,7 @@ class Program
         r["resolve_ms_last"] = dc.ResolveMilliseconds;
         r["covered_tris"] = dc.CoveredTriangles; r["checked_tris"] = dc.CheckedTriangles;
         r["forced_diagonals"] = dc.ForcedDiagonals; r["edge_vertices"] = dc.EdgeVertices;
+        r["face_vertices"] = dc.FaceVertices; r["clamped_face_vertices"] = dc.ClampedFaceVertices;
         foreach (var kv in dc.PhaseMilliseconds) r["dc_ms_" + kv.Key] = kv.Value;
         var d = dc.Diagnostics;
         if (d == null) return;
