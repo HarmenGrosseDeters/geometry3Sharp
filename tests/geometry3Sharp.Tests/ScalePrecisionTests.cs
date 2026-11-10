@@ -1119,11 +1119,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Vector3d(9, 9, 9), result);
         }
 
+        // A = weight I with b = -weight (1, 2, 3): the solution is finite, whatever the weight. The products of the weights overflowed (or 1/det was
+        // infinite or 0, which gave the origin of the quadric) in the old arithmetic, which then refused; the quadric is scaled by a power of
+        // two now, so the solution is found at every weight.
         [Theory]
-        [InlineData(5e102, -5e102, -1e103, -1.5e103)]       // the products overflow before the division by det
-        [InlineData(1e-103, -1e-103, -2e-103, -3e-103)]     // 1/det is infinite
-        [InlineData(6e102, -6e102, -1.2e103, -1.8e103)]
-        [InlineData(1e103, 0, 0, 0)]                        // 1/det is 0: this gave a solution of (0,0,0)
+        [InlineData(5e102)]
+        [InlineData(6e102)]
+        [InlineData(1e103)]
+        [InlineData(1e-103)]
+        [InlineData(1e-200)]
+        [InlineData(1e200)]
+        public void QuadricRegularizedPoint_ExtremeWeight_FindsTheSolution(double weight)
+        {
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            QuadricError unit = new QuadricError { Axx = 1, Ayy = 1, Azz = 1, bx = -1, by = -2, bz = -3 };
+            Vector3d result = new Vector3d(9, 9, 9), expected = new Vector3d(9, 9, 9);
+            Assert.True(unit.OptimalPoint(ref expected, new Vector3d(1, 1, 1), 1e-6));
+            Assert.True(q.OptimalPoint(ref result, new Vector3d(1, 1, 1), 1e-6), $"{result}");
+            Assert.True((result - expected).Length < 1e-9, $"{result} instead of {expected}");
+        }
+
+        [Theory]
         [InlineData(0.5, 1e308, 1, 1)]
         [InlineData(0.5, 1, 1e308, 1)]
         [InlineData(0.5, 1, 1, 1e308)]
