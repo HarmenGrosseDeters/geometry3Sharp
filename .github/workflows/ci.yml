@@ -175,7 +175,8 @@ jobs:
         # reports, so a failing test does not fail the step; a missing report fails the gate)
         continue-on-error: true
         run: |
-          BASE='Category!=Slow&Category!=Nightly'
+          # the tests with a wall-clock budget fail under the instrumentation (about 3x slower); they stay enforced in linux, only this collection skips them
+          BASE='Category!=Slow&Category!=Nightly&FullyQualifiedName!~RobustnessSweepTests.Sweep_SameResultUnderSimilarity&FullyQualifiedName!~UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic'
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "$BASE" > list.txt
           FILTER=$(python3 tools/coverage/shard_filter.py ${{ matrix.shard }} 8 "$BASE" < list.txt)
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
