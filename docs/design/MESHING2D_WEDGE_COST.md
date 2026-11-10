@@ -1,5 +1,9 @@
 # The cost of a shallow wedge in the default (conforming) mode (design note, 2026-11-10, QA 2.0 T5)
 
+**Decision (owner, 2026-11-10): D.** The default mode's cost of about 1/θ at a shallow wedge is documented as today's behaviour (it comes from rule C and the
+independent splitting of A and B, not from O2; it is not a lower bound). The constrained quality mode is the answer for such inputs. No code. Option B
+(matched shells) is recorded as a reopenable research item (section 5) with the independent exact-rational check.
+
 **Question (owner option B of 2026-11-10):** can shell-matched split points make a small-angle wedge cost O(log 1/θ) in the default mode,
 where it costs about 1/θ today? **Answer of this note (after an independent check of its first version): yes in principle, if the A and B split
 points stay matched; no for the vertex sets that today's refinement produces, which cost 1/θ because their vertices are not matched.**
@@ -66,17 +70,22 @@ wedges, not of O2 itself. Not verified on the input (it is not in the repository
 
 ## 5. Options (a decision for the owner)
 
-- **B (shell-matched splits in the conforming wedge), reopened:** after a small-angle pair (the pair of `SpansSmallAngle`) is detected, split the
+- **B (shell-matched splits in the conforming wedge), research item, reopenable:** after a small-angle pair (the pair of `SpansSmallAngle`) is detected, split the
   subsegments of both sources next to the apex at the same distances from it (powers of two), and keep matched pairs together (a Steiner point on A
   in the wedge gets its partner on B at the same radius). Expected: the default-mode wedge falls from 1/θ towards the cq numbers. Needs a design with
   the termination argument (SMALL_ANGLES_CONFORMING section 4) and the interaction with rule C and the O11 merge zone, and a probe on the
   generators of section 1 and the F rows 4, 5, 26, 27, 38, 42 before any adoption; high effort, uncertain until probed.
-- **D (document):** keep today's refinement, say in the spec and the roadmap that the default mode costs about 1/θ at a wedge of angle θ below the
+- **D (document), chosen:** keep today's refinement, say in the spec and the roadmap that the default mode costs about 1/θ at a wedge of angle θ below the
   bound, with the numbers of section 1; the cq mode is the answer for such inputs. No code.
 - **E (O2 in the wedge):** an O2 exception for subsegments that span a small input angle (constrained Delaunay inside the wedge). A spec change
   (O2's exception list, the oracle's conformity check) and mesher change (rule C does not revoke there); conformity across segments is what default-mode
   users rely on, so the exception would be narrow. Cheaper than B, weaker guarantee.
 - **C (cap):** stop revoking the exemption below a wedge-width scale: not recommended, it hides a non-conforming output.
 
-Recommendation: D now (true and free); B as a probe if the owner wants the default mode to stay conforming at such inputs, E if conformity inside the wedge is
+Recommendation (taken): D now (true and free); B as a probe if the owner wants the default mode to stay conforming at such inputs, E if conformity inside the wedge is
 not needed.
+
+## 6. Where D is stated
+
+This note (section 1 has the numbers) and the roadmap line of the near-contact item in `docs/roadmap/meshing2d.md`. The spec text of O2 is unchanged: the
+default mode keeps O2 at a wedge and pays for it; a user with such inputs and no need for conformity across segments uses the constrained quality mode.
