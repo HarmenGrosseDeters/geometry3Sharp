@@ -180,12 +180,11 @@ namespace geometry3Sharp.Tests
         /// constants of the other stages (the Reducer's R14, the exact resolve's tree) come in; the solidify fallback is scale invariant at
         /// every scale since #537 (F3, F4 in RepairCampaignFindings). The rounding repair is scale relative: 2^-10 .. 2^10.
         /// </summary>
-        static readonly Gen<int> RobustShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(24, 32, 40) : Gen.Int[-20, 10]);
+        static readonly Gen<int> RobustShift = Gen.Int[0, 7].SelectMany(i => i == 0 ? Gen.OneOfConst(40, 70, 90) : Gen.Int[-20, 10]);
 
         /// <summary>
-        /// the edges of the supported range (docs/QA.md 2.5a) are part of the samples: one case in eight of RobustShift uses a shift of 2^24 .. 2^40 (the
-        /// scenes reach 2^33 before the shift; not higher: the Reducer is not scale invariant above an extent of about 2^63, F5 in
-        /// RepairCampaignFindings; the alpha wrap fallback ends at 2^128, the robust repair's own range at 2^400). One case in eight of RoundingShift uses
+        /// the edges of the supported range (docs/QA.md 2.5a) are part of the samples: one case in eight of RobustShift uses a shift of 2^40, 2^70 or 2^90 (the
+        /// scenes reach 2^33 before the shift; the Reducer is invariant up to 2^128 since #549 (F5 in RepairCampaignFindings); the alpha wrap fallback ends at 2^128, the robust repair's own range at 2^400). One case in eight of RoundingShift uses
         /// +-90 or +-100: the rounding repair is scale relative (2^-200 .. 2^200) and the scenes' coordinates reach 2^-52 .. 2^33 before the shift.
         /// (The clean-solid claims of CleanSceneProperties run on the scene at scale 1 and the general ones at the shift: the edge shifts test those.)
         /// </summary>
