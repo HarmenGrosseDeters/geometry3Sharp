@@ -127,3 +127,37 @@ python3 benchmarks/DualContouringIntersections/compare.py --base base_w1.jsonl b
 
 Covered 90 % of the triangles (7.59 M of 8.45 M), 135887 forced diagonals, 1278 edge vertices; 0 covered pairs of 8053
 intersecting pairs; 0 left after the repair in all 412 runs. Details in the design note, section 5.
+
+## Option B (face vertices on ambiguous faces and refinement transitions)
+
+A/B against master with option A (`compare.py`, two repetitions alternating, hook off):
+
+| input | res | runs | total s base / cand | ratio | DC s base / cand | ratio | check + repair s base / cand | ratio |
+|---|---|---|---|---|---|---|---|---|
+| T1 | 64 | 20 | 7.4 / 7.4 | 1.00 | 3.3 / 3.3 | 1.00 | 0.18 / 0.17 | 0.93 |
+| T1 | 128 | 20 | 19.2 / 20.7 | 1.08 | 9.4 / 10.0 | 1.07 | 0.82 / 0.50 | 0.62 |
+| imp:boxminussphere | 24 | 20 | 0.1 / 0.1 | 1.30 | 0.1 / 0.1 | 1.46 | 0.01 / 0.01 | 0.89 |
+| imp:boxminussphere | 48 | 20 | 0.6 / 0.6 | 1.00 | 0.6 / 0.6 | 1.00 | 0.07 / 0.07 | 1.11 |
+| imp:boxminussphere | 96 | 20 | 2.7 / 2.8 | 1.04 | 2.6 / 2.8 | 1.04 | 0.40 / 0.36 | 0.91 |
+| imp:cone | 24 | 20 | 0.0 / 0.0 | 0.96 | 0.0 / 0.0 | 0.80 | 0.00 / 0.00 | 0.33 |
+| imp:cone | 48 | 20 | 0.2 / 0.3 | 1.23 | 0.2 / 0.2 | 1.34 | 0.03 / 0.03 | 1.13 |
+| imp:cone | 96 | 20 | 1.2 / 1.2 | 1.01 | 1.1 / 1.1 | 1.01 | 0.15 / 0.14 | 0.91 |
+| imp:gyroid | 24 | 20 | 0.4 / 0.4 | 1.06 | 0.4 / 0.4 | 1.09 | 0.20 / 0.21 | 1.06 |
+| imp:gyroid | 48 | 20 | 2.8 / 2.9 | 1.05 | 2.7 / 2.9 | 1.05 | 1.26 / 1.29 | 1.03 |
+| imp:gyroid | 96 | 20 | 9.6 / 9.9 | 1.04 | 9.5 / 9.9 | 1.04 | 2.21 / 2.25 | 1.02 |
+| imp:rotbox | 24 | 20 | 0.1 / 0.2 | 1.33 | 0.1 / 0.1 | 1.38 | 0.01 / 0.01 | 1.06 |
+| imp:rotbox | 48 | 20 | 0.4 / 0.5 | 1.25 | 0.4 / 0.5 | 1.28 | 0.07 / 0.07 | 1.01 |
+| imp:rotbox | 96 | 20 | 2.0 / 2.2 | 1.10 | 1.9 / 2.1 | 1.10 | 0.29 / 0.31 | 1.09 |
+| imp:slab | 24 | 20 | 0.1 / 0.1 | 1.27 | 0.1 / 0.1 | 1.35 | 0.04 / 0.05 | 1.05 |
+| imp:slab | 48 | 20 | 0.8 / 1.0 | 1.18 | 0.8 / 0.9 | 1.19 | 0.35 / 0.42 | 1.20 |
+| imp:slab | 96 | 20 | 3.1 / 3.0 | 0.98 | 3.0 / 2.9 | 0.98 | 0.68 / 0.62 | 0.91 |
+| imp:twoboxes | 24 | 20 | 0.1 / 0.1 | 0.91 | 0.1 / 0.1 | 0.88 | 0.00 / 0.01 | 4.14 |
+| imp:twoboxes | 48 | 20 | 0.4 / 0.3 | 0.75 | 0.4 / 0.3 | 0.71 | 0.07 / 0.04 | 0.59 |
+| imp:twoboxes | 96 | 20 | 2.0 / 2.0 | 1.02 | 1.9 / 2.0 | 1.01 | 0.25 / 0.21 | 0.84 |
+| mesh:procedural | 64 | 6 | 1.8 / 2.0 | 1.14 | 0.8 / 1.0 | 1.24 | 0.07 / 0.07 | 1.02 |
+| mesh:procedural | 128 | 6 | 5.5 / 5.8 | 1.04 | 2.9 / 3.5 | 1.19 | 0.12 / 0.13 | 1.08 |
+
+Diagnostics (hook on): `NonManifoldTriangles` 0 in all 412 runs (A: 11920 in 52 runs), final self-intersecting results
+0 (A: 1), 9959 face vertices (6287 clamped), 0 covered pairs. `--refine-clamped` measures the alternative of refining
+around clamped face vertices (design note, section 6). Deviation of the result from the input (winding runs:
+`dev_max_cells`, `dev_gt002/01/02`).
