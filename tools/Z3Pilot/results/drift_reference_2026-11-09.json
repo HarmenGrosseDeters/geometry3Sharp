@@ -1,0 +1,610 @@
+{
+  "z3": "4.15.4",
+  "timeout_ms": 120000,
+  "specification": {
+    "displacement": "remeasure from the anchors",
+    "collapsed": "ghost at the kept vertex",
+    "generic_carry": "max B over R and the lost ghosts, plus delta",
+    "generic_anchor": "the corners now",
+    "acceptance": "every changed bound <= L"
+  },
+  "obligations": [
+    {
+      "part": "A",
+      "name": "convexity_dot",
+      "result": "unsat",
+      "seconds": 0.003,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "A",
+      "name": "convexity_triangle",
+      "result": "unsat",
+      "seconds": 0.004,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "B",
+      "name": "lemma_D_I1",
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "B",
+      "name": "lemma_D_I2",
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J1",
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J2",
+      "result": "unsat",
+      "seconds": 0.001,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_bound",
+      "result": "unsat",
+      "seconds": 0.0,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_3_vertices_1_edits",
+      "scripts": 15,
+      "result": "unsat",
+      "seconds": 0.066,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_3_vertices_2_edits",
+      "scripts": 126,
+      "result": "unsat",
+      "seconds": 0.905,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_3_vertices_3_edits",
+      "scripts": 900,
+      "result": "unsat",
+      "seconds": 9.243,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_4_vertices_1_edits",
+      "scripts": 22,
+      "result": "unsat",
+      "seconds": 0.178,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_4_vertices_2_edits",
+      "scripts": 386,
+      "result": "unsat",
+      "seconds": 5.693,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_4_vertices_3_edits",
+      "scripts": 4852,
+      "result": "unsat",
+      "seconds": 103.53,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_5_vertices_1_edits",
+      "scripts": 29,
+      "result": "unsat",
+      "seconds": 0.378,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "C",
+      "name": "chain_5_vertices_2_edits",
+      "scripts": 708,
+      "result": "unsat",
+      "seconds": 17.144,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "D",
+      "name": "distance_square",
+      "result": "unsat",
+      "seconds": 0.002,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "D",
+      "name": "distance_sum",
+      "result": "unsat",
+      "seconds": 0.004,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "D",
+      "name": "distance_root",
+      "result": "unsat",
+      "seconds": 0.005,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    },
+    {
+      "part": "D",
+      "name": "chain_step_higham_2_5",
+      "result": "unsat",
+      "seconds": 0.015,
+      "assumptions_result": "sat",
+      "assumptions_replayed": true
+    }
+  ],
+  "failures": [],
+  "mutants": [
+    {
+      "part": "A",
+      "name": "convexity_no_sum",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "R": "2",
+        "l0": "2",
+        "l1": "0",
+        "l2": "0",
+        "g00": "1",
+        "g11": "0",
+        "g22": "0",
+        "g01": "0",
+        "g02": "0",
+        "g12": "0"
+      }
+    },
+    {
+      "part": "A",
+      "name": "convexity_two_corners",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "R": "0",
+        "l0": "1/2",
+        "l1": "0",
+        "l2": "1/2",
+        "g00": "0",
+        "g11": "0",
+        "g22": "1",
+        "g01": "0",
+        "g02": "0",
+        "g12": "0"
+      }
+    },
+    {
+      "part": "A",
+      "name": "convexity_no_dot_bound",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "R": "0",
+        "l0": "1/2",
+        "l1": "0",
+        "l2": "1/2",
+        "g00": "0",
+        "g11": "0",
+        "g22": "0",
+        "g01": "0",
+        "g02": "1",
+        "g12": "0"
+      }
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J1_carry_only",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "rho": "1/2",
+        "rho2": "0",
+        "L": "0",
+        "delta": "0",
+        "N": "0",
+        "Bmax": "0",
+        "xr_s0": "0",
+        "x_xr": "0",
+        "x_s0": "1/2",
+        "y_xr": "0",
+        "y_x": "0",
+        "z_zr": "1/2",
+        "zr_s0": "0",
+        "z_s0": "1/2",
+        "x_z": "0",
+        "y_zr": "0",
+        "y_z": "0",
+        "z_t": "0",
+        "y_t": "0"
+      }
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J2_carry_only",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "rho": "1/2",
+        "rho2": "0",
+        "L": "0",
+        "delta": "0",
+        "N": "0",
+        "Bmax": "0",
+        "xr_s0": "0",
+        "x_xr": "0",
+        "x_s0": "0",
+        "y_xr": "0",
+        "y_x": "0",
+        "z_zr": "1/2",
+        "zr_s0": "0",
+        "z_s0": "0",
+        "x_z": "0",
+        "y_zr": "0",
+        "y_z": "1/2",
+        "z_t": "0",
+        "y_t": "1/2"
+      }
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J1_no_delta",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "rho": "0",
+        "rho2": "0",
+        "L": "0",
+        "delta": "1/2",
+        "N": "0",
+        "Bmax": "0",
+        "xr_s0": "0",
+        "x_xr": "0",
+        "x_s0": "1/2",
+        "y_xr": "0",
+        "y_x": "0",
+        "z_zr": "0",
+        "zr_s0": "0",
+        "z_s0": "0",
+        "x_z": "1/2",
+        "y_zr": "0",
+        "y_z": "0",
+        "z_t": "0",
+        "y_t": "0"
+      }
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_J2_no_delta",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "rho": "0",
+        "rho2": "0",
+        "L": "0",
+        "delta": "1/2",
+        "N": "0",
+        "Bmax": "0",
+        "xr_s0": "0",
+        "x_xr": "0",
+        "x_s0": "0",
+        "y_xr": "0",
+        "y_x": "0",
+        "z_zr": "0",
+        "zr_s0": "0",
+        "z_s0": "0",
+        "x_z": "0",
+        "y_zr": "0",
+        "y_z": "0",
+        "z_t": "1/2",
+        "y_t": "1/2"
+      }
+    },
+    {
+      "part": "B",
+      "name": "lemma_G_bound_no_acceptance",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "rho": "1/2",
+        "rho2": "0",
+        "L": "0",
+        "delta": "0",
+        "N": "1/2",
+        "Bmax": "0",
+        "xr_s0": "0",
+        "x_xr": "0",
+        "x_s0": "0",
+        "y_xr": "0",
+        "y_x": "0",
+        "z_zr": "0",
+        "zr_s0": "0",
+        "z_s0": "0",
+        "x_z": "0",
+        "y_zr": "0",
+        "y_z": "0",
+        "z_t": "0",
+        "y_t": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "no_ghosts",
+      "mutant": "no_ghosts",
+      "vertices": 3,
+      "script": [
+        [
+          "contract",
+          0,
+          1
+        ]
+      ],
+      "claim": "H2",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "p0": "0",
+        "p1": "1/2",
+        "p2": "1/4",
+        "q0": "0",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "ghost_dies_with_its_vertex",
+      "mutant": "ghost_dies_with_its_vertex",
+      "vertices": 4,
+      "script": [
+        [
+          "contract",
+          0,
+          1
+        ],
+        [
+          "contract",
+          1,
+          2
+        ]
+      ],
+      "claim": "H2",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "p0": "-3/4",
+        "p1": "-1/4",
+        "p2": "0",
+        "p3": "-1/4",
+        "q0": "0",
+        "q1": "0",
+        "x": "0",
+        "y": "-3/4"
+      }
+    },
+    {
+      "part": "C",
+      "name": "generic_carry_only",
+      "mutant": "generic_carry_only",
+      "vertices": 3,
+      "script": [
+        [
+          "move",
+          0
+        ],
+        [
+          "reanchor",
+          0
+        ]
+      ],
+      "claim": "H1",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "p0": "1/4",
+        "p1": "3/4",
+        "p2": "1/2",
+        "q0": "0",
+        "q1": "0",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "generic_ignores_lost_ghosts",
+      "mutant": "generic_ignores_lost_ghosts",
+      "vertices": 5,
+      "script": [
+        [
+          "contract",
+          2,
+          1
+        ],
+        [
+          "contract",
+          1,
+          3
+        ],
+        [
+          "remove",
+          3
+        ]
+      ],
+      "claim": "H2",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "p0": "-1/2",
+        "p1": "-5/8",
+        "p2": "0",
+        "p3": "-1/2",
+        "p4": "-3/8",
+        "q0": "0",
+        "q1": "0",
+        "q2": "-3/8",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "generic_without_delta",
+      "mutant": "generic_without_delta",
+      "vertices": 3,
+      "script": [
+        [
+          "remove",
+          1
+        ]
+      ],
+      "claim": "H2",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "p0": "1/4",
+        "p1": "0",
+        "p2": "1/2",
+        "q0": "1/4",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "kept_vertex_anchor",
+      "mutant": "kept_vertex_anchor",
+      "vertices": 3,
+      "script": [
+        [
+          "move",
+          0
+        ],
+        [
+          "contract",
+          1,
+          0
+        ]
+      ],
+      "claim": "H1",
+      "result": "sat",
+      "seconds": 0.002,
+      "replayed": true,
+      "witness": {
+        "p0": "-3/4",
+        "p1": "-1/2",
+        "p2": "-1/4",
+        "q0": "0",
+        "q1": "0",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "C",
+      "name": "move_skips_ghosts",
+      "mutant": "move_skips_ghosts",
+      "vertices": 3,
+      "script": [
+        [
+          "contract",
+          0,
+          1
+        ],
+        [
+          "move",
+          1
+        ]
+      ],
+      "claim": "reported",
+      "result": "sat",
+      "seconds": 0.001,
+      "replayed": true,
+      "witness": {
+        "p0": "1/2",
+        "p1": "0",
+        "p2": "0",
+        "q0": "0",
+        "q1": "-1/4",
+        "x": "0",
+        "y": "0"
+      }
+    },
+    {
+      "part": "D",
+      "name": "chain_step_with_2_4_model_only",
+      "result": "sat",
+      "seconds": 0.02,
+      "replayed": true,
+      "witness": {
+        "c": "0",
+        "ch": "0",
+        "rho": "26328072917139308366492605568142900820524386140906249185237401603/26328072917139296674479506920917608079723773850137277813577744384",
+        "rhoh": "1",
+        "delta": "0",
+        "deltah": "0",
+        "eps": "0",
+        "eps0": "0",
+        "g": "40564819207303340847894502572033/40564819207303340847894502572032",
+        "k": "0",
+        "eta1": "-1461501637330902918203684832716283019655932542975/13164036458569648337239753460458804039861886925068638906788872192",
+        "eta2": "-365375409332725729550921208179070754913983135743/3291009114642412084309938365114701009965471731267159726697218048"
+      }
+    }
+  ],
+  "total_seconds": 137.174,
+  "obligations_passed": true,
+  "proof_scope": "A: convexity in R^3. B: one edit, shape-free, distances as real variables. C: chains of 3-5 vertices on the real line, every script of up to 3 edits (2 for 5 vertices), every real position. D: the computed point distance and one generic edit of the chain bound. Review only: (E1)/(E2) per edit type, which triangles an edit touches, lost ghosts on edges (a 1-complex has ghosts at vertices only), the induction over edits."
+}
