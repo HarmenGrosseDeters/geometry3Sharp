@@ -42,16 +42,16 @@ namespace geometry3Sharp.Tests
         /// the inputs <see cref="StarPolygonFuzz"/> seeds 0 to 2999 at M3 that the oracle rejects, by class; every other seed is VALID
         /// (all 188 refinement pinches among them, and the 10 restore cases since the oracle's own restore step, see
         /// QualityMesh2CollapsedPartsReportTests). These fail with or without rule (ii'): a segment to a free point outside the ring
-        /// (SegmentMissing), an input point or a chain dropped that the oracle does not excuse even without rule (ii'); findings of
-        /// their own, as they were before the fix
+        /// (SegmentMissing); a finding of its own, as it was before the fix
         /// </summary>
         static readonly Dictionary<int, string> Rejected = new Dictionary<int, string> {
             // (free points outside the ring meshed, 37, 41, 1019, 1052, 1331, 2200 and 2248: the only outer ring collapsed in snapping and
             // the domain became the hull; fixed, the domain is empty now: QualityMesh2CollapsedRingDomainTests)
             // a segment to a free point outside the ring
             [709] = "SegmentMissing",
-            // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
-            [56] = "VertexUnused,ChainSkipsHotPixel", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
+            // (the lobe excuse of rule (ii'), 2026-11-10, and owner decision B of the same day, the reference is the rounded input: seed 2504 is
+            // valid since the lobe excuse, seeds 56, 1013 and 2858 since B: an input point or a chain dropped where the input's own rounding
+            // collapses it, whatever lobe the full image has there; the oracle still checks the mesh's area against the snapped domain)
         };
 
         /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests). Seven
@@ -59,18 +59,35 @@ namespace geometry3Sharp.Tests
         /// ring's hull within the tolerance; 2022 was rejected for a chain past a hot pixel in that hull mesh </summary>
         internal static readonly int[] EmptyDomain = { 37, 41, 127, 686, 1019, 1052, 1331, 2022, 2200, 2248 };
 
+        /// <summary> the cache the two 3000-seed tests share equals a direct run (status and report) on a sample of seeds </summary>
+        [Fact]
+        public void StarFuzzCache_EqualsADirectRun()
+        {
+            foreach (int seed in new[] { 0, 56, 127, 393, 709, 1013, 2504, 2999 }) {
+                var input = StarPolygonFuzz.Make(seed);
+                var o = new QualityMesh2Candidate().Run(input);
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                var cached = StarFuzzCache.Get(seed);
+                Assert.Equal(o.Status, cached.Status);
+                Assert.Equal(o.Triangles?.Length ?? 0, cached.Triangles);
+                Assert.Equal(o.VX?.Length ?? 0, cached.Vertices);
+                Assert.Equal(report.ToString(), cached.Report.ToString());
+                Assert.Equal(report.RestorePixels?.Count, cached.Report.RestorePixels?.Count);
+            }
+        }
+
         [Trait("Category", "Slow")]
         [Fact]
         public void StarPolygonFuzz_VerdictsByClass()
         {
             var wrong = new List<string>();
+            StarFuzzCache.Prime(3000);
             for (int seed = 0; seed < 3000; ++seed) {
-                var input = StarPolygonFuzz.Make(seed);
-                var o = new QualityMesh2Candidate().Run(input);
+                var r = StarFuzzCache.Get(seed);
                 // (a ring that collapsed entirely in snapping leaves an empty domain: these seeds, judged like the others)
                 var status = EmptyDomain.Contains(seed) ? Mesh2Status.Empty : Mesh2Status.Success;
-                if (o.Status != status) { wrong.Add(seed + ": status " + o.Status + ", expected " + status); continue; }
-                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                if (r.Status != status) { wrong.Add(seed + ": status " + r.Status + ", expected " + status); continue; }
+                var report = r.Report;
                 string kinds = string.Join(",", report.Violations.Select(v => v.Kind).Distinct());
                 string expected = Rejected.TryGetValue(seed, out var k) ? k : "";
                 if (kinds != expected) wrong.Add(seed + ": expected [" + expected + "], got " + (report.Ok ? "ok" : report.ToString()));

@@ -18,8 +18,21 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
+  #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
+  designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:
+  branch claude/terrain-envelope-dc with its design note TERRAIN_SLOPE_ENVELOPE_DC.md), and an angular fan max-diagram
+  (upper bound 2x, not safely reachable: fans are not exact pyramids). The time follows the per-piece max-diagrams of
+  ~270 planes (~100 ms per piece), linear in the number of pieces. The slow terrain tests are handled as test design /
+  Nightly. A real gain would need fewer planes per fan, which changes the accuracy budget (owner: not wanted).
+
 Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
+- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
+  paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
+  `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
+  that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
+  result; both are pinned as example tests and counted in the campaign.
 - **Ramps as design geometry** (path, width, grade; access ramps into pits).
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
@@ -31,6 +44,16 @@ Nothing is open. The items below are **parked until a concrete use case** (owner
   realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
   in-place translation with a bitwise restore (#355) costs no copy, and only a caller that shares the terrain concurrently
   would gain.
+- **Slope envelope construction (slow tests, class F; parked, needs an owner decision).** The 48-gon designs take 3-5 s
+  (`WavyToe_130mHigh` 3.6 s; `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, 85-90 % in `SlopeMap.InsertPiece`).
+  Profile (2026-11-10): the incremental map builds about 134k faces (1.6M `split_face` calls) for 48 pieces and simplifies them to 762;
+  the order of insertion changes the time 2.5x (id order 8.9 s, fixed shuffle 3.4 s) but never the result. Constant factors are done
+  (about 1.1x). Merging equal-label neighbours during insertion shrinks the live faces 20x but is not bit-identical in near-degenerate
+  designs (`Merge_RaisesTheToeLowering`: 80 instead of 81 triangles, `MergedPositions` 0 instead of 3): the ghost vertices of planes that
+  later lost are seen by Simplify's close-position merge, so the output is not a pure function of the labels there; and it gained only
+  1.05-1.4x because the split count, not the face count, drives the time. The lever left is a different construction, for example the
+  lower envelope of a fan per sector, or divide and conquer over the pieces. It changes the vertex history and so the near-degenerate
+  outputs: the owner decides whether that is acceptable (or whether the near-degenerate cases get a canonical rule first).
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
   re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).

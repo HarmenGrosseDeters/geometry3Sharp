@@ -868,8 +868,9 @@ namespace geometry3Sharp.Tests
             Assert.True(plain.Apply());
             Assert.False(plain.UsedAlphaWrap);
             Assert.True(double.IsNaN(plain.AlphaWrapMinAngleDegrees) && double.IsNaN(plain.AlphaWrapMaxAngleDegrees) && double.IsNaN(plain.AlphaWrapShareAbove170));
-            // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap
-            DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false, MeshRobustRepair.DefaultWrapQuality);
+            // the default settings: as the pass with DefaultWrapQuality, on the simplified wrap (and, as in Apply, no new triangle touches the input)
+            DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false,
+                (p) => { MeshRobustRepair.DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(MeshRobustRepairTests.ThinPlates(6), true); });
             Assert.Equal("", Invariance.Difference(direct, on.Mesh));
         }
     }

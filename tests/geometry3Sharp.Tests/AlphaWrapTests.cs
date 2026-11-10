@@ -317,7 +317,7 @@ namespace geometry3Sharp.Tests
         /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
         /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
-        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
+        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true, double bandFactor = 2)
         {
             if (expectSuccess)
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
@@ -347,7 +347,7 @@ namespace geometry3Sharp.Tests
                     double u = rnd.NextDouble(), v = rnd.NextDouble();
                     if (u + v > 1) { u = 1 - u; v = 1 - v; }
                     double d = oracle(a + u * (b - a) + v * (c - a));
-                    Assert.True(d > 0 && d <= off + 2 * alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
+                    Assert.True(d > 0 && d <= off + bandFactor * alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
                 }
             }
             // the input is enclosed
@@ -1003,18 +1003,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Wrap_LargeFiniteCoordinates_NotInvalidInput()
+        public void Wrap_LargeFiniteCoordinates_OutsideRange_InvalidInput()
         {
-            // the finiteness test summed the coordinates, which overflows for large finite values
+            // the finiteness test summed the coordinates, which overflows for large finite values. Such coordinates are outside the
+            // supported range (2^128): InvalidInput, with the reason of the range (not of the finiteness)
             var w = new MeshAlphaWrap(new[] { new Vector3d(1e308, 1e308, 1e308), new Vector3d(-1e308, 1e308, 1e308) });
-            bool ok = w.Compute();
-            Assert.NotEqual(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
-            // (today this ends in InvalidParameters: the relative alpha of a 1e308 box overflows. If it ever succeeds,
-            // the guarantees must hold where the coordinates are this large.)
-            if (ok) {
-                ResultChecks.AssertClosed(w.Result);
-                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(w.Result));
-            }
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
+            Assert.StartsWith("outside the supported range", w.Error);
             var nan = new MeshAlphaWrap(new[] { new Vector3d(double.NaN, 0, 0), Vector3d.One });
             Assert.False(nan.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, nan.Status);

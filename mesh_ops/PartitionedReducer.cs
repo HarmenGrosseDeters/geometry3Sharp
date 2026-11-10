@@ -25,7 +25,9 @@ namespace gs
     /// Contract:
     ///  - <b>Deterministic</b>: the result depends on the mesh, the settings and <see cref="Configure"/>, never on
     ///    <see cref="MaxThreads"/>, the number of cores or the timing: <see cref="Slabs"/> is a constant. The same
-    ///    input gives the same mesh, bit for bit, in every run, and for every similarity that scales by a power of two.
+    ///    input gives the same mesh, bit for bit, in every run, and for every similarity that scales by a power of two (as long as
+    ///    no coordinate or intermediate quantity is subnormal: a coordinate of 5e-312 loses bits when it is scaled, and the quadric
+    ///    terms made of it underflow at one scale and not at the other).
     ///  - It is <b>not</b> the result of one serial <see cref="Reducer"/> run (the collapses happen in another order; the
     ///    triangle count is usually within a few percent), so a caller that needs the serial result uses the Reducer.
     ///  - The target is a maximum quadric error (as <see cref="Reducer.ReduceToMaxQuadricError"/>); there is no triangle
@@ -56,6 +58,10 @@ namespace gs
     /// Sources: Garland and Heckbert 1997 (quadrics); the partition with frozen borders is the approach of out-of-core
     /// simplification (P. Lindstrom, SIGGRAPH 2000; Ozaki, Kyota, Kanai 2015), here with fixed slabs for determinism
     /// (docs/SOURCES.md).
+    ///
+    /// Supported input range (docs/QA.md 2.5a): as the Reducer, every nonzero coordinate has a magnitude in [2^-200, 2^200]; no subnormal coordinates (the slab
+    /// boxes are not exact there). The result is not invariant under scaling (the slabs and the frozen borders have
+    /// absolute tolerances), see above.
     /// </summary>
     public sealed class PartitionedReducer
     {

@@ -199,7 +199,7 @@ namespace g3
                         break;
                 }
                 double d;
-                if (double.TryParse(s.Substring(start, Pos - start), NumberStyles.Float, CultureInfo.InvariantCulture, out d) == false)
+                if (MeshIOUtil.TryParseDouble(s.Substring(start, Pos - start), out d) == false)
                     throw error("invalid number");
                 return d;
             }

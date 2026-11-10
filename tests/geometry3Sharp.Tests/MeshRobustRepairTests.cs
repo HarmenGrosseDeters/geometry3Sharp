@@ -153,7 +153,7 @@ namespace geometry3Sharp.Tests
         }
 
         // two overlapping spheres: closed and manifold, but self-intersecting (the repair keeps that)
-        static DMesh3 OverlappingSpheres()
+        internal static DMesh3 OverlappingSpheres()
         {
             DMesh3 m = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(m, Sphere(1, new Vector3d(1.2, 0, 0)));
@@ -1106,7 +1106,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
         }
 
-        [Trait("Category", "Slow")]
+        // Nightly: six full solidify runs of ThinPlates(6) at resolution 64 (7-12 s each) are the check. The PR tier has the same
+        // comparison at resolution 20 (about 1-2 s per run, the same plates; they still self-intersect there, 8k triangles): Solidify_IsDeterministic_Reduced.
+        [Trait("Category", "Nightly")]
         [Fact]
         public void Solidify_IsDeterministic()
         {
@@ -1122,6 +1124,23 @@ namespace geometry3Sharp.Tests
             };
             DMesh3 first = run();
             for (int i = 0; i < 5; ++i)
+                Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
+        }
+
+        // Slow: three solidify runs (2 s each) are the check, even reduced
+        [Trait("Category", "Slow")]
+        [Fact]
+        public void Solidify_IsDeterministic_Reduced()
+        {
+            // the same check at resolution 20: parallel octree and contouring give the same mesh, bit for bit, in repeated runs
+            DMesh3 plates = ThinPlates(6);
+            Func<DMesh3> run = () => {
+                var s = new MeshWindingNumberSolidify(new DMesh3(plates)) { GridResolution = 20, Adaptive = true };
+                Assert.True(s.Compute());
+                return s.Result;
+            };
+            DMesh3 first = run();
+            for (int i = 0; i < 2; ++i)
                 Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
