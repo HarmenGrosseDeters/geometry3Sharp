@@ -64,6 +64,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the same reduction with and without sharing, at three tolerances, on two meshes, twice </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reduction_SameWithAndWithoutSharing()
         {
@@ -153,6 +154,7 @@ namespace geometry3Sharp.Tests
         /// the collapse's IsWithin calls run in parallel and share the cache: parallel equals serial
         /// (gParallel.SerialOnThisThread), and other entry points (ReduceToEdgeLength) are unchanged by sharing
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Reduction_ParallelEqualsSerial_OtherEntryPoints()
         {

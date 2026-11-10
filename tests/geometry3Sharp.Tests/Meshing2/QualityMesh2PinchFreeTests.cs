@@ -44,6 +44,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the same inputs in the constrained quality mode, at 20 and 25 degrees (lenses) </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void StarFuzz_ConstrainedQuality_NoPinch()
         {

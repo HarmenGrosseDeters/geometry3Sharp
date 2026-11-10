@@ -84,6 +84,20 @@ Part of the [roadmap](../ROADMAP.md).
      and the batch queries (priority 1) are the building blocks.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+  9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
+     surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
+     application. Stage 1: two closed polygons in parallel planes -> a triangulated band by the optimal graph search
+     of Fuchs, Kedem & Uselton 1977 (also Keppel 1975, Christiansen & Sederberg 1978), with a pluggable cost (minimum
+     area, maximum volume, custom) and a pluggable per-triangle admissibility test; a status when no admissible band
+     exists; optional caps through `QualityMesh2` for a closed solid; invariance, reuse and an independent procedural
+     oracle. Stage 2 (L): several contours per plane and branching (Ekoule, Peyrin & Odet 1991; Meyers, Skinner &
+     Sloan 1992; Barequet & Sharir 1996; Bajaj, Coyle & Lin 1996; topology-constrained: Zou et al. 2015), with
+     Clipper2 for overlapping contours. Applications: terrain bench strings to a TIN under the exact slope oracle
+     ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
+     (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
+     the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Priority medium
+     until a concrete case (a medical or CAD one would raise it).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
@@ -294,6 +308,13 @@ Ordered by expected value for the library.
    - Status: started 2026-11-09 (owner) as a Fable research session (session_01AaGT5BXr9voD6SYy7KhQDs): design note
      docs/design/SAFE_ROUNDING_D1_DRIFT.md, the lemma checked with Z3, an upper bound on the D1 cases; no library code
      ([exact-boolean.md](exact-boolean.md), D1 order).
+   - Result (#503, 2026-11-09): the reference rule (per-triangle anchors and carried bounds, ghosts for collapsed
+     triangles; never stricter than the apex rule) checked with Z3; prototype on 75 ops of 25 models: 23 with
+     degenerate triangles left on master, 5 with the rule, 0 newly unclean; 7 of the 12 FINAL-1 regressions cleared,
+     the other 5 are not budget cases (single edits above the bound or no edit). **Owner 2026-11-10: build it** (owner
+     2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
+     session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
+     the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));

@@ -45,6 +45,7 @@ namespace geometry3Sharp.Tests
             return volume;
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(3e4)]
         [InlineData(1e5)]

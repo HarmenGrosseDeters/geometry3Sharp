@@ -90,6 +90,7 @@ namespace geometry3Sharp.Tests
             return sb.ToString();
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void Checked_SameResultAsUnchecked(string name)
@@ -104,6 +105,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.FullPairSearches >= 1);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Searches_IncrementalAfterEdits()
         {
@@ -126,6 +128,7 @@ namespace geometry3Sharp.Tests
             Assert.True(unchanged > 0, "no search skipped");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void SerialEqualsParallel_BitIdentical(string name)

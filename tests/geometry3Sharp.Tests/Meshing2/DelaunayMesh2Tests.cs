@@ -41,6 +41,7 @@ namespace geometry3Sharp.Tests
             return p;
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Fuzz_EveryResultPassesTheOracle_AndItsOwnCheck()
         {

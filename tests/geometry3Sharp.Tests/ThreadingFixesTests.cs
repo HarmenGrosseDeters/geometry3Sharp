@@ -166,6 +166,7 @@ namespace geometry3Sharp.Tests
             Assert.True(MaxVertexDistance(serial, parallel) < 1e-9, $"parallel passes differ by {MaxVertexDistance(serial, parallel)}");
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RemesherPro_FullRemesh_ParallelEqualsSerialAndRepeats()
         {
@@ -251,6 +252,7 @@ namespace geometry3Sharp.Tests
 
         // --- RemoveOccludedTriangles.PerVertex: occlusion flags were a BitArray written in parallel ---
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void RemoveOccludedTriangles_PerVertex_RemovesEveryOccludedTriangle()
         {

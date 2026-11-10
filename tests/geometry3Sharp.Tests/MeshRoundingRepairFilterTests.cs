@@ -212,6 +212,7 @@ namespace geometry3Sharp.Tests
             return (a, b);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Grid_SerialEqualsParallel_OnSeveralThreads()
         {

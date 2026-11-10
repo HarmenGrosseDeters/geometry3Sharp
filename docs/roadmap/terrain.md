@@ -5,8 +5,11 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** slope construction and daylighting on TINs (open-pit mining): slope surface, overlay with the terrain,
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
-- **Status (2026-11-08):** phase 1 done (#357, 2026-11-03). Paused (owner 2026-11-03) after the (b) tolerance-budget
-  PR (#363) and the RoundToGrid decision (R1).
+- **Status (2026-11-10):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). Done: slope construction
+  phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
+  #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
+  `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Everything below
+  "Parked" waits for a concrete use case; nothing is planned.
 - **Related:** [design/TERRAIN.md](../design/TERRAIN.md) (§11 holds the follow-ups),
   [TERRAIN_1A_PLAN.md](../design/TERRAIN_1A_PLAN.md), [TERRAIN_1B_PLAN.md](../design/TERRAIN_1B_PLAN.md),
   [TERRAIN_1C_PLAN.md](../design/TERRAIN_1C_PLAN.md), [TERRAIN_ROUND_TO_GRID.md](../design/TERRAIN_ROUND_TO_GRID.md),
@@ -15,31 +18,34 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-- **Restart design (owner 2026-11-08):** the DGM-to-TIN step with breaklines is constrained quality meshing in
-  2.5D; design it with `QualityMesh2` (its oracle and golden tests) instead of a new triangulator.
-  Proposal for the owner (2026-11-09; D1 decided: surface error is the guarantee, D2-D8 as proposed): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
+Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
-- **DGM to TIN (owner 2026-11-09):** `gs.TerrainGridTin` (library): TIN of a `HeightGrid` with a guaranteed surface error and locked breaklines, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md); the CLI command comes through the CLI / MCP session.
-- **DGM reader (owner 2026-11-09):** `HeightGrid`, `HeightGridReader` (XYZ ASCII and ESRI ASCII Grid), `HeightGridWriter`
-  and the grid TIN `HeightGrid.BuildMesh` are in the library (`io/`); the CLI command comes through the CLI / MCP session;
-  GeoTIFF is left to the owner (own implementation, or LibTiff.Net, BSD, in an optional package).
-
-- **Restart:** first a DGM reader in the CLI (owner 2026-11-03: after the pause). The terrain mutation shards (#302)
-  wait for the restart.
-- **Later steps** (owner 2026-11-02, replaces TERRAIN.md §11 step 8's order): (1) docs and CLI / MCP for terrain:
-  done with #357; (2) volume per cell, 2D columns first (§9.3); (3) ramps as design geometry (path, width, grade);
-  (4) lofting between contours under the exact slope oracle, with a status when no compliant triangulation exists
-  (§9.2); (5) performance follow-ups when a real case is slow (the octagon's second realization, C zeros, band-only
-  overlay); (6) proven tan interval and catch-line bound; (7) sector polygons, exterior distance on demand; (8) berms
-  and inter-ramp checks, parked until a use case.
-- **§11 follow-ups:** the octagon 1 m replacement 6.1 → 8.8 s slower after D (a second realization); a
-  positions-only copy for LocalFrame; the rest of a failed realization (about 25-30 %); the extra realization on the
-  L shape and the wavy 48-gon after (b).
-- **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The
-  local re-triangulation of the clipped region under the slope constraint is an open research item
+- **Ramps as design geometry** (path, width, grade; access ramps into pits).
+- **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
+  [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
+- **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
+- **Sector polygons, exterior distance on demand.**
+- **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
+- **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
+  realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
+  realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
+  in-place translation with a bitwise restore (#355) costs no copy, and only a caller that shares the terrain concurrently
+  would gain.
+- **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
+  re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
-- **Honest terrain metrics** (task 5, C2(A), benchmark only): done in #399 (2026-11-08), see [below](#task-5-honest-terrain-metrics).
+- **GeoTIFF reader:** the owner decides (own implementation, or LibTiff.Net, BSD, in an optional package); XYZ ASCII and ESRI
+  ASCII Grid are in.
+- **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): the 2D columns are done, the z-extent waits for a use case.
 - **Biomedical / orthotics** showcase: no work recorded.
+
+### Closed in the close-out (2026-11-09 / 10)
+
+- **DGM to TIN:** `gs.TerrainGridTin`, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md) (§11, §11.1 for the gaps).
+- **DGM reader:** `HeightGrid`, `HeightGridReader`, `HeightGridWriter`, `HeightGrid.BuildMesh` (`io/`); CLI / MCP `dgm`, `dgm_tin`.
+- **Volume per cell:** `gs.TerrainCellVolumes`, CLI / MCP `cell_volumes` (TERRAIN.md §9.3).
+- **Terrain mutation shards:** `terrain-kernel` 83.64 → 87.36 % (threshold 85); the shards were waiting for the restart (#302).
+- **Honest terrain metrics** (task 5, C2(A), benchmark only): done in #399 (2026-11-08), see [below](#task-5-honest-terrain-metrics).
 
 ### Done / history
 

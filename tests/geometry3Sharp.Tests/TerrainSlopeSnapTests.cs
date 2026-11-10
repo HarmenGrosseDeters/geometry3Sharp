@@ -95,6 +95,7 @@ namespace geometry3Sharp.Tests
         };
 
         // the oracle: every frame of Similarity.All (rotated about z), cut, fill and mixed
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Cases))]
         public void WithinToleranceOfTheIdealSurface(string name, TerrainSlopeDesign.Directions dir)
