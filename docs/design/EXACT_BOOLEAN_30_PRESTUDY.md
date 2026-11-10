@@ -253,12 +253,79 @@ closed / PWN input; LEVY_CLASSIFICATION_LITERATURE.md).
 
 ## 6. Positioning
 
-[filled below]
+**Same machine** (4 cores, `compare.py -j 1`, ours warm with SafeRounding, Manifold from pip, CGAL 6.0 EPECK as the
+external `cgal_bool`; the fixed 100-pair CGAL sample of `thingi-pairs` (#418, EMBER protocol, 1k-100k triangles per
+operand) and the first 10 pairs of `thingi-pairs-size` (100k-1M);
+[results/positioning_summary.md](../../benchmarks/Boolean30Prestudy/results/positioning_summary.md)):
+
+| class | method | clean | empty (consistent) | unclean | median ms | geomean ms | p95 ms | max ms |
+|---|---|---|---|---|---|---|---|---|
+| thingi-pairs (300 ops) | ours | 276 | 24 | 0 | 221 | 196 | 669 | 1095 |
+| | CGAL EPECK | 225 | 24 | 51 degenerate triangles | 81 | 63 | 364 | 529 |
+| | Manifold | 196 | 24 | 80 degenerate triangles | 39 | 34 | 107 | 155 |
+| thingi-pairs-size (30 ops) | ours | 29 | 1 | 0 | 2349 | 2412 | 4929 | 5589 |
+| | CGAL EPECK | 10 | 1 | 19 degenerate triangles | 1372 | 1488 | 3567 | 3628 |
+| | Manifold | 6 | 1 | 23 degenerate triangles | 404 | 418 | 930 | 1065 |
+
+Ours is the only method whose results are all clean (the oracle counts triangles below 1e-12 diag² as degenerate; the
+others' volumes are exact to 1e-13). Speed: 3.1x CGAL EPECK and 5.8x Manifold (geomean) on the 1k-100k class, 1.6x
+CGAL and 5.8x Manifold on the size class. Our phase mix there: intersections 34-37 %, rounding 20-21 %, classification
+8-13 %, setup 8-10 %, assembly 7-10 %.
+
+**Published numbers** (papers and project pages only; collected 2026-11-10, sources in section 7; different hardware,
+statistics and end points, so only orders of magnitude compare):
+
+| method | data | hardware | number | output |
+|---|---|---|---|---|
+| EMBER (Trettner et al. 2022) | 1000 Thingi10K pairs, 1k-100k faces (the protocol of our `thingi-pairs`) | 8 cores | geomean 3.6 ms (CGAL 5.4 711 ms, Mesh Arrangements 3164 ms, QuickCSG 17.9 ms); about 5.5x on 8 cores | plane-based polygon soup with T-junctions, input quantized to 26 bits; no float mesh (repo notes on the paper: the PDF host was not reachable in this session) |
+| trueform 2026 (vendor paper) | 1000 Thingi10K pairs, 100k-1M per operand | M4 Max, all threads | medians: trueform 15.7 ms, Manifold 118, EMBER 143.8, Cherchi 416.9, CGAL EPICK corefinement 493.6, Geogram 1644 ms | quantized input, rounded output, topology repaired by vote |
+| Cherchi et al. 2022 | 3814 Thingi10K pairs (1k-? faces, no rotation) | 12 cores | 4.5 min in all (about 71 ms per boolean, derived), libigl 28.3 min; 21.6 M triangles in 19.5 s | exact arrangement written as floats, no snap rounding |
+| Lévy 2025 | Thingi10K repair, ThingiCSG | not stated | dragon-bunny 2.7 s (Zhou 3.9, Cherchi 1.3); plane-based integer methods 50-100x faster than his | exact, not rounded |
+| Manifold | OpenSCAD benchmark (M2 Max) | 1.3-6 cores used | 5-30x faster than CGAL corefinement + Nef | floating point, manifold topology guaranteed, geometry not exact |
+
+Mapped through Manifold, which both runs share (our machine 404 ms median on the size class against 118 ms on the M4
+Max: a rough factor 3.4, different pair sets), our size-class median of 2349 ms is about 690 ms in trueform's units:
+about 4.8x EMBER, 1.7x Cherchi, 1.4x CGAL EPICK, 5.8x Manifold, 44x trueform. None of the published methods produces
+doubles certified free of self-intersections; that guarantee (our SafeRounding, 20 % of our time here) and the exact
+handling of self-intersecting and open inputs are what we pay for. The architecture assessment of 2.0 (exact-boolean.md,
+owner decisions 2026-11-07) stands: the gap to EMBER / trueform is their quantized plane-based kernel and the local
+subdivision (an opt-in second kernel would be an owner decision, after a patent check for EMBER), not a missing tweak.
 
 ## 7. Sources
 
-[filled below]
+Papers and project pages only (no GPL code read; EMBER paper only). Bernstein, Fussell, *Fast, exact, linear booleans*,
+SGP 2009. Campen, Kobbelt, *Exact and robust (self-)intersections for polygonal meshes*, Eurographics 2010.
+Nehring-Wirxel, Trettner, Kobbelt, *Fast exact booleans for iterated CSG using octree-embedded BSPs*, CAD 135, 2021
+(arXiv 2103.02486). Trettner, Nehring-Wirxel, Kobbelt, *EMBER: Exact Mesh Booleans via Efficient & Robust Local
+Arrangements*, TOG 41(4), 2022. Cherchi, Pellacini, Attene, Livesu, *Interactive and Robust Mesh Booleans*, TOG 41(6),
+2022 (arXiv 2205.14151). Lévy, *Exact predicates, exact constructions and combinatorics for mesh CSG*, TOG 2025 (arXiv
+2405.12949). Zhou, Grinspun, Zorin, Jacobson, *Mesh Arrangements for Solid Geometry*, TOG 35(4), 2016. Barill,
+Dickson, Schmidt, Levin, Jacobson, *Fast Winding Numbers for Soups and Clouds*, TOG 37(4), 2018. Martens, Trettner,
+Bessmeltsev, *The Antipodal Method*, TOG 45(4), 2026. Sajovic, Knez, trueform (arXiv 2607.15905, 2026, vendor paper).
+Manifold README and wiki (Apache-2.0 project; documentation read). M. Kintel, openscad-benchmark (README). Nothing
+is ported; docs/SOURCES.md gets entries when something is built.
 
 ## 8. Proposed 3.0 targets for the owner
 
-[filled below]
+The bounds rank the levers; a target is a floor, not a stop (AGENT_WORKFLOW section 8). All results stay bit-identical
+unless a target says otherwise, and every parallel change is deterministic by construction (hashes equal at 1, 2, 4 and
+8 cores; integer reductions only; the exact-code review and `ExactCodeAllowList` entries).
+
+| # | target (measure, data) | levers in order of bound / effort | bound | tier, owner decision |
+|---|---|---|---|---|
+| T1 | **Scaling:** on the 73-model set of section 1, the serial floor sum t1 (1 − f) halves (342 -> ≤ 170 s) and the 4-core time drops by ≥ 20 % (528 -> ≤ 420 s); speedup 1 -> 4 cores ≥ 2.5x (today 2.06x); measured again on an 8- or 16-core machine before more is promised | parallel deterministic sort in `merge_points` (5.6 %); classification setup: radix sort, union-find, the open-mesh tree build after #501 (9.2 %); input orientation by a sort instead of the dictionary (4.7 %); `ExactPlanarSimplify` and assembly per region (6 %); box-tree build (part of 3.8 %) | 27 % at 4 cores, the floor 342 -> about 155 s | L (exact files); bit-identical |
+| T1b | the SafeRounding edits in parallel over a fixed spatial partition | rounding 8.1 % at 4 cores, more on many cores | 8 % | L; **owner:** the edit order changes, so results change (within the same guarantees) |
+| T2 | **Memory:** the arrangement retains ≤ 300 B per input triangle (today 390-580) and the peak working set ≤ 1.2 KB per input triangle (today 1.0-1.7 KB), no time regression; the largest model on a 16 GB machine from about 10 M to about 13 M input triangles | input points without a `FixedPoint3`; `InputTriangle` as struct-of-arrays; then the bottom-up fast-winding coefficients | -35 % retained | L (exact files); the last lever is the open owner decision of LEVY_CLASSIFICATION 4.1 item 3 |
+| T3 | **n-ary:** keep chained evaluation as the recommendation; build nothing for one-pass now | (if wanted later) pruning of pieces that cannot change the tree's indicator + propagation; target then: one pass ≤ chained time for n ≤ 64 on the procedural trees of section 3 | today one pass is 20-110x slower at n = 64 | owner: is n-ary CSG a use case? |
+| T4 | **Exact output:** an additive `ExactMesh` result and input (section 4 sketch): a chain of k booleans with k − 1 roundings fewer, results equal to the one-pass exact result, coplanar faces merged exactly, no growth of the construction degree along the chain | constructions over the original inputs (plane-based provenance) through the arrangement's input path | -29 % per chained step (rounding), chained result size -10 to -80 % | L, 4-8 weeks; **owner:** a use case (chained CSG, tet meshing) before it is built |
+| T5 | **Open operands:** no batched / dual-tree winding (B: ≤ 22 % of the query work); first count the cost of the exact Antipodal Method (boundary edges per query on the 1087xxx / 113906 soups) and the share of queries that one query per input triangle could replace | then C or the query reduction, judged against the per-piece path | per-piece classification is 81 % of the open cohort | **owner:** C needs the patent check (LEVY_CLASSIFICATION 4.2) |
+| T6 | **Positioning:** stay the only method with clean results on `thingi-pairs`; close the gap to CGAL EPECK on the 1k-100k class from 3.1x to ≤ 2x (geomean) with T1 and the 2.0 rounding levers; no target against EMBER / trueform without a second kernel | T1, rounding search levers (hard open problem 3) | | owner: a quantized plane-based opt-in kernel stays out of scope unless decided |
+
+Order proposed: T1 (bit-identical, largest bound at no change of results), T2 (independent, memory only), T5's
+counting step (an hour, decides C), then T1b and T4 as owner decisions; T3 only with a use case.
+
+Prior art for the options (AGENT_WORKFLOW section 2): parallel scaling without a global structure: EMBER (local kd
+subdivision, work stealing); memory: plane-based kernels store planes, not points (EMBER, Nehring-Wirxel 2021);
+n-ary: Zhou 2016 and Cherchi 2022 one arrangement, Lévy 2025 chained, trueform pairwise accumulation; exact output:
+plane-based provenance (Bernstein-Fussell 2009, Campen-Kobbelt 2010, Nehring-Wirxel 2021); open operands: no exact
+method in the literature but the Antipodal Method (2026).
