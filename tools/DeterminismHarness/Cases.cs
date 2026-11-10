@@ -43,6 +43,8 @@ namespace DeterminismHarness
             list.Add(new Case("probe.double-parse", serial => ProbeParse()));
             list.Add(new Case("probe.double-format", serial => ProbeFormat()));
             list.Add(new Case("probe.float-cast", serial => ProbeFloat()));
+            list.Add(new Case("io.obj-text", serial => IoObj()));
+            list.Add(new Case("io.stl-text", serial => IoStl()));
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
@@ -165,6 +167,47 @@ namespace DeterminismHarness
                 t.Add((double)f); t.Add((double)(f * f + f)); t.Add((double)(float)Math.Sqrt(x < 0 ? -x : x));
             }
             return t;
+        }
+
+        // the text formats: the characters the writer produces (hashed as their code points) and what the reader makes of them
+        static Trace IoText(Func<System.IO.TextWriter, DMesh3, bool> write, Func<string, DMesh3> read)
+        {
+            DMesh3 m = Inputs.BumpySphere(6);
+            var sw = new System.IO.StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+            var t = new Trace();
+            t.Add(m, "input");
+            t.Add(write(sw, m));
+            string text = sw.ToString().Replace("\r\n", "\n");
+            t.Section("text");
+            foreach (char c in text) t.Add((int)c);
+            DMesh3 back = read(text);
+            t.Add(back, "readback");
+            // does it come back exactly?
+            t.Section("roundtrip-exact");
+            bool exact = back != null && back.VertexCount == m.VertexCount;
+            if (exact) { var a = m.VertexIndices().ToArray(); var b = back.VertexIndices().ToArray(); for (int i = 0; i < a.Length; ++i) exact &= m.GetVertex(a[i]) == back.GetVertex(b[i]); }
+            t.Add(exact);
+            return t;
+        }
+
+        static Trace IoObj()
+        {
+            return IoText((w, m) => new OBJWriter().Write(w, new List<WriteMesh> { new WriteMesh(m) }, new WriteOptions()).code == IOCode.Ok,
+                text => {
+                    var builder = new DMesh3Builder();
+                    new OBJReader().Read(new System.IO.StringReader(text), new ReadOptions(), builder);
+                    return builder.Meshes.Count > 0 ? builder.Meshes[0] : null;
+                });
+        }
+
+        static Trace IoStl()
+        {
+            return IoText((w, m) => new STLWriter().Write(w, new List<WriteMesh> { new WriteMesh(m) }, new WriteOptions()).code == IOCode.Ok,
+                text => {
+                    var builder = new DMesh3Builder();
+                    new STLReader().Read(new System.IO.StringReader(text), new ReadOptions(), builder);
+                    return builder.Meshes.Count > 0 ? builder.Meshes[0] : null;
+                });
         }
 
         // ---------------------------------------------------------------- math library
