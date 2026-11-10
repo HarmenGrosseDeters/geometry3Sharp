@@ -51,7 +51,9 @@ namespace geometry3Sharp.Tests
             // a segment to a free point outside the ring
             [709] = "SegmentMissing",
             // an input point or a chain dropped with or without rule (ii') (the oracle's full image does not excuse them either)
-            [56] = "VertexUnused,ChainSkipsHotPixel", [1013] = "VertexUnused,SegmentMissing", [2504] = "VertexUnused", [2858] = "VertexUnused",
+            // (the lobe excuse of rule (ii'), 2026-11-10: seed 2504 is valid now, a spike tip whose lobe is within a pixel squared; seed 56 loses
+            // its ChainSkipsHotPixel and keeps the unused point, whose lobe is larger)
+            [56] = "VertexUnused", [1013] = "VertexUnused,SegmentMissing", [2858] = "VertexUnused",
         };
 
         /// <summary> the seeds whose only outer ring collapses in snapping: the domain is empty (QualityMesh2CollapsedRingDomainTests). Seven
