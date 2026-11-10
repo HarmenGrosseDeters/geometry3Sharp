@@ -131,7 +131,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 mesh = new DMesh3(true, false, false, false);
             mesh.AppendVertex(new NewVertexInfo(new Vector3d(-0.0, 0.0, -4.9406564584124654e-324), new Vector3f(-0.0f, 1.4e-45f, -3.4028235e38f)));
-            mesh.AppendVertex(new NewVertexInfo(new Vector3d(1.7976931348623157e308, 2.2250738585072014e-308, 0.1), new Vector3f(0.1f, 1f / 3f, 16777217f)));
+            mesh.AppendVertex(new NewVertexInfo(new Vector3d(1.7976931348623157e308, 2.2250738585072014e-308, 0.1), new Vector3f(0.1f, 1f / 3f, 16777216f)));
             DMesh3 back = RoundTrip(mesh, "xyz");
             Assert.Equal(2, back.VertexCount);
             for (int i = 0; i < 2; ++i) {
@@ -139,9 +139,18 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(BitConverter.DoubleToInt64Bits(e.x), BitConverter.DoubleToInt64Bits(g.x));
                 Assert.Equal(BitConverter.DoubleToInt64Bits(e.y), BitConverter.DoubleToInt64Bits(g.y));
                 Assert.Equal(BitConverter.DoubleToInt64Bits(e.z), BitConverter.DoubleToInt64Bits(g.z));
-                Assert.Equal(mesh.GetVertexNormal(i), back.GetVertexNormal(i));
+                Vector3f en = mesh.GetVertexNormal(i), gn = back.GetVertexNormal(i);
+                for (int c = 0; c < 3; ++c)
+                    Assert.Equal(FloatBits(en[c]), FloatBits(gn[c]));       // (-0.0f == 0.0f for ==: compare the bits)
             }
+            // one rounding from decimal to float: 16777217 is half way between two floats and rounds to even; the double
+            // rounding of 1.00000005960464477539063 (just above half way of 1 and 1 + 2^-23) would not
+            Assert.Equal(IOCode.Ok, ReadText("0 0 0 16777217 1.00000005960464477539063 0\n", out DMesh3 read).code);
+            Assert.Equal(16777216f, read.GetVertexNormal(0).x);
+            Assert.Equal(BitConverter.Int32BitsToSingle(0x3F800001), read.GetVertexNormal(0).y);
         }
+
+        static int FloatBits(float f) { return BitConverter.ToInt32(BitConverter.GetBytes(f), 0); }
 
         [Fact]
         public void Xyz_ColorColumnsAreReadAsNormals_Pinned()
