@@ -70,6 +70,8 @@
     <InternalsVisibleTo Include="MeshRepairBenchmark" />
     <!-- the prototypes of the snap-rounding experiment (benchmarks/SnapRoundingExperiment, docs/design/SAFE_ROUNDING.md) -->
     <InternalsVisibleTo Include="SnapRoundingExperiment" />
+    <!-- SimplifyWithin of the wrap pipeline (benchmarks/SharpFeatureProbe) -->
+    <InternalsVisibleTo Include="SharpFeatureProbe" />
     <!-- the exact ray crossings and the partitioned reduction as oracles (tools/MeshFuzzPilot) -->
     <InternalsVisibleTo Include="MeshFuzzPilot" />
   </ItemGroup>
