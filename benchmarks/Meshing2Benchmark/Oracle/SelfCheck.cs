@@ -421,7 +421,7 @@ namespace Meshing2Acceptance
                     }
                     var sliverIn = SquarePlus(1e-13);
                     var sliver = Oracle.Check(sliverIn, SquareOnly(sliverIn), m3);
-                    Must("accept: a sliver ring far narrower than the tube dropped beside a real square, with its points and edges", !sliver.Has(Violation.VertexUnused) && !sliver.Has(Violation.SegmentMissing)
+                    Must("accept: a sliver ring far narrower than the tube dropped beside a real square, with its points and edges (the area rule, which a dropped part does not satisfy with unmoved vertices, is a separate verdict)", sliver.Violations.All(v => v.Kind == Violation.AreaMismatch)
                         && sliver.VanishedPoints == 3 && sliver.VanishedSegments > 0, "report: " + sliver + " / " + sliver.ExcusedSummary());
                     var realIn = SquarePlus(1e-3);
                     var real = Oracle.Check(realIn, SquareOnly(realIn), m3);
@@ -431,11 +431,13 @@ namespace Meshing2Acceptance
                     boxIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); boxIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, false));
                     var box = Oracle.Check(boxIn, SquareOnly(boxIn), m3);
                     Must("reject: a second real square dropped (the first one's area does not excuse it) as VertexUnused", box.Has(Violation.VertexUnused) && box.VanishedPoints == 0, "report: " + box + " / " + box.ExcusedSummary());
+                    var noTube = Oracle.Check(sliverIn, SquareOnly(sliverIn), new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                    Must("reject: the sliver dropped with no tolerance at all", noTube.Has(Violation.VertexUnused) && noTube.VanishedPoints == 0, "report: " + noTube + " / " + noTube.ExcusedSummary());
                     // the same sliver touching the square: one part, the square's area counts, so nothing is excused
-                    var touchIn = Points(0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 2, 0, 1.5, 1e-13);
-                    touchIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); touchIn.Rings.Add(new RingInput(new[] { 4, 5, 6 }, false));
+                    var touchIn = Points(0, 0, 1, 0, 1, 1, 0, 1, 2, 0, 1.5, 1e-13);
+                    touchIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); touchIn.Rings.Add(new RingInput(new[] { 1, 4, 5 }, false));
                     var touch = Oracle.Check(touchIn, SquareOnly(touchIn), m3);
-                    Must("reject: a sliver that touches the square is part of it and not excused", touch.VanishedPoints == 0 && touch.VanishedSegments == 0, "report: " + touch + " / " + touch.ExcusedSummary());
+                    Must("reject: a sliver that touches the square is part of it and not excused", touch.Has(Violation.VertexUnused) && touch.VanishedPoints == 0 && touch.VanishedSegments == 0, "report: " + touch + " / " + touch.ExcusedSummary());
                 }
                 // a dumbbell: two 20 squares joined by a corridor 0.25 wide from x 20 to 50, a segment from the middle of one to the
                 // middle of the other, either way. Its chain must be there in both squares, up to the corridor's mouths at (20, 10) and

@@ -344,17 +344,27 @@ namespace Meshing2Acceptance
             if (whole) return components = new List<Component> { new Component { Region = this, Perimeter2Bound = Length(Rings.Select(x => x.ring)) } };
             components = new List<Component>();
             foreach (var g in groups)
-                components.Add(new Component { Region = new Domain(g.Select(k => Rings[k]).ToList(), Filter), Perimeter2Bound = Length(g.Select(k => Rings[k].ring)) });
+                {
+                // (input order within the part: Decide picks the latest ring when none is innermost)
+                var ordered = g.OrderBy(k => k).ToList();
+                components.Add(new Component { Region = new Domain(ordered.Select(k => Rings[k]).ToList(), Filter), Perimeter2Bound = Length(ordered.Select(k => Rings[k].ring)) });
+            }
             return components;
         }
 
         /// <summary> two rings share a point (exact): some edge of one meets some edge of the other </summary>
         static bool RingsMeet(Pt[] r, Pt[] s)
         {
+            (Q x0, Q x1, Q y0, Q y1) Box(Pt[] ring) => (ring.Min(p => p.Qx), ring.Max(p => p.Qx), ring.Min(p => p.Qy), ring.Max(p => p.Qy));
+            var br = Box(r); var bs = Box(s);
+            if (br.x1 < bs.x0 || bs.x1 < br.x0 || br.y1 < bs.y0 || bs.y1 < br.y0) return false;
             for (int i = 0; i < r.Length; ++i) {
                 Pt a = r[i], b = r[(i + 1) % r.Length];
+                Q ax0 = Q.Min(a.Qx, b.Qx), ax1 = Q.Max(a.Qx, b.Qx), ay0 = Q.Min(a.Qy, b.Qy), ay1 = Q.Max(a.Qy, b.Qy);
+                if (ax1 < bs.x0 || ax0 > bs.x1 || ay1 < bs.y0 || ay0 > bs.y1) continue;
                 for (int j = 0; j < s.Length; ++j) {
                     Pt c = s[j], d = s[(j + 1) % s.Length];
+                    if (Q.Max(c.Qx, d.Qx) < ax0 || Q.Min(c.Qx, d.Qx) > ax1 || Q.Max(c.Qy, d.Qy) < ay0 || Q.Min(c.Qy, d.Qy) > ay1) continue;
                     if (Exact.ProperCross(a, b, c, d) || Exact.OnClosedSegment(a, b, c) || Exact.OnClosedSegment(a, b, d)
                         || Exact.OnClosedSegment(c, d, a) || Exact.OnClosedSegment(c, d, b)) return true;
                 }

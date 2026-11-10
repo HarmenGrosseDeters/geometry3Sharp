@@ -236,8 +236,8 @@ namespace Meshing2Acceptance
         /// <summary> stretches of a chain (LobeChainExcuses) and unused points (LobePointExcuses) excused because the input's rounding collapses them although the full image (with output vertices as hot pixels) does not: the reference is the rounded input (rule (ii'), owner decision B, 2026-11-10) </summary>
         public int LobeChainExcuses, LobePointExcuses;
         /// <summary>
-        /// unused input points and missing segment pieces inside a part of the domain that may vanish (its twice area at most tube times its
-        /// perimeter, the bound for a domain with no triangles at all): the mesher may drop a sub-tolerance sliver beside real parts
+        /// unused input points and missing segment pieces inside a part of the domain that may vanish (its area at most tube times its perimeter,
+        /// the bound for a domain with no triangles at all): the mesher may drop a sub-tolerance sliver beside real parts
         /// </summary>
         public int VanishedPoints, VanishedSegments;
         public string ExcusedSummary()

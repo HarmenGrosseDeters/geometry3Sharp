@@ -7,7 +7,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// A hull domain that is a sliver (a hair wide, 1.7 long) with a tiny cluster at one end: the mesher refines the cluster and drops the
     /// tail, so the far input point is in no triangle and its segments have no chain. The tail is within the tube of nothing, but the
-    /// whole domain's twice area is below tube times perimeter, the bound under which a domain may vanish altogether; the oracle excuses a
+    /// whole domain's area is below tube times perimeter, the bound under which a domain may vanish altogether; the oracle excuses a
     /// part under that bound (found by the MeshFuzzPilot, reported as VertexUnused / SegmentMissing with status Success)
     /// </summary>
     public class QualityMesh2VanishingPartTests
@@ -34,8 +34,8 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report + " / " + report.ExcusedSummary());
             Assert.Equal(Mesh2Status.Success, output.Status);
             Assert.True(output.Triangles.Length > 0);
-            // (the tail's far point is the one dropped: the oracle reports what it excused)
-            Assert.True(report.VanishedPoints + report.VanishedSegments > 0 || output.InputToVertex.All(m => m >= 0 && output.Triangles.Any(t => t.Contains(m))), report.ExcusedSummary());
+            // the tail's far point is the one dropped: the oracle must have excused it
+            Assert.True(report.VanishedPoints > 0, report.ExcusedSummary());
         }
 
         /// <summary> scaled by powers of two, the verdict is the same (the tube scales with the input) </summary>
