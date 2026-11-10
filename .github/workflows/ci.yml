@@ -158,7 +158,7 @@ jobs:
     needs: scope
     if: github.event_name == 'pull_request' && needs.scope.outputs.library == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -179,7 +179,7 @@ jobs:
           BASE='Category!=Slow&Category!=Nightly&FullyQualifiedName!~RobustnessSweepTests.Sweep_SameResultUnderSimilarity&FullyQualifiedName!~UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic'
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "$BASE" > list.txt
           FILTER=$(python3 tools/coverage/shard_filter.py ${{ matrix.shard }} 8 "$BASE" < list.txt)
-          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --blame-hang-timeout 12m --blame-hang-dump-type none --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
