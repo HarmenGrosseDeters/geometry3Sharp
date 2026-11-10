@@ -37,6 +37,10 @@ namespace geometry3Sharp.Tests
     /// contour of the solidify fallback (adaptive, ray queries) differed in the last bits. The test is in
     /// DMeshAABBTreeScaleTests (in the bugfix PR of F2).
     ///
+    /// F3 update (2026-11-10, F4 PR): the solidify fallback is now computed on a copy scaled to an extent in [1, 2), which removes its share of
+    /// F3 (and a window of coordinates of 2^72 to 2^98 where it was not scale invariant either, SolidifyScaleInvarianceTests); the text below
+    /// stays for the other users of the spatial queries (the alpha wrap, the exact resolve's tree).
+    ///
     /// F3 (open, not pursued): the solidify fallback is still not bit-identical under 2^k scaling for scenes whose
     /// pieces are smaller than about 2.4e-4 (absolute) or whose thin pieces are thinner than about 1e-9: further absolute
     /// tolerances in the spatial queries (DMeshAABBTree3 box_eps 6e-6 and the ray window ZeroTolerancef 1e-8 in

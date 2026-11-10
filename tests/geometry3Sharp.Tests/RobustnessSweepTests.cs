@@ -325,8 +325,6 @@ namespace geometry3Sharp.Tests
             { "MeshInsertPolygon|scale 2^-24", "R28" },
             { "MeshWindingNumberBoolean.Difference|scale 2^-24", "R29" },
             { "MeshWindingNumberBoolean.Union|scale 2^-24", "R29" },
-            { "MeshWindingNumberSolidify.DualContouring|scale 2^-24", "R29" },
-            { "MeshWindingNumberSolidify.MarchingCubes|scale 2^-24", "R29" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+160", "R31" },
             { "MarchingCubesPro.SingleLerp|extreme scale 1E+300", "R31" },
             { "MeshWindingNumberBoolean.Difference|extreme scale 1E+160", "R33" },
