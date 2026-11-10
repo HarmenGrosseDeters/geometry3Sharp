@@ -34,8 +34,8 @@ namespace gs
     /// whose extent overflows, or is below 2.3e-308, is InvalidInput. The neighbours come from a k-d tree: exact, O(n log n),
     /// not sensitive to clusters or outliers.
     ///
-    /// A wrap that reaches MaxSteinerPoints (WrapStatus PointLimitReached) is used only if it is clean (closed, manifold, no
-    /// self-intersections, MeshRobustRepair.NotCleanReasons); otherwise the status is WrapFailed. DegenerateCount tells how many
+    /// A wrap that reaches MaxSteinerPoints (WrapStatus PointLimitReached) is used only if it is closed, valid, without bowtie vertices and without
+    /// self-intersections; otherwise a coarser Alpha is tried (Alpha chosen by the class, up to MaxEscalations times), and then the status is WrapFailed. DegenerateCount tells how many
     /// points have a zero normal also when the run is a Success.
     ///
     /// Limits: a surface that is not the boundary of a solid has no outside (an open sheet, a wall thinner than about
@@ -250,8 +250,14 @@ namespace gs
                 if (usable && limited) {
                     // a wrap that stopped early keeps its guarantees (class comment of MeshAlphaWrap), but the exact parity test of the
                     // probes needs a closed, manifold wrap without self-intersections: check it, it is the rare case
-                    notClean = MeshRobustRepair.NotCleanReasons(wrap.Result, true);
+                    notClean = WrapProblemF(wrap.Result);
                     usable = notClean == "";
+                    if (!usable && Alpha <= 0 && attempt < MaxEscalations) {
+                        // a coarser wrap needs fewer Steiner points: try it before giving up
+                        UsedAlpha *= EscalationFactor;
+                        Escalations++;
+                        continue;
+                    }
                 }
                 if (!usable) {
                     Error = "alpha wrap: " + wrap.Status + " " + wrap.Error + (notClean == "" ? "" : " (not clean: " + notClean + ")");
@@ -260,7 +266,6 @@ namespace gs
                     expand(sign);
                     Array.Clear(Confident, 0, n);
                     ConfidentCount = 0;
-                    Wrap = null;
                     Status = NormalsStatus.WrapFailed;
                     return false;
                 }
@@ -290,6 +295,20 @@ namespace gs
         {
             if (e == -1023) return BitConverter.Int64BitsToDouble(1L << 51);
             return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+        }
+
+        /// <summary> for tests: what is checked of a wrap that stopped at MaxSteinerPoints (replaceable to simulate an unclean one) </summary>
+        internal Func<DMesh3, string> WrapProblemF = WrapProblem;
+
+        /// <summary> "" if the wrap is closed, valid, without bowtie vertices and without self-intersections (what the parity test of the probes needs), else the reason </summary>
+        internal static string WrapProblem(DMesh3 wrap)
+        {
+            if (!wrap.IsClosed()) return "not closed";
+            if (!wrap.CheckValidity(false, FailMode.ReturnOnly)) return "invalid mesh";
+            if (MeshIterators.BowtieVertices(wrap).Any()) return "bowtie vertices";
+            int si = MeshRepairMetrics.SelfIntersections(wrap);
+            if (si != 0) return si + " self-intersections";
+            return "";
         }
 
         void OrientWithWrap(Vector3d[] pts, bool[] degenerate, Vector3d[] normals, bool[] confident)
