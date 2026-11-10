@@ -185,6 +185,10 @@ namespace geometry3Sharp.Tests
             foreach (string s in new[] { "", " ", "abc", "1e", "e5", "--1", "+-1", "1.2.3", "0x10", "NaN", "Infinity", "-Infinity", "1,5", "1e+", ".", "+", "-.e1", "1 2", "1e5.5", "∞" })
                 Assert.False(ExactDecimal.TryParseDouble(s, out v), $"\"{s}\"");
             Assert.False(ExactDecimal.TryParseDouble(null, out v));
+            // only the white space NumberStyles.Float allows is trimmed, not every Unicode space (the platform would reject these)
+            foreach (string s in new[] { "\u00A01.5", "1.5\u2028", "\u30001" })
+                Assert.False(ExactDecimal.TryParseDouble(s, out v), s);
+            Assert.True(ExactDecimal.TryParseDouble("\t\n\v\f\r 1.5 \t", out v)); Assert.Equal(1.5, v);
         }
 
         [Fact]
@@ -292,6 +296,7 @@ namespace geometry3Sharp.Tests
             Assert.Throws<FormatException>(() => MeshIOUtil.ParseDouble("abc"));
             Assert.Throws<FormatException>(() => MeshIOUtil.ParseFloat("1e"));
             double v;
+            Assert.True(MeshIOUtil.TryParseDouble("1e999", out v)); Assert.True(double.IsPositiveInfinity(v));
             Assert.True(MeshIOUtil.TryParseDouble("0.1", out v)); Assert.Equal(0.1, v);
             Assert.False(MeshIOUtil.TryParseDouble("x", out v));
         }

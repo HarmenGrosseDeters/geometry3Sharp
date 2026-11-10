@@ -37,8 +37,8 @@ namespace g3
             negative = false; digits = ""; exp10 = 0;
             if (s == null) return false;
             int i = 0, n = s.Length;
-            while (i < n && char.IsWhiteSpace(s[i])) ++i;
-            while (n > i && char.IsWhiteSpace(s[n - 1])) --n;
+            while (i < n && IsFloatWhiteSpace(s[i])) ++i;
+            while (n > i && IsFloatWhiteSpace(s[n - 1])) --n;
             if (i < n && (s[i] == '+' || s[i] == '-')) { negative = s[i] == '-'; ++i; }
             var sb = new StringBuilder();
             int fraction = 0, any = 0;
@@ -83,6 +83,19 @@ namespace g3
             return true;
         }
 
+        // the white space NumberStyles.Float allows (U+0009 to U+000D and U+0020), not every Unicode space
+        static bool IsFloatWhiteSpace(char c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
+
+        static readonly BigInteger[] Pow10Cache = new BigInteger[1200];
+
+        static BigInteger Pow10(int n)
+        {
+            if (n >= Pow10Cache.Length) return BigInteger.Pow(10, n);
+            BigInteger p = Pow10Cache[n];
+            if (p.IsZero) Pow10Cache[n] = p = BigInteger.Pow(10, n);      // (a racing thread computes the same value)
+            return p;
+        }
+
         static int BitLength(BigInteger n)
         {
             byte[] b = n.ToByteArray();
@@ -97,7 +110,7 @@ namespace g3
         static bool Round(BigInteger n, int e10, int p, int kMin, int kMax, out ulong q, out int k)
         {
             BigInteger num = n, den = BigInteger.One;
-            if (e10 >= 0) num *= BigInteger.Pow(10, e10); else den = BigInteger.Pow(10, -e10);
+            if (e10 >= 0) num *= Pow10(e10); else den = Pow10(-e10);
             k = BitLength(num) - BitLength(den) - p;
             BigInteger top = BigInteger.One << p, half = BigInteger.One << (p - 1);
             while (true) {
@@ -126,7 +139,7 @@ namespace g3
             if (digits.Length == 0) v = 0;
             else if (digits.Length <= 15 && e >= -22 && e <= 22) {
                 double w = (double)ulong.Parse(digits, CultureInfo.InvariantCulture);
-                v = e >= 0 ? w * ExactPowers[e] : w / ExactPowers[-e];
+                v = e >= 0 ? (double)(w * ExactPowers[e]) : (double)(w / ExactPowers[-e]);     // (the casts round to double on an x87 FPU too)
             } else {
                 long lead = (long)digits.Length + e - 1;       // the decimal exponent of the leading digit
                 if (lead > 310) v = double.PositiveInfinity;
