@@ -262,7 +262,7 @@ namespace g3
                 if (!(scaledTolerance > 0) || n < 2) return;
                 double cell = 2 * scaledTolerance, tol2 = scaledTolerance * scaledTolerance;
                 double ox = x[0], oy = y[0];
-                var cells = new Dictionary<long, List<int>>();
+                var cells = new Dictionary<long, List<int>>(PairKeys.Comparer);
                 long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
                 int merged = 0;
                 for (int i = 0; i < n; ++i) {
@@ -785,7 +785,7 @@ namespace g3
                 for (int t = 0; t < slots; ++t) state[t] = -1;
                 var queue = new Queue<int>();
                 for (int t = 0; t < slots; ++t) if (k.IsGhost(t)) { state[t] = 0; queue.Enqueue(t); }
-                var xorCache = new Dictionary<long, int>();
+                var xorCache = new Dictionary<long, int>(PairKeys.Comparer);
                 while (queue.Count > 0) {
                     int t = queue.Dequeue();
                     for (int j = 0; j < 3; ++j) {
