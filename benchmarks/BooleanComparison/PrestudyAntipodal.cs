@@ -77,25 +77,28 @@ static class PrestudyAntipodal
             for (int q = 0; q < pts.Length; q += stride) { chk += tree.FastWindingNumber(pts[q]); nq++; }
             double fwnUs = sw.Elapsed.TotalMilliseconds * 1000 / nq;
 
-            // the boundary sum for a few sampled queries (all segments each)
-            int edgeQueries = Math.Max(3, Math.Min(200, (int)(2e7 / Math.Max(1, nb))));
-            int estride = Math.Max(1, pts.Length / edgeQueries);
+            // the boundary sum (all segments) for sampled queries: a warm-up pass, then passes over the sampled queries
+            // until at least 2e6 terms are timed (JIT and caches warm; the time per term does not depend on the query)
             Vector3d x1 = new Vector3d(-1, 0, 0);
-            sw.Restart();
-            long terms = 0;
-            for (int q = 0; q < pts.Length && terms < 2e7 + nb; q += estride) {
-                Vector3d p = pts[q];
+            Func<Vector3d, double> boundarySum = (p) => {
                 double sum = 0;
                 for (int k = 0; k < nb; ++k) {
                     Vector3d A = sa[k] - p, B = sb[k] - p;
-                    double la = A.Length, lb = B.Length;
-                    A /= la; B /= lb;
+                    A /= A.Length; B /= B.Length;
                     sum += 2 * Math.Atan2(A.Dot(B.Cross(x1)), 1 + A.Dot(B) + A.Dot(x1) + B.Dot(x1));
                 }
-                chk += sum;
-                terms += nb;
+                return sum;
+            };
+            double edgeNs = 0;
+            if (nb > 0) {
+                int estride = Math.Max(1, pts.Length / 64);
+                for (int q = 0; q < pts.Length && q < 3 * estride; q += estride) chk += boundarySum(pts[q]);
+                long terms = 0;
+                sw.Restart();
+                while (terms < 2000000)
+                    for (int q = 0; q < pts.Length && terms < 2000000; q += estride) { chk += boundarySum(pts[q]); terms += nb; }
+                edgeNs = sw.Elapsed.TotalMilliseconds * 1e6 / terms;
             }
-            double edgeNs = nb > 0 ? sw.Elapsed.TotalMilliseconds * 1e6 / terms : 0;
 
             // the ray (double, all hits) for sampled queries
             int rstride = Math.Max(1, pts.Length / 20000);
