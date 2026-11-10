@@ -75,7 +75,7 @@ namespace gs
                         if (tb <= ta || (local != null && local.Count >= maxPairs)) return;
                         Triangle3d B = triangle(mesh, tb);
                         if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
+                        if (Remesher.pair_intersects(ia, ref A, mesh.GetTriangle(tb), ref B)) {
                             if (local == null) local = new List<Index2i>();
                             local.Add(new Index2i(ta, tb));
                         }
