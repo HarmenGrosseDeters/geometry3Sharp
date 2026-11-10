@@ -1,5 +1,13 @@
 # Scale-free robust repair (design note, 2026-11-10, hard problem 9)
 
+**Decisions (owner, 2026-11-10, relayed by the coordinator; answers to section 7).**
+- A is built as its own PR; the public `Solidify` / `AlphaWrap` results after `Apply()` are scaled back to the caller's frame.
+- G (the guard for an accepted wrap or solidify) goes into the same PR.
+- No silent dust deletion: the loss of a part is reported.
+- B stage 0 (clean closed parts with disjoint boxes pass through) is on by default; B stage 1 only after the count of multi-part
+  inputs on the cohort.
+- D (a scale-free cleanliness criterion) not now. C not now.
+
 **Question (owner 2026-11-10):** `MeshRobustRepair`'s cleanups are relative to all triangles or the global box, so they erode or
 drop far parts (F1b / F1c), and the 2^k scale invariance inside the supported range keeps breaking in new places (F4, F5). Is there a
 formulation of the repair stages in which no cleanup depends on the global box and the result is invariant under 2^k scaling and
@@ -366,6 +374,9 @@ What stays out of reach is stated in the class documentation: a feature below th
 part, and bit-identical results under translations that are not exact on the input.
 
 ## 7. Owner questions
+
+Decided 2026-11-10, see the head of this note: 1 yes, scaled back; 2 not wanted, the loss is reported; 3 stage 0 default on,
+stage 1 after the count (stage 2 not decided); 4 no, not now. The questions as they were asked:
 
 1. A: go ahead as its own PR? Should the public `Solidify` / `AlphaWrap` results after `Apply()` be scaled back to user
    coordinates (recommended) or documented as being in the unit frame?
