@@ -34,7 +34,7 @@ namespace geometry3Sharp.Tests
                     EdgeQueue.Clear(false);
                     foreach (int eid in Mesh.VtxEdgesItr(RestrictToVertex)) {
                         QEdge edge = EdgeQuadrics[eid];
-                        EdgeQueue.Insert(eid, (float)evaluate(ref edge.q, edge.collapse_pt));
+                        EdgeQueue.Insert(eid, (float)(evaluate(ref edge.q, edge.collapse_pt) * PriorityScale));
                     }
                 }
             }
