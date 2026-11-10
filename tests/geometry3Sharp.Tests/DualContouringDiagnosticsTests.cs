@@ -137,9 +137,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ConcaveEnvelopeVertices_VertexPushedTowardTheEdge_IsConcave()
         {
-            // v0 moved inward past the line v3-v1 (still in its quadrant): the edge v0-e+ is reflex
+            // v3 and v1 moved toward v0's quadrant, v0 moved toward the edge past the segment v3-v1 (all still in
+            // their quadrants): the envelope is reflex at v0
             Vector3d[] v = Square();
-            v[0] = new Vector3d(-0.1, -0.1, 0.3);
+            v[3] = new Vector3d(-0.5, 0.125, 0); v[1] = new Vector3d(0.125, -0.5, 0); v[0] = new Vector3d(-0.0625, -0.0625, 0);
             int at; bool onPlane;
             Assert.Equal(1, DualContouring.ConcaveEnvelopeVertices(v, EMinus, EPlus, out at, out onPlane));
             Assert.Equal(0, at);
@@ -155,12 +156,16 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ConcaveEnvelopeVertices_TwoAdjacentConcave()
         {
-            // v0 high and v1 low near the edge: both reflex (Wang: then an edge vertex is needed)
+            // v0 high and v1 low, both close to the edge: both reflex (Wang: then an edge vertex is needed)
             Vector3d[] v = Square();
-            v[0] = new Vector3d(-0.05, -0.05, 0.6);
-            v[1] = new Vector3d(0.05, -0.05, -0.6);
+            v[0] = new Vector3d(-0.0625, -0.25, 0.75);
+            v[1] = new Vector3d(0.0625, -0.25, -0.75);
             int at; bool onPlane;
             Assert.Equal(2, DualContouring.ConcaveEnvelopeVertices(v, EMinus, EPlus, out at, out onPlane));
+            Assert.False(onPlane);
+            // before the move v0 alone: not concave
+            v[0] = new Vector3d(-0.5, -0.5, 0);
+            Assert.True(DualContouring.ConcaveEnvelopeVertices(v, EMinus, EPlus, out at, out onPlane) < 2);
         }
     }
 }

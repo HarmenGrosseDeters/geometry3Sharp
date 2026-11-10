@@ -34,32 +34,58 @@ sheet), each under 20 random rotations and grid shifts at 24 / 48 / 96 cells acr
 runs with the hook off (`--timing`). Command and tables:
 the benchmark README.
 
-| input | res | runs | raw SI runs | SI pairs | left after repair (runs) | final SI (runs) | non-manifold tris (runs) | moved / vertices | multi-patch polys | 1 / 2 concave | SI triangles in / out / multi-patch / transition | covered pairs | check+repair share of DC time |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 64 | 20 | 9 | 149 | 0 | 0 | 0 (0) | 149 / 161019 | 0.65 % | 2.22 % / 0.020 % | 20 / 0 / 74 / 40 | 0 | 72 % |
-| T1 | 128 | 20 | 6 | 101 | 0 | 1 | 12 (1) | 110 / 432218 | 0.28 % | 1.85 % / 0.006 % | 14 / 2 / 77 / 20 | 0 | 72 % |
-| imp:boxminussphere | 24 | 20 | 5 | 32 | 0 | 0 | 0 (0) | 29 / 23458 | 2.33 % | 6.18 % / 0.060 % | 1 / 2 / 29 / 0 | 0 | 96 % |
-| imp:boxminussphere | 48 | 20 | 4 | 30 | 0 | 0 | 0 (0) | 29 / 95682 | 1.08 % | 3.13 % / 0.037 % | 0 / 0 / 27 / 0 | 0 | 92 % |
-| imp:boxminussphere | 96 | 20 | 11 | 74 | 0 | 0 | 0 (0) | 67 / 387456 | 0.52 % | 1.62 % / 0.015 % | 2 / 1 / 70 / 0 | 0 | 86 % |
-| imp:cone | 24 | 20 | 3 | 14 | 0 | 0 | 0 (0) | 14 / 10976 | 1.86 % | 7.78 % / 0.027 % | 0 / 0 / 14 / 0 | 0 | 97 % |
-| imp:cone | 48 | 20 | 7 | 64 | 0 | 0 | 0 (0) | 60 / 44614 | 1.05 % | 3.82 % / 0.018 % | 0 / 0 / 60 / 0 | 0 | 87 % |
-| imp:cone | 96 | 20 | 8 | 131 | 0 | 0 | 0 (0) | 73 / 179628 | 0.46 % | 2.03 % / 0.014 % | 2 / 1 / 88 / 0 | 0 | 84 % |
-| imp:gyroid | 24 | 20 | 20 | 906 | 0 | 0 | 0 (0) | 926 / 56988 | 81.18 % | 3.43 % / 0.152 % | 16 / 25 / 868 / 0 | 0 | 82 % |
-| imp:gyroid | 48 | 20 | 20 | 1857 | 0 | 0 | 1708 (20) | 1616 / 283302 | 69.87 % | 2.06 % / 0.041 % | 13 / 16 / 1851 / 0 | 0 | 86 % |
-| imp:gyroid | 96 | 20 | 20 | 4055 | 0 | 0 | 96 (13) | 2426 / 1190410 | 3.62 % | 5.93 % / 0.043 % | 21 / 17 / 2893 / 0 | 0 | 83 % |
-| imp:rotbox | 24 | 20 | 2 | 12 | 0 | 0 | 0 (0) | 10 / 14924 | 2.32 % | 5.82 % / 0.101 % | 0 / 0 / 10 / 0 | 0 | 89 % |
-| imp:rotbox | 48 | 20 | 1 | 3 | 0 | 0 | 0 (0) | 4 / 61060 | 1.16 % | 3.05 % / 0.031 % | 0 / 0 / 4 / 0 | 0 | 75 % |
-| imp:rotbox | 96 | 20 | 6 | 30 | 0 | 0 | 0 (0) | 32 / 247330 | 0.63 % | 1.50 % / 0.015 % | 0 / 0 / 33 / 0 | 0 | 89 % |
-| imp:slab | 24 | 20 | 7 | 60 | 0 | 0 | 0 (0) | 59 / 15418 | 55.30 % | 5.89 % / 0.168 % | 0 / 0 / 65 / 0 | 0 | 80 % |
-| imp:slab | 48 | 20 | 18 | 549 | 0 | 0 | 10104 (18) | 534 / 85814 | 50.13 % | 2.32 % / 0.068 % | 2 / 4 / 537 / 0 | 0 | 89 % |
-| imp:slab | 96 | 20 | 4 | 27 | 0 | 0 | 0 (0) | 24 / 409052 | 18.00 % | 1.85 % / 0.014 % | 2 / 2 / 21 / 0 | 0 | 86 % |
-| imp:twoboxes | 24 | 20 | 3 | 14 | 0 | 0 | 0 (0) | 15 / 14532 | 3.85 % | 10.52 % / 0.117 % | 0 / 0 / 14 / 0 | 0 | 96 % |
-| imp:twoboxes | 48 | 20 | 5 | 21 | 0 | 0 | 0 (0) | 23 / 60186 | 1.84 % | 5.40 % / 0.057 % | 2 / 2 / 20 / 0 | 0 | 87 % |
-| imp:twoboxes | 96 | 20 | 3 | 30 | 0 | 0 | 0 (0) | 26 / 246250 | 0.93 % | 2.96 % / 0.030 % | 0 / 0 / 25 / 0 | 0 | 86 % |
-| mesh:procedural | 64 | 6 | 0 | 0 | 0 | 0 | 0 (0) | 0 / 41400 | 0.00 % | 0.10 % / 0.000 % | 0 / 0 / 0 / 0 | 0 | 81 % |
-| mesh:procedural | 128 | 6 | 0 | 0 | 0 | 0 | 0 (0) | 0 / 164508 | 0.00 % | 0.04 % / 0.000 % | 0 / 0 / 0 / 0 | 0 | 84 % |
+| input | res | runs | raw SI runs | SI pairs | left after repair (runs) | final SI (runs) | non-manifold tris (runs) | moved / vertices | multi-patch polys | 1 / 2 concave (of uniform single-patch quads) | SI triangles in / out / multi-patch / transition | covered / all pairs |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 64 | 20 | 9 | 149 | 0 | 0 | 0 (0) | 149 / 161019 | 0.65 % | 2.27 % / 0.020 % | 20 / 0 / 74 / 40 | 0 / 149 |
+| T1 | 128 | 20 | 6 | 101 | 0 | 1 | 12 (1) | 110 / 432218 | 0.28 % | 1.86 % / 0.006 % | 14 / 2 / 77 / 20 | 0 / 101 |
+| imp:boxminussphere | 24 | 20 | 5 | 32 | 0 | 0 | 0 (0) | 29 / 23458 | 2.33 % | 6.33 % / 0.061 % | 1 / 2 / 29 / 0 | 0 / 32 |
+| imp:boxminussphere | 48 | 20 | 4 | 30 | 0 | 0 | 0 (0) | 29 / 95682 | 1.08 % | 3.17 % / 0.037 % | 0 / 0 / 27 / 0 | 0 / 30 |
+| imp:boxminussphere | 96 | 20 | 11 | 74 | 0 | 0 | 0 (0) | 67 / 387456 | 0.52 % | 1.63 % / 0.015 % | 2 / 1 / 70 / 0 | 0 / 74 |
+| imp:cone | 24 | 20 | 3 | 14 | 0 | 0 | 0 (0) | 14 / 10976 | 1.86 % | 7.93 % / 0.028 % | 0 / 0 / 14 / 0 | 0 / 14 |
+| imp:cone | 48 | 20 | 7 | 64 | 0 | 0 | 0 (0) | 60 / 44614 | 1.05 % | 3.86 % / 0.018 % | 0 / 0 / 60 / 0 | 0 / 64 |
+| imp:cone | 96 | 20 | 8 | 131 | 0 | 0 | 0 (0) | 73 / 179628 | 0.46 % | 2.04 % / 0.015 % | 2 / 1 / 88 / 0 | 0 / 131 |
+| imp:gyroid | 24 | 20 | 20 | 906 | 0 | 0 | 0 (0) | 926 / 56988 | 81.18 % | 18.20 % / 0.809 % | 16 / 25 / 868 / 0 | 0 / 906 |
+| imp:gyroid | 48 | 20 | 20 | 1857 | 0 | 0 | 1708 (20) | 1616 / 283302 | 69.87 % | 6.84 % / 0.135 % | 13 / 16 / 1851 / 0 | 0 / 1857 |
+| imp:gyroid | 96 | 20 | 20 | 4055 | 0 | 0 | 96 (13) | 2426 / 1190410 | 3.62 % | 6.15 % / 0.045 % | 21 / 17 / 2893 / 0 | 0 / 4055 |
+| imp:rotbox | 24 | 20 | 2 | 12 | 0 | 0 | 0 (0) | 10 / 14924 | 2.32 % | 5.96 % / 0.103 % | 0 / 0 / 10 / 0 | 0 / 12 |
+| imp:rotbox | 48 | 20 | 1 | 3 | 0 | 0 | 0 (0) | 4 / 61060 | 1.16 % | 3.09 % / 0.032 % | 0 / 0 / 4 / 0 | 0 / 3 |
+| imp:rotbox | 96 | 20 | 6 | 30 | 0 | 0 | 0 (0) | 32 / 247330 | 0.63 % | 1.51 % / 0.015 % | 0 / 0 / 33 / 0 | 0 / 30 |
+| imp:slab | 24 | 20 | 7 | 60 | 0 | 0 | 0 (0) | 59 / 15418 | 55.30 % | 13.18 % / 0.377 % | 0 / 0 / 65 / 0 | 0 / 60 |
+| imp:slab | 48 | 20 | 18 | 549 | 0 | 0 | 10104 (18) | 534 / 85814 | 50.13 % | 4.65 % / 0.137 % | 2 / 4 / 537 / 0 | 0 / 549 |
+| imp:slab | 96 | 20 | 4 | 27 | 0 | 0 | 0 (0) | 24 / 409052 | 18.00 % | 2.25 % / 0.017 % | 2 / 2 / 21 / 0 | 0 / 27 |
+| imp:twoboxes | 24 | 20 | 3 | 14 | 0 | 0 | 0 (0) | 15 / 14532 | 3.85 % | 10.94 % / 0.122 % | 0 / 0 / 14 / 0 | 0 / 14 |
+| imp:twoboxes | 48 | 20 | 5 | 21 | 0 | 0 | 0 (0) | 23 / 60186 | 1.84 % | 5.50 % / 0.058 % | 2 / 2 / 20 / 0 | 0 / 21 |
+| imp:twoboxes | 96 | 20 | 3 | 30 | 0 | 0 | 0 (0) | 26 / 246250 | 0.93 % | 2.99 % / 0.030 % | 0 / 0 / 25 / 0 | 0 / 30 |
+| mesh:procedural | 64 | 6 | 0 | 0 | 0 | 0 | 0 (0) | 0 / 41400 | 0.00 % | 0.10 % / 0.000 % | 0 / 0 / 0 / 0 | 0 / 0 |
+| mesh:procedural | 128 | 6 | 0 | 0 | 0 | 0 | 0 (0) | 0 / 164508 | 0.00 % | 0.04 % / 0.000 % | 0 / 0 / 0 / 0 | 0 / 0 |
 
 vertices not strictly inside their cell: 0 of 4226225; quads with 3 or 4 concave vertices: 0
+stages of 116871.stl at 128: final SI 63, contour (with hole fill) 63, after cleanup 63, non-manifold triangles left out 12, last DC pass SI left 0
+
+| input | res | runs | total s | DC phases s | check + repair s | share of DC | share of total |
+|---|---|---|---|---|---|---|---|
+| T1 | 64 | 20 | 10.2 | 5.1 | 1.4 | 28 % | 14 % |
+| T1 | 128 | 20 | 26.9 | 13.9 | 3.5 | 25 % | 13 % |
+| imp:boxminussphere | 24 | 20 | 0.3 | 0.2 | 0.1 | 46 % | 40 % |
+| imp:boxminussphere | 48 | 20 | 1.0 | 1.0 | 0.4 | 36 % | 34 % |
+| imp:boxminussphere | 96 | 20 | 4.1 | 4.0 | 1.8 | 43 % | 43 % |
+| imp:cone | 24 | 20 | 0.1 | 0.1 | 0.0 | 51 % | 39 % |
+| imp:cone | 48 | 20 | 0.4 | 0.3 | 0.2 | 51 % | 45 % |
+| imp:cone | 96 | 20 | 1.7 | 1.6 | 0.7 | 45 % | 43 % |
+| imp:gyroid | 24 | 20 | 0.6 | 0.6 | 0.2 | 41 % | 39 % |
+| imp:gyroid | 48 | 20 | 2.9 | 2.9 | 1.4 | 48 % | 47 % |
+| imp:gyroid | 96 | 20 | 13.5 | 13.5 | 6.0 | 45 % | 44 % |
+| imp:rotbox | 24 | 20 | 0.3 | 0.2 | 0.1 | 41 % | 37 % |
+| imp:rotbox | 48 | 20 | 0.7 | 0.7 | 0.3 | 41 % | 38 % |
+| imp:rotbox | 96 | 20 | 3.6 | 3.5 | 1.2 | 34 % | 33 % |
+| imp:slab | 24 | 20 | 0.1 | 0.1 | 0.1 | 64 % | 52 % |
+| imp:slab | 48 | 20 | 0.8 | 0.8 | 0.5 | 57 % | 53 % |
+| imp:slab | 96 | 20 | 4.3 | 4.2 | 1.7 | 41 % | 41 % |
+| imp:twoboxes | 24 | 20 | 0.2 | 0.2 | 0.1 | 30 % | 26 % |
+| imp:twoboxes | 48 | 20 | 0.5 | 0.5 | 0.2 | 51 % | 45 % |
+| imp:twoboxes | 96 | 20 | 2.7 | 2.7 | 0.9 | 35 % | 35 % |
+| mesh:procedural | 64 | 6 | 2.9 | 1.7 | 0.6 | 37 % | 21 % |
+| mesh:procedural | 128 | 6 | 9.5 | 6.0 | 2.3 | 37 % | 24 % |
 
 Findings:
 
@@ -76,19 +102,21 @@ Findings:
    outside it; a polygon touching a multi-patch cell; a refinement-transition polygon. Over all runs the intersecting triangles are 95 in-envelope, 72 out-of-envelope, 6780 multi-patch and 60 transition triangles (T1: 34 / 2 / 151 / 60).
    **No intersecting pair had both triangles inside their envelopes** (0 of 8159 pairs), as the criterion predicts.
    Every intersection involves a multi-patch or transition polygon or a quad split against the criterion.
-4. **Cost.** The exact check plus repair is 72 % (T1) and 75-97 % (implicit) of the dual contouring time (all phases of the last `Generate`),
-   and 58 % of the whole `MeshWindingNumberSolidify` on the T1 set. It checks every triangle, although only
-   the triangles not covered by the criterion (multi-patch, transition, against-criterion: 1-5 % on CAD-like inputs,
-   up to 80 % on thin sheets at low resolution) can intersect.
-5. **Wang's criterion is cheap to meet.** On single-patch same-size quads, 1.5-10.5 % have one concave envelope vertex
-   (the diagonal through it is then forced) and 0.01-0.17 % have two (an edge vertex is needed); 3 or 4 never occur
-   (Wang, Remark 3).
+4. **Cost.** With the hook off, the exact check plus repair (`ResolveMilliseconds`) is 25-28 % of the dual
+   contouring time on T1 (13-14 % of the whole `MeshWindingNumberSolidify`, where the octree and the winding numbers
+   dominate) and 30-64 % of dense `DualContouring` (median about 43 %). It checks every triangle, although only the
+   triangles not covered by the criterion (multi-patch, transition, against-criterion: 1-5 % on CAD-like inputs, up to
+   80 % on thin sheets at low resolution) can intersect.
+5. **Wang's criterion is cheap to meet.** Of the uniform single-patch quads (four cells of one size, one patch each),
+   1.5-8 % have one concave envelope vertex on CAD-like and smooth inputs (up to 18 % on the gyroid at 24 cells), so
+   the diagonal through it is forced; 0.006-0.12 % have two (up to 0.8 % on the gyroid at 24 cells), where an edge
+   vertex is needed; 3 or 4 never occur (Wang, Remark 3).
 
 So the measurable gains on this set are: a guarantee instead of a heuristic, closed (hole-free) results at ambiguous
-faces, no unchecked hole fill, and the time of the global check (an upper bound of about 2x for
-`MeshWindingNumberSolidify` and 4-7x for dense `DualContouring`, if the check shrinks to the uncovered triangles).
-The count of self-intersecting final results is small today (1 of 52 winding runs, 0 of 360 implicit runs), so the
-case for building rests on the guarantee, the holes and the time, not on the count.
+faces, no unchecked hole fill, and part of the check time: if the check shrinks to the uncovered triangles, at most
+about 1.15x for `MeshWindingNumberSolidify` and 1.3-2x for dense `DualContouring` (Amdahl on the shares above). The
+count of self-intersecting final results is small today (1 of 52 winding runs, 0 of 360 implicit runs), so the case
+for building rests on the guarantee and the holes; the speed is a side gain, not the reason.
 
 ### 2.1 Separate finding: the hole fill after dual contouring is unchecked
 
@@ -150,14 +178,14 @@ Cover = a triangle that lies, by an exact argument, in a region disjoint from ev
 
 | | what | guarantee | sharpness | cost to build | runtime |
 |---|---|---|---|---|---|
-| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 1.5-10 % of quads (may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: up to 2x faster solidify, 4-7x dense DC |
+| **A. Certify + local check** | keep today's vertices; split each single-patch same-size quad by Wang's criterion (forced diagonal; edge vertex at the Hermite point, snapped strictly inside e, for two concave); the exact check runs only on uncovered triangles (multi-patch, transition, exactly coplanar tests) against the tree; today's repair only for those, re-classifying the quads around moved vertices | covered triangles by proof; the rest checked exactly, repair still heuristic (reported) | as today, plus a forced diagonal on 1.5-8 % of quads (up to 18 % on thin sheets; may cut a crease the normal-based choice kept) | S-M (DualContouring only; no API change) | check cost ~ uncovered share: at most ~1.15x faster solidify, 1.3-2x dense DC |
 | **B. A + Ju-Udeshi faces** | as A, and faces next to multi-patch cells or refinement transitions get face vertices (one per face segment), so each such cell's triangles are fans from its vertices inside the cell; ambiguous faces then give two separate face vertices and no non-manifold edge (no holes, no unchecked fill) | everything covered except fans of different patches inside one multi-patch cell, which are checked exactly within the cell (a few triangles) | QEF vertices kept; extra face vertices only at those faces (a few % of triangles) | M | as A; closes the `NonManifoldTriangles` holes |
 | C. Full hybrid everywhere | Ju & Udeshi on every edge, then drop vertices by the criterion | as B | as B | M-L | 1-4x triangles before dropping |
 | D. Primal fallback | multi-patch cells contoured by marching tetrahedra inside the cell | covers multi-patch cells too, but the face polylines must match the neighbours (needs B's face vertices) and positions on interior simplex edges round off them | QEF lost in those cells | L | small |
 | E. Keep today, document | no change | none (heuristic, never failed in 412 runs here) | as today | 0 | as today |
 
-Decision (owner 2026-11-10): **A, then B**, as recommended. Recommendation: **A, then B** (two PRs, one feature each). A is small, exact and pays for itself (the check becomes
-local, so the guarantee costs less than today's after-the-fact check) and gives the per-polygon classification B needs.
+Decision (owner 2026-11-10): **A, then B**, as recommended. Recommendation: **A, then B** (two PRs, one feature each). A is small, exact and does not cost time (the check becomes
+local, so the guarantee is cheaper than today's after-the-fact check) and gives the per-polygon classification B needs.
 B removes the holes (the source of the one bad #498 result) and the transition cases. The multi-patch interior stays
 "checked exactly, repaired heuristically, reported" (`UncoveredTriangles`, `SelfIntersectionsLeft`): option D or a
 proof for it is the remaining open problem 13, and only worth it if the reported counts show it matters.
