@@ -417,6 +417,105 @@ Plan, one PR:
 Not proposed: a wider bound; a per-vertex origin (unsound, section 4); direct distance queries against S0 per edit
 (one-sided only without a correspondence, and a second spatial index).
 
+## 7a. Hand-over for the build (2026-11-10)
+
+The owner decided to build the rule (2026-11-10, [roadmap/research.md](../roadmap/research.md)); a later session
+builds it. What exists and what is left:
+
+**Where things are.**
+- The plan: section 7. The lemma and the assumptions the code must keep: sections 3.1, 3.4.
+- The prototype (a patch on ca831be, quick and not for merging): `benchmarks/BooleanComparison/perf/d1/`.
+- A first real implementation, work in progress: branch `claude/d1-reference-rule` (commit ebeaf737, on top of this
+  PR's branch; rebase it onto master once this PR is merged). It replaces the per-vertex drift and the apex rule in
+  `mesh_ops/MeshRoundingRepair.cs` by `refAnchor` / `refCarry` per triangle id and `Ghost` records per vertex
+  (`proposed_drift`, `commit_drift`, `move_bound` for the moves past the evaluation limit, `save_references` /
+  `restore_reference` in the three undo paths, `check_bounds` / `check_ghosts` in check mode). State: it builds; of
+  409 tests of the rounding and the exact booleans (the filter of `tests_under_prototype_2026-11-09.txt`) 403 pass,
+  the 6 failures are the pins below. Not done on it: everything in the list that follows.
+
+**Left to do, in this order.**
+1. The 6 pins of "not clean today" that the rule repairs (change them to the clean result and say so in the PR):
+   `RoundingDenseTessellationTests.DensePatch_Union_ValidNotCleanWithinTheBound` and
+   `…_StrictRounding_RoundingNotClean`; `RoundingDriftClusterTests.DensePatch_BudgetUsedUpByTheAccounting_NotByTheDistance`
+   and `…_WiderBound_CleanWithinTheOriginalBound` (the assertions marked "D1 pin");
+   `SafeRoundingBoundTests.StrictRounding_FailsWithTheReason_InsteadOfDefects` ("Cluster k0 count 4 seed 0" is now
+   clean: it needs another case that still fails) and `Utm_CleanWithTheUlpTolerance_WithinIt` (102 of 114 clean with
+   the relative bound only; the pin is `<= 95`).
+2. New tests (each must fail with the matching mutant in the code; names that match the rounding shards' filter,
+   e.g. in `MeshRoundingRepairTests` or `SafeRoundingBoundTests`):
+   - the 7 pinned counterexamples of `tools/Z3Pilot/test_drift_reference.py` (`PINNED`) as meshes, with the
+     reported drift checked against a distance measured as in `RoundingDriftClusterTests.Measured`, on inputs where
+     that distance is a large share of the bound (a spike, not the sphere patch, where it is below 0.001):
+     no ghosts; ghosts not renamed in a contraction; a generic edit that takes `c` instead of B; one that ignores
+     the lost ghosts (a spike vertex whose edges are contracted from both sides onto a vertex that a flip or a
+     vertex removal then takes away); one without δ; a renamed corner that takes the kept vertex as anchor; a move
+     that does not evaluate the ghosts at its vertex. The repair chooses its own edits, so each mesh has to be built
+     so that the wanted sequence is the only one that improves; where that is not possible, drive the edits through
+     an internal test hook rather than weaken the case;
+   - a ghost on an *edge* that is lost (the Z3 chain has ghosts at vertices only): contract a vertex of valence 3 or
+     4, then flip the edge the collapsed triangles lie on;
+   - the undo paths (`try_zip`, `try_strip`, `try_remove_vertex` when an append fails) keep the records: not
+     reachable from a valid mesh today ("not expected" in the code), so a check-mode assertion, not a test;
+   - `Similarity.All()` with bit-identical 2^k scales (exists in `RoundingDriftClusterTests` and
+     `RoundingDriftApexTests`), `Apply` twice and on a second copy, serial equals parallel
+     (`RoundingDriftApexTests.Needles_SerialEqualsParallel_ApplyTwice`), every edit type in check mode
+     (`CheckMode_EveryEditType_SameResultAsWithout`).
+3. `RoundingDriftApexTests`: its class comment and the tests that speak of the apex are about the rule that goes;
+   the needles case stays valid (the reference rule repairs it too) and should be kept under a name of its own.
+4. Z3: `tools/Z3Pilot/drift_apex.py`'s `source_contract()` compares the text of `improves`, `within_bound`, `apex_of`
+   and `commit_drift` and **fails on the new code** (so does `test_pilot.DriftApexTests.test_source_contract*`):
+   retire that contract with a note (the lemma stays as the comparison of section 3.3) and give
+   `drift_reference.source_contract()` the contract of the rule (the text of `proposed_drift` and `commit_drift`).
+   `drift_reference.py`'s present contract also changes: `movedV = ...` assignments and `try_move` are as before on
+   the branch, check it.
+5. Docs: the class comment of `MeshRoundingRepair` (the "Bounded displacement" paragraph), SAFE_ROUNDING.md section 1
+   (drift paragraph, proof), ROUNDING_DRIFT_APEX.md (status: superseded), OPERATIONS.md if it words `MaxDrift`.
+6. Mutation: `tests/mutation/stryker-mesh-rounding-1..7.json` hold character offsets into
+   `MeshRoundingRepair.cs` (split at `position_add`, `degenerate_triangles`, `segments_distance`, `strip_around`,
+   `ulp`, `set_vertex`; tests/mutation/README.md, "The splits are character offsets"); the change moves all of
+   them, `MutationConfigTests` fails until they are moved back to their methods, and the changed configs make the
+   parts run in full on master after the merge (owner's rule of 2026-11-09).
+7. The full local CI list of CLAUDE.md (existing library code changes), an independent code-only review with
+   `docs/REVIEW_CHECKLIST.md` (every bound of section 3.5 against the code), and the Boolean session's review.
+8. The cohort run, the gate before ready (below).
+
+**Pitfalls met.**
+- The value compared with the bound for a displacement edit must include the ghosts at the moved *and* the
+  vanishing vertex, at the new position; and for a contraction with the kept vertex in place, the kept vertex's
+  other triangles are not part of the edit and their bounds must not be re-checked against the edit's drift (the
+  first check mode did, and threw on valid edits).
+- `improves` knows a displacement edit by `movedV >= 0`, which `try_move` / `try_collapse` reset right after the
+  call: the commit needs the kept and the vanishing vertex saved at the proposal.
+- `FlipEdge` keeps the two triangle ids with new corners; zips, strip zips and vertex removals append. The record of
+  an added triangle is written after the edit by `FindTriangle`, in the mesh's corner order.
+- `SmallestRejectedDrift` and the moves past the evaluation limit: `MeshRoundingRepairIncrementalTests.
+  PastTheLimit_SameAsProposingInFull` compares the shortcut with the full proposal, so `move_bound` must compute
+  exactly what `proposed_drift` computes for a move (the same maxima of the same doubles).
+- Results are not bit-identical to the apex rule's even without a rejected edit in rare cases: the two rules compute
+  different expressions (section 3.3).
+- The measured distance has a floor of about 0.002 of the bound (section 5); compare with a slack.
+
+**The cohort job (draft; the runner executes literally, so fill in the two commits and check the paths against the
+runner's other jobs on `runs/boolean2-final`, `runs/final/FinalRunner`).**
+
+    JOB: D1 reference rule, cohort run of the Thingi10K target class (16 239 operations)
+    Baseline: master at <commit A>. Candidate: the library PR's head <commit B>. Both built in this job, on this
+    runner, Release, one after the other; the same model list and pairing as the Boolean 2.0 confirmation run
+    (B = A rotated 20 degrees about (1, 1, 0) and shifted by a quarter of the box: BooleanComparison export).
+    Per operation and build one JSON row: model, op, ok, rounding_clean, NotCleanReason, remaining degenerate,
+    remaining intersections, MaxDrift / MaxLength, SmallestRejectedDrift / MaxLength, the edit counts
+    (Collapses, Flips, Moves, Zips, StripZips, VertexRemovals), EvaluationLimitReached, ms of the rounding and of
+    the operation, a hash of the result (as perf/hashes.py).
+    Resumable: one row per case, a rerun skips finished rows; partial rows pushed to runs/d1-cohort hourly.
+    Report (a committed script, not by hand):
+      1. clean -> not clean, and not clean -> clean, each as a list (model, op, reason);
+      2. operations whose baseline row has SmallestRejectedDrift = Infinity (no edit rejected by the bound): the
+         hashes must be equal; list every difference;
+      3. the distribution of MaxDrift / MaxLength (deciles) per build;
+      4. times: sum, median, p95, max of the rounding and of the operation per build, and the operations slower
+         by more than 20 % and 0.2 s.
+    Stop rule for the PR: any operation in list 1 "clean -> not clean" or in list 2 is analysed before the merge.
+
 ## 8. Prior art (papers only; [S] from abstracts or search snippets, [M] from memory, not re-read here)
 
 - **Milenkovic and Sacks 2019** (arXiv 1805.03252), read for SAFE_ROUNDING.md: displacement "at most d times the
