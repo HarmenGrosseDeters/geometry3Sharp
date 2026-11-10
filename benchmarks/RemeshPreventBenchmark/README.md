@@ -10,7 +10,7 @@ dotnet run -c Release --project benchmarks/RemeshPreventBenchmark [repeats]
 ```
 
 The first run of a case is cold (JIT) and is reported separately from the median of the others. Linux container,
-4 cores, `net10.0`, Release; timings vary by about 10 % between runs.
+4 cores, `net10.0`, Release (numbers measured on top of master f3f3f50b); timings vary by about 10 % between runs.
 
 ## Cell size of the triangle grid (2026-11-10)
 
@@ -24,11 +24,11 @@ level as before.
 
 | case | hash (before = after) | cold ms before | cold ms after | warm ms before | warm ms after |
 |---|---|---|---|---|---|
-| thin tube (wall 0.1), wall-thickness sizing, target 0.8 | `C4EC64E5A82DC245` | 4623 | 3457 | 3728 | 2208 |
-| thin tube (wall 0.1), uniform target 0.2 | `C177081A8E85E433` | 354 | 330 | 348 | 343 |
-| thick tube (wall 0.5), uniform target 0.3 | `CEECC659975E91B1` | 122 | 117 | 109 | 115 |
-| thick tube (wall 0.5), uniform target 1.5 (coarsening) | `B5974F46CA01A4D7` | 43 | 36 | 41 | 29 |
-| thin tube, uniform target 0.2, check off | `03362745616D38E7` | 65 | 66 | 66 | 81 |
+| thin tube (wall 0.1), wall-thickness sizing, target 0.8 | `C4EC64E5A82DC245` | 4592 | 3298 | 3623 | 2156 |
+| thin tube (wall 0.1), uniform target 0.2 | `C177081A8E85E433` | 331 | 365 | 326 | 308 |
+| thick tube (wall 0.5), uniform target 0.3 | `CEECC659975E91B1` | 105 | 105 | 107 | 106 |
+| thick tube (wall 0.5), uniform target 1.5 (coarsening) | `B5974F46CA01A4D7` | 30 | 29 | 29 | 30 |
+| thin tube, uniform target 0.2, check off | `03362745616D38E7` | 45 | 49 | 46 | 48 |
 
 After the change `Query` is 12 % of the CPU time (was 60 %); the rest is flat (ProcessEdge 24 %, vertex move
 check 14 %, smoothing 8 %, projection 7 %).
