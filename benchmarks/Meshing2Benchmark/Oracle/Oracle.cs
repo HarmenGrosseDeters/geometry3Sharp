@@ -1536,9 +1536,10 @@ namespace Meshing2Acceptance
             /// <summary>
             /// O-H5 with rule (ii') on the image of source: which links of its full image are excused, and whether output vertices
             /// rerouted any of them. The full image and the input's own image are matched at the pixels they share, in order (the ends are
-            /// shared: both are input points); a link of the full image is excused if it is collapsed there and every link of the
-            /// input's own image between the same two shared pixels is collapsed in the input's own rounding. So an output vertex may
-            /// reroute a chain only across a stretch the input's rounding collapses, and never creates a collapse (owner 2026-11-03).
+            /// shared: both are input points); a link of the full image is excused if every link of the input's own image between the
+            /// same two shared pixels is collapsed in the input's own rounding, whatever the full image makes of it (the reference is the
+            /// rounded input; owner decisions 2026-11-03 and B of 2026-11-10). So an output vertex may reroute a chain only across a
+            /// stretch the input's rounding collapses.
             /// Judging the input's rounding beside the full link's middle instead is unsound: a rerouted link can run outside the
             /// input's band while the band keeps area next to it (post-review B1, the wedge self-check).
             /// </summary>
@@ -1561,8 +1562,12 @@ namespace Meshing2Acceptance
                     if (!ownCollapsed) continue;
                     bool same = f1 - f0 == o1 - o0;
                     for (int k = f0; k < f1 && same; ++k) same = image[k].Equals(own[o0 + k - f0]);
-                    for (int k = f0; k < f1; ++k)
-                        if (LinkCollapsed(full, image[k], image[k + 1])) { excused[k] = true; rerouted[k] = !same; }
+                    for (int k = f0; k < f1; ++k) {
+                        // the reference is the rounded input (owner 2026-11-10): a stretch that the input's own rounding collapses is excused
+                        // whatever the full image makes of it; a reroute through refinement pixels that opens area there (a lobe) is not required of the mesh
+                        if (!LinkCollapsed(full, image[k], image[k + 1])) ++r.LobeChainExcuses;
+                        excused[k] = true; rerouted[k] = !same;
+                    }
                 }
                 return excused;
             }
@@ -1586,7 +1591,10 @@ namespace Meshing2Acceptance
             {
                 if (!(input.SnapTolerance > 0)) return false;
                 Snap();
-                if (!PixelCollapsed(full, p) || !PixelCollapsed(inputOnly, p)) return false;
+                if (!PixelCollapsed(inputOnly, p)) return false;
+                // the reference is the rounded input (owner 2026-11-10): the input's rounding collapses the point's pixel (a spike's tip), so the
+                // mesh need not have area there, even if output vertices rerouted the links at it and the full image has a lobe beside one of them
+                if (!PixelCollapsed(full, p)) { ++r.LobePointExcuses; return true; }
                 // (iii): the links at its pixel differ between the roundings: output vertices rerouted them
                 var n = PixelOf(p, snapPixel);
                 full.LinksAt.TryGetValue(n, out var withAll); inputOnly.LinksAt.TryGetValue(n, out var withInput);
@@ -2178,7 +2186,9 @@ namespace Meshing2Acceptance
             /// The hull edges of a hull domain (D13) where the mesher refines (Refining), which constrains the hull: the boundary, so an input segment at a small
             /// angle to one makes a small input angle as two segments would (found with CDT's issue-211). Split at the input points that lie
             /// exactly on them, as the mesher's hull sources are (a hull edge through a collinear input point is two sources there, and
-            /// a small angle must lie on one piece; review of the fix). In the merge zone only paired with a segment and without an explicit
+            /// a small angle must lie on one piece; review of the fix). On a snap grid the hull edges are not split: the mesher takes the angle from
+            /// the input constraint (OriginOf: the whole hull edge), and the apex of a small angle may lie on another piece than the triangle's vertex
+            /// (found by the CsCheck campaign, T5; MESHING2D_HULL_GRID.md). In the merge zone only paired with a segment and without an explicit
             /// tolerance (InMergeZone): the mesher refuses a split point of a hull edge near a segment, not one of a segment near the hull.
             /// Empty otherwise.
             /// </summary>
@@ -2197,7 +2207,7 @@ namespace Meshing2Acceptance
                             for (int j = 0; j < inPts.Length; ++j) {
                                 if (box && (input.X[j] < x0 || input.X[j] > x1 || input.Y[j] < y0 || input.Y[j] > y1)) continue;
                                 Pt p = inPts[j];
-                                if (p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
+                                if (input.SnapTolerance > 0 || p.Equals(a) || p.Equals(b) || !Exact.OnClosedSegment(a, b, p)) continue;
                                 on.Add((Exact.Len2(a, p), p));
                             }
                             on.Sort((s, t) => s.t.CompareTo(t.t));
@@ -2920,8 +2930,8 @@ namespace Meshing2Acceptance
             /// aside, holds a vertex of the piece's chain: an output vertex in that pixel with a subsegment whose other end lies in the
             /// edge's envelope (snap rounding keeps a chain within the Minkowski sum of its segment and a pixel). O-H4 checks links only;
             /// this closes the case SRR's Listing 2 leaves (a link that only touches a restore pixel's corner while its segment crosses
-            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in both images
-            /// (a pixel that collapses in both images lies on such links). A subsegment between two pixels of the piece's image that skips
+            /// the pixel). A side is excused, as by O-H5, where the edge's own link of its image on that side collapses in the input's own rounding
+            /// (a pixel that collapses in the input's own rounding lies on such links). A subsegment between two pixels of the piece's image that skips
             /// image pixels must be a link of the input's rounding (another edge's, or the hull's) or span collapsed links only (review of
             /// #36, S2). Known gap (third review of #36): another edge's link between two pixels of the image can still stand in for the
             /// piece's, where two further chains give the skipped pixel's vertex both sides (about four edges). Pixels of refinement are
@@ -2948,11 +2958,20 @@ namespace Meshing2Acceptance
                 var image = Image(a, b, snapHot, snapHotList, snapPixel, ref work, snapHot);
                 var index = new Dictionary<(BigInteger x, BigInteger y), int>(image.Count);
                 for (int t = 0; t < image.Count; ++t) index[image[t]] = t;
-                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q) => LinkCollapsed(inputOnly, p, q) && LinkCollapsed(full, p, q);
+                // A stretch between two pixels of the input's image is gone when the input's rounding collapses it (a spike: no area beside
+                // it): the reference is the rounded input, and the mesh need not rebuild what that rounding collapses, whatever the full image
+                // makes of it after output vertices rerouted it through further hot pixels (Q17; owner decision 2026-11-10). A stretch with
+                // area in the input's own image is judged by the full image as before.
+                bool Gone((BigInteger x, BigInteger y) p, (BigInteger x, BigInteger y) q)
+                {
+                    if (!LinkCollapsed(inputOnly, p, q)) return false;
+                    if (!LinkCollapsed(full, p, q)) ++r.LobeChainExcuses;
+                    return true;
+                }
                 foreach (var h in SegmentPassed(a, b, u, w, snapHot, snapHotList, null, snapPixel, ref work)) {
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
-                    // that side collapses in both images (O-H5's rule (ii'): refinement may open area the input's rounding collapses)
+                    // that side collapses (O-H5's rule (ii'), B: the input's own rounding collapses it, refinement may open area there)
                     Q along = Along(Centre(h, snapPixel));
                     if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
@@ -2971,7 +2990,7 @@ namespace Meshing2Acceptance
                             }
                             if (before && after) { onChain = true; break; }
                         }
-                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in both images
+                    // no vertex with a side of its own needed: the edge's own links on both sides collapse in the input's own rounding
                     if (!onChain && k >= 0) {
                         Snap();
                         onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);

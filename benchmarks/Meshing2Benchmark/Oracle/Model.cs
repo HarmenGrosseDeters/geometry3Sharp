@@ -233,6 +233,8 @@ namespace Meshing2Acceptance
         public Q? MeshMinusSnappedArea;
         /// <summary> with a snap tolerance: the largest distance, in pixels, of a node of an input edge's iterated image from the exact edge (rule O-G; guard 2.5) </summary>
         public double? MaxImageDriftPixels;
+        /// <summary> stretches of a chain (LobeChainExcuses) and unused points (LobePointExcuses) excused because the input's rounding collapses them although the full image (with output vertices as hot pixels) does not: the reference is the rounded input (rule (ii'), owner decision B, 2026-11-10) </summary>
+        public int LobeChainExcuses, LobePointExcuses;
         public string ExcusedSummary()
         {
             var parts = new List<string>();

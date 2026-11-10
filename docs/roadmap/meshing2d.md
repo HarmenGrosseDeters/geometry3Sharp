@@ -26,6 +26,10 @@ Part of the [roadmap](../ROADMAP.md).
   2016), so it cannot restore 1 px. Decision: the oracle judges against its own iterated image (with an explicit drift
   guard), and O11 / D14 and the class docs state the real bound (input rounding <= half a pixel per axis; chains at
   sub-pixel wedges up to ~2 px). PR by the T5 session.
+- **Collapsed stretches on the snap grid (owner 2026-11-10, option B):** for a stretch that the input-only image
+  collapses (a spike the input's own rounding removes), the input-only image is the only reference; the mesher need not
+  rebuild it around refinement vertices of other chains, whatever the spike's length. Stretches with area in the input-only
+  image stay judged by the full image (self-check B1 kept). Replaces the 1 px² lobe bound of #530 for such stretches.
 
 Small input angles and triangle count:
 
