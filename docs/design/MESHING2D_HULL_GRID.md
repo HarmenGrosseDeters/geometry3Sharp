@@ -270,6 +270,14 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   bottom of the triangle (0, -0.45), (20, -0.45), (20, 0.55) that the hypotenuse then contacts, the mesh dropping 6 of 10 px²) is
   rejected. The report counts apart (iii) the segment pieces whose chain search needs a stretch that output vertices rerouted (it
   fails without those bridges), and the points whose pixel has other links in the two states.
+- **Amendment to (ii'), the lobe (owner 2026-11-10):** refinement never creates a collapse, but need not keep what the input's rounding
+  collapses. A stretch (or a point's pixel, the tip of a spike) that the input-only image collapses is excused even if output vertices
+  rerouted it through the hot pixel of a refinement vertex of another chain and the full image then has area beside it, a lobe that
+  even-odd parity counts as domain although the mesh, like the input's rounding, has none (found by the CsCheck campaign of
+  `QualityMesh2`, T5: a hole ring with a spike tip, ChainSkipsHotPixel and VertexUnused on a valid mesh). Conditions: the input-only
+  image collapses it; the lobe lies within one pixel of the stretch's chord (for a point: every link at its pixel in the full image
+  ends in a neighbouring pixel); the excuses are counted in `OracleReport.LobeExcuses`. A stretch with area in the input's own image is
+  judged by the full image as before.
 - **Post-review of (ii') (B1, fixed):** a first form probed the input-only domain beside the middle of the full image's link. A
   rerouted link can run outside the input's band while the band keeps area next to it: the wedge (0, 0), (40, 4.6), (40, 5.6) with a
   Steiner vertex at (10, 1), both edges then on the link (0, 0) - (10, 1), was accepted although the input's rounding keeps 1.25 px²
