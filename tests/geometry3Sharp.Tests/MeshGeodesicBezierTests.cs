@@ -210,7 +210,7 @@ namespace geometry3Sharp.Tests
             var f = new MeshGeodesicBezier(mesh);
             var r = new MeshGeodesicBezier(mesh);
             Assert.Equal(GeodesicPathStatus.Success, f.Compute(control, 8));
-            Assert.Equal(GeodesicPathStatus.Success, r.Compute(control.Reverse().ToArray(), 8));
+            Assert.Equal(GeodesicPathStatus.Success, r.Compute(Enumerable.Reverse(control).ToArray(), 8));
             for (int i = 0; i <= 8; ++i)
                 Assert.True(f.Points[i].Distance(r.Points[8 - i]) < 1e-11, $"i = {i}");
         }
@@ -227,7 +227,7 @@ namespace geometry3Sharp.Tests
             var f = new MeshGeodesicBezier(mesh);
             var r = new MeshGeodesicBezier(mesh);
             Assert.Equal(GeodesicPathStatus.Success, f.Compute(control, 8));
-            Assert.Equal(GeodesicPathStatus.Success, r.Compute(control.Reverse().ToArray(), 8));
+            Assert.Equal(GeodesicPathStatus.Success, r.Compute(Enumerable.Reverse(control).ToArray(), 8));
             for (int i = 0; i <= 8; ++i)
                 Assert.True(f.Points[i].Distance(r.Points[8 - i]) < 0.02 * h, $"i = {i}: {f.Points[i]} vs {r.Points[8 - i]}");
         }
