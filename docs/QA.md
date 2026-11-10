@@ -302,7 +302,8 @@ scale checks of the campaigns (the scaling is not exact there).
 | 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude | -- | exact predicates | `ArgumentException` |
 | Terrain modules | not swept yet | -- | -- | -- |
 
-The ranges are class-doc statements ("Supported input range") of the classes above. The checks that turn the
+The ranges are class-doc statements ("Supported input range") of the classes above (those of `ExactMeshBoolean` and
+`MeshRoundingRepair` come with their range-check PRs: the mutation shards address these files by character offset). The checks that turn the
 "Outside" column into a status land per module (bugfix PRs); until then the column is the documented behaviour of
 the module outside the range, or "not guaranteed".
 

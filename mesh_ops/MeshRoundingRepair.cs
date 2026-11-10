@@ -103,9 +103,6 @@ namespace g3
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
-    ///
-    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200], no subnormal coordinates, and the largest and the smallest
-    /// component are at most 2^60 apart in size. Outside, IsClean and the drift bound are not guaranteed.
     /// </summary>
     public class MeshRoundingRepair
     {
