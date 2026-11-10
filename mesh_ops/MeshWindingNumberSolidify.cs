@@ -159,7 +159,7 @@ namespace gs
             // below 1e-45, and the squares of lengths overflow): run on a copy scaled by a power of two to an extent of
             // about 1 (exact) and scale the result back; a 2^k scale then gives the unit-scale result times 2^k
             // (QA 2.0 T1 finding R32)
-            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true);
+            double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true, 0, 1);
             if (s == 1 || Mesh.TriangleCount == 0 || MathUtil.IsFinite(CellSize) == false)
                 return compute_unit();
             DMesh3 copy = new DMesh3(Mesh);

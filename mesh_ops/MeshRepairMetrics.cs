@@ -345,10 +345,10 @@ namespace gs
         /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
         /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
         /// </summary>
-        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false)
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false, int lowExp = -100, int highExp = 100)
         {
             AxisAlignedBox3d box = TriangleBounds(mesh);
-            double s = unit_scale(box, -100, 100);
+            double s = unit_scale(box, lowExp, highExp);
             if (s == 1)
                 return 1;
             double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
