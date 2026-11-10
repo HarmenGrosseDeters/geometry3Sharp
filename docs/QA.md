@@ -38,6 +38,8 @@ done since and what is open.
   5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with
   every method that has a row of 4 s or more (a margin: the CI runner is not that machine) and may only shrink: the run
   fails for an entry that the base branch's list does not have, and for an entry that names no test (renamed or deleted).
+  The run fails for an untagged test only from 7 s (`--fail-from`): the CI runner's timings vary by a second or two around the
+  5 s line, so 5 to 7 s untagged is reported as a warning in the step summary, 10 s is a failure always (except Nightly).
   Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
 - A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
   (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)

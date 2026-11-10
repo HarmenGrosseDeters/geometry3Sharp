@@ -102,6 +102,14 @@ class Trx(unittest.TestCase):
         grown = t.ratchet(rows, full, {"A.SlowTagged"}, 5.0, 10.0)        # base has fewer entries: two were added
         self.assertEqual(len(grown), 2)
 
+    def test_untagged_between_five_and_seven_seconds_only_warns(self):
+        rows = [("N.A.Mid", 6.0, "Passed", False), ("N.A.High", 7.0, "Passed", False), ("N.A.Tagged", 6.5, "Passed", True)]
+        errors = t.ratchet(rows, set(), None, 5.0, 10.0)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("N.A.High", errors[0])
+        self.assertEqual([w.split(": ")[-1] for w in t.untagged_warnings(rows, set(), 5.0)], ["N.A.Mid"])
+        self.assertEqual(t.untagged_warnings(rows, {"A.Mid"}, 5.0), [])
+
     def test_a_fast_test_passes_without_backlog(self):
         fast = self.write("fast.trx", TRX.replace('duration="00:01:30.0000000"', 'duration="00:00:01.0000000"')
                           .replace('duration="00:00:07.2500000"', 'duration="00:00:01.0000000"')
