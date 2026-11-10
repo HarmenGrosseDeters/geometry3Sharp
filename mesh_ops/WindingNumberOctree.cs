@@ -184,7 +184,7 @@ namespace gs
             cacheMargin = PropagateMargin;
 
             ConcurrentBag<Vector3i> cells = new ConcurrentBag<Vector3i>();
-            refine(Vector3i.Zero, LeafCount, cells, 0);
+            refine(Vector3i.Zero, LeafCount, cells, 0, null);
             SurfaceCells = cells.ToList();
             // deterministic order
             SurfaceCells.Sort((a, b) => a.z != b.z ? a.z.CompareTo(b.z) : (a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x)));
@@ -331,13 +331,23 @@ namespace gs
         }
 
 
-        void refine(Vector3i min, int size, ConcurrentBag<Vector3i> cells, int level)
+        // tris: per mesh, the triangles that overlap the parent cell (null at the root: all, via the tree). A
+        // triangle that does not overlap a cell cannot overlap its children (their enlarged boxes lie inside the
+        // enlarged box of the parent, with a margin of 5e-7 of the parent's size), so the children test only
+        // those instead of querying the tree of the whole mesh.
+        void refine(Vector3i min, int size, ConcurrentBag<Vector3i> cells, int level, int[][] tris)
         {
             if (CancelF())
                 return;
             if (RegionF != null && RegionF(min, size) == false)
                 return;
-            if (needs_refinement(min, size) == false)
+            // input triangles overlapping the cell (slightly enlarged, so triangles exactly on a cell
+            // face count for both cells)
+            double halfSize = 0.5 * size * LeafCellSize;
+            Vector3d center = Origin + LeafCellSize * new Vector3d(min.x, min.y, min.z) + halfSize * Vector3d.One;
+            int[][] mine;
+            bool overlap = overlapping_triangles(center, halfSize * (1 + 1e-6), tris, size > 1, out mine);
+            if (overlap == false && corners_cross_iso(min, size) == false)
                 return;
             if (size == 1) {
                 cells.Add(min);
@@ -348,19 +358,63 @@ namespace gs
             for (int c = 0; c < 8; ++c)
                 children[c] = min + half * new Vector3i(c & 1, (c >> 1) & 1, (c >> 2) & 1);
             if (level < 2)
-                gParallel.ForEach(children, (child) => refine(child, half, cells, level + 1));
+                gParallel.ForEach(children, (child) => refine(child, half, cells, level + 1, mine));
             else
                 foreach (Vector3i child in children)
-                    refine(child, half, cells, level + 1);
+                    refine(child, half, cells, level + 1, mine);
         }
 
 
-        bool triangles_overlap(Vector3d center, double halfSize)
+        // true if any triangle overlaps the box; with collect, mine gets all overlapping triangles per mesh
+        // (without it, the search stops at the first, and mine is incomplete)
+        bool overlapping_triangles(Vector3d center, double halfSize, int[][] candidates, bool collect, out int[][] mine)
         {
-            for (int i = 0; i < Meshes.Length; ++i)
-                if (triangles_overlap(Meshes[i], Spatials[i], center, halfSize * Vector3d.One))
-                    return true;
-            return false;
+            mine = new int[Meshes.Length][];
+            bool any = false;
+            Vector3d halfExtents = halfSize * Vector3d.One;
+            for (int i = 0; i < Meshes.Length; ++i) {
+                if (candidates == null) {
+                    if (collect) {
+                        var found = new List<int>();
+                        collect_overlapping(Meshes[i], Spatials[i], center, halfExtents, found);
+                        mine[i] = found.ToArray();
+                        any |= found.Count > 0;
+                    } else {
+                        mine[i] = null;
+                        if (triangles_overlap(Meshes[i], Spatials[i], center, halfExtents)) { any = true; break; }
+                    }
+                    continue;
+                }
+                int[] cand = candidates[i];
+                List<int> keep = collect ? new List<int>() : null;
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                for (int k = 0; k < cand.Length; ++k) {
+                    Meshes[i].GetTriVertices(cand[k], ref a, ref b, ref c);
+                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfExtents)) {
+                        any = true;
+                        if (collect == false)
+                            return true;
+                        keep.Add(cand[k]);
+                    }
+                }
+                mine[i] = collect ? keep.ToArray() : null;
+            }
+            return any;
+        }
+
+        static void collect_overlapping(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents, List<int> found)
+        {
+            AxisAlignedBox3d box = new AxisAlignedBox3d(center - halfExtents, center + halfExtents);
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            var traversal = new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (treeBox, depth) => box.Intersects(treeBox),
+                NextTriangleF = (tid) => {
+                    mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfExtents))
+                        found.Add(tid);
+                }
+            };
+            spatial.DoTraversal(traversal);
         }
 
         static bool triangles_overlap(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents)
@@ -423,16 +477,9 @@ namespace gs
         }
 
 
-        bool needs_refinement(Vector3i min, int size)
+        // an iso crossing between the corners of the cell
+        bool corners_cross_iso(Vector3i min, int size)
         {
-            // input triangles overlapping the cell (slightly enlarged, so triangles exactly on a cell
-            // face count for both cells)
-            double halfSize = 0.5 * size * LeafCellSize;
-            Vector3d center = Origin + LeafCellSize * new Vector3d(min.x, min.y, min.z) + halfSize * Vector3d.One;
-            if (triangles_overlap(center, halfSize * (1 + 1e-6)))
-                return true;
-
-            // iso crossing between corners
             bool inside0 = NodeValue(min) > WindingIso;
             for (int c = 1; c < 8; ++c) {
                 Vector3i node = min + size * new Vector3i(c & 1, (c >> 1) & 1, (c >> 2) & 1);
