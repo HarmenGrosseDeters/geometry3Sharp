@@ -93,6 +93,24 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // .NET Framework throws OverflowException when parsing the 15-digit rounding of double.MaxValue (it is above the maximum)
+        [Fact]
+        public void FormatByDigits_NearTheLimits_DoesNotThrow_AndKeepsTheSignOfZero()
+        {
+            foreach (double x in new[] { double.MaxValue, -double.MaxValue, BitConverter.Int64BitsToDouble(0x7FEFFFFFFFFFFFFEL), BitConverter.Int64BitsToDouble(0x7FEFFFFFFFFFFFF0L), 1.7976931348623155E+308 }) {
+                string s = MeshIOUtil.FormatDoubleByDigits(x);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(x), BitConverter.DoubleToInt64Bits(double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture)));
+            }
+            foreach (float x in new[] { float.MaxValue, -float.MaxValue, BitConverter.ToSingle(BitConverter.GetBytes(0x7F7FFFFEu), 0) }) {
+                string s = MeshIOUtil.FormatFloatByDigits(x);
+                Assert.Equal(BitConverter.ToInt32(BitConverter.GetBytes(x), 0), BitConverter.ToInt32(BitConverter.GetBytes(float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture)), 0));
+            }
+            Assert.Equal("-0", MeshIOUtil.FormatDoubleByDigits(-0.0));
+            Assert.Equal("0", MeshIOUtil.FormatDoubleByDigits(0.0));
+            Assert.Equal("-0", MeshIOUtil.FormatFloatByDigits(-0.0f));
+            Assert.Equal("-0", MeshIOUtil.FormatDouble(-0.0));
+        }
+
         [Fact]
         public void FormatDouble_ShortCasesStayShort()
         {

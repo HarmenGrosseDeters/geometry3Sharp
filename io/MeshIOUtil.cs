@@ -44,11 +44,22 @@ namespace g3
         // the first of 15, 16 and 17 significant digits that reads back exactly (the .NET Framework path; internal for the tests, which run it on every framework)
         internal static string FormatDoubleByDigits(double v)
         {
+            if (v == 0) return (1 / v < 0) ? "-0" : "0";        // (G15 of -0 is "0" on .NET Framework: the sign is kept)
             string s = v.ToString("G15", Inv);
-            if (double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v) return s;
+            if (ReadsBack(s, v)) return s;
             s = v.ToString("G16", Inv);
-            if (double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v) return s;
+            if (ReadsBack(s, v)) return s;
             return v.ToString("G17", Inv);
+        }
+
+        // (.NET Framework throws OverflowException for a string above double.MaxValue, eg G15 of double.MaxValue: not equal)
+        static bool ReadsBack(string s, double v)
+        {
+            try {
+                return double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;
+            } catch (OverflowException) {
+                return false;
+            }
         }
 
         /// <summary> as <see cref="FormatDouble"/>, for float (7, 8 or 9 significant digits) </summary>
@@ -61,11 +72,21 @@ namespace g3
 
         internal static string FormatFloatByDigits(float v)
         {
+            if (v == 0) return (1 / v < 0) ? "-0" : "0";
             string s = v.ToString("G7", Inv);
-            if (float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v) return s;
+            if (ReadsBack(s, v)) return s;
             s = v.ToString("G8", Inv);
-            if (float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v) return s;
+            if (ReadsBack(s, v)) return s;
             return v.ToString("G9", Inv);
+        }
+
+        static bool ReadsBack(string s, float v)
+        {
+            try {
+                return float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;
+            } catch (OverflowException) {
+                return false;
+            }
         }
 
         /// <summary> as <see cref="ParseDouble"/>, for float </summary>
