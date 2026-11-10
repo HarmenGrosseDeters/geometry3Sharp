@@ -361,6 +361,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(GeodesicPathStatus.Success, b.Compute(new[] { a, c }, 4));
             Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a }, 4));
             Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, c }, 0));
+            Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, c }, int.MaxValue));
+            Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, c }, MeshGeodesicBezier.MaxSamples + 1));
             Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, 9999 }, 4));
             Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, c }, new[] { 0.5, 0.2 }));
             Assert.Equal(GeodesicPathStatus.InvalidInput, b.Compute(new[] { a, c }, new[] { 0.5, 1.5 }));

@@ -19,7 +19,9 @@ namespace gs
     /// two points, the curve is not unique where a geodesic between two of the intermediate points is not (cut locus);
     /// the geodesic found is the locally shortest one in the homotopy class of the shortest edge path.
     /// Status is that of the first geodesic that was not found (NoPath, Stuck, NotConverged), InvalidInput, or
-    /// TraceFailed if a point could not be inserted or the path not traced; Success otherwise.
+    /// TraceFailed if a point could not be inserted or the path not traced; Success otherwise. Each interpolation
+    /// runs a Dijkstra search over the whole (growing) triangulation, O(N log N); there are degree (degree + 1) / 2 per
+    /// parameter, so large meshes with many parameters are slow.
     /// </summary>
     public class MeshGeodesicBezier
     {
@@ -32,6 +34,9 @@ namespace gs
         /// a vertex a few ulp away that makes needle triangles)
         /// </summary>
         public double SnapTolerance = 1e-9;
+
+        /// <summary> the largest number of segments (and parameters) accepted </summary>
+        public const int MaxSamples = 1 << 20;
 
         public GeodesicPathStatus Status { get; private set; }
         /// <summary> the parameters of the last computation </summary>
@@ -69,7 +74,7 @@ namespace gs
         /// <summary> the curve at segments + 1 equally spaced parameters 0, 1/segments, ..., 1 </summary>
         public GeodesicPathStatus Compute(IList<int> controlVertices, int segments)
         {
-            if (segments < 1) return fail(GeodesicPathStatus.InvalidInput);
+            if (segments < 1 || segments > MaxSamples) return fail(GeodesicPathStatus.InvalidInput);
             var t = new double[segments + 1];
             for (int i = 0; i <= segments; ++i) t[i] = (double)i / segments;
             return Compute(controlVertices, t);
@@ -80,7 +85,7 @@ namespace gs
         {
             reset();
             Triangulation = null;
-            if (controlVertices == null || parameters == null || controlVertices.Count < 2 || parameters.Count < 1)
+            if (controlVertices == null || parameters == null || controlVertices.Count < 2 || parameters.Count < 1 || parameters.Count > MaxSamples + 1)
                 return fail(GeodesicPathStatus.InvalidInput);
             for (int i = 0; i < parameters.Count; ++i)
                 if (!(parameters[i] >= 0 && parameters[i] <= 1) || (i > 0 && parameters[i] < parameters[i - 1]))

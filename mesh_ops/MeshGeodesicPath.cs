@@ -210,6 +210,7 @@ namespace gs
             for (int k = 0; k < segs.Count; ++k) {
                 int s = segs[k];
                 double l = seg_length(s), local = target - done;
+                if (!(l > 0)) return seg_tail(s);
                 if (local <= l || k == segs.Count - 1) {
                     double u = Math.Min(Math.Max(local / l, 0), 1);
                     if (u <= snap) return seg_tail(s);

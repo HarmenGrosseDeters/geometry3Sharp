@@ -364,7 +364,7 @@ resolution. Reversing the control points gives the same curve (exactly on a plan
 non-uniqueness of discrete geodesics past a saddle vertex). Where a geodesic between two intermediate points is not
 unique (cut locus) the curve is not either. The status is that of the first failing geodesic (`NoPath`, `Stuck`, ...),
 `InvalidInput`, or `TraceFailed` if a point could not be inserted. The cost is degree (degree + 1) / 2 geodesics per
-parameter. Use `MeshGeodesicPath` alone for a plain geodesic.
+parameter, each a Dijkstra search over the whole triangulation (O(N log N)). Use `MeshGeodesicPath` alone for a plain geodesic.
 
 - **Status**: `Success` (geodesic), `Collapsed` (a contractible closed loop shrank to a point, to its fixed
   vertex if it has one), `NotConverged` (`MaxIterations`; valid and shorter), `Stuck` (a wedge holds edges of
