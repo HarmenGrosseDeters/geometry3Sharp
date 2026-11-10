@@ -3568,12 +3568,25 @@ namespace Meshing2Acceptance
             const int ZoneFactor = 3;
 
             /// <summary>
-            /// A branch u of a and a branch w of c leave the apex with a positive dot product, and every vertex of t lies within
-            /// ZoneFactor tube of the apex or has a positive dot product with both u and w
+            /// The squared distance from the exact apex of two sources at the sine squared sin2 within which an output vertex may lie
+            /// because it is the apex (a crossing, or a split point) rounded to doubles: it is off both sources by far less than the tube, but along
+            /// them by up to the rounding error divided by the sine, which exceeds ZoneFactor tube at a small angle (1.6e-7 radian at 0.5:
+            /// 1e-11 against 3e-12; found with the near-contact fan of the QualityMesh2 campaign, T5). 8 ulps of the apex's magnitude over the sine
             /// </summary>
-            bool AcuteSide(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, int[] t)
+            static Q RoundingReach2(Pt apex, Q sin2)
             {
-                Q near2 = tube2 * (ZoneFactor * ZoneFactor);
+                if (sin2.Sign <= 0) return Q.Zero;
+                Q m = Q.Max(Q.Abs(apex.Qx), Q.Abs(apex.Qy));
+                return m * m * 64 / (sin2 * new Q(BigInteger.One << 104, BigInteger.One));
+            }
+
+            /// <summary>
+            /// A branch u of a and a branch w of c leave the apex with a positive dot product, and every vertex of t lies within
+            /// ZoneFactor tube of the apex or within the rounding of a crossing (RoundingReach2) or has a positive dot product with both u and w
+            /// </summary>
+            bool AcuteSide(Pt apex, (Pt a, Pt b, int marker, int sourceId, bool locked) a, (Pt a, Pt b, int marker, int sourceId, bool locked) c, int[] t, Q sin2)
+            {
+                Q near2 = Q.Max(tube2 * (ZoneFactor * ZoneFactor), RoundingReach2(apex, sin2));
                 Q Dot(Pt o, Pt x, Pt y) => (x.Qx - o.Qx) * (y.Qx - o.Qx) + (x.Qy - o.Qy) * (y.Qy - o.Qy);
                 foreach (var u in new[] { a.a, a.b })
                     foreach (var w in new[] { c.a, c.b }) {
@@ -3691,7 +3704,7 @@ namespace Meshing2Acceptance
                         // of one source, or at a corner of nearly 180 degrees) the sources are not within the tube of each other, and the
                         // mesher refuses nothing there (review of the hull pairing); a vertex within ZoneFactor tube of the apex counts
                         // on either side
-                        if (AcuteSide(apex, a, c, t)) return true;
+                        if (AcuteSide(apex, a, c, t, pair.sin2)) return true;
                     }
                 }
                 return false;
