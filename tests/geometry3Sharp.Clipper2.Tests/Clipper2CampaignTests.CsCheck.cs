@@ -22,7 +22,7 @@ namespace geometry3Sharp.Clipper2.Tests
     ///   - Offset (round joins) both ways: membership by the distance to the input, up to the arc tolerance and the grid;
     ///   - Simplify: every result vertex within epsilon (and the grid) of an input boundary, the membership kept away from it;
     ///   - a repeated call equals the first bit for bit, and the input scaled by 2^k gives the result scaled by 2^k, bit for bit.
-    /// 20 samples in CI; G3_PROPERTY_SAMPLES=n, G3_PROPERTY_CAMPAIGN=clipper2 with G3_PROPERTY_REPLAY=seed to replay (the same
+    /// The runner here is small (no shrinking: a failure reports the whole scene, ten integers). 20 samples in CI; G3_PROPERTY_SAMPLES=n, G3_PROPERTY_CAMPAIGN=clipper2 with G3_PROPERTY_REPLAY=seed to replay (the same
     /// variables as the campaigns of geometry3Sharp.Tests).
     /// </summary>
     [Trait("Category", "Campaign")]
@@ -35,12 +35,13 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             public int KindA, KindB;    // 0 star, 1 rectangle, 2 star with a hole, 3 two disjoint stars, 4 a finely sampled circle
             public int Exp;             // size 2^Exp, -10 .. 10
-            public int Far;             // moved by 2^Far sizes along (1, 0.7), -1: not moved
+            public int Far;             // moved by 2^Far sizes along (1, 0.7), -1: not moved (at most 2^10: the oracle's own rounding stays far below the margin)
             public int Dx, Dy;          // B moved against A by (Dx, Dy) / 4 sizes, -6 .. 6 (touching and nested cases included)
+            public int Rel;             // placement of B: 0 free (Dx, Dy), 1 an identical copy of A, 2 nested (A's shape kind at 0.3 size, same center), 3 rectangles sharing an edge (B at (2, Dy / 8))
             public int Op;              // 0 union, 1 intersection, 2 difference, 3 xor
             public int Round;           // 0: Offset by +0.15 size; 1: by -0.1 size
             public int Seed;
-            public override string ToString() => $"A kind {KindA}, B kind {KindB}, size 2^{Exp}, far {Far}, B moved ({Dx}, {Dy})/4, op {new[] { "union", "intersection", "difference", "xor" }[Op]}, offset case {Round}, seed {Seed}";
+            public override string ToString() => $"A kind {KindA}, B kind {KindB}, size 2^{Exp}, far {Far}, B moved ({Dx}, {Dy})/4, placement {new[] { "free", "identical", "nested", "shared edge" }[Rel]}, op {new[] { "union", "intersection", "difference", "xor" }[Op]}, offset case {Round}, seed {Seed}";
         }
 
         static List<GeneralPolygon2d> Shapes(int kind, Random rnd, Vector2d center, double h)
@@ -74,8 +75,15 @@ namespace geometry3Sharp.Clipper2.Tests
             double f = Math.ScaleB(1.0, s.Exp + shift);
             Vector2d move = s.Far >= 0 ? Math.ScaleB(1.0, s.Far) * new Vector2d(1, 0.7) : Vector2d.Zero;
             var rnd = new Random(s.Seed);
-            var a = Shapes(s.KindA, rnd, Vector2d.Zero, 1);
-            var b = Shapes(s.KindB, rnd, new Vector2d(s.Dx / 4.0, s.Dy / 4.0), 1);
+            int kindA = s.Rel == 3 ? 1 : s.KindA, kindB = s.Rel == 3 ? 1 : s.KindB;
+            var a = Shapes(kindA, rnd, Vector2d.Zero, 1);
+            List<GeneralPolygon2d> b;
+            switch (s.Rel) {
+                case 1: b = Shapes(kindA, new Random(s.Seed), Vector2d.Zero, 1); break;
+                case 2: b = Shapes(kindA, new Random(s.Seed), Vector2d.Zero, 0.3); break;
+                case 3: b = Shapes(1, rnd, new Vector2d(2, s.Dy / 8.0), 1); break;
+                default: b = Shapes(kindB, rnd, new Vector2d(s.Dx / 4.0, s.Dy / 4.0), 1); break;
+            }
             Func<List<GeneralPolygon2d>, List<GeneralPolygon2d>> scale = l => l.Select(g => {
                 var o = new GeneralPolygon2d(new Polygon2d(g.Outer.Vertices.Select(v => f * (v + move)).ToList()));
                 foreach (Polygon2d h in g.Holes) o.AddHole(new Polygon2d(h.Vertices.Select(v => f * (v + move)).ToList()), false, false);
@@ -115,7 +123,7 @@ namespace geometry3Sharp.Clipper2.Tests
             var rnd = new Random(seed ^ 0x5bd1e995);
             foreach (Vector2d p in Oracle.Samples(rnd, box, 250)) yield return p;
             // (near the vertices: a point of a thin sliver or a touching spot)
-            foreach (Vector2d v in all.Take(40)) yield return v + 0.01 * (box.Width) * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+            foreach (Vector2d v in all.OrderBy(_ => rnd.Next()).Take(60)) yield return v + 0.01 * (box.Width) * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
         }
 
         static string Property(Scene s, int[] shifts)
@@ -149,7 +157,9 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             try { Oracle.CheckWellFormed(r); }
             catch (Xunit.Sdk.XunitException e) { return "not well formed: " + e.Message.Split('\n')[0]; }
-            double margin = 4 * r.Frame.Resolution;
+            // (the grid, and the rounding of the oracle's own cross products at the coordinates' magnitude)
+            double maxCoord = a.Concat(b).SelectMany(Oracle.Rings).SelectMany(q => q).Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double margin = Math.Max(4 * r.Frame.Resolution, 64 * Math.Abs(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(maxCoord) + 1) - maxCoord));
             foreach (Vector2d p in SamplePoints(a, b, s.Seed)) {
                 if (Oracle.BoundaryDistance(a, p) <= margin || Oracle.BoundaryDistance(b, p) <= margin) continue;
                 bool ia = Inside(a, p), ib = Inside(b, p);
@@ -221,9 +231,14 @@ namespace geometry3Sharp.Clipper2.Tests
             catch (Xunit.Sdk.XunitException e) { return "simplified not well formed: " + e.Message.Split('\n')[0]; }
             double tol = eps + 4 * r.Frame.Resolution;
             // (it does simplify: a finely sampled circle loses vertices)
-            if (s.KindA == 4 && r.Polygons.SelectMany(Oracle.Rings).Sum(q => q.Count) >= a.SelectMany(Oracle.Rings).Sum(q => q.Count)) return "a finely sampled circle was not simplified";
+            if (s.KindA == 4 && s.Rel != 3 && r.Polygons.SelectMany(Oracle.Rings).Sum(q => q.Count) >= a.SelectMany(Oracle.Rings).Sum(q => q.Count)) return "a finely sampled circle was not simplified";
             foreach (Vector2d v in r.Polygons.SelectMany(Oracle.Rings).SelectMany(q => q))
                 if (Oracle.BoundaryDistance(a, v) > tol) return $"simplified vertex {v} is {Oracle.BoundaryDistance(a, v)} from the input boundary, epsilon {eps}";
+            // and the other way: every input vertex near the result boundary. Clipper2's SimplifyPaths measures a vertex against the line
+            // through its neighbours, so a run of removed vertices can drift past epsilon (1.04 epsilon seen): a small multiple is the bound
+            var resultRings = r.Polygons.SelectMany(Oracle.Rings).ToList();
+            foreach (Vector2d v in a.SelectMany(Oracle.Rings).SelectMany(q => q))
+                if (resultRings.Min(q => Oracle.RingDistance(q, v)) > 3 * eps + 4 * r.Frame.Resolution) return $"input vertex {v} is {resultRings.Min(q => Oracle.RingDistance(q, v))} from the simplified boundary, epsilon {eps} (bound 3 epsilon)";
             var rnd = new Random(s.Seed ^ 0x7f4a7c15);
             var all = a.SelectMany(Oracle.Rings).SelectMany(q => q).ToList();
             var box = new AxisAlignedBox2d(all[0]);
@@ -236,9 +251,9 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         static readonly Gen<Scene> GenScene =
-            Gen.Select(Gen.Select(Gen.Int[0, 4], Gen.Int[0, 4], Gen.Int[-10, 10], Gen.Int[-1, 14], (ka, kb, e, f) => (ka, kb, e, f)),
-                       Gen.Select(Gen.Int[-6, 6], Gen.Int[-6, 6], Gen.Int[0, 3], Gen.Int[0, 1], Gen.Int[0, 100000], (dx, dy, op, rd, sd) => (dx, dy, op, rd, sd)),
-                (x, y) => new Scene { KindA = x.ka, KindB = x.kb, Exp = x.e, Far = x.f, Dx = y.dx, Dy = y.dy, Op = y.op, Round = y.rd, Seed = y.sd });
+            Gen.Select(Gen.Select(Gen.Int[0, 4], Gen.Int[0, 4], Gen.Int[-10, 10], Gen.Int[-1, 10], (ka, kb, e, f) => (ka, kb, e, f)),
+                       Gen.Select(Gen.Int[-6, 6], Gen.Int[-6, 6], Gen.Int[0, 3], Gen.Int[0, 1], Gen.Int[0, 100000], Gen.Int[0, 3], (dx, dy, op, rd, sd, rel) => (dx, dy, op, rd, sd, rel)),
+                (x, y) => new Scene { Rel = y.rel, KindA = x.ka, KindB = x.kb, Exp = x.e, Far = x.f, Dx = y.dx, Dy = y.dy, Op = y.op, Round = y.rd, Seed = y.sd });
 
         static readonly int[] Shifts = { -9, 11 };
 
