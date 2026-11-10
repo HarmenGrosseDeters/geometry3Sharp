@@ -204,6 +204,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FewDegenerateNeighbourhoods_StillSuccess_ButCounted()
+        {
+            // 1000 sphere points and a short line far away: Success, and DegenerateCount tells about the line
+            var pts = PointClouds.Sphere(1000, 8, 1.0, out var truth);
+            for (int i = 0; i < 30; ++i) pts.Add(new Vector3d(10 + i * 0.01, 0, 0));
+            var pn = new PointCloudNormals(pts) { Orient = false };
+            Assert.True(pn.Compute(), pn.Status + pn.Error);
+            Assert.InRange(pn.DegenerateCount, 25, 30);
+            Assert.Equal(pts.Count, pn.AxisCount + pn.DegenerateCount);
+        }
+
+        [Fact]
+        public void PointLimitReached_CleanWrapIsUsed_AndReported()
+        {
+            var pts = PointClouds.Sphere(600, 2, 1.0, out var truth);
+            var pn = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 0 };
+            pn.Compute();
+            Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, pn.WrapStatus);
+            Assert.NotEqual(PointCloudNormals.NormalsStatus.WrapFailed, pn.Status);
+            ResultChecks.AssertClean(pn.Wrap);
+            Accuracy(pn, truth, out double right, out _);
+            Assert.True(right > 0.9, $"{right:P1} right");
+        }
+
+        [Fact]
         public void NonFiniteAlpha_IsInvalidInput()
         {
             var pts = PointClouds.Sphere(100, 1, 1.0, out _);
@@ -239,6 +264,8 @@ namespace geometry3Sharp.Tests
             for (int i = 100; i < pts.Count; ++i)
                 Assert.True(Math.Abs(pn.Normals[i].z) > 0.99, "plane point " + i);
             Assert.Equal(pts.Count - pn.Normals.Count(v => v == Vector3d.Zero), pn.AxisCount);
+            Assert.Equal(pts.Count - pn.AxisCount, pn.DegenerateCount);
+            Assert.True(pn.DegenerateCount > 0);
         }
 
         [Fact]
