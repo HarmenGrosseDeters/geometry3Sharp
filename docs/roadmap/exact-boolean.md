@@ -60,6 +60,14 @@ over core counts (deterministic by construction: fixed partitions, ordered merge
 across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
 exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
 upper bound per lever on the 2.0 benchmark set.
+**3.0 targets (owner 2026-11-10):** T1 scaling (bit-identical: serial floor 342 -> <= 170 s, 4-core time -20 % on the
+73-model set; parallel deterministic sort in merge_points, classification setup, input orientation, simplify / assembly
+per region, box-tree build) and T2 memory (<= 300 B retained / <= 1.2 KB peak per input triangle: input points without
+FixedPoint3, struct-of-arrays triangles) approved; T3a / T3b by topic 7; T5: first the Antipodal cost count on the slow
+open models, the method itself only after the owner's patent check (Martens, Trettner, Bessmeltsev 2026, MIT code; one
+author at Shaped Code GmbH); T6 stay the only all-clean method and close the gap to CGAL EPECK on 1k-100k to <= 2x.
+Pre-study: #532, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md.
+
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
 the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
