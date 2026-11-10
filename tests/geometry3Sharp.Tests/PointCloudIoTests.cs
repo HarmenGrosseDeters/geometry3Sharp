@@ -147,7 +147,7 @@ namespace geometry3Sharp.Tests
             // rounding of 1.00000005960464477539063 (just above half way of 1 and 1 + 2^-23) would not
             Assert.Equal(IOCode.Ok, ReadText("0 0 0 16777217 1.00000005960464477539063 0\n", out DMesh3 read).code);
             Assert.Equal(16777216f, read.GetVertexNormal(0).x);
-            Assert.Equal(BitConverter.Int32BitsToSingle(0x3F800001), read.GetVertexNormal(0).y);
+            Assert.Equal(BitConverter.ToSingle(BitConverter.GetBytes(0x3F800001), 0), read.GetVertexNormal(0).y);
         }
 
         static int FloatBits(float f) { return BitConverter.ToInt32(BitConverter.GetBytes(f), 0); }
