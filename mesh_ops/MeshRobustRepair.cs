@@ -42,8 +42,7 @@ namespace gs
     /// A resolve the first attempts accept is otherwise unchanged, except where a closed part of the input is missing from it (judged relative to
     /// the largest connected component, MeshRepairMetrics.LostComponents): that resolve is rejected and the retry starts from the input.
     /// An Apply() that ends with such a part lost, by any stage, is false with ResultReason LostFarPart (never a silent loss
-    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area, and with
-    /// MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
+    /// with true). Only for inputs whose components lie so far apart that a triangle of one is below that area; the relative cleanups and tolerances only for a closed input of at most 64 components (a cracked surface or a soup has pieces, not parts), the lost part checks only with MinVolumeIoU &gt; 0; independent of CheckLostComponents, which judges relative to all triangles and stays off by default.
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
@@ -311,6 +310,15 @@ namespace gs
         DMesh3 lostPartInput;
         // the input of the last Apply() has far parts (see lostPartInput; independent of MinVolumeIoU): the cleanups are relative to the largest component
         bool farParts;
+        /// <summary> (tests) the last Apply() treated the input as having far parts (relative cleanups and tolerances) </summary>
+        internal bool FarPartsHandled { get { return farParts; } }
+        const int MaxFarParts = 64;
+        static bool few_parts(DMesh3 mesh)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            return comps.Count <= MaxFarParts;
+        }
         // a resolve was rejected for a lost part in the last Apply(): the repair stage collapsed it (its cleanups are relative to the
         // diagonal of all triangles), so the retry relative to the largest component starts from the input
         bool lostFarRejected;
@@ -361,7 +369,9 @@ namespace gs
             }
             DMesh3 input = new DMesh3(Mesh);
             bool disparity = global_scale_share(input) > 0;
-            farParts = disparity && BypassEarlyLostPartChecks == false;
+            // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
+            // open pieces that are no separate parts: its tolerances stay relative to the whole)
+            farParts = disparity && BypassEarlyLostPartChecks == false && input.IsClosed() && few_parts(input);
             if (MinVolumeIoU > 0 && disparity)
                 lostPartInput = input;
             DMesh3 result;
@@ -369,17 +379,19 @@ namespace gs
                 result = RepairF(Mesh);
             } else {
                 var repair = new MeshAutoRepair(Mesh) { PostRepairCleanup = true };
+                ConfigureRepair?.Invoke(repair);
                 if (farParts) {
                     // the tolerances of the repair are fractions of the diagonal of all triangles (capped by the median edge): with parts far
                     // apart that is far larger than the parts, whose edges are then collapsed as short. Relative to the largest component
+                    // (after ConfigureRepair: the final fractions are scaled; an absolute tolerance or ToleranceModes.Absolute stays as set)
                     double largest = MeshRepairMetrics.LargestComponentDiagonal(Mesh), all = MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength;
-                    repair.CleanupReferenceDiagonal = largest;
+                    if (double.IsNaN(repair.CleanupReferenceDiagonal))
+                        repair.CleanupReferenceDiagonal = largest;
                     if (largest > 0 && all > largest) {
                         repair.RelativeRepairTolerance *= largest / all;
                         repair.RelativeMinEdgeLength *= largest / all;
                     }
                 }
-                ConfigureRepair?.Invoke(repair);
                 repair.Apply();
                 result = repair.Mesh;
             }

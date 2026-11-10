@@ -127,5 +127,31 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        // the far part handling (relative tolerances and cleanups) is for a few closed parts: not for a far scene with a hole, not for
+        // many pieces (a cracked surface or a soup has pieces, not parts, and must be welded at its own scale as before)
+        [Fact]
+        public void FarPartHandling_OnlyForFewClosedParts()
+        {
+            var far = new MeshRobustRepair(BoxAndFarSphere(2.2e6));
+            far.Apply();
+            Assert.True(far.FarPartsHandled);
+
+            DMesh3 open = BoxAndFarSphere(2.2e6);
+            open.RemoveTriangle(open.TriangleIndices().First(), true, false);
+            var withHole = new MeshRobustRepair(open);
+            withHole.Apply();
+            Assert.False(withHole.FarPartsHandled);
+
+            DMesh3 many = BoxAndFarSphere(2.2e6);
+            var edit = new MeshEditor(many);
+            for (int k = 0; k < 70; ++k) {
+                DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(10 * k, 20, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+                edit.AppendMesh(b);
+            }
+            var pieces = new MeshRobustRepair(many);
+            pieces.Apply();
+            Assert.False(pieces.FarPartsHandled);
+        }
     }
 }
