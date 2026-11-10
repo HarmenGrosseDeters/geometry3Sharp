@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using g3;
 using gs;
 using Xunit;
@@ -75,6 +77,38 @@ namespace geometry3Sharp.Tests
             Assert.False(d.HasFlag(MeshRobustRepair.Defects.Bowties));
             Assert.False(d.HasFlag(MeshRobustRepair.Defects.DegenerateTriangles));
             Assert.True(d.HasFlag(MeshRobustRepair.Defects.NotClosed));
+        }
+
+        // runs f with Parallel.For limited to n concurrent tasks (Parallel.For uses the current TaskScheduler)
+        static T WithThreads<T>(int n, Func<T> f)
+        {
+            var scheduler = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, n).ConcurrentScheduler;
+            return Task.Factory.StartNew(f, CancellationToken.None, TaskCreationOptions.None, scheduler).GetAwaiter().GetResult();
+        }
+
+        [Fact]
+        public void SeveralDefectsInDifferentBlocks_SameReportAsSerial_UnderOneTwoEightThreads_Repeated()
+        {
+            // a zero-area triangle in the first and in the last block, a bowtie in the last one: the report (the flags, and
+            // the reason string with its fixed order) is the one of the serial scan, whichever block finishes first
+            DMesh3 m = BigSphere();
+            int[] tris = m.TriangleIndices().ToArray();
+            foreach (int t in new[] { tris[3], tris[tris.Length / 2], tris[tris.Length - 3] }) {
+                Index3i tv = m.GetTriangle(t);
+                m.SetVertex(tv.b, m.GetVertex(tv.a));
+            }
+            AddBowtie(m);
+            MeshRobustRepair.Defects serial;
+            gParallel.SerialOnThisThread = true;
+            try { serial = MeshRobustRepair.FindDefects(m, false); } finally { gParallel.SerialOnThisThread = false; }
+            Assert.True(serial.HasFlag(MeshRobustRepair.Defects.Bowties) && serial.HasFlag(MeshRobustRepair.Defects.DegenerateTriangles));
+            string reason = MeshRobustRepair.NotCleanReasons(m, false);
+            foreach (int threads in new[] { 1, 2, 8 })
+                for (int rep = 0; rep < 6; ++rep) {
+                    Assert.Equal(serial, WithThreads(threads, () => MeshRobustRepair.FindDefects(m, false)));
+                    Assert.Equal(reason, WithThreads(threads, () => MeshRobustRepair.NotCleanReasons(m, false)));
+                    Assert.Equal("bowties", WithThreads(threads, () => MeshRobustRepair.NotCleanReason(m, false)));
+                }
         }
     }
 }
