@@ -152,7 +152,7 @@ Tier: S, M. Parallel: up to 2 sessions
        two spheres, open terrain; sizes 2^-6 .. 2^6; Reducer: valid, finite, closed stays closed, Euler characteristic and components,
        no bowtie, positive volume, MaxDeviation on vertices and centroids also over a second call on the same instance, `PreventFoldOver`
        on terrain, repeated run and 2^-9 / 2^11 scaled input bit-identical; Remesher: the same topology checks, parallel smoothing equals
-       serial, repeated and scaled bit-identical; 20 samples each in CI). Known deferred items R13 (`MeshIterativeSmooth`) and R14 (Reducer
+       serial, repeated and scaled bit-identical; 12 (Reducer) and 20 (Remesher) samples in CI; scaling by 2^k only, the other similarities are covered by the invariance tests). Known deferred items R13 (`MeshIterativeSmooth`) and R14 (Reducer
        below scale 2^-25) are out of scope by construction (finite meshes, moderate scales). 1 500 Reducer (terrain noise as above) and 4 000 Remesher samples: Remesher
        no finding; Reducer one open finding (partial effect known from S1): on a noisy terrain (input a height field) `PreventFoldOver` still leaves a triangle slightly past vertical (normal z -0.01 .. -0.13). 200 seeds, 17 x 17 cells, 35 % kept, with the guard (without): vertical noise step 0: 0 (0), 1: 7 (46), 2: 6 (66), 3: 6 (71), 4: 29 (104); the guard needs only a positive dot with the absorbed reference normal. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);

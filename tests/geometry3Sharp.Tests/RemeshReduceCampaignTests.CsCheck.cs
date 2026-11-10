@@ -53,17 +53,21 @@ namespace geometry3Sharp.Tests
                 return $"{kinds[Kind]}(2^{Exp}, n {N}, noise {Noise}, reduce to {Fraction}, deviation {Devs[Dev]}, {(Quadric ? "quadric" : "midpoint")}, {(Area ? "area" : "plain")}, remesh x{LengthFactor}, {(Parallel ? "parallel" : "serial")}, seed {Seed})";
             }
 
+            /// <summary> x (in units of the size) rounded to a multiple of 2^-30 (the same input whatever Math.Sin and Math.Cos give in the last bit) </summary>
+            static double R(double x) => Math.Round(x * (1 << 30)) / (1 << 30);
+
             static uint Next(ref uint s) { s = s * 1664525u + 1013904223u; return s; }
             static double Unit(ref uint s) { return ((Next(ref s) >> 8) & 0xFFFFFF) / (double)0x1000000; }
 
-            static DMesh3 Torus(double big, double small, int nu, int nv)
+            static DMesh3 Torus(double h, int nu, int nv)
             {
+                const double big = 1, small = 0.4;
                 var m = new DMesh3();
                 int[,] id = new int[nu, nv];
                 for (int i = 0; i < nu; ++i)
                     for (int j = 0; j < nv; ++j) {
                         double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
-                        id[i, j] = m.AppendVertex(new Vector3d((big + small * Math.Cos(v)) * Math.Cos(u), (big + small * Math.Cos(v)) * Math.Sin(u), small * Math.Sin(v)));
+                        id[i, j] = m.AppendVertex(h * new Vector3d(R((big + small * Math.Cos(v)) * Math.Cos(u)), R((big + small * Math.Cos(v)) * Math.Sin(u)), R(small * Math.Sin(v))));
                     }
                 for (int i = 0; i < nu; ++i)
                     for (int j = 0; j < nv; ++j) {
@@ -85,7 +89,7 @@ namespace geometry3Sharp.Tests
                         m = new Sphere3Generator_NormalizedCube() { Radius = h, EdgeVertices = N }.Generate().MakeDMesh();
                         break;
                     case 2: case 5:
-                        m = Torus(h, 0.4 * h, 3 * N, N);
+                        m = Torus(h, 3 * N, N);
                         break;
                     case 3: {
                         m = new Sphere3Generator_NormalizedCube() { Radius = h, EdgeVertices = N }.Generate().MakeDMesh();
@@ -182,6 +186,11 @@ namespace geometry3Sharp.Tests
                 if (Euler(r) != Euler(input)) return $"{what}: Euler characteristic {Euler(r)} instead of {Euler(input)}";
                 if (!(Volume(r) > 0)) return $"{what}: volume {Volume(r)}";
             }
+            else {
+                // the open terrain is a disc: one component, Euler characteristic 1, one boundary loop
+                if (Components(r) != 1) return $"{what}: {Components(r)} components";
+                if (Euler(r) != 1) return $"{what}: Euler characteristic {Euler(r)} instead of 1";
+            }
             return "";
         }
 
@@ -189,7 +198,7 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// Open finding (reported to the coordinator, not fixed here; the partial effect is known from S1: "noisy terrains 20/110 -> 7/0 folds/walls"):
-        /// on a noisy terrain (input a height field, vertical noise 0.05 to 0.2 edge lengths per noise step) a reduced mesh keeps a triangle that
+        /// on a noisy terrain (input a height field, vertical noise 0.2 edge lengths per noise step, 0.05 in x and y) a reduced mesh keeps a triangle that
         /// stands slightly past vertical. 200 seeds of 17 x 17 cells, 35 % of the triangles kept, with PreventFoldOver (without it): noise 0: 0 (0),
         /// 1: 7 (46), 2: 6 (66), 3: 6 (71), 4: 29 (104). PreventFoldOver only asks for a positive dot with the absorbed reference normal, which
         /// a tilted reference allows. The campaign counts these (noise 1 to 4) and lets them pass unless G3_PROPERTY_STRICT=1.
@@ -227,6 +236,21 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        /// <summary>
+        /// PreventFoldOver on the terrain (the input is a height field): no triangle turns down. Noisy terrains (OpenFoldOver) can keep one slightly
+        /// past vertical: counted, but a normal z below -0.3 is a failure whatever the noise
+        /// </summary>
+        static string TerrainUp(Scene s, DMesh3 r, string what)
+        {
+            foreach (int t in r.TriangleIndices()) {
+                double z = r.GetTriNormal(t).z;
+                if (z > 0) continue;
+                if (s.Noise >= 1 && z > -0.3 && Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1") { System.Threading.Interlocked.Increment(ref openFoldOverHits); continue; }
+                return $"{what}: terrain triangle {t} turned over or stands on edge (normal z {z})";
+            }
+            return "";
+        }
+
         static string ReducerProperty(Scene s, int[] shifts)
         {
             double size = Math.ScaleB(1.0, s.Exp);
@@ -236,15 +260,13 @@ namespace geometry3Sharp.Tests
             if (d != "") return d;
             d = Valid(s, input, r2, "reduced again on the same instance");
             if (d != "") return d;
+            int target = Math.Max(8, (int)(s.Fraction * input.TriangleCount));
             if (r.TriangleCount > input.TriangleCount) return $"{r.TriangleCount} triangles from {input.TriangleCount}";
+            // (without MaxDeviation a closed surface is reduced to about the target: a collapse is only refused for the link condition and the flip checks)
+            if (s.Dev == 0 && s.Closed && r.TriangleCount > 1.25 * target + 16) return $"{r.TriangleCount} triangles left, target {target} (input {input.TriangleCount})";
             if (s.Kind == 4) {
-                // PreventFoldOver: the terrain was a height field, no triangle turns down
-                foreach (int t in r.TriangleIndices())
-                    if (!(r.GetTriNormal(t).z > 0)) {
-                        // (open finding, see OpenFoldOver: counted and let pass unless G3_PROPERTY_STRICT=1)
-                        if (s.Noise >= 1 && Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1") { System.Threading.Interlocked.Increment(ref openFoldOverHits); break; }
-                        return $"terrain: triangle {t} turned over or stands on edge (normal z {r.GetTriNormal(t).z})";
-                    }
+                d = TerrainUp(s, r, "reduced"); if (d != "") return d;
+                d = TerrainUp(s, r2, "reduced again"); if (d != "") return d;
             }
             d = DeviationWithin(input, r, s.DeviationOf(size), "reduced");
             if (d != "") return d;
@@ -269,7 +291,7 @@ namespace geometry3Sharp.Tests
 
         // ---- Remesher ----
 
-        static DMesh3 Remesh(Scene s, DMesh3 input, double scale, bool parallel)
+        static DMesh3 Remesh(Scene s, DMesh3 input, bool parallel)
         {
             DMesh3 m = new DMesh3(input);
             var rem = new Remesher(m) { EnableParallelSmooth = parallel, SmoothSpeedT = 0.5 };
@@ -281,16 +303,16 @@ namespace geometry3Sharp.Tests
         static string RemesherProperty(Scene s, int[] shifts)
         {
             DMesh3 input = s.Build(0);
-            DMesh3 r = Remesh(s, input, 1, s.Parallel);
+            DMesh3 r = Remesh(s, input, s.Parallel);
             string d = Valid(s, input, r, "remeshed");
             if (d != "") return d;
-            d = SameMesh(r, Remesh(s, s.Build(0), 1, s.Parallel));
+            d = SameMesh(r, Remesh(s, s.Build(0), s.Parallel));
             if (d != "") return "a second run differs: " + d;
-            d = SameMesh(r, Remesh(s, s.Build(0), 1, !s.Parallel));
+            d = SameMesh(r, Remesh(s, s.Build(0), !s.Parallel));
             if (d != "") return (s.Parallel ? "serial" : "parallel") + " smoothing differs: " + d;
             foreach (int shift in shifts) {
                 double f = Math.ScaleB(1.0, shift);
-                d = SameMesh(r, Remesh(s, s.Build(shift), f, s.Parallel), f);
+                d = SameMesh(r, Remesh(s, s.Build(shift), s.Parallel), f);
                 if (d != "") return "the input scaled by 2^" + shift + " differs: " + d;
             }
             return "";
