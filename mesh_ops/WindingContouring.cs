@@ -45,7 +45,8 @@ namespace gs
         public List<int> GapEdgesPerLevel = new List<int>();
         /// <summary>
         /// true if the last contour is known to have no self-intersections (the dual contouring checked it
-        /// exactly and nothing was added after); false if it has some or was not checked
+        /// exactly, and the hole fill after it was checked exactly too, see FinishHoles); false if it has some or
+        /// was not checked. It says nothing about holes the fill could not close.
         /// </summary>
         public bool SelfIntersectionFree;
 
@@ -157,11 +158,7 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
-            HoleFillIntersections = 0;
-            if (NonManifoldTriangles > 0)
-                HoleFillIntersections = FillSmallHolesChecked(dc.Mesh);
-            // the fill triangles are checked exactly against the whole contour, the rest by the dual contouring
-            SelfIntersectionFree = dc.SelfIntersectionFree && HoleFillIntersections == 0;
+            SelfIntersectionFree = FinishHoles(dc.Mesh, NonManifoldTriangles, dc.SelfIntersectionFree, out HoleFillIntersections);
             return dc.Mesh;
         }
 
@@ -721,19 +718,44 @@ namespace gs
         /// removed by the cleanup pass.
         /// </summary>
         /// <summary>
-        /// FillSmallHoles, then an exact check of the triangles it added or changed against the whole mesh:
-        /// returns the number of intersecting pairs that involve one of them (0: the fill added none).
+        /// The holes dual contouring left (nonManifoldTriangles > 0): fills them with the fill checked exactly
+        /// (FillSmallHolesChecked). Returns whether the contour is known to be free of self-intersections: the
+        /// dual contouring's verdict, and no intersection added by the fill. (It may still have holes the fill
+        /// could not close.) Shared with the non-adaptive path of MeshWindingNumberSolidify.
+        /// </summary>
+        public static bool FinishHoles(DMesh3 mesh, int nonManifoldTriangles, bool contourSelfIntersectionFree, out int fillIntersections)
+        {
+            fillIntersections = 0;
+            if (nonManifoldTriangles > 0)
+                fillIntersections = FillSmallHolesChecked(mesh);
+            return contourSelfIntersectionFree && fillIntersections == 0;
+        }
+
+        /// <summary>
+        /// FillSmallHoles, then an exact check of the triangles it added or changed (or whose vertices it moved)
+        /// against the whole mesh: returns the number of intersecting pairs that involve one of them (0: the fill
+        /// added none). The bowties along the hole borders are split first, so the split itself, which leaves
+        /// coincident vertices but adds no triangle, is not counted.
         /// </summary>
         public static int FillSmallHolesChecked(DMesh3 mesh)
         {
+            new MeshEditor(mesh).DisconnectAllBowties();
             var before = new Dictionary<int, Index3i>();
             foreach (int t in mesh.TriangleIndices())
                 before[t] = mesh.GetTriangle(t);
+            var positions = new Dictionary<int, Vector3d>();
+            foreach (int v in mesh.VertexIndices())
+                positions[v] = mesh.GetVertex(v);
             FillSmallHoles(mesh);
             var changed = new HashSet<int>();
             foreach (int t in mesh.TriangleIndices()) {
-                Index3i old;
-                if (before.TryGetValue(t, out old) == false || old != mesh.GetTriangle(t))
+                Index3i old, cur = mesh.GetTriangle(t);
+                bool moved = false;
+                for (int j = 0; j < 3; ++j) {
+                    Vector3d p;
+                    if (positions.TryGetValue(cur[j], out p) == false || p != mesh.GetVertex(cur[j])) moved = true;
+                }
+                if (moved || before.TryGetValue(t, out old) == false || old != cur)
                     changed.Add(t);
             }
             if (changed.Count == 0)

@@ -205,6 +205,58 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void VerticesOnTheirCellBoundary_AreNotCovered()
+        {
+            // without the cell margin, QEF vertices at creases end up on the faces of their cells; the envelope
+            // argument needs them strictly inside, so no covered triangle may use one (a vertex on exactly one grid
+            // plane: on a cell face; edge vertices are on two)
+            DualContouring dc = WithDiagnostics(() => {
+                double cell = 2.2 / 24;
+                Vector3d o = new Vector3d(-1.1, -1.1, -1.1) + cell * new Vector3d(0.1371, 0.2713, 0.3891);
+                var d = new DualContouring() {
+                    Implicit = new Fn() { F = TwoBoxes }, InsideIsLess = true, CellSize = cell, QEFCellMargin = 0,
+                    Bounds = new AxisAlignedBox3d(o, o + 2.2 * Vector3d.One)
+                };
+                d.Generate();
+                return d;
+            });
+            Assert.True(dc.Diagnostics.VerticesNotStrictlyInCell > 0);
+            double h = 2.2 / 24;
+            Vector3d origin = new Vector3d(-1.1, -1.1, -1.1) + h * new Vector3d(0.1371, 0.2713, 0.3891);
+            Func<Vector3d, int> planes = v => {
+                int n = 0;
+                for (int k = 0; k < 3; ++k)
+                    if (origin[k] + h * Math.Round((v[k] - origin[k]) / h) == v[k]) n++;
+                return n;
+            };
+            int onFace = 0;
+            foreach (int t in dc.coveredTriangles) {
+                Index3i tri = dc.Mesh.GetTriangle(t);
+                for (int j = 0; j < 3; ++j)
+                    if (planes(dc.Mesh.GetVertex(tri[j])) == 1) onFace++;
+            }
+            Assert.Equal(0, onFace);
+            Assert.True(dc.CoveredTriangles > 0);
+            AssertClean(dc, "margin 0");
+        }
+
+        [Fact]
+        public void FinishHoles_ReportsTheFill_AndClearsTheFlag()
+        {
+            // the wiring of WindingContouring's result: free only if the contour was and the fill added nothing
+            int fill;
+            Assert.False(WindingContouring.FinishHoles(OpenCubeWithSpike(true), 1, true, out fill));
+            Assert.True(fill > 0);
+            Assert.True(WindingContouring.FinishHoles(OpenCubeWithSpike(false), 1, true, out fill));
+            Assert.Equal(0, fill);
+            Assert.False(WindingContouring.FinishHoles(OpenCubeWithSpike(false), 1, false, out fill));
+            // nothing left out: no fill, the contour's verdict
+            DMesh3 open = OpenCubeWithSpike(false);
+            Assert.True(WindingContouring.FinishHoles(open, 0, true, out fill));
+            Assert.False(open.IsClosed());
+        }
+
+        [Fact]
         public void FillSmallHolesChecked_ReportsAFillThatIntersects()
         {
             // the fill of the square hole crosses the tetrahedron: the check must see it (the unchecked fill made

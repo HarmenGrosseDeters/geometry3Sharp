@@ -439,6 +439,7 @@ namespace g3
             if (Diagnostics != null) {
                 qefPositions = new Vector3d[Mesh.MaxVertexID];
                 for (int v = 0; v < qefPositions.Length; ++v) {
+                    if (Mesh.IsVertex(v) == false) continue;   // (an edge vertex rolled back)
                     qefPositions[v] = Mesh.GetVertex(v);
                     Cell c = vertexCell[v];
                     Vector3d lo = node_pos(c.Min), hi = node_pos(c.Min + cell_size(c) * Vector3i.One);
@@ -481,7 +482,7 @@ namespace g3
             phase("intersections");
             if (qefPositions != null) {
                 for (int v = 0; v < qefPositions.Length; ++v)
-                    if (Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
+                    if (Mesh.IsVertex(v) && Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
             }
 
             // safety net: closed results must have positive volume (relative to the center: results with
@@ -1284,7 +1285,10 @@ namespace g3
         /// crossing centroid).
         /// </summary>
         public bool ResolveSelfIntersections = true;
-        /// <summary> intersecting triangle pairs found before / left after resolving </summary>
+        /// <summary>
+        /// intersecting triangle pairs found before / left after resolving. Only pairs with a triangle that is not
+        /// covered are looked for (see CoveredTriangles); two covered triangles cannot intersect.
+        /// </summary>
         public int SelfIntersectionsFound, SelfIntersectionsLeft;
         /// <summary>
         /// true if the last Generate() checked its result for intersecting triangle pairs (exactly, as
@@ -1568,7 +1572,7 @@ namespace g3
         /// are checked for self-intersections.
         /// </summary>
         public int CoveredTriangles;
-        /// <summary> triangles the self-intersection check of the last Generate() started from (not covered) </summary>
+        /// <summary> triangles the self-intersection check of the last Generate() started from (not covered; 0 if ResolveSelfIntersections is off) </summary>
         public int CheckedTriangles;
         /// <summary> quads split along the diagonal the envelope criterion requires (one concave envelope vertex) </summary>
         public int ForcedDiagonals;
@@ -1577,7 +1581,7 @@ namespace g3
         /// (or an exactly coplanar test), split into four triangles that stay inside the envelope
         /// </summary>
         public int EdgeVertices;
-        HashSet<int> coveredTriangles = new HashSet<int>();
+        internal HashSet<int> coveredTriangles = new HashSet<int>();
 
         const int EnvelopeNone = -2, EnvelopeAny = -1, EnvelopeEdgeVertex = 4;
 
