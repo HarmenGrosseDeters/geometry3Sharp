@@ -16,6 +16,7 @@ namespace geometry3Sharp.Tests
     {
         // the repro near the origin: band merges of edges longer than r, within the band radius, at most MinFeatureSize,
         // the lowering counting the moves; at UTM none; the band radius and length scale bit for bit in the 2^k frames
+        [Trait("Category", "Slow")]
         [Fact]
         public void Repro_BandMergesAndTheirLowering()
         {

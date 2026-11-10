@@ -1767,11 +1767,8 @@ namespace g3
             return IsBoundaryVertex(vID);
         }
         public bool IsBoundaryVertex(int vID) {
-            foreach (int e in vertex_edges.ValueItr(vID)) {
-                if (edges[4 * e + 3] == InvalidID)
-                    return true;
-            }
-            return false;
+            // (no iterator: the Remesher asks this for four vertices of every edge it looks at)
+            return vertex_edges.AnyAtSlot(vID, edges, 3, InvalidID);
         }
 
 

@@ -70,6 +70,7 @@ namespace geometry3Sharp.Tests
             Assert.True(TriangleBoxTree.PermutedTrees > before, "no tree was permuted");
         }
 
+        [Trait("Category", "Slow")]
         [Theory]
         [InlineData(16)]    // below MedianSplitBelow: the median split
         [InlineData(40)]    // above: the Morton order

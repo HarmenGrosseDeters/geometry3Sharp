@@ -49,6 +49,7 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
 
         /// <summary> the case under every similarity: 2^k scales bit for bit, the others pass the oracle </summary>
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarities))]
         public void HullSplitNearASegment_Invariance(string name)

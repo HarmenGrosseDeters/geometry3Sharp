@@ -93,6 +93,7 @@ namespace geometry3Sharp.Tests
             AssertClean(result);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void Difference_DrillHole_ThroughHoleWithRightVolume()
         {
@@ -122,6 +123,7 @@ namespace geometry3Sharp.Tests
             AssertClean(result);
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void SmallAngleCreases_AreNotHiddenGaps_NoRefinement()
         {

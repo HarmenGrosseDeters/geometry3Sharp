@@ -259,6 +259,7 @@ namespace geometry3Sharp.Tests
         /// that frame: the witness is used and the verdicts and details are those of the full pass; under a power of two (exact) the
         /// report is the identity's, bit for bit
         /// </summary>
+        [Trait("Category", "Slow")]
         [Fact]
         public void Invariance_WitnessEqualsTheFullPass_UnderSimilarities()
         {

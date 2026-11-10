@@ -17,8 +17,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Restart design (owner 2026-11-08):** the DGM-to-TIN step with breaklines is constrained quality meshing in
   2.5D; design it with `QualityMesh2` (its oracle and golden tests) instead of a new triangulator.
-  Proposal for the owner (2026-11-09): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
+  Proposal for the owner (2026-11-09; D1 decided: surface error is the guarantee, D2-D8 as proposed): [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md), decisions D1-D8 open.
 
+- **DGM to TIN (owner 2026-11-09):** `gs.TerrainGridTin` (library): TIN of a `HeightGrid` with a guaranteed surface error and locked breaklines, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md); the CLI command comes through the CLI / MCP session.
 - **DGM reader (owner 2026-11-09):** `HeightGrid`, `HeightGridReader` (XYZ ASCII and ESRI ASCII Grid), `HeightGridWriter`
   and the grid TIN `HeightGrid.BuildMesh` are in the library (`io/`); the CLI command comes through the CLI / MCP session;
   GeoTIFF is left to the owner (own implementation, or LibTiff.Net, BSD, in an optional package).
@@ -28,7 +29,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Later steps** (owner 2026-11-02, replaces TERRAIN.md §11 step 8's order): (1) docs and CLI / MCP for terrain:
   done with #357; (2) volume per cell, 2D columns first (§9.3); (3) ramps as design geometry (path, width, grade);
   (4) lofting between contours under the exact slope oracle, with a status when no compliant triangulation exists
-  (§9.2); (5) performance follow-ups when a real case is slow (the octagon's second realization, C zeros, band-only
+  (§9.2; moved 2026-11-09 to the general `ContourLoft` item, [research.md](research.md#open) priority 9, terrain as one application); (5) performance follow-ups when a real case is slow (the octagon's second realization, C zeros, band-only
   overlay); (6) proven tan interval and catch-line bound; (7) sector polygons, exterior distance on demand; (8) berms
   and inter-ramp checks, parked until a use case.
 - **§11 follow-ups:** the octagon 1 m replacement 6.1 → 8.8 s slower after D (a second realization); a

@@ -45,6 +45,7 @@ namespace geometry3Sharp.Tests
         // (seeds that failed with NodingLimit at 34 degrees before the fix: 7 of the first 300)
         internal static readonly int[] SettleSeeds = { 67, 91, 161 };
 
+        [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Seeds))]
         public void JaggedRing_AtHighBounds_Settles(int seed)

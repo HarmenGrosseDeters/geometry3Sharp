@@ -42,6 +42,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(text, file.Write());
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void M3_RecordedRows_AreReproduced()
         {
@@ -54,6 +55,7 @@ namespace geometry3Sharp.Tests
             Assert.True(problems.Count == 0, string.Join("\n", problems));
         }
 
+        [Trait("Category", "Slow")]
         [Fact]
         public void M3Constrained_RecordedRows_AreReproduced()
         {
