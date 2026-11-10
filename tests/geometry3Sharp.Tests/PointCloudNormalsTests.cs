@@ -125,18 +125,120 @@ namespace geometry3Sharp.Tests
         static PointCloudNormals.NormalsStatus Run(PointCloudNormals pn) { Assert.False(pn.Compute()); return pn.Status; }
 
         [Fact]
+        public void ExtentThatOverflows_IsInvalidInput_NotAHang()
+        {
+            var pts = PointClouds.Sphere(100, 1, 1.0, out _);
+            pts[0] = new Vector3d(-1.5e308, 0, 0);
+            pts[1] = new Vector3d(1.5e308, 0, 0);
+            var pn = new PointCloudNormals(pts) { Orient = false };
+            Assert.True(Timed.Finishes(() => pn.Compute(), TimeSpan.FromSeconds(10)));
+            Assert.Equal(PointCloudNormals.NormalsStatus.InvalidInput, pn.Status);
+            Assert.Null(pn.Normals);
+        }
+
+        [Theory]
+        [InlineData(1e-170)]
+        [InlineData(1e160)]
+        [InlineData(1e300)]
+        public void AxesAtAnyScale(double radius)
+        {
+            // the squares of such coordinates overflow or underflow: the neighbourhoods are found in a unit frame
+            var pts = PointClouds.Sphere(800, 3, radius, out var truth);
+            var pn = new PointCloudNormals(pts) { Orient = false };
+            Assert.True(pn.Compute(), pn.Status + " " + pn.Error);
+            Accuracy(pn, truth, out _, out double axisOk, 0.98);
+            Assert.True(axisOk > 0.98, $"{axisOk:P1}");
+            Assert.InRange(pn.Spacing / radius, 0.01, 0.5);
+        }
+
+        [Fact]
+        public void LargeScaleOrientsToo()
+        {
+            var pts = PointClouds.Sphere(1500, 3, 1e30, out var truth);
+            var pn = new PointCloudNormals(pts);
+            Assert.True(pn.Compute(), pn.Status + " " + pn.Error);
+            Accuracy(pn, truth, out double right, out _);
+            Assert.Equal(1.0, right);
+        }
+
+        [Fact]
+        public void ClusteredCloudWithAnOutlier_IsFast()
+        {
+            // one cell of a bounding-box grid would hold every point: the k-d tree does not care
+            var rnd = new Random(6);
+            var pts = Enumerable.Range(0, 30000).Select(i => new Vector3d(1e-3 * rnd.NextDouble(), 1e-3 * rnd.NextDouble(), 1e-3 * rnd.NextDouble())).ToList();
+            pts.Add(new Vector3d(1e3, 1e3, 1e3));
+            var pn = new PointCloudNormals(pts) { Orient = false };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            pn.Compute();
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), sw.Elapsed.ToString());
+        }
+
+        [Fact]
+        public void DuplicatedPoints_AreMergedAndShareTheNormal()
+        {
+            var pts = PointClouds.Sphere(500, 4, 1.0, out var truth);
+            var repeated = new List<Vector3d>();
+            for (int rep = 0; rep < 8; ++rep) repeated.AddRange(pts);
+            var pn = new PointCloudNormals(repeated);
+            Assert.True(pn.Compute(), pn.Status + " " + pn.Error);
+            var single = new PointCloudNormals(pts);
+            Assert.True(single.Compute());
+            for (int i = 0; i < pts.Count; ++i)
+                for (int rep = 0; rep < 8; ++rep)
+                    Assert.Equal(single.Normals[i], pn.Normals[rep * pts.Count + i]);
+            Assert.Equal(single.UsedAlpha, pn.UsedAlpha);
+            Assert.Equal(repeated.Count, pn.ConfidentCount);
+        }
+
+        [Fact]
+        public void HugeNeighbourCount_IsClamped()
+        {
+            var pts = PointClouds.Sphere(100, 1, 1.0, out _);
+            var pn = new PointCloudNormals(pts) { Neighbors = int.MaxValue };
+            Assert.False(pn.Compute());
+            Assert.Equal(PointCloudNormals.NormalsStatus.TooFewPoints, pn.Status);
+            Assert.Null(pn.Normals);
+            var big = PointClouds.Sphere(600, 1, 1.0, out _);
+            Assert.True(new PointCloudNormals(big) { Neighbors = 100000, Orient = false }.Compute());
+        }
+
+        [Fact]
+        public void NonFiniteAlpha_IsInvalidInput()
+        {
+            var pts = PointClouds.Sphere(100, 1, 1.0, out _);
+            Assert.Equal(PointCloudNormals.NormalsStatus.InvalidInput, Run(new PointCloudNormals(pts) { Alpha = double.PositiveInfinity }));
+            Assert.Equal(PointCloudNormals.NormalsStatus.InvalidInput, Run(new PointCloudNormals(pts) { Offset = double.NaN }));
+        }
+
+        [Fact]
+        public void CollinearCloud_IsDegenerateInput_AlsoWithoutOrient()
+        {
+            var line = Enumerable.Range(0, 100).Select(i => new Vector3d(i * 0.1, 0, 0)).ToList();
+            foreach (bool orient in new[] { false, true }) {
+                var pn = new PointCloudNormals(line) { Orient = orient };
+                Assert.False(pn.Compute());
+                Assert.Equal(PointCloudNormals.NormalsStatus.DegenerateInput, pn.Status);
+                Assert.Equal(0, pn.AxisCount);
+                Assert.All(pn.Normals, n => Assert.Equal(Vector3d.Zero, n));
+            }
+        }
+
+        [Fact]
         public void CollinearNeighbourhoods_HaveNoNormal()
         {
             // points on a line, and a plane of points away from it: the line points get a zero normal and are never confident
             var pts = new List<Vector3d>();
             for (int i = 0; i < 40; ++i) pts.Add(new Vector3d(i * 0.1, 0, 0));
             var rnd = new Random(4);
-            for (int i = 0; i < 300; ++i) pts.Add(new Vector3d(10 + 3 * rnd.NextDouble(), 3 * rnd.NextDouble(), 0));
+            for (int i = 0; i < 600; ++i) pts.Add(new Vector3d(10 + 3 * rnd.NextDouble(), 3 * rnd.NextDouble(), 0));
             var pn = new PointCloudNormals(pts) { Orient = false };
             Assert.True(pn.Compute());
             for (int i = 0; i < 25; ++i)        // (the end of the line has plane points among its neighbours)
                 Assert.Equal(Vector3d.Zero, pn.Normals[i]);
-            Assert.True(Math.Abs(pn.Normals[200].z) > 0.99);
+            for (int i = 100; i < pts.Count; ++i)
+                Assert.True(Math.Abs(pn.Normals[i].z) > 0.99, "plane point " + i);
+            Assert.Equal(pts.Count - pn.Normals.Count(v => v == Vector3d.Zero), pn.AxisCount);
         }
 
         [Fact]
@@ -235,7 +337,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void PointGrid_NearestMatchesBruteForce()
+        public void PointTree_NearestMatchesBruteForce()
         {
             // clustered points with duplicates and ties (a lattice), an outlier far away, and a flat sampling
             var rnd = new Random(8);
@@ -259,7 +361,7 @@ namespace geometry3Sharp.Tests
 
         static void AssertNearest(Vector3d[] p, int k)
         {
-            var grid = new PointCloudNormals.PointGrid(p);
+            var grid = new PointCloudNormals.PointTree(p);
             var index = new int[k]; var dist2 = new double[k];
             for (int i = 0; i < p.Length; ++i) {
                 grid.Nearest(i, k, index, dist2);

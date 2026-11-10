@@ -28,6 +28,12 @@ namespace gs
     /// torus samplings: without it 0 % confident (and 91-94 % right by the nearest wrap point alone) with a removed patch or a
     /// 10:1 density ratio, with it 99-100 % confident and right.
     ///
+    /// Exact duplicates are merged before everything else (repeated scanner samples); their normals are those of the point they
+    /// repeat. The neighbourhoods are found in a frame scaled by a power of two to extent 1, so coordinates of any
+    /// finite magnitude work for the axes (the wrap itself has its own supported range, see MeshAlphaWrap); a finite cloud
+    /// whose extent overflows, or is below 2.3e-308, is InvalidInput. The neighbours come from a k-d tree: exact, O(n log n),
+    /// not sensitive to clusters or outliers.
+    ///
     /// Limits: a surface that is not the boundary of a solid has no outside (an open sheet, a wall thinner than about
     /// 2 * (Alpha + Offset) * ProbeFactor); its points are reported as not confident. Holes larger than Alpha that the wrap enters
     /// make the points near them not confident. Normals of points whose neighbourhood is degenerate (coincident or collinear
@@ -52,13 +58,15 @@ namespace gs
             /// <summary> a given Alpha is below the condition (SpacingFactor * Spacing, NoiseFactor * NoiseSigma): the signs are a heuristic with a lower success rate </summary>
             AlphaBelowCondition = 4,
             /// <summary> fewer than MinConfidentFraction of the points have probes that tell the sides apart (an open sheet, thin walls, holes) </summary>
-            AmbiguousOrientation = 5
+            AmbiguousOrientation = 5,
+            /// <summary> fewer than MinConfidentFraction of the points have a normal axis (collinear or coincident neighbourhoods, eg a line, or a few points repeated); the axes that exist are set </summary>
+            DegenerateInput = 6
         }
 
         /// <summary> the input points (not changed) </summary>
         public IList<Vector3d> Points;
 
-        /// <summary> number of neighbours of the PCA, including the point itself; at least 8 (default 16) </summary>
+        /// <summary> number of neighbours of the PCA, including the point itself; clamped to [8, 256] (default 16) </summary>
         public int Neighbors = 16;
         /// <summary> orient the axes with the wrap (default); false: axes only, no wrap </summary>
         public bool Orient = true;
@@ -86,11 +94,13 @@ namespace gs
 
         // results
         public NormalsStatus Status;
-        /// <summary> unit normals, or zero for a point with a degenerate neighbourhood; set also if Status is not Success (but not for InvalidInput / TooFewPoints) </summary>
+        /// <summary> unit normals, or zero for a point with a degenerate neighbourhood; set also if Status is not Success, except for InvalidInput and TooFewPoints (null) </summary>
         public Vector3d[] Normals;
         /// <summary> the sign of Normals[i] is certain by the probes (false: ambiguous or degenerate) </summary>
         public bool[] Confident;
         public int ConfidentCount;
+        /// <summary> number of points (duplicates counted) that have a normal axis (the neighbourhood is not collinear or coincident) </summary>
+        public int AxisCount;
         public double ConfidentFraction { get { return Points == null || Points.Count == 0 ? 0 : (double)ConfidentCount / Points.Count; } }
         /// <summary> estimated sampling spacing and noise (upper bound), see the class comment </summary>
         public double Spacing, NoiseSigma;
@@ -111,61 +121,114 @@ namespace gs
 
         public bool Compute()
         {
-            Normals = null; Confident = null; Wrap = null; ConfidentCount = 0; Error = "";
+            Normals = null; Confident = null; Wrap = null; ConfidentCount = 0; AxisCount = 0; Error = "";
             Spacing = NoiseSigma = UsedAlpha = UsedOffset = 0; AlphaConditionMet = false; Escalations = 0;
             WrapStatus = MeshAlphaWrap.WrapStatus.Success;
-            int n = Points == null ? 0 : Points.Count;
-            int k = Math.Max(8, Neighbors);
             if (Points == null) { Status = NormalsStatus.InvalidInput; Error = "Points is null"; return false; }
+            if (double.IsNaN(Alpha) || double.IsInfinity(Alpha) || double.IsNaN(Offset) || double.IsInfinity(Offset)) {
+                Status = NormalsStatus.InvalidInput; Error = "Alpha or Offset is not finite"; return false;
+            }
+            int n = Points.Count;
+            int k = Math.Min(256, Math.Max(8, Neighbors));
             for (int i = 0; i < n; ++i) {
                 Vector3d p = Points[i];
                 if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x) || double.IsInfinity(p.y) || double.IsInfinity(p.z)) {
                     Status = NormalsStatus.InvalidInput; Error = "point " + i + " is not finite"; return false;
                 }
             }
-            if (n < k + 1) { Status = NormalsStatus.TooFewPoints; Error = n + " points, need " + (k + 1); return false; }
 
-            Vector3d[] pts = new Vector3d[n];
-            for (int i = 0; i < n; ++i) pts[i] = Points[i];
+            // merge exact duplicates: unique points U, map[i] = index in U
+            int[] order = new int[n];
+            for (int i = 0; i < n; ++i) order[i] = i;
+            Vector3d[] all = new Vector3d[n];
+            for (int i = 0; i < n; ++i) all[i] = Points[i];
+            Array.Sort(order, (a, b) => {
+                int c = all[a].x.CompareTo(all[b].x);
+                if (c == 0) c = all[a].y.CompareTo(all[b].y);
+                if (c == 0) c = all[a].z.CompareTo(all[b].z);
+                return c != 0 ? c : a.CompareTo(b);
+            });
+            int[] map = new int[n];
+            List<Vector3d> unique = new List<Vector3d>();
+            for (int j = 0; j < n; ++j) {
+                int i = order[j];
+                if (j == 0 || all[i].x != all[order[j - 1]].x || all[i].y != all[order[j - 1]].y || all[i].z != all[order[j - 1]].z)
+                    unique.Add(all[i]);
+                map[i] = unique.Count - 1;
+            }
+            Vector3d[] pts = unique.ToArray();
+            int m = pts.Length;
+            if (m <= k) { Status = NormalsStatus.TooFewPoints; Error = m + " different points, need " + (k + 1); return false; }
+
+            // the frame of the neighbourhoods: centred, scaled by a power of two to an extent in [1, 2)
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            foreach (Vector3d p in pts) box.Contain(p);
+            double ex = box.Max.x - box.Min.x, ey = box.Max.y - box.Min.y, ez = box.Max.z - box.Min.z;
+            double extent = Math.Max(ex, Math.Max(ey, ez));
+            if (double.IsInfinity(extent) || double.IsNaN(extent)) { Status = NormalsStatus.InvalidInput; Error = "the extent of the points overflows"; return false; }
+            if (!(extent >= 2.3e-308)) { Status = NormalsStatus.InvalidInput; Error = "the extent of the points is below the supported range"; return false; }
+            int exponent = (int)((BitConverter.DoubleToInt64Bits(extent) >> 52) & 0x7FF) - 1023;
+            double toUnit = PowerOfTwo(-exponent), fromUnit = PowerOfTwo(exponent);
+            Vector3d center = new Vector3d(box.Min.x + 0.5 * ex, box.Min.y + 0.5 * ey, box.Min.z + 0.5 * ez);
+            Vector3d[] unit = new Vector3d[m];
+            for (int i = 0; i < m; ++i) unit[i] = (pts[i] - center) * toUnit;
 
             // neighbourhoods, PCA axes, spacing and noise
-            PointGrid grid = new PointGrid(pts);
-            Normals = new Vector3d[n];
-            Confident = new bool[n];
-            double[] d6 = new double[n], lambdaMin = new double[n];
-            bool[] degenerate = new bool[n];
+            PointTree tree = new PointTree(unit);
+            Vector3d[] axes = new Vector3d[m];
+            double[] d6 = new double[m], lambdaMin = new double[m];
+            bool[] degenerate = new bool[m];
             Action<int, Work> body = (i, work) => {
-                grid.Nearest(i, k, work.Index, work.Dist2);
+                tree.Nearest(i, k, work.Index, work.Dist2);
                 d6[i] = Math.Sqrt(work.Dist2[Math.Min(6, k - 1)]);        // [0] is the point itself
                 double lmin;
-                Vector3d axis = PcaAxis(pts, work.Index, k, work.Solver, out lmin, out degenerate[i]);
-                Normals[i] = axis; lambdaMin[i] = lmin;
+                axes[i] = PcaAxis(unit, work.Index, k, work.Solver, out lmin, out degenerate[i]);
+                lambdaMin[i] = lmin;
             };
             if (Parallel)
-                gParallel.ForRange(n, () => new Work(k), body);
+                gParallel.ForRange(m, () => new Work(k), body);
             else {
                 Work w = new Work(k);
-                for (int i = 0; i < n; ++i) body(i, w);
+                for (int i = 0; i < m; ++i) body(i, w);
             }
-            Spacing = Median(d6) / Math.Sqrt(6.0 / Math.PI);
-            NoiseSigma = Math.Sqrt(Math.Max(0, Median(lambdaMin)));
-            for (int i = 0; i < n; ++i)
-                if (degenerate[i]) Normals[i] = Vector3d.Zero;
-
+            List<double> d6Valid = new List<double>(), lambdaValid = new List<double>();
+            int validUnique = 0;
+            for (int i = 0; i < m; ++i) {
+                if (degenerate[i]) { axes[i] = Vector3d.Zero; continue; }
+                validUnique++;
+                d6Valid.Add(d6[i]); lambdaValid.Add(lambdaMin[i]);
+            }
+            Normals = new Vector3d[n];
+            Confident = new bool[n];
+            Action<Vector3d[]> expand = (u) => { for (int i = 0; i < n; ++i) Normals[i] = u[map[i]]; };
+            for (int i = 0; i < n; ++i) if (!degenerate[map[i]]) AxisCount++;
+            if (validUnique == 0 || (double)AxisCount / n < MinConfidentFraction) {
+                Vector3d[] sign = new Vector3d[m];
+                for (int i = 0; i < m; ++i) sign[i] = CanonicalSign(axes[i]);
+                expand(sign);
+                if (validUnique > 0) {
+                    Spacing = Median(d6Valid.ToArray()) / Math.Sqrt(6.0 / Math.PI) * fromUnit;
+                    NoiseSigma = Math.Sqrt(Math.Max(0, Median(lambdaValid.ToArray()))) * fromUnit;
+                }
+                Status = NormalsStatus.DegenerateInput;
+                Error = AxisCount + " of " + n + " points have a normal axis";
+                return false;
+            }
+            Spacing = Median(d6Valid.ToArray()) / Math.Sqrt(6.0 / Math.PI) * fromUnit;
+            NoiseSigma = Math.Sqrt(Math.Max(0, Median(lambdaValid.ToArray()))) * fromUnit;
             double condition = Math.Max(SpacingFactor * Spacing, NoiseFactor * NoiseSigma);
-            if (!(Spacing > 0)) {
-                // (coincident points: no scale at all)
-                Status = NormalsStatus.TooFewPoints; Error = "the points have no extent"; return false;
-            }
 
             if (!Orient) {
-                for (int i = 0; i < n; ++i) Normals[i] = Normals[i] == Vector3d.Zero ? Normals[i] : CanonicalSign(Normals[i]);
+                Vector3d[] sign = new Vector3d[m];
+                for (int i = 0; i < m; ++i) sign[i] = CanonicalSign(axes[i]);
+                expand(sign);
                 UsedAlpha = Alpha;
                 Status = NormalsStatus.Success;
                 return true;
             }
 
-            Vector3d[] axes = (Vector3d[])Normals.Clone();
+            Vector3d[] oriented = new Vector3d[m];
+            bool[] confident = new bool[m];
             UsedAlpha = Alpha > 0 ? Alpha : condition;
             for (int attempt = 0; ; ++attempt) {
                 UsedOffset = Offset > 0 ? Offset : UsedAlpha / OffsetDivisor;
@@ -173,22 +236,32 @@ namespace gs
                 MeshAlphaWrap wrap = new MeshAlphaWrap(pts) { Alpha = UsedAlpha, Offset = UsedOffset };
                 bool ok = wrap.Compute();
                 WrapStatus = wrap.Status;
-                if (!ok && wrap.Status != MeshAlphaWrap.WrapStatus.PointLimitReached) {
+                bool usable = (ok || wrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached) && wrap.Result != null && wrap.Result.IsClosed();
+                if (!usable) {
                     Error = "alpha wrap: " + wrap.Status + " " + wrap.Error;
-                    for (int i = 0; i < n; ++i) Normals[i] = axes[i] == Vector3d.Zero ? axes[i] : CanonicalSign(axes[i]);
+                    Vector3d[] sign = new Vector3d[m];
+                    for (int i = 0; i < m; ++i) sign[i] = CanonicalSign(axes[i]);
+                    expand(sign);
+                    Array.Clear(Confident, 0, n);
+                    ConfidentCount = 0;
                     Wrap = null;
                     Status = NormalsStatus.WrapFailed;
                     return false;
                 }
                 Wrap = wrap.Result;
-                Array.Copy(axes, Normals, n);
-                Array.Clear(Confident, 0, n);
-                OrientWithWrap(pts, degenerate);
+                Array.Copy(axes, oriented, m);
+                Array.Clear(confident, 0, m);
+                OrientWithWrap(pts, degenerate, oriented, confident);
+                int count = 0;
+                for (int i = 0; i < n; ++i) if (confident[map[i]]) ++count;
+                ConfidentCount = count;
                 if (ConfidentFraction >= MinConfidentFraction || Alpha > 0 || attempt >= MaxEscalations)
                     break;
                 UsedAlpha *= EscalationFactor;
                 Escalations++;
             }
+            expand(oriented);
+            for (int i = 0; i < n; ++i) Confident[i] = confident[map[i]];
 
             if (!AlphaConditionMet) Status = NormalsStatus.AlphaBelowCondition;
             else if (ConfidentFraction < MinConfidentFraction) Status = NormalsStatus.AmbiguousOrientation;
@@ -196,7 +269,14 @@ namespace gs
             return Status == NormalsStatus.Success;
         }
 
-        void OrientWithWrap(Vector3d[] pts, bool[] degenerate)
+        /// <summary> 2^e as a double, exact, for e in [-1023, 1023] </summary>
+        static double PowerOfTwo(int e)
+        {
+            if (e == -1023) return BitConverter.Int64BitsToDouble(1L << 51);
+            return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+        }
+
+        void OrientWithWrap(Vector3d[] pts, bool[] degenerate, Vector3d[] normals, bool[] confident)
         {
             int n = pts.Length;
             double probe = ProbeFactor * (UsedAlpha + UsedOffset);
@@ -206,20 +286,21 @@ namespace gs
             Vector3d[] probes = new Vector3d[2 * ids.Length];
             for (int j = 0; j < ids.Length; ++j) {
                 int i = ids[j];
-                probes[2 * j] = pts[i] + probe * Normals[i];
-                probes[2 * j + 1] = pts[i] - probe * Normals[i];
+                probes[2 * j] = pts[i] + probe * normals[i];
+                probes[2 * j + 1] = pts[i] - probe * normals[i];
             }
             InsideStatus[] inside = new InsideStatus[probes.Length];
             BatchOptions options = new BatchOptions() { Parallel = Parallel };
             MeshBatchQueries.IsInsideBatch(tree, probes, inside, InsideMethod.Crossings, options);
 
-            // ambiguous points: the direction to the nearest wrap point decides (not confident)
+            // ambiguous points (both probes on the same side, or a probe that is not finite): the direction to the
+            // nearest wrap point decides (not confident)
             List<int> ambiguous = new List<int>();
             for (int j = 0; j < ids.Length; ++j) {
                 int i = ids[j];
-                bool plusIn = inside[2 * j] == InsideStatus.Inside, minusIn = inside[2 * j + 1] == InsideStatus.Inside;
-                if (!plusIn && minusIn) { Confident[i] = true; }
-                else if (plusIn && !minusIn) { Normals[i] = -Normals[i]; Confident[i] = true; }
+                InsideStatus plus = inside[2 * j], minus = inside[2 * j + 1];
+                if (plus == InsideStatus.Outside && minus == InsideStatus.Inside) confident[i] = true;
+                else if (plus == InsideStatus.Inside && minus == InsideStatus.Outside) { normals[i] = -normals[i]; confident[i] = true; }
                 else ambiguous.Add(i);
             }
             if (ambiguous.Count > 0) {
@@ -228,14 +309,10 @@ namespace gs
                 MeshBatchQueries.NearestPointBatch(tree, amb, near, null, options);
                 for (int a = 0; a < amb.Length; ++a) {
                     int i = ambiguous[a];
-                    if (near[a].Triangle != DMesh3.InvalidID && (near[a].Point - pts[i]).Dot(Normals[i]) < 0)
-                        Normals[i] = -Normals[i];
+                    if (near[a].Triangle != DMesh3.InvalidID && (near[a].Point - pts[i]).Dot(normals[i]) < 0)
+                        normals[i] = -normals[i];
                 }
             }
-            for (int i = 0; i < n; ++i)
-                if (degenerate[i]) Confident[i] = false;
-            ConfidentCount = 0;
-            for (int i = 0; i < n; ++i) if (Confident[i]) ++ConfidentCount;
         }
 
         static Vector3d CanonicalSign(Vector3d v)
@@ -256,7 +333,6 @@ namespace gs
         class Work
         {
             public int[] Index; public double[] Dist2; public SymmetricEigenSolver Solver = new SymmetricEigenSolver(3, 4096);
-            public double[] Matrix = new double[9];
             public Work(int k) { Index = new int[k]; Dist2 = new double[k]; }
         }
 
@@ -293,83 +369,113 @@ namespace gs
             return len > 0 ? axis / len : Vector3d.Zero;
         }
 
-        /// <summary> A uniform grid for exact k-nearest-neighbour queries (the result does not depend on the cell size). </summary>
-        internal class PointGrid
+        /// <summary>
+        /// A k-d tree for exact k-nearest-neighbour queries (ties by index): median splits along the widest axis of the
+        /// node, leaves of up to 16 points; a subtree is skipped only if its splitting plane is strictly farther than
+        /// the k-th distance found, so equal distances are all visited.
+        /// </summary>
+        internal class PointTree
         {
+            const int LeafSize = 16;
             readonly Vector3d[] pts;
-            readonly Vector3d origin;
-            readonly double cell;
-            readonly int nx, ny, nz;
-            readonly int[] start, items;
+            readonly int[] idx;
+            readonly byte[] axisAt;
 
-            public PointGrid(Vector3d[] points)
+            public PointTree(Vector3d[] points)
             {
                 pts = points;
-                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
-                foreach (Vector3d p in points) box.Contain(p);
-                origin = box.Min;
-                double diag = Math.Max(box.Diagonal.Length, 1e-300);
-                // about 2 points per cell for a volume sampling; capped at 4M cells
-                double c = diag / Math.Max(1.0, Math.Pow(points.Length / 2.0, 1.0 / 3.0));
-                double ex = box.Width, ey = box.Height, ez = box.Depth;
-                while (true) {
-                    double cells = (Math.Floor(ex / c) + 1) * (Math.Floor(ey / c) + 1) * (Math.Floor(ez / c) + 1);
-                    if (cells <= 4e6) break;
-                    c *= 1.5;
-                }
-                cell = c > 0 ? c : 1;
-                nx = (int)Math.Floor(ex / cell) + 1; ny = (int)Math.Floor(ey / cell) + 1; nz = (int)Math.Floor(ez / cell) + 1;
-                int[] cellOf = new int[points.Length];
-                start = new int[nx * ny * nz + 1];
-                for (int i = 0; i < points.Length; ++i) {
-                    cellOf[i] = CellIndex(points[i]);
-                    start[cellOf[i] + 1]++;
-                }
-                for (int c2 = 0; c2 < nx * ny * nz; ++c2) start[c2 + 1] += start[c2];
-                items = new int[points.Length];
-                int[] fill = new int[nx * ny * nz];
-                for (int i = 0; i < points.Length; ++i)
-                    items[start[cellOf[i]] + fill[cellOf[i]]++] = i;
+                idx = new int[points.Length];
+                for (int i = 0; i < idx.Length; ++i) idx[i] = i;
+                axisAt = new byte[points.Length];
+                Build(0, points.Length);
             }
 
-            int Coord(double v, double o, int n) { int c = (int)Math.Floor((v - o) / cell); return c < 0 ? 0 : (c >= n ? n - 1 : c); }
-            int CellIndex(Vector3d p) { return (Coord(p.z, origin.z, nz) * ny + Coord(p.y, origin.y, ny)) * nx + Coord(p.x, origin.x, nx); }
+            double Coord(int i, int axis) { return axis == 0 ? pts[i].x : (axis == 1 ? pts[i].y : pts[i].z); }
+
+            // (coordinate, index) order: a total order, so the splits do not depend on the algorithm's internals
+            bool Less(int a, int b, int axis)
+            {
+                double ca = Coord(a, axis), cb = Coord(b, axis);
+                return ca < cb || (ca == cb && a < b);
+            }
+
+            void Build(int lo, int hi)
+            {
+                if (hi - lo <= LeafSize) return;
+                double minx = double.MaxValue, miny = double.MaxValue, minz = double.MaxValue, maxx = -double.MaxValue, maxy = -double.MaxValue, maxz = -double.MaxValue;
+                for (int s = lo; s < hi; ++s) {
+                    Vector3d p = pts[idx[s]];
+                    if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
+                    if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y;
+                    if (p.z < minz) minz = p.z; if (p.z > maxz) maxz = p.z;
+                }
+                double wx = maxx - minx, wy = maxy - miny, wz = maxz - minz;
+                int axis = wx >= wy && wx >= wz ? 0 : (wy >= wz ? 1 : 2);
+                int mid = (lo + hi) / 2;
+                Select(lo, hi - 1, mid, axis);
+                axisAt[mid] = (byte)axis;
+                Build(lo, mid);
+                Build(mid + 1, hi);
+            }
+
+            // quickselect: afterwards idx[mid] is the element of rank mid in idx[lo..hi], smaller ones before, larger after
+            void Select(int lo, int hi, int mid, int axis)
+            {
+                while (lo < hi) {
+                    if (hi - lo == 1) {
+                        if (Less(idx[hi], idx[lo], axis)) Swap(lo, hi);
+                        return;
+                    }
+                    int mi = lo + (hi - lo) / 2;
+                    // median of three as the pivot
+                    if (Less(idx[mi], idx[lo], axis)) Swap(mi, lo);
+                    if (Less(idx[hi], idx[lo], axis)) Swap(hi, lo);
+                    if (Less(idx[hi], idx[mi], axis)) Swap(hi, mi);
+                    int pivot = idx[mi];
+                    Swap(mi, hi - 1);
+                    int i = lo, j = hi - 1;
+                    while (true) {
+                        while (Less(idx[++i], pivot, axis)) { }
+                        while (Less(pivot, idx[--j], axis)) { }
+                        if (i >= j) break;
+                        Swap(i, j);
+                    }
+                    Swap(i, hi - 1);
+                    if (mid == i) return;
+                    if (mid < i) hi = i - 1; else lo = i + 1;
+                }
+            }
+
+            void Swap(int a, int b) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
 
             /// <summary> the k nearest points of point i (itself first), by squared distance and then index; k results in index/dist2 </summary>
             public void Nearest(int i, int k, int[] index, double[] dist2)
             {
-                Vector3d p = pts[i];
-                int cx = Coord(p.x, origin.x, nx), cy = Coord(p.y, origin.y, ny), cz = Coord(p.z, origin.z, nz);
                 int count = 0;
-                int maxR = Math.Max(nx, Math.Max(ny, nz));
-                for (int r = 0; r <= maxR; ++r) {
-                    for (int z = cz - r; z <= cz + r; ++z) {
-                        if (z < 0 || z >= nz) continue;
-                        for (int y = cy - r; y <= cy + r; ++y) {
-                            if (y < 0 || y >= ny) continue;
-                            bool edgeYZ = (z == cz - r || z == cz + r || y == cy - r || y == cy + r);
-                            for (int x = cx - r; x <= cx + r; ++x) {
-                                if (x < 0 || x >= nx) continue;
-                                if (!edgeYZ && x != cx - r && x != cx + r) continue;     // only the shell of the ring
-                                int c = (z * ny + y) * nx + x;
-                                for (int s = start[c]; s < start[c + 1]; ++s) {
-                                    int j = items[s];
-                                    double d2 = (pts[j] - p).LengthSquared;
-                                    Insert(index, dist2, ref count, k, j, d2);
-                                }
-                            }
-                        }
-                    }
-                    // everything not yet visited is farther than r * cell
-                    if (count == k) {
-                        double reach = r * cell;
-                        if (dist2[k - 1] <= reach * reach) break;
-                    }
+                Search(0, pts.Length, pts[i], k, index, dist2, ref count);
+            }
+
+            void Search(int lo, int hi, Vector3d q, int k, int[] index, double[] dist2, ref int count)
+            {
+                if (hi - lo <= LeafSize) {
+                    for (int s = lo; s < hi; ++s) Consider(idx[s], q, k, index, dist2, ref count);
+                    return;
+                }
+                int mid = (lo + hi) / 2;
+                int axis = axisAt[mid];
+                int m = idx[mid];
+                Consider(m, q, k, index, dist2, ref count);
+                double diff = (axis == 0 ? q.x : (axis == 1 ? q.y : q.z)) - Coord(m, axis);
+                bool nearLeft = diff < 0;
+                if (nearLeft) Search(lo, mid, q, k, index, dist2, ref count); else Search(mid + 1, hi, q, k, index, dist2, ref count);
+                if (count < k || diff * diff <= dist2[k - 1]) {
+                    if (nearLeft) Search(mid + 1, hi, q, k, index, dist2, ref count); else Search(lo, mid, q, k, index, dist2, ref count);
                 }
             }
 
-            static void Insert(int[] index, double[] dist2, ref int count, int k, int j, double d2)
+            void Consider(int j, Vector3d q, int k, int[] index, double[] dist2, ref int count)
             {
+                double d2 = (pts[j] - q).LengthSquared;
                 int pos = count;
                 if (count == k) {
                     if (d2 > dist2[k - 1] || (d2 == dist2[k - 1] && j > index[k - 1])) return;
