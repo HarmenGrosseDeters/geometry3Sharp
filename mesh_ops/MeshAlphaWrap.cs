@@ -55,6 +55,11 @@ namespace gs
     /// 170 degrees 327 -> 40). Rule 2 points projected from the clamped dual edge (Counts["projection_fallbacks"], none
     /// measured) have no separation bound.
     ///
+    /// Exception to the separation: on the retry after box corners on the result, a pinch point for an outside cell with a box corner (Counts["pinch_corner_points"], flat
+    /// input: the huge cells above and below a plane of Steiner points) only lies strictly inside the cell's circumsphere, so
+    /// it can be closer to a vertex than that and the triangles around it have no angle bound. The retry of Compute() after box
+    /// corners on the result refines at non-manifold spots even with RefineNonManifold off.
+    ///
     /// Not covered by the guarantees: with MaxSteinerPoints reached (PointLimitReached) the box corners can be
     /// vertices of the result.
     ///
@@ -160,6 +165,9 @@ namespace gs
         /// <summary> for tests: rule 2 always projects the clamped end of the dual edge (the fallback path) </summary>
         internal bool ForceProjectionFallback = false;
         bool asymmetricBox;
+        // the retry after a result with box corners: the refinement at non-manifold spots runs even if RefineNonManifold is off
+        // (without it the manifold step moves the cells with box corners inside, which is what failed)
+        bool forceRefineNonManifold;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
         public Func<bool> CancelF = () => { return false; };
@@ -176,6 +184,11 @@ namespace gs
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> Steiner points, carved cells etc, for diagnostics </summary>
+        /// <summary>
+        /// Number of Steiner points of the exception to the separation bound (class comment: pinch points for cells with a box corner on
+        /// the retry); 0 for a result without it. Those points can have no min-angle bound around them
+        /// </summary>
+        public int CornerPinchPoints { get; private set; }
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> the triangulation of the last Compute() (for tests) </summary>
         internal Delaunay3 Triangulation { get { return dt; } }
@@ -216,6 +229,7 @@ namespace gs
         public bool Compute()
         {
             asymmetricBox = StartWithOtherBox;
+            forceRefineNonManifold = false;
             bool ok = compute_once();
             // a result that misses the guarantees (box corners on it, from cells that stayed inside up to the box,
             // or a non-manifold remainder): once more with a slightly different margin on each side of the box. With
@@ -223,6 +237,7 @@ namespace gs
             // cells of box corners and Steiner points; their Steiner points can be rejected, and the cells stay inside.
             if (Status == WrapStatus.Failed && Result != null && RetryWithOtherBox && !StartWithOtherBox) {
                 asymmetricBox = true;
+                forceRefineNonManifold = true;
                 ok = compute_once();
                 Counts["box_retries"] = 1;
             }
@@ -240,6 +255,7 @@ namespace gs
             Error = null;
             PhaseMilliseconds.Clear();
             Counts.Clear();
+            CornerPinchPoints = 0;
             phaseTimer.Restart();
             Status = setup();
             if (Status != WrapStatus.Success)
@@ -255,7 +271,7 @@ namespace gs
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
-            if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success) {
+            if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success) {
                 Status = refine_non_manifold();
                 end_phase("wrap.pinches");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -270,7 +286,7 @@ namespace gs
                 end_phase("wrap.quality");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                     return false;
-                if (MakeManifold && RefineNonManifold && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
+                if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
                     Status = refine_non_manifold();
                     end_phase("wrap.pinches2");
                     if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -310,6 +326,7 @@ namespace gs
                 return false;
             }
             Counts["result_triangles"] = Result.TriangleCount;
+            CornerPinchPoints = Counts.TryGetValue("pinch_corner_points", out long cpp) ? (int)cpp : 0;
             Counts["result_box_corners"] = boxCornersInResult;
             // the guarantees, checked (topology only, cheap): a result that misses them is not reported as one that
             // has them (Result is kept for diagnostics)
@@ -1083,6 +1100,15 @@ namespace gs
                 dual_edge(m, f, out Vector3d from, out Vector3d to);
                 if (rule_intersection(from, to, out p))
                     return true;
+            }
+            // on the retry only, a cell with a box corner (flat input: the huge cells above and below a plane of Steiner points) that neither
+            // candidate qualifies for: the projected center only has to lie strictly inside the circumsphere (exactly), without
+            // the depth. The point can be closer to a vertex than the separation, but the manifold step would move the
+            // cell inside and put the box corner on the result, which fails the wrap
+            if (forceRefineNonManifold && has_corner(c) && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
+                && project_to_offset(c, 0, cc, out p) && dt.InCircumsphere(c, p) > 0) {
+                add_count("pinch_corner_points", 1);
+                return true;
             }
             p = Vector3d.Zero;
             return false;

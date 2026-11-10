@@ -17,8 +17,10 @@ Part of the [roadmap](../ROADMAP.md).
   builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
-  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection), 6 (point
-  clouds) and 7 (deformation) move to Later; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
+  (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
+  feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
+  upper bound, design note) started; item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
@@ -84,6 +86,10 @@ Part of the [roadmap](../ROADMAP.md).
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
      path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
      `WindingContouring` on the lever 6 set (#498) as the upper bound.
+     Candidate follow-up (owner 2026-11-10, not scheduled): a topology guarantee for the contouring (the result has the
+     topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
+     Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
+     `WindingContouring` a certified repair path.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point

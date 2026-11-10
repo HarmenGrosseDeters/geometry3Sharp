@@ -46,6 +46,8 @@ namespace Meshing2Acceptance
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
                                     the same for the constrained mesher
+  perf --quality [--sizes 30,60,120] [--repeats 1] [--angle 30]
+                                    the quality mesher on jittered parcels (side x side rings), with a snap pixel of 1/64 cell and without
 ";
 
         static int Main(string[] args)

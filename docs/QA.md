@@ -275,8 +275,8 @@ Mesh inputs to the operations are fuzzed the same way:
 - random edits of clean meshes (flips, removed or duplicated triangles, welded vertices).
 
 Each operation must return a documented status, never throw, and never report success on an output that
-fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): the STL reader in
-[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), the mesh operations in
+fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT): all readers (STL, OBJ, OFF, PLY, 3MF, GLB, .g3mesh, MiniJson, height grids, Triangle files, MCP requests) in
+[ReaderFuzzPilot](../tools/ReaderFuzzPilot/README.md), replayed without a campaign by `ReaderFuzzReplayTests`, the mesh operations in
 [MeshFuzzPilot](../tools/MeshFuzzPilot/README.md) (campaigns on a runner, not in CI).
 
 ### 2.5a Supported input range: correct inside, fail gracefully outside (owner 2026-11-09)

@@ -24,7 +24,10 @@ namespace geometry3Sharp.Tests
 
         static readonly string[] ExtremeNumbers = {
             "1e400", "-1e400", "NaN", "nan", "inf", "-0", "1,5", "2147483647", "2147483648", "-2147483649",
-            "4294967296", "99999999999999999999", "-1", "0", "1e-320", "0x10", "", "1e", "--1"
+            "4294967296", "99999999999999999999", "-1", "0", "1e-320", "0x10", "", "1e", "--1",
+            // long digit strings, signed zeros and range limits: the exact decimal parser (docs/design/DETERMINISM.md C2)
+            "5.6348333975312060066e-8", "-0.0", "0.1000000000000000055511151231257827", "1.7976931348623159e308", "4.9406564584124654e-324",
+            "9007199254740993", "+.5e1", "123456789012345678901234567890e-30", "1e-400", ".e5", "1e+"
         };
 
         static readonly Type[] ParseErrorTypes = {
