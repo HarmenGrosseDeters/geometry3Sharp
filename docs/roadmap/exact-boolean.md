@@ -90,10 +90,13 @@ of 10k-100k triangles minus up to 500 tools). Measured as topic 7 of the pre-stu
 
 **T3a / T3b targets (owner 2026-11-10, approved; pre-study topic 7, #536 section 8-9):** all variants clean on the
 procedural terrain and CAD workloads. T3a, A − (B1 ∪ … ∪ Bn): today's one-pass n-ary Difference is already right (chained
-is 13-16x slower with up to 5x more triangles); no new API, an operation-aware early-out in the arrangement input path for
+is 2.5-16x slower with up to 5x more triangles); no new API, an operation-aware early-out in the arrangement input path for
 Difference / Intersection (Bi triangles whose box meets no A triangle and that lie outside A by one exact ray are dropped,
-same exact result; bound 6-45 %, terrain 27-31 %). Target: terrain n = 200 <= 2.5 s (today 3.3-3.8 s), CAD 10k n = 500
-<= 30 s (today 49 s), never slower than today's one pass. T3b, A ∩ Bi each: an additive `IntersectEach(a, bodies)` (and
+same exact result; the 6-45 % bound counts Bi pieces outside A, the triangle-level early-out reaches less, since pit and
+trench walls cross the surface). Target (owner 2026-11-10, option a): terrain n = 200 <= 2.7 s (today 3.3-3.8 s), set
+after the T3a PR's first step measures the droppable triangle share; CAD 10k n = 500 <= 30 s (today 49 s); never slower
+than today's one pass. A piece-level early-out (drop Bi pieces outside A before classification) is a later lever if that
+measurement shows the gap to the bound is large. T3b, A ∩ Bi each: an additive `IntersectEach(a, bodies)` (and
 Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
 parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
 Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
