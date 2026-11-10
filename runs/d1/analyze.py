@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Summary of the D1 cohort run (runs/d1/job.sh): python3 analyze.py <out dir> > summary.md
 
-<out dir> holds base.jsonl and cand.jsonl (or the per-model files in base/ and cand/). Per operation (id, op):
+<out dir> holds base.jsonl and cand.jsonl (or the per-model files in base/ and cand/) of the correctness pass, and
+timing_base.jsonl, timing_cand.jsonl (or timing_base/, timing_cand/) of the timing pass. Per operation (id, op):
   status   clean (ok, RoundingClean, NotCleanReason ""), empty (NotCleanReason "empty"), unclean: <reason or
            'rounding'>, failed (Compute false, an exception, a crashed or timed-out runner, a missing row)
 Sections:
@@ -10,8 +11,9 @@ Sections:
   2. operations whose base row has no edit rejected by the bound (smallest rejected drift infinite): the result
      hashes must be equal; every difference is listed (the stop rule of the PR)
   3. deciles of MaxDrift / MaxLength per build (operations with a rounding and a positive bound)
-  4. times: sum, median, p95, max of the operation and of the rounding per build; operations slower by more than 20 %
-     and 0.2 s (whole operation)
+  4. times, from the timing pass (every core, one model at a time): sum, median, p95, max of the operation and of the
+     rounding per build; operations slower by more than 20 % and 0.2 s (whole operation). The correctness pass ran on
+     one core per process, four at a time: its times are not compared
 """
 import glob
 import json
@@ -82,6 +84,8 @@ def main():
         print(f'- {name}: ' + ', '.join(f'{v} {s}' for s, v in sorted(counts.items())))
     print()
 
+    copied = sum(1 for d in cand.values() if d.get('reason_from_base'))
+    print(f'cand: {copied} operations took the verdict of base (the same result hash), the others were evaluated\n')
     good = ('clean', 'empty')
     worse = [k for k in keys if st[k][0] in good and st[k][1] not in good]
     better = [k for k in keys if st[k][0] not in good and st[k][1] in good]
@@ -128,16 +132,18 @@ def main():
               + f' | {sum(1 for x in xs if x > 0.9)} |')
     print()
 
-    print('## 4. times (ms)\n')
+    tbase, tcand = load(out, 'timing_base'), load(out, 'timing_cand')
+    tkeys = sorted(set(tbase) & set(tcand))
+    print(f'## 4. times (ms), timing pass: {len(tkeys)} operations of {len({k[0] for k in tkeys})} models\n')
     print('| build | field | sum | median | p95 | max |')
     print('|---|---|---|---|---|---|')
-    for name, rows in (('base', base), ('cand', cand)):
+    for name, rows in (('base', tbase), ('cand', tcand)):
         for field in ('ms', 'rounding_ms'):
-            xs = [num(d[field]) for d in rows.values() if d.get(field) is not None and num(d[field]) >= 0]
+            xs = [num(d[field]) for k, d in rows.items() if k in tkeys and d.get(field) is not None and num(d[field]) >= 0]
             print(f'| {name} | {field} | {sum(xs):.0f} | {quantile(xs, 0.5):.0f} | {quantile(xs, 0.95):.0f} | {max(xs) if xs else 0:.0f} |')
     slow = []
-    for k in keys:
-        b, c = row(base, k), row(cand, k)
+    for k in tkeys:
+        b, c = tbase.get(k), tcand.get(k)
         if b and c and b.get('ms') is not None and c.get('ms') is not None:
             tb, tc = num(b['ms']), num(c['ms'])
             if tc > 1.2 * tb and tc - tb > 200:

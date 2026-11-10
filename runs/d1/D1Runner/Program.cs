@@ -1,6 +1,8 @@
 // D1 reference rule cohort run: the three operations of one #385 case (A.off, B.off from BooleanComparison export),
 // each on its own instance, with SafeRounding's drift fields and a hash of the result. One JSON line per operation.
-//   D1Runner <case dir> <id>
+//   D1Runner <case dir> <id> [--base-rows <file>] [--no-eval]
+// --base-rows: the base build's rows of this model; an operation whose result hash equals the base's takes the base's
+// NotCleanReason (the same mesh has the same verdict) instead of evaluating it. --no-eval: no NotCleanReason (timing)
 // Compiles against both measured builds (master with the apex rule, the PR with the reference rule): only public
 // fields that both have.
 using System;
@@ -67,6 +69,16 @@ static class Program
     {
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         string dir = args[0], id = args[1];
+        bool eval = Array.IndexOf(args, "--no-eval") < 0;
+        var baseRows = new Dictionary<string, JsonElement>();
+        int bi = Array.IndexOf(args, "--base-rows");
+        if (bi >= 0 && bi + 1 < args.Length && File.Exists(args[bi + 1]))
+            foreach (string line in File.ReadAllLines(args[bi + 1]))
+                if (line.StartsWith("{")) {
+                    JsonElement e = JsonDocument.Parse(line).RootElement;
+                    if (e.TryGetProperty("op", out JsonElement op) && e.TryGetProperty("hash", out _) && e.TryGetProperty("reason", out _))
+                        baseRows[op.GetString()] = e;
+                }
         DMesh3 A = Load(Path.Combine(dir, "A.off")), B = Load(Path.Combine(dir, "B.off"));
         WarmUp();
         foreach (var (name, op) in new[] { ("union", ExactMeshBoolean.Operations.Union), ("intersection", ExactMeshBoolean.Operations.Intersection),
@@ -96,8 +108,16 @@ static class Program
                 }
                 if (ok && b.Result != null) {
                     row["triangles"] = b.Result.TriangleCount;
-                    row["hash"] = Hash(b.Result);
-                    row["reason"] = MeshRobustRepair.NotCleanReason(b.Result);
+                    string hash = Hash(b.Result);
+                    row["hash"] = hash;
+                    if (baseRows.TryGetValue(name, out JsonElement br) && br.GetProperty("hash").GetString() == hash) {
+                        row["reason"] = br.GetProperty("reason").GetString();
+                        row["reason_from_base"] = true;
+                    } else if (eval) {
+                        var ev = Stopwatch.StartNew();
+                        row["reason"] = MeshRobustRepair.NotCleanReason(b.Result);
+                        row["eval_ms"] = ev.ElapsedMilliseconds;
+                    }
                 }
             } catch (Exception e) {
                 row["exception"] = e.GetType().Name + ": " + e.Message;
