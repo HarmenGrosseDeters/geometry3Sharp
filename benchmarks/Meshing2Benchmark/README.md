@@ -401,3 +401,29 @@ not a claim that every requested quality bound was achieved.
 The [reference recheck tools](rechecks/README.md) separately regenerate historical
 exceptions against pinned public inputs. They retain failures/timeouts and do not
 promote reference rows into golden truth.
+
+## The quality mesher on jittered parcels: pair-key hashing (2026-11-10, QA 2.0 T5)
+
+```
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --quality --sizes 30,60,90,120,240
+```
+
+A side x side grid of square rings sharing their borders, the inner corners jittered by a quarter cell, `QualityMesh2` at 30 degrees, the mesher alone,
+one run after the warm-up, with a snap pixel of 1/64 cell (`parcels-snap`) and without (`parcels`). Linux container, 4 cores, net10. This is the proxy for
+the Herne tiles, which are not in the repository.
+
+The 64-bit pair keys of the refinement (source pairs of the small-angle cache, unsplittable pieces, grid cells) used the default hash of a long, lo ^ hi, which for
+(a << 32) | c is a ^ c: neighbouring ids fall on a few dozen values, so 200 000 pairs made one chain per lookup. 20 of the 22 seconds of the 56 000 triangle snap run
+were in `SpansSmallAngle` (profile by stopwatches around the phases of `Compute`, `Bad` and `SpansSmallAngle`; `SplitSegment` itself was 1 %). The pair keys now use the
+shared `EdgeKeyComparer`; the meshes are the same (same triangle counts, the golden rows unchanged).
+
+| side | triangles (snap) | before ms | after ms | triangles (no snap) | before ms | after ms |
+|---|---|---|---|---|---|---|
+| 30 | 3 429 | 340 | 274 | 3 352 | 53 | 51 |
+| 60 | 13 610 | 890 | 384 | 13 760 | 553 | 87 |
+| 90 | 31 684 | 5 540 | 821 | 31 833 | 3 858 | 252 |
+| 120 | 56 032 | 22 279 | 1 612 | 54 329 | 17 969 | 298 |
+| 240 | 219 395 | not run | 7 823 | 226 612 | not run | 2 081 |
+
+After the fix the no-snap run is near linear (4.2x the triangles, 7x the time from 120 to 240); the snap run grows 3.9x the triangles in 4.9x the time, the rest
+is not the hash (snap rounding itself, 1.5 s at 56 000 triangles in the profile): a follow-up.
