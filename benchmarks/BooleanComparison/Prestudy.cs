@@ -1,5 +1,5 @@
 // Exact Boolean 3.0 pre-study (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md): probes on benchmark level, no library change.
-//   prestudy-memory <case dir> <op> [--no-boolean]
+//   prestudy-memory <case dir> <op> [--no-boolean] [--no-arrangement-probe]
 //       one operation per process: the arrangement alone (retained heap after Compute, points by representation,
 //       pieces), then the full boolean (allocations per phase, GC, peak working set). One JSON line.
 //   prestudy-exact <case dir> <op>
@@ -19,6 +19,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using g3;
+using gs;
 
 static class Prestudy
 {
@@ -29,7 +30,7 @@ static class Prestudy
     public static int Run(string mode, string[] args)
     {
         switch (mode) {
-            case "prestudy-memory": return Memory(args[0], args[1], args.Contains("--no-boolean"));
+            case "prestudy-memory": return Memory(args[0], args[1], args.Contains("--no-boolean"), args.Contains("--no-arrangement-probe"));
             case "prestudy-exact": return Exact(args[0], args[1]);
             case "prestudy-csg": return Csg(args[0], int.Parse(args[1]), int.Parse(args[2]));
             case "prestudy-csg-thingi": return CsgThingi(args[0], args[1], args[2]);
@@ -56,7 +57,7 @@ static class Prestudy
 
     static double Mb(long b) { return Math.Round(b / 1048576.0, 1); }
 
-    static int Memory(string dir, string op, bool noBoolean)
+    static int Memory(string dir, string op, bool noBoolean, bool noProbe)
     {
         DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
         var row = new Dictionary<string, object> { ["case"] = Path.GetFileName(dir.TrimEnd('/')), ["op"] = op,
@@ -64,7 +65,7 @@ static class Prestudy
         long baseHeap = Retained();
         row["inputs_mb"] = Mb(baseHeap);
         // the arrangement alone (as ExactMeshBoolean builds it; open inputs are not reoriented here)
-        {
+        if (noProbe == false) {
             long alloc0 = GC.GetTotalAllocatedBytes(true);
             var sw = Stopwatch.StartNew();
             var arr = new ExactMeshArrangement(new List<DMesh3> { a, b }) { SelfIntersections = true };

@@ -76,12 +76,14 @@ def table(title, keys, rows, cols):
             fc = min(max(f, 0), 1) if f == f else 0
             for n in proj:
                 proj[n] += t1 * ((1 - fc) + fc / n)
-    print(f'\nprojection (Amdahl per phase, fitted 1 -> 4): 8 cores {proj[8]:.1f} s, 16 cores {proj[16]:.1f} s, 64 cores '
+    if cols == PHASES:
+      print(f'\nprojection (Amdahl per phase, fitted 1 -> 4): 8 cores {proj[8]:.1f} s, 16 cores {proj[16]:.1f} s, 64 cores '
           f'{proj[64]:.1f} s (4 cores measured {T4:.1f} s); serial floor sum t1 (1 - f) = '
           f'{sum(tot[1][k] * (1 - min(max(amdahl(tot[1][k], tot[4][k], 4), 0), 1)) for k in PHASES if tot[4][k] > 0):.1f} s')
+    print()
     for n in (1, 2, 4):
         slow = sum(1 for (i, op) in keys if rows[(n, i, op)][0]['wall'] > 5000)
-        print(f'- ops > 5 s at {n} core(s): {slow}', end='')
+        print(f'- ops > 5 s at {n} core(s): {slow}')
     print()
 
 
