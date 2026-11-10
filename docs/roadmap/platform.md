@@ -148,6 +148,15 @@ Tier: S, M. Parallel: up to 2 sessions
        deterministic; shrinking to minimal pinch / cap cases.
     4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
        (never steeper, cut + fill consistent).
+    5. Reducer and Remesher (QA 2.0 T7, done 2026-11-10): `RemeshReduceCampaignTests.CsCheck.cs` (sphere, noisy sphere, torus, noisy torus,
+       two spheres, open terrain; sizes 2^-6 .. 2^6; Reducer: valid, finite, closed stays closed, Euler characteristic and components,
+       no bowtie, positive volume, MaxDeviation on vertices and centroids also over a second call on the same instance, `PreventFoldOver`
+       on terrain, repeated run and 2^-9 / 2^11 scaled input bit-identical; Remesher: the same topology checks, parallel smoothing equals
+       serial, repeated and scaled bit-identical; 20 samples each in CI). Known deferred items R13 (`MeshIterativeSmooth`) and R14 (Reducer
+       below scale 2^-25) are out of scope by construction (finite meshes, moderate scales). 2 500 Reducer and 4 000 Remesher samples: Remesher
+       no finding; Reducer one open finding: on a noisy terrain `PreventFoldOver` still leaves a triangle slightly past vertical (normal z
+       -0.01 .. -0.13): 0 of 200 seeds up to noise 0.1 edge lengths, 2 of 200 at 0.15 and 5 of 200 at 0.2 (18 of 200 without the guard), as the
+       guard needs only a positive dot with the absorbed reference normal. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
