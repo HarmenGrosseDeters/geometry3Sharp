@@ -18,6 +18,14 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
+  #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
+  designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:
+  branch claude/terrain-envelope-dc with its design note TERRAIN_SLOPE_ENVELOPE_DC.md), and an angular fan max-diagram
+  (upper bound 2x, not safely reachable: fans are not exact pyramids). The time follows the per-piece max-diagrams of
+  ~270 planes (~100 ms per piece), linear in the number of pieces. The slow terrain tests are handled as test design /
+  Nightly. A real gain would need fewer planes per fan, which changes the accuracy budget (owner: not wanted).
+
 Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Ramps as design geometry** (path, width, grade; access ramps into pits).
