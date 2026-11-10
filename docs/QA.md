@@ -44,6 +44,12 @@ done since and what is open.
   5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with
   every method that has a row of 4 s or more (a margin: the CI runner is not that machine) and may only shrink: the run
   fails for an entry that the base branch's list does not have, and for an entry that names no test (renamed or deleted).
+  The run fails for an untagged test only from 7 s (`--fail-from`): the CI runner's timings vary by a second or two around the
+  5 s line, so 5 to 7 s untagged is reported as a warning in the step summary, 10 s is a failure always (except Nightly).
+  While the backlog is filled from the runner timings of master's full runs, the ratchet runs in report mode
+  (`RATCHET_ENFORCE: '0'` in `ci.yml`: violations are printed as warnings and the step passes); a PR sets it to 1.
+  Splitting a CPU-bound test into parallel classes does not reduce its duration in the saturated full run (four classes
+  of 9 s instead of one of 9 s, #521): only less work does.
   Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
 - A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
   (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)
@@ -249,7 +255,7 @@ whether a hard limit can end in a success status.
 - A failing seed becomes an example test.
 - Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
   `ExactPoint3ConversionTests`). Boolean identities are covered by `ExactBooleanMetamorphicTests` and the seeded
-  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs`; the directed-family follow-up gives each
+  CsCheck campaigns in `ExactBooleanPropertyTests.CsCheck.cs` (2D mesher: `QualityMesh2PropertyCampaign.CsCheck.cs`, `G3_PROPERTY_SAMPLES`, `G3_PROPERTY_CAMPAIGN` / `G3_PROPERTY_REPLAY`, `G3_PROPERTY_STRICT`); the directed-family follow-up gives each
   box relation its own generated campaign (see `design/BOOLEAN_PROPERTY_TESTS.md`).
 
 ### 2.5 Fuzzing of the readers and of mesh inputs

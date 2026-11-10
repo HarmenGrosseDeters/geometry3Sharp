@@ -185,6 +185,44 @@ the ghost fix with O-H1 (137 of 192). B is dropped (81 of 192).
 - O-H1 (judging the boundary against the snapped hull as well) and a separate hull envelope (Q-H3) were not needed: with the hull edges
   snap-rounded as segments, the existing segment rules apply.
 
+**Zero-area input (owner decision 2026-11-10, found by the CsCheck campaign of `QualityMesh2`, T5):** snapping never turns a zero-area input
+into a mesh. A domain whose input has no area is empty with a snap tolerance too, decided exactly on the input before snapping: a hull domain
+whose points are all on one line, or outer rings whose vertices are each on one line: snapping moves a point by up to half a pixel, and three collinear points (2, 4), (3, 3), (0, 6) at pixel 2 became the
+triangle (2, 4), (4, 4), (0, 6). The result is the Empty status with the snapped points as vertices. For inputs with area the tube rules
+O-G apply. (A ring with area whose snapped image has none is the builder's: O-H5, Q17.)
+
+**Rule O-G, the grid tube (owner decision 2026-11-09, found by the CsCheck campaign of `QualityMesh2`, QA 2.0 T5).** With an explicit snap
+tolerance the output boundary is the input boundary snap-rounded, so it may run off the input's by up to a pixel and enclose a different
+area. The tube there is one pixel already (`Max(AutoTolerance, SnapTolerance)`); what changes is how it is used: the movement is measured on the
+output boundary's links and the check also covers ring domains and the input boundary's side. Computed from the output mesh and the
+input domain alone (not from a snapped domain, which would be the mesher's own claim):
+- **Bound:** `GridTubePixels` = 1 pixel. Basis: the image of a segment under snap rounding lies in the Minkowski sum of the segment with
+  a pixel (Guibas and Marimont 1998), D14's drift is half a pixel per axis, so a vertex or a link of the image is within 1 pixel of the
+  input boundary; iterated rounding (Halperin and Packer 2002) only reroutes links between pixel centres through further hot pixels
+  within that tube. The bound is not proven for iterated rounding; the campaign (20 000 grid and extreme-scale cases) found no boundary
+  vertex beyond it.
+- **The iterated image (owner decision 2026-11-10, option A):** the one-pixel tube holds for the input's own rounding, not for the chains
+  after refinement: output vertices are hot pixels (Q17) and reroute other chains, which at a sub-pixel wedge walks a chain along the pixels of
+  the other chain, up to about 2 pixels from its input edge (1.59 pixels in the shrunk case, a ring with edges at 0.08 degrees). So (1) the
+  vertices at the pixel centres of the nodes of a source's iterated image are candidates of its chain, besides those in the tube of the
+  exact segment (a chain that leaves its image still fails); (2) an output boundary point farther than a pixel from the exact input
+  boundary is accepted if it lies within a pixel of a link of an image, up to the guard; (3) the guard: no node of an image is farther than
+  `GridImageDriftPx` = 2.5 pixels from its exact source, else `BoundaryOutsideTube`; the largest drift is in the report
+  (`OracleReport.MaxImageDriftPixels`). Measured over about 85 000 sources of the campaign's grid families: p99 and p99.9 0.707 pixel,
+  at most 1.32 (random) and 1.59 (shrunk).
+- **Boundary, output to input:** every vertex of the output boundary, and the eighth points of its edges, lie within the tube of the
+  input domain's edges (`BoundaryOutsideTube` otherwise). The largest distance found is the movement `moved2` of the area tolerance
+  (`diff <= 2 perimeter sqrt(moved2)`), so only what really moved grants area; the probes and the sliver test use it as before.
+- **Boundary, input to output:** the eighth points of every input boundary edge lie within the tube of an output boundary edge, or
+  within two tubes of another input edge (also a neighbour at an acute corner; both sides of a feature move by up to a pixel, so one up to two pixels wide may collapse, Q17,
+  and takes its boundary with it).
+- **Not applied** with an effective hole seed (the removed cell is bounded by constraints that the domain's ring edges do not list).
+- **Unchanged:** without a snap tolerance the comparison is exact (tube 2^-40); SegmentMissing, VertexUnused and TrianglesOnDegenerate
+  keep their rules (O-H4, O-H5): a segment or point is excused only where the oracle's own images collapse it. What O-G did not excuse is
+  a finding for the mesher, not a tolerance.
+- **Self-checks:** a hull edge rerouted through a hot pixel (the mesh 3 of the hull's 5) is accepted; the same mesh without a tolerance
+  is rejected as AreaMismatch; a boundary vertex 4 pixels off the hull is rejected as BoundaryOutsideTube.
+
 **Measured** (all runs judged by the oracle):
 
 | | master | built |
@@ -232,6 +270,14 @@ collapsed where snap rounding leaves it without area, decided on the snap-rounde
   bottom of the triangle (0, -0.45), (20, -0.45), (20, 0.55) that the hypotenuse then contacts, the mesh dropping 6 of 10 px²) is
   rejected. The report counts apart (iii) the segment pieces whose chain search needs a stretch that output vertices rerouted (it
   fails without those bridges), and the points whose pixel has other links in the two states.
+- **Amendment to (ii'), the lobe (owner 2026-11-10):** refinement never creates a collapse, but need not keep what the input's rounding
+  collapses. A stretch (or a point's pixel, the tip of a spike) that the input-only image collapses is excused even if output vertices
+  rerouted it through the hot pixel of a refinement vertex of another chain and the full image then has area beside it, a lobe that
+  even-odd parity counts as domain although the mesh, like the input's rounding, has none (found by the CsCheck campaign of
+  `QualityMesh2`, T5: a hole ring with a spike tip, ChainSkipsHotPixel and VertexUnused on a valid mesh). Conditions: the input-only
+  image collapses it; the lobe lies within one pixel of the stretch's chord (for a point: every link at its pixel in the full image
+  ends in a neighbouring pixel); the excuses are counted in `OracleReport.LobeExcuses`. A stretch with area in the input's own image is
+  judged by the full image as before.
 - **Post-review of (ii') (B1, fixed):** a first form probed the input-only domain beside the middle of the full image's link. A
   rerouted link can run outside the input's band while the band keeps area next to it: the wedge (0, 0), (40, 4.6), (40, 5.6) with a
   Steiner vertex at (10, 1), both edges then on the link (0, 0) - (10, 1), was accepted although the input's rounding keeps 1.25 px²

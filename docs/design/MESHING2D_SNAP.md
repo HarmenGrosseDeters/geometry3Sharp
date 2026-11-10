@@ -311,6 +311,7 @@ in "As built" at the end of this section. The SR + SRR routine of #277 snaps the
     constraint;
   - the existing exemptions (small input angles, the merge zone).
 - **D14 on the input side, unchanged:** input at pixel centres, separation of half a pixel, drift of half a pixel per axis.
+- **Amended 2026-11-10 (owner, option A): drift of refinement.** The half pixel per axis is the drift of the input's own rounding (Hobby's snap rounding with the restore step of Belussi et al. 2016). Output vertices are hot pixels too (Q17, owner 2026-11-03), so a refinement vertex can reroute another chain through its pixel, and iterating (Halperin and Packer 2002) walks it on. At sub-pixel wedges a chain then ends up to about 2 pixels from its input edge: 1.59 pixels in the CsCheck campaign's shrunk case (a ring with edges at 0.08 degrees), p99.9 0.707 pixel and at most 1.32 pixels in the random cases, over about 85 000 edges. A bounded drift cannot give the pixel back: the bound of Packer's variant (SoCG 2006, CGTA 40(3) 2008) must be about three times the deviation of snap rounding (about 2.1 pixels), and it collapses topology at small angles (Belussi et al., section 5.2). The oracle judges chains against the source's iterated image (rule O-G) and guards the image itself at 2.5 pixels.
 
 ### As built (#277)
 

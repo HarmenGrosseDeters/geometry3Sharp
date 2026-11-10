@@ -63,6 +63,10 @@ namespace g3
             if (tolerance == 0) return run(input, null);
             if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
             new Builder(input, true, cancel).Validate();
+            // A domain whose input has no area is empty, decided exactly on the input, before snapping (MESHING2D_HULL_GRID.md, zero-area input): snapping
+            // moves points by up to half a pixel and could turn collinear points into a triangle. A hull domain of collinear points and outer rings of
+            // collinear vertices are decided here.
+            bool noArea = HullHasNoArea(input);
             SnapRounding2 snap;
             try {
                 snap = SnapRounding2.Apply(input, tolerance, cancel);
@@ -71,13 +75,58 @@ namespace g3
                 return new ConstrainedTriangulation2Result(Triangulation2Status.Failed, Triangulation2FailureKind.InvalidTopology, null, new string[0], null, e.Message);
             }
             cancel.ThrowIfCancellationRequested();
-            var result = run(snap.Result, snap);
+            var result = noArea ? EmptyResult(snap.Result) : run(snap.Result, snap);
             var diagnostics = snap.Diagnostics.Concat(result.Diagnostics ?? new string[0]).ToList();
             diagnostics.Add("snap: tolerance " + tolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ", input moved by at most "
                 + snap.MaxDisplacement.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " per axis, " + snap.Crossings + " crossings, "
                 + snap.Rounds + " rounds, restore " + snap.Spread + " spread, " + snap.ForcedSpread + " forced, " + snap.Widened + " widened");
             return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, result.Mesh?.WithInputCount(input.Points.Count), diagnostics,
                 result.ProblemCoordinate, result.FailureDetail);
+        }
+
+        /// <summary> the result for an input without area: no triangles, the (snapped) points as vertices, as the builder reports an empty domain </summary>
+        static ConstrainedTriangulation2Result EmptyResult(ConstrainedMesh2Input snapped)
+        {
+            // (-0.0 as +0.0, as the builder normalises its vertices)
+            var vertices = snapped.Points.Select(p => new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y)).ToArray();
+            var mapping = new int[vertices.Length];
+            var first = new Dictionary<Vector2d, int>();
+            for (int i = 0; i < vertices.Length; ++i) {
+                if (!first.TryGetValue(vertices[i], out int f)) first.Add(vertices[i], f = i);
+                mapping[i] = f;
+            }
+            var empty = new ConstrainedMesh2(vertices, vertices.Length, mapping, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
+                snapped.Heights == null ? null : snapped.Heights.ToArray(), new int[0], new int[0], new int[0], new Vector2d[0], 0);
+            return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
+        }
+
+        /// <summary>
+        /// the input has no area, exactly: a hull domain (no outer ring) whose points are all on one line, or whose outer rings each have
+        /// all their vertices on one line (or fewer than two distinct points)
+        /// </summary>
+        static bool HullHasNoArea(ConstrainedMesh2Input input)
+        {
+            var outer = new List<Mesh2Ring>();
+            if (input.Rings != null)
+                foreach (var r in input.Rings) if (r != null && !r.Hole) outer.Add(r);
+            if (outer.Count == 0) return Collinear(input.Points, null);
+            foreach (var r in outer) if (!Collinear(input.Points, r.Vertices)) return false;
+            return true;
+        }
+
+        /// <summary> the points (of the given indices, or all) are on one line, exactly </summary>
+        static bool Collinear(IList<Vector2d> points, int[] indices)
+        {
+            Vector2d? first = null, second = null;
+            int n = indices == null ? points.Count : indices.Length;
+            for (int k = 0; k < n; ++k) {
+                var p = points[indices == null ? k : indices[k]];
+                if (first == null) { first = p; continue; }
+                if (p == first.Value) continue;
+                if (second == null) { second = p; continue; }
+                if (ExactPredicates.Orient2d(first.Value, second.Value, p) != 0) return false;
+            }
+            return true;
         }
 
         internal static Vector2d IntersectionForTests(Vector2d a, Vector2d b, Vector2d c, Vector2d d) => Builder.Intersection(a, b, c, d);

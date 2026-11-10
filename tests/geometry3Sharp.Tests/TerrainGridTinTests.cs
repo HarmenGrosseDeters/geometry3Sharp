@@ -379,6 +379,329 @@ namespace geometry3Sharp.Tests
             Assert.True(t.Result.VertexCount < 4000);
         }
 
+        /// <summary>A random small terrain with crossing breaklines: a crease request meets a breakline segment that is split in the same round.</summary>
+        static TerrainGridTin ConflictCase(int seed)
+        {
+            var r = new Random(seed);
+            int n = 6 + r.Next(10);
+            var z = new double[n * n];
+            int style = seed % 3;
+            for (int k = 0; k < z.Length; ++k) z[k] = style == 0 ? r.NextDouble() * 4 : style == 1 ? (r.Next(3) == 0 ? 3 : 0) : Math.Round(r.NextDouble()) * 2;
+            var g = new HeightGrid(z, n, n, 0, 0, 1);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.05 + r.NextDouble() * 0.3 };
+            int nl = 1 + r.Next(3);
+            for (int l = 0; l < nl; ++l) {
+                int np = 2 + r.Next(3);
+                t.Breaklines.Add(new TerrainBreakline(Enumerable.Range(0, np).Select(_ => new Vector2d(0.2 + r.NextDouble() * (n - 1.4), 0.2 + r.NextDouble() * (n - 1.4)))));
+            }
+            return t;
+        }
+
+        [Theory]
+        [InlineData(1, 10, 76, 125)]
+        [InlineData(3, 9, 80, 130)]
+        [InlineData(4, 11, 223, 401)]
+        public void CreaseConflicts_AreRetriedInTheNextRound_AndTheGuaranteeHolds(int seed, int rounds, int vertices, int triangles)
+        {
+            TerrainGridTin t = ConflictCase(seed);
+            Assert.True(t.Compute(), t.Status + " " + t.Message);
+            Assert.True(t.CreaseConflicts > 0, "the case no longer reaches the guard (a crease request next to a segment split in the same round)");
+            // golden counts: deferring the crease to the next round (the guard) changes the course of the rounds; without it the case ends in fewer rounds with other counts
+            Assert.Equal((rounds, vertices, triangles), (t.Rounds, t.Result.VertexCount, t.Result.TriangleCount));
+            HeightGrid g = t.Grid;
+            Assert.True(t.SurfaceError <= t.Epsilon);
+            TerrainGridTin.ErrorOfTin(g, t.Result, out _, out double surf);
+            Assert.True(surf <= t.Epsilon);
+            AssertHeightField(t.Result);
+            AssertCoversExactlyTheData(g, t.Result);
+            Assert.True(SampledError(g, t.Result, 2000, seed) <= surf + 1e-9);
+            // every breakline segment is still an edge chain
+            foreach (TerrainBreakline line in t.Breaklines)
+                for (int k = 0; k + 1 < line.Points.Count; ++k)
+                    Assert.Contains(t.BreaklineEdges, e => {
+                        Vector3d a = t.Result.GetVertex(e.a), b = t.Result.GetVertex(e.b);
+                        return DistanceToSegment(new Vector2d(a.x, a.y), line.Points[k], line.Points[k + 1]) < 1e-9 && DistanceToSegment(new Vector2d(b.x, b.y), line.Points[k], line.Points[k + 1]) < 1e-9;
+                    });
+        }
+
+        // ---- breaklines with heights from the input (survey lines, D4 FromInput) ----
+
+        /// <summary>A smooth terrain without cliffs, so that a survey line with vertices every half cell stays within a few 1e-3 of the grid surface.</summary>
+        static HeightGrid Smooth(int n, double x0 = 100, double y0 = 200, double cell = 1)
+        {
+            var g = new HeightGrid(new double[n * n], n, n, x0, y0, cell);
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) g[i, j] = 3 * Math.Sin(i * 0.1) * Math.Cos(j * 0.13) + 0.2 * Math.Sin(0.3 * i + 0.2 * j);
+            return g;
+        }
+
+        /// <summary>A survey line from (a) to (b) in world coordinates (a multiple of 1/64 of a cell, so that it is exact under 2^k scaling), a vertex every half cell, z = grid surface + offset.</summary>
+        static TerrainBreakline Survey(HeightGrid g, Vector2d a, Vector2d b, double offset, TerrainBreaklineHeights heights = TerrainBreaklineHeights.FromInput)
+        {
+            int k = (int)Math.Ceiling((b - a).Length / (0.5 * g.CellSize));
+            var pts = new List<Vector3d>();
+            for (int q = 0; q <= k; ++q) {
+                double x = g.X0 + Math.Round((a.x - g.X0 + (b.x - a.x) * q / k) / g.CellSize * 64) / 64 * g.CellSize, y = g.Y0 + Math.Round((a.y - g.Y0 + (b.y - a.y) * q / k) / g.CellSize * 64) / 64 * g.CellSize;
+                pts.Add(new Vector3d(x, y, g.Height(x, y) + offset));
+            }
+            return new TerrainBreakline(pts, heights);
+        }
+
+        /// <summary>The exact maximum of |survey line - S| over the line: S is piecewise linear along it with breaks at the grid lines and diagonals, the line is linear between its vertices.</summary>
+        static double SurveyDeviation(HeightGrid g, TerrainBreakline line)
+        {
+            double worst = 0;
+            for (int k = 0; k + 1 < line.Points.Count; ++k) {
+                Vector2d p = line.Points[k], q = line.Points[k + 1];
+                var ts = new List<double> { 0, 1 };
+                double[] f0 = { (p.x - g.X0) / g.CellSize, (p.y - g.Y0) / g.CellSize, (p.x - g.X0) / g.CellSize - (p.y - g.Y0) / g.CellSize };
+                double[] f1 = { (q.x - g.X0) / g.CellSize, (q.y - g.Y0) / g.CellSize, (q.x - g.X0) / g.CellSize - (q.y - g.Y0) / g.CellSize };
+                for (int c = 0; c < 3; ++c) {
+                    double lo = Math.Min(f0[c], f1[c]), hi = Math.Max(f0[c], f1[c]);
+                    if (f1[c] != f0[c]) for (double v = Math.Floor(lo) + 1; v < hi; ++v) ts.Add((v - f0[c]) / (f1[c] - f0[c]));
+                }
+                foreach (double t in ts) {
+                    double x = p.x + t * (q.x - p.x), y = p.y + t * (q.y - p.y);
+                    double sz = g.Height(x, y);
+                    if (double.IsNaN(sz)) continue;
+                    worst = Math.Max(worst, Math.Abs(line.Z[k] + t * (line.Z[k + 1] - line.Z[k]) - sz));
+                }
+            }
+            return worst;
+        }
+
+        static readonly Vector2d SurveyFrom = new Vector2d(110.3, 212.4), SurveyTo = new Vector2d(150.7, 243.9);
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.03)]
+        [InlineData(-0.07)]
+        public void FromInput_TheTinFollowsTheSurveyLine_AndTheGuaranteeHolds(double offset)
+        {
+            HeightGrid g = Smooth(65);
+            TerrainBreakline line = Survey(g, SurveyFrom, SurveyTo, offset);
+            TerrainGridTin t = Run(g, 0.1, line);
+            Assert.InRange(t.SurfaceError, 0.0, 0.1);
+            double dev = SurveyDeviation(g, line);
+            Assert.True(t.BreaklineError >= dev && t.BreaklineError <= dev + 1e-9, $"BreaklineError {t.BreaklineError:R} exact {dev:R}");
+            Assert.True(t.SurfaceError >= t.BreaklineError);
+            AssertHeightField(t.Result);
+            // every breakline vertex of the result has the survey height, and the edges between them are straight in 3D
+            foreach (Index2i e in t.BreaklineEdges) {
+                Vector3d a = t.Result.GetVertex(e.a), b = t.Result.GetVertex(e.b);
+                int k = Enumerable.Range(0, line.Points.Count - 1).First(q => DistanceToSegment(new Vector2d(a.x, a.y), line.Points[q], line.Points[q + 1]) < 1e-9 && DistanceToSegment(new Vector2d(b.x, b.y), line.Points[q], line.Points[q + 1]) < 1e-9);
+                foreach (Vector3d p in new[] { a, b }) {
+                    double s = (new Vector2d(p.x, p.y) - line.Points[k]).Dot(line.Points[k + 1] - line.Points[k]) / (line.Points[k + 1] - line.Points[k]).LengthSquared;
+                    Assert.Equal(line.Z[k] + s * (line.Z[k + 1] - line.Z[k]), p.z, 9);
+                }
+            }
+            foreach (Vector3d p in line.Points.Select((q, i) => new Vector3d(q.x, q.y, line.Z[i])))
+                Assert.Contains(t.Result.Vertices(), v => Math.Abs(v.x - p.x) < 1e-9 && Math.Abs(v.y - p.y) < 1e-9 && v.z == p.z);
+            TerrainGridTin.ErrorOfTin(g, t.Result, out double node, out double surf);
+            Assert.True(surf <= t.SurfaceError && node <= surf);
+            Assert.True(SampledError(g, t.Result, 3000, 11) <= t.SurfaceError + 1e-9);
+        }
+
+        [Fact]
+        public void FromInput_ALineFurtherThanEpsilonFromTheGrid_IsReported_NotHidden()
+        {
+            HeightGrid g = Smooth(65);
+            TerrainBreakline line = Survey(g, SurveyFrom, SurveyTo, 0.3);       // 3 x Epsilon above the surface
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.1, Breaklines = { line } };
+            Assert.False(t.Compute());
+            Assert.Equal(TerrainGridTinStatus.BreaklineHeightDeviates, t.Status);
+            Assert.NotNull(t.Result);
+            Assert.InRange(t.BreaklineError, 0.29, 0.31);
+            Assert.True(t.SurfaceError >= t.BreaklineError && t.SurfaceError <= t.BreaklineError + 1e-9, "the surface error is the deviation of the line, nowhere else is it above Epsilon");
+            AssertHeightField(t.Result);
+            // the same line as FromGrid has the guarantee, and the line is moved to the surface
+            TerrainGridTin grid = Run(g, 0.1, Survey(g, SurveyFrom, SurveyTo, 0.3, TerrainBreaklineHeights.FromGrid));
+            Assert.Equal(0, grid.BreaklineError);
+            Assert.True(grid.SurfaceError <= 0.1);
+        }
+
+        [Theory]
+        [InlineData(0.3, 8)]
+        [InlineData(0.0, 8)]
+        public void FromInput_SparseSurveyLine_EndsWithTheDeviationStatus_NotWithoutProgress(double offset, int spacing)
+        {
+            HeightGrid g = Smooth(65);
+            // vertices every `spacing` cells: the TIN edges from a survey vertex to far nodes carry its deviation
+            var pts = Enumerable.Range(0, 5).Select(q => { double x = 108 + q * spacing, y = 210 + q * 0.7 * spacing; return new Vector3d(x, y, g.Height(x, y) + offset); });
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.1, Breaklines = { new TerrainBreakline(pts, TerrainBreaklineHeights.FromInput) } };
+            bool ok = t.Compute();
+            Assert.True(t.Rounds < 60, "rounds " + t.Rounds);
+            // (even at offset 0 the straight survey segments of 8 cells are further than Epsilon from the curved surface)
+            Assert.False(ok); Assert.Equal(TerrainGridTinStatus.BreaklineHeightDeviates, t.Status);
+            Assert.True(t.BreaklineError > 0.1 && t.SurfaceError >= t.BreaklineError);
+        }
+
+        [Fact]
+        public void FromInput_TheZOfAFromGridBreaklineIsIgnored_AndMixedLinesWork()
+        {
+            HeightGrid g = Smooth(65);
+            TerrainBreakline plain = Survey(g, new Vector2d(112, 240), new Vector2d(150, 215), 5, TerrainBreaklineHeights.FromGrid);      // z is 5 too high and ignored
+            Assert.Null(plain.Z);
+            var a = new TerrainBreakline(plain.Points);
+            TerrainGridTin t1 = Run(g, 0.1, a), t2 = Run(g, 0.1, plain);
+            AssertSameMesh(t1.Result, t2.Result);
+            TerrainGridTin mixed = Run(g, 0.1, plain, Survey(g, SurveyFrom, SurveyTo, 0.02));
+            Assert.True(mixed.SurfaceError <= 0.1);
+            Assert.InRange(mixed.BreaklineError, 0.0, 0.1);
+            AssertHeightField(mixed.Result);
+            Assert.True(SampledError(g, mixed.Result, 3000, 12) <= mixed.SurfaceError + 1e-9);
+        }
+
+        /// <summary>The survey height of a line at a point on it (null if the point is not on the line).</summary>
+        static double? SurveyZAt(TerrainBreakline line, double x, double y)
+        {
+            for (int k = 0; k + 1 < line.Points.Count; ++k) {
+                Vector2d p = line.Points[k], q = line.Points[k + 1];
+                if (DistanceToSegment(new Vector2d(x, y), p, q) > 1e-7) continue;
+                double s = (new Vector2d(x, y) - p).Dot(q - p) / (q - p).LengthSquared;
+                return line.Z[k] + s * (line.Z[k + 1] - line.Z[k]);
+            }
+            return null;
+        }
+
+        [Fact]
+        public void FromInput_CrossingLinesWithDifferentHeights_TheLowestIndexWinsAtTheCrossing()
+        {
+            HeightGrid g = Smooth(65);
+            // two lines crossing near world (130, 225): the first 0.02 above the surface, the second 0.06 above
+            TerrainBreakline l1 = Survey(g, new Vector2d(115, 210), new Vector2d(145, 240), 0.02), l2 = Survey(g, new Vector2d(115, 240), new Vector2d(145, 210), 0.06);
+            foreach (var (first, second) in new[] { (l1, l2), (l2, l1) }) {
+                TerrainGridTin t = Run(g, 0.1, first, second);
+                Assert.True(t.SurfaceError <= 0.1);
+                // the vertex both lines share: not a vertex of either input
+                Vector3d at = t.Result.Vertices().Single(v => SurveyZAt(first, v.x, v.y) != null && SurveyZAt(second, v.x, v.y) != null);
+                Assert.Equal(SurveyZAt(first, at.x, at.y).Value, at.z, 9);
+                Assert.True(Math.Abs(SurveyZAt(first, at.x, at.y).Value - SurveyZAt(second, at.x, at.y).Value) > 0.03);
+                // the second line bends to the first at the crossing, which its deviation shows
+                Assert.True(t.BreaklineError >= 0.05 && t.BreaklineError <= 0.1);
+            }
+        }
+
+        [Fact]
+        public void FromInput_LinesSharingAVertexWithDifferentHeights_TheFirstGivenWins()
+        {
+            HeightGrid g = Smooth(65);
+            var mid = new Vector2d(130.5, 225.5);
+            TerrainBreakline Join(Vector2d a, Vector2d b, double off)
+            {
+                TerrainBreakline h1 = Survey(g, a, mid, off), h2 = Survey(g, mid, b, off);
+                return new TerrainBreakline(h1.Points.Select((p, i) => new Vector3d(p.x, p.y, h1.Z[i])).Concat(h2.Points.Skip(1).Select((p, i) => new Vector3d(p.x, p.y, h2.Z[i + 1]))), TerrainBreaklineHeights.FromInput);
+            }
+            TerrainBreakline l1 = Join(new Vector2d(115, 210), new Vector2d(145, 240), 0.02), l2 = Join(new Vector2d(115, 240), new Vector2d(145, 210), 0.06);
+            foreach (var (first, second, z) in new[] { (l1, l2, g.Height(mid.x, mid.y) + 0.02), (l2, l1, g.Height(mid.x, mid.y) + 0.06) }) {
+                TerrainGridTin t = Run(g, 0.1, first, second);
+                Assert.True(t.SurfaceError <= 0.1);
+                Assert.All(t.Result.Vertices().Where(v => v.x == mid.x && v.y == mid.y), v => Assert.Equal(z, v.z, 12));
+                Assert.Single(t.Result.Vertices().Where(v => v.x == mid.x && v.y == mid.y));
+            }
+        }
+
+        [Fact]
+        public void FromInput_WithGapsAndNonFiniteHeights()
+        {
+            HeightGrid g = Smooth(65);
+            for (int j = 20; j <= 30; ++j) for (int i = 20; i <= 30; ++i) g[i, j] = double.NaN;
+            TerrainGridTin t = Run(g, 0.1, Survey(g, new Vector2d(105, 205), new Vector2d(118, 245), 0.01), Survey(g, new Vector2d(135, 205), new Vector2d(150, 245), 0.01));
+            AssertCoversExactlyTheData(g, t.Result);
+            Assert.True(t.SurfaceError <= 0.1);
+            var bad = new TerrainGridTin { Grid = g, Breaklines = { new TerrainBreakline(new[] { new Vector3d(105, 205, 1), new Vector3d(118, 245, double.NaN) }, TerrainBreaklineHeights.FromInput) } };
+            Assert.False(bad.Compute());
+            Assert.Equal(TerrainGridTinStatus.InvalidInput, bad.Status);
+            // a non-finite z of a FromGrid line is ignored
+            Assert.True(new TerrainGridTin { Grid = g, Breaklines = { new TerrainBreakline(new[] { new Vector3d(105, 205, double.NaN), new Vector3d(118, 245, 0) }) } }.Compute());
+        }
+
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void FromInput_Invariance_ScaleAndTranslation(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) return;
+            HeightGrid g0 = Smooth(49, 12.5, -7.25, 0.5);
+            TerrainBreakline l0 = Survey(g0, new Vector2d(15, -4), new Vector2d(33, 14), 0.02);
+            HeightGrid Map(HeightGrid g) => new HeightGrid(g.Z.Select(v => s.Scale * v + s.Translation.z).ToArray(), g.NX, g.NY, s.Scale * g.X0 + s.Translation.x, s.Scale * g.Y0 + s.Translation.y, s.Scale * g.CellSize);
+            var l = new TerrainBreakline(l0.Points.Select((p, i) => new Vector3d(s.Scale * p.x + s.Translation.x, s.Scale * p.y + s.Translation.y, s.Scale * l0.Z[i] + s.Translation.z)), TerrainBreaklineHeights.FromInput);
+            TerrainGridTin t = Run(Map(g0), 0.1 * s.Scale, l);
+            Assert.True(t.SurfaceError <= 0.1 * s.Scale);
+            AssertHeightField(t.Result);
+            if (s.IsExact) {
+                TerrainGridTin t1 = Run(g0, 0.1, l0);
+                Assert.Equal(t1.Result.VertexCount, t.Result.VertexCount);
+                for (int v = 0; v < t1.Result.MaxVertexID; ++v) {
+                    Vector3d a = t1.Result.GetVertex(v), b = t.Result.GetVertex(v);
+                    Assert.Equal(s.Scale * a.x, b.x); Assert.Equal(s.Scale * a.y, b.y); Assert.Equal(s.Scale * a.z, b.z);
+                }
+                for (int tr = 0; tr < t1.Result.MaxTriangleID; ++tr) Assert.Equal(t1.Result.GetTriangle(tr), t.Result.GetTriangle(tr));
+                Assert.InRange(Math.Abs(t.BreaklineError - s.Scale * t1.BreaklineError), 0, 1e-9 * s.Scale);      // (the rounding margin is not scale invariant)
+            }
+        }
+
+        [Fact]
+        public void FromInput_ComputeTwice_AndRepeated_GiveTheSameResult()
+        {
+            HeightGrid g = Smooth(65);
+            TerrainBreakline Line() => Survey(g, SurveyFrom, SurveyTo, 0.03);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 0.1, Breaklines = { Line(), Survey(g, new Vector2d(115, 240), new Vector2d(145, 210), 0.01) } };
+            Assert.True(t.Compute());
+            DMesh3 first = t.Result; double err = t.BreaklineError;
+            Assert.True(t.Compute());
+            AssertSameMesh(first, t.Result);
+            Assert.Equal(err, t.BreaklineError);
+            for (int k = 0; k < 3; ++k) {
+                var u = new TerrainGridTin { Grid = g, Epsilon = 0.1, Breaklines = { Line(), Survey(g, new Vector2d(115, 240), new Vector2d(145, 210), 0.01) } };
+                Assert.True(u.Compute());
+                AssertSameMesh(first, u.Result);
+            }
+        }
+
+        // ---- world-coordinate rounding (UTM-sized coordinates) ----
+
+        /// <summary>A steep, rough terrain (neighbouring nodes differ by up to 40) at the given origin.</summary>
+        static HeightGrid SteepTerrain(int n, double x0, double y0, int seed)
+        {
+            var r = new Random(seed);
+            var z = new double[n * n];
+            for (int k = 0; k < z.Length; ++k) z[k] = Math.Round(r.NextDouble() * 40 * (k % 3 == 0 ? 1 : 0.2), 3);
+            return new HeightGrid(z, n, n, x0, y0, 1);
+        }
+
+        [Fact]
+        public void WorldRounding_IsPartOfTheMargin_SoAnEpsilonBelowItIsRejected()
+        {
+            // rounding x = X0 + i to a double moves a vertex by about 1e-10 at UTM; with neighbouring heights 40 apart that is a height error of about 1e-8
+            double eps = 5e-9;
+            var utm = new TerrainGridTin { Grid = SteepTerrain(17, 632117.25, 5712043.5, 1), Epsilon = eps };
+            Assert.False(utm.Compute());
+            Assert.Equal(TerrainGridTinStatus.InvalidInput, utm.Status);
+            Assert.Contains("rounding margin", utm.Message);
+            // the same terrain near the origin has none of it
+            Assert.True(new TerrainGridTin { Grid = SteepTerrain(17, 0, 0, 1), Epsilon = eps }.Compute());
+            // and a flat terrain at UTM is not affected by the origin
+            Assert.True(new TerrainGridTin { Grid = new HeightGrid(new double[17 * 17], 17, 17, 632117.25, 5712043.5, 1), Epsilon = eps }.Compute());
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void WorldRounding_ResultInWorldCoordinates_IsWithinTheReportedError(int seed)
+        {
+            HeightGrid g = SteepTerrain(33, 632117.25, 5712043.5, seed);
+            var rand = new Random(seed + 100);
+            var t = new TerrainGridTin { Grid = g, Epsilon = 3e-7 };
+            for (int l = 0; l < 3; ++l)
+                t.Breaklines.Add(new TerrainBreakline(Enumerable.Range(0, 4).Select(_ => new Vector2d(g.X0 + 1 + rand.NextDouble() * 30, g.Y0 + 1 + rand.NextDouble() * 30))));
+            Assert.True(t.Compute(), t.Status + " " + t.Message);
+            Assert.True(t.SurfaceError <= t.Epsilon);
+            // the scan of the vertices as they are written (world coordinates)
+            TerrainGridTin.ErrorOfTin(g, t.Result, out _, out double world);
+            Assert.True(world <= t.SurfaceError, $"world {world:R} reported {t.SurfaceError:R}");
+        }
+
         [Fact]
         public void Epsilon_BelowTheRoundingMargin_IsRejected()
         {

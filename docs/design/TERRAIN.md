@@ -1330,6 +1330,16 @@ Use case: cut / fill per block-model cell or per grid cell, for reserves and sch
 
 - **2D cells (columns):** clip the overlay polygons (D linear) by the cell lines in XY and integrate exactly, the
   same integration as 5.7. Simple, no 3D clipping needed.
+- **Decision (2026-11-09, close-out):** build the 2D columns now, as `gs.TerrainCellVolumes` (`mesh_ops/TerrainCellVolumes.cs`, CLI `cell_volumes`);
+  3D blocks stay parked until a use case. Surfaces are height fields as `DMesh3` (a `HeightGrid` enters as its grid TIN, `HeightGrid.BuildMesh`, which
+  is exactly its surface; a grid against a TIN is therefore the same call). The overlay polygons of `TerrainVolumeDifference` (both surfaces linear on
+  each) are clipped by the cell rectangles of an axis-aligned lattice and integrated with the same split at the zero of the difference, relative to the
+  same local origin. **Accuracy:** exact up to double rounding; the sum over all cells equals the `TerrainVolumeDifference` total (the same polygons,
+  split) within a relative 1e-12 of cut + fill in the tests (`SumOverTheCells_IsTheTotalOfTerrainVolumeDifference`), the part outside the lattice is
+  reported (total minus cells), swapping the surfaces swaps cut and fill cell by cell, and a 2^k scaling gives the cells scaled bit for bit. The per-cell
+  contributions are collected per triangle of the first surface in traversal order and summed serially, so threads do not change the bits. Cost: the
+  total pass plus one clipping and integration per (polygon, cell) pair. No new source: the clipping is Sutherland-Hodgman against a convex polygon, as
+  in `TerrainVolumeDifference`.
 - **3D blocks (z-extent):** per column, integrate the clamp of [lower, upper] surface to [z0, z1]. This is
   piecewise linear after splitting the polygons at the lines where either surface crosses z0 or z1, so it is
   exact again in 2D.
