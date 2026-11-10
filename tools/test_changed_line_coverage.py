@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import shutil
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,29 @@ class Repository(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(result["covered_lines"], 2)
         self.assertIn("100% required", (self.root / "summary.md").read_text())
+
+    def test_slow_coverage_dir_excuses_only_lines_the_slow_tier_hits(self):
+        slow = self.root / "slow"
+        fast_results, self.results = self.results, slow
+        self.report("core", "geometry3Sharp", {"math/A.cs": {2: 0, 4: 3}})
+        self.results = fast_results
+        code, result = self.invoke("--slow-coverage-dir", str(slow))
+        self.assertEqual(code, 0)
+        self.assertEqual(result["covered_only_by_slow"], {"math/A.cs": [4]})
+        self.assertTrue(any(r.startswith("slow: ") for r in result["reports"]))
+        # the Slow tier does not hit the line either: still a failure
+        self.results = slow
+        self.report("core", "geometry3Sharp", {"math/A.cs": {2: 0, 4: 0}})
+        self.results = fast_results
+        code, result = self.invoke("--slow-coverage-dir", str(slow))
+        self.assertEqual((code, result["uncovered"]), (1, {"math/A.cs": [4]}))
+        # no report for the Slow run, or one for another assembly: incomplete evidence
+        self.results = slow
+        self.report("core", "g3cli", {"math/A.cs": {4: 1}})
+        self.results = fast_results
+        self.assertEqual(self.invoke("--slow-coverage-dir", str(slow))[0], 2)
+        shutil.rmtree(slow / "core")
+        self.assertEqual(self.invoke("--slow-coverage-dir", str(slow))[0], 2)
 
     def test_merge_base_excludes_target_branch_only_edits(self):
         head = self.run_git("rev-parse", "HEAD").strip()

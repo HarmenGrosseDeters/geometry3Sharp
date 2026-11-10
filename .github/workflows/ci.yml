@@ -171,6 +171,9 @@ jobs:
       - name: Build
         run: dotnet build tests/geometry3Sharp.Tests -c Release
       - name: Fast tier under coverage (core, CLI, Clipper2 package)
+        # (a test with a wall-clock budget can fail under the instrumentation, which makes the run about 3x slower: linux is the
+        # test run, this one only collects the reports, so a failing test does not fail the step; no report fails the gate)
+        continue-on-error: true
         run: |
           dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category!=Slow&Category!=Nightly" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core
           dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
@@ -178,10 +181,10 @@ jobs:
       - name: Changed-line coverage (fast tier)
         id: gate
         continue-on-error: true
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set +e
+          # (the first parent of the tested merge commit is the base it was merged into: the event's base.sha is stale on re-runs)
+          BASE_SHA=$(git rev-parse HEAD^1)
           python3 tools/changed_line_coverage.py --base "$BASE_SHA" --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
@@ -191,9 +194,11 @@ jobs:
         run: dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "Category=Slow" --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results-slow/core
       - name: Changed-line coverage (fast and Slow tier)
         if: steps.gate.outputs.code == '1'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 tools/changed_line_coverage.py --base "$BASE_SHA" --coverage-dir test-results --slow-coverage-dir test-results-slow --json test-results/changed-line-coverage-with-slow.json --summary "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/changed_line_coverage.py --base "$(git rev-parse HEAD^1)" --coverage-dir test-results --slow-coverage-dir test-results-slow --json test-results/changed-line-coverage-with-slow.json --summary "$GITHUB_STEP_SUMMARY"
+      - name: Replay the gate on the last merged PRs (impact measurement, tools/coverage/replay_merged_prs.py)
+        if: always()
+        continue-on-error: true
+        run: python3 tools/coverage/replay_merged_prs.py test-results/replay.json --coverage-dir test-results >> "$GITHUB_STEP_SUMMARY"
       - name: Incomplete coverage evidence
         if: steps.gate.outputs.code != '' && steps.gate.outputs.code != '0' && steps.gate.outputs.code != '1'
         run: exit 1

@@ -34,6 +34,9 @@ SHARED = (
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/g3cli/TrianglePolyFormat.cs",
+    "tools/changed_line_coverage.py",       # the coverage job of ci.yml runs the gate and its tests
+    "tools/test_changed_line_coverage.py",
+    "tools/coverage/",
     "docs/examples/",
     "docs/OPERATIONS.md",             # DocExamplesTests
     "docs/ROBUSTNESS_SWEEP.md",      # RobustnessSweepTests

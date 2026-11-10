@@ -343,6 +343,9 @@ the module outside the range, or "not guaranteed".
   gate. A line neither tier hits fails. Nightly tests are not counted: a changed line only a Nightly test hits needs a
   test in the PR tiers. Exemptions: none beyond the scope below; a line that cannot be hit by a test (defensive code) is
   discussed in the PR, not excluded by a marker.
+- The test steps of the `coverage` job do not fail the job: a test with a wall-clock budget can fail under the
+  instrumentation (about 3x slower), `linux` is the test run, and a missing report fails the gate. The base of the
+  comparison is the first parent of the tested merge commit (the event's `base.sha` is stale on re-runs).
 - Compare the tested checkout (GitHub's PR merge commit) with its merge base against the event's pinned base SHA.
   Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line
   records define executable lines, so comments and whitespace within a measured file need no hits.
