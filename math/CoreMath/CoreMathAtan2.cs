@@ -29,7 +29,7 @@ namespace g3.CoreMathPort;
 internal static partial class CoreMath
 {
 
-    private readonly record struct Tint(ulong m, ulong h, ulong l, long ex, ulong sgn)
+    internal readonly record struct Tint(ulong m, ulong h, ulong l, long ex, ulong sgn)
     {
         internal static Tint Zero => new Tint(0, 0, 0, -1076, 0);
         internal static Tint One => new Tint(0, 0x8000000000000000ul, 0, 1, 0);
@@ -233,9 +233,10 @@ internal static partial class CoreMath
             }
             else if (k < 128)
             {
+                // (the port had lost the bits of b.l that move into a_h: C is (b->_h << k) | ((u128) b->_l << (k - 64)))
                 a_l = 0;
                 a_m = b.l << k;
-                a_h = b.m << k;
+                a_h = b.m << k | b.l >> -k;
             }
             else if (k < 192)
             {

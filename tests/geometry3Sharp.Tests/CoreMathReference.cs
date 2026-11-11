@@ -16,7 +16,8 @@ namespace g3.Tests
         static readonly BigInteger HalfPi = Pi >> 1;
         static readonly BigInteger Ln2 = ComputeLn2();
 
-        static BigInteger Mul(BigInteger a, BigInteger b) { return (a * b) >> W; }
+        // truncating towards zero (a floor would keep a negative series term at -1 forever)
+        static BigInteger Mul(BigInteger a, BigInteger b) { BigInteger p = a * b; return p.Sign >= 0 ? p >> W : -((-p) >> W); }
         static BigInteger Div(BigInteger a, BigInteger b) { return (a << W) / b; }
 
         public static int BitLength(BigInteger a)
