@@ -64,6 +64,15 @@ How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Ko
 
 **Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`.
 
+**Reducer scale-safe quadrics (owner 2026-11-11: documented, on demand only):** after #614 (flip test scales the edges
+outside [1e-70, 1e70]) the `Reducer` reduces a sphere from 1e-300 to 1e307. A residual limit remains (FINDINGS item 6,
+#618): a mesh with nonzero coordinates or coordinate differences about 1e-280 of its extent or smaller is not reduced
+bit-identically to its 2^k copy (squares and products of such components underflow in one copy and stay subnormal in the
+other; 5 of 17 fuzz artifacts, one with a serial-Reducer difference of 25 vs 5 triangles). The result stays valid and
+closed; only the 2^k invariance fails, and only for inputs that real data does not produce. Possible fix: per-triangle
+scaling in `Reducer.tri_info` / `plane_quadric`, as in #614 (bit-identical inside the window, time measured; about 1-2
+days). Do it only if a real input shows the case or if scale-free results become a documented guarantee.
+
 **Reducer / Remesher 2.x, speed (idea, owner asked 2026-11-09; not scheduled):** measured so far: with
 PreventSelfIntersections the Reducer pays the per-collapse self-intersection query (PartitionedReducer #470: 2-3x on
 60-100k triangles, nothing below 20k); the Remesher spends 70-73 % in serial edge operations with the move check, the
