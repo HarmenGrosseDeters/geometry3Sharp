@@ -8,6 +8,8 @@
           <Include>[geometry3Sharp]*,[geometry3Sharp.Clipper2]*,[g3cli]*</Include>
           <IncludeTestAssembly>false</IncludeTestAssembly>
           <UseSourceLink>false</UseSourceLink>
+          <!-- the gate needs one hit per line: SingleHit stops the per-hit counting (an Interlocked increment on every executed line), which made shard 1 of the first coverage.yml run exceed 150 min in hot exact-arithmetic loops -->
+          <SingleHit>true</SingleHit>
         </Configuration>
       </DataCollector>
     </DataCollectors>

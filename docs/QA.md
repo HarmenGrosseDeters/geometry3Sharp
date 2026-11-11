@@ -340,7 +340,7 @@ the module outside the range, or "not guaranteed".
   merges the reports (per line the maximum of the hits; several reports per suite are shards). Two tests with a
   wall-clock budget (`RobustnessSweepTests.Sweep_SameResultUnderSimilarity`, `UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic`)
   fail under the instrumentation and are excluded **in this run only**; the normal CI jobs keep enforcing them. A failing
-  test does not fail a collection step (a missing report fails the gate); `--blame-hang-timeout` names a hanging test.
+  test does not fail a collection step (a missing report fails the gate); `SingleHit` in `tests/coverage.runsettings` (one hit per line is all the gate needs) avoids coverlet's per-hit counters, which made one shard of the first run exceed 150 min; `--blame-hang-timeout` names a hanging test.
 - `tools/changed_line_coverage.py` requires **100% of the changed executable lines** in the core library,
   `addons/geometry3Sharp.Clipper2` and `tools/g3cli` to have at least one hit across those runs. Existing unmodified gaps do
   not fail it. There is no whole-library or branch-coverage threshold.
