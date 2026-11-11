@@ -143,7 +143,7 @@ namespace gs
             if (TargetLeafCellSize > 0)
                 depth = RequiredDepth(bounds, TargetLeafCellSize, PaddingCells);
             if (depth > MaxSupportedDepth)
-                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is too large (cell size too small for the bounds)");
+                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is too large (cell size too small for the bounds, or a grid whose nodes cannot be separate doubles: see RequiredDepth)");
             if (TargetLeafCellSize <= 0 && (1 << depth) <= 2 * PaddingCells)
                 throw new ArgumentException("WindingNumberOctree: MaxDepth too small for the padding");
             MaxDepth = depth;

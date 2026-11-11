@@ -6,7 +6,7 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// The grid of the winding-number contouring needs nodes origin + i * cell that are separate doubles: below 2^-40 of the largest
+    /// The grid of the winding-number contouring needs nodes origin + i * cell that are separate doubles: below 2^-46 of the largest
     /// coordinate they coincide, the edge between two nodes has no direction (0 / 0 = NaN) and the hidden-edge test threw "ray direction
     /// is not normalized" (found by the MeshFuzzPilot's libFuzzer run of MeshRobustRepair on a triangle soup with a part at x = -1.7e69;
     /// a variant took 146 s to get there).
@@ -72,6 +72,7 @@ namespace geometry3Sharp.Tests
             Assert.True(boolean.Compute());
             Assert.NotNull(boolean.Result);
             Assert.True(boolean.Result.TriangleCount > 100);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(boolean.Result, false));
         }
 
         /// <summary>
@@ -80,13 +81,17 @@ namespace geometry3Sharp.Tests
         /// </summary>
         [Theory]
         [InlineData(1e154)]
+        [InlineData(1e160)]
         [InlineData(1e200)]
         public void Boolean_OfHugeMeshes_DoesNotThrow(double radius)
         {
             var a = Octahedron(Vector3d.Zero, radius);
             var b = Octahedron(new Vector3d(0.5 * radius, 0, 0), radius);
             var boolean = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union);
-            boolean.Compute();      // true or false, but no exception
+            // true or false, but no exception. Today a success is an EMPTY mesh: the winding-number field itself overflows at these sizes
+            // (squared distances above 1e308), so it finds no surface; "empty" is pinned so that a change of that is noticed
+            if (boolean.Compute())
+                Assert.Equal("empty", MeshRobustRepair.NotCleanReason(boolean.Result, false));
         }
 
         static DMesh3 Octahedron(Vector3d c, double r)
