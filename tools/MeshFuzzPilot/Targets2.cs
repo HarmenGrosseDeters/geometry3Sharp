@@ -312,35 +312,32 @@ public static partial class Program
             throw new Finding($"{what}: {membershipMismatches} sample points disagree with the winding numbers, first {firstMismatch}");
     }
 
-    /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise </summary>
+    /// <summary>
+    /// The area below which the orientation of a ring is not judged: the ring is oriented on the grid, but its vertices are converted to
+    /// doubles, whose spacing at the coordinates' magnitude can exceed the grid; so 16 squared grid units plus the rounding of a double
+    /// area (8 times 2^-52 times the largest coordinate times the ring's extent). A real wrong orientation (a lobe of 1e-5) is far above it.
+    /// Zero-area rings and rings below it are therefore not flagged (the check was area &lt;= 0 before)
+    /// </summary>
+    static double OrientationSlack(Clipper2Result r, IReadOnlyList<Vector2d> ring)
+    {
+        double maxAbs = 0, x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
+        foreach (Vector2d v in ring) {
+            maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            x0 = Math.Min(x0, v.x); x1 = Math.Max(x1, v.x); y0 = Math.Min(y0, v.y); y1 = Math.Max(y1, v.y);
+        }
+        return 16 * r.Frame.Resolution * r.Frame.Resolution + 8 * Math.Pow(2, -52) * maxAbs * Math.Max(x1 - x0, y1 - y0);
+    }
+
+    /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise (below <see cref="OrientationSlack"/>: not judged) </summary>
     static void Inspect(Clipper2Result r, out bool finite, out bool oriented)
     {
         finite = true; oriented = true;
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
-            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) oriented = false;
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) { oriented = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"inspect: outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, slack {OrientationSlack(r, g.Outer.Vertices):R}, resolution {r.Frame.Resolution:R}: " + string.Join(" ", g.Outer.Vertices.Select(v => $"({v.x:R},{v.y:R})"))); }
             foreach (Polygon2d h in g.Holes)
-                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) >= 0) oriented = false;
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) { oriented = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"inspect: hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, slack {OrientationSlack(r, h.Vertices):R}"); }
         }
-    }
-
-    static bool SegmentsCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
-    {
-        double o1 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x), o2 = (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x);
-        double o3 = (d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x), o4 = (d.x - c.x) * (b.y - c.y) - (d.y - c.y) * (b.x - c.x);
-        return o1 * o2 < 0 && o3 * o4 < 0;
-    }
-
-    /// <summary> does a ring cross itself (two non-adjacent edges cross properly)? </summary>
-    static bool SelfIntersects(IReadOnlyList<Vector2d> ring)
-    {
-        int n = ring.Count;
-        for (int i = 0; i < n; ++i)
-            for (int j = i + 2; j < n; ++j) {
-                if (i == 0 && j == n - 1) continue;
-                if (SegmentsCross(ring[i], ring[(i + 1) % n], ring[j], ring[(j + 1) % n])) return true;
-            }
-        return false;
     }
 
     static void RunClipper(Case c, string what)
@@ -384,9 +381,9 @@ public static partial class Program
         }
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
-            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
             foreach (Polygon2d h in g.Holes)
-                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) >= 0) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
         }
         double margin = 4 * r.Frame.Resolution;
         var box = new AxisAlignedBox2d(ringA[0]);
@@ -407,10 +404,6 @@ public static partial class Program
                     if (mismatches++ == 0) first = $"{p} (in A {ia}, in B {ib}, result {count > 0}, {op})";
                 }
             }
-        // open finding (FINDINGS.md): a self-intersecting input ring can give an outer ring of the wrong orientation (negative area); gated
-        // unless MESH_FUZZ_STRICT=1
-        if (!orientations && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1" && (SelfIntersects(ringA) || SelfIntersects(ringB)))
-            orientations = true;
         CheckClipper(what, r.Status.ToString(), "", finite, orientations, mismatches, first);
         // Offset and Simplify of the union
         Clipper2Result u = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { pa }, new[] { pb });

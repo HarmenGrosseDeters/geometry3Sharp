@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Clipper2Lib;
 
 namespace g3.Clipper2
@@ -193,29 +194,106 @@ namespace g3.Clipper2
         }
 
         /// <summary>
-        /// The polygons of a Clipper2 PolyTree: one GeneralPolygon2d per outer boundary, with its holes; islands inside
-        /// a hole are polygons of their own (after their enclosing polygon in the list). Outer boundaries are
-        /// counterclockwise and holes clockwise, as on the grid (the conversion to double does not change that except
-        /// for rings of a few grid units of area far from the origin). Holes are not checked again for containment.
+        /// The polygons of a Clipper2 PolyTree: one GeneralPolygon2d per outer boundary, with its holes; islands inside a hole are
+        /// polygons of their own. Outer boundaries are counterclockwise and holes clockwise: each ring is oriented by its grid area
+        /// (the conversion to double does not change that except for rings of a few grid units of area far from the origin). The
+        /// tree decides outer or hole, except where it is certainly wrong, which a self-touching or self-overlapping result makes it:
+        /// a path nested as a hole that has the area sign of its parent is a region of its own (subtracting it would drop its area);
+        /// a path of negative area at the top level of the tree is a hole of the smallest positive path that contains it (all its
+        /// vertices on or inside, one of its vertices or edge midpoints strictly inside), and a filled lobe of negative winding
+        /// (reversed to an outer boundary) if none does. Such a path is then no polygon of its own, so the polygons are the tree's
+        /// outer boundaries in pre-order, minus the reclassified ones, plus the reclassified ones nested as holes.
         /// </summary>
         public List<GeneralPolygon2d> ToGeneralPolygons(PolyTree64 tree)
         {
+            var entries = new List<(Path64 path, double area, bool treeHole, int parent)>();
+            void Collect(PolyPath64 node, int parent)
+            {
+                for (int i = 0; i < node.Count; ++i) {
+                    PolyPath64 child = node.Child(i);
+                    entries.Add((child.Polygon, Clipper.Area(child.Polygon), child.IsHole, parent));
+                    Collect(child, entries.Count - 1);
+                }
+            }
+            Collect(tree, -1);
+            int n = entries.Count;
+            var holeOf = new int[n];            // -1: an outer boundary
+            List<int> positives = null;         // by area, for the negative paths at the top level of the tree
+            for (int i = 0; i < n; ++i) {
+                holeOf[i] = -1;
+                var e = entries[i];
+                if (e.treeHole) {
+                    var parent = entries[e.parent];
+                    bool sameSign = parent.area != 0 && e.area != 0 && (parent.area > 0) == (e.area > 0);
+                    if (!sameSign && holeOf[e.parent] < 0) holeOf[i] = e.parent;
+                } else if (e.parent < 0 && e.area < 0) {
+                    if (positives == null)
+                        positives = Enumerable.Range(0, n).Where(j => entries[j].area > 0).OrderBy(j => entries[j].area).ToList();
+                    Rect64 box = Clipper.GetBounds(e.path);
+                    foreach (int j in positives) {
+                        if (entries[j].area <= -e.area) continue;       // a hole is smaller than what holds it
+                        Rect64 outer = Clipper.GetBounds(entries[j].path);
+                        if (box.left < outer.left || box.right > outer.right || box.top < outer.top || box.bottom > outer.bottom) continue;
+                        if (Contains(entries[j].path, e.path)) { holeOf[i] = j; break; }
+                    }
+                }
+            }
+            // a hole whose holder is itself a hole (a candidate that was reclassified later) is an outer boundary
+            for (int i = 0; i < n; ++i)
+                if (holeOf[i] >= 0 && holeOf[holeOf[i]] >= 0) holeOf[i] = -1;
             var result = new List<GeneralPolygon2d>();
-            for (int i = 0; i < tree.Count; ++i)
-                AddOuter(tree.Child(i), result);
+            var polygonOf = new Dictionary<int, GeneralPolygon2d>();
+            for (int i = 0; i < n; ++i) {
+                if (holeOf[i] >= 0) continue;
+                var polygon = new GeneralPolygon2d(ToPolygon2d(Oriented(new Path64(entries[i].path), true)));
+                polygonOf[i] = polygon;
+                result.Add(polygon);
+            }
+            for (int i = 0; i < n; ++i)
+                if (holeOf[i] >= 0)
+                    polygonOf[holeOf[i]].AddHole(ToPolygon2d(Oriented(new Path64(entries[i].path), false)), false, false);
             return result;
         }
 
-        void AddOuter(PolyPath64 node, List<GeneralPolygon2d> result)
+        /// <summary>
+        /// The path lies in the holder: every vertex is on it or inside (the even-odd test, or a non-zero winding for a self-overlapping
+        /// holder), and some vertex or edge midpoint is strictly inside, so that a path spanning a notch with its corners on the
+        /// holder's boundary is not taken for a hole. The holder's coordinates are doubled (they are below 2^52) so that an edge
+        /// midpoint is a grid point and no integer division moves it; the winding number uses double cross products, exact up to 2^53, so
+        /// it can misjudge a point one grid unit outside an edge only for a frame set explicitly near the limit of 2^52. The cost is the product of the vertex counts, with the bounding boxes as the only prefilter; it is
+        /// paid only for a negative path at the top level of the tree, which Clipper2 reports for degenerate input only
+        /// </summary>
+        static bool Contains(Path64 holder, Path64 path)
         {
-            var polygon = new GeneralPolygon2d(ToPolygon2d(node.Polygon));
-            result.Add(polygon);
-            for (int i = 0; i < node.Count; ++i) {
-                PolyPath64 hole = node.Child(i);
-                polygon.AddHole(ToPolygon2d(hole.Polygon), false, false);
-                for (int j = 0; j < hole.Count; ++j)
-                    AddOuter(hole.Child(j), result);
+            var doubled = new Path64(holder.Count);
+            foreach (Point64 h in holder) doubled.Add(new Point64(2 * h.X, 2 * h.Y));
+            bool Inside(Point64 q) => Clipper.PointInPolygon(q, doubled) != PointInPolygonResult.IsOutside || Winding(doubled, q) != 0;
+            bool Strict(Point64 q)
+            {
+                PointInPolygonResult where = Clipper.PointInPolygon(q, doubled);
+                return where == PointInPolygonResult.IsInside || (where == PointInPolygonResult.IsOutside && Winding(doubled, q) != 0);
             }
+            bool strict = false;
+            for (int k = 0; k < path.Count; ++k) {
+                Point64 q = path[k], next = path[(k + 1) % path.Count];
+                Point64 q2 = new Point64(2 * q.X, 2 * q.Y);
+                if (!Inside(q2)) return false;
+                strict |= Strict(q2) || Strict(new Point64(q.X + next.X, q.Y + next.Y));
+            }
+            return strict;
+        }
+
+        /// <summary> the winding number of a path around a point (the crossing rule; double cross products, as Clipper2's own) </summary>
+        static int Winding(Path64 path, Point64 p)
+        {
+            int winding = 0;
+            for (int i = 0; i < path.Count; ++i) {
+                Point64 a = path[i], b = path[(i + 1) % path.Count];
+                double cross = (double)(b.X - a.X) * (p.Y - a.Y) - (double)(p.X - a.X) * (b.Y - a.Y);
+                if (a.Y <= p.Y) { if (b.Y > p.Y && cross > 0) ++winding; }
+                else if (b.Y <= p.Y && cross < 0) --winding;
+            }
+            return winding;
         }
 
         public override string ToString()
