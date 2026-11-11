@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - 'tools/DeterminismHarness/**'
+      - 'benchmarks/CoreMathBenchmark/**'
       - '.github/workflows/determinism.yml'
   workflow_dispatch:
 
@@ -29,6 +30,10 @@ jobs:
           $H run --out out/linux-net10-serial --serial
           # the partitioning of the library's parallel loops depends on the processor count
           for n in 1 2 3 8; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/linux-net10-cpu$n; done
+      - name: Cost of the correctly rounded CoreMath (benchmarks/CoreMathBenchmark)
+        run: |
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
       - uses: actions/upload-artifact@v4
         with:
           name: traces-linux
@@ -58,6 +63,8 @@ jobs:
           $H run --out out/${{ matrix.name }}-net10-parallel2
           $H run --out out/${{ matrix.name }}-net10-serial --serial
           for n in 1 3; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/${{ matrix.name }}-net10-cpu$n; done
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
       - uses: actions/upload-artifact@v4
         with:
           name: traces-${{ matrix.name }}
@@ -86,6 +93,12 @@ jobs:
         run: |
           dotnet build tools/DeterminismHarness -c Release -f net48 -p:PlatformTarget=x86 -o tools/DeterminismHarness/bin/x86
           tools/DeterminismHarness/bin/x86/DeterminismHarness.exe run --out out/windows-net48x86-serial --serial
+      - name: Cost of the correctly rounded CoreMath, net10.0 (hardware FMA) and net48 (software FMA)
+        shell: bash
+        run: |
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
+          benchmarks/CoreMathBenchmark/bin/Release/net48/CoreMathBenchmark.exe
       - uses: actions/upload-artifact@v4
         with:
           name: traces-windows
