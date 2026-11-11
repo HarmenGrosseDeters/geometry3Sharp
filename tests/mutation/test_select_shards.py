@@ -14,8 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 9)]
-BOOLEAN = ["boolean-%d" % i for i in range(1, 5)]
-ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
+BOOLEAN = ["boolean-%d" % i for i in range(1, 8)]
+ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "boolean-5", "boolean-6", "boolean-7", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
 
@@ -65,7 +65,7 @@ class SelectShards(unittest.TestCase):
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
         self.assertEqual(("none", dict({b: "tests" for b in BOOLEAN}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
-        self.assertEqual(("none", {b: "tests" for b in BOOLEAN[1:]}), run(TESTS + "ExactBooleanFilterTests.cs"))     # (the parts from front_winding on)
+        self.assertEqual(("none", {b: "tests" for b in BOOLEAN[2:]}), run(TESTS + "ExactBooleanFilterTests.cs"))     # (the parts from front_winding on)
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
 
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
