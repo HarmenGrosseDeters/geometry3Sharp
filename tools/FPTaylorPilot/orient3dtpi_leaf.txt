@@ -1,0 +1,9 @@
+Variables
+ float64 ax in [1, 2], float64 bx in [1, 2]
+;
+Definitions
+ u rnd64= bx - ax
+;
+Expressions
+ rnd64(u)
+;

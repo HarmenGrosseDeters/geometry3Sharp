@@ -81,34 +81,46 @@ changes to the modeled input, source expressions, or generator rules. The input 
 subnormal coordinates; no claim is made for an ungated execution of the real filter. The other cross-product
 components, gate, sign decision and complete predicate remain outside this check.
 
-## Further Orient3dLPI components: ny, nz and the denominator d
+## Further Orient3dLPI and Orient3dTPI expressions (issue #625)
 
-Issue #625 extends the comparisons to the other cross-product components and the line-plane denominator
-of `Orient3dLPI` (`indirect.spec`). Each model is one expression under the same restricted domain as above:
-`p`, `q`, `s`, `t` coordinates in `[1,2]` and `r` coordinates in `[0,0.5]`, with each operation rounded to
-binary64 as in the spec's leaves.
+These comparisons extend the two above to the other leaves and composed expressions of `indirect.spec`.
+Each model is one expression under a restricted domain: points in `[1,2]`, `r` (LPI) in `[0,0.5]`, and the
+Orient3d point `c` (or `o` in the TPI model) in `[1,2]`. Each operation is rounded to binary64, as in the spec.
+The generator bound is the relative rule of `Compiler.cs` applied to the expression tree, times the magnitude
+of the expression over that domain; the derivations are in `compare_filter_expressions.py`.
 
-- `orient3dlpi_ny.txt`, `orient3dlpi_nz.txt`: `ny = uz*wx - ux*wz` and `nz = ux*wy - uy*wx`. Both have
-  the structure of `nx`, so the generator bound is the same `8C` as for `nx`.
-- `orient3dlpi_d.txt`: the full chain `nx, ny, nz`, then `lp = nx*prx + ny*pry + nz*prz`, `lq` likewise with
-  `q - r`, and `d = lq - lp`. Magnitudes over the domain: leaves at most 2, `|nx|,|ny|,|nz| <= 8`, each
-  product of a component and a leaf at most 16, `lp` and `lq` at most 48, `d` at most 96. Applying the
-  generator's relative rules to this tree gives the absolute bound `96 C_d`, where
-  `C_d = 9u + O(u^2)` and `96 C_d` is about `864.0000000000005 u` (`u = 2^-53`).
+- LPI leaf `prx = p.x - r.x`: magnitude at most 2, bound `2u`.
+- `ny`, `nz`: the same structure as `nx`, bound `8C` as in the `nx` comparison.
+- `d = lq - lp` with the full chain `nx, ny, nz`, `lp = nx*prx + ny*pry + nz*prz`, `lq` likewise with `q - r`.
+  Magnitudes: `|nx|,|ny|,|nz| <= 8`, `lp, lq <= 48`, `d <= 96`. Bound `96 C_d` (about `864u`).
+- LPI coordinate numerator `Nx = pcx*lq - qcx*lp` with `pcx = p.x - c.x`, `|pcx| <= 1`: magnitude 96,
+  bound `96 C` (about `1056u`).
+- TPI leaf `u1_x = b1.x - a1.x`: magnitude at most 1, bound `u`.
+- TPI `n1x = u1_y*w1_z - u1_z*w1_y`: magnitude at most 2, bound `2 C_nx` (about `8u`).
+- TPI `D1 = n1x*a1cx + n1y*a1cy + n1z*a1cz` with `a1cx = a1.x - c.x`: magnitude 6, bound `6 C` (about `48u`).
 
 ```sh
-python3 tools/FPTaylorPilot/compare_lpi_components.py "$base" ny nz d
-python3 -m unittest tools/FPTaylorPilot/test_compare_lpi_components.py
+python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base"          # all expressions
+python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base" d coord_x  # a subset
+python3 -m unittest tools/FPTaylorPilot/test_compare_filter_expressions.py
 ```
 
 | Expression | FPTaylor bound (hex) | FPTaylor (decimal) | Generator bound (decimal) | Ratio | Result |
 |---|---|---|---|---|---|
-| `ny` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
-| `nz` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
-| `d` | `0x1.c480000000001p-46` | 2.51e-14 | 9.59e-14 | 0.262 | pass |
+| LPI `prx` (leaf) | `0x1p-53` | 1.11e-16 | 2.22e-16 | 0.500 | pass |
+| LPI `ny` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| LPI `nz` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| LPI `d` | `0x1.c480000000001p-46` | 2.51e-14 | 9.59e-14 | 0.262 | pass |
+| LPI `Nx` (coordinate) | `0x1.16f8000000001p-45` | 3.10e-14 | 1.17e-13 | 0.264 | pass |
+| TPI leaf `u1_x` | `0x1p-54` | 5.55e-17 | 1.11e-16 | 0.500 | pass |
+| TPI `n1x` | `0x1.0100000000001p-51` | 4.46e-16 | 8.88e-16 | 0.502 | pass |
+| TPI `D1` | `0x1.3000000000001p-49` | 2.11e-15 | 5.33e-15 | 0.396 | pass |
 
 The run was on Linux x86-64 in a Podman container (Ubuntu 24.04), since the owner's machine has no WSL
-distribution; `install.sh` and `run.sh` were run unchanged there. `d` took about 9 minutes in the tool,
-so it is run on demand, not in CI. The leaves `prx`..`qrz` (the `ux` form, same ranges) were not run
-separately. As for the earlier comparisons, each result is a bounded-domain, single-expression check
-(restricted ranges, no gate, no sign decision), not a proof of the filter.
+distribution; `install.sh` and `run.sh` ran unchanged there. The `d` run took about 9 minutes and `Nx` about
+17 minutes (the full set about 35 minutes), so these are on-demand checks, not CI.
+
+Not covered: the full determinant `t1 - t2 + t3` and the sign decision of `Orient3dLPI` and `Orient3dTPI`,
+the other TPI planes and the other cross-product components of the TPI model, and any input outside the
+restricted ranges above. As for the earlier comparisons, each result is a bounded-domain, single-expression
+check, not a proof of the filter.
