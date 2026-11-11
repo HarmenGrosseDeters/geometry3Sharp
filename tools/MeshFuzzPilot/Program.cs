@@ -687,6 +687,17 @@ public static partial class Program
             if (!HasTinyComponents(moved))
                 throw new InvalidOperationException("a coordinate of " + tiny + " is not a tiny component");
         }
+        // the coordinate alone: the vertex is tiny, its neighbours have large differences on that axis
+        DMesh3 coordOnly = new DMesh3(unitTet);
+        coordOnly.SetVertex(0, new Vector3d(Math.Pow(2, -300), 0, 0));
+        coordOnly.SetVertex(3, new Vector3d(1, 1, 1));
+        coordOnly.SetVertex(2, new Vector3d(1, 0, 0));
+        if (!HasTinyComponents(coordOnly))
+            throw new InvalidOperationException("a coordinate of 2^-300 among large ones is not a tiny component");
+        // the domain is judged on the normalized mesh: a mesh that is uniformly tiny is not tiny
+        DMesh3 uniformTiny = FlatTetrahedron(Math.Pow(2, -300));
+        if (!HasTinyComponents(uniformTiny) || HasTinyComponents(NormalizeWhole(uniformTiny, out _)))
+            throw new InvalidOperationException("a uniformly tiny mesh is judged on its raw coordinates");
         // the edge difference alone: both coordinates are 2^-150 (above the limit), their difference 2^-202 is below it; a coordinate at the limit is in
         DMesh3 edgeOnly = new DMesh3(unitTet);
         edgeOnly.SetVertex(0, new Vector3d(Math.Pow(2, -150), 0, 0));
