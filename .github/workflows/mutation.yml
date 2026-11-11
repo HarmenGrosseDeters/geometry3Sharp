@@ -1,6 +1,7 @@
 name: Mutation tests
 
-# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and on ready PRs (not drafts) only incrementally for the configs that the PR touches
+# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full nightly on master and on
+# demand, and on ready PRs (not drafts) only incrementally for the configs that the PR touches
 # (tests/mutation/select_shards.py). Exact Boolean 3.0 process (owner 2026-11-11): no full shard run on a PR (a full shard
 # is a 3-6 h runner slot): a shard without a fitting baseline (config or tools changed, split offsets moved, no baseline
 # in the cache) runs nothing on the PR and says "full run on master" in its summary; the nightly run seeds the baselines.
@@ -69,17 +70,22 @@ on:
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
-    - cron: '23 3 * * 1'        # Mondays 03:23 UTC
+    # nightly, every config in full on master (it replaces the weekly run, which was a subset of this one); the baselines
+    # of the incremental PR runs come from it. About 25 shards: with max-parallel 12 it takes two to three waves, so it
+    # ends by about noon UTC
+    - cron: '17 1 * * *'        # every night 01:17 UTC
   workflow_dispatch:
     inputs:
       shards:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
-# a new push to the same PR cancels the running run
+# a new push to the same PR cancels the running run. The runs on master (nightly, dispatch) share one group and queue:
+# cancel-in-progress is only for pull_request events, so a nightly run never cancels a dispatch that is under way, nor the
+# reverse (GitHub keeps one running and one pending run per group: a third one replaces the pending one)
 concurrency:
-  group: mutation-${{ github.ref }}
-  cancel-in-progress: true
+  group: mutation-${{ github.event_name == 'pull_request' && github.ref || 'full-runs' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

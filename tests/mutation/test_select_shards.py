@@ -382,9 +382,15 @@ class SelectShards(unittest.TestCase):
         arithmetic, mesh = select(["tests/mutation/run_stryker.sh"], CONFIGS, run_all=True, only={"planar"})
         self.assertEqual([{"shard": "planar", "mode": "full"}], mesh)
 
-    def test_no_full_run_on_a_pull_request_in_the_workflow(self):
+    def test_the_30_process_in_the_workflow(self):
+        # 3.0 process (README): nightly full runs on master, no full run on a PR, runs on master queue
         with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
             wf = f.read()
+        self.assertRegex(wf, r"cron: '\d+ \d+ \* \* \*'")                      # every night
+        self.assertNotRegex(wf, r"cron: '[^']*\* \* [1-7]'")                       # no weekly run beside it
+        self.assertEqual(1, wf.count("cron:"))
+        # one group for the runs on master, and cancel-in-progress only for pull requests
+        self.assertIn("group: mutation-${{ github.event_name == 'pull_request' && github.ref || 'full-runs' }}", wf)
         # both Stryker steps tell run_stryker.sh that this is a PR (no full run there)
         self.assertEqual(2, wf.count("NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}"))
         # a PR stores no baseline (it ran no full shard), and a skipped shard has no report to find
@@ -405,7 +411,7 @@ class SelectShards(unittest.TestCase):
         self.assertNotIn("paths-ignore", on)
         self.assertIn("schedule:", on)
         self.assertIn("workflow_dispatch:", on)
-        self.assertIn("cancel-in-progress: true", wf)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)     # (a nightly run must not cancel a dispatch on master)
         jobs = wf[wf.index("\njobs:"):]
         changes = jobs[jobs.index("\n  changes:"):jobs.index("\n  exact-arithmetic:")]
         self.assertIn("set -o pipefail", changes)
