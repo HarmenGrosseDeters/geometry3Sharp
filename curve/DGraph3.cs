@@ -248,8 +248,9 @@ namespace g3
         {
             foreach (int vID in VertexIndices()) {
                 Vector3d v = GetVertex(vID);
-                CheckOrFailF(double.IsNaN(v.LengthSquared) == false);
-                CheckOrFailF(double.IsInfinity(v.LengthSquared) == false);
+                // (the components, not the squared length: that overflows above a coordinate of about 1e154, see DMesh3.CheckValidity)
+                CheckOrFailF(double.IsNaN(v.x) == false && double.IsNaN(v.y) == false && double.IsNaN(v.z) == false);
+                CheckOrFailF(double.IsInfinity(v.x) == false && double.IsInfinity(v.y) == false && double.IsInfinity(v.z) == false);
             }
         }
 

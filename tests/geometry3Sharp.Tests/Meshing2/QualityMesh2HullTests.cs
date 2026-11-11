@@ -58,16 +58,29 @@ namespace geometry3Sharp.Tests
             var input = HullSplitNearASegment();
             var moved = new Mesh2Input { Segments = input.Segments, MinAngleDeg = input.MinAngleDeg, SteinerLimit = input.SteinerLimit, X = new double[input.Count], Y = new double[input.Count] };
             for (int i = 0; i < input.Count; ++i) { var q = s.Apply(new Vector3d(input.X[i], input.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
-            var report = Judge(moved, out var output);
-            Assert.Equal(Mesh2Status.Success, output.Status);
-            Assert.True(report.Ok, name + ": " + report);
             if (s.IsExact) {
-                Judge(input, out var plain);
-                Assert.Equal(plain.VX.Select(v => v * s.Scale), output.VX);
-                Assert.Equal(plain.VY.Select(v => v * s.Scale), output.VY);
-                Assert.Equal(plain.Triangles.SelectMany(t => t), output.Triangles.SelectMany(t => t));
+                // (the oracle judges the plain case once, in PlainResult; a result bit for bit equal to the scaled plain one, which
+                // passed, passes with the scaled coordinates: judging it again is 85 % of the time of the row)
+                var scaled = new QualityMesh2Candidate().Run(moved);
+                Assert.Equal(Mesh2Status.Success, scaled.Status);
+                var plain = PlainResult.Value;
+                Assert.Equal(plain.VX.Select(v => v * s.Scale), scaled.VX);
+                Assert.Equal(plain.VY.Select(v => v * s.Scale), scaled.VY);
+                Assert.Equal(plain.Triangles.SelectMany(t => t), scaled.Triangles.SelectMany(t => t));
+            } else {
+                var report = Judge(moved, out var output);
+                Assert.Equal(Mesh2Status.Success, output.Status);
+                Assert.True(report.Ok, name + ": " + report);
             }
         }
+
+        // the unmoved case, run and judged by the oracle once for the class
+        static readonly Lazy<Mesh2Output> PlainResult = new Lazy<Mesh2Output>(() => {
+            var report = Judge(HullSplitNearASegment(), out var output);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.True(report.Ok, report.ToString());
+            return output;
+        });
 
         /// <summary>
         /// The Herne tiles themselves (polylines of ALKIS parcels and buildings; not committed): with G3_HERNE_DIR set to a folder of

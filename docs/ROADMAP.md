@@ -48,7 +48,7 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-08 (evening, Berlin).
+Status on 2026-11-11 (evening, Berlin).
 - **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
@@ -59,6 +59,10 @@ Status on 2026-11-08 (evening, Berlin).
   above an extent of about 1e154). Then: the final Thingi10K run, the control run and the thingi-pairs runs (#418).
   Lévy classification: phase 1 done (#428, no propagation now); phase 2 done
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+- **Exact Boolean 3.0** (in progress, serial, one PR per stage): T3a merged 2026-11-11 (#612, 4af5fcd3: operation-aware
+  cull of Difference / Intersection, CAD 10k n = 500 40.0 -> 7.3 s, terrain n = 200 already within target); T3b
+  `IntersectEach` / `DifferenceEach` in draft #616 (terrain n = 200 1.33 s, CAD 100k n = 50 2.7 s, both within target,
+  bit-identical to separate booleans); T3 (#593) next to merge. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
   Next: **Alpha Wrap 3.0** (starts after Exact Boolean 2.0 closes: profile and bounds first, owner sets targets; speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallel evaluate / serial apply)
@@ -69,7 +73,10 @@ Status on 2026-11-08 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
   machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the
-  exclusive kills, full runs weekly. [platform.md](roadmap/platform.md)
+  exclusive kills, full runs weekly. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
+  the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
+  mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); a fix that instruments only the shard's files is
+  in progress (CI-speed session, own PR). [platform.md](roadmap/platform.md)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443). Coarsening closed (re-measured: −4.5 % triangles for +50 % mesher time).
   Rule C on the snap grid is open.
