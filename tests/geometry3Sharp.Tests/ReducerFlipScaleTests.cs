@@ -154,5 +154,83 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(expected, Signature(m, 1.0 / s));
             }
         }
+
+        // The frame is used from an extent of 2^32 (and below 2^-32); the grid of 8 cells has an extent of 8 * 2^e. The scaled copies on
+        // both sides of the edge of the band must give the same (scaled) reduction as the unscaled mesh: no seam
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Reduction_HasNoSeamAtTheEdgeOfTheFrameBand(bool areaWeighted)
+        {
+            DMesh3 reference = Grid(8, 1);
+            new Reducer(reference) { AreaWeightedQuadrics = areaWeighted }.ReduceToTriangleCount(30);
+            string expected = Signature(reference, 1);
+            var exponents = new System.Collections.Generic.List<int>();
+            for (int e = 26; e <= 32; e++) { exponents.Add(e); exponents.Add(-e - 3); }     // extent 8 * 2^e: from 2^29 to 2^35, and 2^-32 to 2^-26
+            foreach (int e in exponents) {
+                double s = Math.Pow(2, e);
+                DMesh3 m = Grid(8, s);
+                new Reducer(m) { AreaWeightedQuadrics = areaWeighted }.ReduceToTriangleCount(30);
+                Assert.Equal(expected, Signature(m, 1.0 / s));
+            }
+        }
+
+        // the limits are in the units of the caller: the same relative threshold gives the same reduction at every scale, also across
+        // the edge of the band
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ReduceToMaxQuadricError_KeepsItsUnits_AtEveryScale(bool areaWeighted)
+        {
+            double Limit(double s) { return areaWeighted ? 1e-2 * Math.Pow(s, 4) : 1e-2 * s * s; }
+            DMesh3 reference = Grid(8, 1);
+            new Reducer(reference) { AreaWeightedQuadrics = areaWeighted }.ReduceToMaxQuadricError(Limit(1));
+            Assert.True(reference.TriangleCount < 128);
+            string expected = Signature(reference, 1);
+            foreach (int e in new[] { -100, -40, -35, -29, 26, 29, 35, 40, 60, 100 }) {
+                double s = Math.Pow(2, e);
+                DMesh3 m = Grid(8, s);
+                new Reducer(m) { AreaWeightedQuadrics = areaWeighted }.ReduceToMaxQuadricError(Limit(s));
+                Assert.Equal(expected, Signature(m, 1.0 / s));
+            }
+        }
+
+        [Fact]
+        public void PartitionedReducer_KeepsItsErrorInTheUnitsOfTheCaller()
+        {
+            DMesh3 reference = Grid(12, 1);
+            var pr = new gs.PartitionedReducer() { MaxThreads = 1, MinTriangles = 0, Configure = r => { r.AreaWeightedQuadrics = false; } };
+            DMesh3 expectedMesh = pr.Reduce(reference, 1e-3);
+            Assert.True(expectedMesh.TriangleCount < reference.TriangleCount);
+            string expected = Signature(expectedMesh, 1);
+            foreach (int e in new[] { -100, -40, -29, 29, 40, 100 }) {
+                double s = Math.Pow(2, e);
+                DMesh3 m = Grid(12, s);
+                DMesh3 r = new gs.PartitionedReducer() { MaxThreads = 1, MinTriangles = 0, Configure = q => { q.AreaWeightedQuadrics = false; } }.Reduce(m, 1e-3 * s * s);
+                Assert.Equal(expected, Signature(r, 1.0 / s));
+            }
+        }
+
+        // the flip test is shared with the Remesher: its result for a 2^k scaled copy is the scaled result
+        [Fact]
+        public void Remesher_OfA2kScaledCopy_IsTheScaledRemesh()
+        {
+            DMesh3 reference = Grid(8, 1);
+            RemeshOnce(reference, 1);
+            string expected = Signature(reference, 1);
+            foreach (int e in new[] { -400, -300, -100, -40, 40, 100, 260, 400 }) {
+                double s = Math.Pow(2, e);
+                DMesh3 m = Grid(8, s);
+                RemeshOnce(m, s);
+                Assert.Equal(expected, Signature(m, 1.0 / s));
+            }
+        }
+
+        static void RemeshOnce(DMesh3 m, double s)
+        {
+            var rm = new Remesher(m) { SmoothSpeedT = 0.5 };
+            rm.SetTargetEdgeLength(1.3 * s);
+            for (int i = 0; i < 3; i++) rm.BasicRemeshPass();
+        }
     }
 }
