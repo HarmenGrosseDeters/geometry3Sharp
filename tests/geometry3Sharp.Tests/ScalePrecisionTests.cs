@@ -1198,7 +1198,8 @@ namespace geometry3Sharp.Tests
         {
             // The overload of OptimalPoint that the Reducer calls gave NaN where the products overflow: this result was not
             // valid from 1e45 to 3e52. It now refuses, so the collapse takes an endpoint or the midpoint of the edge.
-            // Below about 1e-80 nothing is collapsed, as on master: the documented limit, a valid mesh left as it is.
+            // Below about 1e-80 nothing was collapsed (the quadric errors and the flip test left the range of a double); the quadrics are
+            // built in a frame of extent 1 now, and the flip test is scale safe: every scale of this list reduces.
             DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
             foreach (int vid in mesh.VertexIndices())
                 mesh.SetVertex(vid, scale * mesh.GetVertex(vid));
@@ -1206,10 +1207,7 @@ namespace geometry3Sharp.Tests
 
             new Reducer(mesh).ReduceToTriangleCount(486);
 
-            if (scale >= 1e-80)
-                Assert.True(mesh.TriangleCount <= 486, $"{mesh.TriangleCount} triangles");
-            else
-                Assert.Equal(972, mesh.TriangleCount);
+            Assert.True(mesh.TriangleCount <= 486, $"{mesh.TriangleCount} triangles");
             Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly), "not valid");
             Assert.True(mesh.IsClosed(), "not closed");
             foreach (int vid in mesh.VertexIndices()) {

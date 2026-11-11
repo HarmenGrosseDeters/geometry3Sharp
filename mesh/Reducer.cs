@@ -236,7 +236,7 @@ namespace g3
                         break;
                 } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
                     // Inspect the whole rounded bucket; the final position is checked in double below.
-                    if (EdgeQueue.FirstPriority > priority(MaxQuadricError))
+                    if (EdgeQueue.FirstPriority > priority(frame_error_limit(MaxQuadricError)))
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -934,14 +934,44 @@ namespace g3
         /// </summary>
         protected Vector3d quadricOrigin = Vector3d.Zero;
 
+        /// <summary>
+        /// A power of two (1 for a mesh of extent in [2^-32, 2^32], which is the unchanged arithmetic): the quadrics are built and
+        /// evaluated on (p - quadricOrigin) * quadricScale, so that a mesh of any extent has a frame extent of about 1. An area weighted
+        /// quadric error is of the size of the extent to the 4th, which overflows a double above an extent of about 1e77 and underflows
+        /// below about 2^-268 (every priority was then the same and the order was that of the ids; the result for a 2^k scaled copy was not the
+        /// scaled result); the errors, weights and positions in the frame are the old ones times exact powers of two. Subclasses that seed
+        /// quadrics (PartitionedReduction) must give the sub-reducers the origin and the scale of the quadrics they seed.
+        /// </summary>
+        protected double quadricScale = 1;
+
+        // the scale of the frame for a mesh of this bounding box: 1 within [2^-32, 2^32], else the power of two that gives an extent in [1, 2)
+        internal static double frame_scale_for(AxisAlignedBox3d bounds)
+        {
+            double ext = Math.Max(bounds.Width, Math.Max(bounds.Height, bounds.Depth));
+            if (!(ext > 0 && ext <= double.MaxValue) || (ext >= 2.3283064365386963e-10 && ext <= 4294967296.0))
+                return 1;
+            return pow2(-exponent_of(ext));
+        }
+
+        // a limit on an error in the units of the mesh as a limit on the frame error (area weighted: length^4, else length^2)
+        double frame_error_limit(double limit)
+        {
+            if (quadricScale == 1)
+                return limit;
+            int powers = AreaWeightedQuadrics ? 4 : 2;
+            for (int i = 0; i < powers; i++)
+                limit *= quadricScale;
+            return limit;
+        }
+
         protected QuadricError plane_quadric(Vector3d n, Vector3d p)
         {
-            Vector3d local = p - quadricOrigin;
+            Vector3d local = (p - quadricOrigin) * quadricScale;
             return new QuadricError(ref n, ref local);
         }
         protected double evaluate(ref QuadricError q, Vector3d p)
         {
-            Vector3d local = p - quadricOrigin;
+            Vector3d local = (p - quadricOrigin) * quadricScale;
             return q.Evaluate(ref local);
         }
 
@@ -954,9 +984,10 @@ namespace g3
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             mesh.GetTriVertices(tid, ref a, ref b, ref c);
             centroid = (1.0 / 3.0) * (a + b + c);
-            Vector3d e1 = b - a, e2 = c - a;
+            // (in the frame of the quadrics: the cross product and the squares of an edge of length below 1e-154 underflow in the mesh's units)
+            Vector3d e1 = (b - a) * quadricScale, e2 = (c - a) * quadricScale;
             normal = e1.Cross(e2);
-            double longest = Math.Max(e1.LengthSquared, Math.Max(e2.LengthSquared, (c - b).LengthSquared));
+            double longest = Math.Max(e1.LengthSquared, Math.Max(e2.LengthSquared, ((c - b) * quadricScale).LengthSquared));
             double len = unit_direction(ref normal, MathUtil.Epsilon * longest);
             area = 0.5 * len;
         }
@@ -1029,6 +1060,7 @@ namespace g3
 		protected virtual void InitializeVertexQuadrics()
 		{
             quadricOrigin = mesh.CachedBounds.Center;
+            quadricScale = frame_scale_for(mesh.CachedBounds);
 
 			int NT = mesh.MaxTriangleID;
 			QuadricError[] triQuadrics = new QuadricError[NT];
@@ -1075,7 +1107,7 @@ namespace g3
                 Index2i ev = mesh.GetEdgeV(eid);
                 Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
                 // weight comparable to a triangle plane: area-like (edge length^2) or 1
-                double w = AreaWeightedQuadrics ? a.DistanceSquared(b) : 1.0;
+                double w = AreaWeightedQuadrics ? ((b - a) * quadricScale).LengthSquared : 1.0;
 
                 if (et.b == DMesh3.InvalidID) {
                     if (doBoundary == false)
@@ -1231,9 +1263,9 @@ namespace g3
 				return project(mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5);
 			} else {
                 Vector3d result = Vector3d.Zero;
-                Vector3d mid = mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5 - quadricOrigin;
+                Vector3d mid = (mesh.GetVertex(ea) * 0.5 + mesh.GetVertex(eb) * 0.5 - quadricOrigin) * quadricScale;
                 if (q.OptimalPoint(ref result, mid, QuadricRegularization))
-                    return project(result + quadricOrigin);
+                    return project(result * (1.0 / quadricScale) + quadricOrigin);
 
                 // degenerate matrix, evaluate quadric at edge end and midpoints
 				// (could do line search here...)
@@ -1502,7 +1534,7 @@ namespace g3
                 vNewPos = get_projected_collapse_position(iKeep, vNewPos);
 
             // Constraints can change the queued optimum, so certify the point that will actually be kept.
-            if (enforceQuadricBudget && !(evaluate(ref EdgeQuadrics[edgeID].q, vNewPos) <= MaxQuadricError)) {
+            if (enforceQuadricBudget && !(evaluate(ref EdgeQuadrics[edgeID].q, vNewPos) <= frame_error_limit(MaxQuadricError))) {
                 retVal = ProcessResult.Ignored_ExceedsQuadricError;
                 goto skip_to_end;
             }
