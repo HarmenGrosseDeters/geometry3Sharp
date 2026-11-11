@@ -124,9 +124,8 @@ Read on 2026-11-11 (primary sources):
   licence and the per-function files are read; if the owner allows the host or provides the files, that check is a
   small task and CORE-MATH would be the better option (correct rounding is a stronger contract than fdlibm's below
   1 ulp: bit-identical to the mathematically correct result, not just across platforms).
-- Not used: glibc / musl code (LGPL / MIT respectively: musl's `exp`, `log`, `sin`, `cos`, `atan2` are derived from ARM
-  Optimized Routines (MIT / Apache-2.0 with LLVM exception) and FreeBSD; not read for this note, listed as a possible
-  second source after a licence read, because their `exp` / `log` are faster and below 1 ulp by their own claim).
+- Not used: glibc (LGPL). Other candidates (musl's math functions, ARM Optimized Routines) are named from memory only,
+  **unverified**: their licences and their stated errors would have to be read before they could be a second source.
 
 ## 8. Decisions asked of the owner
 
