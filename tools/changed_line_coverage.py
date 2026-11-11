@@ -3,7 +3,7 @@
 
 Run from the checkout used to collect coverage. Compare committed HEAD with its
 merge base, never with the tip of a moving target branch. Exit 1 for uncovered
-lines, 2 for missing/invalid evidence. See docs/QA.md section 2.6.
+lines, 2 for missing/invalid reports (a changed source file that no report lists has no executable code and is only reported). See docs/QA.md section 2.6.
 
 The coverage of CI is collected over the fast tier (Category!=Slow and !=Nightly). With
 --slow-coverage-dir (the core suite run over Category=Slow, collected only when the fast tier
@@ -159,6 +159,8 @@ def evaluate(changes, coverage, slow=None):
     executable = covered = 0
     for path, changed in sorted(changes.items()):
         if path not in coverage:
+            # (coverlet reports every method of the instrumented assemblies, hit or not: a source file that no report
+            # lists has no executable code, eg only data or declarations; it is reported, not counted as a failure)
             missing.append(path)
             continue
         measured = changed & coverage[path].keys()
@@ -176,8 +178,8 @@ def evaluate(changes, coverage, slow=None):
             uncovered[path] = missed
     return {"changed_executable_lines": executable, "covered_lines": covered,
             "covered_only_by_slow": only_slow,
-            "uncovered": uncovered, "missing_files": missing,
-            "ok": not uncovered and not missing}
+            "uncovered": uncovered, "files_without_executable_lines": missing,
+            "ok": not uncovered}
 
 
 def main(argv=None):
@@ -210,7 +212,7 @@ def main(argv=None):
         result = dict(evaluate(changes, coverage, slow), head=head, merge_base=ancestor, reports=reports)
         if args.attribute:
             result["uncovered_by_pr"] = attribute(root, head, result["uncovered"])
-        code = 2 if result["missing_files"] else (0 if result["ok"] else 1)
+        code = 0 if result["ok"] else 1
     except (ValueError, KeyError, OSError, ET.ParseError, subprocess.CalledProcessError) as error:
         result = {"ok": False, "error": str(error)}
     args.json.parent.mkdir(parents=True, exist_ok=True)

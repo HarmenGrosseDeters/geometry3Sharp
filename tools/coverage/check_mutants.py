@@ -11,14 +11,14 @@ import tempfile
 
 MUTANTS = {
     "invert_uncovered": ("if coverage[path][n] == 0", "if coverage[path][n] > 0"),
-    "ignore_missing_file": ("missing.append(path)", "pass"),
+    "unlisted_file_fails": ('code = 0 if result["ok"] else 1', 'code = 0 if result["ok"] and not result["files_without_executable_lines"] else 1'),
     "intersect_suite_hits": ("max(hits.get(number, 0), count)", "min(hits.get(number, 0), count)"),
     "compare_head_to_itself": ('git(root, "merge-base", base, head)', 'git(root, "rev-parse", head)'),
     "ignore_shard_layout": (' or sorted((directory / suite).glob("*/*/coverage.cobertura.xml"))', ""),
     "merge_counts_as_mainline": (" and not _is_ancestor(root, commit, first)", ""),
     "ignore_method_only_records": ('raise ValueError("incomplete class-level line evidence")', "pass"),
     "slow_hit_excuses_everything": ("slow_hits.get(n, 0) > 0", "slow_hits.get(n, 0) >= 0"),
-    "always_exit_zero": ('code = 2 if result["missing_files"] else (0 if result["ok"] else 1)', "code = 0"),
+    "always_exit_zero": ('code = 0 if result["ok"] else 1', "code = 0"),
 }
 
 

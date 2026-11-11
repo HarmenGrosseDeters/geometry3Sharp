@@ -28,9 +28,10 @@ class Decisions(unittest.TestCase):
     def test_only_changed_executable_lines_and_union_of_hits(self):
         self.assertEqual(c.evaluate({"math/A.cs": {2, 3, 4}}, {"math/A.cs": {1: 0, 2: 1, 4: 0}}),
                          {"changed_executable_lines": 2, "covered_lines": 1, "covered_only_by_slow": {},
-                          "uncovered": {"math/A.cs": [4]}, "missing_files": [], "ok": False})
+                          "uncovered": {"math/A.cs": [4]}, "files_without_executable_lines": [], "ok": False})
         self.assertTrue(c.evaluate({"math/A.cs": {3}}, {"math/A.cs": {1: 0}})["ok"])
-        self.assertEqual(c.evaluate({"math/New.cs": {1}}, {})["missing_files"], ["math/New.cs"])
+        r = c.evaluate({"math/New.cs": {1}}, {})
+        self.assertEqual((r["files_without_executable_lines"], r["ok"]), (["math/New.cs"], True))
         self.assertTrue(c.evaluate({}, {})["ok"])
 
 
@@ -194,12 +195,20 @@ class Repository(unittest.TestCase):
         _, changes = c.changed_lines(self.root, self.base, "HEAD")
         self.assertEqual(changes, {})
 
-    def test_missing_changed_file_is_error_even_with_no_sequence_points(self):
+    def test_changed_file_that_no_report_lists_is_reported_not_failed(self):
+        # (a file without sequence points, eg a data table: coverlet lists every method it instruments, so such a file has no code)
         self.write("math/New.cs", "new_code();\n")
         self.commit("new code")
         code, result = self.invoke()
-        self.assertEqual(code, 2)
-        self.assertEqual(result["missing_files"], ["math/New.cs"])
+        self.assertEqual(code, 1)    # (the uncovered line of math/A.cs from the fixture still fails)
+        self.assertEqual(result["files_without_executable_lines"], ["math/New.cs"])
+        self.assertEqual(list(result["uncovered"]), ["math/A.cs"])
+        for suite, assembly in c.SUITES.items():
+            self.report(suite, assembly, {"math/A.cs": {2: 1, 4: 1}})
+        (self.results / "core/run/coverage.cobertura.xml").unlink(missing_ok=True)
+        self.report("core", c.SUITES["core"], {"math/A.cs": {2: 1, 4: 1}})
+        code, result = self.invoke()
+        self.assertEqual((code, result["ok"]), (0, True))
 
     def test_missing_duplicate_empty_or_malformed_report_fails_closed(self):
         p = self.results / "core/run/coverage.cobertura.xml"

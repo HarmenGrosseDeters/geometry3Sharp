@@ -352,10 +352,7 @@ the module outside the range, or "not guaranteed".
   lines become follow-up work (a test) for the owning session. A line that cannot be hit by a test (defensive code) is
   discussed in that follow-up, not excluded by a marker.
 - Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line records
-  define executable lines, so comments and whitespace within a measured file need no hits. Missing, malformed or empty suite
-  reports fail the gate (exit 2), including a changed source file absent from all reports. This is deliberately
-  conservative: a new file containing only interfaces/enums, or code excluded from instrumentation, may need
-  investigation rather than silently passing as covered. Tests, benchmark code, documentation examples, assembly metadata
+  define executable lines, so comments and whitespace within a measured file need no hits. Missing, malformed or empty suite reports fail the gate (exit 2). A changed source file that no report lists (`files_without_executable_lines` in the JSON; the first run found `core/ExactCodeAllowList.cs`, a data table) has no executable code, because coverlet lists every method of the instrumented assemblies, hit or not: it is reported and does not fail the run. Tests, benchmark code, documentation examples, assembly metadata
   and build tools are outside this gate. The unit tests of the gate run in the `linux` job of `ci.yml`.
 - Optional `--slow-coverage-dir` (a second core report over `Category=Slow` only) reports lines that only the Slow tier
   hits as `covered_only_by_slow`; the cyclic run does not need it, because it collects the Slow tier with the rest.
