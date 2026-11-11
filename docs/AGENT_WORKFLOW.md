@@ -191,6 +191,16 @@ from secret tests, which a public repository cannot keep.
   run as a detached process (owner 2026-11-08): record its PIDs and start time, keep every step resumable, and write
   `.exit` / `.end` files when it ends; the local session evaluates when the owner asks or when the step has ended.
   For local Stryker runs, `--open-report` shows the live HTML dashboard in the owner's browser.
+  **Local tasks as issues** (owner 2026-11-11): small and medium tasks for a session on the owner's machine are
+  GitHub issues with the label `local`, each with the complete §2 brief. The local session works one as follows:
+  (1) branch `local/<issue>-<name>` from the current master when it starts (no branch or draft PR prepared in
+  advance: it would go stale); (2) `CLAUDE.md` applies; (3) the files the cloud sessions hold are locked (during
+  Exact Boolean 3.0: `mesh_ops/ExactMesh*`, the exact files of `.editorconfig`, `math/Exact*`,
+  `math/AdaptivePredicates.cs`, and the files of open `claude/t1-*` and T3a PRs); a task that seems to need one stops
+  and comments on the issue; (4) a draft PR with `Closes #<issue>`, pushed after the local checks of "Before every
+  push"; the coordinator subscribes, reviews and merges; (5) no Stryker kill measurements on the owner's machine (CI is
+  the gate). Result-only runs (fuzzing campaigns) report on the issue and put raw output on a `runs/` branch, as
+  above; findings become `bugfix` issues.
   A job runs as a harness-tracked background task (the Bash tool's `run_in_background`, at most 2 h per chunk), not
   under `nohup`: an untracked process let the runner's machine be recycled three times in an hour (2026-11-08).
   Restarts: a worker restart kills running processes, and a replaced container loses local files. So jobs are
