@@ -62,7 +62,7 @@ Status on 2026-11-11 (evening, Berlin).
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): T3a merged 2026-11-11 (#612, 4af5fcd3: operation-aware
   cull of Difference / Intersection, CAD 10k n = 500 40.0 -> 7.3 s, terrain n = 200 already within target); T3b
   `IntersectEach` / `DifferenceEach` in draft #616 (terrain n = 200 1.33 s, CAD 100k n = 50 2.7 s, both within target,
-  bit-identical to separate booleans); T3 (#593) next to merge. [exact-boolean.md](roadmap/exact-boolean.md#30-progress)
+  bit-identical to separate booleans); T3 (#593) next to merge. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
   Next: **Alpha Wrap 3.0** (starts after Exact Boolean 2.0 closes: profile and bounds first, owner sets targets; speed levers in the wrap: intersection oracle, Delaunay insertion, pinch passes; parallel evaluate / serial apply)

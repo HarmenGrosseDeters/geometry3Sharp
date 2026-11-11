@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#30-progress)): T3a merged, T3b in draft #616.
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a merged, T3b in draft #616.
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -89,7 +89,7 @@ threshold on master, on GitHub or run locally by the owner (a script under `test
 sha, a CI check validates it). The boolean and arrangement shards are split finer so that each stays well under the 6 h job
 limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md).
 
-### 3.0 progress
+#### Exact Boolean 3.0 progress
 
 - **T3a: merged 2026-11-11** (#612, 4af5fcd3). Operation-aware cull for `Difference` / `Intersection` with a closed first
   mesh: Bi triangles whose box meets no A triangle are culled per connected set by one exact ray if outside A; no new API.
