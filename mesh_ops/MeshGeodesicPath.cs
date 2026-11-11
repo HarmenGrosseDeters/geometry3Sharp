@@ -207,20 +207,29 @@ namespace gs
             if (fraction <= 0) return seg_tail(segs[0]);
             if (fraction >= 1) return seg_head(segs[segs.Count - 1]);
             double target = fraction * path_length(), done = 0;
-            for (int k = 0; k < segs.Count; ++k) {
+            for (int k = 0; k < segs.Count - 1; ++k) {
                 int s = segs[k];
                 double l = seg_length(s), local = target - done;
                 if (!(l > 0)) return seg_tail(s);
-                if (local <= l || k == segs.Count - 1) {
-                    double u = Math.Min(Math.Max(local / l, 0), 1);
-                    if (u <= snap) return seg_tail(s);
-                    if (u >= 1 - snap) return seg_head(s);
-                    // the parameter on the halfedge: a reversed boundary segment runs from the head of its halfedge
-                    return T.SplitEdge(seg_halfedge(s), s >= 0 ? u : 1 - u);
-                }
+                if (local <= l) return vertex_in_segment(s, l, local, snap);
                 done += l;
             }
-            return -1;
+            // (the last segment takes what is left, whatever rounding made of the sum of the lengths)
+            int last = segs[segs.Count - 1];
+            double lastLength = seg_length(last);
+            if (!(lastLength > 0)) return seg_tail(last);
+            return vertex_in_segment(last, lastLength, target - done, snap);
+        }
+
+        // the vertex at distance `local` from the start of segment s of length l (> 0): an end of the segment if within snap of it
+        // (relative to l), else a new vertex that splits its edge there
+        int vertex_in_segment(int s, double l, double local, double snap)
+        {
+            double u = Math.Min(Math.Max(local / l, 0), 1);
+            if (u <= snap) return seg_tail(s);
+            if (u >= 1 - snap) return seg_head(s);
+            // the parameter on the halfedge: a reversed boundary segment runs from the head of its halfedge
+            return T.SplitEdge(seg_halfedge(s), s >= 0 ? u : 1 - u);
         }
 
 
