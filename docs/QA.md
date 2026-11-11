@@ -349,9 +349,20 @@ the module outside the range, or "not guaranteed".
   code 0 and 1, not after incomplete evidence), else the master of 24 hours ago. With `--attribute` the report names, per
   file, the pull request that introduced each uncovered line (git blame, then the first-parent merge that brought the
   commit in, else the `(#N)` of a squash subject, else the short hash). The job summary lists them and the scheduled run
-  fails when there are any. **There is no exemption mechanism** and a nightly report blocks no pull request: uncovered
-  lines become follow-up work (a test) for the owning session. A line that cannot be hit by a test (defensive code) is
-  discussed in that follow-up, not excluded by a marker.
+  fails when there are any. A nightly report blocks no pull request: uncovered lines become follow-up work (a test) for the owning session. There
+  is no exemption marker in the code; the only exception is the reviewed list below.
+- **Unmeasurable lines** (`tools/coverage/unmeasurable_lines.json`, owner decision 2026-11-11): the one place where an
+  uncovered changed line is excused, for a line that no coverage run (net10.0) can hit: a branch that runs on .NET
+  Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; invariant guards are the
+  exception, kept on purpose: the two in `ExactMeshBoolean.cs` (deleting them needs the exact-code review and the 6 h
+  Boolean shards for no gain) and five in `DualContouring.cs` (a hot, subtle file where deleting a guard would turn a
+  broken invariant into a silent wrong result). An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
+  text whose nearest previous non-blank lines are `after` (a list, nearest first), unique in the file, so a new line of
+  the same text elsewhere cannot take its place and edits elsewhere do not matter; it excuses that one line only;
+  `approved_in` is the PR (`#123`) whose review approved the entry. The list is checked on every run, not only for
+  changed lines: an entry whose line is gone or not unique, is not an executable line of the reports any more, or is covered
+  now **fails the gate** (exit 1, no stale entries). A malformed list, or an explicitly given list that does not exist, is
+  exit 2. The summary counts the excused lines next to the covered ones.
 - Limits, stated so that nobody reads more into a green run than it says: (1) only lines with a sequence point are
   measured; changed lines without one (continuation lines of a statement, code in a conditional-compilation branch the
   test build does not compile such as `#if NETSTANDARD2_0`, methods with `[ExcludeFromCodeCoverage]`) are listed as
