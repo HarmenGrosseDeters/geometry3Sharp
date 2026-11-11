@@ -81,6 +81,14 @@ so the method may be implemented from the paper or ported from the MIT reference
 replaced by Dekker splitting) if the cost count shows a gain; T6 stay the only all-clean method and close the gap to CGAL EPECK on 1k-100k to <= 2x.
 Pre-study: #532, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md.
 
+**3.0 process (owner 2026-11-11):** the per-PR full mutation shards cost a 6 h runner slot each and were cancelled at the limit
+(#539) without a result, so during 3.0: no full shard runs on PRs (incremental where a baseline fits); CI, new tests on base
+and the exact-code review with every new bound checked stay per PR; the full shards of the exact mesh pipeline run nightly on
+master (survivors are tasks of the area's next PR); the 3.0 completion gate is a full run of every touched shard above its
+threshold on master, on GitHub or run locally by the owner (a script under `tests/mutation` writes a result JSON with the head
+sha, a CI check validates it). The boolean and arrangement shards are split finer so that each stays well under the 6 h job
+limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md).
+
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
 the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,

@@ -17,6 +17,25 @@ namespace geometry3Sharp.Tests
         // an alpha wrap of a box (flat faces: the simplification leaves slivers) and its simplification
         static void BoxWrap(Box3d b, out DMesh3 wrap, out DMesh3 simplified, out double tol)
         {
+            // (the wrap and its simplification of the default box are computed once for the class and handed out as copies:
+            // 15 tests start from them, each used to spend 0.3 - 1 s on the same wrap)
+            if (b.Equals(DefaultBox)) {
+                var c = DefaultBoxWrap.Value;
+                wrap = new DMesh3(c.Item1);
+                simplified = new DMesh3(c.Item2);
+                tol = c.Item3;
+                return;
+            }
+            BoxWrapUncached(b, out wrap, out simplified, out tol);
+        }
+
+        static readonly Lazy<Tuple<DMesh3, DMesh3, double>> DefaultBoxWrap = new Lazy<Tuple<DMesh3, DMesh3, double>>(() => {
+            BoxWrapUncached(DefaultBox, out DMesh3 w, out DMesh3 s, out double t);
+            return Tuple.Create(w, s, t);
+        });
+
+        static void BoxWrapUncached(Box3d b, out DMesh3 wrap, out DMesh3 simplified, out double tol)
+        {
             DMesh3 box = new TrivialBox3Generator() { Box = b, NoSharedVertices = false }.Generate().MakeDMesh();
             var w = new MeshAlphaWrap(box) { RelativeAlpha = 60, RelativeOffset = 600 };
             Assert.True(w.Compute());
@@ -812,7 +831,7 @@ namespace geometry3Sharp.Tests
         {
             Func<bool, MeshRobustRepair> run = (on) => {
                 var r = new MeshRobustRepair(MeshRobustRepairTests.ThinPlates(6)) {
-                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapQualityPass = on
+                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 32, WrapRelativeAlpha = 40, WrapRelativeOffset = 400, AlphaWrapQualityPass = on
                 };
                 // (a not-clean solidify, so the wrap is used: MeshRobustRepairTests.WithUnrepairedContour)
                 Assert.True(MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply()));

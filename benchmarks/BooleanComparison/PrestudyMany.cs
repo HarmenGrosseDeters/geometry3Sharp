@@ -273,6 +273,174 @@ static class PrestudyMany
 
     // ------------------------------------------------------------------ T3a
 
+    // T3a step 1 (upper-bound check): the share of the Bi triangles that a triangle-level early-out drops (box meets no
+    // box of A, and a vertex outside the closed A) and an upper bound of the time it saves: a one pass without those
+    // triangles (its Bi are no longer closed, so only its arrangement phases are used) and the full one pass's
+    // classification scaled by the share of the pieces that remain.
+    //   t3a-cull-share <terrain|cad> <n> <seed> [--size k]
+    public static int RunCullShare(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        for (int i = 3; i < args.Length; ++i)
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        var aBoxes = new List<AxisAlignedBox3d>();
+        foreach (int t in a.TriangleIndices()) {
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+            a.GetTriVertices(t, ref p0, ref p1, ref p2);
+            var bx = new AxisAlignedBox3d(p0); bx.Contain(p1); bx.Contain(p2);
+            aBoxes.Add(bx);
+        }
+        var aTree = new TriangleBoxTree(aBoxes);
+        var wTree = new DMeshAABBTree3(a, true);
+        long total = 0, culled = 0, noOverlapInside = 0;
+        var kept = new List<DMesh3>();
+        foreach (DMesh3 b in bs) {
+            var keep = new DMesh3(b);
+            foreach (int t in b.TriangleIndices()) {
+                total++;
+                Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+                b.GetTriVertices(t, ref p0, ref p1, ref p2);
+                var bx = new AxisAlignedBox3d(p0); bx.Contain(p1); bx.Contain(p2);
+                bool hit = false;
+                aTree.Query(bx, (k) => hit = true);
+                if (hit) continue;
+                if (wTree.FastWindingNumber(p0) > 0.5) { noOverlapInside++; continue; }
+                culled++;
+                keep.RemoveTriangle(t, true, false);
+            }
+            kept.Add(keep);
+        }
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["a_tris"] = a.TriangleCount, ["b_tris"] = total,
+            ["culled"] = culled, ["culled_share"] = (double)culled / total, ["no_overlap_inside"] = noOverlapInside };
+        Func<List<DMesh3>, ExactMeshBoolean> run = (list) => {
+            var meshes = new List<DMesh3> { a };
+            meshes.AddRange(list);
+            Gc();
+            var op = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Difference);
+            var sw = Stopwatch.StartNew();
+            op.Compute();
+            op.PhaseMilliseconds["total"] = sw.ElapsedMilliseconds;
+            return op;
+        };
+        ExactMeshBoolean full = run(bs), cut = run(kept);
+        long T(ExactMeshBoolean o, string k) { long v; return o.PhaseMilliseconds.TryGetValue(k, out v) ? v : 0; }
+        // (the arrangement's top-level phases; their sub-phases, "intersections.pairs" etc., are parts of them)
+        string[] arrPhases = { "setup", "intersections", "merge", "triangulation" };
+        long arrFull = arrPhases.Sum(k => T(full, k)), arrCut = arrPhases.Sum(k => T(cut, k));
+        double pieceShare = (double)cut.Arrangement.Output.Count / full.Arrangement.Output.Count;
+        double saved = (arrFull - arrCut) + T(full, "classification") * (1 - pieceShare);
+        row["total_ms"] = T(full, "total");
+        row["phases_full"] = full.PhaseMilliseconds;
+        row["phases_cut"] = cut.PhaseMilliseconds;
+        row["pieces_full"] = full.Arrangement.Output.Count;
+        row["pieces_cut"] = cut.Arrangement.Output.Count;
+        row["saved_upper_ms"] = (long)saved;
+        row["saved_upper_share"] = saved / T(full, "total");
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
+    // T3a A/B: the one-pass Difference with and without the early-out (ExactMeshBoolean.CullOutsideA): times, culled
+    // triangles, whether the results are bit-identical, volumes.
+    //   t3a-ab <terrain|cad> <n> <seed> [--size k] [--op difference|intersection]
+    public static int RunCullAB(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        var op = ExactMeshBoolean.Operations.Difference;
+        int repeat = 1;
+        bool serialCheck = false;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
+            else if (args[i] == "--serial") serialCheck = true;
+            else if (args[i] == "--op") op = args[++i] == "intersection" ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        if (kind == "spheres") {
+            // a plain binary case: two overlapping spheres (n edge vertices), the second shifted by seed / 10
+            a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 0.8, EdgeVertices = n }.Generate().MakeDMesh();
+            MeshTransforms.Translate(b, new Vector3d(0.1 * seed, 0.3, 0.2));
+            bs = new List<DMesh3> { b };
+        } else
+            Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        var meshes = new List<DMesh3> { a };
+        meshes.AddRange(bs);
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(), ["a_tris"] = a.TriangleCount,
+            ["b_tris"] = bs.Sum(b => b.TriangleCount) };
+        var results = new Dictionary<bool, DMesh3>();
+        var times = new Dictionary<bool, List<double>> { [false] = new List<double>(), [true] = new List<double>() };
+        // (determinism of each mode on its own: the distinct result hashes over the repeats, and with --serial one serial run)
+        var hashes = new Dictionary<bool, HashSet<string>> { [false] = new HashSet<string>(), [true] = new HashSet<string>() };
+        // (alternating, so that drift hits both alike; the last run of each is kept for the checks)
+        for (int rep = 0; rep < repeat; ++rep)
+        foreach (bool cull in new[] { false, true }) {
+            Gc();
+            var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+            var sw = Stopwatch.StartNew();
+            o.Compute();
+            string k = cull ? "cull" : "base";
+            times[cull].Add(sw.Elapsed.TotalMilliseconds);
+            hashes[cull].Add(Hash(o.Result));
+            var sorted = times[cull].OrderBy(x => x).ToList();
+            row[k + "_ms"] = sorted[sorted.Count / 2];
+            row[k + "_all_ms"] = times[cull].ToArray();
+            row[k + "_phases"] = new Dictionary<string, long>(o.PhaseMilliseconds);
+            row[k + "_ok"] = o.Status == ExactMeshBoolean.BooleanStatus.Success;
+            row[k + "_pieces"] = o.Arrangement.Output.Count;
+            row[k + "_tris"] = o.Result.TriangleCount;
+            row[k + "_volume"] = Volume(o.Result);
+            row[k + "_clean"] = MeshRobustRepair.NotCleanReason(o.Result);
+            if (cull) row["culled"] = o.Counts["t3a_culled"];
+            results[cull] = o.Result;
+        }
+        row["equal"] = Hash(results[false]) == Hash(results[true]);
+        row["base_distinct_hashes"] = hashes[false].Count;
+        row["cull_distinct_hashes"] = hashes[true].Count;
+        if (serialCheck)
+            foreach (bool cull in new[] { false, true }) {
+                gParallel.SerialOnThisThread = true;
+                try {
+                    var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+                    o.Compute();
+                    row[(cull ? "cull" : "base") + "_serial_equal"] = Hash(o.Result) == Hash(results[cull]);
+                } finally {
+                    gParallel.SerialOnThisThread = false;
+                }
+            }
+        if ((bool)row["equal"] == false) {
+            // what differs: vertices and triangles (by exact position) in one result only, and their areas
+            Func<DMesh3, HashSet<Vector3d>> verts = (m) => new HashSet<Vector3d>(m.VertexIndices().Select(v => m.GetVertex(v)));
+            Func<DMesh3, Dictionary<string, double>> tris = (m) => {
+                var d = new Dictionary<string, double>();
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    var p = new[] { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
+                    // (rotation-invariant key: start at the smallest corner, keep the orientation)
+                    int k0 = 0;
+                    for (int k = 1; k < 3; ++k) if (string.CompareOrdinal(p[k].ToString("R"), p[k0].ToString("R")) < 0) k0 = k;
+                    string key = string.Join("|", Enumerable.Range(0, 3).Select(k => { var v = p[(k0 + k) % 3]; return $"{v.x:R},{v.y:R},{v.z:R}"; }));
+                    d[key] = m.GetTriArea(t);
+                }
+                return d;
+            };
+            var vb = verts(results[false]); var vc = verts(results[true]);
+            var tb = tris(results[false]); var tc = tris(results[true]);
+            row["verts_only_base"] = vb.Count(v => vc.Contains(v) == false);
+            row["verts_only_cull"] = vc.Count(v => vb.Contains(v) == false);
+            row["tris_only_base"] = tb.Keys.Count(k => tc.ContainsKey(k) == false);
+            row["tris_only_cull"] = tc.Keys.Count(k => tb.ContainsKey(k) == false);
+            row["area_only_base"] = tb.Where(kv => tc.ContainsKey(kv.Key) == false).Sum(kv => kv.Value);
+            row["area_only_cull"] = tc.Where(kv => tb.ContainsKey(kv.Key) == false).Sum(kv => kv.Value);
+        }
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
