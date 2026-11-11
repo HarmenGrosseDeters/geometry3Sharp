@@ -160,8 +160,19 @@ public static partial class Program
     /// the brute force minimum, bit for bit (the same TriDistanceSqr), and the out value is that distance. The raw tree
     /// (where the squared distances are representable) returns a triangle that is a minimum as well.
     /// </summary>
-    public static void CheckNearestTriangle(string what, int treeId, double treeDistSqr, double idDistSqr, double bruteDistSqr, bool hasTriangles)
+    /// <summary>
+    /// The tree computes the distance of a triangle with DistPoint3Triangle3, the brute force (and the id check) with the inline copy in
+    /// MeshQueries.TriDistanceSqr: both are legitimate and differ by rounding. The distances are therefore compared up to
+    /// 16 * eps * (meshDiagonalSqr + distance): an absolute 1e-17 where the minimum is 0 passes only relative to the mesh scale.
+    /// </summary>
+    public static double NearestTolerance(double meshDiagonalSqr, double bruteDistSqr)
     {
+        return 16 * Math.Pow(2, -52) * (meshDiagonalSqr + bruteDistSqr);
+    }
+
+    public static void CheckNearestTriangle(string what, int treeId, double treeDistSqr, double idDistSqr, double bruteDistSqr, bool hasTriangles, double meshDiagonalSqr = 0)
+    {
+        double tol = NearestTolerance(meshDiagonalSqr, bruteDistSqr);
         if (!hasTriangles) {
             if (treeId != DMesh3.InvalidID)
                 throw new Finding($"{what}: nearest triangle {treeId} of an empty mesh");
@@ -169,9 +180,9 @@ public static partial class Program
         }
         if (treeId == DMesh3.InvalidID)
             throw new Finding($"{what}: no nearest triangle, but the brute force minimum is {bruteDistSqr}");
-        if (idDistSqr != bruteDistSqr)
+        if (!(Math.Abs(idDistSqr - bruteDistSqr) <= tol))
             throw new Finding($"{what}: nearest triangle {treeId} at squared distance {idDistSqr}, the minimum is {bruteDistSqr}");
-        if (!double.IsNaN(treeDistSqr) && treeDistSqr != bruteDistSqr)
+        if (!double.IsNaN(treeDistSqr) && !(Math.Abs(treeDistSqr - bruteDistSqr) <= tol))
             throw new Finding($"{what}: the reported squared distance {treeDistSqr} is not the minimum {bruteDistSqr}");
     }
 
@@ -200,15 +211,17 @@ public static partial class Program
             foreach (int t in s.Norm.TriangleIndices())
                 brute = Math.Min(brute, MeshQueries.TriDistanceSqr(s.Norm, t, o));
             int id = s.NormTree.FindNearestTriangle(o, out double d2);
-            CheckNearestTriangle(w, id, d2, id == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Norm, id, o), brute, true);
+            double nd = Diagonal(s.Norm.GetBounds());
+            CheckNearestTriangle(w, id, d2, id == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Norm, id, o), brute, true, nd * nd);
             if (s.RawDistancesRepresentable) {
                 int rid = s.RawTree.FindNearestTriangle(rawO, out double rd2);
                 // judged in raw space: the distances of the raw copy and of the normalised copy differ by rounding, so the exact
                 // equality holds only within one space
+                double rd = Diagonal(s.Raw.GetBounds());
                 double rawBrute = double.MaxValue;
                 foreach (int t in s.Raw.TriangleIndices())
                     rawBrute = Math.Min(rawBrute, MeshQueries.TriDistanceSqr(s.Raw, t, rawO));
-                CheckNearestTriangle(w + " (raw scale)", rid, rd2, rid == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Raw, rid, rawO), rawBrute, true);
+                CheckNearestTriangle(w + " (raw scale)", rid, rd2, rid == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Raw, rid, rawO), rawBrute, true, rd * rd);
             }
             double bruteV = double.MaxValue;
             foreach (int v in usedVertices)

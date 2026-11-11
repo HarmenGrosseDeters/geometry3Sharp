@@ -615,6 +615,8 @@ public static partial class Program
         ExpectFinding("a nearest triangle of an empty mesh", () => CheckNearestTriangle("t", 0, 1, 1, 1, false));
         ExpectFinding("a nearest triangle that is not the nearest", () => CheckNearestTriangle("t", 0, 2, 2, 1, true));
         ExpectFinding("a reported distance that is not the minimum", () => CheckNearestTriangle("t", 0, 2, 1, 1, true));
+        ExpectFinding("a nearest triangle off by 1e-9 of the mesh scale", () => CheckNearestTriangle("t", 0, 1 + 1e-9, 1 + 1e-9, 1, true, 1));
+        ExpectFinding("an absolute 1e-17 against a minimum of 0 on a mesh of scale 1e-30", () => CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1e-60));
         ExpectFinding("no nearest vertex", () => CheckNearestVertex("t", DMesh3.InvalidID, double.NaN, 1));
         ExpectFinding("a nearest vertex that is not the nearest", () => CheckNearestVertex("t", 0, 2, 1));
         ExpectFinding("a nearest hit that is not the brute force one", () => CheckRay("t", 3, 4, new[] { 3, 4 }, new[] { 3, 4 }));
@@ -672,6 +674,8 @@ public static partial class Program
         CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
         // and pass on a clean result
         CheckNearestTriangle("t", 0, 1, 1, 1, true);
+        CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1);                    // rounding of the two distance codes at the scale of the mesh
+        CheckNearestTriangle("t", 0, 1 + 1e-15, 1 + 1e-15, 1, true, 1);
         CheckNearestVertex("t", 0, 1, 1);
         CheckRay("t", 3, 3, new[] { 3, 4 }, new[] { 4, 3 });
         CheckInside("t", 1, 1, true, true);

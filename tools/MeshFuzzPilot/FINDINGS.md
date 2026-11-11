@@ -140,3 +140,12 @@ every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validit
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
 of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
 no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).
+
+## Judgement notes
+
+- **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with
+  `DistPoint3Triangle3`, the pilot's brute force with the inline copy in `MeshQueries.TriDistanceSqr`. Both are legitimate and differ by rounding
+  (about one ulp, or 1e-17 where the minimum is 0 on a mesh of scale 1). Unifying them would change the bits of `TriDistanceSqr` results for no gain in
+  correctness, so the pilot compares up to `16 * eps * (meshDiagonal^2 + distance)` (`NearestTolerance`): an absolute 1e-17 against 0 passes only
+  relative to the mesh scale. Measured on the 997 `tree-nearest` artifacts of the T13 campaign: 99 reports before, 0 after; a mutant that returns
+  the wrong triangle is still caught (43 of the first 60 artifacts; the rest have one triangle or equally near ones).
