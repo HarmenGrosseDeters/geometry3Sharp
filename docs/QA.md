@@ -303,7 +303,7 @@ non-finite values (always outside). The default is derived from what the exact k
 the range (with a bias toward its edges, where the scale-disparity bugs were found), and add a separate small
 out-of-range sample for property 2. Fuzz harnesses report out-of-range findings in their own class.
 
-**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine);
+**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine; the rounding repair and the exact boolean's rounding test the largest coordinate of the triangles and subnormals, and the boolean judges its result, not its inputs);
 "disparity" is the ratio of the largest to the smallest part or component of one input. Measured with a scale sweep
 (a standard input scaled by 2^e, e from -1000 to 1000, 20 s budget per run; see the table notes), then set inside the
 measured range with margin. Subnormal coordinates (below 2.2e-308) are outside for every module, and out of the 2^k

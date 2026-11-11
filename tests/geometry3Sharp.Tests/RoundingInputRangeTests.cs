@@ -90,6 +90,7 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(1.0000000000000002)]       // the first double above 2^200
+        [InlineData(1.0)]                      // 2^200 itself is in range
         [InlineData(0.5)]                      // 2^199 is in range
         public void Rounding_UpperEdge(double factor)
         {
@@ -97,6 +98,55 @@ namespace geometry3Sharp.Tests
             var r = new MeshRoundingRepair(m);
             r.Apply();
             Assert.Equal(factor > 1, r.OutsideRange);
+        }
+
+        // the lower edge: exactly 2^-200 is in range, the next double below is not
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(-1, true)]
+        public void Rounding_LowerEdge(int ulps, bool outside)
+        {
+            double scale = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(Math.Pow(2, -200)) + ulps);
+            var r = new MeshRoundingRepair(Cube(Vector3d.Zero, 1, scale));
+            r.Apply();
+            Assert.Equal(outside, r.OutsideRange);
+        }
+
+        // a subnormal coordinate is out of range whatever the largest one is; the smallest normal number is not
+        [Fact]
+        public void Rounding_OneSubnormalCoordinate_OutsideRange()
+        {
+            DMesh3 m = Cube(Vector3d.Zero, 1, 1);
+            int v = m.VertexIndices().First();
+            Vector3d p = m.GetVertex(v);
+            m.SetVertex(v, new Vector3d(1e-320, p.y, p.z));
+            var r = new MeshRoundingRepair(m);
+            Assert.False(r.Apply());
+            Assert.True(r.OutsideRange);
+
+            m = Cube(Vector3d.Zero, 1, 1);
+            m.SetVertex(v, new Vector3d(Math.Pow(2, -1022), p.y, p.z));
+            r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.False(r.OutsideRange);
+        }
+
+        // one instance: out of range, then in range (the flag follows the mesh), and a mesh of zeros is no range matter
+        [Fact]
+        public void Rounding_Reuse_FlagFollowsTheMesh()
+        {
+            var r = new MeshRoundingRepair(Cube(Vector3d.Zero, 1, Math.Pow(2, -250)));
+            Assert.False(r.Apply());
+            Assert.True(r.OutsideRange);
+            r.Mesh = Cube(Vector3d.Zero, 1, 1);
+            Assert.True(r.Apply());
+            Assert.False(r.OutsideRange);
+            Assert.True(r.IsClean);
+
+            DMesh3 zeros = Cube(Vector3d.Zero, 1, 0);
+            var z = new MeshRoundingRepair(zeros);
+            z.Apply();
+            Assert.False(z.OutsideRange);
         }
 
         // the failure of a strict boolean names the range

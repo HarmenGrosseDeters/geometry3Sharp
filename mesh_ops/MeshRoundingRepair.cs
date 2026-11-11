@@ -108,7 +108,7 @@ namespace g3
     /// work per defect.
     /// Supported input range (docs/QA.md 2.5a): the largest coordinate magnitude of the triangles is in [2^-200, 2^200] (about 6e-61 to
     /// 2e60) and no coordinate is subnormal. A single coordinate far smaller than the largest (a result coordinate that cancels toward 0) is in range.
-    /// Components far apart in size are not a range matter: they are kept and counted in ScaleDisparity.
+    /// Components far apart in size are not a range matter (remove_tiny_components, ScaleDisparity). ExactMeshBoolean judges its result, not its inputs.
     /// Outside, Apply() returns false with OutsideRange and the mesh is not touched.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
@@ -412,7 +412,7 @@ namespace g3
                     }
                 }
             }
-            return max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60;
+            return max == 0 || (max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
         }
 
         /// <summary> repair (see class comment); returns IsClean </summary>
