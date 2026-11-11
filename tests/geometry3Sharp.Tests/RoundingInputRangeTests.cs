@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using g3;
 using gs;
 using Xunit;
@@ -72,6 +73,39 @@ namespace geometry3Sharp.Tests
             var op = Union(Math.Pow(2, -300), true);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, op.Status);
             Assert.Null(op.Result);
+        }
+
+        // the range is the largest coordinate, not each one: a result coordinate that cancels toward 0 (here 2^-80 of the scale) is in range
+        [Fact]
+        public void Rounding_OneTinyCoordinate_InRange()
+        {
+            DMesh3 m = Cube(Vector3d.Zero, 1, Math.Pow(2, -180));
+            int v = m.VertexIndices().First();
+            Vector3d p = m.GetVertex(v);
+            m.SetVertex(v, new Vector3d(Math.Pow(2, -260), p.y, p.z));
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.False(r.OutsideRange);
+        }
+
+        [Theory]
+        [InlineData(1.0000000000000002)]       // the first double above 2^200
+        [InlineData(0.5)]                      // 2^199 is in range
+        public void Rounding_UpperEdge(double factor)
+        {
+            DMesh3 m = Cube(Vector3d.Zero, 1, Math.Pow(2, 200) * factor);
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.Equal(factor > 1, r.OutsideRange);
+        }
+
+        // the failure of a strict boolean names the range
+        [Fact]
+        public void Boolean_TinyScale_Strict_ErrorNamesTheRange()
+        {
+            var op = Union(Math.Pow(2, -300), true);
+            Assert.Contains("supported range", op.Error);
+            Assert.Equal(1, op.Counts["rounding_outside_range"]);
         }
 
         [Theory]

@@ -106,8 +106,9 @@ namespace g3
     /// degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
-    /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^200] (about 6e-61 to
-    /// 2e60; subnormal numbers are outside), and the largest and the smallest component are at most 2^60 apart in size.
+    /// Supported input range (docs/QA.md 2.5a): the largest coordinate magnitude of the triangles is in [2^-200, 2^200] (about 6e-61 to
+    /// 2e60) and no coordinate is subnormal. A single coordinate far smaller than the largest (a result coordinate that cancels toward 0) is in range.
+    /// Components far apart in size are not a range matter: they are kept and counted in ScaleDisparity.
     /// Outside, Apply() returns false with OutsideRange and the mesh is not touched.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
@@ -395,16 +396,23 @@ namespace g3
         HashSet<Index2i> inputBoundaryEdges = new HashSet<Index2i>();
         Dictionary<int, int> slidTowards = new Dictionary<int, int>();
 
-        // zero, or a magnitude in [2^-200, 2^200] (about 6e-61 to 2e60)
-        static bool in_range(Vector3d p)
+        // the supported range (class comment): the largest coordinate magnitude in [2^-200, 2^200] (about 6e-61 to 2e60), no subnormal coordinate
+        static bool coordinates_in_range(DMesh3 mesh)
         {
-            return in_range(p.x) && in_range(p.y) && in_range(p.z);
-        }
-
-        static bool in_range(double x)
-        {
-            double a = Math.Abs(x);
-            return a == 0 || (a >= 6.2230152778611417e-61 && a <= 1.6069380442589903e60);
+            double max = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = mesh.GetVertex(tv[k]);
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (a != 0 && a < 2.2250738585072014e-308)
+                            return false;
+                        if (a > max) max = a;
+                    }
+                }
+            }
+            return max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60;
         }
 
         /// <summary> repair (see class comment); returns IsClean </summary>
@@ -467,13 +475,10 @@ namespace g3
                 }
             }
             // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
-            foreach (int tid in Mesh.TriangleIndices()) {
-                Index3i tv = Mesh.GetTriangle(tid);
-                if (in_range(Mesh.GetVertex(tv.a)) == false || in_range(Mesh.GetVertex(tv.b)) == false || in_range(Mesh.GetVertex(tv.c)) == false) {
-                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
-                    OutsideRange = true;
-                    return false;
-                }
+            if (coordinates_in_range(Mesh) == false) {
+                InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                OutsideRange = true;
+                return false;
             }
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();
