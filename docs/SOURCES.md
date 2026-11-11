@@ -159,6 +159,7 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Heat method for geodesic distance (also on the intrinsic triangulation) | K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013; *The Heat Method for Distance Computation*, CACM 2017 |
 | Vector heat method: connection Laplacian, parallel transport, scalar extension, log map | N. Sharp, Y. Soliman, K. Crane, *The Vector Heat Method*, ACM TOG 2019 |
 | Geodesic paths and loops by edge flips (`MeshGeodesicPath`): FlipOut on the wedge where the path turns by less than pi, the outer arc as the new path, smallest angle first; waypoints | N. Sharp, K. Crane, *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*, ACM TOG (SIGGRAPH Asia) 2020 (geometry-central, MIT, has an implementation; not used as a source) |
+| Geodesic Bezier curves (`MeshGeodesicBezier`): de Casteljau's algorithm with the linear interpolation of two points replaced by the point at the same fraction of the geodesic between them, evaluated at given parameters; the geodesics by FlipOut (above), the interpolated points inserted as vertices into one shared `IntrinsicTriangulation` by edge splits. Implemented from the papers; no code ported | M. Morera, P. Carvalho, L. Velho, *Modeling on Triangulations with Geodesic Curves*, The Visual Computer 24, 2008 (geodesic de Casteljau); N. Sharp, K. Crane, *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*, ACM TOG 2020 (geodesic Bezier curves from FlipOut; their reference implementation, geometry-central, MIT, was not read) |
 | Log map direction from the gradient of half the squared distance against the transported reference vector | Gauss lemma (eg M. do Carmo, *Riemannian Geometry*, 1992, ch. 3); own derivation, replaces the paper's diffused radial field, which is biased by the shape of the source's one-ring |
 | Heat flow far beyond the double range: the Cholesky substitutions of an M-matrix only add non-negative terms, so they run unchanged on logarithms (`SparseCholesky.SolveLog`) | Own derivation (sign pattern of the Cholesky factor of an M-matrix, eg R. A. Horn, C. R. Johnson, *Topics in Matrix Analysis*, 1991, ch. 2.5) |
 | Kahan's stable formula for the triangle area from its sides | W. Kahan, *Miscalculating Area and Angles of a Needle-like Triangle*, 2014 |
@@ -352,6 +353,7 @@ Implemented from the papers and definitions (no code ported):
 | Dual contouring with QEF vertices from Hermite data | T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual Contouring of Hermite Data*, ACM TOG (SIGGRAPH) 2002 |
 | One vertex per surface patch of a cell (manifold dual contouring) | S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
 | Refinement at ambiguous faces | R. Zint, R. Grosso, P. Guertler, *Resolving non-manifoldness on meshes from dual marching cubes*, 2022 |
+| Envelope triangulation of `DualContouring` (forced diagonals, edge vertices, the check of the uncovered triangles only), the measurement hook (`DualContouring.CollectDiagnostics`, `benchmarks/DualContouringIntersections`) and the options of `docs/design/DC_INTERSECTION_FREE.md` | C. C. L. Wang, *Intersection-free dual contouring on uniform grids: an approach based on convex/concave analysis*, technical report, The Chinese University of Hong Kong (read in full); T. Ju, T. Udeshi, *Intersection-free contouring on an octree grid*, Pacific Graphics 2006 (through Wang's summary); J. Manson, S. Schaefer, *Isosurfaces over simplicial partitions of multiresolution grids*, CGF 2010 [abstract]. No code read |
 | Fast winding numbers of the input (inside test of the solids) | G. Barill, N. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG (SIGGRAPH) 2018 (existing `FastWindingNumber`) |
 
 ## Terrain (`TerrainDualContouring`, `TerrainGreedyTIN`, `ClothSimulationFilter`, `TerrainOffset`, `TerrainSafetyLines`, `TerrainBreakLines`, `TerrainVolumeDifference`)
@@ -543,6 +545,12 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
 
+## Text number parsing across frameworks (`ExactDecimal`, `MeshIOUtil.ParseDouble`; docs/design/DETERMINISM.md)
+
+| Method | Source |
+|---|---|
+| Correctly rounded decimal-to-double / float conversion for the text readers where the platform parser is wrong (`ExactDecimal`, .NET Framework: 1 ulp errors for long digit strings, "-0" read as +0): the value as an integer times a power of ten, quotient of two big integers scaled by a power of two, remainder decides the rounding (ties to even); Clinger's exact fast path for at most 15 digits and |exponent| <= 22. Own implementation, nothing ported; the fast_float / Eisel-Lemire algorithm (Lemire, *Number Parsing at a Gigabyte per Second*, 2021) was considered and not used | W. D. Clinger, *How to Read Floating Point Numbers Accurately*, PLDI 1990; D. M. Gay, *Correctly rounded binary-decimal and decimal-binary conversions*, AT&T Bell Labs Numerical Analysis Manuscript 90-10, 1990 |
+
 ## Cross-field research
 
 The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
@@ -633,9 +641,35 @@ Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (
 | XYZ ASCII DGM (Geobasis NRW `dgm1_xyz`) | the open-data product description of the Land NRW DGM1 (one "x y z" point per line on a regular 1 m grid); the reader accepts any regular square lattice |
 | Grid TIN with a fixed diagonal | Garland, Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 (regular grid triangulation as the full-resolution reference); the interpolation on the TIN is the library's own definition (`HeightGrid.Height`) |
 
+## Sharp-feature probe (`benchmarks/SharpFeatureProbe`)
+
+| Method | Source |
+|---|---|
+| QEF vertex from Hermite data (planes of the input around a vertex, singular values cut off) | T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual Contouring of Hermite Data*, SIGGRAPH 2002; S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
+| Feature sensitive extraction (read for the prior-art line only) | L. Kobbelt, M. Botsch, U. Schwanecke, H.-P. Seidel, *Feature Sensitive Surface Extraction from Volume Data*, SIGGRAPH 2001 |
+
 ## DGM to TIN with breaklines (`TerrainGridTin`)
 
 `mesh_ops/TerrainGridTin.cs`, design in [TERRAIN_DGM_TO_TIN.md](design/TERRAIN_DGM_TO_TIN.md). No code read or ported. The method is the library's own: error-driven rounds around the exact constrained
 Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the piecewise linearity of both surfaces (the difference is linear on the cells of the overlay of two triangulations, so its maximum is at overlay
 vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
 the usual GIS distinction between constrained and conforming TINs with breaklines.
+
+## ASCII XYZ point files (`XYZReader`, `XYZWriter`)
+
+Own implementation of the informal format (one point per line, optional normals); there is no specification or source. The
+column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
+the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.
+
+
+## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
+
+Implemented from the papers below; no code of any of them was read.
+
+| Part | Source |
+|---|---|
+| Normal axis from a PCA of the nearest neighbours (tangent plane) | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992, pp. 71-78 (bibliographic data checked by web search only) |
+| The wrap of the cloud | `MeshAlphaWrap` (Portaneri et al. 2022, see its entry) |
+| Sign by two probe points against the wrap (outer side = the probe outside the closed wrap) | own construction, not from a paper; the pairing "alpha wrap for normal orientation" was not found in the literature searched (design note section 2) |
+| Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
+| k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |

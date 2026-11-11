@@ -56,7 +56,7 @@ namespace geometry3Sharp.Tests
                     Assert.Contains("EdgeKeyComparer.Instance", m.Groups[1].Value);
                     count++;
                 }
-            Assert.Equal(40, count);
+            Assert.Equal(41, count);
         }
     }
 }

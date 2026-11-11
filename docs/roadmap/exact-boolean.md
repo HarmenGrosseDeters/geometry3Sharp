@@ -32,6 +32,15 @@ hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identi
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
 so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 
+**Sign-off run (2026-11-11, runner; `runs/boolean2-final` f0d5194e, `runs/final/results/SIGNOFF.md`):** target set
+on the D1 head f2245b6f (#513): 5413 models, 16239 ops, 15752 clean, 49 contacts only, 412 empty, 26 unclean (all
+degenerate triangles), 0 failed; control on #385 cd7fb8ab: 15746 clean, 50 contacts, 31 unclean. Rest (not in the
+target set): open 1474 models / 4422 ops (3010 of 3151 unclean are "not closed", expected for open inputs), self-
+intersecting 2920 / 8760 (974 unclean, 843 of them degenerate), unknown 187 / 561 (92 unclean, 3 failed with
+OutOfMemory on 252786 and 376253). Contact checks (4038d8e2): 49 of 49 target self-intersections and 1830 of 1882
+in the rest are contacts; 52 real self-intersections remain in the rest (open 7, selfint 43, unknown 2), unexplained.
+6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
+
 **`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
 has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
@@ -60,6 +69,55 @@ over core counts (deterministic by construction: fixed partitions, ordered merge
 across threads; exact code needs the review and the allow-list entry); (2) memory: footprint and allocation of the
 exact points and the arrangement (a memory profile of the large inputs, 0.6-2.7 M triangles, first). Starts with an
 upper bound per lever on the 2.0 benchmark set.
+**3.0 targets (owner 2026-11-10):** T1 scaling (bit-identical: serial floor 342 -> <= 170 s, 4-core time -20 % on the
+73-model set; parallel deterministic sort in merge_points, classification setup, input orientation, simplify / assembly
+per region, box-tree build) and T2 memory (<= 300 B retained / <= 1.2 KB peak per input triangle: input points without
+FixedPoint3, struct-of-arrays triangles) approved; T3a / T3b approved (below); T5: first the Antipodal cost count on the slow
+open models, patent check done by the owner 2026-11-10 (PDFs of arXiv:2605.01536 and
+arXiv:2408.04466, Google Patents, Espacenet, DPMA, Shaped Code site: no patent, application or notice; freedom to operate),
+so the method may be implemented from the paper or ported from the MIT reference code (attribution in docs/SOURCES.md, FMA
+replaced by Dekker splitting) if the cost count shows a gain; T6 stay the only all-clean method and close the gap to CGAL EPECK on 1k-100k to <= 2x.
+Pre-study: #532, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md.
+
+**Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
+target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
+the original double inputs, so chained operations stay exact without rounding between steps (one rounding at the end,
+coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
+bounds per construction, the arrangement's input path from constructions, consumers: chained booleans, tet meshing).
+
+**T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change):** the library is unpublished, so
+changed rounding results are acceptable if they are not worse. Conditions: after D1 (#513) has landed, since both change the
+rounding; deterministic over thread counts and runs (fixed spatial partition, ordered commit); gate: a cohort run on the
+16 239 target operations with no op newly unclean, unclean count and MaxDrift distribution not worse, time measured.
+
+**3.0 n-ary use case (owner 2026-11-10):** n-ary booleans are a real use case in two forms: T3a, A − (B1 ∪ … ∪ Bn)
+in one pass (subtract many bodies from one, with operation-aware pruning and one rounding), and T3b, A ∩ Bi for many i at
+once with separate results (shared preprocessing of A, parallel over i). Primary workload: terrain volume bodies (a TIN
+sub-area of ~1 km, extruded to a solid, typically <= 10k triangles, out of a 10 x 10 km TIN of 500-800k triangles) against
+construction bodies (pits, trenches, foundations, roads; 100-2k triangles, n = 5..200); secondary: CAD / machining (a part
+of 10k-100k triangles minus up to 500 tools). Measured as topic 7 of the pre-study.
+
+**T3a / T3b targets (owner 2026-11-10, approved; pre-study topic 7, #536 section 8-9):** all variants clean on the
+procedural terrain and CAD workloads. T3a, A − (B1 ∪ … ∪ Bn): today's one-pass n-ary Difference is already right (chained
+is 2.5-16x slower with up to 5x more triangles); no new API, an operation-aware early-out in the arrangement input path for
+Difference / Intersection (Bi triangles whose box meets no A triangle and that lie outside A by one exact ray are dropped,
+same exact result; the 6-45 % bound counts Bi pieces outside A, the triangle-level early-out reaches less, since pit and
+trench walls cross the surface). Target (owner 2026-11-10, option a): terrain n = 200 <= 2.7 s (today 3.3-3.8 s), set
+after the T3a PR's first step measures the droppable triangle share; CAD 10k n = 500 <= 30 s (today 49 s); never slower
+than today's one pass. A piece-level early-out (drop Bi pieces outside A before classification) is a later lever if that
+measurement shows the gap to the bound is large. T3b, A ∩ Bi each: an additive `IntersectEach(a, bodies)` (and
+Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
+parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
+Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
+
+**3.0 execution order (owner 2026-11-10):** serial, one 3.0 work item at a time (they share the exact files), each
+one PR per feature with the exact-code review and the mutation shards: (1) T3a after #539 (Antipodal PR 1) merges (Opus,
+the pre-study session); (2) T3b `IntersectEach` (Sonnet: additive, parallel over the bodies outside the exact kernel,
+oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout, hashes equal); (4) T1 levers one by one
+(Sonnet for the box-tree build, simplify per region and the input orientation sort; an Opus design or review for the
+`merge_points` sort and the classification union-find); (5) T5 Antipodal PR 2 and T1b (after D1) with Opus. Sonnet PRs in
+exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning.
+
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
 Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per lever; (2) memory of exact points and the
@@ -275,3 +333,15 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
   Evaluation (their numbers, Ryzen 9 5900X): real-world set of 2762 models (Princeton segmentation benchmark plus all closed, oriented genus-0 Thingi10K meshes; about 400 have a non-empty kernel) average 15.5 ms / median 0.63 ms, against Kergen (inexact) 197 / 1.5 ms, CGAL inexact 1377 ms, Polyhedron 1490 ms, CGAL exact 1830 ms; CGAL crashes on 314 (exact) / 352 (inexact) models, Kergen on 7, Polyhedron on 9; 394 kernels found by theirs, 386 by CGAL exact (identical except degenerate kernels CGAL misses and one quad mesh whose non-planar quads have no unique plane), fewer and often wrong by the inexact tools. Ablation: without the AABB proxy 2.4x slower, hashing coplanar planes +22 %, concave-first +17 %, the parallel LP 14 %. An oracle that cuts the kernel's own planes first saves only 20 %, so the plane order has little left. Their exact Seidel LP is competitive with the inexact one and much faster than SoPlex (exact or not). Open in the paper: parallelism (proposed: test many planes against the current kernel in parallel and eliminate those that miss it, repeat).
   5. **Test corpus without mesh files:** their synthetic star-shaped set (an icosphere at varying subdivision, a random subset of vertices moved a bounded random distance towards the centre; 10 000 models) is procedural and fits our rule; it gives guaranteed non-empty kernels for `MeshKernel` tests, plus degenerate kernels (a single vertex, edge or face) as pinned cases. Triangulate quads before computing planes (non-planar quads make the planes ambiguous).
   4. Small ones: the exact integer plane-AABB test as a filter where planes meet boxes; k-DOPs instead of AABBs in the pair search (upper bound first: pairs a k-DOP rejects that pass the boxes; the pair search is 21-22 % of the boolean time; the repo offers k-DOPs, the read sections only use AABBs).
+
+**Open operands per piece (2026-11-10, owner decision A).** The generalized winding number of an open operand varies
+within a patch (a patch can reach from inside an open mesh to outside it through its hole), so open operands are now
+classified at every piece, not once per patch (#528). Two overlapping open spheres had an empty intersection; with an
+open A and a closed B, B's patches reach around A's hole (1375 of the union's 7328 triangles on the wrong side). Cost on
+the 21 open models of the Lévy samples, on top of #501: total 4.34x, classification 18.4x, worst 113906 about 10x
+(100 s); closed inputs unchanged. A certified per-patch bound cannot help much: in the 1087xxx soups 92-96 % of the
+pieces lie in patches whose pieces the per-piece rule decides differently, and the own-mesh queries (half of them) no
+bound decides. Item (B), a batched or dual-tree fast winding number per patch: measured upper bound 22-30 % of the
+per-piece query work (the near-field triangle terms are 70-78 % of it; Exact Boolean 3.0 pre-study,
+docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5, PR #532): not planned. The remaining lever is what is evaluated: (C), the
+exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and patent check), or fewer queries.

@@ -1,9 +1,10 @@
 # SafeRounding D1: the drift measured from reference triangles (the reference rule)
 
-Status: a proposal, 2026-11-09 (research item 2 of [roadmap/research.md](../roadmap/research.md), "Hard open problems").
-No library code is changed. The lemma of section 3 is checked by Z3 (`tools/Z3Pilot/drift_reference.py`, section 4),
-the effect is measured with a prototype that is a patch, not a branch (`benchmarks/BooleanComparison/perf/d1/`,
-section 5). Building it is section 7 and needs the owner's decision.
+Status: implemented in Boolean 2.1 (`mesh_ops/MeshRoundingRepair.cs`; owner decision 2026-11-10). Proposed
+2026-11-09 (research item 2 of [roadmap/research.md](../roadmap/research.md), "Hard open problems"); the lemma of
+section 3 is checked by Z3 (`tools/Z3Pilot/drift_reference.py`, section 4, which now also holds the source contract
+of the code against the rule), the effect was measured with a prototype (`benchmarks/BooleanComparison/perf/d1/`,
+section 5). Sections 6 and 7a describe the state before the build; the tests of the build are listed in section 7b.
 
 Result in short:
 - Today's accounting adds an edit's bound to the largest drift among the edit's vertices. In a cluster the edits are
@@ -178,7 +179,7 @@ Results still depend on the order of the edits, and more edits pass, so single o
 - A4: surviving triangles keep their id and corner order through `CollapseEdge` (the prototype checks it at every
   contraction; no violation in any run of section 5). The other edits do not: `FlipEdge` reuses the two ids with
   new corners, and zips, strip zips and vertex removals append triangles, so the record of an added triangle is
-  written after the edit, by looking the triangle up. The undo paths of `try_zip`, `try_strip` and
+  written after the edit (the build takes its id from the edit, `addedIds`, see section 7b). The undo paths of `try_zip`, `try_strip` and
   `try_remove_vertex` (an append failed: the old triangles are appended again, under new ids) must restore the old
   records with them; today's per-vertex drift needs no such care.
 - A5: edits stay within one component and vertex ids are not reused (as for the apex rule).
@@ -515,6 +516,23 @@ runner's other jobs on `runs/boolean2-final`, `runs/final/FinalRunner`).**
       4. times: sum, median, p95, max of the rounding and of the operation per build, and the operations slower
          by more than 20 % and 0.2 s.
     Stop rule for the PR: any operation in list 1 "clean -> not clean" or in list 2 is analysed before the merge.
+
+## 7b. The build (Boolean 2.1)
+
+- Code: `refAnchor` / `refCarry` per triangle id, `Ghost` records per vertex, `proposed_drift` / `commit_drift`;
+  the ids of a generic edit's added triangles come from the edit (`addedIds`: `FlipEdge` keeps its two ids, the
+  appends return theirs), not from a search by corners; a ghost is listed once per distinct vertex and taken off
+  the lists when lost; check mode: references kept through contractions, ghosts on a vertex or edge of the mesh
+  after every edit (also at the vertices a generic edit removed), every bound recomputed from the records at the
+  end of the edits (`check_all_bounds`).
+- A test hook (`Script`, internal): `Apply` makes the given edits, each checked by the drift bound only. The seven
+  pinned counterexamples of section 4 are scripted 3D cases on a tent (a sphere with a poked triangle on a short
+  edge) in `MeshRoundingRepairTestsDriftReference`; each fails with its mutant in the C# code (the reported drift
+  falls below the measured distance by 10 % or more) and passes with the rule (measured distance 0.5 to 1 times the
+  reported drift). The "ignores the lost ghosts" case is a ghost on an edge lost by a flip.
+- The six pins of section 7a changed to the clean results (the dense patches clean with a drift below half the
+  bound; the strict-rounding case is now `FoldedCluster k36 count 4 seed 1`; 102 of 114 UTM cases clean with the
+  relative bound only).
 
 ## 8. Prior art (papers only; [S] from abstracts or search snippets, [M] from memory, not re-read here)
 

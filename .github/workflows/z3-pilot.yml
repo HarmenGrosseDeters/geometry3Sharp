@@ -11,7 +11,7 @@ on:
       # pilot 2: the filter rules of the predicate generator and the generated filters
       - 'tools/PredicateCompiler/Compiler.cs'
       - 'math/Generated/IndirectPredicates.cs'
-      # pilot 2 step 1: the drift accounting of SafeRounding (the apex rule, D1)
+      # pilot 2 step 1: the drift accounting of SafeRounding (the apex rule of Boolean 2.0, D1; step 1b the reference rule, its source contract)
       - 'mesh_ops/MeshRoundingRepair.cs'
       # pilot 2 step 1b: the rounding model of the reference rule (drift_reference.py, its source contract)
       - 'math/Vector3d.cs'

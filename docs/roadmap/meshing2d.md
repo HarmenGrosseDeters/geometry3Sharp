@@ -26,6 +26,10 @@ Part of the [roadmap](../ROADMAP.md).
   2016), so it cannot restore 1 px. Decision: the oracle judges against its own iterated image (with an explicit drift
   guard), and O11 / D14 and the class docs state the real bound (input rounding <= half a pixel per axis; chains at
   sub-pixel wedges up to ~2 px). PR by the T5 session.
+- **Collapsed stretches on the snap grid (owner 2026-11-10, option B):** for a stretch that the input-only image
+  collapses (a spike the input's own rounding removes), the input-only image is the only reference; the mesher need not
+  rebuild it around refinement vertices of other chains, whatever the spike's length. Stretches with area in the input-only
+  image stay judged by the full image (self-check B1 kept). Replaces the 1 px² lobe bound of #530 for such stretches.
 
 Small input angles and triangle count:
 
@@ -50,8 +54,18 @@ Small input angles and triangle count:
   rows unchanged. Herne tiles not in the repository: not run. Pinned-mechanism tests that search the old refinement run it with the
   exemption off (reason in each test).
 - **Near-contact or near-coincident input** (stmlf/1461: T-junctions, angles of 0.013°, points 2^-15 of the extent
-  off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. Its own question, not
-  measured. After #394: stmlf/1461 q30 325 662 triangles.
+  off segments they do not touch): 6.8x the reference even relative to the LFS yardstick. After #394: stmlf/1461 q30 325 662
+  triangles. **Measured 2026-11-10 (QA 2.0 T5, procedural generators, no mesh files)**: near misses (points 2^-k beside a segment) and close
+  ends grow linearly in k (about 250 triangles per octave) in both modes, oracle ok; a T-junction wedge of angle θ ≈ 2^-k·2 is constant (38
+  triangles) in the constrained quality mode and doubles per octave in the default mode (255 / 5 878 / 178 918 at k = 5 / 10 / 15, the Steiner
+  limit from k = 20), driven by rule C revocations on unmatched A and B vertices, not by O2 itself. **Owner decision D (2026-11-10):** documented as today's
+  behaviour, the constrained quality mode is the answer for such inputs; matched shells (O(log 1/θ), option B) stay a reopenable research item: design note
+  [MESHING2D_WEDGE_COST.md](../design/MESHING2D_WEDGE_COST.md). The CsCheck
+  campaign has a `nearcontact` family (frames of 2^10..2^15 lattice units, T-junctions exactly on a long segment, ends 1 or 2 units beside its line,
+  free points 3 steps beside it): 2 500 strict samples, no failing seed (in the default mode nearly every sample reaches its Steiner limit of 1 500, so
+  its angle and conformity checks run effectively in the constrained and angle-free samples only). The oracle gap found with the same generator at angles of 1e-7 and below
+  (crossing vertices rounded to doubles) is #542; two ties and three single triangles at 1e-7..1e-9 radian are open and documented in
+  [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md).
 - **Grading:** f-11 1.8-2.0x the reference stays open (owner decision 2026-11-04: stop, #380 is the grading result;
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
@@ -286,3 +300,5 @@ Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989, 
 The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session, which must stay independent of our code.
 
 Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code, structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in MESHING2D_SNAP.md.
+
+**Open (2026-11-10, found by the MeshFuzzPilot):** `QualityMesh2` drops a part of the domain narrower than the tolerance (a sliver tail of a hull domain; its input points and segments end up in no triangle) with status `Success` and no diagnostic. The oracle now accepts this for a part whose twice area is at most tube times perimeter (the bound for a domain that may vanish altogether, no snap tolerance; `OracleReport.VanishedPoints/VanishedSegments`). Candidate under the no-silent-deletion rule: report such a dropped part in the diagnostics; the mesher is unchanged.

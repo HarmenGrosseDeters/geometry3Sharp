@@ -22,7 +22,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   Exceptions up to 10 s carry the `Slow` trait and a one-line reason in the test; nothing above 10 s. A check that
   needs more (a corpus, a soak or long determinism run) is made cheaper with the same power (smaller procedural
   inputs, shared work, split cases; a mutant the old test kills must still be killed) or moves to a benchmark or a
-  scheduled job.
+  scheduled job. The scheduled tier is `[Trait("Category", "Nightly")]` (`.github/workflows/nightly.yml`, daily on master and
+  on demand; PR and master CI exclude it): only for a check whose run is the check and takes more than 10 s, with the
+  reason in the test (eg the exact reference path of the 2D mesher oracle); it must still finish in the job's time budget.
 - A new reader or input format is added to `ReaderFuzzTests`.
 - Licenses: implement from papers; port only from MIT / Apache / BSD sources, never from GPL code (CGAL,
   parts of TetWild). List the sources in `docs/SOURCES.md`.

@@ -30,6 +30,23 @@ class PilotTests(unittest.TestCase):
             self.assertNotEqual(subprocess.run([DOTNET, DLL, 'verify-seed', str(seed)], capture_output=True).returncode, 0)
             self.assertEqual(subprocess.run([DOTNET, DLL, 'replay', str(seed)], capture_output=True).returncode, 0)
 
+    def test_every_target_has_valid_seeds(self):
+        self.assertEqual(subprocess.run([DOTNET, DLL, 'check-seeds'], capture_output=True).returncode, 0)
+
+    def test_seeds_command_writes_new_files_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'corpus'
+            self.assertEqual(subprocess.run([DOTNET, DLL, 'seeds', 'obj', str(target)], capture_output=True).returncode, 0)
+            files = sorted(target.iterdir())
+            self.assertEqual(len(files), 1)
+            self.assertEqual(subprocess.run([DOTNET, DLL, 'replay', 'obj', str(files[0])], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run([DOTNET, DLL, 'seeds', 'obj', str(target)], capture_output=True).returncode, 0)
+
+    def test_targets_are_listed(self):
+        out = subprocess.run([DOTNET, DLL, 'targets'], capture_output=True, text=True).stdout.split()
+        for name in ('stl', 'obj', 'off', 'ply', '3mf', 'glb', 'g3mesh', 'minijson', 'esri', 'xyz', 'poly', 'node', 'ele', 'mcp'):
+            self.assertIn(name, out)
+
     def test_swallowed_exception_is_not_accepted(self):
         self.assertEqual(subprocess.run([DOTNET, DLL, 'policy-self-test'], capture_output=True).returncode, 0)
 

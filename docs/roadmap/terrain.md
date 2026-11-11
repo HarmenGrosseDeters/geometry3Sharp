@@ -28,6 +28,11 @@ Part of the [roadmap](../ROADMAP.md).
 
 Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
+- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
+  paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
+  `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
+  that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
+  result; both are pinned as example tests and counted in the campaign.
 - **Ramps as design geometry** (path, width, grade; access ramps into pits).
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
