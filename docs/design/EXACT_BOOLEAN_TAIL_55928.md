@@ -67,38 +67,47 @@ For a box B that contains a set of points, let D_s be the distance from B to the
     |grad w(x)| <= G(B) = sum_s min(|s| / (4 pi D_s^2), 1 / (2 pi D_s))
 
 **Patches.** A patch is the set of pieces of one mesh X joined across non-constraint edges where exactly two pieces of X
-meet with the same stack, as in `classify`. Take the representative piece p and any piece q of the patch. Let gamma be
-the path that runs through the pieces of the patch, from centroid to the midpoint of the shared edge to the next
+meet with the same stack, as in `classify`. Take the patch's first piece p (in piece order) and any piece q of the patch.
+Let gamma be a path through the pieces of the patch, from centroid to the midpoint of the shared edge to the next
 centroid, displaced infinitely close to the front side.
 
 - gamma meets no triangle of M except where its own pieces lie on M (X = M). There the front-side limit of w is
   continuous along the patch, because no other sheet of M meets the patch except along constraint edges, which
   separate patches.
 - Coplanar stacks are left out: pieces with a stack keep their own evaluation.
-- So w is continuous along gamma, and |w(q) - w(p)| <= G(B) * len(gamma) with len(gamma) <= 2 * (the sum of the
-  diameters of the patch's pieces).
+- Every part of gamma lies inside one piece r (centroid to edge midpoint, or edge midpoint to centroid), is at most
+  diam(r) long, and lies in r's box, where |grad w| <= G(r), the bound above for r's box. So along gamma w changes by at
+  most acc(gamma) = the sum over the pieces r it passes of G(r) diam(r), each piece counted on entering and on leaving.
 
-This is the bound V of the patch, rounded upwards. It goes outward: every factor is rounded up, and a factor of 2 is
-added.
-
-**Rule.** Evaluate the representative p as today, which gives w_p with the bound e_p (at most 1e-6), or a snapped tie,
-or "undecided". If w_p is neither snapped nor undecided, and the distance from w_p to the nearest half-integer exceeds
-e_p + V + 1e-6, every piece of the patch takes the threshold of p. Otherwise every piece is evaluated as today.
+**Rule (as implemented, `open_winding_per_patch`).**
+- Evaluate p as today, which gives w_p with the bound e_p (at most 1e-6), or a snapped tie, or "undecided". If it is
+  neither snapped nor undecided, margin = |w_p - h| - e_p - 2e-6, where h is the nearest half-integer.
+- A Dijkstra over the patch's pieces from p, by acc, gives each piece q the smallest acc(q) over such paths. Every piece
+  reached with acc(q) < margin takes the threshold of p. The search does not expand past acc >= margin.
+- All other pieces are evaluated as today. That includes pieces not reached, pieces with a stack, and pieces whose box
+  comes within 1e-3 of the coordinates' size of a segment box; the latter have G = infinity and are never crossed.
+- All factors are rounded upwards (relative 1e-12). The boxes are widened by the error bounds of the approximations of the
+  corners.
 
 **Why it is bit-identical.**
-- Under the rule, every true w(q) lies at more than 1e-6 from every half-integer. Today's per-piece evaluation of q
-  returns a value within its bound, at most 1e-6, of w(q), so it gives the true threshold. The rule gives the same
-  threshold.
+- If acc(q) < margin, the true w(q) lies within acc(q) of the true w(p), and that lies within e_p of w_p. So the true
+  w(q) is at more than 2e-6 from every half-integer, on the same side of 1/2 (and of every k + 1/2) as w_p.
+- Today's per-piece evaluation of q returns a value within its bound, at most 1e-6, of w(q). It is therefore not
+  snapped, and it gives the true threshold. The rule gives the same threshold.
 - The exception is a q whose own evaluation would be "undecided". There are three ways that happens:
   - the centroid lies within the tolerance of a boundary segment end;
   - the centroid lies on a segment;
   - 20 rays fail in turn.
 
-  The first two are excluded by requiring D_s >= 1e-9 * (the model's size) for every s, a factor of about 1e3 beyond
-  the tolerance of `antipodal_front_winding`. The third depends on the ray and cannot be excluded by a bound. The A/B
-  test below checks it: an internal flag evaluates every piece as well and compares.
-- Pieces next to the boundary, including the 87,883 undecided ones here, have small D, so they keep their own
-  evaluation.
+  The first two need a centroid within about 1e-7 of the coordinates' size of a segment. The 1e-3 exclusion keeps every
+  decided piece far from that. The third depends on the ray and cannot be excluded by a bound. The verify mode
+  (`VerifyPerPatchOpenWinding`) evaluates every decided piece as well and counts the differences; the tests assert 0.
+- An undecided first piece decides nothing, because its bound is reported as -1. It is also near a segment, so its own
+  G is infinite.
+- Pieces next to the boundary, including the 87,883 undecided ones here, keep their own evaluation.
+- An early variant used one bound per patch, G over the patch box times twice the sum of the diameters. It decided
+  nothing on large patches, such as a sphere-sized patch whose box contains the hole. The Dijkstra over per-piece
+  bounds decides everything away from the boundary.
 
 **Measured upper bound** (arrangement only; patches as above with stacks left single, 7.25M patches). Evaluations per
 open mesh, against 15.12M today:
@@ -114,9 +123,10 @@ At V < 0.1 L1 is at its floor of about one evaluation per patch, because the bou
 That is 30.2M to 16.5M evaluations (-45 %), and classification about 772 s to about 420 s, back to the level of
 79a2c1ab and bit-identical. The rest needs propagation across patches, which is L2.
 
-**Cost.** A grid of the boundary segment boxes (`antipodal_grid` already builds one in grid coordinates). Per patch: its
-box, the sum of its diameters, and G from the nearby segments plus one aggregated far term, O(1) per patch in practice.
-The patches come from the union-find that `classify` already runs.
+**Cost.** Per piece reached: G from the box of all segments (O(1)), or the sum over the segments where that box is near.
+Per patch: one serial Dijkstra (a binary heap, ties by piece index, so it is deterministic). The adjacency comes from the
+same edge groups that `classify` joins into patches. Measured on the knot benchmark (4 cores): 37 % of the open-winding
+evaluations saved, classification 13.7 -> 9.9 s, the result hashes unchanged.
 
 ## 3. L2: short segments to reference points instead of far rays
 
