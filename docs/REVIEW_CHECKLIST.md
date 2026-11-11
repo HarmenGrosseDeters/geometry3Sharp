@@ -203,6 +203,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - A self-test of a test harness (shrinking, replay): does it read the value it means to check (the shrunk seed,
   not the first seed in the message), and can its assertions fail?
 - Do documented replay or filter commands actually select a test? Run them once.
+- Coverage gates must validate the same line-record level they evaluate: method-only records cannot count as
+  complete evidence when the gate reads class-level lines. Missing records must fail closed.
 - Is an "exact" comparison exact for every generated input (a sum of products in double is not, once coordinates
   have many bits)?
 - Do the fuzzers cover every input class the class doc advertises (meshing M3 review: no holes, no regions with an area

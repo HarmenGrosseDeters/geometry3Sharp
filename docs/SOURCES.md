@@ -568,6 +568,15 @@ The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, 
 |---|---|
 | [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
 
+## Changed-line coverage gate (test/tool only)
+
+`coverlet.collector` 6.0.4 (MIT, private test dependency) collects Cobertura data in the three Linux test runs;
+no package/runtime dependency is added. Integration follows the [coverlet VSTest documentation](https://github.com/coverlet-coverage/coverlet/blob/v6.0.4/Documentation/VSTestIntegration.md)
+and [.NET coverage guide](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-code-coverage).
+The original Python gate uses changed/executable-line intersection and union of suite hits, as documented by
+[diff-cover](https://github.com/Bachmann1234/diff_cover) (Apache-2.0), with stricter missing-evidence checks.
+Documentation only was consulted; no external implementation was ported. [Scope and acceptance](../tools/coverage/README.md).
+
 ## SMT verification pilot (test/tool only)
 
 `tools/Z3Pilot` uses `z3-solver` 4.15.4.0 (Z3 4.15.4, MIT), only as a pinned
