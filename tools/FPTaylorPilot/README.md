@@ -124,3 +124,27 @@ Not covered: the full determinant `t1 - t2 + t3` and the sign decision of `Orien
 the other TPI planes and the other cross-product components of the TPI model, and any input outside the
 restricted ranges above. As for the earlier comparisons, each result is a bounded-domain, single-expression
 check, not a proof of the filter.
+
+## Windows: a standalone WSL2 setup
+
+`wsl_setup.ps1` runs the whole pilot in a WSL2 distribution (default Ubuntu 24.04), without Podman or Docker.
+Run it from the repository root in Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\FPTaylorPilot\wsl_setup.ps1          # smoke, Python tests, ux and nx
+powershell -ExecutionPolicy Bypass -File tools\FPTaylorPilot\wsl_setup.ps1 -Full     # plus the generated expressions (about 35 min)
+```
+
+It installs the distribution if it is missing (`wsl --install`; this needs administrator rights and a download
+of a few GB, so run it from an elevated PowerShell in that case), installs the build packages, copies `tools/`
+into the distribution's Linux file system with LF line endings, and runs `wsl_run.sh`. The FPTaylor toolchain
+is built once into `/root/fptaylor-local` in the distribution (`-InstallDir` changes it); a second run reuses it.
+Nothing is installed on Windows itself.
+
+`wsl_run.sh` is the Linux part and can be run on any Linux x86-64 host:
+`bash tools/FPTaylorPilot/wsl_run.sh <LF copy of the repository root> <fresh installation directory> [--full]`.
+`PYTHON` selects the interpreter (default `python3`). Its control flow is checked by `check_wsl_run.py` with a stub
+FPTaylor; that check needs Linux, since it runs the stub as a program.
+
+The script has not been run on a real WSL distribution yet: this session could not install one (no administrator
+rights). The Linux part ran in an Ubuntu 24.04 container, with the same steps as the script.
