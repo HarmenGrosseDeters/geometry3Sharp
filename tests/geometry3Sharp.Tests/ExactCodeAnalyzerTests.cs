@@ -220,7 +220,8 @@ namespace geometry3Sharp.Tests
                 string id = Regex.Replace(e.Groups[3].Value, "~[^~]*$", "");    // without the return type
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(id, c).FirstOrDefault();
                 Assert.True(s != null, "no member for " + e.Groups[3].Value);
-                Assert.StartsWith("ExactMesh", s.ContainingType.Name);
+                // (TriangleBoxTree: the box tree of ExactMeshArrangement.cs, an exact file)
+                Assert.True(s.ContainingType.Name.StartsWith("ExactMesh") || s.ContainingType.Name == "TriangleBoxTree", s.ContainingType.Name);
             }
         }
 
