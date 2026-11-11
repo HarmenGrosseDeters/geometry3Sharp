@@ -110,6 +110,30 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   2026-11-11 (4175 s) against master 79a2c1ab (1937 s): machine load or regression; (4) an additive budget option that
   returns a status before the arrangement instead of running for an hour (as `ExactResolveMaxPairs` does in the
   repair). The single runs of 55928 and 252683 are not finished (tail, over 2 h on 1 core).
+  Competitors (2): Manifold and CGAL EPECK refuse the input (not manifold / not a polygon mesh, under 1 s).
+  Analysis (1), T3a 2026-11-11, no library code: 522,786 of 524,503 intersecting pairs are self pairs of each operand
+  (two resolves of a crumpled model, about 1.7k A-B pairs); a 0.03-wide knot of 1,767 triangles (model about 65 across)
+  alone gives 4.5M pieces. Classification: both operands are open, so every piece gets an exact Antipodal ray per open
+  operand (about 30M rays, 480-890 plane-side tests each). Master 88342701, 4 cores, Difference: 953 s, classification
+  769 s, triangulation 157 s; 79a2c1ab (before per-piece open classification and Antipodal) had 328 s classification
+  on another machine: a suspected 2.3x regression, a same-machine A/B is running. Upper bound about 90-130 s per op
+  (under 5 min, not seconds at 15M pieces).
+  **Owner 2026-11-11: implement as proposed**, as one Opus stage after the T1 Sonnet levers, together with T1's
+  classification lever (serial, same files):
+  - L1: open winding per patch with a certified bound (the GWN gradient is the Biot-Savart field of the boundary,
+    |grad w| <= #seg / (2 pi D)), propagated over the piece adjacency, re-evaluated near k + 1/2; bit-identical
+    (classification about 769 -> 350 s here). This is also the bit-identical way back from the regression.
+  - L2: short-segment tracing to local reference points instead of far rays (EMBER-style, carried over to the GWN);
+    classification about 60-100 s, with L1 about 40 s. Accepted by the owner although it is not strictly bit-identical:
+    a threshold can differ only where the winding lies within the evaluation error of a half integer without being on
+    it, where the Antipodal Method is not exact either; it needs a written proof and an A/B against the recorded per-piece
+    open winding (as the Antipodal A/B).
+  - L3: triangulation (157 s, mildly superlinear in pieces per triangle), after the predicate statistics of the knot:
+    cheaper or cached predicates on high-degree implicit points (bit-identical), or a different constraint insertion.
+  - Fail-fast budget (additive): `ExactMeshBoolean.MaxPieces` (default 0 = unlimited) and a status `BudgetExceeded`
+    without a result, checked right after the merge of the crossings (the exact piece count by Euler from the points per
+    touched triangle, about 3 % into this case), `Counts["predicted_pieces"]` always set; optionally a limit on the open
+    winding evaluations and a CancellationToken checked between phases.
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
