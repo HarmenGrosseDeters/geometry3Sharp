@@ -773,7 +773,7 @@ namespace geometry3Sharp.Tests
             int iv = T.VertexIndex(v);
             Vector3d e1, e2, n;
             T.GetTangentBasis(v, out e1, out e2, out n);
-            Func<Vector3d, double> proj = d => Math.Atan2(d.Dot(e2), d.Dot(e1));
+            Func<Vector3d, double> proj = d => CoreMath.Atan2(d.Dot(e2), d.Dot(e1));
 
             // the edges in signpost order, with their projected directions; the projection must fold
             var edges = new List<KeyValuePair<double, Vector3d>>();
@@ -816,7 +816,7 @@ namespace geometry3Sharp.Tests
             double prevW = 0;
             while (true) {
                 Vector3d d = mesh.GetVertex(T.VertexID(T.Head(hh))) - p;
-                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
+                double w = CoreMath.Atan2(d.Dot(e2), d.Dot(e1));
                 if (sign.Count == 0) w = 0;
                 else { while (w < prevW) w += 2 * Math.PI; }
                 sign.Add(T.Signpost(hh)); world.Add(w);
@@ -824,7 +824,7 @@ namespace geometry3Sharp.Tests
                 int nh = T.NextAroundVertex(hh);
                 if (nh < 0) {
                     Vector3d dl = mesh.GetVertex(T.VertexID(T.Head(IntrinsicTriangulation.Next(hh)))) - p;
-                    double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
+                    double wl = CoreMath.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
                     sign.Add(T.LastSignpost(i)); world.Add(wl);
                     break;
