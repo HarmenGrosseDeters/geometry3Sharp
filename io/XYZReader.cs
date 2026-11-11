@@ -54,9 +54,7 @@ namespace g3
                     z = MeshIOUtil.ParseDouble(tokens[2]);
                 } catch (FormatException) {
                     return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a position value is not a number");
-                } catch (OverflowException) {
-                    return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a position value is out of range");
-                }
+                }   // (no OverflowException: MeshIOUtil.ParseDouble/ParseFloat read a value beyond the range as infinity, RejectsPosition below decides)
                 if (ReadOptions.RejectsPosition(options, x, y, z))
                     return ReadOptions.NonFinitePosition(x, y, z);
                 if (haveNormals) {
@@ -67,8 +65,6 @@ namespace g3
                         nz = MeshIOUtil.ParseFloat(tokens[5]);
                     } catch (FormatException) {
                         return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a normal value is not a number");
-                    } catch (OverflowException) {
-                        return new IOReadResult(IOCode.FileParsingError, "XYZ line " + lineNumber + ": a normal value is out of range");
                     }
                     NewVertexInfo info = new NewVertexInfo(new Vector3d(x, y, z), new Vector3f(nx, ny, nz));
                     builder.AppendVertex(info);

@@ -51,6 +51,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PointArea_SumsToTheAreaOfTheSurface()
+        {
+            // the area each point stands for (the weight of the winding number of the cloud): about the area of the torus in total
+            var pts = PointClouds.Torus(4000, 7, out _);
+            var pn = new PointCloudNormals(pts);
+            Assert.True(pn.Compute());
+            Assert.Equal(pts.Count, pn.PointArea.Length);
+            double torus = 4 * Math.PI * Math.PI * PointClouds.TorusR * PointClouds.Torusr;
+            Assert.InRange(pn.PointArea.Sum(), 0.85 * torus, 1.15 * torus);
+            // scale: areas scale with the square of the length
+            var big = new PointCloudNormals(pts.Select(p => 1024 * p).ToList());
+            Assert.True(big.Compute());
+            Assert.Equal(1024.0 * 1024.0 * pn.PointArea[17], big.PointArea[17]);
+        }
+
+        [Fact]
         public void Sphere_AxesAreExactEnough()
         {
             var pts = PointClouds.Sphere(2000, 3, 2.0, out var truth);

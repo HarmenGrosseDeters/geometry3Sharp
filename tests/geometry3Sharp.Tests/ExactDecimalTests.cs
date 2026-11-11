@@ -301,6 +301,29 @@ namespace geometry3Sharp.Tests
             Assert.False(MeshIOUtil.TryParseDouble("x", out v));
         }
 
+        // the XYZ reader through the exact parser (forced on every framework): a value beyond the range is infinity, never an exception
+        [Fact]
+        public void XyzReader_UsesTheExactParser_AndReadsOutOfRangeValuesAsInfinity()
+        {
+            MeshIOUtil.ForceExactDecimal = true;
+            try {
+                var builder = new DMesh3Builder();
+                var allow = new ReadOptions() { AllowNonFiniteCoordinates = true };
+                string text = "5.6348333975312060066e-8 -1e400 9007199254740993 1e40 0 0\n";
+                var result = new XYZFormatReader().ReadFile(new System.IO.MemoryStream(System.Text.Encoding.ASCII.GetBytes(text)), builder, allow, null);
+                Assert.Equal(IOCode.Ok, result.code);
+                Vector3d p = builder.Meshes[0].GetVertex(0);
+                Assert.Equal(0x3e6e4074bfc9cfd2L, Bits(p.x));
+                Assert.True(double.IsNegativeInfinity(p.y));
+                Assert.Equal(9007199254740992.0, p.z);
+                Assert.True(float.IsPositiveInfinity(builder.Meshes[0].GetVertexNormal(0).x));
+                var rejected = new XYZFormatReader().ReadFile(new System.IO.MemoryStream(System.Text.Encoding.ASCII.GetBytes("1 1e400 3\n")), new DMesh3Builder(), ReadOptions.Defaults, null);
+                Assert.Equal(IOCode.FileParsingError, rejected.code);
+            } finally {
+                MeshIOUtil.ForceExactDecimal = false;
+            }
+        }
+
         // the readers use the exact parser when the platform's is wrong; here it is forced on every framework
         [Fact]
         public void Readers_UseTheExactParser_ForCoordinatesBeyondThePlatformsPrecision()

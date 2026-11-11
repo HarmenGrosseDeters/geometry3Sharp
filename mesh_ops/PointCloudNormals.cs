@@ -107,6 +107,12 @@ namespace gs
         public int ConfidentCount;
         /// <summary> number of points (duplicates counted) that have a normal axis (the neighbourhood is not collinear or coincident) </summary>
         public int AxisCount;
+        /// <summary>
+        /// the area that each input point stands for, in the units of the input: pi * d^2 / (j + 1), d the distance to its j-th
+        /// nearest neighbour (j = 8, or the largest the neighbour count allows); the area weight of the fast winding number of
+        /// an oriented point cloud. Set together with Normals (also for the failure statuses that set them); null otherwise.
+        /// </summary>
+        public double[] PointArea;
         /// <summary> number of points (duplicates counted) without a normal axis, whose normal is zero; also set if Status is Success (a few degenerate neighbourhoods do not fail the run) </summary>
         public int DegenerateCount { get { return Normals == null ? 0 : Normals.Length - AxisCount; } }
         public double ConfidentFraction { get { return Points == null || Points.Count == 0 ? 0 : (double)ConfidentCount / Points.Count; } }
@@ -129,7 +135,7 @@ namespace gs
 
         public bool Compute()
         {
-            Normals = null; Confident = null; Wrap = null; ConfidentCount = 0; AxisCount = 0; Error = "";
+            Normals = null; Confident = null; Wrap = null; ConfidentCount = 0; AxisCount = 0; PointArea = null; Error = "";
             Spacing = NoiseSigma = UsedAlpha = UsedOffset = 0; AlphaConditionMet = false; Escalations = 0;
             WrapStatus = MeshAlphaWrap.WrapStatus.Success;
             if (Points == null) { Status = NormalsStatus.InvalidInput; Error = "Points is null"; return false; }
@@ -184,11 +190,13 @@ namespace gs
             // neighbourhoods, PCA axes, spacing and noise
             PointTree tree = new PointTree(unit);
             Vector3d[] axes = new Vector3d[m];
-            double[] d6 = new double[m], lambdaMin = new double[m];
+            double[] d6 = new double[m], lambdaMin = new double[m], areaUnit = new double[m];
             bool[] degenerate = new bool[m];
             Action<int, Work> body = (i, work) => {
                 tree.Nearest(i, k, work.Index, work.Dist2);
                 d6[i] = Math.Sqrt(work.Dist2[Math.Min(6, k - 1)]);        // [0] is the point itself
+                int jn = Math.Min(8, k - 1);
+                areaUnit[i] = Math.PI * work.Dist2[jn] / (jn + 1);
                 double lmin;
                 axes[i] = PcaAxis(unit, work.Index, k, work.Solver, out lmin, out degenerate[i]);
                 lambdaMin[i] = lmin;
@@ -208,6 +216,9 @@ namespace gs
             }
             Normals = new Vector3d[n];
             Confident = new bool[n];
+            double areaScale = fromUnit * fromUnit;
+            PointArea = new double[n];
+            for (int i = 0; i < n; ++i) PointArea[i] = areaUnit[map[i]] * areaScale;
             Action<Vector3d[]> expand = (u) => { for (int i = 0; i < n; ++i) Normals[i] = u[map[i]]; };
             for (int i = 0; i < n; ++i) if (!degenerate[map[i]]) AxisCount++;
             if (validUnique == 0 || (double)AxisCount / n < MinConfidentFraction) {
