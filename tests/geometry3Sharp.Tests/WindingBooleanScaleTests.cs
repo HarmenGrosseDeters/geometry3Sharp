@@ -105,7 +105,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Compute_CanBeRepeated_OnOneInstance_AtALargeScale()
         {
-            var boolean = Make(1e100, MeshWindingNumberBoolean.Operations.Union);
+            var boolean = Make(1e100, MeshWindingNumberBoolean.Operations.Union, 0, 24);
             Assert.True(boolean.Compute());
             string first = Signature(boolean.Result, 1);
             Assert.True(boolean.Compute());
@@ -232,17 +232,22 @@ namespace geometry3Sharp.Tests
             Assert.True(reference.Compute());
             double expected = Volume(reference.Result, 1);
             Assert.True(expected > 0.1);
-            var outcomes = new System.Text.StringBuilder();
+            int succeeded = 0;
             foreach (int e in new[] { -1070, -1040, -1000, -700, -300, -100, -40, -20, 20, 40, 100, 300, 600, 900, 1000, 1020 }) {
                 double r = Math.Pow(2, e);
                 var b = Make(r, op, 0, 24);
-                if (!b.Compute()) { outcomes.Append(e).Append(":false "); continue; }
+                if (!b.Compute()) {
+                    Assert.Null(b.Result);
+                    continue;
+                }
+                succeeded++;
                 Assert.True(b.Result != null, "2^" + e + ": true without a result");
                 foreach (int v in b.Result.VertexIndices())
                     Assert.True(b.Result.GetVertex(v).IsFinite, "2^" + e + ": non-finite vertex");
                 Assert.True("" == MeshRobustRepair.NotCleanReason(b.Result, false), "2^" + e + ": " + MeshRobustRepair.NotCleanReason(b.Result, false) + " (" + b.Result.TriangleCount + " triangles)");
                 Assert.InRange(Volume(b.Result, r) / expected, 0.97, 1.03);
             }
+            Assert.True(succeeded >= 12, "the scales from 2^-700 to 2^1000 succeed: " + succeeded);
         }
 
         // the in-band path is the old code: results pinned (hashes of the result computed with the library of master)
@@ -255,7 +260,21 @@ namespace geometry3Sharp.Tests
         {
             var b = Make(r, MeshWindingNumberBoolean.Operations.Union, 0, 24);
             Assert.True(b.Compute());
-            Assert.Equal(PinnedHash(r), Hash(Signature(b.Result, 1)));
+            Assert.Equal(PinnedHash(r), Hash(RoundedSignature(b.Result, r)));
+        }
+
+        // the topology and the vertices to 8 significant digits of the size (the last bits of a contour may differ between runtimes: net48, net10)
+        static string RoundedSignature(DMesh3 m, double r)
+        {
+            var sb = new StringBuilder();
+            foreach (int t in m.TriangleIndices()) { Index3i f = m.GetTriangle(t); sb.Append(f.a).Append(',').Append(f.b).Append(',').Append(f.c).Append(';'); }
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v) / r;
+                sb.Append(Math.Round(p.x, 7).ToString("F7", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append(Math.Round(p.y, 7).ToString("F7", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append(Math.Round(p.z, 7).ToString("F7", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
+            }
+            return sb.ToString();
         }
 
         static string Hash(string s)
@@ -266,10 +285,10 @@ namespace geometry3Sharp.Tests
 
         static string PinnedHash(double r)
         {
-            if (r == 1.0) return "E11A9AD2309B84CA";
-            if (r == 1024.0) return "4A29ADD10CC2DFF7";
-            if (r == 1e-3) return "70560E784F621B16";
-            return "57C9263C123D117F";
+            if (r == 1.0) return "34041E2B2CB1C14D";
+            if (r == 1024.0) return "34041E2B2CB1C14D";
+            if (r == 1e-3) return "43AE228AE881A27A";
+            return "5470C7A965DA4E5C";
         }
 
         // invariance under the similarities of the harness, also at a size outside the band
@@ -299,6 +318,26 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(Signature(plain.Result, 1), Signature(boolean.Result, 1 / sim.Scale));
                 }
             }
+        }
+
+        [Fact]
+        public void ASubnormalScaledCoordinate_AndAnOverflowingCellSize_AreReported()
+        {
+            // a huge mesh (scaled by about 2^-332) with a used vertex at 1e-300: 1e-300 * 2^-332 is subnormal, the scale is not exact
+            DMesh3 a = Octahedron(Vector3d.Zero, 1e100);
+            a.SetVertex(5, new Vector3d(1e-300, 1e-300, -1e100));
+            var boolean = new MeshWindingNumberBoolean(a, Octahedron(new Vector3d(0.5e100, 0, 0), 1e100), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 24 };
+            Assert.False(boolean.Compute());
+            Assert.Null(boolean.Result);
+            // a tiny mesh (scaled by about 2^+332) with a caller cell size whose scaled value overflows
+            var tiny = Make(1e-100, MeshWindingNumberBoolean.Operations.Union, 1e300, 24);
+            Assert.False(tiny.Compute());
+            Assert.Null(tiny.Result);
+            // all triangles at one point: no extent to bring into the band
+            DMesh3 p = Octahedron(new Vector3d(5, 0, 0), 0);
+            var point = new MeshWindingNumberBoolean(p, new DMesh3(p), MeshWindingNumberBoolean.Operations.Union) { CellSize = 0.1 };
+            Assert.False(point.Compute());
+            Assert.Null(point.Result);
         }
     }
 }

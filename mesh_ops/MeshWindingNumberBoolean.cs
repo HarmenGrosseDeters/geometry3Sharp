@@ -100,7 +100,8 @@ namespace gs
         /// <returns>
         /// false if both inputs are empty, CellSize is NaN or infinite, the cell size is not positive or too small
         /// for the octree, the extent is outside the band and the scale is not exact (a used coordinate that would be subnormal after it,
-        /// or above 1e300), or the computation was cancelled, with Result null (also after an earlier success);
+        /// or above 1e300, or an extent that cannot be brought into the band, or a CellSize that does not exist in the scaled frame), or the
+        /// computation was cancelled, with Result null (also after an earlier success);
         /// true otherwise (Result may be an empty mesh, eg an intersection with an empty input).
         /// </returns>
         public bool Compute()
