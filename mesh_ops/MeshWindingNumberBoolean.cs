@@ -30,7 +30,7 @@ namespace gs
         /// <summary> the operation to compute </summary>
         public Operations Operation;
 
-        /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution; NaN or infinite: Compute fails </summary>
+        /// <summary> grid cell size, in the units of the inputs at every scale. If zero, uses bounding box diagonal of both inputs / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         /// <summary> number of cells along the bounding box diagonal (of both inputs), used if CellSize is zero </summary>
         public int GridResolution = 128;
@@ -93,11 +93,14 @@ namespace gs
 
 
         /// <summary>
-        /// Compute the boolean into Result.
+        /// Compute the boolean into Result. Outside an extent of [2^-32, 2^32] (of the triangles of both inputs) it runs on copies scaled by
+        /// a power of two to an extent in [1, 2) and maps the result back (exact; CellSize and UsedCellSize stay in the units of the inputs), so
+        /// a 2^k scaled input gives the scaled result at every size.
         /// </summary>
         /// <returns>
         /// false if both inputs are empty, CellSize is NaN or infinite, the cell size is not positive or too small
-        /// for the octree, or the computation was cancelled, with Result null (also after an earlier success);
+        /// for the octree, the extent is outside the band and the scale is not exact (a used coordinate that would be subnormal after it,
+        /// or above 1e300), or the computation was cancelled, with Result null (also after an earlier success);
         /// true otherwise (Result may be an empty mesh, eg an intersection with an empty input).
         /// </returns>
         public bool Compute()
@@ -106,14 +109,24 @@ namespace gs
             // MeshWindingNumberSolidify does: the winding-number field overflows (the extent to the 4th power: no surface was found from about
             // 1e79 to 1e103 and above 1e153, and Compute() succeeded with an empty mesh) and its float and absolute tolerances degrade below
             // about 1e-12. A 2^k scale then gives the unit-scale result times 2^k. Inside the band nothing changes.
+            reset_outputs();      // (also if the scaled run below throws)
             double s = unit_scale();
+            if (s == 0) {
+                // the extent is outside the band, but the scale is not exact for these inputs (a used coordinate that would be subnormal
+                // after it, one above 1e300): the field would overflow or degrade, so report it instead of an empty or wrong mesh
+                return false;
+            }
             if (s == 1 || MathUtil.IsFinite(CellSize) == false)
                 return compute_unit();
+            double scaledCell = CellSize > 0 ? CellSize * s : CellSize;
+            if (CellSize > 0 && (!(scaledCell > 0) || double.IsInfinity(scaledCell))) {
+                return false;           // a cell size that does not exist in the scaled frame (as a cell too small for the octree)
+            }
             DMesh3 a = new DMesh3(MeshA), b = new DMesh3(MeshB);
             MeshRepairMetrics.ScaleVertices(a, s);
             MeshRepairMetrics.ScaleVertices(b, s);
             var inner = new MeshWindingNumberBoolean(a, b, Operation) {
-                CellSize = CellSize * s, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
+                CellSize = scaledCell, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
                 FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels, MinRefineEdges = MinRefineEdges,
                 LocalRefinement = LocalRefinement, CancelF = CancelF
             };
@@ -134,8 +147,9 @@ namespace gs
             return ok;
         }
 
-        // The power of two that brings the extent of both inputs' triangles to [1, 2) if it is outside [2^-32, 2^32], else 1. Also 1 if the
-        // scaling is not exact for a used vertex (a coordinate that would be subnormal after it) or a coordinate would exceed 1e300.
+        // The power of two that brings the extent of both inputs' triangles to [1, 2) if it is outside [2^-32, 2^32], else 1; 0 if it
+        // is outside but the scaling is not exact for a used vertex (a coordinate that would be subnormal after it) or a coordinate
+        // would exceed 1e300.
         double unit_scale()
         {
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
@@ -144,6 +158,10 @@ namespace gs
             double s = MeshRepairMetrics.unit_scale(box, -32, 32);
             if (s == 1)
                 return 1;
+            // (a scale is limited to 2^+-1023: an extent below 2^-1055 is not brought into the band)
+            double scaledExtent = box.MaxDim * s;
+            if (!(scaledExtent >= 2.3283064365386963e-10 && scaledExtent <= 4294967296.0))
+                return 0;
             foreach (DMesh3 mesh in new DMesh3[] { MeshA, MeshB }) {
                 foreach (int v in mesh.VertexIndices()) {
                     Vector3d p = mesh.GetVertex(v);
@@ -151,16 +169,16 @@ namespace gs
                     for (int k = 0; k < 3; ++k) {
                         double x = Math.Abs(p[k]);
                         if (!(x * s <= 1e300))
-                            return 1;
+                            return 0;
                         if (used && x != 0 && x * s < 2.2250738585072014e-308)
-                            return 1;
+                            return 0;
                     }
                 }
             }
             return s;
         }
 
-        bool compute_unit()
+        void reset_outputs()
         {
             Result = null;      // set only on success, below
             UsedCellSize = 0;
@@ -173,6 +191,11 @@ namespace gs
             RefinedCells = 0;
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
+        }
+
+        bool compute_unit()
+        {
+            reset_outputs();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;
