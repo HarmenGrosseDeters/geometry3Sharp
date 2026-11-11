@@ -313,14 +313,29 @@ public static partial class Program
     }
 
     /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise </summary>
+    /// <summary>
+    /// The area below which the orientation of a ring is not judged: the ring is oriented on the grid, but its vertices are converted to
+    /// doubles, whose spacing at the coordinates' magnitude can exceed the grid; so 16 squared grid units plus the rounding of a double
+    /// area (8 times 2^-52 times the largest coordinate times the ring's extent). A real wrong orientation (a lobe of 1e-5) is far above
+    /// </summary>
+    static double OrientationSlack(Clipper2Result r, IReadOnlyList<Vector2d> ring)
+    {
+        double maxAbs = 0, x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
+        foreach (Vector2d v in ring) {
+            maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            x0 = Math.Min(x0, v.x); x1 = Math.Max(x1, v.x); y0 = Math.Min(y0, v.y); y1 = Math.Max(y1, v.y);
+        }
+        return 16 * r.Frame.Resolution * r.Frame.Resolution + 8 * Math.Pow(2, -52) * maxAbs * Math.Max(x1 - x0, y1 - y0);
+    }
+
     static void Inspect(Clipper2Result r, out bool finite, out bool oriented)
     {
         finite = true; oriented = true;
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
-            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) oriented = false;
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) oriented = false;
             foreach (Polygon2d h in g.Holes)
-                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) >= 0) oriented = false;
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) oriented = false;
         }
     }
 
@@ -365,9 +380,9 @@ public static partial class Program
         }
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
-            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) <= 0) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
             foreach (Polygon2d h in g.Holes)
-                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) >= 0) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) { orientations = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, resolution {r.Frame.Resolution:R}"); }
         }
         double margin = 4 * r.Frame.Resolution;
         var box = new AxisAlignedBox2d(ringA[0]);

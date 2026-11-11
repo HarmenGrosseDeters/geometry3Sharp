@@ -84,6 +84,22 @@ judges them):
    against the documented orientation of results ("outer rings counterclockwise, holes clockwise"). Clipper2 reports a lobe of negative winding as a clockwise path
    even where it is an outer boundary; `ClipperFrame.ToGeneralPolygons` now orients every outer ring and hole by its grid area (`Clipper2ResultOrientationTests`).
    Input: `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24` (0 findings after the fix; the target no longer gates it).
+5. (clipper2, libFuzzer 10 min, 2 fork jobs, 1.3M execs: 70 crashes in 4 classes; 3 fixed in the adapter or the pilot's judgement, 1 is Clipper2 itself)
+   - Fixed in the adapter (`ToGeneralPolygons`): Clipper2's `PolyTree64` nests by containment, which a self-touching outer ring fools, in both directions.
+     A filled region of the same orientation as the outer ring that the tree nests as its hole had its area subtracted (27 crashes: a filled region
+     missing from the union); a clockwise path inside a counterclockwise one that the tree reports at the top level was reoriented into an outer ring and
+     its area added. Hole or outer is now decided by orientation and geometric containment (`Clipper2ResultOrientationTests`).
+   - Pilot judgement: rings of a few grid cells of area, whose area in doubles is 0 or of either sign (the vertices are converted from the grid, where the ring
+     is oriented), are not judged for orientation below `OrientationSlack` (16 squared grid units plus the rounding of a double area): the representation limit
+     already documented for far-from-origin coordinates (18 crashes).
+   - **Clipper2 2.0.0 itself (open, 16 crashes, not reported upstream):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
+     neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). It depends on the grid
+     scale: with `PrecisionBits` 24 to 36 and 44 the same input is consistent, with 38 and the default 40 it is not (area of A|B 0.2210 against
+     0.2000 = A + B - A&B). No adapter code is involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
+     A = (0,0) (0.125,0) (0.125,0.125) (0,0.125) (0.5703125,0.5703125) (0.6953125,0.5703125) (0.125,0.125) (0,0.125);
+     B = (0.33984375,0.08984375) (-0.58984375,-0.58984375) (0.22265625,0.21484375) (0.48828125,-0.02734375) (0.21484375,0.08984375) (0.78515625,0.66015625);
+     `Clipper2Polygons.BooleanPaths(ClipType.Union, {A}, {B})`, probe point (0.25463542, 0.20286458). Likely the cross products of large grid
+     coordinates in Clipper2's double arithmetic; a lower default `PrecisionBits` would avoid this class, at a coarser grid (owner decision).
 `ArgumentException` for coordinates above 1e70 is the documented contract: the target judges it (the normalized copy keeps the case's offset, so it is reached; accepted
 input beyond 1e70 would be a finding).
 The reducer's 2^40 scale check is judged only inside the Reducer's range (nonzero coordinates 2^-200 .. 2^150, QA.md 2.5a); two inputs with a vertex of magnitude 1e-235

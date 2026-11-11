@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Clipper2Lib;
 
 namespace g3.Clipper2
@@ -201,23 +202,52 @@ namespace g3.Clipper2
         /// </summary>
         public List<GeneralPolygon2d> ToGeneralPolygons(PolyTree64 tree)
         {
-            var result = new List<GeneralPolygon2d>();
-            for (int i = 0; i < tree.Count; ++i)
-                AddOuter(tree.Child(i), result);
-            return result;
-        }
-
-        void AddOuter(PolyPath64 node, List<GeneralPolygon2d> result)
-        {
-            // (Clipper2 reports a lobe of negative winding as a clockwise path even where it is an outer boundary: oriented here, by the grid area)
-            var polygon = new GeneralPolygon2d(ToPolygon2d(Oriented(new Path64(node.Polygon), true)));
-            result.Add(polygon);
-            for (int i = 0; i < node.Count; ++i) {
-                PolyPath64 hole = node.Child(i);
-                polygon.AddHole(ToPolygon2d(Oriented(new Path64(hole.Polygon), false)), false, false);
-                for (int j = 0; j < hole.Count; ++j)
-                    AddOuter(hole.Child(j), result);
+            // Outer boundary or hole is decided here, not by the tree: with a self-touching or self-overlapping result the tree's nesting
+            // is wrong both ways (found by the MeshFuzzPilot's libFuzzer run). A path of positive area is an outer boundary (a region of
+            // its own even if the tree nests it in another, so its area is not subtracted); a path of negative area is a hole of the
+            // smallest positive path that contains it, and an outer boundary (reversed) if no positive path does: a lobe of negative
+            // winding (NonZero) is filled. Zero area: as the tree says.
+            var paths = new List<(Path64 path, double area, bool treeHole)>();
+            void Collect(PolyPath64 node)
+            {
+                for (int i = 0; i < node.Count; ++i) {
+                    PolyPath64 child = node.Child(i);
+                    paths.Add((child.Polygon, Clipper.Area(child.Polygon), child.IsHole));
+                    Collect(child);
+                }
             }
+            Collect(tree);
+            var boxes = paths.Select(x => Clipper.GetBounds(x.path)).ToList();
+            var isOuter = new bool[paths.Count];
+            for (int i = 0; i < paths.Count; ++i) isOuter[i] = paths[i].area > 0;
+            var positives = Enumerable.Range(0, paths.Count).Where(i => isOuter[i]).OrderBy(i => paths[i].area).ToList();
+            var holeOf = new int[paths.Count];
+            for (int i = 0; i < paths.Count; ++i) {
+                holeOf[i] = -1;
+                if (isOuter[i]) continue;
+                if (paths[i].area == 0 && !paths[i].treeHole) { isOuter[i] = true; continue; }
+                foreach (int j in positives) {
+                    Rect64 bi = boxes[i], bj = boxes[j];
+                    if (bi.left < bj.left || bi.right > bj.right || bi.top < bj.top || bi.bottom > bj.bottom) continue;
+                    bool inside = true;
+                    foreach (Point64 q in paths[i].path)
+                        if (Clipper.PointInPolygon(q, paths[j].path) == PointInPolygonResult.IsOutside) { inside = false; break; }
+                    if (inside) { holeOf[i] = j; break; }
+                }
+                if (holeOf[i] < 0) isOuter[i] = true;
+            }
+            var result = new List<GeneralPolygon2d>();
+            var polygonOf = new Dictionary<int, GeneralPolygon2d>();
+            for (int i = 0; i < paths.Count; ++i) {
+                if (!isOuter[i]) continue;
+                var polygon = new GeneralPolygon2d(ToPolygon2d(Oriented(new Path64(paths[i].path), true)));
+                polygonOf[i] = polygon;
+                result.Add(polygon);
+            }
+            for (int i = 0; i < paths.Count; ++i)
+                if (!isOuter[i])
+                    polygonOf[holeOf[i]].AddHole(ToPolygon2d(Oriented(new Path64(paths[i].path), false)), false, false);
+            return result;
         }
 
         public override string ToString()
