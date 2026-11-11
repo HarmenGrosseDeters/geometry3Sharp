@@ -77,9 +77,9 @@ namespace geometry3Sharp.Tests
             GC.KeepAlive(tree);
         }
 
-        static DMesh3 Sphere(Vector3d shift)
+        static DMesh3 Sphere(Vector3d shift, int edgeVertices = 12)
         {
-            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
             foreach (int v in m.VertexIndices())
                 m.SetVertex(v, m.GetVertex(v) + shift);
             return m;
@@ -99,9 +99,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(boolean.Result) ?? "");
         }
 
-        static ExactMeshArrangement Arranged(Vector3d shift)
+        static ExactMeshArrangement Arranged(Vector3d shift, int edgeVertices = 12)
         {
-            var arr = new ExactMeshArrangement(new List<DMesh3> { Sphere(Vector3d.Zero), Sphere(shift) }) { SelfIntersections = true };
+            var arr = new ExactMeshArrangement(new List<DMesh3> { Sphere(Vector3d.Zero, edgeVertices), Sphere(shift, edgeVertices) }) { SelfIntersections = true };
             arr.Compute();
             return arr;
         }
@@ -235,6 +235,38 @@ namespace geometry3Sharp.Tests
                 if (r) touching++;
             }
             Assert.True(zeros > 3000 && touching > 100, $"zeros {zeros}, intersecting {touching}");
+        }
+
+        // two triangles that share a lock stripe (Index and Index + stripes) and one that does not: adds from many threads to
+        // the triangles are not lost, and the stripe of a handle is the one of its index
+        [Fact]
+        public void InputTriangle_LockStripes_FollowTheIndex_AndSharedStripesStayCorrect()
+        {
+            ExactMeshArrangement arr = Arranged(new Vector3d(5, 5, 5), 24);        // (about 12,700 triangles: more than the 4096 stripes)
+            int count = arr.Triangles.Count;
+            // (the stripes are a power of two, at most 4096, at least the triangle count up to that)
+            ExactMeshArrangement.InputTriangle t0 = arr.Triangles[0], t1 = arr.Triangles[1];
+            Assert.NotSame(t0.Lock, t1.Lock);
+            int stripes = 1;
+            while (stripes < 4096 && stripes < count) stripes <<= 1;
+            Assert.True(count > stripes, "needs more triangles than stripes to share one");
+            ExactMeshArrangement.InputTriangle far = arr.Triangles[stripes];
+            Assert.Same(t0.Lock, far.Lock);                 // index and index + stripes: one lock
+            Assert.NotSame(t1.Lock, far.Lock);
+            const int threads = 8, per = 2000;
+            var tasks = new System.Threading.Tasks.Task[threads];
+            for (int k = 0; k < threads; ++k) {
+                int kk = k;
+                tasks[k] = System.Threading.Tasks.Task.Run(() => {
+                    for (int i = 0; i < per; ++i) {
+                        var t = (i % 2 == 0) ? t0 : far;
+                        lock (t.Lock) t.AddCoplanar(kk * per + i);
+                    }
+                });
+            }
+            System.Threading.Tasks.Task.WaitAll(tasks);
+            Assert.Equal(threads * per / 2, t0.Coplanar.Count);
+            Assert.Equal(threads * per / 2, far.Coplanar.Count);
         }
     }
 }
