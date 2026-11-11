@@ -126,6 +126,72 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CulledTriangles_NoPairs_NotTriangulated()
+        {
+            // the work the early-out saves, visible: the upper box (wholly above A) as a mesh of its own, before and after
+            // the lower one, has no candidate pairs with it (the pairs are those without the upper box at all); joined
+            // into one mesh in either order, no self-intersecting pairs; and a wall that crosses the lower box's top edge
+            // above A puts points on edges the culled cap shares with kept walls, but the cap, without pairs, is not split
+            DMesh3 a = Box(0, 0, 0, 4, 4, 1), lower = Box(1, 1, 0.5, 2, 2, 3), upper = Box(1.5, 1.5, 1.5, 2.5, 2.5, 3.5);
+            foreach (Ops op in new[] { Ops.Difference, Ops.Intersection }) {
+                int without = Run(new List<DMesh3> { a, lower }, op, true).IntersectingPairs;
+                Assert.True(without > 0);
+                foreach (var meshes in new[] { new List<DMesh3> { a, lower, upper }, new List<DMesh3> { a, upper, lower } }) {
+                    ExactMeshBoolean culled = Run(meshes, op, true), reference = Run(meshes, op, false);
+                    Assert.Equal(without, culled.IntersectingPairs);
+                    Assert.True(reference.IntersectingPairs > without);
+                    Assert.Equal("", Invariance.GeometricDifference(reference.Result, culled.Result));
+                }
+                foreach (DMesh3 joined in new[] { Join(lower, upper), Join(upper, lower) }) {
+                    ExactMeshBoolean culled = Run(new List<DMesh3> { a, joined }, op, true), reference = Run(new List<DMesh3> { a, joined }, op, false);
+                    Assert.Equal(0, culled.SelfIntersectingPairs);
+                    Assert.True(reference.SelfIntersectingPairs > 0);
+                    Assert.Equal("", Invariance.GeometricDifference(reference.Result, culled.Result));
+                }
+            }
+            DMesh3 wall = Box(1.5, 0, 0.5, 1.8, 4, 3.5);
+            var withWall = new List<DMesh3> { a, lower, wall };
+            ExactMeshBoolean c = Run(withWall, Ops.Difference, true), r = Run(withWall, Ops.Difference, false);
+            Assert.Equal("", Invariance.GeometricDifference(r.Result, c.Result));
+            Assert.True(c.Counts["t3a_culled"] >= 2);
+            Assert.Equal(TriangulatedWithWall, c.Arrangement.TriangulatedTriangles);
+            Assert.True(r.Arrangement.TriangulatedTriangles > TriangulatedWithWall);
+        }
+
+        const int TriangulatedWithWall = 24;
+
+        [Fact]
+        public void Randomized_SameGeometryAndVolume_RotatedAndRounded()
+        {
+            // random boxes through, above, inside and beside A, everything rotated about a skew axis (inexact coordinates:
+            // the rounding repair has work), Difference and Intersection with the default SafeRounding: the same oriented
+            // triangles at the same coordinates (ids may differ, OPERATIONS.md) and the same volume, bit for bit
+            int culledRuns = 0;
+            for (int run = 0; run < 60; ++run) {
+                var rnd = new Random(run);
+                var meshes = new List<DMesh3> { Box(0, 0, 0, 4, 4, 1) };
+                for (int k = 0; k < 4; ++k) {
+                    double x = 4 * rnd.NextDouble() - 0.5, y = 4 * rnd.NextDouble() - 0.5, z = 2.5 * rnd.NextDouble() - 0.5;
+                    meshes.Add(Box(x, y, z, x + 0.3 + rnd.NextDouble(), y + 0.3 + rnd.NextDouble(), z + 0.3 + 1.5 * rnd.NextDouble()));
+                }
+                var axis = new Vector3d(1, 2 + rnd.NextDouble(), 3).Normalized;
+                var q = new Quaterniond(axis, 10 + 70 * rnd.NextDouble());
+                foreach (DMesh3 m in meshes)
+                    MeshTransforms.Rotate(m, Vector3d.Zero, q);
+                foreach (Ops op in new[] { Ops.Difference, Ops.Intersection }) {
+                    ExactMeshBoolean culled = Run(meshes, op, true), reference = Run(meshes, op, false);
+                    if (culled.Counts["t3a_culled"] > 0)
+                        culledRuns++;
+                    Assert.True(Invariance.GeometricDifference(reference.Result, culled.Result) == "", $"run {run} {op}");
+                    double v0 = MeshMeasurements.VolumeArea(reference.Result, reference.Result.TriangleIndices(), reference.Result.GetVertex).x;
+                    double v1 = MeshMeasurements.VolumeArea(culled.Result, culled.Result.TriangleIndices(), culled.Result.GetVertex).x;
+                    Assert.True(BitConverter.DoubleToInt64Bits(v0) == BitConverter.DoubleToInt64Bits(v1), $"run {run} {op}: {v0:R} vs {v1:R}");
+                }
+            }
+            Assert.True(culledRuns > 60, $"culled in {culledRuns} of 120");
+        }
+
+        [Fact]
         public void NoCulling_OpenA_Union_OrPredicate()
         {
             List<DMesh3> meshes = SlabMeshes();

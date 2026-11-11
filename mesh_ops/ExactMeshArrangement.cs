@@ -1074,15 +1074,15 @@ namespace g3
             total.Lap("merge");
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
-            // (a culled triangle is not triangulated: points of crossings on an edge it shares with a kept triangle lie
-            // outside CullOutsideOf, like all of it)
-            gParallel.ForRange(Triangles.Count, (ti) => {
-                if (Culled[ti] == false)
-                    triangulate(ti, out pieces[ti], out constraints[ti]);
-            });
+            // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
+            gParallel.ForRange(Triangles.Count, (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
             int pieceCount = 0;
-            for (int ti = 0; ti < Triangles.Count; ++ti)
+            TriangulatedTriangles = 0;
+            for (int ti = 0; ti < Triangles.Count; ++ti) {
                 pieceCount += (pieces[ti] != null) ? pieces[ti].Count : 1;
+                if (pieces[ti] != null)
+                    TriangulatedTriangles++;
+            }
             Output.Capacity = Math.Max(Output.Capacity, Output.Count + pieceCount);
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 InputTriangle t = Triangles[ti];
@@ -1662,6 +1662,7 @@ namespace g3
         {
             Culled = new bool[Triangles.Count];
             CulledCount = 0;
+            CullTests = 0;
             int m0 = CullOutsideOf;
             if (m0 < 0 || m0 >= Meshes.Count || CullTest == null)
                 return;
@@ -1676,9 +1677,7 @@ namespace g3
                     int ti = tris[k];
                     if (Triangles[ti].Degenerate)
                         return;
-                    bool meets = false;
-                    tree.Query(boxes[m][k], (j) => meets = true);
-                    free[ti] = meets == false;
+                    free[ti] = tree.Any(boxes[m][k]) == false;
                 });
             }
             // connected sets by common corners (union-find, the smaller triangle index as the root)
@@ -1693,14 +1692,16 @@ namespace g3
                 }
                 return x;
             };
-            var atPoint = new Dictionary<int, int>();
+            var atPoint = new int[PointCount];
+            for (int p = 0; p < atPoint.Length; ++p)
+                atPoint[p] = -1;
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 if (free[ti] == false)
                     continue;
                 Index3i c = Triangles[ti].Corners;
                 for (int k = 0; k < 3; ++k) {
-                    int other;
-                    if (atPoint.TryGetValue(c[k], out other)) {
+                    int other = atPoint[c[k]];
+                    if (other >= 0) {
                         int ra = find(ti), rb = find(other);
                         if (ra != rb) {
                             if (ra < rb) parent[rb] = ra; else parent[ra] = rb;
@@ -1726,6 +1727,8 @@ namespace g3
         }
         // the number of CullTest calls of the last Compute (one per connected set)
         internal int CullTests;
+        // the input triangles that were triangulated (split into pieces) in the last Compute
+        internal int TriangulatedTriangles;
 
         // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
         // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.
@@ -2922,6 +2925,32 @@ namespace g3
         {
             int o = 6 * j;
             return overlaps(leafBox, i, leafBox[o], leafBox[o + 1], leafBox[o + 2], leafBox[o + 3], leafBox[o + 4], leafBox[o + 5]);
+        }
+
+        /// <summary> whether some box overlaps the closed query box (Query, stopping at the first one) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public bool Any(AxisAlignedBox3d query)
+        {
+            if (nodeCount == 0)
+                return false;
+            double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
+            int[] stack = queryStack ?? (queryStack = new int[256]);
+            int top = 0;
+            stack[top++] = 0;
+            while (top > 0) {
+                int node = stack[--top];
+                if (overlaps(nodeBox, node, x0, y0, z0, x1, y1, z1) == false)
+                    continue;
+                if (nodeLeft[node] < 0) {
+                    for (int i = nodeStart[node], e = nodeStart[node] + nodeSize[node]; i < e; ++i)
+                        if (overlaps(leafBox, i, x0, y0, z0, x1, y1, z1))
+                            return true;
+                } else {
+                    stack[top++] = nodeLeft[node];
+                    stack[top++] = nodeRight[node];
+                }
+            }
+            return false;
         }
 
         /// <summary> call f for every box that overlaps the closed query box </summary>

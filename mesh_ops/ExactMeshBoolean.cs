@@ -123,9 +123,16 @@ namespace g3
         public string Error;
         /// <summary> result code of Compute(); Success iff Compute() returned true </summary>
         public BooleanStatus Status = BooleanStatus.NotComputed;
-        /// <summary> pairs of triangles of different meshes that intersect </summary>
+        /// <summary>
+        /// pairs of triangles of different meshes that intersect (in the arrangement: for Difference and Intersection with a
+        /// closed first mesh, without the triangles of the other meshes that lie wholly outside it, which are left out)
+        /// </summary>
         public int IntersectingPairs;
-        /// <summary> pairs of triangles of the same mesh that intersect (other than at shared vertices and edges) </summary>
+        /// <summary>
+        /// pairs of triangles of the same mesh that intersect (other than at shared vertices and edges); in the arrangement,
+        /// as IntersectingPairs: self-intersections wholly outside a closed first mesh are not counted by Difference and
+        /// Intersection
+        /// </summary>
         public int SelfIntersectingPairs;
         /// <summary> edges of the result where solids touch (more than two pieces); split into manifold pairs </summary>
         public int NonManifoldEdges;
@@ -145,7 +152,7 @@ namespace g3
         public int ConflictEdges;
         /// <summary> edges where the solid touches itself and that were split per pair of triangles (see assemble) </summary>
         public int SplitNonManifoldEdges;
-        /// <summary> number of patches classified </summary>
+        /// <summary> number of patches classified (of the pieces in the arrangement, see IntersectingPairs) </summary>
         public int Patches;
         /// <summary>
         /// input triangles flipped to orient their component consistently (see Compute; 0 for consistently oriented

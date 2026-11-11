@@ -166,7 +166,10 @@ triangles of the other meshes that lie wholly outside it: they take no part in t
 inside the first mesh (`Counts["t3a_culled"]`). The result is the same solid. **From this release the vertex and
 triangle order of `Difference` and `Intersection` results can differ from earlier releases**: the same vertices,
 triangles and orientations at the same coordinates, numbered differently. Code that relied on the ids of a result
-(rather than its geometry) has to compare geometry instead.
+(rather than its geometry) has to compare geometry instead. The diagnostic counts `IntersectingPairs`, `SelfIntersectingPairs` and `Patches`
+describe the arrangement, so they leave out the skipped triangles: a self-intersection of an operand wholly outside the
+first mesh is not counted by `Difference` and `Intersection` (it cannot change the result); to check an input for
+self-intersections, use a `Union` or `MeshRobustRepair`.
 
 One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
 once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
