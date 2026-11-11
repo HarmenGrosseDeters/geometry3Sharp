@@ -106,7 +106,7 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   for the tree, 1.5-2 days for the points per grid class.
 - **T3 (#593): merged 2026-11-11** (f92f1c62). `MeshRoundingRepair` returns `OutsideRange` (mesh untouched, not clean)
   outside [2^-200, 2^200] or for subnormal coordinates; the boolean keeps its exact result there but `RoundingClean` is
-  false. Next: T3b (#616), then T2 memory, T1 levers, T5 / T1b per the execution order below.
+  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory in review (#619: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction). Next: T1 levers, T5 / T1b per the execution order below.
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
