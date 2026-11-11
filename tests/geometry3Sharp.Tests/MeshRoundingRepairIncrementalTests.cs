@@ -77,6 +77,13 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // (the checked run of a case, once for the class: Checked_SameResultAsUnchecked and Searches_IncrementalAfterEdits read the
+        // same run, which costs up to 3 s for the heavy cases; the result is only read)
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<ExactMeshBoolean>> CheckedRuns =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<ExactMeshBoolean>>();
+        static ExactMeshBoolean CheckedRun(string name) =>
+            CheckedRuns.GetOrAdd(name, n => new Lazy<ExactMeshBoolean>(() => Run(Case(n), check: true))).Value;
+
         static string Print(DMesh3 m)
         {
             var sb = new System.Text.StringBuilder();
@@ -97,7 +104,7 @@ namespace geometry3Sharp.Tests
         {
             // the checks throw if an incremental search or a canonical id differs; the result is the one without them
             ExactMeshBoolean plain = Run(Case(name));
-            ExactMeshBoolean checkedRun = Run(Case(name), check: true);
+            ExactMeshBoolean checkedRun = CheckedRun(name);
             Assert.Equal(Print(plain.Result), Print(checkedRun.Result));
             Assert.Equal(plain.RoundingClean, checkedRun.RoundingClean);
             MeshRoundingRepair r = checkedRun.Rounding;
@@ -113,7 +120,7 @@ namespace geometry3Sharp.Tests
             // skipped because nothing changed both happen, and every result is clean
             int incremental = 0, unchanged = 0;
             foreach (object[] c in Cases()) {
-                ExactMeshBoolean b = Run(Case((string)c[0]), check: true);
+                ExactMeshBoolean b = CheckedRun((string)c[0]);
                 MeshRoundingRepair r = b.Rounding;
                 incremental += r.IncrementalPairSearches;
                 unchanged += r.UnchangedPairSearches;

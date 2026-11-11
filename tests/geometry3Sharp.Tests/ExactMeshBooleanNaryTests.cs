@@ -258,7 +258,7 @@ namespace geometry3Sharp.Tests
             // finite coordinates whose sum overflows (5e307 + 5e307 + 5e307): accepted, same result as at scale 1
             var unit = new[] { Box(0, 0, 0, 2, 2, 2), Box(1, 0.5, 0.25, 3, 2.5, 1.75), Box(0.5, 1.25, -1, 1.75, 3, 1) };
             var huge = unit.Select(m => { var c = new DMesh3(m); MeshTransforms.Scale(c, 5e307); return c; }).ToList();
-            // (DMesh3.CheckValidity overflows at these coordinates already for the inputs: checked here directly)
+            // (DMesh3.CheckValidity checked the squared length of a vertex and overflowed at these coordinates already for the inputs; it checks the components now, the inputs are valid)
             Func<ExactMeshBoolean, DMesh3> run = (boolean) => {
                 Assert.True(boolean.Compute(), boolean.Error);
                 Assert.Equal(Status.Success, boolean.Status);
