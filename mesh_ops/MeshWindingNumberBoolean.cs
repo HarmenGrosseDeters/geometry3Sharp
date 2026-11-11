@@ -112,6 +112,7 @@ namespace gs
             // about 1e-12. A 2^k scale then gives the unit-scale result times 2^k. Inside the band nothing changes.
             reset_outputs();      // (also if the scaled run below throws)
             double s = unit_scale();
+            NormalizationScale = s;
             if (s == 0) {
                 // the extent is outside the band, but the scale is not exact for these inputs (a used coordinate that would be subnormal
                 // after it, one above 1e300): the field would overflow or degrade, so report it instead of an empty or wrong mesh
@@ -193,6 +194,12 @@ namespace gs
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
         }
+
+        /// <summary> (tests) the power of two the last Compute() scaled the inputs by (1: it ran on them as they are; 0: it reported that the scale is not possible) </summary>
+        internal double NormalizationScale { get; private set; } = 1;
+
+        /// <summary> (tests) the computation itself, on the inputs as they are (what Compute() runs inside the band) </summary>
+        internal bool ComputeUnscaled() { return compute_unit(); }
 
         bool compute_unit()
         {
