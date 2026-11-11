@@ -322,6 +322,77 @@ namespace g3
         }
 
         /// <summary>
+        /// A ∩ B_i for every body B_i, each a separate boolean of a and bodies[i] (the same result, bit for bit, as
+        /// new ExactMeshBoolean(a, bodies[i], Operations.Intersection).Compute() with the same configuration), computed in
+        /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
+        /// fails (status[i], if given, says why). configure, if given, is applied to every boolean before it is computed
+        /// (eg SafeRounding); it runs in parallel and must not depend on the order. For a terrain or part against many
+        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// </summary>
+        public static DMesh3[] IntersectEach(DMesh3 a, IReadOnlyList<DMesh3> bodies, Action<ExactMeshBoolean> configure = null,
+            BooleanStatus[] status = null)
+        {
+            return each(a, bodies, Operations.Intersection, configure, status);
+        }
+
+        /// <summary>
+        /// A − B_i for every body B_i, each a separate boolean of a and bodies[i] (the same result, bit for bit, as
+        /// new ExactMeshBoolean(a, bodies[i], Operations.Difference).Compute() with the same configuration), computed in
+        /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
+        /// fails (status[i], if given, says why); configure as in IntersectEach. Each result holds all of a outside the
+        /// body, so the work per body does not shrink with the body's size as it does for IntersectEach.
+        /// </summary>
+        public static DMesh3[] DifferenceEach(DMesh3 a, IReadOnlyList<DMesh3> bodies, Action<ExactMeshBoolean> configure = null,
+            BooleanStatus[] status = null)
+        {
+            return each(a, bodies, Operations.Difference, configure, status);
+        }
+
+        // the booleans of IntersectEach / DifferenceEach: in parallel over the bodies, each with its loops serial when there
+        // are at least as many bodies as cores (no nested parallelism), else one after the other with their parallel loops;
+        // the results by index (no reduction; the booleans are independent and deterministic either way). An exception of
+        // a boolean is rethrown after the loop, the one of the lowest index
+        static DMesh3[] each(DMesh3 a, IReadOnlyList<DMesh3> bodies, Operations op, Action<ExactMeshBoolean> configure, BooleanStatus[] status)
+        {
+            if (bodies == null)
+                throw new ArgumentNullException(nameof(bodies));
+            if (status != null && status.Length < bodies.Count)
+                throw new ArgumentException("status must have a slot per body", nameof(status));
+            var results = new DMesh3[bodies.Count];
+            var errors = new Exception[bodies.Count];
+            PreparedInput first = a == null ? null : prepare_input(a);
+            Action<int> one = (i) => {
+                try {
+                    var b = new ExactMeshBoolean(a, bodies[i], op) { PreparedFirst = first };
+                    configure?.Invoke(b);
+                    b.Compute();
+                    results[i] = b.Result;
+                    if (status != null)
+                        status[i] = b.Status;
+                } catch (Exception e) {
+                    errors[i] = e;
+                }
+            };
+            if (bodies.Count >= Environment.ProcessorCount && bodies.Count > 1)
+                gParallel.ForRange(bodies.Count, (i) => {
+                    bool serial = gParallel.SerialOnThisThread;
+                    gParallel.SerialOnThisThread = true;
+                    try {
+                        one(i);
+                    } finally {
+                        gParallel.SerialOnThisThread = serial;
+                    }
+                });
+            else
+                for (int i = 0; i < bodies.Count; ++i)
+                    one(i);
+            foreach (Exception e in errors)
+                if (e != null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e).Throw();
+            return results;
+        }
+
+        /// <summary>
         /// predicate for WindingPredicate: inside at least k of the meshes (winding number positive). k = 1 is the
         /// union, k = number of meshes the intersection, a larger k gives an empty result; k &lt;= 0 is true
         /// everywhere (no surface between inside and outside: an empty result).
@@ -394,29 +465,22 @@ namespace g3
             foreach (DMesh3 m in inputs)
                 if (m == null)
                     return fail(BooleanStatus.InvalidInput, "input mesh is null");
-            foreach (DMesh3 m in inputs) {
-                foreach (int vid in m.VertexIndices()) {
-                    Vector3d v = m.GetVertex(vid);
-                    // (per coordinate: the sum of finite coordinates can overflow)
-                    if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false)
-                        return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
-                }
-            }
             // inconsistently oriented inputs (flipped triangles, as from broken files) are oriented consistently per
             // component first, on copies: their winding numbers are not meaningful otherwise (the generalized
             // winding number jumps the wrong way across a flipped triangle, so next to it the inside reads as outside)
+            // (prepare_input; the first mesh's from PreparedFirst when it was prepared once for several booleans)
+            var prepared = new PreparedInput[inputs.Count];
+            for (int m = 0; m < inputs.Count; ++m) {
+                prepared[m] = (m == 0 && PreparedFirst != null && PreparedFirst.Source == inputs[0]) ? PreparedFirst : prepare_input(inputs[m]);
+                if (prepared[m].Finite == false)
+                    return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
+            }
             inputs = new List<DMesh3>(inputs);
             ExactWinding = new bool[inputs.Count];
             for (int m = 0; m < inputs.Count; ++m) {
-                bool closed = IsWindingClosed(inputs[m]);
-                if (closed == false) {
-                    DMesh3 o = oriented(inputs[m]);
-                    if (o != inputs[m]) {
-                        inputs[m] = o;
-                        closed = IsWindingClosed(o);
-                    }
-                }
-                ExactWinding[m] = closed && ForceGeneralizedWinding == false;
+                inputs[m] = prepared[m].Input;
+                ReorientedTriangles += prepared[m].Reoriented;
+                ExactWinding[m] = prepared[m].Closed && ForceGeneralizedWinding == false;
             }
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
@@ -517,9 +581,12 @@ namespace g3
         /// nothing changes.
         /// Components that cannot be oriented (Moebius strips) are left as they are.
         /// </summary>
+        /// <param name="mesh">the mesh</param>
+        /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
         [MethodImpl(JitHints.Optimize)]
-        DMesh3 oriented(DMesh3 mesh)
+        static DMesh3 oriented(DMesh3 mesh, out int flipped)
         {
+            flipped = 0;
             // vertices welded by position
             var ids = new Dictionary<Vector3d, int>();
             var pos = new int[mesh.MaxVertexID];
@@ -608,9 +675,46 @@ namespace g3
             var copy = new DMesh3(mesh, false, MeshComponents.None);
             foreach (int t in toFlip)
                 copy.ReverseTriOrientation(t);
-            ReorientedTriangles += toFlip.Count;
+            flipped = toFlip.Count;
             return copy;
         }
+
+        // an input mesh as Compute prepares it: whether its coordinates are finite, and (if they are) the mesh it works on
+        // (oriented consistently where needed, see oriented), whether that one is closed in the winding number sense,
+        // and how many triangles were flipped. Computed once for the first mesh of IntersectEach / DifferenceEach and
+        // handed to each boolean (PreparedFirst), so that every boolean does exactly what a separate one does.
+        internal sealed class PreparedInput
+        {
+            public DMesh3 Source, Input;
+            public bool Finite, Closed;
+            public int Reoriented;
+        }
+
+        internal static PreparedInput prepare_input(DMesh3 mesh)
+        {
+            var p = new PreparedInput() { Source = mesh, Finite = true };
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                // (per coordinate: the sum of finite coordinates can overflow)
+                if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false) {
+                    p.Finite = false;
+                    return p;
+                }
+            }
+            p.Input = mesh;
+            p.Closed = IsWindingClosed(mesh);
+            if (p.Closed == false) {
+                DMesh3 o = oriented(mesh, out p.Reoriented);
+                if (o != mesh) {
+                    p.Input = o;
+                    p.Closed = IsWindingClosed(o);
+                }
+            }
+            return p;
+        }
+
+        // for IntersectEach / DifferenceEach: the prepared first mesh, used by Compute when the first input is its Source
+        internal PreparedInput PreparedFirst;
 
         static bool finite(double x)
         {
