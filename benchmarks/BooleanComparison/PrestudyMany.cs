@@ -539,6 +539,47 @@ static class PrestudyMany
         return 0;
     }
 
+    // T3b S3 data (an open follow-up): per i of A ∩ B_i, the arrangement's grid (ScaleExp, Center: the condition for
+    // sharing A's exact points across the booleans) and the per-boolean phases a prepared A would save (input, setup,
+    // intersections.trees, intersections.cull), summed over i; warm.
+    //   t3b-grid <terrain|cad> <n> <seed> [--size k] [--op intersection|difference]
+    public static int RunEachGrid(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        var op = ExactMeshBoolean.Operations.Intersection;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--op") op = args[++i] == "difference" ? ExactMeshBoolean.Operations.Difference : ExactMeshBoolean.Operations.Intersection;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        for (int i = 0; i < Math.Min(n, 3); ++i) new ExactMeshBoolean(a, bs[i], op).Compute();
+        string grid0 = null;
+        int same = 0;
+        var grids = new HashSet<string>();
+        string[] keys = { "input", "setup", "intersections.trees", "intersections.cull" };
+        var saved = keys.ToDictionary(k => k, k => 0L);
+        long total = 0;
+        for (int i = 0; i < n; ++i) {
+            var b = new ExactMeshBoolean(a, bs[i], op);
+            var sw = Stopwatch.StartNew();
+            b.Compute();
+            total += sw.ElapsedMilliseconds;
+            var arr = b.Arrangement;
+            string g = $"{arr.ScaleExp} {arr.Center[0]} {arr.Center[1]} {arr.Center[2]}";
+            if (grid0 == null) grid0 = g;
+            if (g == grid0) same++;
+            grids.Add(g);
+            foreach (string k in keys)
+                saved[k] += b.PhaseMilliseconds.TryGetValue(k, out long v) ? v : 0;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(),
+            ["a_tris"] = a.TriangleCount, ["same_grid_as_first"] = same, ["distinct_grids"] = grids.Count, ["serial_total_ms"] = total,
+            ["per_boolean_setup_ms_sum"] = saved }));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;

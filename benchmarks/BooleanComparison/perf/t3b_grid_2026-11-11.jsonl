@@ -1,0 +1,5 @@
+{"case":"terrain_0_200_1","op":"Intersection","a_tris":5390,"same_grid_as_first":1,"distinct_grids":120,"serial_total_ms":3456,"per_boolean_setup_ms_sum":{"input":33,"setup":251,"intersections.trees":326,"intersections.cull":153}}
+{"case":"terrain_0_200_2","op":"Intersection","a_tris":5390,"same_grid_as_first":83,"distinct_grids":118,"serial_total_ms":3712,"per_boolean_setup_ms_sum":{"input":60,"setup":313,"intersections.trees":334,"intersections.cull":151}}
+{"case":"cad_99_50_1","op":"Intersection","a_tris":115248,"same_grid_as_first":29,"distinct_grids":6,"serial_total_ms":6603,"per_boolean_setup_ms_sum":{"input":390,"setup":1792,"intersections.trees":2146,"intersections.cull":615}}
+{"case":"cad_30_500_1","op":"Intersection","a_tris":10092,"same_grid_as_first":309,"distinct_grids":27,"serial_total_ms":7156,"per_boolean_setup_ms_sum":{"input":49,"setup":1177,"intersections.trees":1189,"intersections.cull":548}}
+{"case":"cad_99_50_1","op":"Difference","a_tris":115248,"same_grid_as_first":29,"distinct_grids":6,"serial_total_ms":33476,"per_boolean_setup_ms_sum":{"input":243,"setup":1893,"intersections.trees":1650,"intersections.cull":177}}
