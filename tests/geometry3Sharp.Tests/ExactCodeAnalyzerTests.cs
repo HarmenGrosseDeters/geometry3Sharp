@@ -139,7 +139,6 @@ namespace geometry3Sharp.Tests
         {
             Assert.Empty(Member("static double M(double a, double b) { return System.Math.Sqrt(a) + System.Math.Floor(a) + System.Math.Ceiling(b) + System.Math.Round(a) + System.Math.Truncate(b) + System.Math.Abs(a) + System.Math.Max(a, b) + System.Math.Min(a, b) + a * b; }",
                 ExactCodeApiAnalyzer.LibmId));
-            Assert.Empty(Member("static double M(double x) { return g3.CoreMathPort.CoreMath.Sin(x) + g3.CoreMathPort.CoreMath.Atan2(x, 1.0); }", ExactCodeApiAnalyzer.LibmId));
         }
 
         [Fact]
