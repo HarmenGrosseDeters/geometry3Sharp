@@ -101,6 +101,13 @@ namespace g3.Tests
             return neg ? -r : r;
         }
 
+        /// <summary> 1 / (2 pi) as a fixed point number with W fractional bits </summary>
+        public static BigInteger InverseTwoPi { get { return (One << W) / (Pi * 2); } }
+
+        public static BigInteger ExactFixed(double x) { return FromDouble(x); }
+
+        public const int Precision = W;
+
         // ------------------------------------------------------------------------------------------ exp
 
         public static double Exp(double x)
@@ -164,6 +171,16 @@ namespace g3.Tests
             if (x == 0) return x;
             SinCosFixed(FromDouble(x), out BigInteger s, out BigInteger c);
             return RoundToDouble(s, -W, true);
+        }
+
+        /// <summary> sin(2 pi t) and cos(2 pi t) for t given as a fixed point number with W fractional bits </summary>
+        public static BigInteger SinTurnsFixed(BigInteger t) { SinCosFixed(Mul(t, Pi * 2), out BigInteger s, out BigInteger c); return s; }
+        public static BigInteger CosTurnsFixed(BigInteger t) { SinCosFixed(Mul(t, Pi * 2), out BigInteger s, out BigInteger c); return c; }
+
+        public static BigInteger CosFixed(double x)
+        {
+            SinCosFixed(FromDouble(x), out BigInteger sn, out BigInteger c);
+            return c;
         }
 
         public static double Cos(double x)

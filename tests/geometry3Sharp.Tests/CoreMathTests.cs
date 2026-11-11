@@ -157,6 +157,14 @@ namespace g3.Tests
             CheckAll("cos", CoreMath.Cos, CoreMathReference.Cos, FromBitList(CoreMathHardCases.Cos));
         }
 
+        [Fact]
+        public void Cos_LargeArguments_AccuratePath_IsCorrectlyRounded()
+        {
+            // two worst-case arguments of the CORE-MATH list whose result lies only 2^-54 ulp from a rounding boundary: the
+            // accurate path of the port was off by 2^-105 (a doubled polynomial term, see Mul21_IsTheProduct...)
+            CheckAll("cos", CoreMath.Cos, CoreMathReference.Cos, FromBitList(new ulong[] { 0x7A46B7B71E8AE7C4UL, 0x4901111B0BEB4E46UL }));
+        }
+
         // ---------------------------------------------------------------- atan2
 
         static void CheckAtan2(IEnumerable<KeyValuePair<double, double>> pairs)
