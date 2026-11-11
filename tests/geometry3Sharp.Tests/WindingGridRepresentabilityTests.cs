@@ -88,10 +88,9 @@ namespace geometry3Sharp.Tests
             var a = Octahedron(Vector3d.Zero, radius);
             var b = Octahedron(new Vector3d(0.5 * radius, 0, 0), radius);
             var boolean = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union);
-            // true or false, but no exception. Today a success is an EMPTY mesh: the winding-number field itself overflows at these sizes
-            // (squared distances above 1e308), so it finds no surface; "empty" is pinned so that a change of that is noticed
-            if (boolean.Compute())
-                Assert.Equal("empty", MeshRobustRepair.NotCleanReason(boolean.Result, false));
+            // the field is evaluated on a copy scaled to a unit extent (WindingBooleanScaleTests): a success is the union, not an empty mesh
+            Assert.True(boolean.Compute());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(boolean.Result, false));
         }
 
         static DMesh3 Octahedron(Vector3d c, double r)
