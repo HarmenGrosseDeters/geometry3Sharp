@@ -143,36 +143,48 @@ no longer compiled. Not done: the oracle and the adapter of the mesher are not i
 
 ## T13 libFuzzer campaign (2026-11-11): 17 targets, 10 minutes each, 2 fork jobs
 
-`run.sh <new-dir> libfuzzer-dotnet sharpfuzz dotnet 100000000 600 2` with `MESH_FUZZ_OPS=<target>`, one target per run, the tree of master at #583 (the
-quality-mesh2 and clipper2 runs before the merge of #583). Replay: `MESH_FUZZ_OPS=<target> dotnet MeshFuzzPilot.dll replay <file>`; the hex below is the
-smallest artifact of each message class (write it with `python3 -c "open('x.bin','wb').write(bytes.fromhex('...'))"`). No code was fixed by this campaign
-except the Clipper2 result classification (#583, item 5 above).
+`run.sh <new-dir> libfuzzer-dotnet sharpfuzz dotnet 100000000 600 2` with `MESH_FUZZ_OPS=<target>`, one target per run, on the tree of master at #583
+(the quality-mesh2 and clipper2 runs on the trees just before). Replay: `MESH_FUZZ_OPS=<target> dotnet MeshFuzzPilot.dll replay <file>`; the hex below is the
+smallest artifact of each message class (write it with `python3 -c "open('x.bin','wb').write(bytes.fromhex('...'))"`). The campaign fixed nothing except the
+Clipper2 result classification (#583, item 5 above).
 
-| target | crashes | classes (smallest repro) |
-|---|---|---|
-| quality-mesh2 | 1 | see 1.7 |
-| clipper2 | 70 | item 5 above (fixed in #583 except the Clipper2-internal class and 2 Offset cases) |
-| alpha-wrap, remesher, reducer, tree-ray, batch-queries, tree-winding | 0 | none in 10 minutes (420 000 to 3.7 million executions) |
-| partitioned-reducer | 17 | 1.6 |
-| union, intersection, difference | 24, 12, 20 | 1.2 |
-| robust-repair | 0 crashes, 6 slow inputs | 1.8 |
-| robust-repair-soup | 1 crash, 1 timeout (the same throw after 146 s), 1 slow input | 1.3 |
-| rounding-repair | 41 | 1.1 |
-| tree-nearest | 997 | 1.5 |
-| tree-inside | 1 | 1.5 |
+| target | crashes | executions | classes (rank in the list below) |
+|---|---|---|---|
+| quality-mesh2 | 1 | 89 000 | rank 7 |
+| clipper2 | 70 | 1 321 000 | item 5 above |
+| alpha-wrap | 0 | 299 000 | none |
+| remesher | 0 | 314 000 | none |
+| reducer | 0 | 18 600 (slow: 7 exec/s) | none, weak evidence |
+| partitioned-reducer | 17 | 13 600 | rank 6 |
+| union, intersection, difference | 24, 12, 20 | 17 700, 17 400, 25 400 | rank 2 |
+| robust-repair | 0 crashes, 6 slow inputs | 4 300 | rank 8 |
+| robust-repair-soup | 1 crash, 1 timeout (the same throw after 146 s), 1 slow input | 2 300 | rank 3 |
+| rounding-repair | 41 | 6 600 | rank 1 |
+| tree-nearest | 997 | 1 626 000 | rank 5 |
+| tree-ray | 0 | 950 000 | none |
+| tree-inside | 1 | 325 000 | rank 5 |
+| batch-queries | 0 | 2 300 (slow: 3 exec/s) | none, weak evidence |
+| tree-winding | 0 | 3 685 000 | none |
 
-Ranked (by the risk of a wrong result that claims to be right first):
+Ranked (a wrong result that claims to be right first):
 
-1. **MeshRoundingRepair: results that claim to be clean are not** (41 crashes; `#513` (D1, head b26f016d) replayed: all 41 behave exactly as on master).
+1. **MeshRoundingRepair: results that claim to be clean are not** (41 crashes; #513 (D1, head b26f016d) replayed: all 41 behave exactly as on master).
    - "the mesh is not valid after the rounding repair" (21), 8 bytes: `000000101e000105`.
    - "IsClean but N degenerate triangles (at the rounding's scale)" (20, N from 1 to 8), 4 bytes: `3f1e6040` (an open cube of edge 5e-293 and a tetrahedron of 3.6e-307).
 2. **ExactMeshBoolean with `RoundingClean`: results that claim to be clean are not** (union 24, intersection 12, difference 20).
-   - "RoundingClean but N degenerate triangles (at the rounding's scale)" (union 32 bytes `0000000000000000000203000203fe03defc0000010000000000008500000302`; intersection 16 bytes `00000000000000000000000103fe0300`; difference 28 bytes `0001000000000107fefe0503030300feffffffffbfbf050000002d01`).
-   - "RoundingClean but inside-out components" (intersection, 5 artifacts; 83 bytes `000203fe030104030501070207040a020e030a0203fe030104030501050f0315040d0614041c0510071905230613081e062a0716092307ab4a123a00000000000102000000010403050107022e2e2e0704`).
-   - "RoundingClean but self-intersections" (difference, 1; 139 bytes `00fffffffffe0000000000000000000000000000000000000000000103fe030002030000000103fe03000203fe03fe04030200000000002c0505fe0000004b0000fe0000ffffffffffffffffffffffffffffff`).
-3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts: `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`, an `AggregateException` from the parallel loop at `DualContouring.cs:1122`). 79 bytes `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff0000000`... (the file `/tmp` copy is gone after the session; replay with the artifact of the campaign, or the 51-byte timeout input that takes 146 s before the same throw).
-4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns area neither input fills; independent of `PrecisionBits`; owner decision whether to report upstream.
-5. **AABB tree queries at tiny coordinates** (tree-nearest 997 crashes: the nearest triangle is not the nearest, e.g. at squared distance 4.5e-277 where the minimum is 0, or the brute force minimum is NaN; tree-inside 1: "2 crossings, brute force 0" at raw scale). Smallest tree-nearest, 20 bytes: `000503fe0700fe0000000000000000ffffffff05` (a cube of edge 2.4e-35 with one vertex at 7.6e-321 and one at -3.2e-173). Looks like absolute tolerances in the tree search at coordinates near 1e-35; not analysed.
+   - "RoundingClean but N degenerate triangles (at the rounding's scale)": union 32 bytes `0000000000000000000203000203fe03defc0000010000000000008500000302`; intersection 16 bytes `00000000000000000000000103fe0300`; difference 28 bytes `0001000000000107fefe0503030300feffffffffbfbf050000002d01`.
+   - "RoundingClean but inside-out components" (intersection, 5 artifacts), 83 bytes: `000203fe030104030501070207040a020e030a0203fe030104030501050f0315040d0614041c0510071905230613081e062a0716092307ab4a123a00000000000102000000010403050107022e2e2e07040a02`.
+   - "RoundingClean but self-intersections" (difference, 1), 139 bytes: `00fffffffffe0000000000000000000000000000000000000000000103fe030002030000000103fe03000203fe03fe04030200000000002c0505fe0000004b0000fe0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000050000002c0505fe0000004b050505050505050505050505050505050505`.
+3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts): `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`,
+   an `AggregateException` from the parallel loop at `DualContouring.cs:1122`. The crash input (79 bytes): `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff000000000000abffff00000000000002fe03fe000000000000000000000000000002fe03fe000300`; the timeout input (51 bytes, 146 s before the same throw): `000103fe15001103fe03fe0000000000000000000000000000000100000000040d061403fe0614030000000000010000000004`.
+4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns an area that neither input fills; independent of `PrecisionBits`;
+   whether to report it upstream is an owner decision.
+5. **AABB tree queries at tiny coordinates** (tree-nearest 997 crashes: the nearest triangle is not the nearest, e.g. at squared distance 4.5e-277 where the minimum is 0, or the brute force minimum is NaN;
+   tree-inside 1: "2 crossings, brute force 0" at raw scale). Smallest tree-nearest, 20 bytes: `000503fe0700fe0000000000000000ffffffff05` (a cube of edge 2.4e-35 with a vertex at 7.6e-321 and one at -3.2e-173).
+   It looks like absolute tolerances in the tree search at coordinates near 1e-35; not analysed.
 6. **PartitionedReducer: the result for the copy scaled by 2^k is not the scaled result** (17), 8 bytes: `0001f74800010348`.
-7. **QualityMesh2: `Failed (RefinementLimit)` on a valid input** (1): the defect cap of the refinement loop (`steps > 64 * (limit + slots) + 100000`, "refinement did not settle within 296225 steps"), a livelock on a point 1e-286 of the extent away from another. 144 bytes `00020303fe03fe00dcf9ecf70000000000000000000000000000000000000000000010000000000000000000000000f8fffc00000000003100000000000000000000000000000102000000010403050107001007`.
-8. **MeshRobustRepair slow inputs** (robust-repair, 6; 2.7 to 10.8 s; over the 5 s target, no wrong result): `3f2260a4...` family; the slowest 62 bytes (10.8 s).
+7. **QualityMesh2: `Failed (RefinementLimit)` on a valid input** (1): the defect cap of the refinement loop (`steps > 64 * (limit + slots) + 100000`, "refinement did not settle within 296225 steps"),
+   a livelock on a point 1e-286 of the extent away from the others (a cube projected to xy, MinAngle 25, SteinerLimit 1500), 144 bytes: `00020303fe03fe00dcf9ecf70000000000000000000000000000000000000000000010000000000000000000000000f8fffc00000000003100000000000000000000000000000102000000010403050107001007e7fadcf9ecf7e1f50000000000c2dcf90200000000000000000000000000000000000007040a020e030a050f031504e1f52aff13092307324a123a16`.
+8. **MeshRobustRepair slow inputs** (robust-repair, 6; 2.7 to 10.8 s on this machine, over the 5 s target, no wrong result). The slowest, 62 bytes (10.8 s): `000103fe03fe00000000000000000000000000000011002000002c0000000000100000000000000000000000000002030203fe03000000000300002c0000`.
+
+Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
