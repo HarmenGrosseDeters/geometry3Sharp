@@ -33,7 +33,7 @@ class RunStryker(unittest.TestCase):
 
     def run_script(self, mode, no_full, baseline=None):
         env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], MODE=mode, BASE="HEAD",
-                   GITHUB_STEP_SUMMARY=self.summary, PROGRESS_SECONDS="1000000")
+                   GITHUB_STEP_SUMMARY=self.summary, PROGRESS_SECONDS="1000000", G3_NO_EXCLUDE="1")   # (the exclusion has its own tests in test_run_local.py)
         env.pop("NO_FULL", None)
         if no_full:
             env["NO_FULL"] = "1"

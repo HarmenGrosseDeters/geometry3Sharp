@@ -373,7 +373,7 @@ class SelectShards(unittest.TestCase):
     def test_the_scripts_of_the_runs_run_a_representative_shard_in_full(self):
         # a change to run_stryker.sh, incremental.py or baseline.py can break every shard's real run (the fake-dotnet tests
         # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
-        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
+        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"):
             self.assertEqual(("none", {"fixed": "full"}), run(path), path)
         self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
                          run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))
@@ -390,6 +390,7 @@ class SelectShards(unittest.TestCase):
         self.assertIn("python3 test_local_result.py", wf)
         self.assertIn("python3 test_run_local.py", wf)
         self.assertIn("python3 test_resplit.py", wf)
+        self.assertIn("python3 test_exclude_other_sources.py", wf)
         step = wf[wf.index("Check the local results of this PR"):wf.index("      - id: select")]
         self.assertIn("github.event_name == 'pull_request'", step)
         self.assertIn("local_result.py check", step)

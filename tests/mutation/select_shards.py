@@ -318,7 +318,7 @@ def shard_name(config_name):
 # the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
 # (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
 # the `changes` job of every workflow run (their paths are in the workflow's trigger).
-SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"}
+SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}
 SCRIPT_SHARD = "mesh-fixed"
 
 

@@ -123,6 +123,7 @@ jobs:
           python3 test_local_result.py
           python3 test_run_local.py
           python3 test_resplit.py
+          python3 test_exclude_other_sources.py
       - name: Check the local results of this PR
         # (3.0 process, tests/mutation/README.md "Local runs": a full run of a shard by the owner, committed under
         # tests/mutation/local-results/<sha>/; valid for the commit being gated, counts as the shard passing for the

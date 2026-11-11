@@ -106,6 +106,43 @@ class Exclude(unittest.TestCase):
         self.assertTrue(ex.glob_regex("**/mesh_ops/TerrainSlope*.cs").match("mesh_ops/TerrainSlopeMap.cs"))
         self.assertFalse(ex.glob_regex("**/mesh_ops/TerrainSlope*.cs").match("mesh_ops/sub/TerrainSlopeMap.cs"))
 
+    def test_for_every_config_the_unmarked_files_are_exactly_the_mutate_files(self):
+        # the guard of the 3.0 process: a shard's files must stay mutable, every other library file is marked (so that "mutants
+        # tested" stays what it is without the marker, the data of the PR), and nothing else changes. The expected set is computed
+        # here independently of exclude_other_sources.glob_regex: a suffix match with fnmatch on the file name
+        import fnmatch
+        import glob
+        here = os.path.dirname(os.path.abspath(__file__))
+        repo = os.path.abspath(os.path.join(here, "..", ".."))
+        files = ex.library_files(repo)
+        copy = tempfile.mkdtemp()
+        try:
+            for rel in files:
+                os.makedirs(os.path.join(copy, os.path.dirname(rel)), exist_ok=True)
+                shutil.copy(os.path.join(repo, rel), os.path.join(copy, rel))
+            original = {rel: open(os.path.join(copy, rel), "rb").read() for rel in files}
+            configs = sorted(glob.glob(os.path.join(here, "stryker-config.json")) + glob.glob(os.path.join(here, "stryker-mesh-*.json")))
+            self.assertGreaterEqual(len(configs), 25)
+            marker = ex.MARKER.encode()
+            for c in configs:
+                with open(c, encoding="utf-8-sig") as fh:
+                    entries = json.load(fh)["stryker-config"]["mutate"]
+                expected = set()
+                for entry in entries:
+                    path = entry.split("{")[0]
+                    tail = path[3:] if path.startswith("**/") else path
+                    hits = [f for f in files if fnmatch.fnmatch(f, tail) or fnmatch.fnmatch("/" + f, "/" + tail) or f.endswith("/" + tail)]
+                    self.assertTrue(hits, c + ": " + entry)
+                    expected.update(hits)
+                ex.apply(c, copy)
+                unmarked = {rel for rel in files if not open(os.path.join(copy, rel), "rb").read().lstrip(b"\xef\xbb\xbf").startswith(marker)}
+                self.assertEqual(expected, unmarked, os.path.basename(c))
+                self.assertEqual(len(files) - len(expected), len([r for r in files if r not in unmarked]))
+                ex.undo(copy)
+                self.assertEqual(original, {rel: open(os.path.join(copy, rel), "rb").read() for rel in files}, os.path.basename(c))
+        finally:
+            shutil.rmtree(copy, ignore_errors=True)
+
     def test_every_real_config_names_files_that_exist(self):
         # (a shard whose mutate entry matched nothing would mark every file as not mutated)
         here = os.path.dirname(os.path.abspath(__file__))

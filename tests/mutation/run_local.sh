@@ -8,7 +8,8 @@
 # shards that a PR against <ref> would run (select_shards.py: the files changed between <ref> and HEAD). Needs: dotnet SDK
 # (the version of the repository), python3, git, a CLEAN working tree at the commit to gate (a result is only valid for a
 # commit), and several hours per shard. Stryker is the version of .config/dotnet-tools.json, the options are those of
-# tests/mutation/stryker-*.json, as in the workflow (the heap limit of the mesh shards included).
+# tests/mutation/stryker-*.json, as in the workflow (the heap limit of the mesh shards included). run_stryker.sh marks the library
+# files the shard does not mutate as auto-generated while Stryker runs and restores them (and checks that, README "Coverage pass").
 # Result: tests/mutation/local-results/<head sha>/<shard>.json (score, break threshold, survivors); commit it to the PR
 # branch. The exit code is 1 when a shard is below its break threshold (the file is written anyway), 2 on an error.
 set -uo pipefail
