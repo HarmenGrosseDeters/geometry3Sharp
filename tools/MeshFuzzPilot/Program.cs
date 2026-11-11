@@ -676,6 +676,89 @@ public static partial class Program
         ExpectFinding("a Clipper2 ring with the wrong orientation", () => CheckClipper("t", "Success", "", true, false, 0, ""));
         ExpectFinding("a Clipper2 membership that disagrees", () => CheckClipper("t", "Success", "", true, true, 1, "p"));
         CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
+        // the domain of the scale claim of the PartitionedReducer: a nonzero coordinate or edge difference below 2^-200 of a normal-size mesh
+        // is out (a coordinate at the limit is in; zero is no component), a unit tetrahedron is in
+        DMesh3 unitTet = FlatTetrahedron(1);
+        if (HasTinyComponents(unitTet))
+            throw new InvalidOperationException("a tetrahedron of unit size has no tiny component");
+        foreach (double tiny in new[] { Math.Pow(2, -201), Math.Pow(2, -565), 1e-280, 3.4e-319 }) {
+            DMesh3 moved = new DMesh3(unitTet);
+            moved.SetVertex(0, new Vector3d(tiny, 0, 0));        // (a coordinate; the edge differences of the vertex are tiny too)
+            if (!HasTinyComponents(moved))
+                throw new InvalidOperationException("a coordinate of " + tiny + " is not a tiny component");
+        }
+        // the coordinate alone: the vertex is tiny, its neighbours have large differences on that axis
+        DMesh3 coordOnly = new DMesh3(unitTet);
+        coordOnly.SetVertex(0, new Vector3d(Math.Pow(2, -300), 0, 0));
+        coordOnly.SetVertex(3, new Vector3d(1, 1, 1));
+        coordOnly.SetVertex(2, new Vector3d(1, 0, 0));
+        if (!HasTinyComponents(coordOnly))
+            throw new InvalidOperationException("a coordinate of 2^-300 among large ones is not a tiny component");
+        // the domain is judged on the normalized mesh: a mesh that is uniformly tiny is not tiny
+        DMesh3 uniformTiny = FlatTetrahedron(Math.Pow(2, -300));
+        if (!HasTinyComponents(uniformTiny) || HasTinyComponents(NormalizeWhole(uniformTiny, out _)))
+            throw new InvalidOperationException("a uniformly tiny mesh is judged on its raw coordinates");
+        // the edge difference alone: both coordinates are 2^-150 (above the limit), their difference 2^-202 is below it; a coordinate at the limit is in
+        DMesh3 edgeOnly = new DMesh3(unitTet);
+        edgeOnly.SetVertex(0, new Vector3d(Math.Pow(2, -150), 0, 0));
+        edgeOnly.SetVertex(2, new Vector3d(Math.Pow(2, -150) + Math.Pow(2, -202), 0, 0));
+        if (!HasTinyComponents(edgeOnly))
+            throw new InvalidOperationException("an edge difference of 2^-202 between coordinates of 2^-150 is not a tiny component");
+        DMesh3 atLimit = new DMesh3(unitTet);
+        atLimit.SetVertex(0, new Vector3d(Math.Pow(2, -200), 0, 0));
+        atLimit.SetVertex(2, new Vector3d(Math.Pow(2, -199), 0, 0));
+        atLimit.SetVertex(3, new Vector3d(Math.Pow(2, -199), 1, 1));
+        atLimit.SetVertex(1, new Vector3d(Math.Pow(2, -198), 0, 0));
+        if (HasTinyComponents(atLimit))
+            throw new InvalidOperationException("a coordinate and differences of 2^-200 and above are tiny");
+        // two of the saved artifacts of the T13 campaign (coordinates 1e-174 .. 1e-290 of the extent; the 2^40 copy differs from the scaled
+        // result there): they are out of the domain, and the whole target runs on them without a finding (before, "not the scaled result")
+        var artifact29 = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0, 0, 0), new Vector3d(2.407412430484045E-35, 0, 0), new Vector3d(0, 2.407412430484045E-35, 0),
+            new Vector3d(0, 0, 2.407412430484045E-35), new Vector3d(8.2890456E-317, 0, 0),
+            new Vector3d(1.0147467319612079E-173, 5.016812944271831E-217, 1.2635703280135613E-308),
+            new Vector3d(7.222237291452134E-35, 2.407412430484045E-35, 0), new Vector3d(1.0532429383367696E-34, 0, 2.407412430484045E-35) })
+            artifact29.AppendVertex(v);
+        foreach (var t in new[] { (0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3), (4, 6, 5), (4, 5, 7), (4, 7, 6), (5, 6, 7) })
+            artifact29.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        var artifact04 = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0, 0, 7.571533991467358E-270), new Vector3d(1.936405462784621E-260, 3.94691217122E-312, 0),
+            new Vector3d(2.407412430484045E-35, 2.407412430484045E-35, 7.571533991467358E-270), new Vector3d(0, 2.407412430484045E-35, 7.571533991467358E-270),
+            new Vector3d(0, 0, 2.407412430484045E-35), new Vector3d(2.407412430484045E-35, 0, 2.407412430484045E-35),
+            new Vector3d(3.21256E-319, 1.854324713764299E-207, 1.6996128203652254E-231), new Vector3d(0, 2.407412430484045E-35, 2.407412430484045E-35) })
+            artifact04.AppendVertex(v);
+        foreach (var t in new[] { (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7) })
+            artifact04.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        foreach (DMesh3 artifact in new[] { artifact29, artifact04 }) {
+            if (!HasTinyComponents(NormalizeWhole(artifact, out _)))
+                throw new InvalidOperationException("an artifact of the campaign is inside the domain of the scale claim");
+            Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = artifact, B = new DMesh3() });
+        }
+        // all 17 saved artifacts of the partitioned-reducer campaign (T13; 12 pass without the domain rule, 5 gave "not the scaled result"): decoded
+        // with the operation set by hand (the first byte selects it only under the campaign's MESH_FUZZ_OPS), each runs the whole target without a finding
+        foreach (string hex in new[] {
+            "000a03fe0200000001040305fffd0207040a020e030a05000000ba0000000000000000000000000000000000000000000000000000fffffffd00000000000000000000000d03150f060414041c05100e2305130708191e062a07160923073125091d0b",
+            "000203fe03fe00000c00ffff14ff00003d00009696969696969696969696969696960000000000000000000000000000002700000000f8fffcfcfe03fe040302000000000000000000000000000000000000000000004b0000005b00000000000000000000000000010200000001040305010f050a03071502040d0614041c051007e7171609ecf7e1f52a171609f8fffcfcfe3a16",
+            "0004030505000405000300",
+            "ffff000903fe03fe0000fffffffd000000000008000103fe03ffffffffff00100100000000000000f8fe00000000000000000000b2b2b2b2b20000000000ae0000000000000000000000000203fe07040a05d3d3d3d3d3d3d3d3d3d3d3d305050505050505050505250505050c050505050000000000020000000000050505050505050505050505050505020e030a050f0315050107020510062305050505050505",
+            "002103fe03fe00000000000027000000000000000000000000ffffffff00000000000000000000000000000000ffffffffffffffff040d0614041c0510071905230613081e062a0716090000314a124116",
+            "000903fe03fe000000000000000000000008000103feb2b2b2000203feb201000000000000000000000000003d00050505050505050505050100000005020e030a050f031505010702051006230505050505050505050505050505050505050005050500",
+            "000203fe03fe0000000000000000000000000000000000000000000200000000fffffffaff00000000000000000000000020000000fffffffaffffffffffffffff00000000000000000007050f0315040d06140c1c0510071905230613123a16",
+            "000103fe03fe0000ffff020e030a050f9b000000000000000315040d0614041c0510071905230613fe0405230613fe040302000000000000000000000000000000000800000002000000000000fff9fe0000000000000107110923073025091d0b",
+            "0009834e000800002e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e000000",
+            "00020cfe000203000002000403000000000000000000000003fe000203000203fe032e03fe000000000000003d0000000000000203fe030505050505050005002e03fe000000000000003d0005050500",
+            "0001f74800010348",
+            "00f84900fffcfcfe03fe0403020000000000000000000000000000000000000000000000000000000008000000000102000000010403050107026007042e0a020e030a250f0315040819123a16",
+            "000203fe03fe00000000000000000000000000000000000000000000fcf8fdfffffffef8040a020e030a050f0315040d06140000000000000000000200000000000000000000000000002a00000000050505050505050505041c",
+            "000103fe03fe0000fffffffd000000000014007a000000000000000001000000000000a5000000000000ffffffffff000000000203fe03fe04030200000000000000000000000000000000000000000000000000000000000000000001020000000104030501070207040a020e030a050f0315040d0614041c051006230513070819ffff1effffffffffffffffffffffffffffffff062a07160923073125091d0b",
+            "000103fe03fe0000fffffffd00a0000000000000000000000000000000040300062305130708191effffffff00f7ffffffffffffffffffffffff062a07160923073025091d0b",
+            "000903fe03fe000000000000000000000008000103feb2b2b2000203feb201000000000000000000000000003d00050505050505050505050505050505ffffffff050f031505010702051006230505050505050505050505050505050505050005050500",
+            "000203fe03fe000000000000000000ffffffffffb2b2b2b2b2b2b2b2b2b2b2b2b200000000000000650000010200000001040305ee01070207030501505050505050505050505050505050505050505016092307304a123a16" })
+        {
+            Case saved = Decode(Convert.FromHexString(hex));
+            saved.Op = Array.IndexOf(Ops, "partitioned-reducer");
+            Run(saved);
+        }
         // and pass on a clean result
         CheckNearestTriangle("t", 0, 1, 1, 1, true);
         CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1);                    // rounding of the two distance codes at the scale of the mesh
