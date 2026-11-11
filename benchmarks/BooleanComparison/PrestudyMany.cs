@@ -492,6 +492,53 @@ static class PrestudyMany
         return 0;
     }
 
+    // T3b: A ∩ B_i (or A − B_i) for every i: separate booleans one after the other, separate booleans with Parallel.For
+    // over i, and ExactMeshBoolean.IntersectEach / DifferenceEach; warm, alternating, medians; the results of the Each
+    // call compared with the separate serial ones (hashes).
+    //   t3b-each <terrain|cad> <n> <seed> [--size k] [--op intersection|difference] [--repeat r]
+    public static int RunEach(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0, repeat = 3;
+        var op = ExactMeshBoolean.Operations.Intersection;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
+            else if (args[i] == "--op") op = args[++i] == "difference" ? ExactMeshBoolean.Operations.Difference : ExactMeshBoolean.Operations.Intersection;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        Func<int, DMesh3> one = (i) => { var b = new ExactMeshBoolean(a, bs[i], op); b.Compute(); return b.Result; };
+        var variants = new Dictionary<string, Func<DMesh3[]>> {
+            ["separate_serial"] = () => Enumerable.Range(0, n).Select(one).ToArray(),
+            ["separate_parallel"] = () => { var r = new DMesh3[n]; Parallel.For(0, n, (i) => r[i] = one(i)); return r; },
+            ["each"] = () => op == ExactMeshBoolean.Operations.Intersection ? ExactMeshBoolean.IntersectEach(a, bs) : ExactMeshBoolean.DifferenceEach(a, bs),
+        };
+        var times = variants.Keys.ToDictionary(k => k, k => new List<long>());
+        var hashes = new Dictionary<string, string[]>();
+        // (a warm-up of each variant)
+        foreach (var kv in variants) kv.Value();
+        for (int rep = 0; rep < repeat; ++rep)
+            foreach (var kv in variants) {
+                Gc();
+                var sw = Stopwatch.StartNew();
+                DMesh3[] r = kv.Value();
+                times[kv.Key].Add(sw.ElapsedMilliseconds);
+                hashes[kv.Key] = r.Select(m => m == null ? "null" : Hash(m)).ToArray();
+            }
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(), ["a_tris"] = a.TriangleCount,
+            ["cores"] = Environment.ProcessorCount };
+        foreach (var kv in times) {
+            var sorted = kv.Value.OrderBy(x => x).ToList();
+            row[kv.Key + "_ms"] = sorted[sorted.Count / 2];
+            row[kv.Key + "_all_ms"] = kv.Value.ToArray();
+        }
+        row["each_equals_separate"] = hashes["each"].SequenceEqual(hashes["separate_serial"]);
+        row["parallel_equals_separate"] = hashes["separate_parallel"].SequenceEqual(hashes["separate_serial"]);
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
