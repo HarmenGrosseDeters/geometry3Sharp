@@ -50,6 +50,14 @@ class PilotTests(unittest.TestCase):
     def test_swallowed_exception_is_not_accepted(self):
         self.assertEqual(subprocess.run([DOTNET, DLL, 'policy-self-test'], capture_output=True).returncode, 0)
 
+    def test_crash_injection_anchor_matches_the_harness_source(self):
+        # verify_crash_path.py injects its synthetic crash before this exact line of FuzzTarget.Run
+        import re
+        source = (HERE / 'FuzzTarget.cs').read_text(encoding='utf-8')
+        script = (HERE / 'verify_crash_path.py').read_text(encoding='utf-8')
+        needle = re.search(r"needle = '(.*)'", script).group(1)
+        self.assertEqual(source.count(needle), 1)
+
 
 if __name__ == '__main__':
     unittest.main()
