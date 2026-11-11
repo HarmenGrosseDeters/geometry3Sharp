@@ -124,8 +124,10 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(e, Reducer.exponent_of(BitConverter.Int64BitsToDouble(1L << (e + 1074))));   // (2^e as a subnormal, exactly)
         }
 
-        // a triangle whose cross product is subnormal (legs 2^-500 and 2^-523: 2^-1023): the reduction path calls exponent_of for it; its
-        // quadric is empty (the unit vector would have to be scaled by 2^-1023, which is not a normal double) and nothing is NaN
+        // a triangle whose cross product is subnormal (legs 2^-500 and 2^-523: 2^-1023): the reduction path calls exponent_of for it. Its quadric
+        // used to be empty (the unit vector would have to be scaled by 2^-1023, which is not a normal double); the quadrics are built in a
+        // frame of extent 1 now (#595), where the legs are 1 and 2^-23: the quadric is the plane z = 0 (area weight 2^-24 in frame units),
+        // finite and without NaN
         [Fact]
         public void TriangleWithASubnormalCrossProduct_HasAFiniteQuadric()
         {
@@ -137,7 +139,16 @@ namespace geometry3Sharp.Tests
             QuadricError[] q = new QuadricProbe(mesh) { PreserveBoundaryShape = false }.Quadrics();   // (the boundary quadrics are a separate path)
             for (int v = 0; v < 3; ++v) {
                 Assert.False(double.IsNaN(q[v].Axx + q[v].Azz + q[v].bx + q[v].c));
-                Assert.True(IsZero(q[v]), q[v].Axx + " " + q[v].Ayy + " " + q[v].Azz + " " + q[v].bx + " " + q[v].by+ " " + q[v].bz + " " + q[v].c);
+                Assert.Equal(Math.Pow(2, -24), q[v].Azz);                  // the plane z = 0, weighted by the area of the frame triangle
+                Assert.Equal(0.0, q[v].Axx);
+                Assert.Equal(0.0, q[v].Ayy);
+                Assert.Equal(0.0, q[v].Axy);
+                Assert.Equal(0.0, q[v].Axz);
+                Assert.Equal(0.0, q[v].Ayz);
+                Assert.Equal(0.0, q[v].bx);
+                Assert.Equal(0.0, q[v].by);
+                Assert.Equal(0.0, q[v].bz);
+                Assert.Equal(0.0, q[v].c);
             }
         }
     }
