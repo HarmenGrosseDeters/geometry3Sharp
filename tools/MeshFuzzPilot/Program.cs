@@ -616,6 +616,10 @@ public static partial class Program
         ExpectFinding("a nearest triangle that is not the nearest", () => CheckNearestTriangle("t", 0, 2, 2, 1, true));
         ExpectFinding("a reported distance that is not the minimum", () => CheckNearestTriangle("t", 0, 2, 1, 1, true));
         ExpectFinding("a nearest triangle off by 1e-9 of the mesh scale", () => CheckNearestTriangle("t", 0, 1 + 1e-9, 1 + 1e-9, 1, true, 1));
+        ExpectFinding("a nearest triangle 6e-8 of the mesh scale away from a query on another triangle", () => CheckNearestTriangle("t", 0, 1e-14, 1e-14, 0, true, 1));
+        ExpectFinding("a NaN distance of the nearest triangle", () => CheckNearestTriangle("t", 0, 1, double.NaN, 1, true, 1));
+        ExpectFinding("a NaN brute force minimum", () => CheckNearestTriangle("t", 0, 1, 1, double.NaN, true, 1));
+        ExpectFinding("a NaN mesh scale", () => CheckNearestTriangle("t", 0, 1, 1, 1, true, double.NaN));
         ExpectFinding("an absolute 1e-17 against a minimum of 0 on a mesh of scale 1e-30", () => CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1e-60));
         ExpectFinding("no nearest vertex", () => CheckNearestVertex("t", DMesh3.InvalidID, double.NaN, 1));
         ExpectFinding("a nearest vertex that is not the nearest", () => CheckNearestVertex("t", 0, 2, 1));

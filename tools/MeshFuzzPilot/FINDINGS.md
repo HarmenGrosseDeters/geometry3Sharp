@@ -146,6 +146,6 @@ no longer compiled. Not done: the oracle and the adapter of the mesher are not i
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with
   `DistPoint3Triangle3`, the pilot's brute force with the inline copy in `MeshQueries.TriDistanceSqr`. Both are legitimate and differ by rounding
   (about one ulp, or 1e-17 where the minimum is 0 on a mesh of scale 1). Unifying them would change the bits of `TriDistanceSqr` results for no gain in
-  correctness, so the pilot compares up to `16 * eps * (meshDiagonal^2 + distance)` (`NearestTolerance`): an absolute 1e-17 against 0 passes only
+  correctness, so the pilot compares up to `4 * eps * (meshDiagonal^2 + distance)` (`NearestTolerance`): an absolute 1e-17 against 0 passes only
   relative to the mesh scale. Measured on the 997 `tree-nearest` artifacts of the T13 campaign: 99 reports before, 0 after; a mutant that returns
-  the wrong triangle is still caught (43 of the first 60 artifacts; the rest have one triangle or equally near ones).
+  the wrong triangle is still caught (43 of the first 60 artifacts at k = 4; the rest have one triangle or equally near ones).

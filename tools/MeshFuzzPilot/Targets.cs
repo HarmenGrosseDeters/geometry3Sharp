@@ -156,20 +156,20 @@ public static partial class Program
     // ---- nearest triangle and vertex ----
 
     /// <summary>
-    /// FindNearestTriangle on the normalized mesh: a triangle (a mesh with triangles has one) whose squared distance is
-    /// the brute force minimum, bit for bit (the same TriDistanceSqr), and the out value is that distance. The raw tree
-    /// (where the squared distances are representable) returns a triangle that is a minimum as well.
-    /// </summary>
-    /// <summary>
     /// The tree computes the distance of a triangle with DistPoint3Triangle3, the brute force (and the id check) with the inline copy in
     /// MeshQueries.TriDistanceSqr: both are legitimate and differ by rounding. The distances are therefore compared up to
-    /// 16 * eps * (meshDiagonalSqr + distance): an absolute 1e-17 where the minimum is 0 passes only relative to the mesh scale.
+    /// 4 * eps * (meshDiagonalSqr + distance): an absolute 1e-17 where the minimum is 0 passes only relative to the mesh scale.
     /// </summary>
     public static double NearestTolerance(double meshDiagonalSqr, double bruteDistSqr)
     {
-        return 16 * Math.Pow(2, -52) * (meshDiagonalSqr + bruteDistSqr);
+        return 4 * Math.Pow(2, -52) * (meshDiagonalSqr + bruteDistSqr);
     }
 
+    /// <summary>
+    /// FindNearestTriangle on the normalized mesh: a triangle (a mesh with triangles has one) whose squared distance is
+    /// the brute force minimum up to <see cref="NearestTolerance"/>, and the out value is that distance. The raw tree
+    /// (where the squared distances are representable) is judged the same way in raw space. A NaN is a finding.
+    /// </summary>
     public static void CheckNearestTriangle(string what, int treeId, double treeDistSqr, double idDistSqr, double bruteDistSqr, bool hasTriangles, double meshDiagonalSqr = 0)
     {
         double tol = NearestTolerance(meshDiagonalSqr, bruteDistSqr);

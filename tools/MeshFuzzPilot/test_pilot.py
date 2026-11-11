@@ -80,7 +80,8 @@ class PilotTests(unittest.TestCase):
             p = Path(tmp) / 'raw-scale.bin'
             p.write_bytes(data)
             r = run('replay', str(p), ops='tree-nearest')
-            self.assertNotIn('raw scale', r.stderr)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('tree-nearest', r.stdout)      # the operation ran (the case was decoded and judged)
 
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
