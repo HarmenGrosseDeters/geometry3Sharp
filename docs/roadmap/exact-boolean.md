@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a merged, T3b in draft #616.
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a and T3 merged, T3b in review (#616).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -96,7 +96,7 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   Warm medians off -> on: CAD 10k n = 500 40.0 -> 7.3 s (target <= 30 s), CAD 100k n = 100 1.78 -> 1.22 s, terrain n = 200
   1.64-1.85 -> 1.49-1.63 s (target <= 2.7 s, already met by master before T3a); never slower on small cases. Result ids of
   Difference / Intersection may be permuted (same geometry and volume bits), documented in OPERATIONS.md.
-- **T3b: draft #616** (`IntersectEach` / `DifferenceEach`, additive, parallel over the Bi, bit-identical to separate
+- **T3b: #616, in review** (`IntersectEach` / `DifferenceEach`, additive, parallel over the Bi, bit-identical to separate
   booleans). Warm medians: terrain n = 200 IntersectEach 1.33 s (target <= 1.5 s), CAD 100k n = 50 2.7 s (target <= 4 s).
   Deviation: `DifferenceEach` gains only the parallelism (terrain 6.3 -> 4.0 s, CAD 32.4 -> 22.6 s). Exact-code review
   and the full local list before ready.
@@ -104,7 +104,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
   for the tree, 1.5-2 days for the points per grid class.
-- **T3 (#593)** merges after T3a; then T2 memory, T1 levers, T5 / T1b per the execution order below.
+- **T3 (#593): merged 2026-11-11** (f92f1c62). `MeshRoundingRepair` returns `OutsideRange` (mesh untouched, not clean)
+  outside [2^-200, 2^200] or for subnormal coordinates; the boolean keeps its exact result there but `RoundingClean` is
+  false. Next: T3b (#616), then T2 memory, T1 levers, T5 / T1b per the execution order below.
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
