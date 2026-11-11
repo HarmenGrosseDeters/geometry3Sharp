@@ -270,7 +270,8 @@ def load_configs(directory=HERE):
         # "FullyQualifiedName~MeshRoundingRepairTests.ExactVertices" -> the file of class MeshRoundingRepairTests;
         # "A&FullyQualifiedName!~B" narrows A: only the positive terms name test classes
         terms = [t for alt in config["test-case-filter"].split("|") for t in alt.split("&")]
-        classes = {t.split("~")[1].split(".")[0] for t in terms if "!~" not in t}
+        # ("FullyQualifiedName~.ExactBooleanOpenInputTests." with a dot at both ends names that class only, not ...Antipodal)
+        classes = {t.split("~")[1].strip(".").split(".")[0] for t in terms if "!~" not in t}
         configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
     return configs
 

@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
         // the methods the splits of a file are at, in order
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
-            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(" },
+            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(", "double front_generalized_winding(", "AxisAlignedBox3d input_bounds(" },
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
@@ -106,6 +106,40 @@ namespace geometry3Sharp.Tests
                         else
                             Assert.True(sources.Contains("\"" + d.Groups[1].Value), kv.Key + ": " + cond + " names no test case");
                     }
+        }
+
+        [Fact]
+        public void BooleanParts_AntipodalTestsOnlyInTheAntipodalPart()
+        {
+            // Under Stryker's coverage capture the ExactBooleanOpenInputTestsAntipodal class costs 94 minutes (22 s of tests; the
+            // other ten classes of the filter together 3 minutes, README "Coverage pass"), in every part that runs it, since its hot
+            // loops sit in ExactMeshBoolean.cs. So only the part that mutates the Antipodal methods (front_generalized_winding to
+            // BoundarySegments, boolean-3) runs it; the others run the same other tests (the term for ExactBooleanOpenInputTests
+            // has a dot at both ends, which the Antipodal class name does not have). ExactBooleanFilterTests stay with the parts
+            // from front_winding on.
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            const string antipodal = "FullyQualifiedName~ExactBooleanOpenInputTestsAntipodal";
+            var baseTerms = new HashSet<string>(Alternatives(filters["stryker-mesh-boolean-1"]));
+            Assert.DoesNotContain(antipodal, baseTerms);
+            Assert.Contains("FullyQualifiedName~.ExactBooleanOpenInputTests.", baseTerms);
+            for (int i = 1; i <= 4; ++i) {
+                var want = baseTerms.Concat(i >= 2 ? new[] { "FullyQualifiedName~ExactBooleanFilterTests" } : new string[0])
+                    .Concat(i == 3 ? new[] { antipodal } : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
+                Assert.Equal(want, Alternatives(filters["stryker-mesh-boolean-" + i]).OrderBy(x => x, StringComparer.Ordinal));
+            }
+            // the tests of the Antipodal class (and only they) are matched by the dotted term's neighbours: no part but boolean-3 runs them
+            var names = typeof(MutationConfigTests).Assembly.GetTypes()
+                .SelectMany(t => t.GetMethods().Where(mi => mi.GetCustomAttributes(typeof(FactAttribute), true).Length > 0).Select(mi => t.FullName + "." + mi.Name)).ToList();
+            var antipodalTests = names.Where(n => n.Contains(".ExactBooleanOpenInputTestsAntipodal.")).ToList();
+            Assert.NotEmpty(antipodalTests);
+            foreach (string test in antipodalTests)
+                for (int i = 1; i <= 4; ++i) {
+                    bool runs = Alternatives(filters["stryker-mesh-boolean-" + i]).Any(t => test.Contains(t.Substring("FullyQualifiedName~".Length)));
+                    Assert.Equal(i == 3, runs);
+                }
+            Assert.False(File.Exists(Path.Combine(root, "tests", "mutation", "stryker-mesh-boolean-5.json")));
         }
 
         [Fact]
