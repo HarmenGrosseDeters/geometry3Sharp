@@ -17,20 +17,31 @@ static class T3aGeom
     {
         string dir = args[0];
         var ops = new List<string> { "difference", "intersection" };
-        for (int i = 1; i < args.Length; ++i)
+        int repeat = 1;
+        for (int i = 1; i < args.Length; ++i) {
             if (args[i] == "--ops") ops = args[++i].Split(',').ToList();
+            else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
+        }
         DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
         foreach (string opName in ops) {
             var op = opName == "intersection" ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
             var row = new Dictionary<string, object> { ["case"] = Path.GetFileName(dir.TrimEnd('/')), ["op"] = opName };
             var res = new Dictionary<bool, ExactMeshBoolean>();
+            var times = new Dictionary<bool, List<long>> { [false] = new List<long>(), [true] = new List<long>() };
+            // (with --repeat: a warm-up run of each first, then alternating runs, medians; a single run is JIT-cold for
+            // the variant that runs first)
+            if (repeat > 1)
+                foreach (bool cull in new[] { false, true })
+                    new ExactMeshBoolean(a, b, op) { CullOutsideA = cull }.Compute();
+            for (int rep = 0; rep < repeat; ++rep)
             foreach (bool cull in new[] { false, true }) {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 var o = new ExactMeshBoolean(a, b, op) { CullOutsideA = cull };
                 var sw = Stopwatch.StartNew();
                 o.Compute();
                 string k = cull ? "cull" : "base";
-                row[k + "_ms"] = sw.ElapsedMilliseconds;
+                times[cull].Add(sw.ElapsedMilliseconds);
+                row[k + "_ms"] = times[cull].OrderBy(t => t).ElementAt(times[cull].Count / 2);
                 row[k + "_status"] = o.Status.ToString();
                 if (cull) row["culled"] = o.Counts["t3a_culled"];
                 res[cull] = o;
