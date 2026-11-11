@@ -701,15 +701,21 @@ namespace g3
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
         // read, so they are prepared in parallel, each result into its own slot
         [MethodImpl(JitHints.Optimize)]
-        PreparedInput[] prepare_inputs(List<DMesh3> inputs)
+        internal PreparedInput[] prepare_inputs(List<DMesh3> inputs)
         {
             var prepared = new PreparedInput[inputs.Count];
             PreparedInput first = PreparedFirst;
-            System.Threading.Tasks.Parallel.For(0, inputs.Count, m => {
+            Action<int> observer = PrepareObserverForTests;
+            gParallel.ForRange(inputs.Count, (m) => {
+                if (observer != null)
+                    observer(m);
                 prepared[m] = (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
             });
             return prepared;
         }
+
+        // tests: called with the index of each input as its preparation starts (on the thread that prepares it)
+        internal Action<int> PrepareObserverForTests;
 
         // for IntersectEach / DifferenceEach: the prepared first mesh, used by Compute when the first input is its Source
         internal PreparedInput PreparedFirst;
