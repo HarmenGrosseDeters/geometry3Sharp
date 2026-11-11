@@ -94,6 +94,25 @@ class Parsing(unittest.TestCase):
         self.assertEqual(n.parse_trx(self.TRX % ("", "Aborted")), ({}, "Aborted"))
 
 
+class Projects(unittest.TestCase):
+    def test_both_test_projects_are_compared_and_missing_ones_skipped(self):
+        # a bugfix of the Clipper2 addon has its tests in the Clipper2 test project (#583): the gate must see them
+        self.assertEqual(n.TEST_PROJECTS, ("tests/geometry3Sharp.Tests", "tests/geometry3Sharp.Clipper2.Tests"))
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as tree:
+            self.assertEqual(n.projects_of(tree), [])
+            os.makedirs(os.path.join(tree, "tests/geometry3Sharp.Clipper2.Tests"))
+            self.assertEqual(n.projects_of(tree), ["tests/geometry3Sharp.Clipper2.Tests"])
+            os.makedirs(os.path.join(tree, "tests/geometry3Sharp.Tests"))
+            self.assertEqual(n.projects_of(tree), list(n.TEST_PROJECTS))
+            self.assertEqual(n.list_tests(tree, "tests/not.There"), set())
+
+    def test_the_library_paths_reset_to_the_base_include_the_addon(self):
+        self.assertTrue(n.is_library_path("addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs"))
+        self.assertFalse(n.is_library_path("tests/geometry3Sharp.Clipper2.Tests/Clipper2OffsetTests.cs"))
+        self.assertTrue(all(p.startswith(n.TEST_SOURCE_PREFIXES) for p in n.TEST_PROJECTS))
+
+
 class Decision(unittest.TestCase):
     def test_classify(self):
         new = {"N.C.A", "N.C.T", "N.C.Lost", "N.C.NewApi", "N.C.Skipped", "nice name"}

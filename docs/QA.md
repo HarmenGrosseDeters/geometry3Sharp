@@ -639,7 +639,8 @@ not depend on the implementer's own tests. Order of priority:
    must fail there. Catches vacuous tests (one was found in review in #186). Done: workflow `New tests on base`
    (`.github/workflows/new-tests-on-base.yml`, `tools/new_tests_on_base.py`, locally
    `python3 tools/new_tests_on_base.py --base origin/master`). New tests are the methods of
-   `tests/geometry3Sharp.Tests` that the merge base does not have (from `dotnet test --list-tests`). They run in a
+   `tests/geometry3Sharp.Tests` and `tests/geometry3Sharp.Clipper2.Tests` (against the addon of the base) that the
+   merge base does not have (from `dotnet test --list-tests`). They run in a
    worktree of the head whose library files (all paths outside `tests/`, `benchmarks/`, `docs/`, `tools/`,
    `.github/` and the root `*.md`) are reset to the merge base; a changed test file that does not compile against
    the old library (new API) is reset as well and its tests are reported as "does not compile" (if the errors are in

@@ -4,7 +4,7 @@
 A test added with a change should fail on the old code: otherwise it may not test the change at all (a vacuous
 test). This script
 
-  1. builds tests/geometry3Sharp.Tests at the head and at the merge base and lists their test methods; the new tests
+  1. builds the test projects (tests/geometry3Sharp.Tests, tests/geometry3Sharp.Clipper2.Tests) at the head and at the merge base and lists their test methods; the new tests
      are the methods of the head that the base does not have,
   2. builds the head's test project against the base's library: in a worktree of the head, every changed library
      file is reset to the merge base (added ones are deleted). Library files are all paths outside tests/,
@@ -34,7 +34,9 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-TEST_PROJECT = "tests/geometry3Sharp.Tests"
+# the test projects whose new tests are compared (a project missing at the base or the head is skipped): the new tests of
+# the Clipper2 addon run against the addon of the base like those of the library against the library of the base
+TEST_PROJECTS = ("tests/geometry3Sharp.Tests", "tests/geometry3Sharp.Clipper2.Tests")
 FRAMEWORK = "net10.0"
 # paths that are not part of the library; everything else that changed is reset to the base
 NON_LIBRARY_PREFIXES = ("tests/", "benchmarks/", "docs/", "tools/", ".github/")
@@ -180,7 +182,7 @@ def report(verdict, dropped, require_failing, problem=None):
     failing = [t for t, v in verdict.items() if v in COUNTS_AS_FAILING]
     if not verdict:
         if not problem:
-            lines.append("The branch adds no test methods to `%s`." % TEST_PROJECT)
+            lines.append("The branch adds no test methods to `%s`." % "`, `".join(TEST_PROJECTS))
     else:
         def count(v):
             return sum(x == v for x in verdict.values())
@@ -224,13 +226,30 @@ def git(*args, cwd=None, check=True):
     return run(["git"] + list(args), cwd=cwd, check=check).stdout
 
 
+def projects_of(tree):
+    return [p for p in TEST_PROJECTS if os.path.isdir(os.path.join(tree, p))]
+
+
+class BuildResult:
+    def __init__(self, returncode, stdout):
+        self.returncode, self.stdout = returncode, stdout
+
+
 def build(tree):
-    return run(["dotnet", "build", os.path.join(tree, TEST_PROJECT), "-c", "Release", "-f", FRAMEWORK, "-nologo"],
-               check=False)
+    """build all test projects of the tree; the first failure is the result, the output of all builds is kept"""
+    code, out = 0, ""
+    for project in projects_of(tree):
+        p = run(["dotnet", "build", os.path.join(tree, project), "-c", "Release", "-f", FRAMEWORK, "-nologo"],
+                check=False)
+        out += p.stdout
+        code = code or p.returncode
+    return BuildResult(code, out)
 
 
-def list_tests(tree):
-    p = run(["dotnet", "test", os.path.join(tree, TEST_PROJECT), "-c", "Release", "-f", FRAMEWORK, "--no-build",
+def list_tests(tree, project):
+    if not os.path.isdir(os.path.join(tree, project)):
+        return set()
+    p = run(["dotnet", "test", os.path.join(tree, project), "-c", "Release", "-f", FRAMEWORK, "--no-build",
              "--list-tests", "-nologo"])
     return parse_list_tests(p.stdout)
 
@@ -246,10 +265,10 @@ def reset_to_base(tree, base, paths, changes):
             git("checkout", base, "--", path, cwd=tree)
 
 
-def run_tests(tree, tests, results):
-    """run the tests; (method -> outcomes, the run was killed by a crash or hang, problem or None)"""
+def run_tests(tree, project, tests, results):
+    """run the tests of one project; (method -> outcomes, the run was killed by a crash or hang, problem or None)"""
     shutil.rmtree(results, ignore_errors=True)
-    p = run(["dotnet", "test", os.path.join(tree, TEST_PROJECT), "-c", "Release", "-f", FRAMEWORK, "--no-build",
+    p = run(["dotnet", "test", os.path.join(tree, project), "-c", "Release", "-f", FRAMEWORK, "--no-build",
              "-nologo", "--filter", test_filter(tests), "--logger", "trx;LogFileName=base.trx",
              "--results-directory", results, "--blame-hang-timeout", "10m", "--blame-hang-dump-type", "none"],
             check=False)
@@ -276,7 +295,10 @@ def compare(repo, base, head, work):
         if b.returncode != 0:
             sys.stdout.write(b.stdout[-20000:])
             raise CannotRun("the tests of the %s do not build" % what)
-    new_tests = list_tests(hybrid) - list_tests(base_tree)
+    new_by_project = {}
+    for project in projects_of(hybrid):
+        new_by_project[project] = list_tests(hybrid, project) - list_tests(base_tree, project)
+    new_tests = set().union(*new_by_project.values()) if new_by_project else set()
     print("new test methods: %d" % len(new_tests))
     if not new_tests:
         return {}, set()
@@ -308,13 +330,25 @@ def compare(repo, base, head, work):
     else:
         sys.stdout.write(b.stdout[-20000:])
         raise CannotRun("the head's tests do not build against the base library")
-    compiled = {t for t in list_tests(hybrid) & new_tests if is_method_name(t)}
+    project_of = {}
+    for project in projects_of(hybrid):
+        for t in list_tests(hybrid, project) & new_by_project[project]:
+            if is_method_name(t):
+                project_of[t] = project
+    compiled = set(project_of)
     if not compiled:
         return classify(new_tests, compiled, {}), dropped
     results = os.path.join(work, "results")
-    outcomes, blamed, problem = run_tests(hybrid, compiled, results)
-    if problem:
-        raise CannotRun(problem)
+    outcomes, blamed = {}, False
+    for project in projects_of(hybrid):
+        mine = {t for t in compiled if project_of[t] == project}
+        if not mine:
+            continue
+        o, b, problem = run_tests(hybrid, project, mine, results)
+        if problem:
+            raise CannotRun(problem)
+        outcomes.update(o)
+        blamed = blamed or b
     missing = sorted(t for t in compiled if t not in outcomes)
     if not (blamed and len(missing) > 1):
         return classify(new_tests, compiled, outcomes, aborted_by_blame=blamed), dropped
@@ -324,7 +358,7 @@ def compare(repo, base, head, work):
     print("the run was aborted; running the %d tests without a result one by one" % len(missing))
     crashed = set()
     for t in missing:
-        o, b, _ = run_tests(hybrid, {t}, results)
+        o, b, _ = run_tests(hybrid, project_of[t], {t}, results)
         outcomes.update(o)
         if t not in o and b:
             crashed.add(t)
