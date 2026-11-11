@@ -273,31 +273,8 @@ class DriftApexTests(unittest.TestCase):
         self.assertEqual('unknown', report['obligations'][0]['result'])
         self.assertFalse(report['obligations_passed'])
 
-    def test_source_contract_against_the_apex_rule(self):
-        drift_apex.source_contract()
-
-    def test_source_drift_against_the_apex_rule_is_rejected(self):
-        original = drift_apex.ROOT.__class__.read_text
-        for before, after in [('editApex = apex_of(added);', 'editApex = -1;'),
-                              ('for (int i = 1; i < tris.Count && all; ++i)', 'for (int i = 1; i < 1 && all; ++i)'),
-                              ('drift[editApex] = editDrift;', 'drift[editApex] = most;'),
-                              ('foreach (int t in removed) {\n                Index3i tv = Mesh.GetTriangle(t);\n'
-                               '                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }',
-                               'foreach (int t in removed) {\n                Index3i tv = Mesh.GetTriangle(t);\n'
-                               '                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); }'),
-                              ('!(editDrift <= bound)', '!(editDrift < 2 * bound)'),
-                              ('maxLength_of(editVerts[0])', 'maxLength'),
-                              ('            } else\n                foreach (int v in editVerts)', '            } else\n                foreach (int v in new int[0])')]:
-            with self.subTest(before=before):
-                def changed(path, *args, **kwargs):
-                    text = original(path, *args, **kwargs)
-                    if path.name == 'MeshRoundingRepair.cs':
-                        self.assertIn(before, text)
-                        text = text.replace(before, after)
-                    return text
-                with patch.object(drift_apex.ROOT.__class__, 'read_text', changed):
-                    with self.assertRaises(ValueError):
-                        drift_apex.source_contract()
+    # (the source contract of the apex rule is retired with it, Boolean 2.1: drift_reference.source_contract holds
+    # the code to the reference rule, test_drift_reference.py)
 
 
 if __name__ == '__main__':

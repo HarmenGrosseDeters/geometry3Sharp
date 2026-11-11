@@ -521,8 +521,9 @@ single triangle) adds none, because `collapse_keeps_boundary` never moves the ke
 - **The specification drives the obligations.** `drift_apex.CHARGING` (`with_apex`, `without_apex`, `M_over`,
   `acceptance`) is read by `edit_formula`, `generic_formula` and `obligations`; a value the lemma does not cover
   (for instance `with_apex = 'first vertex of A[0]'`, `without_apex = 'apex'`) raises, and `M_over = 'A'` or `'R'`
-  makes obligations SAT (tested). The source contract of the implementation will compare the code with this
-  specification.
+  makes obligations SAT (tested). The source contract that compared the Boolean 2.0 code with this specification is
+  retired with the apex rule (Boolean 2.1, the reference rule of step 1b); the lemma stays as the comparison of the
+  D1 note's section 3.3.
 - The distances are real variables and the geometry enters as hypotheses, per point the note's proof uses:
   (I1) for a point `x` of an added triangle `T'`: the (E1) witness `z` in some removed triangle with
   `|x - z| <= δ` (which removed triangle is a disjunction), (I1) before at `z`, and the triangle inequality
@@ -591,17 +592,15 @@ About 3 s of solver time locally (7 s for the run, report `results/drift_apex_20
   that `k`). The note's "k becomes the length of a chain through one vertex" is better read as the depth of the
   charging DAG (an apex's drift depends on the drifts of every vertex of its edit, which in turn were charged by
   earlier edits).
-- That the code's apex is in every added triangle (the note's check mode, section 6) and that the implementation
-  charges as `CHARGING` says: TODO(D1), the skipped test `test_source_contract_against_the_apex_rule`; the
-  implementation PR adds the source contract against `improves` / `within_bound` / `commit_drift`. Today's code
-  still charges every vertex and is deliberately not pinned here.
+- That the code charged as `CHARGING` says was held by a source contract while the apex rule was the code (Boolean
+  2.0); retired with it.
 - `ε` itself (a few ulps of the largest coordinate per distance computation): stated, not derived.
 
-## Pilot 2, step 1b: the reference rule for SafeRounding's drift (D1, a proposal)
+## Pilot 2, step 1b: the reference rule for SafeRounding's drift (D1, implemented in Boolean 2.1)
 
 `drift_reference.py`, `test_drift_reference.py`; the note is `docs/design/SAFE_ROUNDING_D1_DRIFT.md` (the rule in
-section 3, this check in section 4). No library code implements the rule yet: the pilot checks the lemma before it
-is built, and searches tiny configurations for counterexamples.
+section 3, this check in section 4). The pilot checked the lemma before the rule was built, and searches tiny
+configurations for counterexamples; `MeshRoundingRepair.cs` implements it since Boolean 2.1.
 
 ```sh
 python tools/Z3Pilot/drift_reference.py --out /tmp/z3-drift-reference.json      # about 2.5 minutes
@@ -620,10 +619,14 @@ python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
   the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
 - **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
   regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
-  ghosts and why one anchor per vertex is not enough.
-- **Source contract**: not of the rule (there is no code), but of the facts about `MeshRoundingRepair.cs` and
-  `Vector3d.Distance` that the lemma assumes (one writer of positions; only `try_move` and `try_collapse` propose a
-  moved vertex and list its triangles corner for corner).
+  ghosts and why one anchor per vertex is not enough. As meshes they are the scripted cases of
+  `MeshRoundingRepairTestsDriftReference` (each fails with its mutant in the C# code).
+- **Source contract**: the facts about `MeshRoundingRepair.cs` and `Vector3d.Distance` that the lemma assumes (one
+  writer of positions; only `try_move` and `try_collapse` propose a moved vertex and list its triangles corner for
+  corner), and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
+  text (`RULE_METHODS`), the drift checked first in `improves`, the moves past the evaluation limit by `move_bound`,
+  every generic edit naming its added triangles, the records starting at `Apply`. A test applies the seven mutants and
+  five other changes to the code and expects the contract to fail on each.
 
 Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
 which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:

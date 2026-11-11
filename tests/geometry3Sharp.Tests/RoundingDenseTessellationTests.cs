@@ -12,9 +12,10 @@ namespace geometry3Sharp.Tests
     /// A dense patch of tiny, well-shaped triangles (Exact Boolean 2.0 item L3, Thingi10K 119829/119830). Those
     /// models carry about 13.4k such triangles each: shortest/longest edge about 0.15, longest edge about 3.3e-6 of the
     /// diagonal. Their area is just under DegenerateArea times the result's squared diagonal, so SafeRounding contracts
-    /// them, as decided (D', docs/design/SAFE_ROUNDING.md section 1). The drift accumulates in the patch, and the last few
-    /// contractions would need slightly more than the bound. So the result is valid and closed but not clean, and no
-    /// effort limit is reached: an honest "not fully repaired", not a hopeless repair.
+    /// them, as decided (D', docs/design/SAFE_ROUNDING.md section 1). Under the apex rule (before Boolean 2.1) the drift
+    /// accumulated in the patch and the last few contractions needed slightly more than the bound, so the result was
+    /// valid but not clean; the reference rule (docs/design/SAFE_ROUNDING_D1_DRIFT.md) measures the displacement from the
+    /// triangles' reference corners, and the union is clean with a drift of a fraction of the bound.
     /// The patch is built procedurally: a unit sphere, refined around one point by longest-edge splits (new vertices
     /// on the sphere), with B rotated and translated as in the BooleanComparison harness. The patch lies outside B, so
     /// only the union keeps it. In A alone the patch is not degenerate; in the union, whose diagonal is larger, it is.
@@ -86,38 +87,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void DensePatch_Union_ValidNotCleanWithinTheBound()
+        public void DensePatch_Union_CleanWithAFractionOfTheBound()
         {
             var (a, b) = Case();
             var op = new ExactMeshBoolean(a, b, Ops.Union);
             Assert.True(op.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
-            ResultChecks.AssertClosed(op.Result);
-            Assert.True(Invariance.AllFinite(op.Result));
             MeshRoundingRepair r = op.Rounding;
-            // the patch counts as degenerate in the union, and most of it is contracted
+            // the patch counts as degenerate in the union, and all of it is repaired (the apex rule left 1 to a tenth
+            // of it, its smallest rejected edit needing just over the bound)
             Assert.True(r.InitialDegenerate > 500, $"initial degenerate {r.InitialDegenerate}");
-            Assert.InRange(r.RemainingDegenerate, 1, r.InitialDegenerate / 10);
+            Assert.Equal(0, r.RemainingDegenerate);
             Assert.Equal(0, r.RemainingIntersections);
             Assert.Equal(0, r.RemainingFalseContacts);
-            // not hopeless: no effort limit, and the edits left need just over the bound
             Assert.False(r.EvaluationLimitReached);
-            Assert.True(r.SmallestRejectedDrift > r.MaxLength && r.SmallestRejectedDrift < 1.2 * r.MaxLength,
-                $"smallest rejected drift {r.SmallestRejectedDrift / r.MaxLength} times the bound");
-            Assert.True(r.MaxDrift <= r.MaxLength);
-            Assert.False(op.RoundingClean);
-            Assert.NotEqual("", MeshRobustRepair.NotCleanReason(op.Result));
+            Assert.True(r.MaxDrift < 0.5 * r.MaxLength, $"drift {r.MaxDrift / r.MaxLength} of the bound");
+            Assert.True(op.RoundingClean);
+            ResultChecks.AssertClean(op.Result, "union");
+            Assert.True(Invariance.AllFinite(op.Result));
         }
 
         [Fact]
-        public void DensePatch_Union_StrictRounding_RoundingNotClean()
+        public void DensePatch_Union_StrictRounding_Clean()
         {
+            // (StrictRounding: the relative bound only; the apex rule failed here with RoundingNotClean)
             var (a, b) = Case();
             var op = new ExactMeshBoolean(a, b, Ops.Union) { StrictRounding = true };
-            Assert.False(op.Compute());
-            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, op.Status);
-            Assert.Null(op.Result);
-            Assert.True(op.Rounding.RemainingDegenerate > 0);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
+            Assert.Equal(0, op.Rounding.RemainingDegenerate);
+            ResultChecks.AssertClean(op.Result, "strict union");
         }
 
         [Fact]
@@ -141,9 +140,11 @@ namespace geometry3Sharp.Tests
             Assert.True(op.Compute());
             string first = MeshMinimizer.ToObj(op.Result);
             int remaining = op.Rounding.RemainingDegenerate;
+            double drift = op.Rounding.MaxDrift;
             Assert.True(op.Compute());
             Assert.Equal(first, MeshMinimizer.ToObj(op.Result));
             Assert.Equal(remaining, op.Rounding.RemainingDegenerate);
+            Assert.Equal(drift, op.Rounding.MaxDrift);
             var (a2, b2) = Case();
             var again = new ExactMeshBoolean(a2, b2, Ops.Union);
             Assert.True(again.Compute());

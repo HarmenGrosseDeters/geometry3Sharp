@@ -1,0 +1,140 @@
+name: Coverage
+
+# Changed-line coverage gate (docs/QA.md 2.6, tools/changed_line_coverage.py), run cyclically instead of on every PR (owner
+# decision 2026-11-10: coverlet makes the suites about 3x slower, a PR run would cost more than an hour of runner time).
+# Every night on master it checks the lines changed since the last evaluated run; it names the pull request that introduced
+# each uncovered line and fails the run when there are any. It blocks no PR: the uncovered lines become follow-up work.
+# On demand (workflow_dispatch, optional `ref`) it checks a branch against the last evaluated master run.
+on:
+  # a change of this workflow (or of the gate) runs it once on its PR, so the workflow is tested before it reaches master
+  pull_request:
+    paths:
+      - '.github/workflows/coverage.yml'
+      - 'tools/changed_line_coverage.py'
+      - 'tools/coverage/**'
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or SHA to check (default: the selected ref)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: coverage-${{ github.event_name }}-${{ inputs.ref || github.ref }}
+  # (a new push cancels the run of a pull request; a nightly run is never cancelled by a manual one)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build tests/geometry3Sharp.Tests -c Release
+      - name: Core suite (this shard) under coverage
+        # The Slow tier counts here (nobody waits for this run); Nightly does not. A test with a wall-clock budget fails under
+        # the instrumentation (about 3x slower): the normal CI jobs keep enforcing those, only this collection skips them. A
+        # failing test does not fail the step; a missing report fails the gate.
+        continue-on-error: true
+        run: |
+          BASE='Category!=Nightly&FullyQualifiedName!~RobustnessSweepTests.Sweep_SameResultUnderSimilarity&FullyQualifiedName!~UVAtlasTests.UVOverlap_MixedSizes_NotQuadratic'
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "$BASE" > list.txt
+          FILTER=$(python3 tools/coverage/shard_filter.py ${{ matrix.shard }} 4 "$BASE" < list.txt)
+          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --filter "$FILTER" --blame-hang-timeout 20m --blame-hang-dump-type none --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/core/${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-core-${{ matrix.shard }}
+          path: test-results/core/
+
+  gate:
+    needs: core
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test the gate
+        run: python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-core-*
+          path: test-results/core
+          merge-multiple: true
+      - name: CLI suite under coverage
+        continue-on-error: true
+        run: dotnet test tests/g3cli.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/cli
+      - name: Clipper2 package suite under coverage
+        continue-on-error: true
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory test-results/clipper2
+      - name: Base of the comparison
+        id: base
+        run: |
+          # the HEAD of the last run on master that evaluated its lines (it uploaded gate-result) and is an ancestor of master (a
+          # manual run of another ref on master must not move the base), else 24 h of master
+          git fetch -q origin master
+          BASE=""
+          for id in $(gh run list --workflow coverage.yml --branch master --limit 20 --json databaseId --jq '.[].databaseId'); do
+            rm -rf previous
+            if gh run download "$id" -n gate-result -D previous 2>/dev/null; then
+              BASE=$(python3 -c "import json;print(json.load(open('previous/changed-line-coverage.json'))['head'])")
+              if git merge-base --is-ancestor "$BASE" origin/master 2>/dev/null; then break; fi
+              BASE=""
+            fi
+          done
+          if [ -z "$BASE" ]; then
+            BASE=$(git rev-list -1 --before='24 hours ago' origin/master)
+            [ -n "$BASE" ] || BASE=$(git rev-list --max-parents=0 origin/master | tail -1)
+            echo "No earlier evaluated run: comparing with the master of 24 hours ago ($BASE)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "sha=$BASE" >> "$GITHUB_OUTPUT"
+      - name: Changed-line coverage
+        id: gate
+        run: |
+          set +e
+          python3 tools/changed_line_coverage.py --base "${{ steps.base.outputs.sha }}" --attribute --expect-shards core=4 --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # (the run on a pull request that changes this workflow only tests the workflow; the findings belong to other pull
+          # requests and must not turn this one red)
+          [ "${{ github.event_name }}" = pull_request ] && exit 0
+          exit $code
+      - uses: actions/upload-artifact@v4
+        # exit 0 or 1 is valid evidence: the next run starts where this one ended (not after incomplete evidence, code 2)
+        if: always() && (steps.gate.outputs.code == '0' || steps.gate.outputs.code == '1')
+        with:
+          name: gate-result
+          path: test-results/changed-line-coverage.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: test-results/
