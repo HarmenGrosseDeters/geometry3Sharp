@@ -481,12 +481,10 @@ namespace g3
             // component first, on copies: their winding numbers are not meaningful otherwise (the generalized
             // winding number jumps the wrong way across a flipped triangle, so next to it the inside reads as outside)
             // (prepare_input; the first mesh's from PreparedFirst when it was prepared once for several booleans)
-            var prepared = new PreparedInput[inputs.Count];
-            for (int m = 0; m < inputs.Count; ++m) {
-                prepared[m] = (m == 0 && PreparedFirst != null && PreparedFirst.Source == inputs[0]) ? PreparedFirst : prepare_input(inputs[m]);
+            PreparedInput[] prepared = prepare_inputs(inputs);
+            for (int m = 0; m < inputs.Count; ++m)
                 if (prepared[m].Finite == false)
                     return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
-            }
             inputs = new List<DMesh3>(inputs);
             ExactWinding = new bool[inputs.Count];
             for (int m = 0; m < inputs.Count; ++m) {
@@ -600,40 +598,13 @@ namespace g3
         /// <param name="mesh">the mesh</param>
         /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
         [MethodImpl(JitHints.Optimize)]
-        static DMesh3 oriented(DMesh3 mesh, out int flipped)
+        static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped)
         {
             flipped = 0;
-            // vertices welded by position
-            var ids = new Dictionary<Vector3d, int>();
-            var pos = new int[mesh.MaxVertexID];
-            foreach (int vid in mesh.VertexIndices()) {
-                Vector3d v = mesh.GetVertex(vid);
-                if (v.x == 0) v.x = 0;      // -0.0
-                if (v.y == 0) v.y = 0;
-                if (v.z == 0) v.z = 0;
-                int k;
-                if (ids.TryGetValue(v, out k) == false) {
-                    k = ids.Count;
-                    ids[v] = k;
-                }
-                pos[vid] = k;
-            }
-            Func<int, Index3i> tri = (t) => { Index3i f = mesh.GetTriangle(t); return new Index3i(pos[f.a], pos[f.b], pos[f.c]); };
-            // the triangles at each undirected edge (by welded vertices)
-            var edgeTris = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
-            foreach (int t in mesh.TriangleIndices()) {
-                Index3i f = tri(t);
-                for (int k = 0; k < 3; ++k) {
-                    int u = f[k], v = f[(k + 1) % 3];
-                    if (u == v)
-                        continue;
-                    long key = ExactMeshArrangement.EdgeKey(u, v);
-                    List<int> l;
-                    if (edgeTris.TryGetValue(key, out l) == false)
-                        edgeTris[key] = l = new List<int>(2);
-                    l.Add(t);
-                }
-            }
+            // (vertices welded by position: pos; the triangles at each undirected edge, by welded vertices)
+            EdgeTable edges = EdgeTable.Build(mesh, pos);
+            Index3i[] wtri = edges.Welded;
+            int[] nbr = edges.Neighbour;
             int maxT = mesh.MaxTriangleID;
             var flipT = new bool[maxT];
             var seen = new bool[maxT];
@@ -650,19 +621,16 @@ namespace g3
                 while (stack.Count > 0) {
                     int t = stack.Pop();
                     component.Add(t);
-                    Index3i f = tri(t);
+                    Index3i f = wtri[t];
                     for (int k = 0; k < 3; ++k) {
                         int u = f[k], v = f[(k + 1) % 3];
                         if (u == v)
                             continue;
-                        List<int> l = edgeTris[ExactMeshArrangement.EdgeKey(u, v)];
-                        if (l.Count != 2)
-                            continue;
-                        int o = (l[0] == t) ? l[1] : l[0];
-                        if (o == t)
+                        int o = nbr[3 * t + k];
+                        if (o < 0 || o == t)
                             continue;
                         // the neighbour runs the edge u -> v the same way: one of the two is flipped
-                        bool want = flipT[t] ^ runs(tri(o), u, v);
+                        bool want = flipT[t] ^ runs(wtri[o], u, v);
                         if (seen[o]) {
                             if (flipT[o] != want)
                                 orientable = false;
@@ -718,15 +686,29 @@ namespace g3
                 }
             }
             p.Input = mesh;
-            p.Closed = IsWindingClosed(mesh);
+            int[] pos = null;       // (the vertices welded by position, computed when needed and shared)
+            p.Closed = windingClosed(mesh, ref pos);
             if (p.Closed == false) {
-                DMesh3 o = oriented(mesh, out p.Reoriented);
+                DMesh3 o = oriented(mesh, pos, out p.Reoriented);
                 if (o != mesh) {
                     p.Input = o;
-                    p.Closed = IsWindingClosed(o);
+                    p.Closed = windingClosed(o, ref pos);
                 }
             }
             return p;
+        }
+
+        // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
+        // read, so they are prepared in parallel, each result into its own slot
+        [MethodImpl(JitHints.Optimize)]
+        PreparedInput[] prepare_inputs(List<DMesh3> inputs)
+        {
+            var prepared = new PreparedInput[inputs.Count];
+            PreparedInput first = PreparedFirst;
+            System.Threading.Tasks.Parallel.For(0, inputs.Count, m => {
+                prepared[m] = (m == 0 && first != null && first.Source == inputs[0]) ? first : prepare_input(inputs[m]);
+            });
+            return prepared;
         }
 
         // for IntersectEach / DifferenceEach: the prepared first mesh, used by Compute when the first input is its Source
@@ -772,6 +754,15 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public static bool IsWindingClosed(DMesh3 mesh)
         {
+            int[] pos = null;
+            return windingClosed(mesh, ref pos);
+        }
+
+        // IsWindingClosed; pos: the vertices welded by position (weld_vertices), computed here if null (for a mesh with
+        // the same vertex ids it can be handed on, eg to the copy with flipped triangles)
+        [MethodImpl(JitHints.Optimize)]
+        static bool windingClosed(DMesh3 mesh, ref int[] pos)
+        {
             // fast path: every edge of the mesh has two triangles that run through it in opposite directions
             // (then the edges are also balanced by position, merging vertices keeps the sums)
             bool byIds = true;
@@ -783,41 +774,118 @@ namespace g3
             }
             if (byIds)
                 return true;
-
-            var ids = new Dictionary<Vector3d, int>();
-            Func<int, int> id = (vid) => {
-                Vector3d v = mesh.GetVertex(vid);
-                if (v.x == 0) v.x = 0;      // -0.0
-                if (v.y == 0) v.y = 0;
-                if (v.z == 0) v.z = 0;
-                int k;
-                if (ids.TryGetValue(v, out k) == false) {
-                    k = ids.Count;
-                    ids[v] = k;
-                }
-                return k;
-            };
-            var count = new Dictionary<long, int>(EdgeKeyComparer.Instance);
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i t = mesh.GetTriangle(tid);
-                int[] v = { id(t.a), id(t.b), id(t.c) };
-                for (int k = 0; k < 3; ++k) {
-                    int x = v[k], y = v[(k + 1) % 3];
-                    if (x == y) continue;
-                    // +1 for x < y, -1 for the reverse direction
-                    long key = (x < y) ? (((long)x << 32) | (uint)y) : (((long)y << 32) | (uint)x);
-                    int d = (x < y) ? 1 : -1;
-                    int c0;
-                    count.TryGetValue(key, out c0);
-                    count[key] = c0 + d;
-                }
-            }
-            foreach (int c in count.Values)
-                if (c != 0)
-                    return false;
-            return true;
+            if (pos == null)
+                pos = weld_vertices(mesh);
+            return EdgeTable.Build(mesh, pos).Balanced;
         }
 
+        // the vertices welded by exact position (-0 as 0; a NaN coordinate is equal to nothing), numbered in the order of
+        // VertexIndices by their first vertex: open addressing over the coordinate bits
+        [MethodImpl(JitHints.Optimize)]
+        static int[] weld_vertices(DMesh3 mesh)
+        {
+            int maxV = mesh.MaxVertexID;
+            var pos = new int[maxV];
+            var xs = new double[maxV]; var ys = new double[maxV]; var zs = new double[maxV];
+            int cap = 16;
+            while (cap < 2 * mesh.VertexCount)
+                cap <<= 1;
+            int mask = cap - 1;
+            var table = new int[cap];       // vertex id + 1; 0: empty
+            int next = 0;
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                double x = v.x == 0 ? 0 : v.x, y = v.y == 0 ? 0 : v.y, z = v.z == 0 ? 0 : v.z;
+                xs[vid] = x; ys[vid] = y; zs[vid] = z;
+                ulong h = mix(BitConverter.DoubleToInt64Bits(x));
+                h = mix(h ^ (ulong)BitConverter.DoubleToInt64Bits(y));
+                h = mix(h ^ (ulong)BitConverter.DoubleToInt64Bits(z));
+                int j = (int)(h & (ulong)mask);
+                while (true) {
+                    int e = table[j];
+                    if (e == 0) {
+                        table[j] = vid + 1;
+                        pos[vid] = next++;
+                        break;
+                    }
+                    int o = e - 1;
+                    if (xs[o] == x && ys[o] == y && zs[o] == z) {
+                        pos[vid] = pos[o];
+                        break;
+                    }
+                    j = (j + 1) & mask;
+                }
+            }
+            return pos;
+        }
+
+        static ulong mix(long x) { return mix((ulong)x); }
+        static ulong mix(ulong x)
+        {
+            x += 0x9E3779B97F4A7C15UL;
+            x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9UL;
+            x = (x ^ (x >> 27)) * 0x94D049BB133111EBUL;
+            return x ^ (x >> 31);
+        }
+
+        // the triangles at each undirected edge of a mesh (edges by welded vertices pos; degenerate edges skipped): how many
+        // there are and the sum of their directions (+1 running from the smaller vertex to the larger, -1 the other
+        // way), and for an edge with exactly two triangles each one's neighbour. Welded: the triangles by welded vertices.
+        sealed class EdgeTable
+        {
+            struct Entry { public long Key; public int First, Second, Count, Sum; }
+            public Index3i[] Welded;
+            public int[] Neighbour;     // per triangle t and edge k (3 t + k): the other triangle at the edge, or -1
+            public bool Balanced;
+
+            [MethodImpl(JitHints.Optimize)]
+            public static EdgeTable Build(DMesh3 mesh, int[] pos)
+            {
+                var e = new EdgeTable();
+                int maxT = mesh.MaxTriangleID;
+                e.Welded = new Index3i[maxT];
+                e.Neighbour = new int[3 * maxT];
+                for (int i = 0; i < e.Neighbour.Length; ++i)
+                    e.Neighbour[i] = -1;
+                int cap = 16;
+                while (cap < 4 * mesh.TriangleCount)
+                    cap <<= 1;
+                int mask = cap - 1;
+                var table = new Entry[cap];
+                foreach (int t in mesh.TriangleIndices()) {
+                    Index3i f = mesh.GetTriangle(t);
+                    Index3i w = new Index3i(pos[f.a], pos[f.b], pos[f.c]);
+                    e.Welded[t] = w;
+                    for (int k = 0; k < 3; ++k) {
+                        int u = w[k], v = w[(k + 1) % 3];
+                        if (u == v)
+                            continue;
+                        long key = ExactMeshArrangement.EdgeKey(u, v);
+                        int j = (int)(mix(key) & (ulong)mask);
+                        while (table[j].Count != 0 && table[j].Key != key)
+                            j = (j + 1) & mask;
+                        if (table[j].Count == 0) {
+                            table[j].Key = key;
+                            table[j].First = 3 * t + k;
+                        }
+                        else if (table[j].Count == 1)
+                            table[j].Second = 3 * t + k;
+                        table[j].Count++;
+                        table[j].Sum += (u < v) ? 1 : -1;
+                    }
+                }
+                e.Balanced = true;
+                for (int j = 0; j < cap; ++j) {
+                    if (table[j].Sum != 0)
+                        e.Balanced = false;
+                    if (table[j].Count == 2) {
+                        e.Neighbour[table[j].First] = table[j].Second / 3;
+                        e.Neighbour[table[j].Second] = table[j].First / 3;
+                    }
+                }
+                return e;
+            }
+        }
 
         // the winding numbers at a point: winding[m] for every mesh m, of which only the meshes in touched can
         // be nonzero (the others are 0)
