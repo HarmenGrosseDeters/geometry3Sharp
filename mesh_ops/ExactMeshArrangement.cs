@@ -2495,14 +2495,14 @@ namespace g3
     /// </summary>
     internal class TriangleBoxTree
     {
-        readonly List<AxisAlignedBox3d> boxes;
+        List<AxisAlignedBox3d> boxes;       // the input of the build; released at its end (the trees live through the classification)
         readonly int[] order;
         const int LeafSize = 8;
         // small trees (eg SafeRounding's tree of the changed triangles, rebuilt often) take the median split on the
         // longest axis per node, which is cheaper to build; larger ones the Morton order
         const int MedianSplitBelow = 4096;
         readonly bool median;
-        readonly double[] keys;     // the median split's sort keys while building
+        double[] keys;              // the median split's sort keys while building (released with boxes)
         long[] sortedCodes;         // the Morton codes in order (while building)
         // nodes (in the order of construction, the root first): box (min x, y, z, max x, y, z), first index into
         // order and count, children (-1 for a leaf)
@@ -2538,6 +2538,10 @@ namespace g3
             leafBox = new double[6 * n];
             for (int i = 0; i < n; ++i)
                 put(leafBox, i, boxes[order[i]]);
+            // (queries read leafBox and the nodes only: the list of boxes, 48 bytes per triangle, and the sort keys
+            // would live as long as the tree)
+            this.boxes = null;
+            keys = null;
         }
 
         [MethodImpl(JitHints.Optimize)]

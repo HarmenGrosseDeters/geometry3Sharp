@@ -537,6 +537,9 @@ namespace g3
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
             clock.Lap("classification");
+            // (the box trees are read by the winding queries of the classification only: about 80 bytes per input
+            // triangle that the simplification, assembly and rounding would otherwise carry)
+            arr.Trees = null;
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
