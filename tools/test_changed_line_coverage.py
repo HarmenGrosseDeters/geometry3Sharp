@@ -145,16 +145,21 @@ class Repository(unittest.TestCase):
 
     def test_main_excuses_a_listed_line_and_fails_on_a_stale_entry(self):
         listing = self.root / "unmeasurable.json"
-        entry = {"file": "math/A.cs", "text": "new2();", "reason": "a probe", "approved_in": "#1"}
+        entry = {"file": "math/A.cs", "text": "new2();", "after": ["// between"], "reason": "a probe", "approved_in": "#1"}
         listing.write_text(json.dumps([entry]))
         code, result = self.invoke("--unmeasurable", str(listing))
         self.assertEqual((code, result["excused_unmeasurable"], result["stale_unmeasurable"]), (0, {"math/A.cs": [4]}, []))
-        listing.write_text(json.dumps([entry, dict(entry, text="new1();")]))      # line 2 is covered: the entry is stale
+        listing.write_text(json.dumps([entry, dict(entry, text="new1();", after=["// unchanged"])]))      # line 2 is covered: the entry is stale
         code, result = self.invoke("--unmeasurable", str(listing))
         self.assertEqual(code, 1)
         self.assertIn("covered now", result["stale_unmeasurable"][0])
         listing.write_text("[]")
         self.assertEqual(self.invoke("--unmeasurable", str(listing))[0], 1)       # without the entry the line fails again
+        listing.write_text("[{")
+        self.assertEqual(self.invoke("--unmeasurable", str(listing))[0], 2)       # a malformed list is incomplete evidence
+        self.assertEqual(self.invoke("--unmeasurable", str(self.root / "typo.json"))[0], 2)   # a given list must exist
+        listing.unlink()
+        self.assertEqual(self.invoke()[0], 1)                                     # no default list: nothing is excused
 
     def test_core_shards_are_merged_by_maximum(self):
         (self.results / "core/run/coverage.cobertura.xml").unlink()
@@ -345,13 +350,16 @@ class ShardFilter(unittest.TestCase):
 
 
 class Unmeasurable(unittest.TestCase):
+    TEXT = "class A {\n  void F() {\n    try { G(); }\n    catch (X) {\n      return false;\n    }\n    return false;\n  }\n}\n"
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "io").mkdir()
-        (self.root / "io/A.cs").write_text("class A {\n  void F() {\n    try { G(); }\n    catch (X) {\n      return false;\n    }\n    return false;\n  }\n}\n")
-        self.entry = {"file": "io/A.cs", "text": "catch (X) {", "reason": "a probe", "approved_in": "#1"}
+        (self.root / "io/A.cs").write_text(self.TEXT)
+        self.entry = {"file": "io/A.cs", "text": "catch (X) {", "after": ["try { G(); }"], "reason": "a probe", "approved_in": "#1"}
+        self.second = {"file": "io/A.cs", "text": "return false;", "after": ["}", "return false;"], "reason": "r", "approved_in": "#1"}
 
     def resolve(self, entries, coverage):
         return c.resolve_unmeasurable(self.root, entries, coverage)
@@ -361,35 +369,55 @@ class Unmeasurable(unittest.TestCase):
         self.assertEqual((exempt, stale), ({"io/A.cs": {4}}, []))
         r = c.evaluate({"io/A.cs": {4, 5}}, {"io/A.cs": {4: 0, 5: 0}}, exempt=exempt)
         self.assertEqual((r["uncovered"], r["excused_unmeasurable"], r["ok"]), ({"io/A.cs": [5]}, {"io/A.cs": [4]}, False))
-        r = c.evaluate({"io/A.cs": {4}}, {"io/A.cs": {4: 0}}, exempt=exempt)
-        self.assertTrue(r["ok"])
+        self.assertTrue(c.evaluate({"io/A.cs": {4}}, {"io/A.cs": {4: 0}}, exempt=exempt)["ok"])
 
-    def test_the_occurrence_picks_one_of_several_equal_lines(self):
-        twice = dict(self.entry, text="return false;")
-        exempt, stale = self.resolve([twice], {"io/A.cs": {5: 0, 7: 0}})
-        self.assertEqual(exempt, {})                                       # two lines, no occurrence: ambiguous
-        self.assertIn("give the occurrence", stale[0])
-        exempt, stale = self.resolve([dict(twice, occurrence=2)], {"io/A.cs": {5: 0, 7: 0}})
+    def test_the_context_picks_one_of_several_equal_lines_and_survives_edits_elsewhere(self):
+        # two lines "return false;": the context (the nearest previous lines) says which one is meant
+        exempt, stale = self.resolve([self.second], {"io/A.cs": {5: 0, 7: 0}})
         self.assertEqual((exempt, stale), ({"io/A.cs": {7}}, []))
-        self.assertIn("found 2 such lines", self.resolve([dict(twice, occurrence=3)], {"io/A.cs": {5: 0, 7: 0}})[1][0])
+        # a new line of the same text before them does not take the place of the listed one (no occurrence counting)
+        (self.root / "io/A.cs").write_text("class A {\n  bool H() {\n    return false;\n  }\n  void F() {\n    try { G(); }\n    catch (X) {\n      return false;\n    }\n    return false;\n  }\n}\n")
+        exempt, stale = self.resolve([self.second], {"io/A.cs": {3: 0, 8: 0, 10: 0}})
+        self.assertEqual((exempt, stale), ({"io/A.cs": {10}}, []))
+        # a context that fits no line, or two lines: stale
+        self.assertIn("found 0 such lines", self.resolve([dict(self.second, after=["}", "nothing"])], {"io/A.cs": {10: 0}})[1][0])
+        # the same context before two equal lines: ambiguous, stale
+        (self.root / "io/A.cs").write_text("a();\nb();\nreturn false;\nb();\nreturn false;\n")
+        self.assertIn("found 2 such lines", self.resolve([dict(self.second, after=["b();"])], {"io/A.cs": {3: 0, 5: 0}})[1][0])
 
     def test_a_stale_entry_fails_the_gate(self):
-        # covered now
         self.assertIn("covered now", self.resolve([self.entry], {"io/A.cs": {4: 2}})[1][0])
-        # no longer an executable line of the reports
         self.assertIn("not an executable line", self.resolve([self.entry], {"io/A.cs": {5: 0}})[1][0])
-        # the text is gone, the file is gone
         self.assertIn("found 0 such lines", self.resolve([dict(self.entry, text="catch (Y) {")], {"io/A.cs": {4: 0}})[1][0])
         self.assertIn("file is gone", self.resolve([dict(self.entry, file="io/B.cs")], {})[1][0])
 
-    def test_entries_need_a_reason_and_an_approval(self):
+    def test_lines_with_bom_crlf_and_indentation_resolve(self):
+        (self.root / "io/A.cs").write_bytes(b"\xef\xbb\xbfcatch (X) {\r\n\t\treturn false;\r\n}\r\n")
+        first = dict(self.entry, after=["x"])   # the first line has no previous line: it never matches a context
+        self.assertEqual(self.resolve([dict(self.second, text="return false;", after=["catch (X) {"])], {"io/A.cs": {2: 0}}),
+                         ({"io/A.cs": {2}}, []))
+        self.assertIn("found 0 such lines", self.resolve([first], {"io/A.cs": {1: 0}})[1][0])
+
+    def test_entries_are_validated_strictly(self):
         path = self.root / "list.json"
         path.write_text(json.dumps([self.entry]))
         self.assertEqual(len(c.load_unmeasurable(path)), 1)
-        for field in ("reason", "approved_in", "text", "file"):
-            path.write_text(json.dumps([dict(self.entry, **{field: " "})]))
-            with self.assertRaisesRegex(ValueError, field):
+        bad = [dict(self.entry, reason=None), dict(self.entry, reason=False), dict(self.entry, reason=" "),
+               dict(self.entry, approved_in="PR 3"), dict(self.entry, approved_in=594), dict(self.entry, after=[]),
+               dict(self.entry, after="try"), dict(self.entry, after=[1]), dict(self.entry, text=3), dict(self.entry, file=None)]
+        for entry in bad:
+            path.write_text(json.dumps([entry]))
+            with self.assertRaises(ValueError, msg=entry):
                 c.load_unmeasurable(path)
+        for text in ('["x"]', '{"a": 1}', "", "[{"):
+            path.write_text(text)
+            with self.assertRaises(ValueError, msg=text):
+                c.load_unmeasurable(path)
+        path.write_text(json.dumps([self.entry, self.entry]))
+        with self.assertRaisesRegex(ValueError, "twice"):
+            c.load_unmeasurable(path)
+        with self.assertRaises(ValueError):
+            c.load_unmeasurable(self.root / "missing.json")
 
     def test_the_list_of_this_repository_is_well_formed(self):
         entries = c.load_unmeasurable(Path(__file__).resolve().parent / "coverage/unmeasurable_lines.json")

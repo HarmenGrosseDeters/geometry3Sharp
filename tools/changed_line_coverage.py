@@ -3,7 +3,8 @@
 
 Run from the checkout used to collect coverage (.github/workflows/coverage.yml, nightly on master and on demand). The
 changed lines are those between the merge base of --base and the committed HEAD (never the tip of a moving branch).
-Exit 0: every changed executable line has a hit; 1: uncovered lines (with --attribute, each is named with the pull
+Exit 0: every changed executable line has a hit; 1: uncovered lines or a stale entry of the reviewed list of unmeasurable
+lines (tools/coverage/unmeasurable_lines.json; with --attribute, each is named with the pull
 request that introduced it); 2: missing or invalid reports (also a core suite run in shards with a shard missing, see
 --expect-shards). A changed source file that no report lists has no executable code (coverlet lists every method of the
 instrumented assemblies) and is only reported; so are changed lines inside a listed file that carry no sequence point
@@ -164,32 +165,48 @@ def attribute(root, head, uncovered):
 
 
 UNMEASURABLE_FILE = "tools/coverage/unmeasurable_lines.json"
-UNMEASURABLE_FIELDS = ("file", "text", "reason", "approved_in")
+UNMEASURABLE_FIELDS = ("file", "text", "after", "reason", "approved_in")
 
 
 def load_unmeasurable(path):
     """The reviewed list of executable lines that no coverage run can hit (a defensive branch of a platform probe, a
-    branch of another framework, an invariant guard): entries {file, text, occurrence?, reason, approved_in}. The line is
-    found by its stripped text (the `occurrence`-th line of that text in the file, default 1), so that it survives edits
-    around it. An entry never excuses more than its one line."""
-    entries = json.loads(Path(path).read_text(encoding="utf-8"))
+    branch of another framework, an invariant guard): entries {file, text, after, reason, approved_in}. The line is the
+    one whose stripped text is `text` and whose previous non-blank lines are `after` (a list, nearest first: its context, so
+    that a new line of the same text elsewhere cannot take its place); it must be unique in the file. approved_in is the PR
+    that approved the entry."""
+    try:
+        entries = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except OSError as error:
+        raise ValueError(f"{path}: {error}")
     if not isinstance(entries, list):
         raise ValueError(f"{path}: expected a list of entries")
+    seen = set()
     for entry in entries:
-        missing = [f for f in UNMEASURABLE_FIELDS if not str(entry.get(f, "")).strip()]
-        if missing:
-            raise ValueError(f"{path}: entry {entry.get('file')}: {entry.get('text')!r} lacks {', '.join(missing)}")
-        if int(entry.get("occurrence", 1)) < 1:
-            raise ValueError(f"{path}: occurrence starts at 1")
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: an entry is not an object: {entry!r}")
+        for field in UNMEASURABLE_FIELDS:
+            if field == "after":
+                good = isinstance(entry.get(field), list) and entry[field] and all(isinstance(x, str) and x.strip() for x in entry[field])
+            else:
+                good = isinstance(entry.get(field), str) and entry[field].strip()
+            if not good:
+                raise ValueError(f"{path}: entry {entry.get('file')!r} {entry.get('text')!r}: {field} must be a non-empty "
+                                 + ("list of strings" if field == "after" else "string"))
+        if not re.fullmatch(r"#\d+", entry["approved_in"]):
+            raise ValueError(f"{path}: approved_in must be a pull request like #594, not {entry['approved_in']!r}")
+        key = (entry["file"], entry["text"].strip(), tuple(x.strip() for x in entry["after"]))
+        if key in seen:
+            raise ValueError(f"{path}: the entry {key} is listed twice")
+        seen.add(key)
     return entries
 
 
 def resolve_unmeasurable(root, entries, coverage):
     """({file: {line numbers}}, stale entries as text). An entry is stale (the gate fails until it is removed or fixed) when its
-    line is gone or moved to other text, is not an executable line of the reports any more, or is covered."""
+    line is gone or not unique, is not an executable line of the reports any more, or is covered."""
     lines_of, exempt, stale = {}, {}, []
     for entry in entries:
-        name = f"{entry['file']}: {entry['text']!r}"
+        name = f"{entry['file']}: {entry['text']!r} after {entry['after'][0]!r}"
         path = entry["file"]
         if path not in lines_of:
             try:
@@ -200,12 +217,17 @@ def resolve_unmeasurable(root, entries, coverage):
         if lines is None:
             stale.append(f"{name}: the file is gone")
             continue
-        found = [i + 1 for i, line in enumerate(lines) if line.strip() == entry["text"].strip()]
-        occurrence = int(entry.get("occurrence", 1))
-        if len(found) < occurrence or (len(found) > 1 and "occurrence" not in entry):
-            stale.append(f"{name}: found {len(found)} such lines" + ("" if "occurrence" in entry or not found else ", give the occurrence"))
+        found = []
+        for i, line in enumerate(lines):
+            if line.strip() != entry["text"].strip():
+                continue
+            previous = [x.strip() for x in lines[:i] if x.strip()][::-1][:len(entry["after"])]
+            if previous == [x.strip() for x in entry["after"]]:
+                found.append(i + 1)
+        if len(found) != 1:
+            stale.append(f"{name}: found {len(found)} such lines")
             continue
-        number = found[occurrence - 1]
+        number = found[0]
         hits = coverage.get(path, {}).get(number)
         if hits is None:
             stale.append(f"{name}: line {number} is not an executable line of the reports")
@@ -259,8 +281,10 @@ def summary_markdown(result, limit=900_000):
     if "error" in result:
         out.append(f"**Incomplete evidence:** {result['error']}\n")
     else:
-        out.append(f"{result['covered_lines']} of {result['changed_executable_lines']} changed executable lines are covered "
-                   f"(head `{result['head'][:10]}`, merge base `{result['merge_base'][:10]}`).\n\n")
+        excused = sum(map(len, result.get("excused_unmeasurable", {}).values()))
+        out.append(f"{result['covered_lines']} of {result['changed_executable_lines']} changed executable lines are covered"
+                   + (f", {excused} more are on the reviewed list of unmeasurable lines" if excused else "")
+                   + f" (head `{result['head'][:10]}`, merge base `{result['merge_base'][:10]}`).\n\n")
         for path, by_pr in result.get("uncovered_by_pr", {}).items():
             for pr, lines in by_pr.items():
                 out.append(f"- `{path}` lines {', '.join(map(str, lines))} (introduced by {pr})\n")
@@ -269,9 +293,6 @@ def summary_markdown(result, limit=900_000):
                 out.append(f"- `{path}` lines {', '.join(map(str, lines))}\n")
         for entry in result.get("stale_unmeasurable", []):
             out.append(f"- **stale entry of the list of unmeasurable lines:** {entry}\n")
-        if result.get("excused_unmeasurable"):
-            out.append(f"\n{sum(map(len, result['excused_unmeasurable'].values()))} changed lines are on the reviewed list of "
-                       f"unmeasurable lines ({UNMEASURABLE_FILE}).\n")
         if result["files_without_executable_lines"]:
             out.append("\nChanged files that no report lists (no executable code): "
                        + ", ".join(f"`{f}`" for f in result["files_without_executable_lines"]) + "\n")
@@ -315,7 +336,10 @@ def main(argv=None):
             slow, slow_reports = read_coverage(args.slow_coverage_dir.resolve(), root, {"core": SUITES["core"]})
             reports += ["slow: " + r for r in slow_reports]
         listed = args.unmeasurable or (root / UNMEASURABLE_FILE)
-        exempt, stale = resolve_unmeasurable(root, load_unmeasurable(listed), coverage) if Path(listed).exists() else ({}, [])
+        # (a list that is given must exist; the default list may be missing)
+        exempt, stale = ({}, [])
+        if args.unmeasurable or Path(listed).exists():
+            exempt, stale = resolve_unmeasurable(root, load_unmeasurable(listed), coverage)
         result = dict(evaluate(changes, coverage, slow, exempt), head=head, merge_base=ancestor, reports=reports,
                       stale_unmeasurable=stale)
         result["ok"] = result["ok"] and not stale
